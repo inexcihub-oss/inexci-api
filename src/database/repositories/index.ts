@@ -1,0 +1,15 @@
+export { UserRepository } from './user.repository';
+export { ChatRepository } from './chat.repository';
+export { ChatMessageRepository } from './chat-message.repository';
+export { CidRepository } from './cid.repository';
+export { DocumentKeyRepository } from './document-key.repository';
+export { DocumentRepository } from './document.repository';
+export { HealthPlanRepository } from './health-plan.repository';
+export { OpmeItemRepository } from './opme-item.repository';
+export { PendencyRepository } from './pendency.repository';
+export { ProcedureRepository } from './procedure.repository';
+export { RecoveryCodeRepository } from './recovery_code.repository';
+export { StatusUpdateRepository } from './status-update.repository';
+export { SurgeryRequestProcedureRepository } from './surgery-request-procedure.repository';
+export { SurgeryRequestQuotationRepository } from './surgery-request-quotation.repository';
+export { SurgeryRequestRepository } from './surgery-request.repository';
