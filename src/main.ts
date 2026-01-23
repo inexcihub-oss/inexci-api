@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import * as customParse from 'dayjs/plugin/customParseFormat';
 import dataSource from './database/typeorm/data-source';
+import { execSync } from 'child_process';
 
 dayjs.extend(customParse);
 
@@ -27,6 +28,23 @@ async function bootstrap() {
   } catch (error) {
     console.error('❌ Erro ao executar migrations:', error.message);
     process.exit(1);
+  }
+
+  // Executar seeds automaticamente em desenvolvimento
+  const nodeEnv = process.env.NODE_ENV || 'development';
+  if (nodeEnv === 'development' || nodeEnv === 'dev' || nodeEnv === 'local') {
+    try {
+      console.log('🌱 Executando seeds...');
+      execSync('npm run seed', {
+        stdio: 'inherit',
+        cwd: process.cwd(),
+      });
+      console.log('✅ Seeds executados com sucesso\n');
+    } catch (error) {
+      console.error('❌ Erro ao executar seeds:', error.message);
+      // Não encerrar o processo, apenas avisar
+      console.warn('⚠️  Continuando sem seeds...\n');
+    }
   }
 
   const app = await NestFactory.create(AppModule);
