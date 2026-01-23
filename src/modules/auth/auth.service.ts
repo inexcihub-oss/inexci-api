@@ -80,7 +80,7 @@ export class AuthService {
       name: data.name,
       email: data.email,
       password: hashedPassword,
-      pv: 1, // Padrão para usuário comum
+      profile: 1, // Padrão para usuário comum (doctor)
       status: UserStatuses.active,
       phone: null,
     });
@@ -89,13 +89,13 @@ export class AuthService {
     return {
       user: {
         id: user.id.toString(),
-        pv: user.pv,
+        profile: user.profile,
         clinic_id: user.clinic_id,
         name: user.name,
         phone: user.phone,
         email: user.email,
         cpf: user.document,
-        accessLevel: user.pv,
+        accessLevel: user.profile,
         status: user.status,
         createdAt: user.created_at?.toISOString() || new Date().toISOString(),
         updatedAt: user.updated_at?.toISOString() || new Date().toISOString(),
@@ -111,13 +111,13 @@ export class AuthService {
       return {
         user: {
           id: result.id.toString(),
-          pv: result.pv,
+          profile: result.profile,
           clinic_id: result.clinic_id,
           name: result.name,
           phone: result.phone,
           email: result.email,
           cpf: result.document,
-          accessLevel: result.pv,
+          accessLevel: result.profile,
           status: result.status,
           createdAt:
             result.created_at?.toISOString() || new Date().toISOString(),
@@ -134,7 +134,7 @@ export class AuthService {
 
     const dataToReturn = {
       id: user.id,
-      pv: user.pv,
+      profile: user.profile,
       clinic_id: user.clinic_id,
       name: user.name,
       phone: user.phone,

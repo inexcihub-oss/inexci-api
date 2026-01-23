@@ -35,7 +35,7 @@ export class UsersService {
   ) {}
 
   async findMany(query: FindManyUsersDto, userId: number) {
-    let where: FindOptionsWhere<User> = { pv: query.pv };
+    let where: FindOptionsWhere<User> = { profile: query.profile };
 
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('User not found');

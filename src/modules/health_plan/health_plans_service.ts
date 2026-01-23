@@ -19,14 +19,17 @@ export class HealthPlansService {
     // TypeORM usa array de FindOptionsWhere para OR
     let where: FindOptionsWhere<User>[] = [
       {
-        pv: UserPvs.health_plan,
+        profile: UserPvs.health_plan,
         status: UserStatuses.active,
       },
     ];
 
-    if (user.pv === UserPvs.doctor || user.pv === UserPvs.collaborator) {
+    if (
+      user.profile === UserPvs.doctor ||
+      user.profile === UserPvs.collaborator
+    ) {
       where.push({
-        pv: UserPvs.health_plan,
+        profile: UserPvs.health_plan,
         status: UserStatuses.incomplete,
         clinic_id: user.clinic_id,
       });

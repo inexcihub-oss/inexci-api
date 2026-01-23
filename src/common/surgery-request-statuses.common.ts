@@ -1,93 +1,239 @@
 import { PendencyKeys } from '.';
 
-export default {
+// Tipos de responsável para pendências
+export type PendencyResponsible = 'collaborator' | 'patient' | 'doctor';
+
+export interface DefaultPendency {
+  name: string;
+  description: string;
+  key: string;
+  responsible: PendencyResponsible;
+  optional?: boolean;
+  isWaiting?: boolean; // Pendência de "aguardar" (não requer ação imediata)
+}
+
+export interface StatusConfig {
+  value: number;
+  label: string;
+  defaultPendencies: DefaultPendency[];
+  nextStatus?: number; // Status para qual deve avançar quando todas pendências forem concluídas
+}
+
+const statuses: Record<string, StatusConfig> = {
   pending: {
     value: 1,
+    label: 'Pendente',
+    nextStatus: 2, // Enviada
     defaultPendencies: [
       {
-        name: 'Preencher dados',
-        description: 'Preencha todos os dados obrigatórios da solicitação',
-        key: PendencyKeys.completeFields,
+        name: 'Dados do Paciente',
+        description: 'Preencher nome, email e telefone do paciente',
+        key: PendencyKeys.patientData,
+        responsible: 'collaborator',
       },
       {
-        name: 'Selecionar fornecedores',
-        description: 'Selecione no mínimo 3 fornecedores',
-        key: PendencyKeys.selectSuppliers,
+        name: 'Dados do Hospital',
+        description: 'Selecionar o hospital',
+        key: PendencyKeys.hospitalData,
+        responsible: 'collaborator',
       },
       {
-        name: 'Preencher TUSS',
-        description: 'Preencha o(s) código(s) TUSS',
+        name: 'Dados do Plano',
+        description: 'Selecionar plano de saúde e preencher matrícula',
+        key: PendencyKeys.healthPlanData,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Procedimentos TUSS',
+        description: 'Inserir pelo menos 1 código TUSS',
         key: PendencyKeys.insertTuss,
+        responsible: 'collaborator',
       },
       {
-        name: 'Preencher OPME',
-        description: 'Preencha os itens da lista OPME',
+        name: 'Itens OPME',
+        description: 'Inserir itens OPME (se aplicável)',
         key: PendencyKeys.insertOpme,
+        responsible: 'collaborator',
+        optional: true,
       },
       {
-        name: 'Inserir documento',
-        description: 'Inserir CNH ou RG do paciente',
+        name: 'Diagnóstico (CID)',
+        description: 'Inserir código CID e diagnóstico',
+        key: PendencyKeys.diagnosisData,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Laudo Médico',
+        description: 'Preencher ou anexar laudo médico',
+        key: PendencyKeys.medicalReport,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'RG/CNH do Paciente',
+        description: 'Anexar documento de identificação',
         key: PendencyKeys.documents.personalDocument,
+        responsible: 'collaborator',
       },
       {
-        name: 'Inserir documento',
-        description: 'Inserir o laudo RNM',
-        key: PendencyKeys.documents.rnmReport,
-      },
-      {
-        name: 'Inserir documento',
-        description: 'Inserir o pedido médico',
+        name: 'Pedido Médico',
+        description: 'Anexar pedido médico assinado',
         key: PendencyKeys.documents.doctorRequest,
+        responsible: 'collaborator',
       },
     ],
   },
   sent: {
     value: 2,
+    label: 'Enviada',
+    nextStatus: 3, // Em Análise
     defaultPendencies: [
       {
-        name: 'Anexar cotações',
-        description:
-          'Anexe no mínimo 3 cotações com nº de proposta e data de envio',
-        key: 'insert_quotations',
+        name: 'Cotação 1',
+        description: 'Preencher cotação do fornecedor 1',
+        key: PendencyKeys.quotation1,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Cotação 2',
+        description: 'Preencher cotação do fornecedor 2',
+        key: PendencyKeys.quotation2,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Cotação 3',
+        description: 'Preencher cotação do fornecedor 3',
+        key: PendencyKeys.quotation3,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Protocolo Hospital',
+        description: 'Registrar número do protocolo do hospital',
+        key: PendencyKeys.hospitalProtocol,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Protocolo Convênio',
+        description: 'Registrar número do protocolo do convênio',
+        key: PendencyKeys.healthPlanProtocol,
+        responsible: 'collaborator',
       },
     ],
   },
   inAnalysis: {
     value: 3,
-    defaultPendencies: [],
+    label: 'Em Análise',
+    nextStatus: 5, // Autorizada (aguarda aprovação manual ou resultado)
+    defaultPendencies: [
+      {
+        name: 'Aguardar Resultado',
+        description: 'Monitorar análise do convênio (prazo ANS: 21 dias úteis)',
+        key: PendencyKeys.waitAnalysis,
+        responsible: 'collaborator',
+        isWaiting: true,
+      },
+    ],
   },
   inReanalysis: {
     value: 4,
-    defaultPendencies: [],
+    label: 'Em Reanálise',
+    nextStatus: 5, // Autorizada (aguarda aprovação manual ou resultado)
+    defaultPendencies: [
+      {
+        name: 'Aguardar Reanálise',
+        description:
+          'Monitorar reanálise do convênio (prazo ANS: 7 dias úteis)',
+        key: PendencyKeys.waitReanalysis,
+        responsible: 'collaborator',
+        isWaiting: true,
+      },
+    ],
   },
   awaitingAppointment: {
     value: 5,
-    defaultPendencies: [],
+    label: 'Autorizada',
+    nextStatus: 6, // Agendada
+    defaultPendencies: [
+      {
+        name: 'Definir Opções de Data',
+        description: 'Inserir 3 opções de data para cirurgia',
+        key: PendencyKeys.defineDates,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Paciente Escolher Data',
+        description: 'Aguardar paciente escolher a data preferida',
+        key: PendencyKeys.patientChooseDate,
+        responsible: 'patient',
+      },
+    ],
   },
   scheduled: {
     value: 6,
+    label: 'Agendada',
+    nextStatus: 7, // A Faturar
     defaultPendencies: [
       {
-        name: 'Guia de autorização',
-        description: 'Inserir a Guia de Autorização da cirurgia',
+        name: 'Guia de Autorização',
+        description: 'Anexar guia de autorização assinada',
         key: PendencyKeys.documents.authorizationGuide,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Confirmar Cirurgia',
+        description: 'Confirmar que a cirurgia foi realizada',
+        key: PendencyKeys.confirmSurgery,
+        responsible: 'collaborator',
       },
     ],
   },
   toInvoice: {
     value: 7,
-    defaultPendencies: [],
+    label: 'A Faturar',
+    nextStatus: 8, // Faturada
+    defaultPendencies: [
+      {
+        name: 'Descrição da Cirurgia',
+        description: 'Inserir descrição do procedimento realizado',
+        key: PendencyKeys.surgeryDescription,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Valor Faturado',
+        description: 'Preencher valor a ser faturado',
+        key: PendencyKeys.invoicedValue,
+        responsible: 'collaborator',
+      },
+      {
+        name: 'Arquivo de Faturamento',
+        description: 'Anexar protocolo de faturamento',
+        key: PendencyKeys.documents.invoiceProtocol,
+        responsible: 'collaborator',
+      },
+    ],
   },
   invoiced: {
     value: 8,
-    defaultPendencies: [],
+    label: 'Faturada',
+    nextStatus: 9, // Finalizada
+    defaultPendencies: [
+      {
+        name: 'Registrar Recebimento',
+        description: 'Registrar valor e data de recebimento',
+        key: PendencyKeys.registerReceipt,
+        responsible: 'collaborator',
+      },
+    ],
   },
   received: {
     value: 9,
+    label: 'Finalizada',
     defaultPendencies: [],
   },
   canceled: {
     value: 10,
+    label: 'Cancelada',
     defaultPendencies: [],
   },
 };
+
+export default statuses;

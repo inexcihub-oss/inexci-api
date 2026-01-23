@@ -6,7 +6,7 @@ import {
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { PendencyKeys, UserPvs, UserStatuses } from 'src/common';
+import { UserPvs, UserStatuses } from 'src/common';
 import { SurgeryRequestQuotationRepository } from 'src/database/repositories/surgery-request-quotation.repository';
 import { SurgeryRequestsService } from '../surgery-requests.service';
 import { ChatsService } from '../chats/chats.service';
@@ -15,7 +15,6 @@ import { DataSource, IsNull, Not } from 'typeorm';
 import surgeryRequestStatusesCommon from 'src/common/surgery-request-statuses.common';
 import { SurgeryRequestQuotation } from 'src/database/entities/surgery-request-quotation.entity';
 import { Chat } from 'src/database/entities/chat.entity';
-import { Pendency } from 'src/database/entities/pendency.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 
@@ -46,14 +45,14 @@ export class QuotationsService {
 
     const supplier = await this.userRepository.findOne({
       email: data.supplier.email,
-      pv: UserPvs.supplier,
+      profile: UserPvs.supplier,
     });
 
     if (supplier) {
       supplierId = supplier.id;
     } else {
       const newSupplier = await this.userRepository.create({
-        pv: UserPvs.supplier,
+        profile: UserPvs.supplier,
         status: UserStatuses.incomplete,
         email: data.supplier.email,
         name: data.supplier.name,
@@ -75,7 +74,6 @@ export class QuotationsService {
     return await this.dataSource.transaction(async (manager) => {
       const quotationRepo = manager.getRepository(SurgeryRequestQuotation);
       const chatRepo = manager.getRepository(Chat);
-      const pendencyRepo = manager.getRepository(Pendency);
 
       const newQuotation = await quotationRepo.save({
         supplier_id: supplierId,
@@ -103,23 +101,6 @@ export class QuotationsService {
         });
       }
 
-      const quotations = await quotationRepo.find({
-        where: {
-          surgery_request_id: data.surgery_request_id,
-          submission_date: IsNull(),
-        },
-      });
-
-      if (quotations.length >= 3) {
-        await pendencyRepo.update(
-          {
-            surgery_request_id: surgeryRequest.id,
-            key: PendencyKeys.selectSuppliers,
-          },
-          { concluded_at: new Date() },
-        );
-      }
-
       return newQuotation;
     });
   }
@@ -137,7 +118,6 @@ export class QuotationsService {
 
     return await this.dataSource.transaction(async (manager) => {
       const quotationRepo = manager.getRepository(SurgeryRequestQuotation);
-      const pendencyRepo = manager.getRepository(Pendency);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
 
@@ -156,17 +136,11 @@ export class QuotationsService {
         },
       });
 
+      // Quando há 3+ cotações com data de submissão, muda para Em Análise
       if (quotations.length >= 3) {
         const statusData = surgeryRequestStatusesCommon.inAnalysis;
 
         await Promise.all([
-          pendencyRepo.update(
-            {
-              surgery_request_id: surgeryRequest.id,
-              key: PendencyKeys.insertQuotations,
-            },
-            { concluded_at: new Date() },
-          ),
           statusUpdateRepo.save({
             surgery_request_id: surgeryRequest.id,
             prev_status: surgeryRequest.status,

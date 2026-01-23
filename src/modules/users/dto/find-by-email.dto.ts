@@ -18,5 +18,5 @@ export class FindByEmailUserDto {
   @IsNumber()
   @Type(() => Number)
   @IsIn(Object.values(UserPvs))
-  pv: number;
+  profile: number;
 }

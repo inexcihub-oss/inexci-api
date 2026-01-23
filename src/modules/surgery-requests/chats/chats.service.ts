@@ -35,9 +35,9 @@ export class ChatsService {
     let where: FindOptionsWhere<Chat> = { id: data.chat_id };
 
     const user = await this.userRepository.findOne({ id: userId });
-    if (user.pv === UserPvs.collaborator) {
+    if (user.profile === UserPvs.collaborator) {
       where = { ...where, surgery_request: { responsible_id: userId } };
-    } else if (user.pv === UserPvs.doctor) {
+    } else if (user.profile === UserPvs.doctor) {
       where = { ...where, surgery_request: { doctor_id: userId } };
     } else {
       where = { ...where, user_id: userId };

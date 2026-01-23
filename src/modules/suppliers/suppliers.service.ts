@@ -20,14 +20,17 @@ export class SuppliersService {
     // Precisamos usar array de FindOptionsWhere
     let where: FindOptionsWhere<User>[] = [
       {
-        pv: UserPvs.supplier,
+        profile: UserPvs.supplier,
         status: UserStatuses.active,
       },
     ];
 
-    if (user.pv === UserPvs.doctor || user.pv === UserPvs.collaborator) {
+    if (
+      user.profile === UserPvs.doctor ||
+      user.profile === UserPvs.collaborator
+    ) {
       where.push({
-        pv: UserPvs.supplier,
+        profile: UserPvs.supplier,
         status: UserStatuses.incomplete,
         clinic_id: user.clinic_id,
       });

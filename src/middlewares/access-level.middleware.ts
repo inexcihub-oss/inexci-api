@@ -54,7 +54,7 @@ export class AccessLevel implements NestMiddleware {
         }
 
         const hasPermission = accessLevel.findIndex(
-          (pv: number) => pv === user.pv,
+          (profile: number) => profile === user.profile,
         );
 
         if (hasPermission === -1)

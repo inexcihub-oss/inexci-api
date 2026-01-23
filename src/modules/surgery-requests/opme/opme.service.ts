@@ -1,19 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOpmeDto } from './dto/create-opme.dto';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
-import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestsService } from '../surgery-requests.service';
-import { PendenciesService } from '../pendencies/pendencies.service';
-import { PendencyKeys } from 'src/common';
-import { PendencyRepository } from 'src/database/repositories/pendency.repository';
 
 @Injectable()
 export class OpmeService {
   constructor(
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly surgeryRequestService: SurgeryRequestsService,
-    private readonly pendenciesService: PendenciesService,
-    private readonly pendencyRepository: PendencyRepository,
   ) {}
 
   async create(data: CreateOpmeDto, userId: number) {
@@ -30,11 +24,6 @@ export class OpmeService {
       distributor: data.distributor,
       quantity: data.quantity,
       surgery_request_id: data.surgery_request_id,
-    });
-
-    await this.pendenciesService.close({
-      surgery_request_id: data.surgery_request_id,
-      key: PendencyKeys.insertOpme,
     });
 
     return opmeItemCreated;

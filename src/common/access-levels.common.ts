@@ -100,6 +100,24 @@ export default {
   '/surgery-requests/pendencies': {
     GET: [UserPvs.doctor, UserPvs.collaborator],
   },
+  '/surgery-requests/pendencies/grouped/:id': {
+    GET: [UserPvs.doctor, UserPvs.collaborator],
+  },
+  '/surgery-requests/pendencies/summary/:id': {
+    GET: [UserPvs.doctor, UserPvs.collaborator],
+  },
+  '/surgery-requests/pendencies/check/:id': {
+    GET: [UserPvs.doctor, UserPvs.collaborator],
+  },
+  '/surgery-requests/pendencies/validate/:id': {
+    GET: [UserPvs.doctor, UserPvs.collaborator],
+  },
+  '/surgery-requests/pendencies/quick-summary/:id': {
+    GET: [UserPvs.doctor, UserPvs.collaborator],
+  },
+  '/surgery-requests/pendencies/:id/complete': {
+    PATCH: [UserPvs.doctor, UserPvs.collaborator],
+  },
 
   '/surgery-requests/cid': {
     GET: [UserPvs.doctor, UserPvs.collaborator],

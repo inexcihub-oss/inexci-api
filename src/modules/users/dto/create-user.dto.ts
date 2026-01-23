@@ -14,7 +14,7 @@ export class CreateUserDto {
   @IsNumber()
   @Type(() => Number)
   @IsIn(Object.values(UserPvs))
-  pv: number;
+  profile: number;
 
   @IsNumber()
   @Type(() => Number)
@@ -37,6 +37,5 @@ export class CreateUserDto {
 
   @IsNumber()
   @Type(() => Number)
-  clinic_id: number; 
-
+  clinic_id: number;
 }

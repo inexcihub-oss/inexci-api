@@ -12,7 +12,6 @@ import { SurgeryRequest } from '../entities/surgery-request.entity';
 import { SurgeryRequestProcedure } from '../entities/surgery-request-procedure.entity';
 import { OpmeItem } from '../entities/opme-item.entity';
 import { Document } from '../entities/document.entity';
-import { Pendency } from '../entities/pendency.entity';
 import { SurgeryRequestQuotation } from '../entities/surgery-request-quotation.entity';
 import { StatusUpdate } from '../entities/status-update.entity';
 import { Chat } from '../entities/chat.entity';
@@ -157,7 +156,6 @@ async function main() {
   );
   const opmeItemRepo = dataSource.getRepository(OpmeItem);
   const documentRepo = dataSource.getRepository(Document);
-  const pendencyRepo = dataSource.getRepository(Pendency);
   const quotationRepo = dataSource.getRepository(SurgeryRequestQuotation);
   const statusUpdateRepo = dataSource.getRepository(StatusUpdate);
   const chatRepo = dataSource.getRepository(Chat);
@@ -276,7 +274,7 @@ async function main() {
     testDoctor = userRepo.create({
       clinic_id: mainClinic.id,
       status: 2, // Ativo
-      pv: 1, // Médico
+      profile: 1, // Médico
       email: 'medico@inexci.com',
       password: hashedPassword,
       name: 'Dr. Carlos Silva',
@@ -299,7 +297,7 @@ async function main() {
     testCollaborator = userRepo.create({
       clinic_id: mainClinic.id,
       status: 2, // Ativo
-      pv: 2, // Colaborador
+      profile: 2, // Colaborador
       email: 'colaborador@inexci.com',
       password: hashedPassword,
       name: 'Maria Santos',
@@ -322,7 +320,7 @@ async function main() {
     testHospital = userRepo.create({
       clinic_id: mainClinic.id,
       status: 2, // Ativo
-      pv: 3, // Hospital
+      profile: 3, // Hospital
       email: 'hospital@inexci.com',
       password: hashedPassword,
       name: 'Hospital São Lucas',
@@ -344,7 +342,7 @@ async function main() {
     testPatient = userRepo.create({
       clinic_id: mainClinic.id,
       status: 2, // Ativo
-      pv: 4, // Paciente
+      profile: 4, // Paciente
       email: 'paciente@inexci.com',
       password: hashedPassword,
       name: 'João Pedro Oliveira',
@@ -367,7 +365,7 @@ async function main() {
     testSupplier = userRepo.create({
       clinic_id: mainClinic.id,
       status: 2, // Ativo
-      pv: 5, // Fornecedor
+      profile: 5, // Fornecedor
       email: 'fornecedor@inexci.com',
       password: hashedPassword,
       name: 'MedTech Distribuidora',
@@ -389,7 +387,7 @@ async function main() {
     testHealthPlan = userRepo.create({
       clinic_id: mainClinic.id,
       status: 2, // Ativo
-      pv: 6, // Plano de Saúde
+      profile: 6, // Plano de Saúde
       email: 'plano@inexci.com',
       password: hashedPassword,
       name: 'Unimed Teste',
@@ -408,7 +406,7 @@ async function main() {
   console.log('👥 Verificando usuários adicionais...');
 
   // Médicos (15 total, incluindo 1 de teste)
-  let doctors: User[] = await userRepo.find({ where: { pv: 1 } });
+  let doctors: User[] = await userRepo.find({ where: { profile: 1 } });
   const targetDoctors = 15;
   const doctorsToCreate = Math.max(0, targetDoctors - doctors.length);
 
@@ -423,7 +421,7 @@ async function main() {
     const doctor = userRepo.create({
       clinic_id: faker.helpers.arrayElement(clinics).id,
       status: 2, // Ativo
-      pv: 1, // Médico
+      profile: 1, // Médico
       email: `dr.${firstName.toLowerCase()}.${lastName.toLowerCase()}${Date.now()}${i}@inexci.com`,
       password: hashedPassword,
       name: `Dr. ${firstName} ${lastName}`,
@@ -438,7 +436,7 @@ async function main() {
   console.log(`✅ ${doctors.length} médicos no total\n`);
 
   // Colaboradores (20 total, incluindo 1 de teste)
-  let collaborators: User[] = await userRepo.find({ where: { pv: 2 } });
+  let collaborators: User[] = await userRepo.find({ where: { profile: 2 } });
   const targetCollaborators = 20;
   const collaboratorsToCreate = Math.max(
     0,
@@ -456,7 +454,7 @@ async function main() {
     const collaborator = userRepo.create({
       clinic_id: faker.helpers.arrayElement(clinics).id,
       status: 2, // Ativo
-      pv: 2, // Colaborador
+      profile: 2, // Colaborador
       email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Date.now()}${i}@inexci.com`,
       password: hashedPassword,
       name: `${firstName} ${lastName}`,
@@ -471,7 +469,7 @@ async function main() {
   console.log(`✅ ${collaborators.length} colaboradores no total\n`);
 
   // Hospitais (10 total, incluindo 1 de teste)
-  let hospitals: User[] = await userRepo.find({ where: { pv: 3 } });
+  let hospitals: User[] = await userRepo.find({ where: { profile: 3 } });
   const targetHospitals = 10;
   const hospitalsToCreate = Math.max(0, targetHospitals - hospitals.length);
 
@@ -493,7 +491,7 @@ async function main() {
     const hospital = userRepo.create({
       clinic_id: faker.helpers.arrayElement(clinics).id,
       status: 2, // Ativo
-      pv: 3, // Hospital
+      profile: 3, // Hospital
       email: `contato@${name.toLowerCase().replace(/\s/g, '')}${Date.now()}${i}.com.br`,
       password: hashedPassword,
       name: name,
@@ -507,7 +505,7 @@ async function main() {
   console.log(`✅ ${hospitals.length} hospitais no total\n`);
 
   // Pacientes (50 total, incluindo 1 de teste)
-  let patients: User[] = await userRepo.find({ where: { pv: 4 } });
+  let patients: User[] = await userRepo.find({ where: { profile: 4 } });
   const targetPatients = 50;
   const patientsToCreate = Math.max(0, targetPatients - patients.length);
 
@@ -525,7 +523,7 @@ async function main() {
     const patient = userRepo.create({
       clinic_id: faker.helpers.arrayElement(clinics).id,
       status: 2, // Ativo
-      pv: 4, // Paciente
+      profile: 4, // Paciente
       email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}${Date.now()}${i}@email.com`,
       password: hashedPassword,
       name: `${firstName} ${lastName}`,
@@ -540,7 +538,7 @@ async function main() {
   console.log(`✅ ${patients.length} pacientes no total\n`);
 
   // Fornecedores (12 total, incluindo 1 de teste)
-  let suppliers: User[] = await userRepo.find({ where: { pv: 5 } });
+  let suppliers: User[] = await userRepo.find({ where: { profile: 5 } });
   const targetSuppliers = 12;
   const suppliersToCreate = Math.max(0, targetSuppliers - suppliers.length);
 
@@ -562,7 +560,7 @@ async function main() {
     const supplier = userRepo.create({
       clinic_id: faker.helpers.arrayElement(clinics).id,
       status: 2, // Ativo
-      pv: 5, // Fornecedor
+      profile: 5, // Fornecedor
       email: `vendas${Date.now()}${i}@${faker.internet.domainWord()}.com.br`,
       password: hashedPassword,
       name: name,
@@ -576,7 +574,7 @@ async function main() {
   console.log(`✅ ${suppliers.length} fornecedores no total\n`);
 
   // Planos de Saúde (8 total, incluindo 1 de teste)
-  let healthPlans: User[] = await userRepo.find({ where: { pv: 6 } });
+  let healthPlans: User[] = await userRepo.find({ where: { profile: 6 } });
 
   const planNamesAll = [
     'Amil',
@@ -601,7 +599,7 @@ async function main() {
     const healthPlan = userRepo.create({
       clinic_id: faker.helpers.arrayElement(clinics).id,
       status: 2, // Ativo
-      pv: 6, // Plano de Saúde
+      profile: 6, // Plano de Saúde
       email: `atendimento@${planName.toLowerCase().replace(/\s/g, '')}${Date.now()}.com.br`,
       password: hashedPassword,
       name: planName,
@@ -672,7 +670,590 @@ async function main() {
   const statuses = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const surgeryRequests: SurgeryRequest[] = [];
 
-  for (let i = 0; i < surgeryRequestsToCreate; i++) {
+  // ========== SOLICITAÇÕES ESPECÍFICAS PARA TESTAR PENDÊNCIAS ==========
+  console.log(
+    '📋 Criando solicitações específicas para testes de pendências...',
+  );
+
+  // Helper: gerar data futura aleatória
+  const getFutureDate = (minDays: number, maxDays: number) => {
+    const days = faker.number.int({ min: minDays, max: maxDays });
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    return date;
+  };
+
+  // Helper: gerar data passada aleatória
+  const getPastDate = (minDays: number, maxDays: number) => {
+    const days = faker.number.int({ min: minDays, max: maxDays });
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date;
+  };
+
+  // Usar pacientes diferentes para cada solicitação de teste
+  const testPatients = patients.slice(0, 18); // Pegar 18 pacientes diferentes
+
+  // 1. Solicitação PENDENTE (Status 1) - Totalmente vazia
+  let pendingEmpty = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-PEND-EMPTY' },
+  });
+  if (!pendingEmpty) {
+    pendingEmpty = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: null, // Sem hospital
+      patient_id: testPatients[0]?.id || testPatient.id,
+      health_plan_id: null, // Sem plano
+      status: 1,
+      is_indication: false,
+      date_call: getFutureDate(5, 15), // Prazo em 5-15 dias
+      protocol: 'SR-PEND-EMPTY',
+    });
+    await surgeryRequestRepo.save(pendingEmpty);
+    surgeryRequests.push(pendingEmpty);
+    console.log('  ➕ Criada: Solicitação Pendente (vazia)');
+  }
+
+  // 2. Solicitação PENDENTE (Status 1) - Parcialmente preenchida
+  let pendingPartial = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-PEND-PARTIAL' },
+  });
+  if (!pendingPartial) {
+    pendingPartial = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id, // Com hospital
+      patient_id: testPatients[1]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id, // Com plano
+      health_plan_registration: '123456789',
+      status: 1,
+      is_indication: false,
+      cid_id: cids[0].id,
+      diagnosis: 'Diagnóstico de teste',
+      date_call: getFutureDate(3, 10), // Prazo em 3-10 dias
+      protocol: 'SR-PEND-PARTIAL',
+    });
+    await surgeryRequestRepo.save(pendingPartial);
+    surgeryRequests.push(pendingPartial);
+    console.log('  ➕ Criada: Solicitação Pendente (parcial)');
+  }
+
+  // 3. Solicitação PENDENTE (Status 1) - Pronta para enviar
+  let pendingReady = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-PEND-READY' },
+  });
+  if (!pendingReady) {
+    pendingReady = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[2]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 1,
+      is_indication: false,
+      cid_id: cids[0].id,
+      diagnosis: 'Diagnóstico completo para teste',
+      medical_report:
+        'Laudo médico completo para teste. Paciente apresenta indicação cirúrgica clara.',
+      date_call: getFutureDate(2, 7), // Prazo em 2-7 dias
+      protocol: 'SR-PEND-READY',
+    });
+    await surgeryRequestRepo.save(pendingReady);
+    surgeryRequests.push(pendingReady);
+    console.log('  ➕ Criada: Solicitação Pendente (pronta para enviar)');
+  }
+
+  // 4. Solicitação ENVIADA (Status 2) - Sem cotações
+  let sentNoQuotes = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-SENT-NOQUOTES' },
+  });
+  if (!sentNoQuotes) {
+    sentNoQuotes = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[3]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 2,
+      is_indication: false,
+      cid_id: cids[1].id,
+      diagnosis: 'Diagnóstico para status enviada',
+      medical_report: 'Laudo médico para status enviada',
+      date_call: getFutureDate(10, 21), // Prazo em 10-21 dias
+      protocol: 'SR-SENT-NOQUOTES',
+    });
+    await surgeryRequestRepo.save(sentNoQuotes);
+    surgeryRequests.push(sentNoQuotes);
+    console.log('  ➕ Criada: Solicitação Enviada (sem cotações)');
+  }
+
+  // 5. Solicitação ENVIADA (Status 2) - Com cotações e protocolos
+  let sentWithQuotes = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-SENT-QUOTES' },
+  });
+  if (!sentWithQuotes) {
+    sentWithQuotes = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[4]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 2,
+      is_indication: false,
+      cid_id: cids[1].id,
+      diagnosis: 'Diagnóstico para status enviada com cotações',
+      medical_report: 'Laudo médico para status enviada com cotações',
+      hospital_protocol: 'HOSP-2024-001',
+      health_plan_protocol: 'PLAN-2024-001',
+      date_call: getFutureDate(14, 28), // Prazo em 14-28 dias
+      protocol: 'SR-SENT-QUOTES',
+    });
+    await surgeryRequestRepo.save(sentWithQuotes);
+    surgeryRequests.push(sentWithQuotes);
+    console.log('  ➕ Criada: Solicitação Enviada (com cotações)');
+  }
+
+  // 6. Solicitação EM ANÁLISE (Status 3)
+  let inAnalysis = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-ANALYSIS' },
+  });
+  if (!inAnalysis) {
+    inAnalysis = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[5]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 3,
+      is_indication: false,
+      cid_id: cids[2].id,
+      diagnosis: 'Diagnóstico em análise',
+      medical_report: 'Laudo em análise pelo convênio',
+      hospital_protocol: 'HOSP-2024-002',
+      health_plan_protocol: 'PLAN-2024-002',
+      date_call: getFutureDate(15, 25),
+      protocol: 'SR-ANALYSIS',
+    });
+    await surgeryRequestRepo.save(inAnalysis);
+    surgeryRequests.push(inAnalysis);
+    console.log('  ➕ Criada: Solicitação Em Análise');
+  }
+
+  // 7. Solicitação EM REANÁLISE (Status 4)
+  let inReanalysis = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-REANALYSIS' },
+  });
+  if (!inReanalysis) {
+    inReanalysis = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[6]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 4,
+      is_indication: false,
+      cid_id: cids[3].id,
+      diagnosis: 'Diagnóstico em reanálise',
+      medical_report: 'Laudo complementar enviado para reanálise',
+      hospital_protocol: 'HOSP-2024-003',
+      health_plan_protocol: 'PLAN-2024-003',
+      date_call: getFutureDate(5, 10),
+      protocol: 'SR-REANALYSIS',
+    });
+    await surgeryRequestRepo.save(inReanalysis);
+    surgeryRequests.push(inReanalysis);
+    console.log('  ➕ Criada: Solicitação Em Reanálise');
+  }
+
+  // 8. Solicitação AUTORIZADA (Status 5) - Sem datas definidas
+  let authorizedNoDates = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-AUTH-NODATES' },
+  });
+  if (!authorizedNoDates) {
+    authorizedNoDates = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[7]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 5,
+      is_indication: false,
+      cid_id: cids[4].id,
+      diagnosis: 'Diagnóstico autorizado',
+      medical_report: 'Laudo autorizado pelo convênio',
+      hospital_protocol: 'HOSP-2024-004',
+      health_plan_protocol: 'PLAN-2024-004',
+      date_options: null, // Sem datas definidas
+      selected_date_index: null,
+      date_call: getFutureDate(7, 14),
+      protocol: 'SR-AUTH-NODATES',
+    });
+    await surgeryRequestRepo.save(authorizedNoDates);
+    surgeryRequests.push(authorizedNoDates);
+    console.log('  ➕ Criada: Solicitação Autorizada (sem datas)');
+  }
+
+  // 9. Solicitação AUTORIZADA (Status 5) - Com datas, aguardando paciente
+  let authorizedWaitingPatient = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-AUTH-WAITING' },
+  });
+  if (!authorizedWaitingPatient) {
+    const futureDate1 = new Date();
+    futureDate1.setDate(futureDate1.getDate() + 7);
+    const futureDate2 = new Date();
+    futureDate2.setDate(futureDate2.getDate() + 14);
+    const futureDate3 = new Date();
+    futureDate3.setDate(futureDate3.getDate() + 21);
+
+    authorizedWaitingPatient = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[8]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 5,
+      is_indication: false,
+      cid_id: cids[5].id,
+      diagnosis: 'Diagnóstico aguardando escolha de data',
+      medical_report: 'Laudo aprovado, aguardando agendamento',
+      hospital_protocol: 'HOSP-2024-005',
+      health_plan_protocol: 'PLAN-2024-005',
+      date_options: JSON.stringify([
+        futureDate1.toISOString(),
+        futureDate2.toISOString(),
+        futureDate3.toISOString(),
+      ]),
+      selected_date_index: null, // Paciente ainda não escolheu
+      date_call: getFutureDate(5, 12),
+      protocol: 'SR-AUTH-WAITING',
+    });
+    await surgeryRequestRepo.save(authorizedWaitingPatient);
+    surgeryRequests.push(authorizedWaitingPatient);
+    console.log('  ➕ Criada: Solicitação Autorizada (aguardando paciente)');
+  }
+
+  // 10. Solicitação AGENDADA (Status 6) - Sem guia de autorização
+  let scheduledNoGuide = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-SCHED-NOGUIDE' },
+  });
+  if (!scheduledNoGuide) {
+    const surgeryDate = new Date();
+    surgeryDate.setDate(surgeryDate.getDate() + 10);
+
+    scheduledNoGuide = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[9]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 6,
+      is_indication: false,
+      cid_id: cids[6].id,
+      diagnosis: 'Diagnóstico agendado',
+      medical_report: 'Laudo com cirurgia agendada',
+      hospital_protocol: 'HOSP-2024-006',
+      health_plan_protocol: 'PLAN-2024-006',
+      date_options: JSON.stringify([surgeryDate.toISOString()]),
+      selected_date_index: 0,
+      surgery_date: null, // Ainda não confirmada
+      date_call: getFutureDate(3, 8),
+      protocol: 'SR-SCHED-NOGUIDE',
+    });
+    await surgeryRequestRepo.save(scheduledNoGuide);
+    surgeryRequests.push(scheduledNoGuide);
+    console.log('  ➕ Criada: Solicitação Agendada (sem guia)');
+  }
+
+  // 11. Solicitação AGENDADA (Status 6) - Pronta para cirurgia
+  let scheduledReady = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-SCHED-READY' },
+  });
+  if (!scheduledReady) {
+    const surgeryDate = new Date();
+    surgeryDate.setDate(surgeryDate.getDate() + 3);
+
+    scheduledReady = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[10]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 6,
+      is_indication: false,
+      cid_id: cids[7].id,
+      diagnosis: 'Diagnóstico pronto para cirurgia',
+      medical_report: 'Laudo com cirurgia confirmada',
+      hospital_protocol: 'HOSP-2024-007',
+      health_plan_protocol: 'PLAN-2024-007',
+      date_options: JSON.stringify([surgeryDate.toISOString()]),
+      selected_date_index: 0,
+      surgery_date: surgeryDate,
+      date_call: getFutureDate(1, 5),
+      protocol: 'SR-SCHED-READY',
+    });
+    await surgeryRequestRepo.save(scheduledReady);
+    surgeryRequests.push(scheduledReady);
+    console.log('  ➕ Criada: Solicitação Agendada (pronta)');
+  }
+
+  // 12. Solicitação A FATURAR (Status 7) - Sem descrição
+  let toInvoiceEmpty = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-INVOICE-EMPTY' },
+  });
+  if (!toInvoiceEmpty) {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 5);
+
+    toInvoiceEmpty = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[11]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 7,
+      is_indication: false,
+      cid_id: cids[8].id,
+      diagnosis: 'Diagnóstico pós-operatório',
+      medical_report: 'Laudo pós-operatório',
+      hospital_protocol: 'HOSP-2024-008',
+      health_plan_protocol: 'PLAN-2024-008',
+      surgery_date: pastDate,
+      surgery_description: null, // Sem descrição
+      invoiced_value: null, // Sem valor
+      date_call: getPastDate(3, 7),
+      protocol: 'SR-INVOICE-EMPTY',
+    });
+    await surgeryRequestRepo.save(toInvoiceEmpty);
+    surgeryRequests.push(toInvoiceEmpty);
+    console.log('  ➕ Criada: Solicitação A Faturar (sem descrição)');
+  }
+
+  // 13. Solicitação A FATURAR (Status 7) - Pronta para faturar
+  let toInvoiceReady = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-INVOICE-READY' },
+  });
+  if (!toInvoiceReady) {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 3);
+
+    toInvoiceReady = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[12]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 7,
+      is_indication: false,
+      cid_id: cids[9].id,
+      diagnosis: 'Diagnóstico completo pós-operatório',
+      medical_report: 'Laudo completo pós-operatório',
+      hospital_protocol: 'HOSP-2024-009',
+      health_plan_protocol: 'PLAN-2024-009',
+      surgery_date: pastDate,
+      surgery_description:
+        'Cirurgia realizada com sucesso. Procedimento transcorreu sem intercorrências.',
+      invoiced_value: 15000.0,
+      date_call: getPastDate(5, 10),
+      protocol: 'SR-INVOICE-READY',
+    });
+    await surgeryRequestRepo.save(toInvoiceReady);
+    surgeryRequests.push(toInvoiceReady);
+    console.log('  ➕ Criada: Solicitação A Faturar (pronta)');
+  }
+
+  // 14. Solicitação FATURADA (Status 8) - Aguardando recebimento
+  let invoicedWaiting = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-INVOICED-WAIT' },
+  });
+  if (!invoicedWaiting) {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 10);
+    const invoicedDate = new Date();
+    invoicedDate.setDate(invoicedDate.getDate() - 5);
+
+    invoicedWaiting = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[13]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 8,
+      is_indication: false,
+      cid_id: cids[0].id,
+      diagnosis: 'Diagnóstico faturado',
+      medical_report: 'Laudo faturado',
+      hospital_protocol: 'HOSP-2024-010',
+      health_plan_protocol: 'PLAN-2024-010',
+      surgery_date: pastDate,
+      surgery_description: 'Cirurgia faturada, aguardando pagamento.',
+      invoiced_value: 25000.0,
+      invoiced_date: invoicedDate,
+      received_value: null, // Ainda não recebeu
+      received_date: null,
+      date_call: getPastDate(7, 14),
+      protocol: 'SR-INVOICED-WAIT',
+    });
+    await surgeryRequestRepo.save(invoicedWaiting);
+    surgeryRequests.push(invoicedWaiting);
+    console.log('  ➕ Criada: Solicitação Faturada (aguardando recebimento)');
+  }
+
+  // 15. Solicitação FATURADA (Status 8) - Com recebimento parcial
+  let invoicedPartial = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-INVOICED-PART' },
+  });
+  if (!invoicedPartial) {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 20);
+    const invoicedDate = new Date();
+    invoicedDate.setDate(invoicedDate.getDate() - 15);
+    const receivedDate = new Date();
+    receivedDate.setDate(receivedDate.getDate() - 2);
+
+    invoicedPartial = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[14]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 8,
+      is_indication: false,
+      cid_id: cids[1].id,
+      diagnosis: 'Diagnóstico com recebimento',
+      medical_report: 'Laudo com recebimento parcial',
+      hospital_protocol: 'HOSP-2024-011',
+      health_plan_protocol: 'PLAN-2024-011',
+      surgery_date: pastDate,
+      surgery_description: 'Cirurgia com recebimento parcial.',
+      invoiced_value: 30000.0,
+      invoiced_date: invoicedDate,
+      received_value: 30000.0,
+      received_date: receivedDate,
+      date_call: getPastDate(10, 20),
+      protocol: 'SR-INVOICED-PART',
+    });
+    await surgeryRequestRepo.save(invoicedPartial);
+    surgeryRequests.push(invoicedPartial);
+    console.log('  ➕ Criada: Solicitação Faturada (com recebimento)');
+  }
+
+  // 16. Solicitação FINALIZADA (Status 9)
+  let finalized = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-FINALIZED' },
+  });
+  if (!finalized) {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 30);
+    const invoicedDate = new Date();
+    invoicedDate.setDate(invoicedDate.getDate() - 25);
+    const receivedDate = new Date();
+    receivedDate.setDate(receivedDate.getDate() - 10);
+
+    finalized = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[15]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 9,
+      is_indication: false,
+      cid_id: cids[2].id,
+      diagnosis: 'Diagnóstico finalizado',
+      medical_report: 'Laudo finalizado',
+      hospital_protocol: 'HOSP-2024-012',
+      health_plan_protocol: 'PLAN-2024-012',
+      surgery_date: pastDate,
+      surgery_description: 'Cirurgia finalizada com sucesso.',
+      invoiced_value: 20000.0,
+      invoiced_date: invoicedDate,
+      received_value: 20000.0,
+      received_date: receivedDate,
+      date_call: getPastDate(25, 35),
+      protocol: 'SR-FINALIZED',
+    });
+    await surgeryRequestRepo.save(finalized);
+    surgeryRequests.push(finalized);
+    console.log('  ➕ Criada: Solicitação Finalizada');
+  }
+
+  // 17. Solicitação CANCELADA (Status 10)
+  let canceled = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-CANCELED' },
+  });
+  if (!canceled) {
+    canceled = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[16]?.id || testPatient.id,
+      health_plan_id: testHealthPlan.id,
+      health_plan_registration: '123456789',
+      status: 10,
+      is_indication: false,
+      cid_id: cids[3].id,
+      diagnosis: 'Diagnóstico cancelado',
+      medical_report: 'Laudo cancelado',
+      contest_reason: 'Paciente desistiu do procedimento por motivos pessoais.',
+      date_call: getPastDate(5, 15),
+      protocol: 'SR-CANCELED',
+    });
+    await surgeryRequestRepo.save(canceled);
+    surgeryRequests.push(canceled);
+    console.log('  ➕ Criada: Solicitação Cancelada');
+  }
+
+  // 18. Solicitação por INDICAÇÃO (sem plano de saúde)
+  let indication = await surgeryRequestRepo.findOne({
+    where: { protocol: 'SR-INDICATION' },
+  });
+  if (!indication) {
+    indication = surgeryRequestRepo.create({
+      doctor_id: testDoctor.id,
+      responsible_id: testCollaborator.id,
+      hospital_id: testHospital.id,
+      patient_id: testPatients[17]?.id || testPatient.id,
+      health_plan_id: null, // Sem plano
+      status: 1,
+      is_indication: true,
+      indication_name: 'Clínica Parceira ABC',
+      cid_id: cids[4].id,
+      diagnosis: 'Diagnóstico por indicação',
+      medical_report: 'Laudo por indicação',
+      date_call: getFutureDate(10, 20),
+      protocol: 'SR-INDICATION',
+    });
+    await surgeryRequestRepo.save(indication);
+    surgeryRequests.push(indication);
+    console.log('  ➕ Criada: Solicitação por Indicação');
+  }
+
+  console.log(
+    `✅ ${surgeryRequests.length} solicitações específicas criadas\n`,
+  );
+
+  // ========== SOLICITAÇÕES ALEATÓRIAS ADICIONAIS ==========
+  console.log('🎲 Criando solicitações aleatórias adicionais...');
+  const remainingToCreate = Math.max(
+    0,
+    surgeryRequestsToCreate - surgeryRequests.length,
+  );
+
+  for (let i = 0; i < remainingToCreate; i++) {
     const doctor = faker.helpers.arrayElement(doctors);
     const patient = faker.helpers.arrayElement(patients);
     const hospital = faker.helpers.arrayElement(hospitals);
@@ -721,7 +1302,10 @@ async function main() {
           : null,
       protocol: `SR-2026-${String(i + 1).padStart(5, '0')}`,
       contest_reason: status === 10 ? faker.lorem.sentence() : null,
-      date_call: status >= 5 ? faker.date.recent({ days: 15 }) : null,
+      date_call:
+        status >= 7
+          ? faker.date.recent({ days: 30 }) // Prazos passados para status avançados
+          : faker.date.soon({ days: faker.number.int({ min: 3, max: 30 }) }), // Prazos futuros para status iniciais
       date_options:
         status >= 6
           ? JSON.stringify([
@@ -736,14 +1320,84 @@ async function main() {
     surgeryRequests.push(surgeryRequest);
   }
   console.log(
-    `✅ ${surgeryRequests.length} solicitações de cirurgia criadas\n`,
+    `✅ ${surgeryRequests.length} solicitações de cirurgia no total\n`,
   );
 
   // ========== PROCEDIMENTOS DAS SOLICITAÇÕES ==========
   console.log('💊 Vinculando procedimentos às solicitações...');
   let procedureCount = 0;
 
+  // Adicionar procedimentos específicos para solicitações de teste de pendências
+  // SR-PEND-READY precisa ter pelo menos 1 procedimento TUSS
+  if (pendingReady) {
+    const existingProcs = await surgeryRequestProcedureRepo.count({
+      where: { surgery_request_id: pendingReady.id },
+    });
+    if (existingProcs === 0) {
+      const srp = surgeryRequestProcedureRepo.create({
+        surgery_request_id: pendingReady.id,
+        procedure_id: procedures[0].id,
+        quantity: 1,
+        authorized_quantity: null,
+      });
+      await surgeryRequestProcedureRepo.save(srp);
+      procedureCount++;
+      console.log('  ➕ Procedimento adicionado à SR-PEND-READY');
+    }
+  }
+
+  // Adicionar procedimentos para outras solicitações de teste
+  const testRequestsForProcedures = [
+    pendingPartial,
+    sentNoQuotes,
+    sentWithQuotes,
+    inAnalysis,
+    inReanalysis,
+    authorizedNoDates,
+    authorizedWaitingPatient,
+    scheduledNoGuide,
+    scheduledReady,
+    toInvoiceEmpty,
+    toInvoiceReady,
+    invoicedWaiting,
+    invoicedPartial,
+    finalized,
+    indication,
+  ].filter(Boolean);
+
+  for (const request of testRequestsForProcedures) {
+    if (!request) continue;
+    const existingProcs = await surgeryRequestProcedureRepo.count({
+      where: { surgery_request_id: request.id },
+    });
+    if (existingProcs === 0) {
+      const numProcedures = faker.number.int({ min: 1, max: 2 });
+      const selectedProcedures = faker.helpers.arrayElements(
+        procedures,
+        numProcedures,
+      );
+      for (const procedure of selectedProcedures) {
+        const quantity = faker.number.int({ min: 1, max: 2 });
+        const srp = surgeryRequestProcedureRepo.create({
+          surgery_request_id: request.id,
+          procedure_id: procedure.id,
+          quantity: quantity,
+          authorized_quantity: request.status >= 6 ? quantity : null,
+        });
+        await surgeryRequestProcedureRepo.save(srp);
+        procedureCount++;
+      }
+    }
+  }
+
+  // Criar procedimentos para solicitações aleatórias
   for (const request of surgeryRequests) {
+    // Pular se já tem procedimentos (solicitações de teste)
+    const existingProcs = await surgeryRequestProcedureRepo.count({
+      where: { surgery_request_id: request.id },
+    });
+    if (existingProcs > 0) continue;
+
     const numProcedures = faker.number.int({ min: 1, max: 3 });
     const selectedProcedures = faker.helpers.arrayElements(
       procedures,
@@ -841,7 +1495,81 @@ async function main() {
     { key: 'imaging', name: 'Exames de Imagem' },
   ];
 
+  // Documentos necessários para validação de pendências
+  const pendencyDocumentTypes = [
+    { key: 'personal_document', name: 'RG/CNH do Paciente' },
+    { key: 'doctor_request', name: 'Pedido Médico' },
+    { key: 'authorization_guide', name: 'Guia de Autorização' },
+    { key: 'invoice_protocol', name: 'Protocolo de Faturamento' },
+  ];
+
   let documentCount = 0;
+
+  // Criar documentos específicos para solicitações de teste de pendências
+  console.log('  📄 Criando documentos para testes de pendências...');
+
+  // Para SR-PEND-READY: adicionar documentos necessários para pendente
+  if (pendingReady) {
+    const docsForPendingReady = ['personal_document', 'doctor_request'];
+    for (const docKey of docsForPendingReady) {
+      const existingDoc = await documentRepo.findOne({
+        where: { surgery_request_id: pendingReady.id, key: docKey },
+      });
+      if (!existingDoc) {
+        const docConfig = pendencyDocumentTypes.find((d) => d.key === docKey);
+        const doc = documentRepo.create({
+          surgery_request_id: pendingReady.id,
+          created_by: testCollaborator.id,
+          key: docKey,
+          name: docConfig?.name || docKey,
+          uri: `documents/${pendingReady.protocol}/${docKey}_${faker.string.uuid()}.pdf`,
+        });
+        await documentRepo.save(doc);
+        documentCount++;
+      }
+    }
+  }
+
+  // Para SR-SCHED-READY: adicionar guia de autorização
+  if (scheduledReady) {
+    const existingDoc = await documentRepo.findOne({
+      where: {
+        surgery_request_id: scheduledReady.id,
+        key: 'authorization_guide',
+      },
+    });
+    if (!existingDoc) {
+      const doc = documentRepo.create({
+        surgery_request_id: scheduledReady.id,
+        created_by: testCollaborator.id,
+        key: 'authorization_guide',
+        name: 'Guia de Autorização',
+        uri: `documents/${scheduledReady.protocol}/authorization_guide_${faker.string.uuid()}.pdf`,
+      });
+      await documentRepo.save(doc);
+      documentCount++;
+    }
+  }
+
+  // Para SR-INVOICE-READY: adicionar protocolo de faturamento
+  if (toInvoiceReady) {
+    const existingDoc = await documentRepo.findOne({
+      where: { surgery_request_id: toInvoiceReady.id, key: 'invoice_protocol' },
+    });
+    if (!existingDoc) {
+      const doc = documentRepo.create({
+        surgery_request_id: toInvoiceReady.id,
+        created_by: testCollaborator.id,
+        key: 'invoice_protocol',
+        name: 'Protocolo de Faturamento',
+        uri: `documents/${toInvoiceReady.protocol}/invoice_protocol_${faker.string.uuid()}.pdf`,
+      });
+      await documentRepo.save(doc);
+      documentCount++;
+    }
+  }
+
+  // Criar documentos aleatórios para outras solicitações
   for (const request of surgeryRequests) {
     if (request.status >= 2) {
       const numDocs = faker.number.int({ min: 2, max: 5 });
@@ -862,77 +1590,32 @@ async function main() {
   }
   console.log(`✅ ${documentCount} documentos criados\n`);
 
-  // ========== PENDÊNCIAS ==========
-  console.log('⚠️ Criando pendências...');
-  const pendencyTypes = [
-    {
-      key: 'document_medical_report',
-      name: 'Relatório Médico',
-      description: 'Enviar relatório médico detalhado do caso',
-    },
-    {
-      key: 'document_exam_results',
-      name: 'Resultados de Exames',
-      description: 'Anexar resultados dos exames pré-operatórios',
-    },
-    {
-      key: 'document_authorization',
-      name: 'Autorização Pendente',
-      description: 'Aguardando autorização do plano de saúde',
-    },
-    {
-      key: 'opme_quotation',
-      name: 'Cotação OPME',
-      description: 'Solicitar cotação dos materiais OPME necessários',
-    },
-    {
-      key: 'schedule_surgery',
-      name: 'Agendamento',
-      description: 'Confirmar data e horário da cirurgia',
-    },
-    {
-      key: 'patient_contact',
-      name: 'Contato com Paciente',
-      description: 'Entrar em contato com o paciente para confirmação',
-    },
-  ];
-
-  let pendencyCount = 0;
-  for (const request of surgeryRequests) {
-    if (request.status <= 6) {
-      // Apenas solicitações não finalizadas
-      const numPendencies = faker.number.int({ min: 0, max: 3 });
-
-      if (numPendencies > 0) {
-        const selectedPendencies = faker.helpers.arrayElements(
-          pendencyTypes,
-          numPendencies,
-        );
-
-        for (const pend of selectedPendencies) {
-          const isConcluded = faker.datatype.boolean(0.4); // 40% já concluídas
-
-          const pendency = pendencyRepo.create({
-            surgery_request_id: request.id,
-            responsible_id: request.responsible_id,
-            key: pend.key,
-            name: pend.name,
-            description: pend.description,
-            created_manually: faker.datatype.boolean(0.3),
-            concluded_at: isConcluded ? faker.date.recent({ days: 10 }) : null,
-          });
-          await pendencyRepo.save(pendency);
-          pendencyCount++;
-        }
-      }
-    }
-  }
-  console.log(`✅ ${pendencyCount} pendências criadas\n`);
-
   // ========== COTAÇÕES ==========
   console.log('💰 Criando cotações...');
   let quotationCount = 0;
 
+  // Criar cotações específicas para SR-SENT-QUOTES (3 cotações)
+  if (sentWithQuotes) {
+    const existingQuotes = await quotationRepo.count({
+      where: { surgery_request_id: sentWithQuotes.id },
+    });
+    if (existingQuotes < 3) {
+      const quoteSuppliersToUse = suppliers.slice(0, 3 - existingQuotes);
+      for (let j = 0; j < quoteSuppliersToUse.length; j++) {
+        const quotation = quotationRepo.create({
+          surgery_request_id: sentWithQuotes.id,
+          supplier_id: quoteSuppliersToUse[j].id,
+          proposal_number: `PROP-${sentWithQuotes.protocol}-${j + 1}`,
+          submission_date: faker.date.recent({ days: 10 }),
+        });
+        await quotationRepo.save(quotation);
+        quotationCount++;
+      }
+      console.log('  ➕ Criadas 3 cotações para SR-SENT-QUOTES');
+    }
+  }
+
+  // Criar cotações aleatórias para outras solicitações
   for (const request of surgeryRequests) {
     if (request.status >= 3 && request.status <= 8) {
       const numQuotations = faker.number.int({ min: 1, max: 4 });
@@ -1069,7 +1752,6 @@ async function main() {
   console.log(`   • ${procedureCount} procedimentos vinculados`);
   console.log(`   • ${opmeCount} itens OPME`);
   console.log(`   • ${documentCount} documentos`);
-  console.log(`   • ${pendencyCount} pendências`);
   console.log(`   • ${quotationCount} cotações`);
   console.log(`   • ${statusUpdateCount} atualizações de status`);
   console.log(`   • ${chatCount} chats com mensagens`);
@@ -1083,7 +1765,40 @@ async function main() {
   console.log(`   🤒 Paciente:       paciente@inexci.com`);
   console.log(`   📦 Fornecedor:     fornecedor@inexci.com`);
   console.log(`   💳 Plano de Saúde: plano@inexci.com`);
+  console.log('═══════════════════════════════════════════════════════\n');
+
+  console.log('📋 SOLICITAÇÕES PARA TESTE DE PENDÊNCIAS DINÂMICAS:');
   console.log('═══════════════════════════════════════════════════════');
+  console.log('   Status 1 (Pendente):');
+  console.log('     • SR-PEND-EMPTY    - Totalmente vazia');
+  console.log('     • SR-PEND-PARTIAL  - Parcialmente preenchida');
+  console.log('     • SR-PEND-READY    - Pronta para enviar');
+  console.log('     • SR-INDICATION    - Indicação (sem plano)');
+  console.log('   Status 2 (Enviada):');
+  console.log('     • SR-SENT-NOQUOTES - Sem cotações');
+  console.log('     • SR-SENT-QUOTES   - Com 3 cotações e protocolos');
+  console.log('   Status 3 (Em Análise):');
+  console.log('     • SR-ANALYSIS      - Aguardando resultado');
+  console.log('   Status 4 (Em Reanálise):');
+  console.log('     • SR-REANALYSIS    - Aguardando reanálise');
+  console.log('   Status 5 (Autorizada):');
+  console.log('     • SR-AUTH-NODATES  - Sem datas definidas');
+  console.log('     • SR-AUTH-WAITING  - Aguardando paciente');
+  console.log('   Status 6 (Agendada):');
+  console.log('     • SR-SCHED-NOGUIDE - Sem guia de autorização');
+  console.log('     • SR-SCHED-READY   - Pronta para cirurgia');
+  console.log('   Status 7 (A Faturar):');
+  console.log('     • SR-INVOICE-EMPTY - Sem descrição/valor');
+  console.log('     • SR-INVOICE-READY - Pronta para faturar');
+  console.log('   Status 8 (Faturada):');
+  console.log('     • SR-INVOICED-WAIT - Aguardando recebimento');
+  console.log('     • SR-INVOICED-PART - Com recebimento registrado');
+  console.log('   Status 9 (Finalizada):');
+  console.log('     • SR-FINALIZED     - Processo completo');
+  console.log('   Status 10 (Cancelada):');
+  console.log('     • SR-CANCELED      - Com motivo de cancelamento');
+  console.log('═══════════════════════════════════════════════════════\n');
+
   console.log('   Todos os usuários têm a mesma senha: 123456');
   console.log('═══════════════════════════════════════════════════════\n');
 

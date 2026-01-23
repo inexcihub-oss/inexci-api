@@ -102,11 +102,11 @@ export class SurgeryRequestsController {
     @Request() req,
   ) {
     const surgeryRequestId = parseInt(id, 10);
-    
+
     if (isNaN(surgeryRequestId)) {
       throw new BadRequestException(`Invalid surgery request ID: ${id}`);
     }
-    
+
     return this.surgeryRequestsService.updateStatus(
       surgeryRequestId,
       data.status,
@@ -136,5 +136,36 @@ export class SurgeryRequestsController {
   @Get('/dateExpired')
   dateExpired(@Request() req) {
     return this.surgeryRequestsService.dateExpired();
+  }
+
+  @Post(':id/approve')
+  approve(@Param('id') id: string, @Request() req) {
+    return this.surgeryRequestsService.approve(parseInt(id), req.user.userId);
+  }
+
+  @Post(':id/deny')
+  deny(
+    @Param('id') id: string,
+    @Body('contest_reason') contestReason: string,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.deny(
+      parseInt(id),
+      contestReason,
+      req.user.userId,
+    );
+  }
+
+  @Post(':id/transition')
+  transition(
+    @Param('id') id: string,
+    @Body('new_status') newStatus: number,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.transitionToStatus(
+      parseInt(id),
+      newStatus,
+      req.user.userId,
+    );
   }
 }

@@ -10,6 +10,9 @@ const UserPvs = {
   health_plan: 6,
 };
 
+// Alias para compatibilidade com nova nomenclatura
+const UserProfiles = UserPvs;
+
 const UserStatuses = {
   incomplete: 1,
   active: 2,
@@ -32,7 +35,10 @@ export class TestDataFactory {
       name: faker.person.fullName(),
       email: faker.internet.email().toLowerCase(),
       phone: this.generatePhone(),
-      pv: faker.helpers.arrayElement([UserPvs.doctor, UserPvs.collaborator]),
+      profile: faker.helpers.arrayElement([
+        UserPvs.doctor,
+        UserPvs.collaborator,
+      ]),
       status: UserStatuses.active,
       clinic_id: clinicId,
     };

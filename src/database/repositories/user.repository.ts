@@ -24,7 +24,7 @@ export class UserRepository {
       select: {
         id: true,
         clinic_id: true,
-        pv: true,
+        profile: true,
         status: true,
         email: true,
         name: true,

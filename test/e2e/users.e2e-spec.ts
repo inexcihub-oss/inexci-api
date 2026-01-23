@@ -6,7 +6,7 @@ import {
   closeTestApp,
   seedTestData,
   linkUserToClinic,
-  createUserWithPv,
+  createUserWithProfile,
 } from '../helpers/test-setup';
 import {
   getAuthenticatedRequest,
@@ -15,8 +15,8 @@ import {
 } from '../helpers/auth-helper';
 import { TestDataFactory } from '../helpers/test-data-factory';
 
-// Constantes de UserPvs (espelhando src/common)
-const UserPvs = {
+// Constantes de UserProfiles (anteriormente UserPvs, espelhando src/common)
+const UserProfiles = {
   doctor: 1,
   collaborator: 2,
   hospital: 3,
@@ -24,6 +24,9 @@ const UserPvs = {
   supplier: 5,
   health_plan: 6,
 };
+
+// Alias para compatibilidade
+const UserPvs = UserProfiles;
 
 // Constantes de UserStatuses (espelhando src/common)
 const UserStatuses = {
@@ -58,10 +61,10 @@ describe('Users (e2e)', () => {
   });
 
   describe('/users (GET)', () => {
-    it('should return list of users with required pv parameter', async () => {
+    it('should return list of users with required profile parameter', async () => {
       const response = await request(app.getHttpServer())
         .get('/users')
-        .query({ pv: UserPvs.collaborator })
+        .query({ profile: UserProfiles.collaborator })
         .set(getAuthHeader(authToken))
         .expect(200);
 
@@ -74,7 +77,7 @@ describe('Users (e2e)', () => {
     it('should paginate users with skip and take', async () => {
       const response = await request(app.getHttpServer())
         .get('/users')
-        .query({ pv: UserPvs.collaborator, skip: 0, take: 10 })
+        .query({ profile: UserProfiles.collaborator, skip: 0, take: 10 })
         .set(getAuthHeader(authToken))
         .expect(200);
 
@@ -82,7 +85,7 @@ describe('Users (e2e)', () => {
       expect(response.body).toHaveProperty('records');
     });
 
-    it('should fail without pv parameter', async () => {
+    it('should fail without profile parameter', async () => {
       await request(app.getHttpServer())
         .get('/users')
         .set(getAuthHeader(authToken))
@@ -92,7 +95,7 @@ describe('Users (e2e)', () => {
     it('should fail without authentication', async () => {
       await request(app.getHttpServer())
         .get('/users')
-        .query({ pv: UserPvs.collaborator })
+        .query({ profile: UserProfiles.collaborator })
         .expect(401);
     });
   });
@@ -216,10 +219,10 @@ describe('Users (e2e)', () => {
 
     it('should return user data for incomplete patient user', async () => {
       // Criar um usuário paciente com status incomplete
-      const incompleteUser = await createUserWithPv(app, {
+      const incompleteUser = await createUserWithProfile(app, {
         email: 'patient@test.com',
         name: 'Test Patient',
-        pv: UserPvs.patient,
+        profile: UserProfiles.patient,
         status: UserStatuses.incomplete,
         clinicId: testClinicId,
       });
@@ -237,10 +240,10 @@ describe('Users (e2e)', () => {
 
     it('should return 400 for patient with complete registration', async () => {
       // Criar um usuário paciente com status active (já completou registro)
-      const activePatient = await createUserWithPv(app, {
+      const activePatient = await createUserWithProfile(app, {
         email: 'active-patient@test.com',
         name: 'Active Patient',
-        pv: UserPvs.patient,
+        profile: UserProfiles.patient,
         status: UserStatuses.active,
         clinicId: testClinicId,
       });
@@ -276,10 +279,10 @@ describe('Users (e2e)', () => {
 
     it('should fail for already completed patient user', async () => {
       // Criar um usuário paciente com status active (já completou registro)
-      const activePatient = await createUserWithPv(app, {
+      const activePatient = await createUserWithProfile(app, {
         email: 'completed-patient@test.com',
         name: 'Completed Patient',
-        pv: UserPvs.patient,
+        profile: UserProfiles.patient,
         status: UserStatuses.active,
         clinicId: testClinicId,
       });

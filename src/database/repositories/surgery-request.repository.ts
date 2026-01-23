@@ -76,12 +76,6 @@ export class SurgeryRequestRepository {
       .leftJoinAndSelect('surgery_request.opme_items', 'opme_items')
       .leftJoinAndSelect('surgery_request.procedures', 'procedures')
       .leftJoinAndSelect('procedures.procedure', 'procedure')
-      .leftJoinAndSelect(
-        'surgery_request.pendencies',
-        'pendencies',
-        'pendencies.concluded_at IS NULL',
-      )
-      .leftJoinAndSelect('pendencies.responsible', 'pendencies_responsible')
       .leftJoinAndSelect('surgery_request.documents', 'documents')
       .leftJoinAndSelect('documents.creator', 'documents_creator')
       .leftJoinAndSelect('surgery_request.quotations', 'quotations')
@@ -115,11 +109,6 @@ export class SurgeryRequestRepository {
       .leftJoinAndSelect('surgery_request.procedures', 'procedures')
       .leftJoinAndSelect('procedures.procedure', 'procedure')
       .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
-      .leftJoin(
-        'surgery_request.pendencies',
-        'pendencies',
-        'pendencies.concluded_at IS NULL',
-      )
       .where(where)
       .orderBy('surgery_request.created_at', 'DESC')
       .skip(skip)
@@ -143,27 +132,13 @@ export class SurgeryRequestRepository {
         'procedure.id',
         'procedure.name',
         'procedure.tuss_code',
-      ])
-      .addSelect(
-        (subQuery) =>
-          subQuery
-            .select('COUNT(*)')
-            .from('pendency', 'p')
-            .where('p.surgery_request_id = surgery_request.id')
-            .andWhere('p.concluded_at IS NULL'),
-        'pendencies_count',
-      );
+      ]);
 
     // Limitando status_updates a 1
     const results = await queryBuilder.getRawAndEntities();
 
     return results.entities.map((entity: any) => ({
       ...entity,
-      _count: {
-        pendencies:
-          results.raw.find((r: any) => r.surgery_request_id === entity.id)
-            ?.pendencies_count || 0,
-      },
       status_updates: entity.status_updates?.slice(0, 1) || [],
     }));
   }
@@ -179,5 +154,15 @@ export class SurgeryRequestRepository {
   ): Promise<SurgeryRequest> {
     await this.repository.update(id, data);
     return await this.repository.findOne({ where: { id } });
+  }
+
+  async findOneWithRelations(
+    where: FindOptionsWhere<SurgeryRequest>,
+    relations: string[],
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository.findOne({
+      where,
+      relations,
+    });
   }
 }

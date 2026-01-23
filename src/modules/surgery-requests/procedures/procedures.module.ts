@@ -5,12 +5,9 @@ import { SurgeryRequestRepository } from 'src/database/repositories/surgery-requ
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { SurgeryRequestProcedureRepository } from 'src/database/repositories/surgery-request-procedure.repository';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
-import { PendenciesModule } from '../pendencies/pendencies.module';
-import { PendenciesService } from '../pendencies/pendencies.service';
-import { PendencyRepository } from 'src/database/repositories/pendency.repository';
+import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 
 @Module({
-  imports: [PendenciesModule],
   controllers: [ProceduresController],
   providers: [
     ProceduresService,
@@ -18,8 +15,7 @@ import { PendencyRepository } from 'src/database/repositories/pendency.repositor
     SurgeryRequestProcedureRepository,
     SurgeryRequestRepository,
     OpmeItemRepository,
-    PendenciesService,
-    PendencyRepository,
+    StatusUpdateRepository,
   ],
   exports: [ProceduresService],
 })

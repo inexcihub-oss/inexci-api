@@ -7,7 +7,6 @@ export { SurgeryRequest } from './surgery-request.entity';
 export { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 export { OpmeItem } from './opme-item.entity';
 export { Document } from './document.entity';
-export { Pendency } from './pendency.entity';
 export { StatusUpdate } from './status-update.entity';
 export { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 export { Chat } from './chat.entity';

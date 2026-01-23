@@ -20,14 +20,17 @@ export class HospitalsService {
     // Precisamos fazer queries separadas ou usar QueryBuilder
     let where: FindOptionsWhere<User>[] = [
       {
-        pv: UserPvs.hospital,
+        profile: UserPvs.hospital,
         status: UserStatuses.active,
       },
     ];
 
-    if (user.pv === UserPvs.doctor || user.pv === UserPvs.collaborator) {
+    if (
+      user.profile === UserPvs.doctor ||
+      user.profile === UserPvs.collaborator
+    ) {
       where.push({
-        pv: UserPvs.hospital,
+        profile: UserPvs.hospital,
         status: UserStatuses.incomplete,
         clinic_id: user.clinic_id,
       });

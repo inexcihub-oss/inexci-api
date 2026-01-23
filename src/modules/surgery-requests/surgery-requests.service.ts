@@ -7,7 +7,6 @@ import {
 
 import {
   DocumentTypes,
-  PendencyKeys,
   SurgeryRequestStatuses,
   UserPvs,
   UserStatuses,
@@ -22,11 +21,12 @@ import { SurgeryRequestQuotationRepository } from 'src/database/repositories/sur
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { EmailService } from 'src/shared/email/email.service';
-import surgeryRequestStatusesCommon from 'src/common/surgery-request-statuses.common';
-import { PendenciesService } from './pendencies/pendencies.service';
+import surgeryRequestStatusesCommon, {
+  StatusConfig,
+} from 'src/common/surgery-request-statuses.common';
+import { PendencyValidatorService } from './pendencies/pendency-validator.service';
 import { SendSurgeryRequestDto } from './dto/send-surgery-request.dto';
 import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
-import { PendencyRepository } from 'src/database/repositories/pendency.repository';
 import { CreateSurgeryDateOptions } from './dto/create-surgery-date-options.dto';
 import { ScheduleSurgeryRequestDto } from './dto/schedule-surgery-request.dto';
 import { ToInvoiceDto } from './dto/to-invoice.dto';
@@ -40,7 +40,6 @@ import { CreateComplaintDto } from './dto/create-complaint.dto';
 import dayjs from 'dayjs';
 import { User } from 'src/database/entities/user.entity';
 import { Chat } from 'src/database/entities/chat.entity';
-import { Pendency } from 'src/database/entities/pendency.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { SurgeryRequestProcedure } from 'src/database/entities/surgery-request-procedure.entity';
 
@@ -49,7 +48,7 @@ export class SurgeryRequestsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly emailService: EmailService,
-    private readonly pendenciesService: PendenciesService,
+    private readonly pendencyValidatorService: PendencyValidatorService,
     private readonly userService: UsersService,
     private readonly storageService: StorageService,
     private readonly documentsService: DocumentsService,
@@ -57,7 +56,6 @@ export class SurgeryRequestsService {
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly statusUpdateRepository: StatusUpdateRepository,
-    private readonly pendencyRepository: PendencyRepository,
     private readonly surgeryRequestQuotationRepository: SurgeryRequestQuotationRepository,
   ) {}
 
@@ -68,7 +66,6 @@ export class SurgeryRequestsService {
       const userRepo = manager.getRepository(User);
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const chatRepo = manager.getRepository(Chat);
-      const pendencyRepo = manager.getRepository(Pendency);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
       const surgeryRequestProcedureRepo = manager.getRepository(
         SurgeryRequestProcedure,
@@ -80,7 +77,7 @@ export class SurgeryRequestsService {
       if (!collaborator)
         collaborator = await this.userService.create(
           {
-            pv: UserPvs.collaborator,
+            profile: UserPvs.collaborator,
             status: data.collaborator.status,
             name: data.collaborator.name,
             email: data.collaborator.email,
@@ -92,11 +89,11 @@ export class SurgeryRequestsService {
 
       let patient = await this.userRepository.findOne({
         email: data.patient.email,
-        pv: UserPvs.patient,
+        profile: UserPvs.patient,
       });
       if (!patient) {
         patient = await userRepo.save({
-          pv: UserPvs.patient,
+          profile: UserPvs.patient,
           status: UserStatuses.incomplete,
           name: data.patient.name,
           email: data.patient.email,
@@ -115,11 +112,11 @@ export class SurgeryRequestsService {
 
       let healthPlan = await this.userRepository.findOne({
         email: data.health_plan.email,
-        pv: UserPvs.health_plan,
+        profile: UserPvs.health_plan,
       });
       if (!healthPlan) {
         healthPlan = await userRepo.save({
-          pv: UserPvs.health_plan,
+          profile: UserPvs.health_plan,
           status: UserStatuses.incomplete,
           name: data.health_plan.name,
           email: data.health_plan.email,
@@ -162,33 +159,6 @@ export class SurgeryRequestsService {
         user_id: patient.id,
       });
 
-      const pendenciesToCreate: any[] = [];
-      statusData.defaultPendencies.forEach((item) => {
-        pendenciesToCreate.push({
-          surgery_request_id: newRequest.id,
-          responsible_id: newRequest.responsible_id,
-          key: item.key,
-          name: item.name,
-          description: item.description,
-        });
-      });
-
-      const defaultDocumentClinic = await this.documentsKeyService.findAll(
-        null,
-        userId,
-      );
-      defaultDocumentClinic.records.forEach((records) => {
-        pendenciesToCreate.push({
-          surgery_request_id: newRequest.id,
-          responsible_id: newRequest.responsible_id,
-          key: records.key,
-          name: 'Inserir documento',
-          description: `Inserir ${records.name}`,
-        });
-      });
-
-      await pendencyRepo.save(pendenciesToCreate);
-
       await statusUpdateRepo.save({
         surgery_request_id: newRequest.id,
         prev_status: statusData.value,
@@ -204,32 +174,16 @@ export class SurgeryRequestsService {
       id: data.id,
     });
 
-    const pendencies = await this.pendencyRepository.findMany({
-      surgery_request_id: data.id,
-      concluded_at: null,
-    });
+    // Valida pendências dinamicamente
+    const validation = await this.pendencyValidatorService.validate(data.id);
+    const hasPendingItems = validation.pendencies.some((p) => !p.isComplete);
 
-    if (pendencies.length > 0)
+    if (hasPendingItems)
       throw new BadRequestException('A solicitação ainda possui pendências');
-
-    const statusData = surgeryRequestStatusesCommon.sent;
-
-    const pendenciesToCreate: any[] = [];
-
-    statusData.defaultPendencies.forEach((item) => {
-      pendenciesToCreate.push({
-        surgery_request_id: data.id,
-        responsible_id: surgeryRequest.responsible_id,
-        key: item.key,
-        name: item.name,
-        description: item.description,
-      });
-    });
 
     return await this.dataSource.transaction(async (manager) => {
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      const pendencyRepo = manager.getRepository(Pendency);
 
       await Promise.all([
         surgeryRequestRepo.update(
@@ -241,7 +195,6 @@ export class SurgeryRequestsService {
           prev_status: surgeryRequestStatusesCommon.pending.value,
           new_status: surgeryRequestStatusesCommon.sent.value,
         }),
-        pendencyRepo.save(pendenciesToCreate),
       ]);
     });
   }
@@ -273,24 +226,9 @@ export class SurgeryRequestsService {
     if (!surgeryRequest)
       throw new NotFoundException('Solicitação não encontrada');
 
-    const statusData = surgeryRequestStatusesCommon.scheduled;
-
-    const pendenciesToCreate: any[] = [];
-
-    statusData.defaultPendencies.forEach((item) => {
-      pendenciesToCreate.push({
-        surgery_request_id: data.id,
-        responsible_id: surgeryRequest.responsible_id,
-        key: item.key,
-        name: item.name,
-        description: item.description,
-      });
-    });
-
     return await this.dataSource.transaction(async (manager) => {
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      const pendencyRepo = manager.getRepository(Pendency);
 
       await Promise.all([
         surgeryRequestRepo.update(
@@ -302,7 +240,6 @@ export class SurgeryRequestsService {
           prev_status: surgeryRequest.status,
           new_status: surgeryRequestStatusesCommon.scheduled.value,
         }),
-        pendencyRepo.save(pendenciesToCreate),
       ]);
     });
   }
@@ -438,15 +375,15 @@ export class SurgeryRequestsService {
       where = { ...where, status: In(query.status) };
     }
 
-    if (user.pv === UserPvs.doctor) {
+    if (user.profile === UserPvs.doctor) {
       where = { ...where, doctor_id: user.id };
-    } else if (user.pv === UserPvs.collaborator) {
+    } else if (user.profile === UserPvs.collaborator) {
       where = { ...where, responsible_id: user.id };
-    } else if (user.pv === UserPvs.hospital) {
+    } else if (user.profile === UserPvs.hospital) {
       where = { ...where, hospital_id: user.id };
-    } else if (user.pv === UserPvs.patient) {
+    } else if (user.profile === UserPvs.patient) {
       where = { ...where, patient_id: user.id };
-    } else if (user.pv === UserPvs.supplier) {
+    } else if (user.profile === UserPvs.supplier) {
       // TypeORM não suporta 'some' - precisamos buscar via quotations
       const quotations = await this.surgeryRequestQuotationRepository.findMany({
         supplier_id: user.id,
@@ -476,17 +413,17 @@ export class SurgeryRequestsService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('User not found');
 
-    if (user.pv === UserPvs.doctor) {
+    if (user.profile === UserPvs.doctor) {
       where = { ...where, doctor_id: user.id };
-    } else if (user.pv === UserPvs.collaborator) {
+    } else if (user.profile === UserPvs.collaborator) {
       where = { ...where, responsible_id: user.id };
-    } else if (user.pv === UserPvs.hospital) {
+    } else if (user.profile === UserPvs.hospital) {
       where = { ...where, hospital_id: user.id };
       whereChat = { ...whereChat, user_id: user.id };
-    } else if (user.pv === UserPvs.patient) {
+    } else if (user.profile === UserPvs.patient) {
       where = { ...where, patient_id: user.id };
       whereChat = { ...whereChat, user_id: user.id };
-    } else if (user.pv === UserPvs.supplier) {
+    } else if (user.profile === UserPvs.supplier) {
       // Verificar se o supplier tem quotations para esta request
       const quotation = await this.surgeryRequestQuotationRepository.findOne({
         surgery_request_id: id,
@@ -514,9 +451,9 @@ export class SurgeryRequestsService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('User not found');
 
-    if (user.pv === UserPvs.doctor) {
+    if (user.profile === UserPvs.doctor) {
       where = { ...where, doctor_id: user.id };
-    } else if (user.pv === UserPvs.collaborator) {
+    } else if (user.profile === UserPvs.collaborator) {
       where = { ...where, responsible_id: user.id };
     }
 
@@ -533,7 +470,7 @@ export class SurgeryRequestsService {
 
     let where: FindOptionsWhere<SurgeryRequest> = { id: data.id };
 
-    if (user.pv === UserPvs.doctor) {
+    if (user.profile === UserPvs.doctor) {
       where = { ...where, doctor_id: userId };
     } else {
       where = { ...where, responsible_id: userId };
@@ -548,14 +485,14 @@ export class SurgeryRequestsService {
 
     const hospital = await this.userRepository.findOne({
       email: data.hospital.email,
-      pv: UserPvs.hospital,
+      profile: UserPvs.hospital,
     });
 
     if (hospital) {
       hospitalId = hospital.id;
     } else {
       const newHospital = await this.userRepository.create({
-        pv: UserPvs.hospital,
+        profile: UserPvs.hospital,
         status: UserStatuses.incomplete,
         email: data.hospital.email,
         name: data.hospital.name,
@@ -569,11 +506,11 @@ export class SurgeryRequestsService {
 
     let healthPlan = await this.userRepository.findOne({
       email: data.health_plan.email,
-      pv: UserPvs.health_plan,
+      profile: UserPvs.health_plan,
     });
     if (!healthPlan) {
       healthPlan = await this.userRepository.create({
-        pv: UserPvs.health_plan,
+        profile: UserPvs.health_plan,
         status: UserStatuses.incomplete,
         name: data.health_plan.name,
         email: data.health_plan.email,
@@ -598,18 +535,12 @@ export class SurgeryRequestsService {
       // Não incluir cid_id se inválido
     }
 
-    await Promise.all([
-      this.surgeryRequestRepository.update(requestId, {
-        ...validData,
-        hospital_id: hospitalId,
-        ...(cid && cid.id && { cid_id: cid.id }),
-        health_plan_id: healthPlan.id,
-      }),
-      this.pendenciesService.close({
-        key: PendencyKeys.completeFields,
-        surgery_request_id: requestId,
-      }),
-    ]);
+    await this.surgeryRequestRepository.update(requestId, {
+      ...validData,
+      hospital_id: hospitalId,
+      ...(cid && cid.id && { cid_id: cid.id }),
+      health_plan_id: healthPlan.id,
+    });
 
     return surgeryRequest;
   }
@@ -749,6 +680,108 @@ export class SurgeryRequestsService {
       );
 
     return surgeryRequestsWithDaysDifference;
+  }
+
+  /**
+   * Transiciona manualmente para um status específico
+   */
+  async transitionToStatus(
+    surgeryRequestId: number,
+    newStatus: number,
+    userId: number,
+  ): Promise<SurgeryRequest> {
+    const surgeryRequest = await this.surgeryRequestRepository.findOneSimple({
+      id: surgeryRequestId,
+    });
+
+    if (!surgeryRequest) {
+      throw new NotFoundException('Solicitação não encontrada');
+    }
+
+    const prevStatus = surgeryRequest.status;
+
+    // Atualiza o status
+    const updated = await this.surgeryRequestRepository.update(
+      surgeryRequestId,
+      { status: newStatus },
+    );
+
+    // Registra a atualização de status
+    await this.statusUpdateRepository.create({
+      surgery_request_id: surgeryRequestId,
+      prev_status: prevStatus,
+      new_status: newStatus,
+    });
+
+    return updated;
+  }
+
+  /**
+   * Aprovar solicitação (transição manual de Em Análise para Autorizada)
+   */
+  async approve(
+    surgeryRequestId: number,
+    userId: number,
+  ): Promise<SurgeryRequest> {
+    const surgeryRequest = await this.surgeryRequestRepository.findOneSimple({
+      id: surgeryRequestId,
+    });
+
+    if (!surgeryRequest) {
+      throw new NotFoundException('Solicitação não encontrada');
+    }
+
+    // Verificar se está em análise ou reanálise
+    if (
+      surgeryRequest.status !== surgeryRequestStatusesCommon.inAnalysis.value &&
+      surgeryRequest.status !== surgeryRequestStatusesCommon.inReanalysis.value
+    ) {
+      throw new BadRequestException(
+        'Solicitação precisa estar em análise ou reanálise para ser aprovada',
+      );
+    }
+
+    // Transicionar para Autorizada
+    return await this.transitionToStatus(
+      surgeryRequestId,
+      surgeryRequestStatusesCommon.awaitingAppointment.value,
+      userId,
+    );
+  }
+
+  /**
+   * Recusar solicitação (negar autorização)
+   */
+  async deny(
+    surgeryRequestId: number,
+    contestReason: string,
+    userId: number,
+  ): Promise<SurgeryRequest> {
+    const surgeryRequest = await this.surgeryRequestRepository.findOneSimple({
+      id: surgeryRequestId,
+    });
+
+    if (!surgeryRequest) {
+      throw new NotFoundException('Solicitação não encontrada');
+    }
+
+    // Atualiza com motivo de contestação e muda para reanálise
+    const updated = await this.surgeryRequestRepository.update(
+      surgeryRequestId,
+      {
+        contest_reason: contestReason,
+        status: surgeryRequestStatusesCommon.inReanalysis.value,
+      },
+    );
+
+    // Registra a atualização de status
+    await this.statusUpdateRepository.create({
+      surgery_request_id: surgeryRequestId,
+      prev_status: surgeryRequest.status,
+      new_status: surgeryRequestStatusesCommon.inReanalysis.value,
+    });
+
+    return updated;
   }
 }
 

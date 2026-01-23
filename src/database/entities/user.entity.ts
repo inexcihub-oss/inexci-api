@@ -11,7 +11,6 @@ import {
 import { Clinic } from './clinic.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 import { Document } from './document.entity';
-import { Pendency } from './pendency.entity';
 import { Chat } from './chat.entity';
 import { ChatMessage } from './chat-message.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
@@ -29,8 +28,8 @@ export class User {
   @Column({ type: 'smallint' })
   status: number;
 
-  @Column({ type: 'smallint' })
-  pv: number;
+  @Column({ type: 'smallint', name: 'profile' })
+  profile: number;
 
   @Column({ type: 'varchar', length: 75 })
   email: string;
@@ -87,9 +86,6 @@ export class User {
 
   @OneToMany(() => Document, (document) => document.creator)
   inserted_documents: Document[];
-
-  @OneToMany(() => Pendency, (pendency) => pendency.responsible)
-  pendencies: Pendency[];
 
   @OneToMany(() => Chat, (chat) => chat.user)
   chats: Chat[];

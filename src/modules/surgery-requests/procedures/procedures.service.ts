@@ -4,11 +4,9 @@ import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-p
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestProcedureRepository } from 'src/database/repositories/surgery-request-procedure.repository';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
-import { PendencyKeys, SurgeryRequestStatuses } from 'src/common';
+import { SurgeryRequestStatuses } from 'src/common';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 import surgeryRequestStatusesCommon from 'src/common/surgery-request-statuses.common';
-import { PendenciesService } from '../pendencies/pendencies.service';
-import { PendencyRepository } from 'src/database/repositories/pendency.repository';
 import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 
 @Injectable()
@@ -18,8 +16,6 @@ export class ProceduresService {
     private readonly procedureRepository: ProcedureRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly surgeryRequestProcedureRepository: SurgeryRequestProcedureRepository,
-    private readonly pendenciesService: PendenciesService,
-    private readonly pendencyRepository: PendencyRepository,
     private readonly statusUpdateRepository: StatusUpdateRepository,
   ) {}
 
@@ -44,11 +40,6 @@ export class ProceduresService {
         };
       }),
     );
-
-    await this.pendenciesService.close({
-      surgery_request_id: data.surgery_request_id,
-      key: PendencyKeys.insertTuss,
-    });
 
     return proceduresCreated;
   }

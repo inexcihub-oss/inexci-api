@@ -19,10 +19,10 @@ export class ReportsService {
 
     const user = await this.userService.findOne(userId, userId);
 
-    if (user.pv === UserPvs.doctor) {
+    if (user.profile === UserPvs.doctor) {
       where = { ...where, doctor_id: user.id };
       whereString += `doctor_id=${user.id}`;
-    } else if (user.pv === UserPvs.collaborator) {
+    } else if (user.profile === UserPvs.collaborator) {
       where = { ...where, responsible_id: user.id };
       whereString += `responsible_id=${user.id}`;
     }

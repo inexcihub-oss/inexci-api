@@ -137,15 +137,15 @@ export async function linkUserToClinic(
 }
 
 /**
- * Cria um usuário diretamente no banco de dados com pv e status específicos
+ * Cria um usuário diretamente no banco de dados com profile e status específicos
  * Útil para testar rotas que requerem permissões específicas
  */
-export async function createUserWithPv(
+export async function createUserWithProfile(
   app: INestApplication,
   options: {
     email: string;
     name: string;
-    pv: number; // UserPvs value
+    profile: number; // UserPvs/UserProfiles value
     status: number; // UserStatuses value
     clinicId?: number;
     password?: string;
@@ -154,7 +154,7 @@ export async function createUserWithPv(
   id: number;
   email: string;
   name: string;
-  pv: number;
+  profile: number;
   status: number;
 }> {
   const dataSource = app.get(DataSource);
@@ -164,15 +164,15 @@ export async function createUserWithPv(
 
   const result = await dataSource.query(
     `
-    INSERT INTO "user" (name, email, password, pv, status, clinic_id, created_at, updated_at)
+    INSERT INTO "user" (name, email, password, profile, status, clinic_id, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-    RETURNING id, email, name, pv, status
+    RETURNING id, email, name, profile, status
   `,
     [
       options.name,
       options.email,
       hashedPassword,
-      options.pv,
+      options.profile,
       options.status,
       options.clinicId || null,
     ],
@@ -180,6 +180,9 @@ export async function createUserWithPv(
 
   return result[0];
 }
+
+// Alias para compatibilidade com código existente
+export const createUserWithPv = createUserWithProfile;
 
 export async function closeTestApp(app: INestApplication): Promise<void> {
   if (app) {

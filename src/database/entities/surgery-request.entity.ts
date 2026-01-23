@@ -14,7 +14,6 @@ import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { OpmeItem } from './opme-item.entity';
 import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 import { Document } from './document.entity';
-import { Pendency } from './pendency.entity';
 import { Chat } from './chat.entity';
 import { StatusUpdate } from './status-update.entity';
 
@@ -98,6 +97,22 @@ export class SurgeryRequest {
   @Column({ type: 'varchar', length: 75, nullable: true })
   protocol: string;
 
+  // Novos campos para sistema de pendências
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  hospital_protocol: string; // Número de protocolo do hospital
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  health_plan_protocol: string; // Número de protocolo do convênio
+
+  @Column({ type: 'text', nullable: true })
+  surgery_description: string; // Descrição da cirurgia realizada
+
+  @Column({ type: 'timestamp', nullable: true })
+  analysis_started_at: Date; // Quando entrou em análise
+
+  @Column({ type: 'int', nullable: true })
+  selected_date_index: number; // Índice da data escolhida pelo paciente (0, 1 ou 2)
+
   // Relations
   @ManyToOne(() => User, (user) => user.doctor_requests)
   @JoinColumn({ name: 'doctor_id' })
@@ -139,9 +154,6 @@ export class SurgeryRequest {
 
   @OneToMany(() => Document, (document) => document.surgery_request)
   documents: Document[];
-
-  @OneToMany(() => Pendency, (pendency) => pendency.surgery_request)
-  pendencies: Pendency[];
 
   @OneToMany(() => Chat, (chat) => chat.surgery_request)
   chats: Chat[];
