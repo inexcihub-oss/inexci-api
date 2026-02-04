@@ -13,8 +13,8 @@ import {
 export class CompleteRegisterDto {
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => Mask.cnpj.raw(value))
-  document: string;
+  @Transform(({ value }) => Mask.cpf.raw(value))
+  cpf: string;
 
   @IsString()
   @IsNotEmpty()
@@ -25,9 +25,6 @@ export class CompleteRegisterDto {
   @IsNotEmpty()
   @MinLength(6)
   password: string;
-
-  @IsString()
-  company: string;
 
   @IsString()
   @IsIn(['m', 'f', ''])

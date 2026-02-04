@@ -8,5 +8,5 @@ export class CreateContestSurgeryRequestDto {
 
   @IsString()
   @IsNotEmpty()
-  contest_reason: string;
+  cancel_reason: string;
 }

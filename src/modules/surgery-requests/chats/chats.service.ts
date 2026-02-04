@@ -4,7 +4,8 @@ import { FindOptionsWhere } from 'typeorm';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserPvs } from 'src/common';
+import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
+import { UserRole } from 'src/database/entities/user.entity';
 import { ChatMessageRepository } from 'src/database/repositories/chat-message.repository';
 import { Chat } from 'src/database/entities/chat.entity';
 
@@ -14,6 +15,7 @@ export class ChatsService {
     private readonly chatMessageRepository: ChatMessageRepository,
     private readonly chatRepository: ChatRepository,
     private readonly userRepository: UserRepository,
+    private readonly doctorProfileRepository: DoctorProfileRepository,
   ) {}
 
   async findOne(where: FindOptionsWhere<Chat>) {
@@ -35,10 +37,17 @@ export class ChatsService {
     let where: FindOptionsWhere<Chat> = { id: data.chat_id };
 
     const user = await this.userRepository.findOne({ id: userId });
-    if (user.profile === UserPvs.collaborator) {
-      where = { ...where, surgery_request: { responsible_id: userId } };
-    } else if (user.profile === UserPvs.doctor) {
-      where = { ...where, surgery_request: { doctor_id: userId } };
+
+    if (user.role === UserRole.COLLABORATOR) {
+      where = { ...where, surgery_request: { created_by_id: userId } };
+    } else if (user.role === UserRole.DOCTOR) {
+      const doctorProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      if (doctorProfile) {
+        where = { ...where, surgery_request: { doctor_id: doctorProfile.id } };
+      }
+    } else if (user.role === UserRole.ADMIN) {
+      // Admin pode enviar para qualquer chat
     } else {
       where = { ...where, user_id: userId };
     }

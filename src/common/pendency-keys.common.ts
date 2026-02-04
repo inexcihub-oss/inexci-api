@@ -18,21 +18,18 @@ export default {
   // Fase Em Análise (Status 3)
   waitAnalysis: 'wait_analysis',
 
-  // Fase Em Reanálise (Status 4)
-  waitReanalysis: 'wait_reanalysis',
-
-  // Fase Autorizada (Status 5)
+  // Fase Em Agendamento (Status 4)
   defineDates: 'define_dates',
   patientChooseDate: 'patient_choose_date',
 
-  // Fase Agendada (Status 6)
+  // Fase Agendada (Status 5)
   confirmSurgery: 'confirm_surgery',
 
-  // Fase A Faturar (Status 7)
+  // Fase Realizada (Status 6)
   surgeryDescription: 'surgery_description',
   invoicedValue: 'invoiced_value',
 
-  // Fase Faturada (Status 8)
+  // Fase Faturada (Status 7)
   registerReceipt: 'register_receipt',
 
   // Documentos (usados em várias fases)

@@ -4,44 +4,72 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
+  OneToOne,
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import { Clinic } from './clinic.entity';
-import { SurgeryRequest } from './surgery-request.entity';
-import { Document } from './document.entity';
+import { DoctorProfile } from './doctor-profile.entity';
+import { TeamMember } from './team-member.entity';
+import { RecoveryCode } from './recovery-code.entity';
 import { Chat } from './chat.entity';
 import { ChatMessage } from './chat-message.entity';
-import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
-import { RecoveryCode } from './recovery-code.entity';
-import { DefaultDocumentClinic } from './default-document-clinic.entity';
+import { Document } from './document.entity';
+import { Notification } from './notification.entity';
+import { UserNotificationSettings } from './user-notification-settings.entity';
+
+/**
+ * Roles de usuário no sistema
+ * - ADMIN: Administrador da plataforma (acesso a todos os médicos)
+ * - DOCTOR: Médico (dono da conta, gestor principal)
+ * - COLLABORATOR: Colaborador/Assistente (trabalha para um ou mais médicos)
+ */
+export enum UserRole {
+  ADMIN = 'admin',
+  DOCTOR = 'doctor',
+  COLLABORATOR = 'collaborator',
+}
+
+/**
+ * Status do usuário
+ */
+export enum UserStatus {
+  PENDING = 1, // Aguardando ativação
+  ACTIVE = 2, // Ativo
+  INACTIVE = 3, // Inativo/Suspenso
+}
 
 @Entity('user')
 export class User {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ name: 'clinic_id', nullable: true })
-  clinic_id: number;
+  @Column({
+    type: 'enum',
+    enum: UserRole,
+    default: UserRole.DOCTOR,
+  })
+  role: UserRole;
 
-  @Column({ type: 'smallint' })
-  status: number;
+  @Column({
+    type: 'smallint',
+    default: UserStatus.PENDING,
+  })
+  status: UserStatus;
 
-  @Column({ type: 'smallint', name: 'profile' })
-  profile: number;
-
-  @Column({ type: 'varchar', length: 75 })
+  @Column({ type: 'varchar', length: 100, unique: true })
   email: string;
 
   @Column({ type: 'varchar', length: 60, nullable: true })
   password: string;
 
-  @Column({ type: 'varchar', length: 75 })
+  @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'char', length: 11, nullable: true })
+  @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string;
+
+  @Column({ type: 'varchar', length: 14, nullable: true })
+  cpf: string;
 
   @Column({ type: 'char', length: 1, nullable: true })
   gender: string;
@@ -49,11 +77,8 @@ export class User {
   @Column({ type: 'date', nullable: true })
   birth_date: Date;
 
-  @Column({ type: 'varchar', length: 14, nullable: true })
-  document: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  company: string;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  avatar_url: string;
 
   @CreateDateColumn()
   created_at: Date;
@@ -61,41 +86,41 @@ export class User {
   @UpdateDateColumn()
   updated_at: Date;
 
-  // Relations
-  @ManyToOne(() => Clinic, (clinic) => clinic.users, { nullable: true })
-  @JoinColumn({ name: 'clinic_id' })
-  clinic: Clinic;
+  // ============ RELAÇÕES ============
 
-  @OneToMany(() => SurgeryRequestQuotation, (quotation) => quotation.supplier)
-  quotations: SurgeryRequestQuotation[];
+  // Perfil de médico (1:1) - só existe se role = DOCTOR
+  @OneToOne(() => DoctorProfile, (profile) => profile.user, { cascade: true })
+  doctor_profile: DoctorProfile;
 
-  @OneToMany(() => SurgeryRequest, (request) => request.doctor)
-  doctor_requests: SurgeryRequest[];
+  // Colaboradores que este médico gerencia (quando role = DOCTOR)
+  @OneToMany(() => TeamMember, (tm) => tm.doctor)
+  team_members: TeamMember[];
 
-  @OneToMany(() => SurgeryRequest, (request) => request.responsible)
-  responsible_requests: SurgeryRequest[];
+  // Médicos para quem este colaborador trabalha (quando role = COLLABORATOR)
+  @OneToMany(() => TeamMember, (tm) => tm.collaborator)
+  works_for: TeamMember[];
 
-  @OneToMany(() => SurgeryRequest, (request) => request.hospital)
-  hospital_requests: SurgeryRequest[];
+  // Códigos de recuperação de senha
+  @OneToMany(() => RecoveryCode, (code) => code.user)
+  recovery_codes: RecoveryCode[];
 
-  @OneToMany(() => SurgeryRequest, (request) => request.patient)
-  patient_requests: SurgeryRequest[];
-
-  @OneToMany(() => SurgeryRequest, (request) => request.health_plan)
-  health_plan_requests: SurgeryRequest[];
-
-  @OneToMany(() => Document, (document) => document.creator)
-  inserted_documents: Document[];
-
+  // Chats do usuário
   @OneToMany(() => Chat, (chat) => chat.user)
   chats: Chat[];
 
+  // Mensagens enviadas
   @OneToMany(() => ChatMessage, (message) => message.sender)
   sent_messages: ChatMessage[];
 
-  @OneToMany(() => RecoveryCode, (code) => code.user)
-  recovery_code: RecoveryCode[];
+  // Documentos inseridos
+  @OneToMany(() => Document, (document) => document.creator)
+  inserted_documents: Document[];
 
-  @OneToMany(() => DefaultDocumentClinic, (document) => document.creator)
-  default_document_clinic: DefaultDocumentClinic[];
+  // Notificações
+  @OneToMany(() => Notification, (notification) => notification.user)
+  notifications: Notification[];
+
+  // Configurações de notificação
+  @OneToOne(() => UserNotificationSettings, (settings) => settings.user)
+  notification_settings: UserNotificationSettings;
 }

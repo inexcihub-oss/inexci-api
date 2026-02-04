@@ -6,16 +6,20 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { Clinic } from './clinic.entity';
+import { DoctorProfile } from './doctor-profile.entity';
 import { User } from './user.entity';
 
+/**
+ * Documento padrão da clínica do médico
+ * Templates de documentos que podem ser usados nas solicitações
+ */
 @Entity('default_document_clinic')
 export class DefaultDocumentClinic {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ name: 'clinic_id' })
-  clinic_id: number;
+  @Column({ name: 'doctor_id' })
+  doctor_id: number;
 
   @Column({ name: 'created_by' })
   created_by: number;
@@ -23,18 +27,25 @@ export class DefaultDocumentClinic {
   @Column({ type: 'varchar', length: 50 })
   key: string;
 
-  @Column({ type: 'varchar', length: 75 })
+  @Column({ type: 'varchar', length: 100 })
   name: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  file_url: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string;
 
   @CreateDateColumn()
   created_at: Date;
 
-  // Relations
-  @ManyToOne(() => Clinic, (clinic) => clinic.default_document_clinic)
-  @JoinColumn({ name: 'clinic_id' })
-  clinic: Clinic;
+  // ============ RELAÇÕES ============
 
-  @ManyToOne(() => User, (user) => user.default_document_clinic)
+  @ManyToOne(() => DoctorProfile, (doctor) => doctor.default_documents)
+  @JoinColumn({ name: 'doctor_id' })
+  doctor: DoctorProfile;
+
+  @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })
   creator: User;
 }

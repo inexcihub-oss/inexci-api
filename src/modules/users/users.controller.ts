@@ -2,6 +2,7 @@ import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UsersService } from './users.service';
 import {
   Body,
@@ -25,6 +26,16 @@ export class UsersController {
   @Get('one')
   async findOne(@Query() { id }: { id: number }, @Request() req) {
     return await this.usersService.findOne(+id, req.user.userId);
+  }
+
+  @Get('profile')
+  async getProfile(@Request() req) {
+    return await this.usersService.getProfile(req.user.userId);
+  }
+
+  @Put('profile')
+  async updateProfile(@Body() data: UpdateProfileDto, @Request() req) {
+    return await this.usersService.updateProfile(data, req.user.userId);
   }
 
   @Get('complete-register/validate-link')

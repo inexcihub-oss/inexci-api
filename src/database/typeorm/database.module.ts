@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import * as entities from '../entities';
+import { ENTITIES } from '../entities';
 import * as repositories from '../repositories';
 
 @Global()
@@ -13,12 +13,12 @@ import * as repositories from '../repositories';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get('DATABASE_URL'),
-        entities: Object.values(entities),
+        entities: ENTITIES,
         synchronize: false,
         logging: configService.get('NODE_ENV') === 'development',
       }),
     }),
-    TypeOrmModule.forFeature(Object.values(entities)),
+    TypeOrmModule.forFeature(ENTITIES),
   ],
   providers: Object.values(repositories),
   exports: [TypeOrmModule, ...Object.values(repositories)],

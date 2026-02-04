@@ -5,7 +5,6 @@ import {
   cleanDatabase,
   closeTestApp,
   seedTestData,
-  linkUserToClinic,
 } from '../helpers/test-setup';
 import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
 
@@ -13,7 +12,6 @@ describe('CID - Classificação Internacional de Doenças (e2e)', () => {
   let app: INestApplication;
   let authToken: string;
   let currentUser: any;
-  let testClinicId: number;
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -21,12 +19,10 @@ describe('CID - Classificação Internacional de Doenças (e2e)', () => {
 
   beforeEach(async () => {
     await cleanDatabase(app);
-    const seedData = await seedTestData(app);
-    testClinicId = seedData.clinicId;
+    await seedTestData(app);
     const auth = await getAuthenticatedRequest(app);
     authToken = auth.token;
     currentUser = auth.user;
-    await linkUserToClinic(app, currentUser.id, testClinicId);
   });
 
   afterAll(async () => {

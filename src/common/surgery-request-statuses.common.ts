@@ -54,7 +54,6 @@ const statuses: Record<string, StatusConfig> = {
         description: 'Inserir itens OPME (se aplicável)',
         key: PendencyKeys.insertOpme,
         responsible: 'collaborator',
-        optional: true,
       },
       {
         name: 'Diagnóstico (CID)',
@@ -122,7 +121,7 @@ const statuses: Record<string, StatusConfig> = {
   inAnalysis: {
     value: 3,
     label: 'Em Análise',
-    nextStatus: 5, // Autorizada (aguarda aprovação manual ou resultado)
+    nextStatus: 4, // Em Agendamento
     defaultPendencies: [
       {
         name: 'Aguardar Resultado',
@@ -133,25 +132,10 @@ const statuses: Record<string, StatusConfig> = {
       },
     ],
   },
-  inReanalysis: {
+  inScheduling: {
     value: 4,
-    label: 'Em Reanálise',
-    nextStatus: 5, // Autorizada (aguarda aprovação manual ou resultado)
-    defaultPendencies: [
-      {
-        name: 'Aguardar Reanálise',
-        description:
-          'Monitorar reanálise do convênio (prazo ANS: 7 dias úteis)',
-        key: PendencyKeys.waitReanalysis,
-        responsible: 'collaborator',
-        isWaiting: true,
-      },
-    ],
-  },
-  awaitingAppointment: {
-    value: 5,
-    label: 'Autorizada',
-    nextStatus: 6, // Agendada
+    label: 'Em Agendamento',
+    nextStatus: 5, // Agendada
     defaultPendencies: [
       {
         name: 'Definir Opções de Data',
@@ -168,9 +152,9 @@ const statuses: Record<string, StatusConfig> = {
     ],
   },
   scheduled: {
-    value: 6,
+    value: 5,
     label: 'Agendada',
-    nextStatus: 7, // A Faturar
+    nextStatus: 6, // Realizada
     defaultPendencies: [
       {
         name: 'Guia de Autorização',
@@ -186,10 +170,10 @@ const statuses: Record<string, StatusConfig> = {
       },
     ],
   },
-  toInvoice: {
-    value: 7,
-    label: 'A Faturar',
-    nextStatus: 8, // Faturada
+  performed: {
+    value: 6,
+    label: 'Realizada',
+    nextStatus: 7, // Faturada
     defaultPendencies: [
       {
         name: 'Descrição da Cirurgia',
@@ -212,9 +196,9 @@ const statuses: Record<string, StatusConfig> = {
     ],
   },
   invoiced: {
-    value: 8,
+    value: 7,
     label: 'Faturada',
-    nextStatus: 9, // Finalizada
+    nextStatus: 8, // Finalizada
     defaultPendencies: [
       {
         name: 'Registrar Recebimento',
@@ -224,13 +208,13 @@ const statuses: Record<string, StatusConfig> = {
       },
     ],
   },
-  received: {
-    value: 9,
+  finished: {
+    value: 8,
     label: 'Finalizada',
     defaultPendencies: [],
   },
   canceled: {
-    value: 10,
+    value: 9,
     label: 'Cancelada',
     defaultPendencies: [],
   },

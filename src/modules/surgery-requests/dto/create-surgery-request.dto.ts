@@ -20,7 +20,7 @@ export class CreateSurgeryRequestDto {
   indication_name: string;
 
   @Allow()
-  @Transform(({ value }) => value ? Number(value) : undefined)
+  @Transform(({ value }) => (value ? Number(value) : undefined))
   procedure_id?: number;
 
   @Allow()
@@ -47,7 +47,7 @@ export class CreateSurgeryRequestDto {
     email: string;
     phone: string;
     password: string;
-  }
+  };
 
   @Allow()
   @Transform(({ value }) => {
@@ -60,4 +60,10 @@ export class CreateSurgeryRequestDto {
     email: string;
     phone: string;
   };
+
+  @Allow()
+  priority?: string;
+
+  @Allow()
+  deadline?: Date;
 }

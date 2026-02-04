@@ -4,6 +4,9 @@ import { FindManySharedDto } from 'src/shared/dto/find-many.dto';
 
 export class FindManySurgeryRequestDto extends FindManySharedDto {
   @IsOptional()
-  @Transform(({ value }) => value.split(',').map((item) => parseInt(item)))
+  @Transform(({ value }) => {
+    if (value === 'all' || !value) return undefined;
+    return value.split(',').map((item) => parseInt(item));
+  })
   status?: number[];
 }

@@ -34,12 +34,12 @@ export class DocumentKeyRepository {
 
   async findOne(
     where: FindOptionsWhere<DefaultDocumentClinic>,
-  ): Promise<{ clinic_id: number } | null> {
+  ): Promise<{ doctor_id: number } | null> {
     const result = await this.repository.findOne({
       where,
-      select: ['clinic_id'],
+      select: ['doctor_id'],
     });
-    return result ? { clinic_id: result.clinic_id } : null;
+    return result ? { doctor_id: result.doctor_id } : null;
   }
 
   async findMany(

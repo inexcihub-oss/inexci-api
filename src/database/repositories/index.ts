@@ -1,4 +1,8 @@
 export { UserRepository } from './user.repository';
+export { DoctorProfileRepository } from './doctor-profile.repository';
+export { PatientRepository } from './patient.repository';
+export { HospitalRepository } from './hospital.repository';
+export { SupplierRepository } from './supplier.repository';
 export { ChatRepository } from './chat.repository';
 export { ChatMessageRepository } from './chat-message.repository';
 export { CidRepository } from './cid.repository';
@@ -12,3 +16,5 @@ export { StatusUpdateRepository } from './status-update.repository';
 export { SurgeryRequestProcedureRepository } from './surgery-request-procedure.repository';
 export { SurgeryRequestQuotationRepository } from './surgery-request-quotation.repository';
 export { SurgeryRequestRepository } from './surgery-request.repository';
+export { NotificationRepository } from './notification.repository';
+export { UserNotificationSettingsRepository } from './user-notification-settings.repository';

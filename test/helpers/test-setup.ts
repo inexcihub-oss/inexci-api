@@ -69,40 +69,9 @@ export async function cleanDatabase(app: INestApplication): Promise<void> {
   }
 }
 
-// Criar dados de seed para testes (clínica padrão e dados essenciais)
-export async function seedTestData(
-  app: INestApplication,
-): Promise<{ clinicId: number }> {
+// Criar dados de seed para testes (procedimentos e dados essenciais)
+export async function seedTestData(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
-
-  // Verificar se já existe uma clínica de teste, senão criar
-  const existing = await dataSource.query(`
-    SELECT id FROM clinic WHERE name = 'Test Clinic' LIMIT 1
-  `);
-
-  let clinicId: number;
-
-  if (existing.length > 0) {
-    clinicId = existing[0].id;
-  } else {
-    // Criar uma clínica padrão para testes
-    const result = await dataSource.query(`
-      INSERT INTO clinic (name, created_at, updated_at)
-      VALUES ('Test Clinic', NOW(), NOW())
-      ON CONFLICT DO NOTHING
-      RETURNING id
-    `);
-
-    if (result.length === 0) {
-      // Se houve conflito, buscar o ID existente
-      const fallback = await dataSource.query(`
-        SELECT id FROM clinic WHERE name = 'Test Clinic' LIMIT 1
-      `);
-      clinicId = fallback[0].id;
-    } else {
-      clinicId = result[0].id;
-    }
-  }
 
   // Criar procedimentos de teste se não existirem
   const existingProcedures = await dataSource.query(`
@@ -119,42 +88,26 @@ export async function seedTestData(
       ON CONFLICT DO NOTHING
     `);
   }
-
-  return { clinicId };
-}
-
-// Atualizar o usuário de teste para ter clinic_id
-export async function linkUserToClinic(
-  app: INestApplication,
-  userId: number,
-  clinicId: number,
-): Promise<void> {
-  const dataSource = app.get(DataSource);
-  await dataSource.query(`UPDATE "user" SET clinic_id = $1 WHERE id = $2`, [
-    clinicId,
-    userId,
-  ]);
 }
 
 /**
- * Cria um usuário diretamente no banco de dados com profile e status específicos
+ * Cria um usuário diretamente no banco de dados com role e status específicos
  * Útil para testar rotas que requerem permissões específicas
  */
-export async function createUserWithProfile(
+export async function createUserWithRole(
   app: INestApplication,
   options: {
     email: string;
     name: string;
-    profile: number; // UserPvs/UserProfiles value
-    status: number; // UserStatuses value
-    clinicId?: number;
+    role?: 'admin' | 'doctor' | 'collaborator'; // UserRole value
+    status?: number; // UserStatus value (1=PENDING, 2=ACTIVE, 3=INACTIVE)
     password?: string;
   },
 ): Promise<{
   id: number;
   email: string;
   name: string;
-  profile: number;
+  role: string;
   status: number;
 }> {
   const dataSource = app.get(DataSource);
@@ -164,17 +117,16 @@ export async function createUserWithProfile(
 
   const result = await dataSource.query(
     `
-    INSERT INTO "user" (name, email, password, profile, status, clinic_id, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-    RETURNING id, email, name, profile, status
+    INSERT INTO "user" (name, email, password, role, status, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+    RETURNING id, email, name, role, status
   `,
     [
       options.name,
       options.email,
       hashedPassword,
-      options.profile,
-      options.status,
-      options.clinicId || null,
+      options.role || 'doctor',
+      options.status || 2, // ACTIVE by default
     ],
   );
 
@@ -182,7 +134,8 @@ export async function createUserWithProfile(
 }
 
 // Alias para compatibilidade com código existente
-export const createUserWithPv = createUserWithProfile;
+export const createUserWithProfile = createUserWithRole;
+export const createUserWithPv = createUserWithRole;
 
 export async function closeTestApp(app: INestApplication): Promise<void> {
   if (app) {

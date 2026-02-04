@@ -4,22 +4,16 @@ import {
   IsEmail,
   IsIn,
   IsNotEmpty,
-  IsNumber,
+  IsOptional,
   IsString,
-  MinLength,
 } from 'class-validator';
-import { UserPvs, UserStatuses } from 'src/common';
+import { UserRole } from 'src/database/entities/user.entity';
 
 export class CreateUserDto {
-  @IsNumber()
-  @Type(() => Number)
-  @IsIn(Object.values(UserPvs))
-  profile: number;
-
-  @IsNumber()
-  @Type(() => Number)
-  @IsIn(Object.values(UserStatuses))
-  status: number;
+  @IsOptional()
+  @IsString()
+  @IsIn(Object.values(UserRole))
+  role?: UserRole;
 
   @IsString()
   @IsNotEmpty()
@@ -30,12 +24,8 @@ export class CreateUserDto {
   @IsEmail()
   email: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @Transform(({ value }) => Mask.phone.raw(value))
-  phone: string;
-
-  @IsNumber()
-  @Type(() => Number)
-  clinic_id: number;
+  @Transform(({ value }) => (value ? Mask.phone.raw(value) : value))
+  phone?: string;
 }

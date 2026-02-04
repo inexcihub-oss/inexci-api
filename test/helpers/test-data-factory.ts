@@ -1,20 +1,15 @@
 import { faker } from '@faker-js/faker';
 
-// Constantes de UserPvs e UserStatuses (espelhando src/common)
-const UserPvs = {
-  doctor: 1,
-  collaborator: 2,
-  hospital: 3,
-  patient: 4,
-  supplier: 5,
-  health_plan: 6,
+// Constantes de UserRole (espelhando src/database/entities/user.entity.ts)
+const UserRole = {
+  admin: 'admin',
+  doctor: 'doctor',
+  collaborator: 'collaborator',
 };
 
-// Alias para compatibilidade com nova nomenclatura
-const UserProfiles = UserPvs;
-
+// Constantes de UserStatuses
 const UserStatuses = {
-  incomplete: 1,
+  pending: 1,
   active: 2,
   inactive: 3,
 };
@@ -30,17 +25,15 @@ export class TestDataFactory {
   }
 
   // Dados para criar usuário via API (compatível com CreateUserDto)
-  static generateCreateUserData(clinicId: number = 1) {
+  static generateCreateUserData() {
     return {
       name: faker.person.fullName(),
       email: faker.internet.email().toLowerCase(),
       phone: this.generatePhone(),
-      profile: faker.helpers.arrayElement([
-        UserPvs.doctor,
-        UserPvs.collaborator,
+      role: faker.helpers.arrayElement([
+        UserRole.doctor,
+        UserRole.collaborator,
       ]),
-      status: UserStatuses.active,
-      clinic_id: clinicId,
     };
   }
 
@@ -52,7 +45,7 @@ export class TestDataFactory {
       password: 'Test@1234',
       cpf: this.generateCPF(),
       phone: this.generatePhone(),
-      accessLevel: faker.helpers.arrayElement([1, 2, 3]),
+      role: UserRole.doctor,
     };
   }
 
@@ -133,7 +126,7 @@ export class TestDataFactory {
   }
 
   // Gera dados mínimos para criar solicitação de cirurgia (para testes)
-  static generateSurgeryRequestData(clinicId: number = 1) {
+  static generateSurgeryRequestData() {
     return {
       is_indication: false,
       indication_name: '',

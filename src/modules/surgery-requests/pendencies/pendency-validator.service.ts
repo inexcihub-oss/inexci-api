@@ -148,8 +148,8 @@ export class PendencyValidatorService {
         return procedures.length > 0;
 
       case PendencyKeys.insertOpme:
-        // Opcional - considera completo se não tem itens OU se tem itens
-        return true; // Sempre verdadeiro pois é opcional
+        // Obrigatório - verifica se há pelo menos um item OPME
+        return opmeItems.length > 0;
 
       case PendencyKeys.diagnosisData:
         return !!(surgeryRequest.cid_id && surgeryRequest.diagnosis);
@@ -187,11 +187,7 @@ export class PendencyValidatorService {
         // Só é resolvida quando muda de status manualmente
         return false;
 
-      // === STATUS 4: EM REANÁLISE ===
-      case PendencyKeys.waitReanalysis:
-        return false;
-
-      // === STATUS 5: AUTORIZADA ===
+      // === STATUS 4: EM AGENDAMENTO ===
       case PendencyKeys.defineDates:
         return !!(
           surgeryRequest.date_options &&
@@ -202,7 +198,7 @@ export class PendencyValidatorService {
       case PendencyKeys.patientChooseDate:
         return surgeryRequest.selected_date_index !== null;
 
-      // === STATUS 6: AGENDADA ===
+      // === STATUS 5: AGENDADA ===
       case PendencyKeys.documents.authorizationGuide:
         return hasDocument('authorization_guide');
 
@@ -210,7 +206,7 @@ export class PendencyValidatorService {
         // Confirmação manual - verifica se tem data de cirurgia
         return !!surgeryRequest.surgery_date;
 
-      // === STATUS 7: A FATURAR ===
+      // === STATUS 6: REALIZADA ===
       case PendencyKeys.surgeryDescription:
         return !!surgeryRequest.surgery_description;
 
@@ -220,7 +216,7 @@ export class PendencyValidatorService {
       case PendencyKeys.documents.invoiceProtocol:
         return hasDocument('invoice_protocol');
 
-      // === STATUS 8: FATURADA ===
+      // === STATUS 7: FATURADA ===
       case PendencyKeys.registerReceipt:
         return !!(
           surgeryRequest.received_value && surgeryRequest.received_date

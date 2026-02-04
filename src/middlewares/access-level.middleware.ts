@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { verify } from 'jsonwebtoken';
 import { AccessLevels, HttpMessages } from 'src/common';
+import { UserRole } from 'src/database/entities/user.entity';
 import { NextFunction, Request, Response } from 'express';
 import { UserRepository } from 'src/database/repositories/user.repository';
 
@@ -53,11 +54,10 @@ export class AccessLevel implements NestMiddleware {
           );
         }
 
-        const hasPermission = accessLevel.findIndex(
-          (profile: number) => profile === user.profile,
-        );
+        // Verifica se o role do usuário está na lista de roles permitidos
+        const hasPermission = accessLevel.includes(user.role as UserRole);
 
-        if (hasPermission === -1)
+        if (!hasPermission)
           throw new HttpException(
             HttpMessages.permissionDenied,
             HttpStatus.UNAUTHORIZED,

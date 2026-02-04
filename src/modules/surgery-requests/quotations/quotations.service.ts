@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
+import { SupplierRepository } from 'src/database/repositories/supplier.repository';
+import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserPvs, UserStatuses } from 'src/common';
+import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestQuotationRepository } from 'src/database/repositories/surgery-request-quotation.repository';
 import { SurgeryRequestsService } from '../surgery-requests.service';
 import { ChatsService } from '../chats/chats.service';
@@ -17,6 +19,7 @@ import { SurgeryRequestQuotation } from 'src/database/entities/surgery-request-q
 import { Chat } from 'src/database/entities/chat.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
+import { Supplier } from 'src/database/entities/supplier.entity';
 
 @Injectable()
 export class QuotationsService {
@@ -25,9 +28,24 @@ export class QuotationsService {
     private readonly chatsService: ChatsService,
     private readonly emailService: EmailService,
     private readonly userRepository: UserRepository,
+    private readonly supplierRepository: SupplierRepository,
+    private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly surgeryRequestsService: SurgeryRequestsService,
     private readonly surgeryRequestQuotationRepository: SurgeryRequestQuotationRepository,
   ) {}
+
+  private async getDoctorId(userId: number): Promise<number | null> {
+    const user = await this.userRepository.findOne({ id: userId });
+
+    if (user.role === UserRole.DOCTOR) {
+      const doctorProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      return doctorProfile?.id || null;
+    }
+
+    // TODO: Para colaboradores, obter via TeamMember
+    return null;
+  }
 
   async create(data: CreateQuotationDto, userId: number) {
     const surgeryRequest = await this.surgeryRequestsService.findOne(
@@ -35,31 +53,27 @@ export class QuotationsService {
       userId,
     );
 
-    // if (!surgeryRequest.opme_items.length || !surgeryRequest.procedures.length)
-    //   throw new BadRequestException(
-    //     'Para inserir as cotações, a lista OPME e os procedimentos devem ser informados',
-    //   );
-
+    const doctorId = await this.getDoctorId(userId);
     let supplierId = null;
-    let shouldSendEmail = false;
 
-    const supplier = await this.userRepository.findOne({
+    // Buscar fornecedor pelo email
+    const supplier = await this.supplierRepository.findOne({
       email: data.supplier.email,
-      profile: UserPvs.supplier,
     });
 
     if (supplier) {
       supplierId = supplier.id;
     } else {
-      const newSupplier = await this.userRepository.create({
-        profile: UserPvs.supplier,
-        status: UserStatuses.incomplete,
+      // Criar novo fornecedor específico do médico
+      const supplierRepo = this.dataSource.getRepository(Supplier);
+      const newSupplier = await supplierRepo.save({
         email: data.supplier.email,
         name: data.supplier.name,
         phone: data.supplier.phone,
+        doctor_id: doctorId,
+        is_global: false,
       });
       supplierId = newSupplier.id;
-      shouldSendEmail = true;
     }
 
     const quotation = await this.surgeryRequestQuotationRepository.findOne({
@@ -80,26 +94,9 @@ export class QuotationsService {
         surgery_request_id: data.surgery_request_id,
       });
 
-      if (shouldSendEmail) {
-        this.emailService.sendCompleteRegisterEmail(data.supplier.email, {
-          id: supplierId,
-          name: data.supplier.name,
-        });
-      }
-
-      const chat = await chatRepo.findOne({
-        where: {
-          user_id: supplierId,
-          surgery_request_id: data.surgery_request_id,
-        },
-      });
-
-      if (!chat) {
-        await chatRepo.save({
-          user_id: supplierId,
-          surgery_request_id: data.surgery_request_id,
-        });
-      }
+      // Chat para fornecedor - associado ao userId (não ao supplier_id)
+      // Na nova arquitetura, fornecedores não fazem login, então comentamos isso
+      // Chats são entre usuários logados (médicos/colaboradores)
 
       return newQuotation;
     });

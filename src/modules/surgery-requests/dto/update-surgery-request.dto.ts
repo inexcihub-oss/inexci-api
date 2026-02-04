@@ -15,16 +15,16 @@ export class UpdateSurgeryRequestDto {
 
   @IsNotEmpty()
   @Transform(({ value }) => {
-      value.phone = Mask.phone.raw(value.phone);
-  
-      return value;
-    })
+    value.phone = Mask.phone.raw(value.phone);
+
+    return value;
+  })
   health_plan: {
     id: number;
     name: string;
     email: string;
     phone: string;
-  }
+  };
 
   @IsString()
   @IsNotEmpty()
@@ -39,7 +39,7 @@ export class UpdateSurgeryRequestDto {
   cid: {
     id: string;
     description: string;
-  }
+  };
 
   @IsString()
   diagnosis: string;
@@ -55,4 +55,11 @@ export class UpdateSurgeryRequestDto {
     name: string;
     email: string;
   };
+
+  @IsOptional()
+  @IsString()
+  priority?: string;
+
+  @IsOptional()
+  deadline?: Date;
 }

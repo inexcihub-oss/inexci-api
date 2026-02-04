@@ -23,17 +23,39 @@ export class UserRepository {
       where,
       select: {
         id: true,
-        clinic_id: true,
-        profile: true,
+        role: true,
         status: true,
         email: true,
         name: true,
         phone: true,
-        password: selectPassword,
-        birth_date: true,
+        cpf: true,
         gender: true,
-        document: true,
-        company: true,
+        birth_date: true,
+        avatar_url: true,
+        password: selectPassword,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+  }
+
+  async findOneWithProfile(
+    where: FindOptionsWhere<User> | FindOptionsWhere<User>[],
+  ) {
+    return await this.repository.findOne({
+      where,
+      relations: ['doctor_profile'],
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        email: true,
+        name: true,
+        phone: true,
+        cpf: true,
+        gender: true,
+        birth_date: true,
+        avatar_url: true,
         created_at: true,
         updated_at: true,
       },
@@ -51,15 +73,17 @@ export class UserRepository {
       take,
       select: {
         id: true,
-        clinic_id: true,
+        role: true,
         status: true,
         email: true,
         name: true,
         phone: true,
+        cpf: true,
         gender: true,
         birth_date: true,
-        document: true,
+        avatar_url: true,
         created_at: true,
+        updated_at: true,
       },
     });
   }
@@ -71,6 +95,10 @@ export class UserRepository {
 
   async update(id: number, data: Partial<User>) {
     await this.repository.update(id, data);
-    return await this.repository.findOne({ where: { id } });
+    return await this.findOne({ id });
+  }
+
+  async delete(id: number) {
+    return await this.repository.delete(id);
   }
 }

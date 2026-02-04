@@ -29,6 +29,7 @@ import { CidModule } from './modules/surgery-requests/cid/cid.module';
 import { HealthPlansModule } from './modules/health_plan/health_plans.module';
 import { CronService } from './shared/cron/cron.service';
 import { CronModule } from './shared/cron/cron.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { CronModule } from './shared/cron/cron.module';
     ReportsModule,
     CidModule,
     HealthPlansModule,
+    NotificationsModule,
     ScheduleModule.forRoot(),
     CronModule,
   ],

@@ -1,44 +1,51 @@
 import { Injectable } from '@nestjs/common';
 import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
-import { AuthService } from '../auth/auth.service';
-import { UserRepository } from 'src/database/repositories/user.repository';
+import { HospitalRepository } from 'src/database/repositories/hospital.repository';
+import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { FindOptionsWhere } from 'typeorm';
-import { UserPvs, UserStatuses } from 'src/common';
-import { User } from 'src/database/entities/user.entity';
+import { Hospital } from 'src/database/entities/hospital.entity';
+import { UserRepository } from 'src/database/repositories/user.repository';
+import { UserRole } from 'src/database/entities/user.entity';
 
 @Injectable()
 export class HospitalsService {
   constructor(
+    private readonly hospitalRepository: HospitalRepository,
+    private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly userRepository: UserRepository,
-    private readonly authService: AuthService,
   ) {}
 
   async findAll(query: FindManyHospitalDto, userId: number) {
-    const user = await this.authService.me(userId);
+    const user = await this.userRepository.findOne({ id: userId });
 
-    // TypeORM não suporta OR diretamente em FindOptionsWhere
-    // Precisamos fazer queries separadas ou usar QueryBuilder
-    let where: FindOptionsWhere<User>[] = [
-      {
-        profile: UserPvs.hospital,
-        status: UserStatuses.active,
-      },
-    ];
+    // Determinar o doctor_id baseado no role do usuário
+    let doctorId: number;
 
-    if (
-      user.profile === UserPvs.doctor ||
-      user.profile === UserPvs.collaborator
-    ) {
-      where.push({
-        profile: UserPvs.hospital,
-        status: UserStatuses.incomplete,
-        clinic_id: user.clinic_id,
-      });
+    if (user.role === UserRole.DOCTOR) {
+      const doctorProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      doctorId = doctorProfile?.id;
+    } else if (user.role === UserRole.COLLABORATOR) {
+      // TODO: Implementar lógica para obter o doctor do colaborador via TeamMember
+      return { total: 0, records: [] };
+    } else if (user.role === UserRole.ADMIN) {
+      // Admin pode ver todos os hospitais
+      const [total, records] = await Promise.all([
+        this.hospitalRepository.total({}),
+        this.hospitalRepository.findMany({}, query.skip, query.take),
+      ]);
+      return { total, records };
     }
 
+    if (!doctorId) {
+      return { total: 0, records: [] };
+    }
+
+    const where: FindOptionsWhere<Hospital> = { doctor_id: doctorId };
+
     const [total, records] = await Promise.all([
-      this.userRepository.total(where),
-      this.userRepository.findMany(where, query.skip, query.take),
+      this.hospitalRepository.total(where),
+      this.hospitalRepository.findMany(where, query.skip, query.take),
     ]);
 
     return { total, records };

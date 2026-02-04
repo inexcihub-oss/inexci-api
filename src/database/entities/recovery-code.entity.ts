@@ -30,7 +30,7 @@ export class RecoveryCode {
   updated_at: Date;
 
   // Relations
-  @ManyToOne(() => User, (user) => user.recovery_code)
+  @ManyToOne(() => User, (user) => user.recovery_codes)
   @JoinColumn({ name: 'user_id' })
   user: User;
 }

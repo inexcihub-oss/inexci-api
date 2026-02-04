@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Request } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Request } from '@nestjs/common';
 
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { Public } from 'src/shared/decorator/is-public.decorator';
 import { validationCodeDto } from './dto/validation-code.dto';
 import { changePasswordDto } from './dto/change-password.dto';
+import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -42,8 +43,19 @@ export class AuthController {
 
   @Public()
   @Post('changePassword')
-  async changePassword(@Body() data: changePasswordDto) {    
+  async changePassword(@Body() data: changePasswordDto) {
     return await this.authService.changePassword(data);
+  }
+
+  @Put('changePassword')
+  async changePasswordAuthenticated(
+    @Body() data: ChangePasswordAuthenticatedDto,
+    @Request() req: any,
+  ) {
+    return await this.authService.changePasswordAuthenticated(
+      data,
+      req.user.userId,
+    );
   }
 
   @Public()

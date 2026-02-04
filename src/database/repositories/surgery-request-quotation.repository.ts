@@ -40,7 +40,7 @@ export class SurgeryRequestQuotationRepository {
           id: true,
           name: true,
           email: true,
-          company: true,
+          phone: true,
         },
       },
     });

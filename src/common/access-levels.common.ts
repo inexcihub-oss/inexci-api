@@ -1,181 +1,228 @@
-import { UserPvs } from '.';
+import { UserRole } from 'src/database/entities/user.entity';
 
+/**
+ * Controle de acesso por rota e método HTTP
+ *
+ * Na nova arquitetura, apenas 3 tipos de usuário fazem login:
+ * - ADMIN: Acesso total à plataforma
+ * - DOCTOR: Médico (dono da conta)
+ * - COLLABORATOR: Colaborador do médico (permissões via TeamMember)
+ */
 export default {
   '/auth/me': {
-    GET: [
-      UserPvs.doctor,
-      UserPvs.collaborator,
-      UserPvs.hospital,
-      UserPvs.patient,
-      UserPvs.supplier,
-    ],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/users': {
-    GET: [UserPvs.doctor],
-    POST: [UserPvs.doctor],
-    PUT: [UserPvs.doctor],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR],
   },
   '/users/one': {
-    GET: [UserPvs.doctor],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR],
   },
-  '/users/complete-register': {
-    POST: [UserPvs.patient, UserPvs.hospital, UserPvs.supplier],
+  '/users/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
-  '/users/complete-register/validate-link': {
-    GET: [UserPvs.patient, UserPvs.hospital, UserPvs.supplier],
+  '/users/profile': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests': {
-    GET: [
-      UserPvs.doctor,
-      UserPvs.collaborator,
-      UserPvs.hospital,
-      UserPvs.patient,
-      UserPvs.supplier,
-    ],
-    POST: [UserPvs.doctor],
-    PUT: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/one': {
-    GET: [
-      UserPvs.doctor,
-      UserPvs.collaborator,
-      UserPvs.hospital,
-      UserPvs.patient,
-      UserPvs.supplier,
-    ],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/simple': {
-    POST: [UserPvs.doctor],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
   },
   '/surgery-requests/send': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/schedule': {
-    POST: [UserPvs.doctor, UserPvs.collaborator, UserPvs.patient],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/to-invoice': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/invoice': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/receive': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/cancel': {
-    POST: [UserPvs.doctor],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
   },
   '/surgery-requests/surgery-dates': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/opme': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/procedures': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/procedures/authorize': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/quotations': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
-    PUT: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/documents': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
-    DELETE: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/documents-key': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/pendencies': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/grouped/:id': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/summary/:id': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/check/:id': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/validate/:id': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/quick-summary/:id': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/:id/complete': {
-    PATCH: [UserPvs.doctor, UserPvs.collaborator],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/cid': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/contest': {
-    POST: [UserPvs.doctor, UserPvs.collaborator],
-  },
-
-  '/surgery-requests/complaint': {
-    POST: [UserPvs.patient],
-  },
-
-  '/surgery-requests/dateExpired': {
-    POST: [UserPvs.patient],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/:id/status': {
-    PATCH: [UserPvs.doctor, UserPvs.collaborator],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  '/surgery-requests/:id/basic': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/procedures': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/suppliers': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
 
   '/patients': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
 
   '/hospitals': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
 
   '/health_plans': {
-    GET: [UserPvs.doctor, UserPvs.collaborator],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
 
   '/chats/messages': {
-    POST: [
-      UserPvs.doctor,
-      UserPvs.collaborator,
-      UserPvs.patient,
-      UserPvs.hospital,
-      UserPvs.supplier,
-    ],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/reports/dashboard': {
-    GET: [
-      UserPvs.doctor,
-      UserPvs.collaborator,
-      UserPvs.patient,
-      UserPvs.hospital,
-      UserPvs.supplier,
-    ],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  '/reports/temporal-evolution': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  '/reports/monthly-evolution': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  '/reports/average-completion-time': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  '/reports/pending-notifications': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  // Team Members (equipe do médico)
+  '/team-members': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+  '/team-members/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+
+  // Doctor Profiles
+  '/doctor-profiles': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+  '/doctor-profiles/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+
+  // Notifications
+  '/notifications': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/notifications/settings': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/notifications/unread-count': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/notifications/:id/read': {
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/notifications/read-all': {
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/notifications/:id': {
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 };

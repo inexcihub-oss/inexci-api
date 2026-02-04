@@ -8,16 +8,16 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
-import { User } from 'src/database/entities/user.entity';
-import { HttpMessages, UserStatuses } from 'src/common';
+import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { HttpMessages } from 'src/common';
 import { EmailService } from 'src/shared/email/email.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery_code.repository';
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { validationCodeDto } from './dto/validation-code.dto';
-import { UpdateUserDto } from '../users/dto/update-user.dto';
 import { changePasswordDto } from './dto/change-password.dto';
+import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 
 function generateValidationCode(length = 6) {
   const characters =
@@ -41,7 +41,7 @@ export class AuthService {
 
   async validateUser(email: string, password: string): Promise<User | null> {
     const user = await this.userRepository.findOne(
-      { email, status: UserStatuses.active },
+      { email, status: UserStatus.ACTIVE },
       true,
     );
 
@@ -80,8 +80,8 @@ export class AuthService {
       name: data.name,
       email: data.email,
       password: hashedPassword,
-      profile: 1, // Padrão para usuário comum (doctor)
-      status: UserStatuses.active,
+      role: UserRole.DOCTOR, // Padrão para usuário que se registra
+      status: UserStatus.ACTIVE,
       phone: null,
     });
 
@@ -89,13 +89,11 @@ export class AuthService {
     return {
       user: {
         id: user.id.toString(),
-        profile: user.profile,
-        clinic_id: user.clinic_id,
+        role: user.role,
         name: user.name,
         phone: user.phone,
         email: user.email,
-        cpf: user.document,
-        accessLevel: user.profile,
+        cpf: user.cpf,
         status: user.status,
         createdAt: user.created_at?.toISOString() || new Date().toISOString(),
         updatedAt: user.updated_at?.toISOString() || new Date().toISOString(),
@@ -111,13 +109,11 @@ export class AuthService {
       return {
         user: {
           id: result.id.toString(),
-          profile: result.profile,
-          clinic_id: result.clinic_id,
+          role: result.role,
           name: result.name,
           phone: result.phone,
           email: result.email,
-          cpf: result.document,
-          accessLevel: result.profile,
+          cpf: result.cpf,
           status: result.status,
           createdAt:
             result.created_at?.toISOString() || new Date().toISOString(),
@@ -134,8 +130,7 @@ export class AuthService {
 
     const dataToReturn = {
       id: user.id,
-      profile: user.profile,
-      clinic_id: user.clinic_id,
+      role: user.role,
       name: user.name,
       phone: user.phone,
       email: user.email,
@@ -202,6 +197,32 @@ export class AuthService {
     const password = await bcrypt.hash(data.password, 10);
 
     await this.userRepository.update(user.id, { password: password });
+
+    return { message: 'Senha alterada com sucesso' };
+  }
+
+  async changePasswordAuthenticated(
+    data: ChangePasswordAuthenticatedDto,
+    userId: number,
+  ) {
+    const user = await this.userRepository.findOne({ id: userId }, true);
+
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    // Verifica se a senha atual está correta
+    const isPasswordValid = await bcrypt.compare(
+      data.currentPassword,
+      user.password,
+    );
+
+    if (!isPasswordValid) {
+      throw new BadRequestException('Senha atual incorreta');
+    }
+
+    // Hash da nova senha
+    const newPasswordHash = await bcrypt.hash(data.newPassword, 10);
+
+    await this.userRepository.update(user.id, { password: newPasswordHash });
 
     return { message: 'Senha alterada com sucesso' };
   }

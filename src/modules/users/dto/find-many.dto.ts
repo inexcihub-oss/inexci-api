@@ -1,9 +1,10 @@
-import { Type } from 'class-transformer';
-import { IsNumber, IsOptional } from 'class-validator';
+import { IsOptional, IsString, IsIn } from 'class-validator';
 import { FindManySharedDto } from 'src/shared/dto/find-many.dto';
+import { UserRole } from 'src/database/entities/user.entity';
 
 export class FindManyUsersDto extends FindManySharedDto {
-  @IsNumber()
-  @Type(() => Number)
-  profile: number;
+  @IsOptional()
+  @IsString()
+  @IsIn(Object.values(UserRole))
+  role?: UserRole;
 }

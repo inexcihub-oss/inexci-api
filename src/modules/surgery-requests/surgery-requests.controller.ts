@@ -18,6 +18,7 @@ import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
+import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { SendSurgeryRequestDto } from './dto/send-surgery-request.dto';
 import { CreateSurgeryDateOptions } from './dto/create-surgery-date-options.dto';
@@ -95,6 +96,18 @@ export class SurgeryRequestsController {
     return this.surgeryRequestsService.update(data, req.user.userId);
   }
 
+  @Patch(':id/basic')
+  updateBasic(
+    @Param('id') id: string,
+    @Body() data: UpdateSurgeryRequestBasicDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.updateBasic(
+      { ...data, id: parseInt(id) },
+      req.user.userId,
+    );
+  }
+
   @Patch(':id/status')
   updateStatus(
     @Param('id') id: string,
@@ -146,12 +159,12 @@ export class SurgeryRequestsController {
   @Post(':id/deny')
   deny(
     @Param('id') id: string,
-    @Body('contest_reason') contestReason: string,
+    @Body('cancel_reason') cancelReason: string,
     @Request() req,
   ) {
     return this.surgeryRequestsService.deny(
       parseInt(id),
-      contestReason,
+      cancelReason,
       req.user.userId,
     );
   }
