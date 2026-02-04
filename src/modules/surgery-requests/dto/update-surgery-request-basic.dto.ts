@@ -1,17 +1,21 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsNumber, IsOptional, IsString, IsDateString } from 'class-validator';
+import { SurgeryRequestPriority } from '../../../database/entities';
 
 export class UpdateSurgeryRequestBasicDto {
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  id?: number;
+  @IsString()
+  id?: string;
 
   @IsOptional()
-  @IsString()
-  priority?: string;
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  priority?: SurgeryRequestPriority;
 
   @IsOptional()
   @IsDateString()
   deadline?: string;
+
+  @IsOptional()
+  @IsString()
+  manager_id?: string;
 }

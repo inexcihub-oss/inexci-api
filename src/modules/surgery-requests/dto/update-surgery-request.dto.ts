@@ -9,56 +9,61 @@ import {
 } from 'class-validator';
 
 export class UpdateSurgeryRequestDto {
-  @Type(() => Number)
-  @IsNumber()
-  id: number;
-
+  @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
+  id: string;
 
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value?.phone) {
+      value.phone = Mask.phone.raw(value.phone);
+    }
     return value;
   })
-  health_plan: {
-    id: number;
+  health_plan?: {
+    id: string;
     name: string;
     email: string;
     phone: string;
   };
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  health_plan_registration: string;
+  health_plan_registration?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  health_plan_type: string;
+  health_plan_type?: string;
 
   @IsOptional()
   @Allow()
-  cid: {
+  cid?: {
     id: string;
     description: string;
   };
 
+  @IsOptional()
   @IsString()
-  diagnosis: string;
+  diagnosis?: string;
 
+  @IsOptional()
   @IsString()
-  medical_report: string;
+  medical_report?: string;
 
+  @IsOptional()
   @IsString()
-  patient_history: string;
+  patient_history?: string;
 
+  @IsOptional()
   @Allow()
-  hospital: {
+  hospital?: {
     name: string;
     email: string;
   };
 
   @IsOptional()
-  @IsString()
-  priority?: string;
+  @IsNumber()
+  priority?: number;
 
   @IsOptional()
   deadline?: Date;

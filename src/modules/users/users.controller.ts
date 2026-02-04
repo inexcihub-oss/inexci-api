@@ -24,8 +24,8 @@ export class UsersController {
   }
 
   @Get('one')
-  async findOne(@Query() { id }: { id: number }, @Request() req) {
-    return await this.usersService.findOne(+id, req.user.userId);
+  async findOne(@Query() { id }: { id: string }, @Request() req) {
+    return await this.usersService.findOne(id, req.user.userId);
   }
 
   @Get('profile')

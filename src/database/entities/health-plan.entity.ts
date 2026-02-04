@@ -15,8 +15,8 @@ import { SurgeryRequest } from './surgery-request.entity';
  */
 @Entity('health_plan')
 export class HealthPlan {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ type: 'varchar', length: 150 })
   name: string;
@@ -64,11 +64,8 @@ export class HealthPlan {
 
   // ============ CONTROLE DE PROPRIEDADE ============
 
-  @Column({ type: 'boolean', default: true })
-  is_global: boolean; // Convênio global ou específico do médico
-
-  @Column({ name: 'doctor_id', nullable: true })
-  doctor_id: number; // Se is_global=false, pertence a este médico
+  @Column({ name: 'doctor_id' })
+  doctor_id: string; // Plano pertence a este médico
 
   @CreateDateColumn()
   created_at: Date;

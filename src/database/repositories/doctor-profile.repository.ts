@@ -19,7 +19,7 @@ export class DoctorProfileRepository {
     });
   }
 
-  async findByUserId(userId: number): Promise<DoctorProfile | null> {
+  async findByUserId(userId: string): Promise<DoctorProfile | null> {
     return this.repository.findOne({
       where: { user_id: userId },
       relations: ['user'],
@@ -52,14 +52,14 @@ export class DoctorProfileRepository {
   }
 
   async update(
-    id: number,
+    id: string,
     data: Partial<DoctorProfile>,
   ): Promise<DoctorProfile | null> {
     await this.repository.update(id, data);
     return this.findOne({ id });
   }
 
-  async delete(id: number): Promise<void> {
+  async delete(id: string): Promise<void> {
     await this.repository.delete(id);
   }
 }

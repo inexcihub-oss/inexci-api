@@ -37,27 +37,40 @@ export enum SurgeryRequestStatus {
   CANCELLED = 10, // Cancelada
 }
 
+/**
+ * Prioridade da solicitação cirúrgica
+ */
+export enum SurgeryRequestPriority {
+  LOW = 1, // Baixa
+  MEDIUM = 2, // Média
+  HIGH = 3, // Alta
+  URGENT = 4, // Urgente
+}
+
 @Entity('surgery_request')
 export class SurgeryRequest {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   // ============ RELACIONAMENTOS PRINCIPAIS ============
 
   @Column({ name: 'doctor_id' })
-  doctor_id: number;
+  doctor_id: string;
 
   @Column({ name: 'created_by_id' })
-  created_by_id: number; // Quem criou (médico ou colaborador)
+  created_by_id: string; // Quem criou (médico ou colaborador)
+
+  @Column({ name: 'manager_id', nullable: true })
+  manager_id: string; // Gestor/colaborador que vai gerenciar a solicitação
 
   @Column({ name: 'patient_id' })
-  patient_id: number;
+  patient_id: string;
 
   @Column({ name: 'hospital_id', nullable: true })
-  hospital_id: number;
+  hospital_id: string;
 
   @Column({ name: 'health_plan_id', nullable: true })
-  health_plan_id: number;
+  health_plan_id: string;
 
   @Column({ name: 'cid_id', type: 'varchar', length: 75, nullable: true })
   cid_id: string;
@@ -73,8 +86,11 @@ export class SurgeryRequest {
   @Column({ type: 'varchar', length: 75, nullable: true, unique: true })
   protocol: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  priority: string; // Baixa, Média, Alta, Urgente
+  @Column({
+    type: 'smallint',
+    default: SurgeryRequestPriority.MEDIUM,
+  })
+  priority: SurgeryRequestPriority; // 1=Baixa, 2=Média, 3=Alta, 4=Urgente
 
   @Column({ type: 'timestamp', nullable: true })
   deadline: Date;
@@ -174,6 +190,10 @@ export class SurgeryRequest {
   @JoinColumn({ name: 'created_by_id' })
   created_by: User;
 
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'manager_id' })
+  manager: User;
+
   @ManyToOne(() => Patient, (patient) => patient.surgery_requests)
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
@@ -194,7 +214,10 @@ export class SurgeryRequest {
   @JoinColumn({ name: 'cid_id' })
   cid: Cid;
 
-  @OneToMany(() => SurgeryRequestQuotation, (quotation) => quotation.surgery_request)
+  @OneToMany(
+    () => SurgeryRequestQuotation,
+    (quotation) => quotation.surgery_request,
+  )
   quotations: SurgeryRequestQuotation[];
 
   @OneToMany(() => OpmeItem, (item) => item.surgery_request)

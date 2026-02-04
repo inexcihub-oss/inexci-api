@@ -6,6 +6,7 @@ import { FindOptionsWhere } from 'typeorm';
 import { Hospital } from 'src/database/entities/hospital.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserRole } from 'src/database/entities/user.entity';
+import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
 
 @Injectable()
 export class HospitalsService {
@@ -13,21 +14,25 @@ export class HospitalsService {
     private readonly hospitalRepository: HospitalRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly userRepository: UserRepository,
+    private readonly teamMemberRepository: TeamMemberRepository,
   ) {}
 
-  async findAll(query: FindManyHospitalDto, userId: number) {
+  async findAll(query: FindManyHospitalDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
 
     // Determinar o doctor_id baseado no role do usuário
-    let doctorId: number;
+    let doctorId: string;
 
     if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      doctorId = doctorProfile?.id;
+      doctorId = userId;
     } else if (user.role === UserRole.COLLABORATOR) {
-      // TODO: Implementar lógica para obter o doctor do colaborador via TeamMember
-      return { total: 0, records: [] };
+      // Buscar o médico do colaborador via TeamMember
+      const teamMember =
+        await this.teamMemberRepository.findByCollaboratorId(userId);
+      if (!teamMember) {
+        return { total: 0, records: [] };
+      }
+      doctorId = teamMember.doctor_id;
     } else if (user.role === UserRole.ADMIN) {
       // Admin pode ver todos os hospitais
       const [total, records] = await Promise.all([
@@ -41,6 +46,7 @@ export class HospitalsService {
       return { total: 0, records: [] };
     }
 
+    // Buscar apenas hospitais do médico
     const where: FindOptionsWhere<Hospital> = { doctor_id: doctorId };
 
     const [total, records] = await Promise.all([

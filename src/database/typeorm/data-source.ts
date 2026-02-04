@@ -11,6 +11,9 @@ export const dataSourceOptions: DataSourceOptions = {
   migrations: ['dist/database/typeorm/migrations/**/*.js'],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
+  extra: {
+    charset: 'utf8mb4',
+  },
 };
 
 // DataSource para migrations e CLI (deve ser default export)

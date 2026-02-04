@@ -33,7 +33,7 @@ export class ChatsService {
     return created;
   }
 
-  async sendMessage(data: CreateMessageDto, userId: number) {
+  async sendMessage(data: CreateMessageDto, userId: string) {
     let where: FindOptionsWhere<Chat> = { id: data.chat_id };
 
     const user = await this.userRepository.findOne({ id: userId });
@@ -57,7 +57,7 @@ export class ChatsService {
 
     const newMessage = await this.chatMessageRepository.create({
       chat_id: chat.id,
-      sent_by: userId,
+      sender_id: userId,
       message: data.message,
     });
 

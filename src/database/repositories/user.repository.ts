@@ -93,12 +93,12 @@ export class UserRepository {
     return await this.repository.save(user);
   }
 
-  async update(id: number, data: Partial<User>) {
+  async update(id: string, data: Partial<User>) {
     await this.repository.update(id, data);
     return await this.findOne({ id });
   }
 
-  async delete(id: number) {
+  async delete(id: string) {
     return await this.repository.delete(id);
   }
 }

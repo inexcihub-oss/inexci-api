@@ -34,7 +34,7 @@ export class QuotationsService {
     private readonly surgeryRequestQuotationRepository: SurgeryRequestQuotationRepository,
   ) {}
 
-  private async getDoctorId(userId: number): Promise<number | null> {
+  private async getDoctorId(userId: string): Promise<string | null> {
     const user = await this.userRepository.findOne({ id: userId });
 
     if (user.role === UserRole.DOCTOR) {
@@ -47,7 +47,7 @@ export class QuotationsService {
     return null;
   }
 
-  async create(data: CreateQuotationDto, userId: number) {
+  async create(data: CreateQuotationDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestsService.findOne(
       data.surgery_request_id,
       userId,
@@ -71,7 +71,6 @@ export class QuotationsService {
         name: data.supplier.name,
         phone: data.supplier.phone,
         doctor_id: doctorId,
-        is_global: false,
       });
       supplierId = newSupplier.id;
     }
@@ -102,7 +101,7 @@ export class QuotationsService {
     });
   }
 
-  async update(data: UpdateQuotationDto, userId: number) {
+  async update(data: UpdateQuotationDto, userId: string) {
     const quotation = await this.surgeryRequestQuotationRepository.findOne({
       id: data.surgery_request_quotation_id,
     });

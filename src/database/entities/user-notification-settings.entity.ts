@@ -11,11 +11,11 @@ import { User } from './user.entity';
 
 @Entity('user_notification_settings')
 export class UserNotificationSettings {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'user_id' })
-  user_id: number;
+  user_id: string;
 
   // Canais de notificação
   @Column({ type: 'boolean', default: true })

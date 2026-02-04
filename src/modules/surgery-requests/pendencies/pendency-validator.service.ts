@@ -35,7 +35,7 @@ export class PendencyValidatorService {
    * Calcula as pendências baseadas nos dados atuais da solicitação
    * Não usa tabela - tudo é calculado em tempo real
    */
-  async validate(surgeryRequestId: number): Promise<ValidationResult> {
+  async validate(surgeryRequestId: string): Promise<ValidationResult> {
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneWithRelations(
         { id: surgeryRequestId },
@@ -248,7 +248,7 @@ export class PendencyValidatorService {
   /**
    * Retorna validação resumida para listagem (Kanban)
    */
-  async getQuickSummary(surgeryRequestId: number): Promise<{
+  async getQuickSummary(surgeryRequestId: string): Promise<{
     pending: number;
     total: number;
     canAdvance: boolean;

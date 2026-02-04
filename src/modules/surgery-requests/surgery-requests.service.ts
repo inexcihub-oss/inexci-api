@@ -10,6 +10,7 @@ import { UsersService } from '../users/users.service';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
+import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
@@ -17,7 +18,11 @@ import { HealthPlanRepository } from 'src/database/repositories/health-plan.repo
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestQuotationRepository } from 'src/database/repositories/surgery-request-quotation.repository';
-import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
+import {
+  SurgeryRequest,
+  SurgeryRequestPriority,
+} from 'src/database/entities/surgery-request.entity';
+import { Hospital } from 'src/database/entities/hospital.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 import { EmailService } from 'src/shared/email/email.service';
@@ -68,7 +73,7 @@ export class SurgeryRequestsService {
   /**
    * Helper para obter o doctorId baseado no userId logado
    */
-  private async getDoctorId(userId: number): Promise<number | null> {
+  private async getDoctorId(userId: string): Promise<string | null> {
     const user = await this.userRepository.findOne({ id: userId });
 
     if (user.role === UserRole.DOCTOR) {
@@ -85,7 +90,7 @@ export class SurgeryRequestsService {
     return null;
   }
 
-  async create(data: CreateSurgeryRequestDto, userId: number) {
+  async create(data: CreateSurgeryRequestDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     const doctorId = await this.getDoctorId(userId);
 
@@ -96,12 +101,14 @@ export class SurgeryRequestsService {
     return await this.dataSource.transaction(async (manager) => {
       const patientRepo = manager.getRepository(Patient);
       const healthPlanRepo = manager.getRepository(HealthPlan);
+      const hospitalRepo = manager.getRepository(Hospital);
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const chatRepo = manager.getRepository(Chat);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
       const surgeryRequestProcedureRepo = manager.getRepository(
         SurgeryRequestProcedure,
       );
+      const userRepo = manager.getRepository(User);
 
       // Buscar ou criar paciente (entidade separada agora)
       let patient = await patientRepo.findOne({
@@ -126,8 +133,41 @@ export class SurgeryRequestsService {
           email: data.health_plan.email,
           phone: data.health_plan.phone,
           doctor_id: doctorId,
-          is_global: false,
         });
+      }
+
+      // Buscar ou criar hospital
+      let hospital = null;
+      if (data.hospital?.name) {
+        hospital = await hospitalRepo.findOne({
+          where: { name: data.hospital.name },
+        });
+        if (!hospital) {
+          hospital = await hospitalRepo.save({
+            doctor_id: doctorId,
+            name: data.hospital.name,
+            email: data.hospital.email,
+          });
+        }
+      }
+
+      // Buscar ou criar colaborador/gestor
+      let managerId: string | null = null;
+      if (data.collaborator) {
+        let collaborator = await userRepo.findOne({
+          where: { email: data.collaborator.email },
+        });
+        if (!collaborator) {
+          collaborator = await userRepo.save({
+            role: UserRole.COLLABORATOR,
+            status: data.collaborator.status,
+            name: data.collaborator.name,
+            email: data.collaborator.email,
+            phone: data.collaborator.phone,
+            password: data.collaborator.password, // Já vem hasheado do frontend
+          });
+        }
+        managerId = collaborator.id;
       }
 
       const statusData = surgeryRequestStatusesCommon.pending;
@@ -135,12 +175,14 @@ export class SurgeryRequestsService {
       const newRequest = await surgeryRequestRepo.save({
         doctor_id: doctorId,
         created_by_id: userId,
+        manager_id: managerId,
         patient_id: patient.id,
+        hospital_id: hospital?.id || null,
         status: statusData.value,
         is_indication: data.is_indication,
         indication_name: data.indication_name,
         health_plan_id: healthPlan.id,
-        priority: data.priority || 'Média',
+        priority: data.priority || SurgeryRequestPriority.MEDIUM,
         deadline: data.deadline || null,
       });
 
@@ -169,7 +211,66 @@ export class SurgeryRequestsService {
     });
   }
 
-  async send(data: SendSurgeryRequestDto, userId: number) {
+  async createSurgeryRequest(
+    data: CreateSurgeryRequestSimpleDto,
+    userId: string,
+  ) {
+    const doctorId = await this.getDoctorId(userId);
+
+    if (!doctorId) {
+      throw new BadRequestException('Perfil de médico não encontrado');
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
+      const chatRepo = manager.getRepository(Chat);
+      const statusUpdateRepo = manager.getRepository(StatusUpdate);
+      const surgeryRequestProcedureRepo = manager.getRepository(
+        SurgeryRequestProcedure,
+      );
+
+      const statusData = surgeryRequestStatusesCommon.pending;
+
+      const newRequest = await surgeryRequestRepo.save({
+        doctor_id: doctorId,
+        created_by_id: userId,
+        manager_id: data.manager_id,
+        patient_id: data.patient_id,
+        hospital_id: data.hospital_id || null,
+        status: statusData.value,
+        is_indication: false,
+        indication_name: null,
+        health_plan_id: data.health_plan_id || null,
+        priority: data.priority,
+        deadline: null,
+      });
+
+      // Adicionar procedimento
+      await surgeryRequestProcedureRepo.save({
+        surgery_request_id: newRequest.id,
+        procedure_id: data.procedure_id,
+        quantity: 1,
+      });
+
+      // Criar chat
+      await chatRepo.save({
+        surgery_request_id: newRequest.id,
+        user_id: userId,
+      });
+
+      // Status inicial
+      await statusUpdateRepo.save({
+        surgery_request_id: newRequest.id,
+        user_id: userId,
+        prev_status: statusData.value,
+        new_status: statusData.value,
+      });
+
+      return newRequest;
+    });
+  }
+
+  async send(data: SendSurgeryRequestDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.id,
     });
@@ -199,7 +300,7 @@ export class SurgeryRequestsService {
     });
   }
 
-  async cancel(data: SendSurgeryRequestDto, userId: number) {
+  async cancel(data: SendSurgeryRequestDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.id,
     });
@@ -219,7 +320,7 @@ export class SurgeryRequestsService {
     return;
   }
 
-  async schedule(data: ScheduleSurgeryRequestDto, userId: number) {
+  async schedule(data: ScheduleSurgeryRequestDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.id,
     });
@@ -244,7 +345,7 @@ export class SurgeryRequestsService {
     });
   }
 
-  async toInvoice(data: ToInvoiceDto, userId: number) {
+  async toInvoice(data: ToInvoiceDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.id,
     });
@@ -266,7 +367,7 @@ export class SurgeryRequestsService {
     return updated;
   }
 
-  async receive(data: ReceiveDto, userId: number) {
+  async receive(data: ReceiveDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.surgery_request_id,
     });
@@ -293,7 +394,7 @@ export class SurgeryRequestsService {
     return updated;
   }
 
-  async invoice(data: InvoiceDto, userId: number, file: Express.Multer.File) {
+  async invoice(data: InvoiceDto, userId: string, file: Express.Multer.File) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.surgery_request_id,
     });
@@ -330,7 +431,7 @@ export class SurgeryRequestsService {
     return updated;
   }
 
-  async createDateOptions(data: CreateSurgeryDateOptions, userId: number) {
+  async createDateOptions(data: CreateSurgeryDateOptions, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.id,
     });
@@ -365,7 +466,7 @@ export class SurgeryRequestsService {
     return updated;
   }
 
-  async findAll(query: FindManySurgeryRequestDto, userId: number) {
+  async findAll(query: FindManySurgeryRequestDto, userId: string) {
     let where: FindOptionsWhere<SurgeryRequest> = {};
 
     const user = await this.userRepository.findOne({ id: userId });
@@ -395,7 +496,7 @@ export class SurgeryRequestsService {
     return { total, records };
   }
 
-  async findOne(id: number, userId: number) {
+  async findOne(id: string, userId: string) {
     let where: FindOptionsWhere<SurgeryRequest> = { id };
     let whereChat: any = {};
     let whereQuotation: any = {};
@@ -426,7 +527,7 @@ export class SurgeryRequestsService {
     return surgeryRequest;
   }
 
-  async findOneSimple(id: number, userId: number) {
+  async findOneSimple(id: string, userId: string) {
     let where: FindOptionsWhere<SurgeryRequest> = { id };
 
     const user = await this.userRepository.findOne({ id: userId });
@@ -451,7 +552,7 @@ export class SurgeryRequestsService {
     return surgeryRequest;
   }
 
-  async update(data: UpdateSurgeryRequestDto, userId: number) {
+  async update(data: UpdateSurgeryRequestDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
 
     let where: FindOptionsWhere<SurgeryRequest> = { id: data.id };
@@ -488,7 +589,6 @@ export class SurgeryRequestsService {
           name: data.hospital.name,
           email: data.hospital.email,
           doctor_id: doctorId,
-          is_global: false,
         });
         hospitalId = newHospital.id;
       }
@@ -506,7 +606,6 @@ export class SurgeryRequestsService {
           email: data.health_plan.email,
           phone: data.health_plan.phone,
           doctor_id: doctorId,
-          is_global: false,
         });
       }
       healthPlanId = healthPlan.id;
@@ -531,7 +630,7 @@ export class SurgeryRequestsService {
     return surgeryRequest;
   }
 
-  async updateBasic(data: UpdateSurgeryRequestBasicDto, userId: number) {
+  async updateBasic(data: UpdateSurgeryRequestBasicDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('User not found');
 
@@ -565,6 +664,10 @@ export class SurgeryRequestsService {
       updateData.deadline = data.deadline ? new Date(data.deadline) : null;
     }
 
+    if (data.manager_id !== undefined) {
+      updateData.manager_id = data.manager_id;
+    }
+
     // Atualizar no banco
     await this.surgeryRequestRepository.update(data.id, updateData);
 
@@ -573,9 +676,9 @@ export class SurgeryRequestsService {
   }
 
   async updateStatus(
-    surgeryRequestId: number,
+    surgeryRequestId: string,
     newStatus: number,
-    userId: number,
+    userId: string,
   ) {
     try {
       // Buscar a solicitação cirúrgica
@@ -630,7 +733,7 @@ export class SurgeryRequestsService {
   async contest(
     data: CreateContestSurgeryRequestDto,
     file: Express.Multer.File,
-    userId: number,
+    userId: string,
   ) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.surgery_request_id,
@@ -665,7 +768,7 @@ export class SurgeryRequestsService {
     return resp;
   }
 
-  async complaint(data: CreateComplaintDto, userId: number) {
+  async complaint(data: CreateComplaintDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestRepository.findOne({
       id: data.surgery_request_id,
     });
@@ -713,9 +816,9 @@ export class SurgeryRequestsService {
    * Transiciona manualmente para um status específico
    */
   async transitionToStatus(
-    surgeryRequestId: number,
+    surgeryRequestId: string,
     newStatus: number,
-    userId: number,
+    userId: string,
   ): Promise<SurgeryRequest> {
     const surgeryRequest = await this.surgeryRequestRepository.findOneSimple({
       id: surgeryRequestId,
@@ -747,8 +850,8 @@ export class SurgeryRequestsService {
    * Aprovar solicitação (transição manual de Em Análise para Em Agendamento)
    */
   async approve(
-    surgeryRequestId: number,
-    userId: number,
+    surgeryRequestId: string,
+    userId: string,
   ): Promise<SurgeryRequest> {
     const surgeryRequest = await this.surgeryRequestRepository.findOneSimple({
       id: surgeryRequestId,
@@ -779,9 +882,9 @@ export class SurgeryRequestsService {
    * Recusar solicitação (negar autorização) - volta para Pendente para correção
    */
   async deny(
-    surgeryRequestId: number,
+    surgeryRequestId: string,
     contestReason: string,
-    userId: number,
+    userId: string,
   ): Promise<SurgeryRequest> {
     const surgeryRequest = await this.surgeryRequestRepository.findOneSimple({
       id: surgeryRequestId,

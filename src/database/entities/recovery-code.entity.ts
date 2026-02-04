@@ -11,11 +11,11 @@ import { User } from './user.entity';
 
 @Entity('recovery_code')
 export class RecoveryCode {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'user_id' })
-  user_id: number;
+  user_id: string;
 
   @Column({ type: 'boolean', default: false })
   used: boolean;

@@ -38,16 +38,16 @@ export class HospitalRepository {
     return this.repository.save(hospital);
   }
 
-  async update(id: number, data: Partial<Hospital>): Promise<Hospital | null> {
+  async update(id: string, data: Partial<Hospital>): Promise<Hospital | null> {
     await this.repository.update(id, data);
     return this.findOne({ id });
   }
 
-  async delete(id: number): Promise<void> {
+  async delete(id: string): Promise<void> {
     await this.repository.delete(id);
   }
 
-  async findByDoctorId(doctorId: number): Promise<Hospital[]> {
+  async findByDoctorId(doctorId: string): Promise<Hospital[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
       order: { name: 'ASC' },

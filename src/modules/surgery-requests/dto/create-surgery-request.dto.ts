@@ -20,8 +20,7 @@ export class CreateSurgeryRequestDto {
   indication_name: string;
 
   @Allow()
-  @Transform(({ value }) => (value ? Number(value) : undefined))
-  procedure_id?: number;
+  procedure_id?: string;
 
   @Allow()
   @Transform(({ value }) => {
@@ -62,7 +61,19 @@ export class CreateSurgeryRequestDto {
   };
 
   @Allow()
-  priority?: string;
+  @Transform(({ value }) => {
+    if (value?.phone) {
+      value.phone = Mask.phone.raw(value.phone);
+    }
+    return value;
+  })
+  hospital?: {
+    name: string;
+    email: string;
+  };
+
+  @Allow()
+  priority?: number;
 
   @Allow()
   deadline?: Date;

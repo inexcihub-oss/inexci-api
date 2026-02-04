@@ -47,7 +47,7 @@ export class SurgeryRequestQuotationRepository {
   }
 
   async update(
-    id: number,
+    id: string,
     data: Partial<SurgeryRequestQuotation>,
   ): Promise<SurgeryRequestQuotation> {
     await this.repository.update(id, data);

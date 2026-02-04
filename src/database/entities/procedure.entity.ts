@@ -10,8 +10,8 @@ import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 
 @Entity('procedure')
 export class Procedure {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ type: 'boolean' })
   active: boolean;

@@ -10,7 +10,7 @@ export class OpmeService {
     private readonly surgeryRequestService: SurgeryRequestsService,
   ) {}
 
-  async create(data: CreateOpmeDto, userId: number) {
+  async create(data: CreateOpmeDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestService.findOne(
       data.surgery_request_id,
       userId,

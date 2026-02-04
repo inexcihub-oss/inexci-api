@@ -1,26 +1,28 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  ValidateNested,
+  IsString,
+  IsNotEmpty,
+} from 'class-validator';
 
 export class AuthorizeProcedureDto {
-  @IsNumber()
-  @Type(() => Number)
-  id: number;
-
+  @IsString()
+  @IsNotEmpty()
+  id: string;
   @IsNumber()
   @Type(() => Number)
   authorized_quantity: number;
 }
-
 export class AuthorizeProceduresDto {
-  @IsNumber()
-  @Type(() => Number)
-  surgery_request_id: number;
-
+  @IsString()
+  @IsNotEmpty()
+  surgery_request_id: string;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AuthorizeProcedureDto)
   surgery_request_procedures: AuthorizeProcedureDto[];
-
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AuthorizeProcedureDto)

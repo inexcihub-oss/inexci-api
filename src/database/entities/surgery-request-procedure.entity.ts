@@ -10,14 +10,14 @@ import { Procedure } from './procedure.entity';
 
 @Entity('surgery_request_procedure')
 export class SurgeryRequestProcedure {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'surgery_request_id' })
-  surgery_request_id: number;
+  surgery_request_id: string;
 
   @Column({ name: 'procedure_id' })
-  procedure_id: number;
+  procedure_id: string;
 
   @Column({ type: 'int' })
   quantity: number;

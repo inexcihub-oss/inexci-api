@@ -1,5 +1,5 @@
 import * as bcrypt from 'bcrypt';
-import { FindOptionsWhere, Not } from 'typeorm';
+import { FindOptionsWhere, Not, In } from 'typeorm';
 import {
   BadRequestException,
   Injectable,
@@ -16,6 +16,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { EmailService } from 'src/shared/email/email.service';
 import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
 
 function generateRandomPassword(length = 6) {
   const characters =
@@ -33,6 +34,7 @@ export class UsersService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly emailService: EmailService,
+    private readonly teamMemberRepository: TeamMemberRepository,
   ) {}
 
   /**
@@ -41,7 +43,7 @@ export class UsersService {
    * - Médico: pode ver seus colaboradores
    * - Colaborador: só pode ver a si mesmo
    */
-  async findMany(query: FindManyUsersDto, userId: number) {
+  async findMany(query: FindManyUsersDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
@@ -52,9 +54,17 @@ export class UsersService {
       if (query.role) {
         where.role = query.role;
       }
+    } else if (user.role === UserRole.DOCTOR) {
+      // Médico pode ver seus colaboradores
+      const teamMembers =
+        await this.teamMemberRepository.findByDoctorId(userId);
+      const collaboratorIds = teamMembers.map((tm) => tm.collaborator_id);
+      where.id = In([userId, ...collaboratorIds]);
+      if (query.role) {
+        where.role = query.role;
+      }
     } else {
-      // Médicos e colaboradores só podem ver a si mesmos por enquanto
-      // TODO: Implementar lógica de team_member para médicos verem seus colaboradores
+      // Colaboradores só podem ver a si mesmos
       where.id = userId;
     }
 
@@ -66,7 +76,7 @@ export class UsersService {
     return { total, records: resp };
   }
 
-  async findOne(id: number, userId: number) {
+  async findOne(id: string, userId: string) {
     if (!id) throw new BadRequestException('ID é obrigatório');
 
     const requestingUser = await this.userRepository.findOne({ id: userId });
@@ -92,7 +102,7 @@ export class UsersService {
     return user;
   }
 
-  async getProfile(userId: number) {
+  async getProfile(userId: string) {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
@@ -101,7 +111,7 @@ export class UsersService {
     return userWithoutPassword;
   }
 
-  async updateProfile(data: UpdateProfileDto, userId: number) {
+  async updateProfile(data: UpdateProfileDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
@@ -141,7 +151,7 @@ export class UsersService {
     return updatedUser;
   }
 
-  async validateCompleteRegisterLink(userId: number) {
+  async validateCompleteRegisterLink(userId: string) {
     const where: FindOptionsWhere<User> = {
       id: userId,
       status: UserStatus.PENDING,
@@ -153,7 +163,7 @@ export class UsersService {
     return user;
   }
 
-  async completeRegister(data: CompleteRegisterDto, userId: number) {
+  async completeRegister(data: CompleteRegisterDto, userId: string) {
     const user = await this.userRepository.findOne({
       id: userId,
       status: UserStatus.PENDING,
@@ -190,7 +200,7 @@ export class UsersService {
     return newUser;
   }
 
-  async create(data: CreateUserDto, userId: number) {
+  async create(data: CreateUserDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
@@ -242,7 +252,7 @@ export class UsersService {
     return newUser;
   }
 
-  async update(data: UpdateUserDto, userId: number) {
+  async update(data: UpdateUserDto, userId: string) {
     const requestingUser = await this.userRepository.findOne({ id: userId });
     if (!requestingUser) throw new NotFoundException('Usuário não encontrado');
 
@@ -286,7 +296,7 @@ export class UsersService {
   }
 
   async changePassword(
-    userId: number,
+    userId: string,
     currentPassword: string,
     newPassword: string,
   ) {

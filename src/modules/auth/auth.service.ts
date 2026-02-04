@@ -125,7 +125,7 @@ export class AuthService {
     }
   }
 
-  async me(userId: number) {
+  async me(userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
 
     const dataToReturn = {
@@ -203,7 +203,7 @@ export class AuthService {
 
   async changePasswordAuthenticated(
     data: ChangePasswordAuthenticatedDto,
-    userId: number,
+    userId: string,
   ) {
     const user = await this.userRepository.findOne({ id: userId }, true);
 

@@ -44,25 +44,18 @@ export class HealthPlanRepository {
     return await this.repository.save(healthPlan);
   }
 
-  async update(id: number, data: Partial<HealthPlan>) {
+  async update(id: string, data: Partial<HealthPlan>) {
     await this.repository.update(id, data);
     return await this.findOne({ id });
   }
 
-  async delete(id: number): Promise<void> {
+  async delete(id: string): Promise<void> {
     await this.repository.delete(id);
   }
 
-  async findByDoctorId(doctorId: number): Promise<HealthPlan[]> {
+  async findByDoctorId(doctorId: string): Promise<HealthPlan[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
-      order: { name: 'ASC' },
-    });
-  }
-
-  async findGlobal(): Promise<HealthPlan[]> {
-    return this.repository.find({
-      where: { is_global: true },
       order: { name: 'ASC' },
     });
   }

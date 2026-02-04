@@ -14,8 +14,8 @@ import { SurgeryRequest } from './surgery-request.entity';
  */
 @Entity('hospital')
 export class Hospital {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ type: 'varchar', length: 150 })
   name: string;
@@ -67,11 +67,8 @@ export class Hospital {
 
   // ============ CONTROLE DE PROPRIEDADE ============
 
-  @Column({ type: 'boolean', default: true })
-  is_global: boolean; // Hospital global ou específico do médico
-
-  @Column({ name: 'doctor_id', nullable: true })
-  doctor_id: number; // Se is_global=false, pertence a este médico
+  @Column({ name: 'doctor_id' })
+  doctor_id: string; // Hospital pertence a este médico
 
   @CreateDateColumn()
   created_at: Date;

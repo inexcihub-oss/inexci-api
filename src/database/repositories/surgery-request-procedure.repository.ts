@@ -34,7 +34,7 @@ export class SurgeryRequestProcedureRepository {
   }
 
   async update(
-    id: number,
+    id: string,
     data: Partial<SurgeryRequestProcedure>,
   ): Promise<SurgeryRequestProcedure> {
     await this.repository.update(id, data);

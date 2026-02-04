@@ -16,38 +16,40 @@ export class SurgeryRequestRepository {
   ) {}
 
   async totalByHospital(where: string) {
-    // PostgreSQL: Ajustada query raw com JOIN na tabela user
+    // PostgreSQL: Ajustada query raw com JOIN na tabela hospital
     return await this.dataSource.query(`
         SELECT COUNT(*)::int as total, 
                sr.hospital_id,
-               COALESCE(u.name, 'Sem Hospital') as hospital_name
+               COALESCE(h.name, 'Sem Hospital') as hospital_name
         FROM surgery_request sr
-        LEFT JOIN "user" u ON u.id = sr.hospital_id
+        LEFT JOIN hospital h ON h.id = sr.hospital_id
         ${where}
-        GROUP BY sr.hospital_id, u.name
+        GROUP BY sr.hospital_id, h.name
         ORDER BY total DESC
       `);
   }
 
   async totalByStatus(where: string) {
-    // PostgreSQL: Ajustada query raw
+    // PostgreSQL: Ajustada query raw com alias
     return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, status FROM surgery_request
+        SELECT COUNT(*)::int as total, sr.status 
+        FROM surgery_request sr
         ${where}
-        GROUP BY status
+        GROUP BY sr.status
+        ORDER BY total DESC
       `);
   }
 
   async totalByHealthPlan(where: string) {
-    // PostgreSQL: Ajustada query raw com LEFT JOIN na tabela user
+    // PostgreSQL: Ajustada query raw com LEFT JOIN na tabela health_plan
     return await this.dataSource.query(`
         SELECT COUNT(*)::int as total, 
                sr.health_plan_id, 
-               COALESCE(u.name, 'Sem Convênio') as health_plan_name
+               COALESCE(hp.name, 'Sem Convênio') as health_plan_name
         FROM surgery_request sr
-        LEFT JOIN "user" u ON u.id = sr.health_plan_id
+        LEFT JOIN health_plan hp ON hp.id = sr.health_plan_id
         ${where}
-        GROUP BY sr.health_plan_id, u.name
+        GROUP BY sr.health_plan_id, hp.name
         ORDER BY total DESC
       `);
   }
@@ -80,6 +82,7 @@ export class SurgeryRequestRepository {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
       .leftJoinAndSelect('surgery_request.created_by', 'created_by')
+      .leftJoinAndSelect('surgery_request.manager', 'manager')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
       .leftJoinAndSelect('surgery_request.cid', 'cid')
@@ -128,6 +131,7 @@ export class SurgeryRequestRepository {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
       .leftJoinAndSelect('surgery_request.created_by', 'created_by')
+      .leftJoinAndSelect('surgery_request.manager', 'manager')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
       .leftJoinAndSelect('surgery_request.procedures', 'procedures')
@@ -153,6 +157,9 @@ export class SurgeryRequestRepository {
         'surgery_request.priority',
         'created_by.id',
         'created_by.name',
+        'manager.id',
+        'manager.name',
+        'manager.email',
         'patient.id',
         'patient.name',
         'patient.email',
@@ -168,6 +175,7 @@ export class SurgeryRequestRepository {
       .addSelect('COUNT(DISTINCT documents.id)', 'attachmentsCount')
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
+      .addGroupBy('manager.id')
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
       .addGroupBy('procedures.id')
@@ -210,7 +218,7 @@ export class SurgeryRequestRepository {
   }
 
   async update(
-    id: number,
+    id: string,
     data: Partial<SurgeryRequest>,
   ): Promise<SurgeryRequest> {
     await this.repository.update(id, data);

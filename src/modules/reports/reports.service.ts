@@ -15,7 +15,7 @@ export class ReportsService {
     private readonly doctorProfileRepository: DoctorProfileRepository,
   ) {}
 
-  private async getDoctorId(userId: number): Promise<number | null> {
+  private async getDoctorId(userId: string): Promise<string | null> {
     const user = await this.userRepository.findOne({ id: userId });
 
     if (user.role === UserRole.DOCTOR) {
@@ -28,7 +28,7 @@ export class ReportsService {
     return null;
   }
 
-  async dashboard(userId: number) {
+  async dashboard(userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     const doctorId = await this.getDoctorId(userId);
 
@@ -37,15 +37,15 @@ export class ReportsService {
 
     if (user.role === UserRole.DOCTOR && doctorId) {
       where = { ...where, doctor_id: doctorId };
-      whereString += `doctor_id=${doctorId}`;
+      whereString += `sr.doctor_id='${doctorId}'`;
     } else if (user.role === UserRole.COLLABORATOR) {
       where = { ...where, created_by_id: userId };
-      whereString += `created_by_id=${userId}`;
+      whereString += `sr.created_by_id='${userId}'`;
     } else if (user.role === UserRole.ADMIN) {
       whereString += '1=1'; // Admin vê tudo
     }
 
-    const [respTotal, respTotalScheduled, respDone, respAuthorized] =
+    const [respTotal, respTotalScheduled, respPerformed, respInvoiced] =
       await Promise.all([
         this.surgeryRequestRepository.total(where),
         this.surgeryRequestRepository.total({
@@ -54,15 +54,11 @@ export class ReportsService {
         }),
         this.surgeryRequestRepository.total({
           ...where,
-          status: surgeryRequestStatusesCommon.toInvoice.value,
+          status: surgeryRequestStatusesCommon.performed.value,
         }),
         this.surgeryRequestRepository.total({
           ...where,
           status: surgeryRequestStatusesCommon.invoiced.value,
-        }),
-        this.surgeryRequestRepository.total({
-          ...where,
-          status: surgeryRequestStatusesCommon.awaitingAppointment.value,
         }),
       ]);
 
@@ -96,11 +92,11 @@ export class ReportsService {
     return {
       surgery_request: {
         total: respTotal,
-        total_authorized: respAuthorized,
         total_scheduled: respTotalScheduled,
-        total_done: respDone,
-        total_invoiced: totalInvoiced._sum.invoiced_value,
-        total_received: totalInvoiced._sum.received_value,
+        total_performed: respPerformed,
+        total_invoiced_count: respInvoiced,
+        total_invoiced_value: totalInvoiced._sum.invoiced_value,
+        total_received_value: totalInvoiced._sum.received_value,
         total_by_health_plan: totalByHealthPlan,
         total_by_status: totalByStatus,
         total_by_hospital: totalByHospital,
@@ -108,7 +104,7 @@ export class ReportsService {
     };
   }
 
-  private async getWhereConditions(userId: number) {
+  private async getWhereConditions(userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     const doctorId = await this.getDoctorId(userId);
 
@@ -117,16 +113,16 @@ export class ReportsService {
 
     if (user.role === UserRole.DOCTOR && doctorId) {
       where = { ...where, doctor_id: doctorId };
-      whereString += ` AND doctor_id=${doctorId}`;
+      whereString += ` AND doctor_id='${doctorId}'`;
     } else if (user.role === UserRole.COLLABORATOR) {
       where = { ...where, created_by_id: userId };
-      whereString += ` AND created_by_id=${userId}`;
+      whereString += ` AND created_by_id='${userId}'`;
     }
 
     return { where, whereString };
   }
 
-  async temporalEvolution(userId: number, days: number = 30) {
+  async temporalEvolution(userId: string, days: number = 30) {
     const { where } = await this.getWhereConditions(userId);
 
     const endDate = new Date();
@@ -142,7 +138,7 @@ export class ReportsService {
     return results;
   }
 
-  async averageCompletionTime(userId: number) {
+  async averageCompletionTime(userId: string) {
     const { where } = await this.getWhereConditions(userId);
 
     const result =
@@ -153,7 +149,7 @@ export class ReportsService {
     };
   }
 
-  async pendingNotifications(userId: number) {
+  async pendingNotifications(userId: string) {
     const { where } = await this.getWhereConditions(userId);
 
     // Considerar como pendentes: solicitações em análise ou reanálise há mais de 5 dias
@@ -179,7 +175,7 @@ export class ReportsService {
     };
   }
 
-  async monthlyEvolution(userId: number, months: number = 6) {
+  async monthlyEvolution(userId: string, months: number = 6) {
     const { where } = await this.getWhereConditions(userId);
 
     const results = await this.surgeryRequestRepository.getMonthlyEvolution(

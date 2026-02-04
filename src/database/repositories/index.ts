@@ -1,5 +1,6 @@
 export { UserRepository } from './user.repository';
 export { DoctorProfileRepository } from './doctor-profile.repository';
+export { TeamMemberRepository } from './team-member.repository';
 export { PatientRepository } from './patient.repository';
 export { HospitalRepository } from './hospital.repository';
 export { SupplierRepository } from './supplier.repository';

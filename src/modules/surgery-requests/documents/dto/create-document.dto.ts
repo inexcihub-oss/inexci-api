@@ -3,9 +3,9 @@ import { Allow, IsIn, IsNotEmpty, IsNumber, IsString } from 'class-validator';
 import { DocumentTypes } from 'src/common';
 
 export class CreateDocumentDto {
-  @IsNumber()
-  @Type(() => Number)
-  surgery_request_id: number;
+  @IsString()
+  @IsNotEmpty()
+  surgery_request_id: string;
 
   @IsString()
   @IsNotEmpty()

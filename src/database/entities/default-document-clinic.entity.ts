@@ -15,14 +15,14 @@ import { User } from './user.entity';
  */
 @Entity('default_document_clinic')
 export class DefaultDocumentClinic {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'doctor_id' })
-  doctor_id: number;
+  doctor_id: string;
 
   @Column({ name: 'created_by' })
-  created_by: number;
+  created_by: string;
 
   @Column({ type: 'varchar', length: 50 })
   key: string;

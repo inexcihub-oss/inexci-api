@@ -34,7 +34,7 @@ export class DocumentKeyRepository {
 
   async findOne(
     where: FindOptionsWhere<DefaultDocumentClinic>,
-  ): Promise<{ doctor_id: number } | null> {
+  ): Promise<{ doctor_id: string } | null> {
     const result = await this.repository.findOne({
       where,
       select: ['doctor_id'],

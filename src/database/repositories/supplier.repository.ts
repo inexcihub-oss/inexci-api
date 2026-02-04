@@ -38,25 +38,18 @@ export class SupplierRepository {
     return this.repository.save(supplier);
   }
 
-  async update(id: number, data: Partial<Supplier>): Promise<Supplier | null> {
+  async update(id: string, data: Partial<Supplier>): Promise<Supplier | null> {
     await this.repository.update(id, data);
     return this.findOne({ id });
   }
 
-  async delete(id: number): Promise<void> {
+  async delete(id: string): Promise<void> {
     await this.repository.delete(id);
   }
 
-  async findByDoctorId(doctorId: number): Promise<Supplier[]> {
+  async findByDoctorId(doctorId: string): Promise<Supplier[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
-      order: { name: 'ASC' },
-    });
-  }
-
-  async findGlobal(): Promise<Supplier[]> {
-    return this.repository.find({
-      where: { is_global: true },
       order: { name: 'ASC' },
     });
   }

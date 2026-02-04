@@ -15,11 +15,11 @@ export class PatientsService {
     private readonly userRepository: UserRepository,
   ) {}
 
-  async findAll(query: FindManyPatientDto, userId: number) {
+  async findAll(query: FindManyPatientDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
 
     // Determinar o doctor_id baseado no role do usuário
-    let doctorId: number;
+    let doctorId: string;
 
     if (user.role === UserRole.DOCTOR) {
       const doctorProfile =

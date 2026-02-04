@@ -16,7 +16,7 @@ export class DocumentsKeyService {
     private readonly doctorProfileRepository: DoctorProfileRepository,
   ) {}
 
-  private async getDoctorId(userId: number): Promise<number | null> {
+  private async getDoctorId(userId: string): Promise<string | null> {
     const user = await this.userRepository.findOne({ id: userId });
 
     if (user.role === UserRole.DOCTOR) {
@@ -29,7 +29,7 @@ export class DocumentsKeyService {
     return null;
   }
 
-  async create(data: CreateDocumentKeyDto, userId: number) {
+  async create(data: CreateDocumentKeyDto, userId: string) {
     const doctorId = await this.getDoctorId(userId);
 
     if (!doctorId) {
@@ -52,7 +52,7 @@ export class DocumentsKeyService {
     return;
   }
 
-  async findAll(query: FindManyDocumentKeyDto, userId: number) {
+  async findAll(query: FindManyDocumentKeyDto, userId: string) {
     const doctorId = await this.getDoctorId(userId);
 
     if (!doctorId) {

@@ -1,12 +1,9 @@
 import { Type } from 'class-transformer';
-import { IsNumber } from 'class-validator';
+import { IsNumber, IsString, IsNotEmpty } from 'class-validator';
 
 export class CreateChatDto {
-  @Type(() => Number)
-  @IsNumber()
-  surgery_request_id: number;
-
-  @Type(() => Number)
-  @IsNumber()
-  user_id: number;
+  @IsString()
+  @IsNotEmpty()
+  surgery_request_id: string;
+  user_id: string;
 }

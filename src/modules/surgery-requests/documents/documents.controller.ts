@@ -20,10 +20,17 @@ export class DocumentsController {
   @Post()
   @UseInterceptors(FileInterceptor('document'))
   create(
-    @Body() data: CreateDocumentDto,
+    @Body('surgery_request_id') surgery_request_id: string,
+    @Body('key') key: string,
+    @Body('name') name: string,
     @Request() req,
     @UploadedFile() file: Express.Multer.File,
   ) {
+    const data: CreateDocumentDto = {
+      surgery_request_id,
+      key,
+      name,
+    };
     return this.documentsService.create(data, req.user.userId, file);
   }
 

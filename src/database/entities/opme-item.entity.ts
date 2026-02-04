@@ -11,11 +11,11 @@ import { SurgeryRequest } from './surgery-request.entity';
 
 @Entity('opme_item')
 export class OpmeItem {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'surgery_request_id' })
-  surgery_request_id: number;
+  surgery_request_id: string;
 
   @Column({ type: 'varchar', length: 75 })
   name: string;

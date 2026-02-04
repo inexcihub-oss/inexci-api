@@ -60,7 +60,7 @@ export class NotificationsController {
   }
 
   @Put(':id/read')
-  async markAsRead(@Param('id', ParseIntPipe) id: number, @Request() req: any) {
+  async markAsRead(@Param('id') id: string, @Request() req: any) {
     return await this.notificationsService.markAsRead(id, req.user.userId);
   }
 
@@ -70,10 +70,7 @@ export class NotificationsController {
   }
 
   @Delete(':id')
-  async deleteNotification(
-    @Param('id', ParseIntPipe) id: number,
-    @Request() req: any,
-  ) {
+  async deleteNotification(@Param('id') id: string, @Request() req: any) {
     return await this.notificationsService.deleteNotification(
       id,
       req.user.userId,

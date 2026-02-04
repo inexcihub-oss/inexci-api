@@ -16,7 +16,7 @@ export class DocumentsService {
 
   async create(
     data: CreateDocumentDto,
-    userId: number,
+    userId: string,
     file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File is required');

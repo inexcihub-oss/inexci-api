@@ -17,7 +17,7 @@ export class UserNotificationSettingsRepository {
     return await this.repository.findOne({ where });
   }
 
-  async findByUserId(userId: number): Promise<UserNotificationSettings | null> {
+  async findByUserId(userId: string): Promise<UserNotificationSettings | null> {
     return await this.repository.findOne({ where: { user_id: userId } });
   }
 
@@ -29,7 +29,7 @@ export class UserNotificationSettingsRepository {
   }
 
   async update(
-    userId: number,
+    userId: string,
     data: Partial<UserNotificationSettings>,
   ): Promise<UserNotificationSettings> {
     await this.repository.update({ user_id: userId }, data);
@@ -37,7 +37,7 @@ export class UserNotificationSettingsRepository {
   }
 
   async upsert(
-    userId: number,
+    userId: string,
     data: Partial<UserNotificationSettings>,
   ): Promise<UserNotificationSettings> {
     const existing = await this.findByUserId(userId);

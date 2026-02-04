@@ -1,16 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
 
 export class CreateSurgeryRequestProcedureDto {
-  @IsNumber()
-  @Type(() => Number)
-  surgery_request_id: number;
-
+  @IsString()
   @IsNotEmpty()
+  surgery_request_id: string;
   procedures: {
-    id: number;
-    procedure_id: number;
+    id: string;
+    procedure_id: string;
     quantity: number;
-  }[]
-
+  }[];
 }

@@ -5,20 +5,10 @@ export class CreateOpmeDto {
   @IsString()
   @IsNotEmpty()
   name: string;
-
-  @IsString()
-  @IsNotEmpty()
   distributor: string;
-
-  @IsString()
-  @IsNotEmpty()
   brand: string;
-
   @Type(() => Number)
   @IsNumber()
   quantity: number;
-
-  @Type(() => Number)
-  @IsNumber()
-  surgery_request_id: number;
+  surgery_request_id: string;
 }

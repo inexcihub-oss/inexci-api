@@ -30,6 +30,7 @@ import { HealthPlansModule } from './modules/health_plan/health_plans.module';
 import { CronService } from './shared/cron/cron.service';
 import { CronModule } from './shared/cron/cron.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { UploadModule } from './modules/upload/upload.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     CidModule,
     HealthPlansModule,
     NotificationsModule,
+    UploadModule,
     ScheduleModule.forRoot(),
     CronModule,
   ],

@@ -15,12 +15,12 @@ export class PendenciesController {
   async getBatchSummary(
     @Query('ids') ids: string,
   ): Promise<
-    Record<number, { pending: number; completed: number; total: number }>
+    Record<string, { pending: number; completed: number; total: number }>
   > {
     const idArray = ids
       .split(',')
-      .map((id) => parseInt(id.trim()))
-      .filter((id) => !isNaN(id));
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
 
     const summaries = await Promise.all(
       idArray.map(async (id) => {
@@ -49,7 +49,7 @@ export class PendenciesController {
         return acc;
       },
       {} as Record<
-        number,
+        string,
         { pending: number; completed: number; total: number }
       >,
     );
@@ -61,7 +61,7 @@ export class PendenciesController {
    */
   @Get('validate/:surgeryRequestId')
   validatePendencies(@Param('surgeryRequestId') surgeryRequestId: string) {
-    return this.pendencyValidatorService.validate(parseInt(surgeryRequestId));
+    return this.pendencyValidatorService.validate(surgeryRequestId);
   }
 
   /**
@@ -69,8 +69,6 @@ export class PendenciesController {
    */
   @Get('quick-summary/:surgeryRequestId')
   getQuickSummary(@Param('surgeryRequestId') surgeryRequestId: string) {
-    return this.pendencyValidatorService.getQuickSummary(
-      parseInt(surgeryRequestId),
-    );
+    return this.pendencyValidatorService.getQuickSummary(surgeryRequestId);
   }
 }

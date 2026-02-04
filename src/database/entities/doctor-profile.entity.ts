@@ -25,11 +25,11 @@ export enum SubscriptionStatus {
  */
 @Entity('doctor_profile')
 export class DoctorProfile {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'user_id', unique: true })
-  user_id: number;
+  user_id: string;
 
   // ============ DADOS PROFISSIONAIS ============
 

@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { SurgeryRequestsService } from './surgery-requests.service';
 import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
+import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
@@ -36,9 +37,15 @@ export class SurgeryRequestsController {
     private readonly surgeryRequestsService: SurgeryRequestsService,
   ) {}
 
-  @Post('/simple')
-  create(@Body() data: CreateSurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.create(data, req.user.userId);
+  @Post()
+  createSurgeryRequest(
+    @Body() data: CreateSurgeryRequestSimpleDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.createSurgeryRequest(
+      data,
+      req.user.userId,
+    );
   }
 
   @Post('/send')
@@ -103,7 +110,7 @@ export class SurgeryRequestsController {
     @Request() req,
   ) {
     return this.surgeryRequestsService.updateBasic(
-      { ...data, id: parseInt(id) },
+      { ...data, id: id },
       req.user.userId,
     );
   }
@@ -114,14 +121,8 @@ export class SurgeryRequestsController {
     @Body() data: UpdateStatusDto,
     @Request() req,
   ) {
-    const surgeryRequestId = parseInt(id, 10);
-
-    if (isNaN(surgeryRequestId)) {
-      throw new BadRequestException(`Invalid surgery request ID: ${id}`);
-    }
-
     return this.surgeryRequestsService.updateStatus(
-      surgeryRequestId,
+      id,
       data.status,
       req.user.userId,
     );
@@ -153,7 +154,7 @@ export class SurgeryRequestsController {
 
   @Post(':id/approve')
   approve(@Param('id') id: string, @Request() req) {
-    return this.surgeryRequestsService.approve(parseInt(id), req.user.userId);
+    return this.surgeryRequestsService.approve(id, req.user.userId);
   }
 
   @Post(':id/deny')
@@ -162,11 +163,7 @@ export class SurgeryRequestsController {
     @Body('cancel_reason') cancelReason: string,
     @Request() req,
   ) {
-    return this.surgeryRequestsService.deny(
-      parseInt(id),
-      cancelReason,
-      req.user.userId,
-    );
+    return this.surgeryRequestsService.deny(id, cancelReason, req.user.userId);
   }
 
   @Post(':id/transition')
@@ -176,7 +173,7 @@ export class SurgeryRequestsController {
     @Request() req,
   ) {
     return this.surgeryRequestsService.transitionToStatus(
-      parseInt(id),
+      id,
       newStatus,
       req.user.userId,
     );

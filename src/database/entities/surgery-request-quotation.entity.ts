@@ -15,14 +15,14 @@ import { Supplier } from './supplier.entity';
  */
 @Entity('surgery_request_quotation')
 export class SurgeryRequestQuotation {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'surgery_request_id' })
-  surgery_request_id: number;
+  surgery_request_id: string;
 
   @Column({ name: 'supplier_id' })
-  supplier_id: number;
+  supplier_id: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   proposal_number: string;

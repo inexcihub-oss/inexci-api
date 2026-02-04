@@ -12,14 +12,14 @@ import { User } from './user.entity';
 
 /**
  * Role do membro da equipe
- * - MANAGER: Pode fazer tudo (criar, editar, deletar, gerenciar)
- * - EDITOR: Pode criar e editar, mas não deletar
- * - VIEWER: Apenas visualização
+ * - MANAGER (0): Pode fazer tudo (criar, editar, deletar, gerenciar)
+ * - EDITOR (1): Pode criar e editar, mas não deletar
+ * - VIEWER (2): Apenas visualização
  */
 export enum TeamMemberRole {
-  MANAGER = 'manager',
-  EDITOR = 'editor',
-  VIEWER = 'viewer',
+  MANAGER = 0,
+  EDITOR = 1,
+  VIEWER = 2,
 }
 
 /**
@@ -39,18 +39,17 @@ export enum TeamMemberStatus {
 @Entity('team_member')
 @Unique(['doctor_id', 'collaborator_id'])
 export class TeamMember {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'doctor_id' })
-  doctor_id: number;
+  doctor_id: string;
 
   @Column({ name: 'collaborator_id' })
-  collaborator_id: number;
+  collaborator_id: string;
 
   @Column({
-    type: 'enum',
-    enum: TeamMemberRole,
+    type: 'smallint',
     default: TeamMemberRole.EDITOR,
   })
   role: TeamMemberRole;

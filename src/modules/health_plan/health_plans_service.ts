@@ -6,6 +6,7 @@ import { DoctorProfileRepository } from 'src/database/repositories/doctor-profil
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { UserRole } from 'src/database/entities/user.entity';
+import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
 
 @Injectable()
 export class HealthPlansService {
@@ -13,9 +14,10 @@ export class HealthPlansService {
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly userRepository: UserRepository,
+    private readonly teamMemberRepository: TeamMemberRepository,
   ) {}
 
-  async findAll(query: FindManyHealthPlanDto, userId: number) {
+  async findAll(query: FindManyHealthPlanDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
 
     if (user.role === UserRole.ADMIN) {
@@ -28,26 +30,26 @@ export class HealthPlansService {
     }
 
     // Determinar o doctor_id baseado no role do usuário
-    let doctorId: number;
+    let doctorId: string;
 
     if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      doctorId = doctorProfile?.id;
+      doctorId = userId;
     } else if (user.role === UserRole.COLLABORATOR) {
-      // TODO: Implementar lógica para obter o doctor do colaborador via TeamMember
-      return { total: 0, records: [] };
+      // Buscar o médico do colaborador via TeamMember
+      const teamMember =
+        await this.teamMemberRepository.findByCollaboratorId(userId);
+      if (!teamMember) {
+        return { total: 0, records: [] };
+      }
+      doctorId = teamMember.doctor_id;
     }
 
     if (!doctorId) {
       return { total: 0, records: [] };
     }
 
-    // Buscar convênios globais + específicos do médico
-    const where: FindOptionsWhere<HealthPlan>[] = [
-      { is_global: true },
-      { doctor_id: doctorId },
-    ];
+    // Buscar apenas convênios do médico
+    const where: FindOptionsWhere<HealthPlan> = { doctor_id: doctorId };
 
     const [total, records] = await Promise.all([
       this.healthPlanRepository.total(where),

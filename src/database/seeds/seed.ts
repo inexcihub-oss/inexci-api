@@ -22,6 +22,7 @@ import { Procedure } from '../entities/procedure.entity';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
+  SurgeryRequestPriority,
 } from '../entities/surgery-request.entity';
 import { SurgeryRequestProcedure } from '../entities/surgery-request-procedure.entity';
 import { OpmeItem } from '../entities/opme-item.entity';
@@ -187,8 +188,7 @@ async function main() {
   for (const data of cidData) {
     let cid = await cidRepo.findOne({ where: { id: data.id } });
     if (!cid) {
-      cid = cidRepo.create(data);
-      await cidRepo.save(cid);
+      cid = await cidRepo.save(cidRepo.create(data));
     }
     cids.push(cid);
   }
@@ -214,15 +214,171 @@ async function main() {
       where: { tuss_code: data.tuss_code },
     });
     if (!procedure) {
-      procedure = procedureRepo.create({ ...data, active: true });
-      await procedureRepo.save(procedure);
+      procedure = await procedureRepo.save(
+        procedureRepo.create({ ...data, active: true }),
+      );
     }
     procedures.push(procedure);
   }
   console.log(`✅ ${procedures.length} procedimentos\n`);
 
   // ========================================
-  // 2. ENTIDADES DE NEGÓCIO (não fazem login)
+  // 2. USUÁRIOS (fazem login) - CRIAR ANTES DAS ENTIDADES
+  // ========================================
+
+  console.log('👨‍⚕️ Criando usuários médicos...');
+
+  // Médico principal de teste
+  let doctorUser = await userRepo.findOne({
+    where: { email: 'medico@inexci.com' },
+  });
+  if (!doctorUser) {
+    doctorUser = await userRepo.save(
+      userRepo.create({
+        role: UserRole.DOCTOR,
+        status: UserStatus.ACTIVE,
+        email: 'medico@inexci.com',
+        password: hashedPassword,
+        name: 'Dr. Carlos Silva',
+        phone: generatePhone(),
+        cpf: generateCPF(),
+        gender: 'M',
+        birth_date: new Date('1975-05-15'),
+      }),
+    );
+    console.log('  ➕ Criado: medico@inexci.com');
+  } else {
+    console.log('  ✓ Existe: medico@inexci.com');
+  }
+
+  // Perfil do médico principal
+  let doctorProfile = await doctorProfileRepo.findOne({
+    where: { user_id: doctorUser.id },
+  });
+  if (!doctorProfile) {
+    doctorProfile = await doctorProfileRepo.save(
+      doctorProfileRepo.create({
+        user_id: doctorUser.id,
+        specialty: 'Ortopedia',
+        crm: '123456',
+        crm_state: 'SP',
+        clinic_name: 'Clínica Ortopédica Silva',
+        clinic_cnpj: generateCNPJ(),
+        subscription_status: SubscriptionStatus.ACTIVE,
+        subscription_plan: 'professional',
+        max_requests_per_month: 100,
+        max_team_members: 5,
+      }),
+    );
+  }
+
+  console.log('  ✅ Médico principal criado\n');
+
+  console.log('👩‍💼 Criando usuários colaboradores...');
+
+  // Colaborador 1 - Gestor
+  let collaborator1 = await userRepo.findOne({
+    where: { email: 'colaborador@inexci.com' },
+  });
+  if (!collaborator1) {
+    collaborator1 = await userRepo.save(
+      userRepo.create({
+        role: UserRole.COLLABORATOR,
+        status: UserStatus.ACTIVE,
+        email: 'colaborador@inexci.com',
+        password: hashedPassword,
+        name: 'Ana Paula Oliveira',
+        phone: generatePhone(),
+        cpf: generateCPF(),
+        gender: 'F',
+        birth_date: new Date('1990-03-10'),
+      }),
+    );
+    console.log('  ➕ Criado: colaborador@inexci.com');
+  } else {
+    console.log('  ✓ Existe: colaborador@inexci.com');
+  }
+
+  // Colaborador 2 - Editor
+  let collaborator2 = await userRepo.findOne({
+    where: { email: 'assistente@inexci.com' },
+  });
+  if (!collaborator2) {
+    collaborator2 = await userRepo.save(
+      userRepo.create({
+        role: UserRole.COLLABORATOR,
+        status: UserStatus.ACTIVE,
+        email: 'assistente@inexci.com',
+        password: hashedPassword,
+        name: 'João Pedro Lima',
+        phone: generatePhone(),
+        cpf: generateCPF(),
+        gender: 'M',
+        birth_date: new Date('1995-07-25'),
+      }),
+    );
+    console.log('  ➕ Criado: assistente@inexci.com');
+  } else {
+    console.log('  ✓ Existe: assistente@inexci.com');
+  }
+
+  console.log('  ✅ 2 colaboradores criados\n');
+
+  // Vincular colaboradores ao médico
+  console.log('🔗 Vinculando colaboradores ao médico...');
+
+  let teamMember1 = await teamMemberRepo.findOne({
+    where: { doctor_id: doctorUser.id, collaborator_id: collaborator1.id },
+  });
+  if (!teamMember1) {
+    teamMember1 = await teamMemberRepo.save(
+      teamMemberRepo.create({
+        doctor_id: doctorUser.id, // Corrigido: deve ser user.id, não doctorProfile.id
+        collaborator_id: collaborator1.id,
+        role: TeamMemberRole.MANAGER,
+        status: TeamMemberStatus.ACTIVE,
+        can_create_requests: true,
+        can_edit_requests: true,
+        can_delete_requests: true,
+        can_manage_documents: true,
+        can_manage_patients: true,
+        can_manage_billing: true,
+        can_manage_team: true,
+        can_view_reports: true,
+        accepted_at: new Date(),
+      }),
+    );
+    console.log('  ➕ Vinculado: Ana Paula como GESTOR');
+  }
+
+  let teamMember2 = await teamMemberRepo.findOne({
+    where: { doctor_id: doctorUser.id, collaborator_id: collaborator2.id },
+  });
+  if (!teamMember2) {
+    teamMember2 = await teamMemberRepo.save(
+      teamMemberRepo.create({
+        doctor_id: doctorUser.id, // Corrigido: deve ser user.id, não doctorProfile.id
+        collaborator_id: collaborator2.id,
+        role: TeamMemberRole.EDITOR,
+        status: TeamMemberStatus.ACTIVE,
+        can_create_requests: true,
+        can_edit_requests: true,
+        can_delete_requests: false,
+        can_manage_documents: true,
+        can_manage_patients: true,
+        can_manage_billing: false,
+        can_manage_team: false,
+        can_view_reports: true,
+        accepted_at: new Date(),
+      }),
+    );
+    console.log('  ➕ Vinculado: João Pedro como EDITOR');
+  }
+
+  console.log('  ✅ Colaboradores vinculados\n');
+
+  // ========================================
+  // 3. ENTIDADES DE NEGÓCIO (vinculadas ao médico)
   // ========================================
 
   console.log('🏥 Criando hospitais...');
@@ -238,16 +394,18 @@ async function main() {
   for (const data of hospitalData) {
     let hospital = await hospitalRepo.findOne({ where: { name: data.name } });
     if (!hospital) {
-      hospital = hospitalRepo.create({
-        name: data.name,
-        cnpj: generateCNPJ(),
-        email: faker.internet.email({ provider: 'hospital.com.br' }),
-        phone: generatePhone(),
-        city: data.city,
-        state: data.state,
-        active: true,
-      });
-      await hospitalRepo.save(hospital);
+      hospital = await hospitalRepo.save(
+        hospitalRepo.create({
+          name: data.name,
+          cnpj: generateCNPJ(),
+          email: faker.internet.email({ provider: 'hospital.com.br' }),
+          phone: generatePhone(),
+          city: data.city,
+          state: data.state,
+          active: true,
+          doctor_id: doctorUser.id,
+        }),
+      );
     }
     hospitals.push(hospital);
   }
@@ -267,16 +425,18 @@ async function main() {
   for (const data of healthPlanData) {
     let plan = await healthPlanRepo.findOne({ where: { name: data.name } });
     if (!plan) {
-      plan = healthPlanRepo.create({
-        name: data.name,
-        ans_code: data.ans_code,
-        cnpj: generateCNPJ(),
-        email: faker.internet.email({ provider: 'planodesaude.com.br' }),
-        phone: generatePhone(),
-        website: `https://www.${data.name.toLowerCase().replace(/ /g, '')}.com.br`,
-        active: true,
-      });
-      await healthPlanRepo.save(plan);
+      plan = await healthPlanRepo.save(
+        healthPlanRepo.create({
+          name: data.name,
+          ans_code: data.ans_code,
+          cnpj: generateCNPJ(),
+          email: faker.internet.email({ provider: 'planodesaude.com.br' }),
+          phone: generatePhone(),
+          website: `https://www.${data.name.toLowerCase().replace(/ /g, '')}.com.br`,
+          active: true,
+          doctor_id: doctorUser.id,
+        }),
+      );
     }
     healthPlans.push(plan);
   }
@@ -295,225 +455,38 @@ async function main() {
   for (const name of supplierData) {
     let supplier = await supplierRepo.findOne({ where: { name } });
     if (!supplier) {
-      supplier = supplierRepo.create({
-        name,
-        cnpj: generateCNPJ(),
-        email: faker.internet.email({ provider: 'opme.com.br' }),
-        phone: generatePhone(),
-        contact_name: faker.person.fullName(),
-        contact_phone: generatePhone(),
-        active: true,
-      });
-      await supplierRepo.save(supplier);
+      supplier = await supplierRepo.save(
+        supplierRepo.create({
+          name,
+          cnpj: generateCNPJ(),
+          email: faker.internet.email({ provider: 'opme.com.br' }),
+          phone: generatePhone(),
+          contact_name: faker.person.fullName(),
+          contact_phone: generatePhone(),
+          active: true,
+          doctor_id: doctorUser.id,
+        }),
+      );
     }
     suppliers.push(supplier);
   }
   console.log(`✅ ${suppliers.length} fornecedores\n`);
-
-  // ========================================
-  // 3. USUÁRIOS (fazem login)
-  // ========================================
-
-  console.log('👨‍⚕️ Criando usuários médicos...');
-
-  // Médico principal de teste
-  let doctorUser = await userRepo.findOne({
-    where: { email: 'medico@inexci.com' },
-  });
-  if (!doctorUser) {
-    doctorUser = userRepo.create({
-      role: UserRole.DOCTOR,
-      status: UserStatus.ACTIVE,
-      email: 'medico@inexci.com',
-      password: hashedPassword,
-      name: 'Dr. Carlos Silva',
-      phone: generatePhone(),
-      cpf: generateCPF(),
-      gender: 'M',
-      birth_date: new Date('1975-05-15'),
-    });
-    await userRepo.save(doctorUser);
-    console.log('  ➕ Criado: medico@inexci.com');
-  } else {
-    console.log('  ✓ Existe: medico@inexci.com');
-  }
-
-  // Perfil do médico principal
-  let doctorProfile = await doctorProfileRepo.findOne({
-    where: { user_id: doctorUser.id },
-  });
-  if (!doctorProfile) {
-    doctorProfile = doctorProfileRepo.create({
-      user_id: doctorUser.id,
-      specialty: 'Ortopedia',
-      crm: '123456',
-      crm_state: 'SP',
-      clinic_name: 'Clínica Ortopédica Silva',
-      clinic_cnpj: generateCNPJ(),
-      subscription_status: SubscriptionStatus.ACTIVE,
-      subscription_plan: 'professional',
-      max_requests_per_month: 100,
-      max_team_members: 5,
-    });
-    await doctorProfileRepo.save(doctorProfile);
-  }
-
-  // Segundo médico
-  let doctorUser2 = await userRepo.findOne({
-    where: { email: 'medico2@inexci.com' },
-  });
-  if (!doctorUser2) {
-    doctorUser2 = userRepo.create({
-      role: UserRole.DOCTOR,
-      status: UserStatus.ACTIVE,
-      email: 'medico2@inexci.com',
-      password: hashedPassword,
-      name: 'Dra. Maria Santos',
-      phone: generatePhone(),
-      cpf: generateCPF(),
-      gender: 'F',
-      birth_date: new Date('1980-08-22'),
-    });
-    await userRepo.save(doctorUser2);
-    console.log('  ➕ Criado: medico2@inexci.com');
-  } else {
-    console.log('  ✓ Existe: medico2@inexci.com');
-  }
-
-  let doctorProfile2 = await doctorProfileRepo.findOne({
-    where: { user_id: doctorUser2.id },
-  });
-  if (!doctorProfile2) {
-    doctorProfile2 = doctorProfileRepo.create({
-      user_id: doctorUser2.id,
-      specialty: 'Cirurgia Geral',
-      crm: '654321',
-      crm_state: 'RJ',
-      clinic_name: 'Centro Cirúrgico Santos',
-      clinic_cnpj: generateCNPJ(),
-      subscription_status: SubscriptionStatus.TRIAL,
-      subscription_plan: 'starter',
-      max_requests_per_month: 50,
-      max_team_members: 1,
-    });
-    await doctorProfileRepo.save(doctorProfile2);
-  }
-
-  console.log('  ✅ 2 médicos criados\n');
-
-  console.log('👩‍💼 Criando usuários colaboradores...');
-
-  // Colaborador 1 - Gestor
-  let collaborator1 = await userRepo.findOne({
-    where: { email: 'colaborador@inexci.com' },
-  });
-  if (!collaborator1) {
-    collaborator1 = userRepo.create({
-      role: UserRole.COLLABORATOR,
-      status: UserStatus.ACTIVE,
-      email: 'colaborador@inexci.com',
-      password: hashedPassword,
-      name: 'Ana Paula Oliveira',
-      phone: generatePhone(),
-      cpf: generateCPF(),
-      gender: 'F',
-      birth_date: new Date('1990-03-10'),
-    });
-    await userRepo.save(collaborator1);
-    console.log('  ➕ Criado: colaborador@inexci.com');
-  } else {
-    console.log('  ✓ Existe: colaborador@inexci.com');
-  }
-
-  // Colaborador 2 - Editor
-  let collaborator2 = await userRepo.findOne({
-    where: { email: 'assistente@inexci.com' },
-  });
-  if (!collaborator2) {
-    collaborator2 = userRepo.create({
-      role: UserRole.COLLABORATOR,
-      status: UserStatus.ACTIVE,
-      email: 'assistente@inexci.com',
-      password: hashedPassword,
-      name: 'João Pedro Lima',
-      phone: generatePhone(),
-      cpf: generateCPF(),
-      gender: 'M',
-      birth_date: new Date('1995-07-25'),
-    });
-    await userRepo.save(collaborator2);
-    console.log('  ➕ Criado: assistente@inexci.com');
-  } else {
-    console.log('  ✓ Existe: assistente@inexci.com');
-  }
-
-  console.log('  ✅ 2 colaboradores criados\n');
-
-  // Vincular colaboradores ao médico
-  console.log('🔗 Vinculando colaboradores ao médico...');
-
-  let teamMember1 = await teamMemberRepo.findOne({
-    where: { doctor_id: doctorUser.id, collaborator_id: collaborator1.id },
-  });
-  if (!teamMember1) {
-    teamMember1 = teamMemberRepo.create({
-      doctor_id: doctorUser.id,
-      collaborator_id: collaborator1.id,
-      role: TeamMemberRole.MANAGER,
-      status: TeamMemberStatus.ACTIVE,
-      can_create_requests: true,
-      can_edit_requests: true,
-      can_delete_requests: true,
-      can_manage_documents: true,
-      can_manage_patients: true,
-      can_manage_billing: true,
-      can_manage_team: true,
-      can_view_reports: true,
-      accepted_at: new Date(),
-    });
-    await teamMemberRepo.save(teamMember1);
-    console.log('  ➕ Vinculado: Ana Paula como GESTOR');
-  }
-
-  let teamMember2 = await teamMemberRepo.findOne({
-    where: { doctor_id: doctorUser.id, collaborator_id: collaborator2.id },
-  });
-  if (!teamMember2) {
-    teamMember2 = teamMemberRepo.create({
-      doctor_id: doctorUser.id,
-      collaborator_id: collaborator2.id,
-      role: TeamMemberRole.EDITOR,
-      status: TeamMemberStatus.ACTIVE,
-      can_create_requests: true,
-      can_edit_requests: true,
-      can_delete_requests: false,
-      can_manage_documents: true,
-      can_manage_patients: true,
-      can_manage_billing: false,
-      can_manage_team: false,
-      can_view_reports: true,
-      accepted_at: new Date(),
-    });
-    await teamMemberRepo.save(teamMember2);
-    console.log('  ➕ Vinculado: João Pedro como EDITOR');
-  }
-
-  console.log('  ✅ Colaboradores vinculados\n');
 
   // Admin (para futuro uso)
   let adminUser = await userRepo.findOne({
     where: { email: 'admin@inexci.com' },
   });
   if (!adminUser) {
-    adminUser = userRepo.create({
-      role: UserRole.ADMIN,
-      status: UserStatus.ACTIVE,
-      email: 'admin@inexci.com',
-      password: hashedPassword,
-      name: 'Administrador Sistema',
-      phone: generatePhone(),
-    });
-    await userRepo.save(adminUser);
+    adminUser = await userRepo.save(
+      userRepo.create({
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        email: 'admin@inexci.com',
+        password: hashedPassword,
+        name: 'Administrador Sistema',
+        phone: generatePhone(),
+      }),
+    );
     console.log('👑 Admin criado: admin@inexci.com\n');
   }
 
@@ -543,30 +516,31 @@ async function main() {
     });
     if (!patient) {
       const healthPlan = faker.helpers.arrayElement(healthPlans);
-      patient = patientRepo.create({
-        doctor_id: doctorProfile.id,
-        name: data.name,
-        email: faker.internet.email({ firstName: data.name.split(' ')[0] }),
-        phone: generatePhone(),
-        cpf: generateCPF(),
-        gender: data.gender,
-        birth_date: faker.date.birthdate({ min: 25, max: 75, mode: 'age' }),
-        health_plan_id: healthPlan.id,
-        health_plan_number: faker.string.numeric(12),
-        health_plan_type: faker.helpers.arrayElement([
-          'Apartamento',
-          'Enfermaria',
-          'VIP',
-        ]),
-        city: faker.helpers.arrayElement([
-          'São Paulo',
-          'Rio de Janeiro',
-          'Belo Horizonte',
-        ]),
-        state: faker.helpers.arrayElement(['SP', 'RJ', 'MG']),
-        active: true,
-      });
-      await patientRepo.save(patient);
+      patient = await patientRepo.save(
+        patientRepo.create({
+          doctor_id: doctorProfile.id,
+          name: data.name,
+          email: faker.internet.email({ firstName: data.name.split(' ')[0] }),
+          phone: generatePhone(),
+          cpf: generateCPF(),
+          gender: data.gender,
+          birth_date: faker.date.birthdate({ min: 25, max: 75, mode: 'age' }),
+          health_plan_id: healthPlan.id,
+          health_plan_number: faker.string.numeric(12),
+          health_plan_type: faker.helpers.arrayElement([
+            'Apartamento',
+            'Enfermaria',
+            'VIP',
+          ]),
+          city: faker.helpers.arrayElement([
+            'São Paulo',
+            'Rio de Janeiro',
+            'Belo Horizonte',
+          ]),
+          state: faker.helpers.arrayElement(['SP', 'RJ', 'MG']),
+          active: true,
+        }),
+      );
     }
     patients.push(patient);
   }
@@ -606,20 +580,20 @@ async function main() {
         collaborator1.id,
         collaborator2.id,
       ]),
+      manager_id: faker.helpers.arrayElement([
+        collaborator1.id,
+        collaborator2.id,
+      ]),
       patient_id: patient.id,
       hospital_id: hospital.id,
       health_plan_id: healthPlan.id,
       cid_id: cid.id,
       status,
-      protocol:
-        status >= SurgeryRequestStatus.SENT
-          ? `INX-${String(2024).slice(2)}${String(i + 1).padStart(5, '0')}`
-          : null,
       priority: faker.helpers.arrayElement([
-        'Baixa',
-        'Média',
-        'Alta',
-        'Urgente',
+        SurgeryRequestPriority.LOW,
+        SurgeryRequestPriority.MEDIUM,
+        SurgeryRequestPriority.HIGH,
+        SurgeryRequestPriority.URGENT,
       ]),
       is_indication: faker.datatype.boolean({ probability: 0.2 }),
       diagnosis: `Paciente apresenta ${cid.description.toLowerCase()} com indicação cirúrgica.`,
@@ -648,8 +622,8 @@ async function main() {
       request.received_date = faker.date.recent({ days: 7 });
     }
 
-    await surgeryRequestRepo.save(request);
-    surgeryRequests.push(request);
+    const savedRequest = await surgeryRequestRepo.save(request);
+    surgeryRequests.push(savedRequest);
 
     // Adicionar procedimentos
     const numProcedures = faker.number.int({ min: 1, max: 3 });
@@ -658,44 +632,46 @@ async function main() {
       numProcedures,
     );
     for (const proc of selectedProcedures) {
-      const srp = surgeryRequestProcedureRepo.create({
-        surgery_request_id: request.id,
-        procedure_id: proc.id,
-        quantity: faker.number.int({ min: 1, max: 2 }),
-        authorized_quantity:
-          status >= SurgeryRequestStatus.AUTHORIZED
-            ? faker.number.int({ min: 1, max: 2 })
-            : null,
-      });
-      await surgeryRequestProcedureRepo.save(srp);
+      const srp = await surgeryRequestProcedureRepo.save(
+        surgeryRequestProcedureRepo.create({
+          surgery_request_id: savedRequest.id,
+          procedure_id: proc.id,
+          quantity: faker.number.int({ min: 1, max: 2 }),
+          authorized_quantity:
+            status >= SurgeryRequestStatus.AUTHORIZED
+              ? faker.number.int({ min: 1, max: 2 })
+              : null,
+        }),
+      );
     }
 
     // Adicionar itens de OPME se for ortopédica
     if (cid.id.startsWith('M')) {
       const numOpme = faker.number.int({ min: 1, max: 4 });
       for (let j = 0; j < numOpme; j++) {
-        const opme = opmeItemRepo.create({
-          surgery_request_id: request.id,
-          name: faker.helpers.arrayElement([
-            'Prótese de Joelho',
-            'Placa de Titânio',
-            'Parafuso Ósseo',
-            'Âncora de Sutura',
-          ]),
-          brand: faker.helpers.arrayElement([
-            'Zimmer',
-            'DePuy',
-            'Stryker',
-            'Smith & Nephew',
-          ]),
-          distributor: faker.helpers.arrayElement(suppliers).name,
-          quantity: faker.number.int({ min: 1, max: 4 }),
-          authorized_quantity:
-            status >= SurgeryRequestStatus.AUTHORIZED
-              ? faker.number.int({ min: 1, max: 4 })
-              : null,
-        });
-        await opmeItemRepo.save(opme);
+        const opme = await opmeItemRepo.save(
+          opmeItemRepo.create({
+            surgery_request_id: savedRequest.id,
+            name: faker.helpers.arrayElement([
+              'Prótese de Joelho',
+              'Placa de Titânio',
+              'Parafuso Ósseo',
+              'Âncora de Sutura',
+            ]),
+            brand: faker.helpers.arrayElement([
+              'Zimmer',
+              'DePuy',
+              'Stryker',
+              'Smith & Nephew',
+            ]),
+            distributor: faker.helpers.arrayElement(suppliers).name,
+            quantity: faker.number.int({ min: 1, max: 4 }),
+            authorized_quantity:
+              status >= SurgeryRequestStatus.AUTHORIZED
+                ? faker.number.int({ min: 1, max: 4 })
+                : null,
+          }),
+        );
       }
     }
 
@@ -707,18 +683,19 @@ async function main() {
         numQuotations,
       );
       for (let k = 0; k < selectedSuppliers.length; k++) {
-        const quotation = quotationRepo.create({
-          surgery_request_id: request.id,
-          supplier_id: selectedSuppliers[k].id,
-          proposal_number: `PROP-${faker.string.alphanumeric(6).toUpperCase()}`,
-          total_value: parseFloat(
-            faker.commerce.price({ min: 5000, max: 30000 }),
-          ),
-          submission_date: faker.date.recent({ days: 30 }),
-          valid_until: faker.date.future({ years: 0.25 }),
-          selected: k === 0 && status >= SurgeryRequestStatus.AUTHORIZED,
-        });
-        await quotationRepo.save(quotation);
+        const quotation = await quotationRepo.save(
+          quotationRepo.create({
+            surgery_request_id: savedRequest.id,
+            supplier_id: selectedSuppliers[k].id,
+            proposal_number: `PROP-${faker.string.alphanumeric(6).toUpperCase()}`,
+            total_value: parseFloat(
+              faker.commerce.price({ min: 5000, max: 30000 }),
+            ),
+            submission_date: faker.date.recent({ days: 30 }),
+            valid_until: faker.date.future({ years: 0.25 }),
+            selected: k === 0 && status >= SurgeryRequestStatus.AUTHORIZED,
+          }),
+        );
       }
     }
 
@@ -732,28 +709,30 @@ async function main() {
     const numDocs = faker.number.int({ min: 1, max: docTypes.length });
     const selectedDocs = faker.helpers.arrayElements(docTypes, numDocs);
     for (const docType of selectedDocs) {
-      const doc = documentRepo.create({
-        surgery_request_id: request.id,
-        created_by: faker.helpers.arrayElement([
-          doctorUser.id,
-          collaborator1.id,
-        ]),
-        key: docType.key,
-        name: docType.name,
-        uri: `https://storage.inexci.com/docs/${request.id}/${faker.string.uuid()}.pdf`,
-      });
-      await documentRepo.save(doc);
+      const doc = await documentRepo.save(
+        documentRepo.create({
+          surgery_request_id: savedRequest.id,
+          created_by: faker.helpers.arrayElement([
+            doctorUser.id,
+            collaborator1.id,
+          ]),
+          key: docType.key,
+          name: docType.name,
+          uri: `https://storage.inexci.com/docs/${savedRequest.id}/${faker.string.uuid()}.pdf`,
+        }),
+      );
     }
 
     // Adicionar histórico de status
     if (status > SurgeryRequestStatus.PENDING) {
       for (let s = 1; s < status; s++) {
-        const statusUpdate = statusUpdateRepo.create({
-          surgery_request_id: request.id,
-          prev_status: s,
-          new_status: s + 1,
-        });
-        await statusUpdateRepo.save(statusUpdate);
+        const statusUpdate = await statusUpdateRepo.save(
+          statusUpdateRepo.create({
+            surgery_request_id: savedRequest.id,
+            prev_status: s,
+            new_status: s + 1,
+          }),
+        );
       }
     }
   }
@@ -791,8 +770,9 @@ async function main() {
   ];
 
   for (const data of notificationData) {
-    const notification = notificationRepo.create(data);
-    await notificationRepo.save(notification);
+    const notification = await notificationRepo.save(
+      notificationRepo.create(data),
+    );
   }
   console.log(`✅ ${notificationData.length} notificações criadas\n`);
 
@@ -807,18 +787,19 @@ async function main() {
       where: { user_id: user.id },
     });
     if (!settings) {
-      settings = notificationSettingsRepo.create({
-        user_id: user.id,
-        email_notifications: true,
-        sms_notifications: false,
-        push_notifications: true,
-        new_surgery_request: true,
-        status_update: true,
-        pendencies: true,
-        expiring_documents: true,
-        weekly_report: false,
-      });
-      await notificationSettingsRepo.save(settings);
+      settings = await notificationSettingsRepo.save(
+        notificationSettingsRepo.create({
+          user_id: user.id,
+          email_notifications: true,
+          sms_notifications: false,
+          push_notifications: true,
+          new_surgery_request: true,
+          status_update: true,
+          pendencies: true,
+          expiring_documents: true,
+          weekly_report: false,
+        }),
+      );
     }
   }
   console.log(`✅ Configurações de notificação criadas\n`);

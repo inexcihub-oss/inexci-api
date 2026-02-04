@@ -18,7 +18,7 @@ export class NotificationsService {
 
   // ============ Settings ============
 
-  async getSettings(userId: number) {
+  async getSettings(userId: string) {
     let settings = await this.settingsRepository.findByUserId(userId);
 
     // Se não existir, cria com valores padrão
@@ -39,14 +39,14 @@ export class NotificationsService {
     return settings;
   }
 
-  async updateSettings(userId: number, data: UpdateNotificationSettingsDto) {
+  async updateSettings(userId: string, data: UpdateNotificationSettingsDto) {
     return await this.settingsRepository.upsert(userId, data);
   }
 
   // ============ Notifications ============
 
   async getNotifications(
-    userId: number,
+    userId: string,
     options?: { skip?: number; take?: number; unreadOnly?: boolean },
   ) {
     const [notifications, unreadCount] = await Promise.all([
@@ -61,21 +61,21 @@ export class NotificationsService {
     };
   }
 
-  async getUnreadCount(userId: number) {
+  async getUnreadCount(userId: string) {
     return await this.notificationRepository.countUnread(userId);
   }
 
-  async markAsRead(notificationId: number, userId: number) {
+  async markAsRead(notificationId: string, userId: string) {
     await this.notificationRepository.markAsRead(notificationId, userId);
     return { message: 'Notificação marcada como lida' };
   }
 
-  async markAllAsRead(userId: number) {
+  async markAllAsRead(userId: string) {
     await this.notificationRepository.markAllAsRead(userId);
     return { message: 'Todas as notificações marcadas como lidas' };
   }
 
-  async deleteNotification(notificationId: number, userId: number) {
+  async deleteNotification(notificationId: string, userId: string) {
     await this.notificationRepository.delete(notificationId, userId);
     return { message: 'Notificação removida' };
   }
@@ -99,7 +99,7 @@ export class NotificationsService {
   }
 
   async createNotificationForUsers(
-    userIds: number[],
+    userIds: string[],
     data: Omit<CreateNotificationDto, 'user_id'>,
   ) {
     const notifications = userIds.map((userId) => ({
@@ -126,7 +126,7 @@ export class NotificationsService {
 
   // ============ Notification Helpers ============
 
-  private async sendEmailIfEnabled(userId: number, notification: any) {
+  private async sendEmailIfEnabled(userId: string, notification: any) {
     try {
       const settings = await this.settingsRepository.findByUserId(userId);
 
@@ -177,8 +177,8 @@ export class NotificationsService {
   // ============ Convenience Methods ============
 
   async notifyStatusUpdate(
-    userId: number,
-    surgeryRequestId: number,
+    userId: string,
+    surgeryRequestId: string,
     newStatus: string,
   ) {
     return this.createNotification({
@@ -192,8 +192,8 @@ export class NotificationsService {
   }
 
   async notifyNewPendency(
-    userId: number,
-    surgeryRequestId: number,
+    userId: string,
+    surgeryRequestId: string,
     pendencyType: string,
   ) {
     return this.createNotification({
@@ -207,7 +207,7 @@ export class NotificationsService {
   }
 
   async notifyExpiringDocument(
-    userId: number,
+    userId: string,
     documentName: string,
     daysUntilExpiry: number,
   ) {

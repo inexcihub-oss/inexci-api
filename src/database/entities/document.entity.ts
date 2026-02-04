@@ -11,14 +11,14 @@ import { User } from './user.entity';
 
 @Entity('document')
 export class Document {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'surgery_request_id' })
-  surgery_request_id: number;
+  surgery_request_id: string;
 
   @Column({ name: 'created_by' })
-  created_by: number;
+  created_by: string;
 
   @Column({ type: 'varchar', length: 50 })
   key: string;

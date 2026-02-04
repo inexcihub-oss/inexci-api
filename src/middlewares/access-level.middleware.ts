@@ -28,8 +28,32 @@ export class AccessLevel implements NestMiddleware {
 
       // Se não encontrar, tentar com pattern matching para rotas dinâmicas
       if (!accessLevel) {
-        const routePattern = req.baseUrl.replace(/\/\d+/g, '/:id');
+        // Substituir tanto UUIDs quanto IDs numéricos por :id (ordem importa!)
+        let routePattern = req.baseUrl
+          .replace(
+            /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+            '/:id',
+          )
+          .replace(/\/\d+/g, '/:id');
         accessLevel = AccessLevels[routePattern]?.[req.method];
+
+        // Se ainda não encontrou, tentar com outros nomes de parâmetros comuns
+        if (!accessLevel) {
+          // Tentar variações comuns de nomes de parâmetros
+          const paramVariations = [
+            ':surgeryRequestId',
+            ':requestId',
+            ':patientId',
+            ':hospitalId',
+            ':userId',
+          ];
+
+          for (const paramName of paramVariations) {
+            const variantPattern = routePattern.replace(/:id/g, paramName);
+            accessLevel = AccessLevels[variantPattern]?.[req.method];
+            if (accessLevel) break;
+          }
+        }
       }
 
       if (!accessLevel) {

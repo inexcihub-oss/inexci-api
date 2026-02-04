@@ -21,7 +21,7 @@ export class NotificationRepository {
   }
 
   async findByUserId(
-    userId: number,
+    userId: string,
     options?: { skip?: number; take?: number; unreadOnly?: boolean },
   ): Promise<Notification[]> {
     const where: FindOptionsWhere<Notification> = { user_id: userId };
@@ -38,7 +38,7 @@ export class NotificationRepository {
     });
   }
 
-  async countUnread(userId: number): Promise<number> {
+  async countUnread(userId: string): Promise<number> {
     return await this.repository.count({
       where: { user_id: userId, read: false },
     });
@@ -49,26 +49,26 @@ export class NotificationRepository {
     return await this.repository.save(entity);
   }
 
-  async markAsRead(notificationId: number, userId: number): Promise<void> {
+  async markAsRead(notificationId: string, userId: string): Promise<void> {
     await this.repository.update(
       { id: notificationId, user_id: userId },
       { read: true },
     );
   }
 
-  async markAllAsRead(userId: number): Promise<void> {
+  async markAllAsRead(userId: string): Promise<void> {
     await this.repository.update(
       { user_id: userId, read: false },
       { read: true },
     );
   }
 
-  async delete(notificationId: number, userId: number): Promise<void> {
+  async delete(notificationId: string, userId: string): Promise<void> {
     await this.repository.delete({ id: notificationId, user_id: userId });
   }
 
   async deleteOldNotifications(
-    userId: number,
+    userId: string,
     olderThanDays: number,
   ): Promise<void> {
     const date = new Date();

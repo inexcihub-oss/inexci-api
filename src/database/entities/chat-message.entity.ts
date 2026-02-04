@@ -11,14 +11,14 @@ import { User } from './user.entity';
 
 @Entity('chat_message')
 export class ChatMessage {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'chat_id' })
-  chat_id: number;
+  chat_id: string;
 
-  @Column({ name: 'sent_by' })
-  sent_by: number;
+  @Column({ name: 'sender_id' })
+  sender_id: string;
 
   @Column({ type: 'boolean', default: false })
   read: boolean;
@@ -35,6 +35,6 @@ export class ChatMessage {
   chat: Chat;
 
   @ManyToOne(() => User, (user) => user.sent_messages)
-  @JoinColumn({ name: 'sent_by' })
+  @JoinColumn({ name: 'sender_id' })
   sender: User;
 }

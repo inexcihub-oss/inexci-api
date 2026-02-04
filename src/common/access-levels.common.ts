@@ -14,12 +14,12 @@ export default {
   },
 
   '/users': {
-    GET: [UserRole.ADMIN, UserRole.DOCTOR],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     POST: [UserRole.ADMIN, UserRole.DOCTOR],
     PUT: [UserRole.ADMIN, UserRole.DOCTOR],
   },
   '/users/one': {
-    GET: [UserRole.ADMIN, UserRole.DOCTOR],
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/users/:id': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
@@ -27,7 +27,9 @@ export default {
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
   '/users/profile': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests': {
@@ -104,7 +106,13 @@ export default {
   '/surgery-requests/pendencies/validate/:id': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+  '/surgery-requests/pendencies/validate/:surgeryRequestId': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
   '/surgery-requests/pendencies/quick-summary/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/pendencies/quick-summary/:surgeryRequestId': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
   '/surgery-requests/pendencies/:id/complete': {
@@ -224,5 +232,13 @@ export default {
   },
   '/notifications/:id': {
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  // Upload de arquivos
+  '/upload/single': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/upload/multiple': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 };

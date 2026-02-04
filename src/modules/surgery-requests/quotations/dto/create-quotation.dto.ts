@@ -1,16 +1,14 @@
 import { Mask } from '@tboerc/maskfy';
 import { Transform, Type } from 'class-transformer';
-import { Allow, IsNumber } from 'class-validator';
+import { Allow, IsNumber, IsString, IsNotEmpty } from 'class-validator';
 
 export class CreateQuotationDto {
-  @Type(() => Number)
-  @IsNumber()
-  surgery_request_id: number;
-
+  @IsString()
+  @IsNotEmpty()
+  surgery_request_id: string;
   @Allow()
   @Transform(({ value }) => {
     value.phone = Mask.phone.raw(value.phone);
-
     return value;
   })
   supplier: {

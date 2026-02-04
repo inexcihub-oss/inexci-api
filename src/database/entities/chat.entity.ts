@@ -13,14 +13,14 @@ import { ChatMessage } from './chat-message.entity';
 
 @Entity('chat')
 export class Chat {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'surgery_request_id' })
-  surgery_request_id: number;
+  surgery_request_id: string;
 
   @Column({ name: 'user_id' })
-  user_id: number;
+  user_id: string;
 
   @CreateDateColumn()
   created_at: Date;

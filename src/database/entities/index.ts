@@ -16,7 +16,11 @@ import { HealthPlan } from './health-plan.entity';
 import { Supplier } from './supplier.entity';
 import { Cid } from './cid.entity';
 import { Procedure } from './procedure.entity';
-import { SurgeryRequest, SurgeryRequestStatus } from './surgery-request.entity';
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+  SurgeryRequestPriority,
+} from './surgery-request.entity';
 import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 import { OpmeItem } from './opme-item.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
@@ -46,7 +50,7 @@ export { Cid };
 export { Procedure };
 
 // SOLICITAÇÃO CIRÚRGICA E RELACIONADOS
-export { SurgeryRequest, SurgeryRequestStatus };
+export { SurgeryRequest, SurgeryRequestStatus, SurgeryRequestPriority };
 export { SurgeryRequestProcedure };
 export { OpmeItem };
 export { SurgeryRequestQuotation };

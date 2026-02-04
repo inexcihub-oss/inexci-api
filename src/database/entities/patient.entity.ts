@@ -15,11 +15,11 @@ import {
  */
 @Entity('patient')
 export class Patient {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'doctor_id' })
-  doctor_id: number;
+  doctor_id: string;
 
   @Column({ type: 'varchar', length: 100 })
   name: string;
@@ -42,7 +42,7 @@ export class Patient {
   // ============ DADOS DO CONVÊNIO ============
 
   @Column({ name: 'health_plan_id', nullable: true })
-  health_plan_id: number;
+  health_plan_id: string;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   health_plan_number: string; // Número da carteirinha

@@ -38,16 +38,16 @@ export class PatientRepository {
     return this.repository.save(patient);
   }
 
-  async update(id: number, data: Partial<Patient>): Promise<Patient | null> {
+  async update(id: string, data: Partial<Patient>): Promise<Patient | null> {
     await this.repository.update(id, data);
     return this.findOne({ id });
   }
 
-  async delete(id: number): Promise<void> {
+  async delete(id: string): Promise<void> {
     await this.repository.delete(id);
   }
 
-  async findByDoctorId(doctorId: number): Promise<Patient[]> {
+  async findByDoctorId(doctorId: string): Promise<Patient[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
       order: { name: 'ASC' },

@@ -19,11 +19,11 @@ export enum NotificationType {
 
 @Entity('notification')
 export class Notification {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ name: 'user_id' })
-  user_id: number;
+  user_id: string;
 
   @Column({
     type: 'enum',

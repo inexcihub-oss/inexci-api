@@ -26,7 +26,7 @@ export class EmailService {
 
   async sendCompleteRegisterEmail(
     email: string,
-    user: { id: number; name: string },
+    user: { id: string; name: string },
     isPatient?: boolean,
   ) {
     try {
