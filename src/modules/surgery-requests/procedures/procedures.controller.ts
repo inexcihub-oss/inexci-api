@@ -1,4 +1,4 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Param } from '@nestjs/common';
 import { ProceduresService } from './procedures.service';
 import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-procedure.dto';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
@@ -15,5 +15,10 @@ export class ProceduresController {
   @Post('authorize')
   authorize(@Body() data: AuthorizeProceduresDto) {
     return this.proceduresService.authorize(data);
+  }
+
+  @Delete(':id')
+  delete(@Param('id') id: string) {
+    return this.proceduresService.delete(id);
   }
 }

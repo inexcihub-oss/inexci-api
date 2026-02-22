@@ -17,8 +17,16 @@ export class OpmeItemRepository {
     return await this.repository.save(opmeItem);
   }
 
+  async findOne(where: Partial<OpmeItem>): Promise<OpmeItem | null> {
+    return await this.repository.findOne({ where });
+  }
+
   async update(id: string, data: Partial<OpmeItem>): Promise<OpmeItem> {
     await this.repository.update(id, data);
     return await this.repository.findOne({ where: { id } });
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.repository.delete(id);
   }
 }

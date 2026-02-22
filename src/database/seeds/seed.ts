@@ -274,6 +274,52 @@ async function main() {
 
   console.log('  ✅ Médico principal criado\n');
 
+  // Médico secundário de teste (medico2)
+  let doctorUser2 = await userRepo.findOne({
+    where: { email: 'medico2@inexci.com' },
+  });
+  if (!doctorUser2) {
+    doctorUser2 = await userRepo.save(
+      userRepo.create({
+        role: UserRole.DOCTOR,
+        status: UserStatus.ACTIVE,
+        email: 'medico2@inexci.com',
+        password: hashedPassword,
+        name: 'Dra. Mariana Costa',
+        phone: generatePhone(),
+        cpf: generateCPF(),
+        gender: 'F',
+        birth_date: new Date('1982-08-22'),
+      }),
+    );
+    console.log('  ➕ Criado: medico2@inexci.com');
+  } else {
+    console.log('  ✓ Existe: medico2@inexci.com');
+  }
+
+  // Perfil do médico secundário
+  const doctorProfile2 = await doctorProfileRepo.findOne({
+    where: { user_id: doctorUser2.id },
+  });
+  if (!doctorProfile2) {
+    await doctorProfileRepo.save(
+      doctorProfileRepo.create({
+        user_id: doctorUser2.id,
+        specialty: 'Cardiologia',
+        crm: '654321',
+        crm_state: 'RJ',
+        clinic_name: 'Clínica Cardíaca Costa',
+        clinic_cnpj: generateCNPJ(),
+        subscription_status: SubscriptionStatus.ACTIVE,
+        subscription_plan: 'basic',
+        max_requests_per_month: 50,
+        max_team_members: 2,
+      }),
+    );
+  }
+
+  console.log('  ✅ Médico secundário criado\n');
+
   console.log('👩‍💼 Criando usuários colaboradores...');
 
   // Colaborador 1 - Gestor
@@ -556,12 +602,12 @@ async function main() {
     SurgeryRequestStatus.PENDING,
     SurgeryRequestStatus.SENT,
     SurgeryRequestStatus.IN_ANALYSIS,
-    SurgeryRequestStatus.REANALYSIS,
-    SurgeryRequestStatus.AUTHORIZED,
+    SurgeryRequestStatus.IN_SCHEDULING,
     SurgeryRequestStatus.SCHEDULED,
-    SurgeryRequestStatus.TO_INVOICE,
+    SurgeryRequestStatus.PERFORMED,
     SurgeryRequestStatus.INVOICED,
     SurgeryRequestStatus.FINALIZED,
+    SurgeryRequestStatus.CLOSED,
   ];
 
   for (let i = 0; i < 15; i++) {
@@ -608,18 +654,9 @@ async function main() {
     if (status >= SurgeryRequestStatus.SCHEDULED) {
       request.surgery_date = faker.date.future({ years: 0.5 });
     }
-    if (status >= SurgeryRequestStatus.TO_INVOICE) {
+    if (status >= SurgeryRequestStatus.PERFORMED) {
       request.surgery_date = faker.date.recent({ days: 30 });
-    }
-    if (status >= SurgeryRequestStatus.INVOICED) {
-      request.invoiced_value = parseFloat(
-        faker.commerce.price({ min: 5000, max: 50000 }),
-      );
-      request.invoiced_date = faker.date.recent({ days: 15 });
-    }
-    if (status >= SurgeryRequestStatus.FINALIZED) {
-      request.received_value = request.invoiced_value;
-      request.received_date = faker.date.recent({ days: 7 });
+      request.surgery_performed_at = faker.date.recent({ days: 30 });
     }
 
     const savedRequest = await surgeryRequestRepo.save(request);
@@ -638,7 +675,7 @@ async function main() {
           procedure_id: proc.id,
           quantity: faker.number.int({ min: 1, max: 2 }),
           authorized_quantity:
-            status >= SurgeryRequestStatus.AUTHORIZED
+            status >= SurgeryRequestStatus.IN_SCHEDULING
               ? faker.number.int({ min: 1, max: 2 })
               : null,
         }),
@@ -667,7 +704,7 @@ async function main() {
             distributor: faker.helpers.arrayElement(suppliers).name,
             quantity: faker.number.int({ min: 1, max: 4 }),
             authorized_quantity:
-              status >= SurgeryRequestStatus.AUTHORIZED
+              status >= SurgeryRequestStatus.IN_SCHEDULING
                 ? faker.number.int({ min: 1, max: 4 })
                 : null,
           }),
@@ -693,7 +730,7 @@ async function main() {
             ),
             submission_date: faker.date.recent({ days: 30 }),
             valid_until: faker.date.future({ years: 0.25 }),
-            selected: k === 0 && status >= SurgeryRequestStatus.AUTHORIZED,
+            selected: k === 0 && status >= SurgeryRequestStatus.IN_SCHEDULING,
           }),
         );
       }

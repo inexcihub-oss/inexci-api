@@ -1,9 +1,25 @@
 export default {
-  rnmReport: 'rnm_report',
-  doctorRequest: 'doctor_request',
+  // PRÉ-CIRUÚRGICOS
   personalDocument: 'personal_document',
+  doctorRequest: 'doctor_request',
+  examReport: 'exam_report', // substitui rnm_report
+  medicalReport: 'medical_report',
+
+  // AUTORIZAÇÃO
   authorizationGuide: 'authorization_guide',
+
+  // PÓS-CIRUÚRGICOS
+  surgeryRoom: 'surgery_room',
+  surgeryImages: 'surgery_images',
+  surgeryAuthDocument: 'surgery_auth_document',
+
+  // FATURAMENTO
   invoiceProtocol: 'invoice_protocol',
-  additionalDocument: 'additional_document',
+  receiptDocument: 'receipt_document',
+
+  // CONTESTAÇÃO
   contestFile: 'contest_file',
+
+  // OUTROS
+  additionalDocument: 'additional_document',
 };

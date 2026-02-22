@@ -52,6 +52,12 @@ export class HealthPlan {
   @Column({ type: 'varchar', length: 255, nullable: true })
   portal_url: string; // URL do portal de autorizações
 
+  // ============ FATURAMENTO ============
+
+  /** Prazo padrão de pagamento em dias (usado como sugestão no faturamento) */
+  @Column({ type: 'int', nullable: true })
+  default_payment_days: number;
+
   // ============ OBSERVAÇÕES ============
 
   @Column({ type: 'text', nullable: true })

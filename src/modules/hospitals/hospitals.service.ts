@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
+import { CreateHospitalDto } from './dto/create-hospital.dto';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { FindOptionsWhere } from 'typeorm';
@@ -55,5 +56,25 @@ export class HospitalsService {
     ]);
 
     return { total, records };
+  }
+
+  async create(data: CreateHospitalDto, userId: string): Promise<Hospital> {
+    const user = await this.userRepository.findOne({ id: userId });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    let doctorId = userId;
+    if (user.role === UserRole.COLLABORATOR) {
+      const teamMember =
+        await this.teamMemberRepository.findByCollaboratorId(userId);
+      if (!teamMember)
+        throw new NotFoundException('Médico responsável não encontrado');
+      doctorId = teamMember.doctor_id;
+    }
+
+    return this.hospitalRepository.create({
+      ...data,
+      doctor_id: doctorId,
+      active: true,
+    });
   }
 }

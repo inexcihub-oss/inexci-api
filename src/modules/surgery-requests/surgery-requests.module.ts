@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
+import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
+import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
+import { Contestation } from 'src/database/entities/contestation.entity';
 import { User } from 'src/database/entities/user.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Patient } from 'src/database/entities/patient.entity';
@@ -19,6 +22,9 @@ import { DoctorProfileRepository } from 'src/database/repositories/doctor-profil
 import { StorageService } from 'src/shared/storage/storage.service';
 import { ChatsModule } from './chats/chats.module';
 import { EmailModule } from 'src/shared/email/email.module';
+import { MailModule } from 'src/shared/mail/mail.module';
+import { PdfModule } from 'src/shared/pdf/pdf.module';
+import { QueuesModule } from 'src/shared/queues/queues.module';
 import { PendenciesModule } from './pendencies/pendencies.module';
 import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 import { DocumentsModule } from './documents/documents.module';
@@ -28,6 +34,9 @@ import { DocumentsKeyModule } from './documents-key/documents-key.module';
   imports: [
     TypeOrmModule.forFeature([
       SurgeryRequest,
+      SurgeryRequestAnalysis,
+      SurgeryRequestBilling,
+      Contestation,
       User,
       StatusUpdate,
       Patient,
@@ -38,6 +47,9 @@ import { DocumentsKeyModule } from './documents-key/documents-key.module';
     UsersModule,
     ChatsModule,
     EmailModule,
+    MailModule,
+    PdfModule,
+    QueuesModule,
     PendenciesModule,
     DocumentsModule,
     DocumentsKeyModule,

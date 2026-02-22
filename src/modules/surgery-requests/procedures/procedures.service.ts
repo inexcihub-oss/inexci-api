@@ -4,9 +4,8 @@ import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-p
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestProcedureRepository } from 'src/database/repositories/surgery-request-procedure.repository';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
-import { SurgeryRequestStatuses } from 'src/common';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
-import surgeryRequestStatusesCommon from 'src/common/surgery-request-statuses.common';
 import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 
 @Injectable()
@@ -65,18 +64,23 @@ export class ProceduresService {
       ),
     );
 
-    if (surgeryRequest.status === SurgeryRequestStatuses.inReanalysis.value) {
-      await this.surgeryRequestRepository.update(data.surgery_request_id, {
-        status: surgeryRequestStatusesCommon.inAnalysis.value,
-      });
-
-      await this.statusUpdateRepository.create({
-        surgery_request_id: data.surgery_request_id,
-        new_status: surgeryRequestStatusesCommon.inAnalysis.value,
-        prev_status: surgeryRequest.status,
-      });
-    }
+    // Autorização de procedimentos — status não muda automaticamente
+    // A transição de status é feita manualmente via endpoint de transição
 
     return {};
+  }
+
+  async delete(id: string) {
+    const procedure = await this.surgeryRequestProcedureRepository.findOne({
+      id,
+    });
+
+    if (!procedure) {
+      throw new BadRequestException('Procedimento não encontrado');
+    }
+
+    await this.surgeryRequestProcedureRepository.delete(id);
+
+    return { message: 'Procedimento removido com sucesso' };
   }
 }

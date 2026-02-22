@@ -1,0 +1,247 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Relatório de Faturamento</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        color: #111827;
+        background: #fff;
+      }
+
+      .page-header {
+        border-bottom: 3px solid #0e7490;
+        padding-bottom: 16px;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .brand {
+        font-size: 22px;
+        font-weight: bold;
+        color: #0e7490;
+      }
+      .brand span {
+        color: #374151;
+        font-weight: normal;
+        font-size: 12px;
+        display: block;
+      }
+      .header-meta {
+        text-align: right;
+        color: #6b7280;
+        font-size: 11px;
+      }
+      .header-meta .protocol {
+        font-size: 14px;
+        font-weight: bold;
+        color: #111827;
+      }
+
+      .section {
+        margin-bottom: 20px;
+      }
+      .section-title {
+        font-size: 13px;
+        font-weight: bold;
+        color: #0e7490;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 6px;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .grid-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+
+      .field {
+        margin-bottom: 8px;
+      }
+      .field label {
+        font-size: 10px;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        display: block;
+        margin-bottom: 2px;
+      }
+      .field value {
+        font-size: 12px;
+        color: #111827;
+        display: block;
+      }
+
+      .value-highlight {
+        text-align: center;
+        padding: 20px;
+        background: #ecfeff;
+        border: 2px solid #0e7490;
+        border-radius: 8px;
+        margin: 16px 0;
+      }
+      .value-highlight .label {
+        font-size: 11px;
+        color: #0e7490;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .value-highlight .amount {
+        font-size: 32px;
+        font-weight: bold;
+        color: #0e7490;
+        margin-top: 4px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+      }
+      table thead tr {
+        background: #f3f4f6;
+      }
+      table th {
+        text-align: left;
+        padding: 8px 10px;
+        font-size: 10px;
+        text-transform: uppercase;
+        color: #6b7280;
+        letter-spacing: 0.05em;
+      }
+      table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .page-footer {
+        margin-top: 32px;
+        border-top: 1px solid #e5e7eb;
+        padding-top: 12px;
+        text-align: center;
+        font-size: 10px;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='page-header'>
+      <div class='brand'>
+        Inexci
+        <span>Relatório de Faturamento</span>
+      </div>
+      <div class='header-meta'>
+        {{#if protocol}}<div class='protocol'>Protocolo:
+            {{protocol}}</div>{{/if}}
+        <div>Data de emissão: {{invoiceSentAt}}</div>
+      </div>
+    </div>
+
+    <!-- DADOS DA CIRURGIA -->
+    <div class='section'>
+      <div class='section-title'>Dados da Cirurgia</div>
+      <div class='grid-3'>
+        <div class='field'>
+          <label>Paciente</label>
+          <value>{{patientName}}</value>
+        </div>
+        <div class='field'>
+          <label>Médico</label>
+          <value>{{doctorName}}</value>
+        </div>
+        {{#if hospitalName}}
+          <div class='field'>
+            <label>Hospital</label>
+            <value>{{hospitalName}}</value>
+          </div>
+        {{/if}}
+        {{#if healthPlanName}}
+          <div class='field'>
+            <label>Convênio</label>
+            <value>{{healthPlanName}}</value>
+          </div>
+        {{/if}}
+        {{#if surgeryDate}}
+          <div class='field'>
+            <label>Data da Cirurgia</label>
+            <value>{{surgeryDate}}</value>
+          </div>
+        {{/if}}
+      </div>
+    </div>
+
+    <!-- FATURA -->
+    <div class='section'>
+      <div class='section-title'>Dados da Fatura</div>
+      <div class='value-highlight'>
+        <div class='label'>Valor Faturado</div>
+        <div class='amount'>{{invoiceValue}}</div>
+      </div>
+      <div class='grid-3'>
+        <div class='field'>
+          <label>Protocolo da Fatura</label>
+          <value>{{invoiceProtocol}}</value>
+        </div>
+        <div class='field'>
+          <label>Enviado em</label>
+          <value>{{invoiceSentAt}}</value>
+        </div>
+        {{#if paymentDeadline}}
+          <div class='field'>
+            <label>Prazo de Pagamento</label>
+            <value>{{paymentDeadline}}</value>
+          </div>
+        {{/if}}
+      </div>
+    </div>
+
+    <!-- PROCEDIMENTOS -->
+    {{#if procedures.length}}
+      <div class='section'>
+        <div class='section-title'>Procedimentos Realizados</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Código TUSS</th>
+              <th>Descrição</th>
+              <th style='text-align:center'>Qtd.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each procedures}}
+              <tr>
+                <td>{{tussCode}}</td>
+                <td>{{description}}</td>
+                <td style='text-align:center'>{{quantity}}</td>
+              </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    {{/if}}
+
+    <div class='page-footer'>
+      Documento gerado automaticamente pelo sistema Inexci &bull;
+      {{invoiceSentAt}}
+    </div>
+  </body>
+</html>

@@ -1,5 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
+import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { FindOptionsWhere } from 'typeorm';
@@ -50,5 +55,44 @@ export class PatientsService {
     ]);
 
     return { total, records };
+  }
+
+  async create(data: CreatePatientDto, userId: string): Promise<Patient> {
+    const user = await this.userRepository.findOne({ id: userId });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    let doctorProfileId: string;
+    if (user.role === UserRole.DOCTOR) {
+      const profile = await this.doctorProfileRepository.findByUserId(userId);
+      if (!profile)
+        throw new BadRequestException(
+          'Perfil de médico não encontrado. Configure seu perfil antes de criar pacientes.',
+        );
+      doctorProfileId = profile.id;
+    } else {
+      throw new BadRequestException('Apenas médicos podem criar pacientes.');
+    }
+
+    return this.patientRepository.create({
+      doctor_id: doctorProfileId,
+      name: data.name,
+      phone: data.phone,
+      cpf: data.cpf,
+      gender: data.gender,
+      birth_date: new Date(data.birth_date),
+      health_plan_id: data.health_plan_id,
+      health_plan_number: data.health_plan_number,
+      health_plan_type: data.health_plan_type,
+      email: data.email,
+      zip_code: data.zip_code,
+      address: data.address,
+      address_number: data.address_number,
+      address_complement: data.address_complement,
+      neighborhood: data.neighborhood,
+      city: data.city,
+      state: data.state,
+      medical_notes: data.medical_notes,
+      active: true,
+    });
   }
 }

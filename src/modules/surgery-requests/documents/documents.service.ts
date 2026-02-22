@@ -46,11 +46,22 @@ export class DocumentsService {
     return await this.dataSource.transaction(async (manager) => {
       const documentRepo = manager.getRepository(Document);
 
+      // Deletar do banco de dados
       await documentRepo.delete({
         id: data.id,
         key: data.key,
         surgery_request_id: data.surgery_request_id,
       });
+
+      // Deletar do Supabase Storage
+      if (document.uri) {
+        try {
+          await this.storageService.delete(document.uri);
+        } catch (error) {
+          console.error('Erro ao deletar arquivo do Supabase:', error);
+          // Não falha a transação se o arquivo não existir no storage
+        }
+      }
     });
   }
 }

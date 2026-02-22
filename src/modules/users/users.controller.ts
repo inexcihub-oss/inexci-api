@@ -3,6 +3,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
 import { UsersService } from './users.service';
 import {
   Body,
@@ -53,6 +54,14 @@ export class UsersController {
   @Post('complete-register')
   async completeRegister(@Body() data: CompleteRegisterDto, @Request() req) {
     return await this.usersService.completeRegister(data, req.user.userId);
+  }
+
+  @Post('doctor-profile')
+  async createDoctorProfile(
+    @Body() data: CreateDoctorProfileDto,
+    @Request() req,
+  ) {
+    return await this.usersService.createDoctorProfile(data, req.user.userId);
   }
 
   @Put()

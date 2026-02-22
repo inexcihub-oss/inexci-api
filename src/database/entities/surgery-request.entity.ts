@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
 import { DoctorProfile } from './doctor-profile.entity';
@@ -13,28 +14,29 @@ import { User } from './user.entity';
 import { Hospital } from './hospital.entity';
 import { Patient } from './patient.entity';
 import { HealthPlan } from './health-plan.entity';
-import { Cid } from './cid.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { OpmeItem } from './opme-item.entity';
 import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 import { Document } from './document.entity';
 import { Chat } from './chat.entity';
 import { StatusUpdate } from './status-update.entity';
+import { SurgeryRequestAnalysis } from './surgery-request-analysis.entity';
+import { SurgeryRequestBilling } from './surgery-request-billing.entity';
+import { Contestation } from './contestation.entity';
 
 /**
- * Status da solicitação cirúrgica
+ * Status da solicitação cirúrgica (9 valores — fluxo oficial)
  */
 export enum SurgeryRequestStatus {
-  PENDING = 1, // Pendente (em rascunho)
-  SENT = 2, // Enviada para análise
-  IN_ANALYSIS = 3, // Em análise pelo convênio
-  REANALYSIS = 4, // Em reanálise
-  AUTHORIZED = 5, // Autorizada
-  SCHEDULED = 6, // Agendada
-  TO_INVOICE = 7, // A faturar (cirurgia realizada)
-  INVOICED = 8, // Faturada
-  FINALIZED = 9, // Finalizada
-  CANCELLED = 10, // Cancelada
+  PENDING = 1, // Pendente
+  SENT = 2, // Enviada
+  IN_ANALYSIS = 3, // Em Análise
+  IN_SCHEDULING = 4, // Em Agendamento
+  SCHEDULED = 5, // Agendada
+  PERFORMED = 6, // Realizada
+  INVOICED = 7, // Faturada
+  FINALIZED = 8, // Finalizada
+  CLOSED = 9, // Encerrada
 }
 
 /**
@@ -74,6 +76,14 @@ export class SurgeryRequest {
 
   @Column({ name: 'cid_id', type: 'varchar', length: 75, nullable: true })
   cid_id: string;
+
+  @Column({
+    name: 'cid_description',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  cid_description: string;
 
   // ============ STATUS E CONTROLE ============
 
@@ -150,27 +160,26 @@ export class SurgeryRequest {
   @Column({ type: 'varchar', length: 100, nullable: true })
   hospital_protocol: string;
 
-  // ============ FATURAMENTO ============
-
-  @Column({ type: 'decimal', precision: 19, scale: 2, nullable: true })
-  invoiced_value: number;
-
-  @Column({ type: 'decimal', precision: 19, scale: 2, nullable: true })
-  received_value: number;
+  // ============ ENVIO ============
 
   @Column({ type: 'timestamp', nullable: true })
-  invoiced_date: Date;
+  sent_at: Date; // Quando foi enviada para a operadora
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  send_method: string; // 'email' | 'download'
+
+  // ============ REALIZAÇÃO ============
 
   @Column({ type: 'timestamp', nullable: true })
-  received_date: Date;
+  surgery_performed_at: Date; // Data/hora real da cirurgia
 
-  // ============ CANCELAMENTO ============
+  // ============ ENCERRAMENTO ============
 
   @Column({ type: 'text', nullable: true })
   cancel_reason: string;
 
   @Column({ type: 'timestamp', nullable: true })
-  cancelled_at: Date;
+  closed_at: Date; // Quando foi encerrada/arquivada
 
   // ============ TIMESTAMPS ============
 
@@ -210,10 +219,6 @@ export class SurgeryRequest {
   @JoinColumn({ name: 'health_plan_id' })
   health_plan: HealthPlan;
 
-  @ManyToOne(() => Cid, (cid) => cid.surgery_requests, { nullable: true })
-  @JoinColumn({ name: 'cid_id' })
-  cid: Cid;
-
   @OneToMany(
     () => SurgeryRequestQuotation,
     (quotation) => quotation.surgery_request,
@@ -234,4 +239,21 @@ export class SurgeryRequest {
 
   @OneToMany(() => StatusUpdate, (update) => update.surgery_request)
   status_updates: StatusUpdate[];
+
+  @OneToOne(
+    () => SurgeryRequestAnalysis,
+    (analysis) => analysis.surgery_request,
+    {
+      nullable: true,
+    },
+  )
+  analysis: SurgeryRequestAnalysis;
+
+  @OneToOne(() => SurgeryRequestBilling, (billing) => billing.surgery_request, {
+    nullable: true,
+  })
+  billing: SurgeryRequestBilling;
+
+  @OneToMany(() => Contestation, (contestation) => contestation.surgery_request)
+  contestations: Contestation[];
 }

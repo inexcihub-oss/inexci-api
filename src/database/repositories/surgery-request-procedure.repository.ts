@@ -33,11 +33,21 @@ export class SurgeryRequestProcedureRepository {
     });
   }
 
+  async findOne(
+    where: Partial<SurgeryRequestProcedure>,
+  ): Promise<SurgeryRequestProcedure | null> {
+    return await this.repository.findOne({ where });
+  }
+
   async update(
     id: string,
     data: Partial<SurgeryRequestProcedure>,
   ): Promise<SurgeryRequestProcedure> {
     await this.repository.update(id, data);
     return await this.repository.findOne({ where: { id } });
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.repository.delete(id);
   }
 }

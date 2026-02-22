@@ -12,6 +12,9 @@ export default {
   '/auth/me': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+  '/auth/changePassword': {
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
 
   '/users': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
@@ -31,6 +34,9 @@ export default {
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+  '/users/doctor-profile': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
 
   '/surgery-requests': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
@@ -40,9 +46,14 @@ export default {
   '/surgery-requests/one': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+  '/surgery-requests/date-expired': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
   '/surgery-requests/simple': {
     POST: [UserRole.ADMIN, UserRole.DOCTOR],
   },
+
+  // ─── Rotas legadas (mantidas por retrocompatibilidade) ───────────────────
   '/surgery-requests/send': {
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
@@ -65,8 +76,61 @@ export default {
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
+  // ─── Transições de status (workflow) ─────────────────────────────────────
+  '/surgery-requests/:id/send': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/start-analysis': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/accept-authorization': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/contest-authorization': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/confirm-date': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/date-options': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/reschedule': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/mark-performed': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/invoice': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/confirm-receipt': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/contest-payment': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/billing/receipt': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/close': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/notify': {
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  // ─── Pendências em lote ───────────────────────────────────────────────────
+  '/surgery-requests/pendencies/batch-summary': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
   '/surgery-requests/opme': {
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PUT: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/opme/:id': {
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/procedures': {
@@ -74,6 +138,9 @@ export default {
   },
   '/surgery-requests/procedures/authorize': {
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/procedures/:id': {
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
   '/surgery-requests/quotations': {
@@ -137,6 +204,9 @@ export default {
 
   '/procedures': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
 
   '/suppliers': {
@@ -240,5 +310,10 @@ export default {
   },
   '/upload/multiple': {
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
+  // TUSS
+  '/tuss': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 };

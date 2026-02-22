@@ -14,10 +14,12 @@ import { SurgeryRequestsService } from '../surgery-requests.service';
 import { ChatsService } from '../chats/chats.service';
 import { EmailService } from 'src/shared/email/email.service';
 import { DataSource, IsNull, Not } from 'typeorm';
-import surgeryRequestStatusesCommon from 'src/common/surgery-request-statuses.common';
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestQuotation } from 'src/database/entities/surgery-request-quotation.entity';
 import { Chat } from 'src/database/entities/chat.entity';
-import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Supplier } from 'src/database/entities/supplier.entity';
 
@@ -38,9 +40,8 @@ export class QuotationsService {
     const user = await this.userRepository.findOne({ id: userId });
 
     if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      return doctorProfile?.id || null;
+      // supplier.doctor_id → user.id (FK para user, não para doctor_profile)
+      return userId;
     }
 
     // TODO: Para colaboradores, obter via TeamMember
@@ -134,17 +135,15 @@ export class QuotationsService {
 
       // Quando há 3+ cotações com data de submissão, muda para Em Análise
       if (quotations.length >= 3) {
-        const statusData = surgeryRequestStatusesCommon.inAnalysis;
-
         await Promise.all([
           statusUpdateRepo.save({
             surgery_request_id: surgeryRequest.id,
             prev_status: surgeryRequest.status,
-            new_status: statusData.value,
+            new_status: SurgeryRequestStatus.IN_ANALYSIS,
           }),
           surgeryRequestRepo.update(
             { id: surgeryRequest.id },
-            { status: statusData.value },
+            { status: SurgeryRequestStatus.IN_ANALYSIS },
           ),
         ]);
       }

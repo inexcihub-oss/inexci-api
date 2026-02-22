@@ -20,10 +20,10 @@ export class OpmeItem {
   @Column({ type: 'varchar', length: 75 })
   name: string;
 
-  @Column({ type: 'varchar', length: 75 })
+  @Column({ type: 'varchar', length: 75, nullable: true })
   brand: string;
 
-  @Column({ type: 'varchar', length: 75 })
+  @Column({ type: 'varchar', length: 75, nullable: true })
   distributor: string;
 
   @Column({ type: 'int' })

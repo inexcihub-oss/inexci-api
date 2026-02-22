@@ -1,6 +1,7 @@
-import { Controller, Get, Query, Request } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Request } from '@nestjs/common';
 import { PatientsService } from './patients.service';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
+import { CreatePatientDto } from './dto/create-patient.dto';
 
 @Controller('patients')
 export class PatientsController {
@@ -9,5 +10,10 @@ export class PatientsController {
   @Get()
   findAll(@Query() query: FindManyPatientDto, @Request() req) {
     return this.patientsService.findAll(query, req.user.userId);
+  }
+
+  @Post()
+  create(@Body() data: CreatePatientDto, @Request() req) {
+    return this.patientsService.create(data, req.user.userId);
   }
 }

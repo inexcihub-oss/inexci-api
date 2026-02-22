@@ -24,6 +24,10 @@ import {
 import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 import { OpmeItem } from './opme-item.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
+import { SurgeryRequestAnalysis } from './surgery-request-analysis.entity';
+import { SurgeryRequestBilling } from './surgery-request-billing.entity';
+import { SurgeryRequestTemplate } from './surgery-request-template.entity';
+import { Contestation } from './contestation.entity';
 import { StatusUpdate } from './status-update.entity';
 import { Document } from './document.entity';
 import { DefaultDocumentClinic } from './default-document-clinic.entity';
@@ -54,6 +58,10 @@ export { SurgeryRequest, SurgeryRequestStatus, SurgeryRequestPriority };
 export { SurgeryRequestProcedure };
 export { OpmeItem };
 export { SurgeryRequestQuotation };
+export { SurgeryRequestAnalysis };
+export { SurgeryRequestBilling };
+export { SurgeryRequestTemplate };
+export { Contestation };
 export { StatusUpdate };
 
 // DOCUMENTOS
@@ -84,6 +92,10 @@ export const ENTITIES = [
   SurgeryRequestProcedure,
   OpmeItem,
   SurgeryRequestQuotation,
+  SurgeryRequestAnalysis,
+  SurgeryRequestBilling,
+  SurgeryRequestTemplate,
+  Contestation,
   StatusUpdate,
   Document,
   DefaultDocumentClinic,

@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { PendenciesController } from './pendencies.controller';
 import { PendencyValidatorService } from './pendency-validator.service';
-import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { UsersModule } from 'src/modules/users/users.module';
+import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 
 @Module({
-  imports: [UsersModule],
+  imports: [TypeOrmModule.forFeature([SurgeryRequest])],
   controllers: [PendenciesController],
-  providers: [PendencyValidatorService, SurgeryRequestRepository],
+  providers: [PendencyValidatorService],
   exports: [PendencyValidatorService],
 })
 export class PendenciesModule {}

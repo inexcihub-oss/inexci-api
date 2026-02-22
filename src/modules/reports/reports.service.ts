@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { FindOptionsWhere, Between, LessThan } from 'typeorm';
-import surgeryRequestStatusesCommon from 'src/common/surgery-request-statuses.common';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { UserRole } from 'src/database/entities/user.entity';
-import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from 'src/database/entities/surgery-request.entity';
 
 @Injectable()
 export class ReportsService {
@@ -50,15 +52,15 @@ export class ReportsService {
         this.surgeryRequestRepository.total(where),
         this.surgeryRequestRepository.total({
           ...where,
-          status: surgeryRequestStatusesCommon.scheduled.value,
+          status: SurgeryRequestStatus.SCHEDULED,
         }),
         this.surgeryRequestRepository.total({
           ...where,
-          status: surgeryRequestStatusesCommon.performed.value,
+          status: SurgeryRequestStatus.PERFORMED,
         }),
         this.surgeryRequestRepository.total({
           ...where,
-          status: surgeryRequestStatusesCommon.invoiced.value,
+          status: SurgeryRequestStatus.INVOICED,
         }),
       ]);
 
@@ -158,20 +160,21 @@ export class ReportsService {
 
     const pendingAnalysis = await this.surgeryRequestRepository.total({
       ...where,
-      status: surgeryRequestStatusesCommon.inAnalysis.value,
+      status: SurgeryRequestStatus.IN_ANALYSIS,
       updated_at: LessThan(fiveDaysAgo),
     });
 
-    const pendingReanalysis = await this.surgeryRequestRepository.total({
+    // Status CLOSED representa o fechamento manual (era inReanalysis no sistema legado)
+    const pendingClosed = await this.surgeryRequestRepository.total({
       ...where,
-      status: surgeryRequestStatusesCommon.inReanalysis.value,
+      status: SurgeryRequestStatus.IN_SCHEDULING,
       updated_at: LessThan(fiveDaysAgo),
     });
 
     return {
-      total: pendingAnalysis + pendingReanalysis,
+      total: pendingAnalysis + pendingClosed,
       pending_analysis: pendingAnalysis,
-      pending_reanalysis: pendingReanalysis,
+      pending_scheduling: pendingClosed,
     };
   }
 

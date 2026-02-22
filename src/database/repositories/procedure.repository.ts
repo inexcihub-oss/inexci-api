@@ -46,4 +46,9 @@ export class ProcedureRepository {
       },
     });
   }
+
+  async create(data: Partial<Procedure>): Promise<Procedure> {
+    const procedure = this.repository.create(data);
+    return this.repository.save(procedure);
+  }
 }

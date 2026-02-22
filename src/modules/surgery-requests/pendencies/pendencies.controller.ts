@@ -9,13 +9,13 @@ export class PendenciesController {
 
   /**
    * Resumo em lote para múltiplas solicitações (para Kanban)
-   * Exemplo: GET /surgery-requests/pendencies/batch-summary?ids=1,2,3,4,5
+   * GET /surgery-requests/pendencies/batch-summary?ids=id1,id2,id3
    */
   @Get('batch-summary')
   async getBatchSummary(
     @Query('ids') ids: string,
   ): Promise<
-    Record<string, { pending: number; completed: number; total: number }>
+    Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
     const idArray = ids
       .split(',')
@@ -25,50 +25,45 @@ export class PendenciesController {
     const summaries = await Promise.all(
       idArray.map(async (id) => {
         try {
-          const result = await this.pendencyValidatorService.validate(id);
-          return {
-            id,
-            pending: result.pendingCount,
-            completed: result.completedCount,
-            total: result.totalCount,
-          };
-        } catch (error) {
-          return { id, pending: 0, completed: 0, total: 0 };
+          const result = await this.pendencyValidatorService.getSummary(id);
+          return { id, ...result };
+        } catch {
+          return { id, pending: 0, total: 0, canAdvance: true, items: [] };
         }
       }),
     );
 
-    // Retornar como objeto indexado por ID
     return summaries.reduce(
-      (acc, summary) => {
-        acc[summary.id] = {
+      (acc, { id, ...summary }) => {
+        acc[id] = {
           pending: summary.pending,
-          completed: summary.completed,
           total: summary.total,
+          canAdvance: summary.canAdvance,
         };
         return acc;
       },
       {} as Record<
         string,
-        { pending: number; completed: number; total: number }
+        { pending: number; total: number; canAdvance: boolean }
       >,
     );
   }
 
   /**
-   * Validação dinâmica - calcula pendências baseadas nos dados atuais
-   * Não usa tabela de pendências - tudo calculado em tempo real
+   * Resumo de pendências de uma solicitação
+   * GET /surgery-requests/pendencies/summary/:id
    */
-  @Get('validate/:surgeryRequestId')
-  validatePendencies(@Param('surgeryRequestId') surgeryRequestId: string) {
-    return this.pendencyValidatorService.validate(surgeryRequestId);
+  @Get('summary/:surgeryRequestId')
+  getSummary(@Param('surgeryRequestId') surgeryRequestId: string) {
+    return this.pendencyValidatorService.getSummary(surgeryRequestId);
   }
 
   /**
-   * Resumo rápido para Kanban
+   * Lista de pendências detalhada com flag resolved
+   * GET /surgery-requests/pendencies/validate/:id
    */
-  @Get('quick-summary/:surgeryRequestId')
-  getQuickSummary(@Param('surgeryRequestId') surgeryRequestId: string) {
-    return this.pendencyValidatorService.getQuickSummary(surgeryRequestId);
+  @Get('validate/:surgeryRequestId')
+  validatePendencies(@Param('surgeryRequestId') surgeryRequestId: string) {
+    return this.pendencyValidatorService.validateForStatus(surgeryRequestId);
   }
 }

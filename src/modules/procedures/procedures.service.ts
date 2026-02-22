@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { FindManyProcedureDto } from './dto/find-many-procedure.dto';
+import { CreateProcedureDto } from './dto/create-procedure.dto';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { FindOptionsWhere } from 'typeorm';
 import { Procedure } from 'src/database/entities/procedure.entity';
@@ -17,5 +18,9 @@ export class ProceduresService {
     ]);
 
     return { total, records };
+  }
+
+  async create(data: CreateProcedureDto): Promise<Procedure> {
+    return this.procedureRepository.create({ ...data, active: true });
   }
 }

@@ -1,0 +1,90 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Pagamento Recebido</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f5f5;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: #059669;
+        padding: 32px 40px;
+      }
+      .header h1 {
+        color: #fff;
+        margin: 0;
+        font-size: 22px;
+      }
+      .body {
+        padding: 32px 40px;
+        color: #374151;
+      }
+      .body p {
+        line-height: 1.6;
+        margin: 0 0 16px;
+      }
+      .info-box {
+        background: #ecfdf5;
+        border-left: 4px solid #059669;
+        border-radius: 4px;
+        padding: 16px 20px;
+        margin: 24px 0;
+      }
+      .info-box p {
+        margin: 4px 0;
+        font-size: 14px;
+      }
+      .info-box strong {
+        color: #065f46;
+      }
+      .value-highlight {
+        font-size: 32px;
+        font-weight: bold;
+        color: #059669;
+        text-align: center;
+        margin: 16px 0;
+      }
+      .footer {
+        background: #f9fafb;
+        padding: 20px 40px;
+        text-align: center;
+        font-size: 12px;
+        color: #9ca3af;
+        border-top: 1px solid #e5e7eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <div class='header'>
+        <h1>Pagamento Recebido ✓</h1>
+      </div>
+      <div class='body'>
+        <p>O pagamento referente à cirurgia do paciente
+          <strong>{{patientName}}</strong>
+          foi confirmado.</p>
+        <div class='value-highlight'>{{receivedValue}}</div>
+        <div class='info-box'>
+          <p><strong>Data do Recebimento:</strong> {{receivedAt}}</p>
+          <p><strong>ID da Solicitação:</strong> {{requestId}}</p>
+        </div>
+        <p>A solicitação foi finalizada com sucesso no sistema Inexci.</p>
+      </div>
+      <div class='footer'>
+        Inexci — Sistema de Gestão Cirúrgica &bull; noreply@inexci.com.br
+      </div>
+    </div>
+  </body>
+</html>

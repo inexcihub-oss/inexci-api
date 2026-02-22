@@ -1,0 +1,411 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Solicitação Cirúrgica</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        color: #111827;
+        background: #fff;
+      }
+
+      .page-header {
+        border-bottom: 3px solid #1a56db;
+        padding-bottom: 16px;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .brand {
+        font-size: 22px;
+        font-weight: bold;
+        color: #1a56db;
+      }
+      .brand span {
+        color: #374151;
+        font-weight: normal;
+        font-size: 12px;
+        display: block;
+      }
+      .header-meta {
+        text-align: right;
+        color: #6b7280;
+        font-size: 11px;
+      }
+      .header-meta .protocol {
+        font-size: 14px;
+        font-weight: bold;
+        color: #111827;
+      }
+
+      .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: bold;
+        background: #dbeafe;
+        color: #1e40af;
+        margin-bottom: 20px;
+      }
+
+      .section {
+        margin-bottom: 20px;
+      }
+      .section-title {
+        font-size: 13px;
+        font-weight: bold;
+        color: #1a56db;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 6px;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .grid-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+
+      .field {
+        margin-bottom: 8px;
+      }
+      .field label {
+        font-size: 10px;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        display: block;
+        margin-bottom: 2px;
+      }
+      .field value {
+        font-size: 12px;
+        color: #111827;
+        display: block;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+      }
+      table thead tr {
+        background: #f3f4f6;
+      }
+      table th {
+        text-align: left;
+        padding: 8px 10px;
+        font-size: 10px;
+        text-transform: uppercase;
+        color: #6b7280;
+        letter-spacing: 0.05em;
+      }
+      table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .text-block {
+        background: #f9fafb;
+        border-left: 3px solid #d1d5db;
+        padding: 10px 14px;
+        border-radius: 0 4px 4px 0;
+        font-size: 12px;
+        color: #374151;
+        line-height: 1.5;
+      }
+
+      .page-footer {
+        margin-top: 32px;
+        border-top: 1px solid #e5e7eb;
+        padding-top: 12px;
+        text-align: center;
+        font-size: 10px;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='page-header'>
+      <div class='brand'>
+        Inexci
+        <span>Sistema de Gestão Cirúrgica</span>
+      </div>
+      <div class='header-meta'>
+        {{#if protocol}}<div class='protocol'>Protocolo:
+            {{protocol}}</div>{{/if}}
+        <div>Data de emissão: {{createdAt}}</div>
+        {{#if sentAt}}<div>Enviada em: {{sentAt}}</div>{{/if}}
+      </div>
+    </div>
+
+    <div class='status-badge'>{{status}}</div>
+
+    <!-- MÉDICO -->
+    <div class='section'>
+      <div class='section-title'>Médico Solicitante</div>
+      <div class='grid-2'>
+        <div class='field'>
+          <label>Nome</label>
+          <value>{{doctorName}}</value>
+        </div>
+        {{#if doctorCrm}}
+          <div class='field'>
+            <label>CRM</label>
+            <value>{{doctorCrm}}</value>
+          </div>
+        {{/if}}
+      </div>
+    </div>
+
+    <!-- PACIENTE -->
+    <div class='section'>
+      <div class='section-title'>Dados do Paciente</div>
+      <div class='grid-3'>
+        <div class='field'>
+          <label>Nome</label>
+          <value>{{patientName}}</value>
+        </div>
+        {{#if patientBirthDate}}
+          <div class='field'>
+            <label>Data de Nascimento</label>
+            <value>{{patientBirthDate}}</value>
+          </div>
+        {{/if}}
+        {{#if patientCpf}}
+          <div class='field'>
+            <label>CPF</label>
+            <value>{{patientCpf}}</value>
+          </div>
+        {{/if}}
+      </div>
+    </div>
+
+    <!-- CONVÊNIO -->
+    {{#if healthPlanName}}
+      <div class='section'>
+        <div class='section-title'>Convênio</div>
+        <div class='grid-3'>
+          <div class='field'>
+            <label>Convênio</label>
+            <value>{{healthPlanName}}</value>
+          </div>
+          {{#if healthPlanRegistration}}
+            <div class='field'>
+              <label>Nº da Carteirinha</label>
+              <value>{{healthPlanRegistration}}</value>
+            </div>
+          {{/if}}
+          {{#if healthPlanType}}
+            <div class='field'>
+              <label>Tipo do Plano</label>
+              <value>{{healthPlanType}}</value>
+            </div>
+          {{/if}}
+        </div>
+      </div>
+    {{/if}}
+
+    <!-- HOSPITAL -->
+    {{#if hospitalName}}
+      <div class='section'>
+        <div class='section-title'>Hospital</div>
+        <div class='field'>
+          <label>Hospital</label>
+          <value>{{hospitalName}}</value>
+        </div>
+      </div>
+    {{/if}}
+
+    <!-- DIAGNÓSTICO -->
+    {{#if diagnosis}}
+      <div class='section'>
+        <div class='section-title'>Diagnóstico e Indicação Clínica</div>
+        {{#if cid}}
+          <div class='field' style='margin-bottom:10px;'>
+            <label>CID</label>
+            <value>{{cid}} — {{cidDescription}}</value>
+          </div>
+        {{/if}}
+        <div class='text-block'>{{diagnosis}}</div>
+      </div>
+    {{/if}}
+
+    {{#if medicalReport}}
+      <div class='section'>
+        <div class='section-title'>Laudo Médico</div>
+        <div class='text-block'>{{medicalReport}}</div>
+      </div>
+    {{/if}}
+
+    <!-- PROCEDIMENTOS -->
+    {{#if procedures.length}}
+      <div class='section'>
+        <div class='section-title'>Procedimentos (TUSS)</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Código TUSS</th>
+              <th>Descrição</th>
+              <th style='text-align:center'>Qtd. Solicitada</th>
+              {{#if procedures.[0].authorizedQuantity}}
+                <th style='text-align:center'>Qtd. Autorizada</th>
+              {{/if}}
+            </tr>
+          </thead>
+          <tbody>
+            {{#each procedures}}
+              <tr>
+                <td>{{tussCode}}</td>
+                <td>{{description}}</td>
+                <td style='text-align:center'>{{quantity}}</td>
+                {{#if authorizedQuantity}}
+                  <td style='text-align:center'>{{authorizedQuantity}}</td>
+                {{/if}}
+              </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    {{/if}}
+
+    <!-- OPME -->
+    {{#if opmeItems.length}}
+      <div class='section'>
+        <div class='section-title'>Materiais OPME</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Material</th>
+              <th>Marca</th>
+              <th style='text-align:center'>Qtd. Solicitada</th>
+              {{#if opmeItems.[0].authorizedQuantity}}
+                <th style='text-align:center'>Qtd. Autorizada</th>
+              {{/if}}
+            </tr>
+          </thead>
+          <tbody>
+            {{#each opmeItems}}
+              <tr>
+                <td>{{name}}</td>
+                <td>{{brand}}</td>
+                <td style='text-align:center'>{{quantity}}</td>
+                {{#if authorizedQuantity}}
+                  <td style='text-align:center'>{{authorizedQuantity}}</td>
+                {{/if}}
+              </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    {{/if}}
+
+    <!-- DATAS -->
+    {{#if surgeryDate}}
+      <div class='section'>
+        <div class='section-title'>Agendamento</div>
+        <div class='grid-2'>
+          <div class='field'>
+            <label>Data da Cirurgia</label>
+            <value>{{surgeryDate}}</value>
+          </div>
+          {{#if surgeryPerformedAt}}
+            <div class='field'>
+              <label>Realizada em</label>
+              <value>{{surgeryPerformedAt}}</value>
+            </div>
+          {{/if}}
+        </div>
+      </div>
+    {{/if}}
+
+    <!-- ANÁLISE -->
+    {{#if analysis.requestNumber}}
+      <div class='section'>
+        <div class='section-title'>Protocolo do Convênio</div>
+        <div class='grid-2'>
+          <div class='field'>
+            <label>Nº do Protocolo</label>
+            <value>{{analysis.requestNumber}}</value>
+          </div>
+          {{#if analysis.receivedAt}}
+            <div class='field'>
+              <label>Recebido em</label>
+              <value>{{analysis.receivedAt}}</value>
+            </div>
+          {{/if}}
+        </div>
+        {{#if analysis.notes}}
+          <div
+            class='text-block'
+            style='margin-top:8px;'
+          >{{analysis.notes}}</div>
+        {{/if}}
+      </div>
+    {{/if}}
+
+    <!-- FATURAMENTO -->
+    {{#if billing.invoiceProtocol}}
+      <div class='section'>
+        <div class='section-title'>Faturamento</div>
+        <div class='grid-3'>
+          <div class='field'>
+            <label>Protocolo da Fatura</label>
+            <value>{{billing.invoiceProtocol}}</value>
+          </div>
+          <div class='field'>
+            <label>Valor Faturado</label>
+            <value>{{billing.invoiceValue}}</value>
+          </div>
+          {{#if billing.invoiceSentAt}}
+            <div class='field'>
+              <label>Enviado em</label>
+              <value>{{billing.invoiceSentAt}}</value>
+            </div>
+          {{/if}}
+          {{#if billing.paymentDeadline}}
+            <div class='field'>
+              <label>Prazo de Pagamento</label>
+              <value>{{billing.paymentDeadline}}</value>
+            </div>
+          {{/if}}
+          {{#if billing.receivedValue}}
+            <div class='field'>
+              <label>Valor Recebido</label>
+              <value>{{billing.receivedValue}}</value>
+            </div>
+          {{/if}}
+          {{#if billing.receivedAt}}
+            <div class='field'>
+              <label>Recebido em</label>
+              <value>{{billing.receivedAt}}</value>
+            </div>
+          {{/if}}
+        </div>
+      </div>
+    {{/if}}
+
+    <div class='page-footer'>
+      Documento gerado automaticamente pelo sistema Inexci &bull;
+      {{createdAt}}
+    </div>
+  </body>
+</html>

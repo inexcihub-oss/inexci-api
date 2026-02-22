@@ -6,6 +6,11 @@ export class DeleteDocumentDto {
   @IsNotEmpty()
   id: string;
 
+  @IsString()
+  @IsNotEmpty()
   key: string;
+
+  @IsString()
+  @IsNotEmpty()
   surgery_request_id: string;
 }

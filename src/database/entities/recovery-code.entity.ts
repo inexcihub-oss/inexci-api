@@ -23,6 +23,9 @@ export class RecoveryCode {
   @Column({ type: 'varchar', length: 6 })
   code: string;
 
+  @Column({ type: 'timestamp', nullable: true })
+  expires_at: Date;
+
   @CreateDateColumn()
   created_at: Date;
 

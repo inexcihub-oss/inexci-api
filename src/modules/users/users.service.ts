@@ -11,8 +11,10 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
 
 import { UserRepository } from 'src/database/repositories/user.repository';
+import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { EmailService } from 'src/shared/email/email.service';
 import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
@@ -35,6 +37,7 @@ export class UsersService {
     private readonly userRepository: UserRepository,
     private readonly emailService: EmailService,
     private readonly teamMemberRepository: TeamMemberRepository,
+    private readonly doctorProfileRepository: DoctorProfileRepository,
   ) {}
 
   /**
@@ -316,5 +319,23 @@ export class UsersService {
     await this.userRepository.update(userId, { password: hashedPassword });
 
     return { message: 'Senha alterada com sucesso' };
+  }
+
+  async createDoctorProfile(dto: CreateDoctorProfileDto, userId: string) {
+    const existing = await this.doctorProfileRepository.findByUserId(userId);
+    if (existing)
+      throw new BadRequestException(
+        'Perfil de médico já existe para este usuário',
+      );
+
+    return this.doctorProfileRepository.create({
+      user_id: userId,
+      specialty: dto.specialty,
+      crm: dto.crm,
+      crm_state: dto.crm_state,
+      clinic_name: dto.clinic_name,
+      clinic_cnpj: dto.clinic_cnpj,
+      clinic_address: dto.clinic_address,
+    });
   }
 }

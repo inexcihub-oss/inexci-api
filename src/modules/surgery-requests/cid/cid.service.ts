@@ -1,24 +1,47 @@
 import { Injectable } from '@nestjs/common';
 import { FindManyCidDto } from './dto/find-many-cid.controller.dto';
-import { FindOptionsWhere, Like } from 'typeorm';
-import { CidRepository } from 'src/database/repositories/cid.repository';
-import { Cid } from 'src/database/entities/cid.entity';
+import * as cidData from '../../../utils/cid.json';
+
+interface CidItem {
+  codigo: string;
+  descricao: string;
+}
+
+export interface CidResponse {
+  id: string;
+  description: string;
+}
 
 @Injectable()
 export class CidService {
-  constructor(private readonly cidRepository: CidRepository) {}
+  private cidList: CidItem[];
+
+  constructor() {
+    this.cidList = (cidData as any).rows;
+  }
+
   async findAll(query: FindManyCidDto) {
-    const { search, skip, take } = query;
+    const { search, skip = 0, take = 50 } = query;
 
-    // TypeORM usa array de FindOptionsWhere para OR
-    const where: FindOptionsWhere<Cid>[] = search
-      ? [{ id: Like(`%${search}%`) }, { description: Like(`%${search}%`) }]
-      : [];
+    let filtered: CidItem[];
 
-    const [total, records] = await Promise.all([
-      this.cidRepository.total(where),
-      this.cidRepository.findMany(where, skip || 0, take || 10),
-    ]);
+    if (!search || search.length < 2) {
+      filtered = this.cidList;
+    } else {
+      const searchLower = search.toLowerCase();
+      
+      filtered = this.cidList.filter(
+        (item) =>
+          item.codigo.toLowerCase().includes(searchLower) ||
+          item.descricao.toLowerCase().includes(searchLower)
+      );
+    }
+
+    const total = filtered.length;
+    const records = filtered.slice(skip, skip + take).map((item) => ({
+      id: item.codigo,
+      description: item.descricao,
+    }));
 
     return { total, records };
   }

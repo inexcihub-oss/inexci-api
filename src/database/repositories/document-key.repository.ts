@@ -24,6 +24,9 @@ export class DocumentKeyRepository {
       relations: ['creator'],
       select: {
         id: true,
+        key: true,
+        name: true,
+        created_by: true,
         creator: {
           id: true,
           name: true,

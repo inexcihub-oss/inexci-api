@@ -1,0 +1,94 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Cirurgia Agendada</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f5f5;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: #7c3aed;
+        padding: 32px 40px;
+      }
+      .header h1 {
+        color: #fff;
+        margin: 0;
+        font-size: 22px;
+      }
+      .body {
+        padding: 32px 40px;
+        color: #374151;
+      }
+      .body p {
+        line-height: 1.6;
+        margin: 0 0 16px;
+      }
+      .info-box {
+        background: #f5f3ff;
+        border-left: 4px solid #7c3aed;
+        border-radius: 4px;
+        padding: 16px 20px;
+        margin: 24px 0;
+      }
+      .info-box p {
+        margin: 4px 0;
+        font-size: 14px;
+      }
+      .info-box strong {
+        color: #5b21b6;
+      }
+      .date-highlight {
+        font-size: 28px;
+        font-weight: bold;
+        color: #7c3aed;
+        text-align: center;
+        margin: 24px 0;
+        padding: 16px;
+        background: #f5f3ff;
+        border-radius: 8px;
+      }
+      .footer {
+        background: #f9fafb;
+        padding: 20px 40px;
+        text-align: center;
+        font-size: 12px;
+        color: #9ca3af;
+        border-top: 1px solid #e5e7eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <div class='header'>
+        <h1>Cirurgia Agendada 📅</h1>
+      </div>
+      <div class='body'>
+        <p>Olá! A cirurgia do paciente
+          <strong>{{patientName}}</strong>
+          foi agendada com sucesso.</p>
+        <div class='date-highlight'>{{surgeryDate}}</div>
+        <div class='info-box'>
+          <p><strong>Hospital:</strong> {{hospitalName}}</p>
+          <p><strong>ID da Solicitação:</strong> {{requestId}}</p>
+        </div>
+        <p>Certifique-se de que todos os documentos e materiais necessários
+          estejam preparados com antecedência.</p>
+      </div>
+      <div class='footer'>
+        Inexci — Sistema de Gestão Cirúrgica &bull; noreply@inexci.com.br
+      </div>
+    </div>
+  </body>
+</html>

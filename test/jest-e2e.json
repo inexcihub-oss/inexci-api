@@ -10,5 +10,6 @@
     "^src/(.*)$": "<rootDir>/../src/$1"
   },
   "transformIgnorePatterns": ["node_modules/(?!(@faker-js)/)"],
-  "testTimeout": 30000
+  "testTimeout": 30000,
+  "setupFiles": ["<rootDir>/env.setup.ts"]
 }

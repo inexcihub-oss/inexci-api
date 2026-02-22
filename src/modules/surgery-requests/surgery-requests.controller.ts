@@ -6,36 +6,44 @@ import {
   Request,
   Query,
   Put,
-  UseInterceptors,
-  UploadedFile,
-  Delete,
-  BadRequestException,
   Patch,
   Param,
 } from '@nestjs/common';
 import { SurgeryRequestsService } from './surgery-requests.service';
-import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
+
+// DTOs gerais
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
-import { SendSurgeryRequestDto } from './dto/send-surgery-request.dto';
-import { CreateSurgeryDateOptions } from './dto/create-surgery-date-options.dto';
-import { ScheduleSurgeryRequestDto } from './dto/schedule-surgery-request.dto';
-import { ToInvoiceDto } from './dto/to-invoice.dto';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { InvoiceDto } from './dto/invoice.dto';
-import { ReceiveDto } from './dto/receive.dto';
-import { CreateContestSurgeryRequestDto } from './dto/create-contest-surgery-request.dto';
-import { CreateComplaintDto } from './dto/create-complaint.dto';
+
+// DTOs de transição
+import { SendRequestDto } from './dto/send-request.dto';
+import { StartAnalysisDto } from './dto/start-analysis.dto';
+import { AcceptAuthorizationDto } from './dto/accept-authorization.dto';
+import { ContestAuthorizationDto } from './dto/contest-authorization.dto';
+import { ConfirmDateDto } from './dto/confirm-date.dto';
+import { UpdateDateOptionsDto } from './dto/update-date-options.dto';
+import { RescheduleDto } from './dto/reschedule.dto';
+import { MarkPerformedDto } from './dto/mark-performed.dto';
+import { InvoiceRequestDto } from './dto/invoice-request.dto';
+import { ConfirmReceiptDto } from './dto/confirm-receipt.dto';
+import { ContestPaymentDto } from './dto/contest-payment.dto';
+import { UpdateReceiptDto } from './dto/update-receipt.dto';
+import { CloseSurgeryRequestDto } from './dto/close-surgery-request.dto';
+import { NotifySurgeryRequestDto } from './dto/notify-surgery-request.dto';
 
 @Controller('surgery-requests')
 export class SurgeryRequestsController {
   constructor(
     private readonly surgeryRequestsService: SurgeryRequestsService,
   ) {}
+
+  // ============================================================
+  // CRIAÇÃO
+  // ============================================================
 
   @Post()
   createSurgeryRequest(
@@ -48,45 +56,9 @@ export class SurgeryRequestsController {
     );
   }
 
-  @Post('/send')
-  send(@Body() data: SendSurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.send(data, req.user.userId);
-  }
-
-  @Post('/cancel')
-  cancel(@Body() data: SendSurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.cancel(data, req.user.userId);
-  }
-
-  @Post('/schedule')
-  schedule(@Body() data: ScheduleSurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.schedule(data, req.user.userId);
-  }
-
-  @Post('/to-invoice')
-  toInvoice(@Body() data: ToInvoiceDto, @Request() req) {
-    return this.surgeryRequestsService.toInvoice(data, req.user.userId);
-  }
-
-  @Post('invoice')
-  @UseInterceptors(FileInterceptor('invoice_protocol'))
-  invoice(
-    @Body() data: InvoiceDto,
-    @Request() req,
-    @UploadedFile() file: Express.Multer.File,
-  ) {
-    return this.surgeryRequestsService.invoice(data, req.user.userId, file);
-  }
-
-  @Post('/receive')
-  receive(@Body() data: ReceiveDto, @Request() req) {
-    return this.surgeryRequestsService.receive(data, req.user.userId);
-  }
-
-  @Post('/surgery-dates')
-  createDateOptions(@Body() data: CreateSurgeryDateOptions, @Request() req) {
-    return this.surgeryRequestsService.createDateOptions(data, req.user.userId);
-  }
+  // ============================================================
+  // LEITURA
+  // ============================================================
 
   @Get()
   findAll(@Query() query: FindManySurgeryRequestDto, @Request() req) {
@@ -97,6 +69,15 @@ export class SurgeryRequestsController {
   findOne(@Query() query: FindOneSurgeryRequestDto, @Request() req) {
     return this.surgeryRequestsService.findOne(query.id, req.user.userId);
   }
+
+  @Get('date-expired')
+  dateExpired(@Request() req) {
+    return this.surgeryRequestsService.dateExpired();
+  }
+
+  // ============================================================
+  // ATUALIZAÇÃO GERAL
+  // ============================================================
 
   @Put()
   update(@Body() data: UpdateSurgeryRequestDto, @Request() req) {
@@ -110,7 +91,7 @@ export class SurgeryRequestsController {
     @Request() req,
   ) {
     return this.surgeryRequestsService.updateBasic(
-      { ...data, id: id },
+      { ...data, id },
       req.user.userId,
     );
   }
@@ -128,54 +109,201 @@ export class SurgeryRequestsController {
     );
   }
 
-  @Post('/contest')
-  @UseInterceptors(FileInterceptor('contest_file'))
-  contest(
-    @Body() data: CreateContestSurgeryRequestDto,
-    @UploadedFile() file: Express.Multer.File,
-    @Request() req,
-  ) {
-    if (!file) {
-      throw new BadRequestException('File "contest_file" is required.');
-    }
+  // ============================================================
+  // TRANSIÇÕES DE STATUS
+  // ============================================================
 
-    return this.surgeryRequestsService.contest(data, file, req.user.userId);
-  }
-
-  @Post('/complaint')
-  complaint(@Body() data: CreateComplaintDto, @Request() req) {
-    return this.surgeryRequestsService.complaint(data, req.user.userId);
-  }
-
-  @Get('/dateExpired')
-  dateExpired(@Request() req) {
-    return this.surgeryRequestsService.dateExpired();
-  }
-
-  @Post(':id/approve')
-  approve(@Param('id') id: string, @Request() req) {
-    return this.surgeryRequestsService.approve(id, req.user.userId);
-  }
-
-  @Post(':id/deny')
-  deny(
+  /**
+   * PENDING → SENT
+   * Envia a solicitação ao convênio
+   */
+  @Post(':id/send')
+  sendRequest(
     @Param('id') id: string,
-    @Body('cancel_reason') cancelReason: string,
+    @Body() dto: SendRequestDto,
     @Request() req,
   ) {
-    return this.surgeryRequestsService.deny(id, cancelReason, req.user.userId);
+    return this.surgeryRequestsService.sendRequest(id, dto, req.user.userId);
   }
 
-  @Post(':id/transition')
-  transition(
+  /**
+   * SENT → IN_ANALYSIS
+   * Registra início da análise com dados do convênio
+   */
+  @Post(':id/start-analysis')
+  startAnalysis(
     @Param('id') id: string,
-    @Body('new_status') newStatus: number,
+    @Body() dto: StartAnalysisDto,
     @Request() req,
   ) {
-    return this.surgeryRequestsService.transitionToStatus(
+    return this.surgeryRequestsService.startAnalysis(id, dto, req.user.userId);
+  }
+
+  /**
+   * IN_ANALYSIS → IN_SCHEDULING
+   * Aceita a autorização do convênio e fornece opções de data
+   */
+  @Post(':id/accept-authorization')
+  acceptAuthorization(
+    @Param('id') id: string,
+    @Body() dto: AcceptAuthorizationDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.acceptAuthorization(
       id,
-      newStatus,
+      dto,
       req.user.userId,
     );
+  }
+
+  /**
+   * IN_ANALYSIS → IN_ANALYSIS (não muda status)
+   * Contesta a negativa de autorização
+   */
+  @Post(':id/contest-authorization')
+  contestAuthorization(
+    @Param('id') id: string,
+    @Body() dto: ContestAuthorizationDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.contestAuthorization(
+      id,
+      dto,
+      req.user.userId,
+    );
+  }
+
+  /**
+   * IN_SCHEDULING → SCHEDULED
+   * Confirma a data escolhida pelo paciente
+   */
+  @Post(':id/confirm-date')
+  confirmDate(
+    @Param('id') id: string,
+    @Body() dto: ConfirmDateDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.confirmDate(id, dto, req.user.userId);
+  }
+
+  /**
+   * IN_SCHEDULING → IN_SCHEDULING (atualiza opções de data sem mudar status)
+   */
+  @Patch(':id/date-options')
+  updateDateOptions(
+    @Param('id') id: string,
+    @Body() dto: UpdateDateOptionsDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.updateDateOptions(
+      id,
+      dto,
+      req.user.userId,
+    );
+  }
+
+  /**
+   * SCHEDULED → SCHEDULED (reagenda sem mudar status)
+   */
+  @Patch(':id/reschedule')
+  reschedule(
+    @Param('id') id: string,
+    @Body() dto: RescheduleDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.reschedule(id, dto, req.user.userId);
+  }
+
+  /**
+   * SCHEDULED → PERFORMED
+   * Marca como realizada após a cirurgia
+   */
+  @Post(':id/mark-performed')
+  markPerformed(
+    @Param('id') id: string,
+    @Body() dto: MarkPerformedDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.markPerformed(id, dto, req.user.userId);
+  }
+
+  /**
+   * PERFORMED → INVOICED
+   * Registra o faturamento enviado ao convênio
+   */
+  @Post(':id/invoice')
+  invoiceRequest(
+    @Param('id') id: string,
+    @Body() dto: InvoiceRequestDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.invoiceRequest(id, dto, req.user.userId);
+  }
+
+  /**
+   * INVOICED → FINALIZED
+   * Confirma o recebimento do pagamento
+   */
+  @Post(':id/confirm-receipt')
+  confirmReceipt(
+    @Param('id') id: string,
+    @Body() dto: ConfirmReceiptDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.confirmReceipt(id, dto, req.user.userId);
+  }
+
+  /**
+   * FINALIZED → FINALIZED (não muda status)
+   * Contesta divergência de pagamento
+   */
+  @Post(':id/contest-payment')
+  contestPayment(
+    @Param('id') id: string,
+    @Body() dto: ContestPaymentDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.contestPayment(id, dto, req.user.userId);
+  }
+
+  /**
+   * FINALIZED → FINALIZED (edita recebimento após contestação)
+   */
+  @Patch(':id/billing/receipt')
+  updateReceipt(
+    @Param('id') id: string,
+    @Body() dto: UpdateReceiptDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.updateReceipt(id, dto, req.user.userId);
+  }
+
+  /**
+   * ANY → CLOSED (exceto FINALIZED e CLOSED)
+   * Fecha/arquiva a solicitação
+   */
+  @Post(':id/close')
+  closeSurgeryRequest(
+    @Param('id') id: string,
+    @Body() dto: CloseSurgeryRequestDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.closeSurgeryRequest(
+      id,
+      dto,
+      req.user.userId,
+    );
+  }
+
+  /**
+   * ANY — Envia manualmente um e-mail de notificação
+   */
+  @Post(':id/notify')
+  notify(
+    @Param('id') id: string,
+    @Body() dto: NotifySurgeryRequestDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.notify(id, dto, req.user.userId);
   }
 }

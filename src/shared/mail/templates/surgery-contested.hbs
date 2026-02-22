@@ -1,0 +1,98 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <title>Contestação de Autorização</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f5f5;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: #d97706;
+        padding: 32px 40px;
+      }
+      .header h1 {
+        color: #fff;
+        margin: 0;
+        font-size: 22px;
+      }
+      .body {
+        padding: 32px 40px;
+        color: #374151;
+      }
+      .body p {
+        line-height: 1.6;
+        margin: 0 0 16px;
+      }
+      .info-box {
+        background: #fffbeb;
+        border-left: 4px solid #d97706;
+        border-radius: 4px;
+        padding: 16px 20px;
+        margin: 24px 0;
+      }
+      .info-box p {
+        margin: 4px 0;
+        font-size: 14px;
+      }
+      .info-box strong {
+        color: #92400e;
+      }
+      .reason-box {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        padding: 16px 20px;
+        margin: 16px 0;
+        font-size: 14px;
+        color: #4b5563;
+        white-space: pre-wrap;
+      }
+      .footer {
+        background: #f9fafb;
+        padding: 20px 40px;
+        text-align: center;
+        font-size: 12px;
+        color: #9ca3af;
+        border-top: 1px solid #e5e7eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <div class='header'>
+        <h1>Contestação de Autorização</h1>
+      </div>
+      <div class='body'>
+        <p>Prezado convênio,</p>
+        <p>Estamos enviando uma contestação referente à autorização da
+          solicitação cirúrgica do paciente
+          <strong>{{patientName}}</strong>.</p>
+        <div class='info-box'>
+          <p><strong>ID da Solicitação:</strong> {{requestId}}</p>
+        </div>
+        <p><strong>Motivo da contestação:</strong></p>
+        <div class='reason-box'>{{reason}}</div>
+        {{#if message}}
+          <p><strong>Observações adicionais:</strong></p>
+          <div class='reason-box'>{{message}}</div>
+        {{/if}}
+        <p>Aguardamos a revisão da autorização.</p>
+      </div>
+      <div class='footer'>
+        Inexci — Sistema de Gestão Cirúrgica &bull; noreply@inexci.com.br
+      </div>
+    </div>
+  </body>
+</html>

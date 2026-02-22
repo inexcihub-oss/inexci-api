@@ -6,6 +6,7 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bull';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { UserRepository } from './database/repositories/user.repository';
 import { AccessLevel } from './middlewares/access-level.middleware';
@@ -31,10 +32,17 @@ import { CronService } from './shared/cron/cron.service';
 import { CronModule } from './shared/cron/cron.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { TussModule } from './modules/tuss/tuss.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    BullModule.forRoot({
+      redis: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      },
+    }),
     AuthModule,
     DatabaseModule,
     UsersModule,
@@ -54,6 +62,7 @@ import { UploadModule } from './modules/upload/upload.module';
     HealthPlansModule,
     NotificationsModule,
     UploadModule,
+    TussModule,
     ScheduleModule.forRoot(),
     CronModule,
   ],

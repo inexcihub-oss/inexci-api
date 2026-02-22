@@ -1,12 +1,4 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  OneToMany,
-} from 'typeorm';
-import { SurgeryRequest } from './surgery-request.entity';
+import { Entity, Column } from 'typeorm';
 
 @Entity('cid')
 export class Cid {
@@ -15,8 +7,4 @@ export class Cid {
 
   @Column({ type: 'varchar', length: 75 })
   description: string;
-
-  // Relations
-  @OneToMany(() => SurgeryRequest, (request) => request.cid)
-  surgery_requests: SurgeryRequest[];
 }
