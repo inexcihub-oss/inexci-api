@@ -41,11 +41,12 @@ export class MailProcessor {
 
       this.logger.log(`E-mail enviado: template="${template}" to="${to}"`);
     } catch (error) {
-      this.logger.error(
-        `Erro ao enviar e-mail: template="${template}" to="${to}"`,
+      // Loga o erro mas não relança — evita retries infinitos quando
+      // SMTP não está configurado ou serviço de e-mail está indisponível
+      this.logger.warn(
+        `Falha ao enviar e-mail (SMTP indisponível?): template="${template}" to="${to}"`,
         error,
       );
-      throw error; // Bull vai tentar novamente conforme a config de attempts
     }
   }
 

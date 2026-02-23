@@ -25,17 +25,24 @@ export class MailService {
     subject: string,
     context: Record<string, any>,
   ): Promise<void> {
-    await this.mailQueue.add(
-      'send-mail',
-      { template, to, subject, context } satisfies MailJobData,
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
-    );
-    this.logger.log(`E-mail enfileirado: template="${template}" to="${to}"`);
+    try {
+      await this.mailQueue.add(
+        'send-mail',
+        { template, to, subject, context } satisfies MailJobData,
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+      this.logger.log(`E-mail enfileirado: template="${template}" to="${to}"`);
+    } catch (err: any) {
+      // Redis indisponível — loga aviso mas não quebra o fluxo principal
+      this.logger.warn(
+        `Falha ao enfileirar e-mail (Redis offline?): template="${template}" to="${to}" — ${err?.message}`,
+      );
+    }
   }
 
   /**

@@ -41,6 +41,11 @@ import { TussModule } from './modules/tuss/tuss.module';
       redis: {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
+        // Não bloqueia o app se Redis estiver offline:
+        // comandos falham imediatamente em vez de ficarem enfileirados
+        enableOfflineQueue: false,
+        // Não trava o app no startup aguardando conexão
+        lazyConnect: true,
       },
     }),
     AuthModule,
