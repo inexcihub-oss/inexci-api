@@ -201,6 +201,17 @@ export default {
   '/surgery-requests/:id/basic': {
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+  '/surgery-requests/:id/report-pdf': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/contest-authorization-pdf': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/templates': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
 
   '/procedures': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],

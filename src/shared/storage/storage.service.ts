@@ -1,6 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
-import { supabase, SUPABASE_BUCKET } from '../../config/supabase.config';
+import { supabaseAdmin, SUPABASE_BUCKET } from '../../config/supabase.config';
+
+// Usa supabaseAdmin (service_role) para todas as operações de storage,
+// garantindo que as políticas RLS não bloqueiem o backend.
+const supabase = supabaseAdmin;
 
 @Injectable()
 export class StorageService {
@@ -33,9 +37,7 @@ export class StorageService {
 
       if (error) {
         console.error('Supabase upload error:', JSON.stringify(error, null, 2));
-        throw new BadRequestException(
-          `Erro ao fazer upload: ${error.message}`,
-        );
+        throw new BadRequestException(`Erro ao fazer upload: ${error.message}`);
       }
 
       return data.path;
@@ -48,17 +50,23 @@ export class StorageService {
   }
 
   /**
-   * Obtém URL pública do arquivo
+   * Gera URL assinada (válida por 1 hora) para acesso a arquivo privado
    * @param filePath - Caminho do arquivo no bucket
-   * @returns URL pública do arquivo
+   * @returns URL assinada temporária
    */
   async getSignedUrl(filePath: string): Promise<string> {
     try {
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(filePath);
+      const { data, error } = await supabase.storage
+        .from(SUPABASE_BUCKET)
+        .createSignedUrl(filePath, 3600); // expira em 1 hora
 
-      return publicUrl;
+      if (error || !data?.signedUrl) {
+        throw new BadRequestException(
+          `Erro ao gerar URL assinada: ${error?.message ?? 'URL inválida'}`,
+        );
+      }
+
+      return data.signedUrl;
     } catch (error: any) {
       throw new BadRequestException(
         `Erro ao obter URL do arquivo: ${error.message}`,

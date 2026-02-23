@@ -73,14 +73,7 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
   {
     status: SurgeryRequestStatus.IN_ANALYSIS,
     label: 'Em Análise',
-    pendencies: [
-      {
-        key: 'contest_pending',
-        label: 'Contestação pendente de resposta',
-        blocking: false, // apenas aviso
-        responsibleRole: 'collaborator',
-      },
-    ],
+    pendencies: [],
   },
   {
     status: SurgeryRequestStatus.IN_SCHEDULING,

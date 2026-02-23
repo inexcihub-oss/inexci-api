@@ -4,6 +4,7 @@ import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
 import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 import { Contestation } from 'src/database/entities/contestation.entity';
+import { SurgeryRequestTemplate } from 'src/database/entities/surgery-request-template.entity';
 import { User } from 'src/database/entities/user.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Patient } from 'src/database/entities/patient.entity';
@@ -37,6 +38,7 @@ import { DocumentsKeyModule } from './documents-key/documents-key.module';
       SurgeryRequestAnalysis,
       SurgeryRequestBilling,
       Contestation,
+      SurgeryRequestTemplate,
       User,
       StatusUpdate,
       Patient,

@@ -2,6 +2,7 @@ import { FindOptionsWhere, In, DataSource, Repository } from 'typeorm';
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -63,6 +64,7 @@ import { FindManyDocumentKeyDto } from './documents-key/dto/find-many-dto';
 
 @Injectable()
 export class SurgeryRequestsService {
+  private readonly logger = new Logger(SurgeryRequestsService.name);
   private readonly stateMachine = new SurgeryRequestStateMachine();
 
   constructor(
@@ -345,7 +347,42 @@ export class SurgeryRequestsService {
     const surgeryRequest = await this.surgeryRequestRepository.findOne(where);
     if (!surgeryRequest)
       throw new NotFoundException('Surgery request not found');
-    return surgeryRequest;
+
+    // Computar campo `receipt` derivado de `billing` para facilitar leitura no
+    // frontend: presente quando o recebimento foi confirmado (received_value ≠ null).
+    const billing = (surgeryRequest as any).billing;
+    const receipt =
+      billing?.received_value != null
+        ? {
+            received_value: Number(billing.received_value),
+            received_at: billing.received_at,
+            receipt_notes: billing.receipt_notes ?? null,
+            is_contested: billing.contested_received_value != null,
+            contested_received_value: billing.contested_received_value
+              ? Number(billing.contested_received_value)
+              : null,
+            contested_received_at: billing.contested_received_at ?? null,
+          }
+        : null;
+
+    // Converter uri dos documentos para URL pública do Supabase
+    const rawRequest = surgeryRequest as any;
+    if (Array.isArray(rawRequest.documents)) {
+      rawRequest.documents = await Promise.all(
+        rawRequest.documents.map(async (doc: any) => {
+          try {
+            return {
+              ...doc,
+              uri: await this.storageService.getSignedUrl(doc.uri),
+            };
+          } catch {
+            return doc;
+          }
+        }),
+      );
+    }
+
+    return { ...rawRequest, receipt };
   }
 
   async findOneSimple(id: string, userId: string) {
@@ -387,10 +424,12 @@ export class SurgeryRequestsService {
     if (!surgeryRequest)
       throw new NotFoundException('Surgery request not found');
 
-    let hospitalId = surgeryRequest.hospital_id;
+    let hospitalId: string | null = surgeryRequest.hospital_id;
     const doctorId = await this.getDoctorId(userId);
 
-    if (data.hospital?.name) {
+    if (data.hospital === null) {
+      hospitalId = null;
+    } else if (data.hospital?.name) {
       const hospital = await this.hospitalRepository.findOne({
         name: data.hospital.name,
       });
@@ -406,8 +445,10 @@ export class SurgeryRequestsService {
       }
     }
 
-    let healthPlanId = surgeryRequest.health_plan_id;
-    if (data.health_plan?.name) {
+    let healthPlanId: string | null = surgeryRequest.health_plan_id;
+    if (data.health_plan === null) {
+      healthPlanId = null;
+    } else if (data.health_plan?.name) {
       let healthPlan = await this.healthPlanRepository.findOne({
         name: data.health_plan.name,
       });
@@ -423,8 +464,12 @@ export class SurgeryRequestsService {
     }
 
     const { id, hospital: _h, health_plan, cid, ...validData } = data;
-    const cidData: { cid_id?: string; cid_description?: string } = {};
-    if (cid?.id) {
+    const cidData: { cid_id?: string | null; cid_description?: string | null } =
+      {};
+    if (cid === null) {
+      cidData.cid_id = null;
+      cidData.cid_description = null;
+    } else if (cid?.id) {
       cidData.cid_id = cid.id;
       cidData.cid_description = cid.description || null;
     }
@@ -667,6 +712,113 @@ export class SurgeryRequestsService {
     }
 
     return { sent: false, method: 'document' };
+  }
+
+  // ============================================================
+  // PDF DA CONTESTAÇÃO DE AUTORIZAÇÃO
+  // ============================================================
+
+  /**
+   * GET /surgery-requests/:id/contest-authorization-pdf
+   * Gera o PDF da contestação à negativa de autorização cirúrgica.
+   */
+  async generateContestAuthorizationPdf(
+    id: string,
+    userId: string,
+  ): Promise<Buffer> {
+    const request = await this.loadRequestWithRelations(id);
+
+    // ── Contestação mais recente do tipo 'authorization' ───────────────────
+    const contestations = (request as any).contestations ?? [];
+    const latestContestation = contestations
+      .filter((c: any) => c.type === 'authorization')
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )[0];
+
+    const reason =
+      latestContestation?.reason ??
+      'Venho por meio deste contestar a negativa de autorização referente aos códigos e materiais OPME solicitados.';
+
+    // ── Dados do paciente ──────────────────────────────────────────────────
+    const patient = (request as any).patient;
+
+    // ── Procedimentos com nested relation ─────────────────────────────────
+    const srProcedures = await this.dataSource
+      .getRepository(SurgeryRequestProcedure)
+      .find({
+        where: { surgery_request_id: id },
+        relations: ['procedure'],
+      });
+
+    const procedures = srProcedures.map((srp) => ({
+      description: (srp as any).procedure?.name ?? '',
+      tussCode: (srp as any).procedure?.tuss_code ?? '',
+      requestedQuantity: srp.quantity,
+      authorizedQuantity:
+        srp.authorized_quantity !== undefined ? srp.authorized_quantity : null,
+    }));
+
+    // ── OPME ───────────────────────────────────────────────────────────────
+    const opmeItems = ((request as any).opme_items ?? []).map((item: any) => ({
+      name: item.name,
+      requestedQuantity: item.quantity,
+      authorizedQuantity:
+        item.authorized_quantity !== undefined
+          ? item.authorized_quantity
+          : null,
+    }));
+
+    // ── Médico ─────────────────────────────────────────────────────────────
+    const doctor = await this.userRepository.findOneWithProfile({
+      id: userId,
+    });
+    const profile = (doctor as any)?.doctor_profile;
+
+    let doctorCrm: string | undefined;
+    if (profile?.crm) {
+      doctorCrm = `CRM ${profile.crm}${profile.crm_state ? `/${profile.crm_state}` : ''}`;
+    }
+
+    // ── Assinatura do médico ───────────────────────────────────────────────
+    let doctorSignatureUrl: string | undefined;
+    if (profile?.signature_url) {
+      const raw: string = profile.signature_url;
+      if (raw.startsWith('http')) {
+        doctorSignatureUrl = raw;
+      } else {
+        try {
+          doctorSignatureUrl = await this.storageService.getSignedUrl(raw);
+        } catch {
+          // sem assinatura
+        }
+      }
+    }
+
+    const pdfData: import('src/shared/pdf/pdf.service').ContestAuthorizationPdfData =
+      {
+        today: new Date().toLocaleDateString('pt-BR'),
+        reason,
+        patientName: patient?.name ?? undefined,
+        patientBirthDate: patient?.birth_date
+          ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
+          : undefined,
+        patientRg: patient?.rg ?? undefined,
+        patientCpf: patient?.cpf ?? undefined,
+        patientPhone: patient?.phone ?? undefined,
+        patientAddress: patient?.address ?? undefined,
+        patientZipCode: patient?.zip_code ?? patient?.cep ?? undefined,
+        patientHealthPlan: (request as any).health_plan?.name ?? undefined,
+        procedures: procedures.length ? procedures : undefined,
+        opmeItems: opmeItems.length ? opmeItems : undefined,
+        doctorName: doctor?.name ?? 'Médico',
+        doctorCrm,
+        doctorSpecialty: profile?.specialty ?? undefined,
+        doctorSignatureUrl,
+      };
+
+    return this.pdfService.generateContestAuthorizationPdf(pdfData);
   }
 
   /**
@@ -934,11 +1086,10 @@ export class SurgeryRequestsService {
       throw new BadRequestException('A solicitação precisa estar Finalizada.');
     }
 
-    const activeContest = (request.contestations ?? []).find(
-      (c) => c.type === 'payment' && !c.resolved_at,
-    );
-    if (!activeContest) {
-      throw new BadRequestException('Não há contestação de pagamento ativa.');
+    if (!request.billing?.contested_received_value) {
+      throw new BadRequestException(
+        'Não há divergência de recebimento para editar.',
+      );
     }
 
     await this.billingRepository.update(
@@ -1183,6 +1334,165 @@ export class SurgeryRequestsService {
         (sr) =>
           sr.daysDifference >= 21 && (!sr.date_call || !sr.hospital_protocol),
       );
+  }
+
+  // ============================================================
+  // PDF DO LAUDO MÉDICO
+  // ============================================================
+
+  /**
+   * GET /surgery-requests/:id/report-pdf
+   * Gera o PDF do laudo médico da solicitação.
+   */
+  async generateReportPdf(id: string, userId: string): Promise<Buffer> {
+    const request = await this.loadRequestWithRelations(id);
+
+    // ── Parsear medical_report ─────────────────────────────────────────────
+    let reportData: {
+      patientData?: {
+        name?: string;
+        birthDate?: string;
+        rg?: string;
+        cpf?: string;
+        phone?: string;
+        address?: string;
+        zipCode?: string;
+        healthPlan?: string;
+      };
+      historyAndDiagnosis?: string;
+      conduct?: string;
+    } = {};
+    try {
+      if (request.medical_report) {
+        reportData = JSON.parse(request.medical_report as unknown as string);
+      }
+    } catch {
+      // fallback vazio
+    }
+
+    // ── Dados do médico com perfil ─────────────────────────────────────────
+    const doctor = await this.userRepository.findOneWithProfile({ id: userId });
+    const profile = (doctor as any)?.doctor_profile;
+
+    // ── Imagens dos exames (signed URLs) ───────────────────────────────────
+    const allDocs = (request as any).documents ?? [];
+    this.logger.log(
+      `[PDF] Total documents: ${allDocs.length} | keys: ${allDocs.map((d: any) => d.key).join(', ')}`,
+    );
+    const examDocs = allDocs.filter((d: any) => d.key === 'exam_images');
+    this.logger.log(
+      `[PDF] examDocs count: ${examDocs.length} | uris: ${examDocs.map((d: any) => String(d.uri).substring(0, 80)).join(' | ')}`,
+    );
+    const examImages: string[] = (
+      await Promise.all(
+        examDocs.map(async (doc: any) => {
+          const raw: string = doc.uri;
+          if (!raw) return null;
+          // Se já é URL completa (assinada pelo loadRequestWithRelations), usa direto
+          if (raw.startsWith('http')) {
+            this.logger.log(`[PDF] image already signed URL, using directly`);
+            return raw;
+          }
+          // Path relativo → gerar signed URL
+          try {
+            const signed = await this.storageService.getSignedUrl(raw);
+            this.logger.log(`[PDF] signed URL generated OK`);
+            return signed;
+          } catch (err: any) {
+            this.logger.warn(
+              `[PDF] getSignedUrl failed for "${raw}": ${err?.message}`,
+            );
+            return null;
+          }
+        }),
+      )
+    ).filter((u): u is string => !!u);
+    this.logger.log(`[PDF] final examImages count: ${examImages.length}`);
+
+    // ── Assinatura do médico (signed URL se for path) ──────────────────────
+    let doctorSignatureUrl: string | undefined;
+    if (profile?.signature_url) {
+      try {
+        // Tenta gerar signed URL (pode já ser URL completa)
+        const raw: string = profile.signature_url;
+        doctorSignatureUrl = raw.startsWith('http')
+          ? raw
+          : await this.storageService.getSignedUrl(raw);
+      } catch {
+        doctorSignatureUrl = profile.signature_url;
+      }
+    }
+
+    // ── Dados do paciente (prioridade: medical_report > entidade patient) ──
+    const pd = reportData.patientData ?? {};
+    const patient = (request as any).patient;
+
+    const pdfData: import('src/shared/pdf/pdf.service').MedicalReportPdfData = {
+      today: new Date().toLocaleDateString('pt-BR'),
+      patientName: pd.name || patient?.name || undefined,
+      patientBirthDate:
+        pd.birthDate ||
+        (patient?.birth_date
+          ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
+          : undefined),
+      patientRg: pd.rg || patient?.rg || undefined,
+      patientCpf: pd.cpf || patient?.cpf || undefined,
+      patientPhone: pd.phone || patient?.phone || undefined,
+      patientAddress: pd.address || patient?.address || undefined,
+      patientZipCode:
+        pd.zipCode || patient?.zip_code || patient?.cep || undefined,
+      patientHealthPlan:
+        pd.healthPlan || (request as any).health_plan?.name || undefined,
+      historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
+      conduct: reportData.conduct || undefined,
+      examImages: examImages.length ? examImages : undefined,
+      doctorName: doctor?.name ?? 'Médico',
+      doctorCrm: profile?.crm || undefined,
+      doctorCrmState: profile?.crm_state || undefined,
+      doctorSpecialty: profile?.specialty || undefined,
+      doctorSignatureUrl,
+    };
+
+    return this.pdfService.generateMedicalReportPdf(pdfData);
+  }
+
+  // ============================================================
+  // TEMPLATES DE SOLICITAÇÃO
+  // ============================================================
+
+  /**
+   * POST /surgery-requests/templates
+   * Cria um template de solicitação cirúrgica para o médico logado.
+   */
+  async createTemplate(
+    dto: { name: string; template_data: object },
+    userId: string,
+  ): Promise<any> {
+    const templateRepo = this.dataSource.getRepository(
+      (await import('src/database/entities/surgery-request-template.entity'))
+        .SurgeryRequestTemplate,
+    );
+    const template = templateRepo.create({
+      doctor_id: userId,
+      name: dto.name,
+      template_data: dto.template_data as any,
+    });
+    return templateRepo.save(template);
+  }
+
+  /**
+   * GET /surgery-requests/templates
+   * Lista os templates do médico logado.
+   */
+  async getTemplates(userId: string): Promise<any[]> {
+    const templateRepo = this.dataSource.getRepository(
+      (await import('src/database/entities/surgery-request-template.entity'))
+        .SurgeryRequestTemplate,
+    );
+    return templateRepo.find({
+      where: { doctor_id: userId },
+      order: { created_at: 'DESC' },
+    });
   }
 }
 

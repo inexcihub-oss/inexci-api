@@ -17,6 +17,14 @@ export class ProcedureItemDto {
   @IsNotEmpty()
   procedure_id: string;
 
+  @IsOptional()
+  @IsString()
+  tuss_code?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
   @Type(() => Number)
   @IsNumber()
   quantity: number;

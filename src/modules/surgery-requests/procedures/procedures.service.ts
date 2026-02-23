@@ -19,12 +19,34 @@ export class ProceduresService {
   ) {}
 
   async create(data: CreateSurgeryRequestProcedureDto) {
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     const proceduresCreated = await Promise.all(
       data.procedures.map(async (item) => {
+        let procedureId = item.procedure_id;
+
+        // Se procedure_id não é um UUID (vem do JSON TUSS), resolver pelo tuss_code
+        if (!uuidRegex.test(procedureId) && item.tuss_code) {
+          let procedure = await this.procedureRepository.findOne({
+            tuss_code: item.tuss_code,
+          });
+          if (!procedure && item.name) {
+            procedure = await this.procedureRepository.create({
+              tuss_code: item.tuss_code,
+              name: item.name,
+              active: true,
+            });
+          }
+          if (procedure) {
+            procedureId = procedure.id;
+          }
+        }
+
         const newProcedure =
           await this.surgeryRequestProcedureRepository.create({
             surgery_request_id: data.surgery_request_id,
-            procedure_id: item.procedure_id,
+            procedure_id: procedureId,
             quantity: Number(item.quantity),
           });
         return {

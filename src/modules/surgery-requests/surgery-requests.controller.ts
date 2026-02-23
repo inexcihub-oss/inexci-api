@@ -8,6 +8,8 @@ import {
   Put,
   Patch,
   Param,
+  Res,
+  HttpStatus,
 } from '@nestjs/common';
 import { SurgeryRequestsService } from './surgery-requests.service';
 
@@ -174,6 +176,29 @@ export class SurgeryRequestsController {
   }
 
   /**
+   * Gera o PDF da contestação à negativa de autorização e retorna como download
+   * GET /surgery-requests/:id/contest-authorization-pdf
+   */
+  @Get(':id/contest-authorization-pdf')
+  async getContestAuthorizationPdf(
+    @Param('id') id: string,
+    @Request() req,
+    @Res() res: any,
+  ) {
+    const buffer =
+      await this.surgeryRequestsService.generateContestAuthorizationPdf(
+        id,
+        req.user.userId,
+      );
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="contestacao-${id}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.status(HttpStatus.OK).end(buffer);
+  }
+
+  /**
    * IN_SCHEDULING → SCHEDULED
    * Confirma a data escolhida pelo paciente
    */
@@ -305,5 +330,54 @@ export class SurgeryRequestsController {
     @Request() req,
   ) {
     return this.surgeryRequestsService.notify(id, dto, req.user.userId);
+  }
+
+  // ============================================================
+  // PDF DO LAUDO MÉDICO
+  // ============================================================
+
+  /**
+   * Gera o PDF do laudo médico e retorna como download
+   * GET /surgery-requests/:id/report-pdf
+   */
+  @Get(':id/report-pdf')
+  async getReportPdf(@Param('id') id: string, @Request() req, @Res() res: any) {
+    const buffer = await this.surgeryRequestsService.generateReportPdf(
+      id,
+      req.user.userId,
+    );
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="laudo-${id}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.status(HttpStatus.OK).end(buffer);
+  }
+
+  // ============================================================
+  // TEMPLATES DE SOLICITAÇÃO
+  // ============================================================
+
+  /**
+   * GET /surgery-requests/templates
+   * Lista os templates salvos do médico logado.
+   * IMPORTANTE: Esta rota deve ser registrada ANTES de ':id/...' para não ser
+   * capturada pelo guard de parâmetro dinâmico.
+   */
+  @Get('templates')
+  getTemplates(@Request() req) {
+    return this.surgeryRequestsService.getTemplates(req.user.userId);
+  }
+
+  /**
+   * POST /surgery-requests/templates
+   * Cria um novo template de solicitação.
+   */
+  @Post('templates')
+  createTemplate(
+    @Body() dto: { name: string; template_data: object },
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.createTemplate(dto, req.user.userId);
   }
 }

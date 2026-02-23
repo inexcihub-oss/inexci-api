@@ -14,6 +14,29 @@ export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
 }
 
+export interface CalculatedPendencyDto {
+  key: string;
+  name: string;
+  description: string;
+  isComplete: boolean;
+  isOptional: boolean;
+  isWaiting: boolean;
+  responsible: 'collaborator' | 'patient' | 'doctor';
+  statusContext: number;
+  checkItems: Array<{ label: string; done: boolean }>;
+}
+
+export interface ValidationResultDto {
+  currentStatus: number;
+  statusLabel: string;
+  pendencies: CalculatedPendencyDto[];
+  canAdvance: boolean;
+  nextStatus: number | null;
+  completedCount: number;
+  pendingCount: number;
+  totalCount: number;
+}
+
 export interface PendencySummary {
   pending: number;
   total: number;
@@ -23,6 +46,18 @@ export interface PendencySummary {
 
 @Injectable()
 export class PendencyValidatorService {
+  private readonly nextStatusMap: Partial<
+    Record<SurgeryRequestStatus, SurgeryRequestStatus>
+  > = {
+    [SurgeryRequestStatus.PENDING]: SurgeryRequestStatus.SENT,
+    [SurgeryRequestStatus.SENT]: SurgeryRequestStatus.IN_ANALYSIS,
+    [SurgeryRequestStatus.IN_ANALYSIS]: SurgeryRequestStatus.IN_SCHEDULING,
+    [SurgeryRequestStatus.IN_SCHEDULING]: SurgeryRequestStatus.SCHEDULED,
+    [SurgeryRequestStatus.SCHEDULED]: SurgeryRequestStatus.PERFORMED,
+    [SurgeryRequestStatus.PERFORMED]: SurgeryRequestStatus.INVOICED,
+    [SurgeryRequestStatus.INVOICED]: SurgeryRequestStatus.FINALIZED,
+  };
+
   constructor(
     @InjectRepository(SurgeryRequest)
     private readonly surgeryRequestRepository: Repository<SurgeryRequest>,
@@ -49,8 +84,109 @@ export class PendencyValidatorService {
   }
 
   /**
+   * Retorna os sub-itens de checklist para cada tipo de pendência.
+   */
+  private getCheckItems(
+    request: SurgeryRequest,
+    key: string,
+  ): Array<{ label: string; done: boolean }> {
+    const docs = request.documents ?? [];
+    const procedures = request.procedures ?? [];
+    const opmeItems = request.opme_items ?? [];
+    const hasDoc = (k: string) => docs.some((d) => d.key === k);
+
+    switch (key) {
+      case 'patient_data':
+        return [
+          { label: 'Nome do paciente', done: !!request.patient?.name },
+          { label: 'Telefone do paciente', done: !!request.patient?.phone },
+        ];
+
+      case 'hospital_data':
+        return [{ label: 'Hospital selecionado', done: !!request.hospital_id }];
+
+      case 'tuss_procedures':
+        return [
+          {
+            label: 'Ao menos 1 procedimento TUSS cadastrado',
+            done: procedures.length > 0,
+          },
+        ];
+
+      case 'opme_items':
+        return [
+          {
+            label: 'Ao menos 1 item OPME cadastrado',
+            done: opmeItems.length > 0,
+          },
+        ];
+
+      case 'documents':
+        return [
+          {
+            label: 'RG/CNH do paciente',
+            done: hasDoc('personal_document'),
+          },
+          {
+            label: 'Pedido Médico',
+            done: hasDoc('doctor_request'),
+          },
+        ];
+
+      case 'medical_report': {
+        let parsed: any = {};
+        try {
+          parsed = JSON.parse(request.medical_report ?? '{}');
+        } catch {
+          parsed = {};
+        }
+        const hasText = (field: string) =>
+          typeof parsed[field] === 'string' && parsed[field].trim().length > 0;
+        return [
+          {
+            label: 'Identificação do paciente preenchida',
+            done: hasText('patientIdentification'),
+          },
+          {
+            label: 'Histórico e diagnóstico preenchido',
+            done: hasText('historyAndDiagnosis'),
+          },
+          {
+            label: 'Laudo assinado anexado',
+            done: hasDoc('signed_report'),
+          },
+        ];
+      }
+
+      case 'schedule_dates':
+        return [
+          {
+            label: 'Ao menos 1 data de preferência informada',
+            done:
+              Array.isArray(request.date_options) &&
+              request.date_options.length > 0,
+          },
+        ];
+
+      case 'confirm_receipt':
+        return [
+          {
+            label: 'Valor recebido informado',
+            done: !!request.billing?.received_value,
+          },
+          {
+            label: 'Data de recebimento informada',
+            done: !!request.billing?.received_at,
+          },
+        ];
+
+      default:
+        return [];
+    }
+  }
+
+  /**
    * Verifica se uma pendência individual está resolvida.
-   * BUG CORRIGIDO: usa `document.type` (não `document.document_type`).
    */
   private checkResolved(
     request: SurgeryRequest,
@@ -60,8 +196,8 @@ export class PendencyValidatorService {
     const procedures = request.procedures ?? [];
     const opmeItems = request.opme_items ?? [];
 
-    /** Verifica se existe um documento do tipo informado */
-    const hasDoc = (type: string) => docs.some((d) => d.type === type);
+    /** Verifica se existe um documento pelo campo `key` (campo correto no backend) */
+    const hasDoc = (key: string) => docs.some((d) => d.key === key);
 
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────
@@ -82,16 +218,27 @@ export class PendencyValidatorService {
         // Documentos obrigatórios pré-cirúrgicos
         return hasDoc('personal_document') && hasDoc('doctor_request');
 
-      case 'medical_report':
-        return !!(request.medical_report || hasDoc('medical_report'));
-
-      // ── IN_ANALYSIS ──────────────────────────────────────────────────────
-      case 'contest_pending':
-        // Aviso: existe contestação de autorização ativa (resolved_at = null)
-        const activeContest = (request.contestations ?? []).find(
-          (c) => c.type === 'authorization' && !c.resolved_at,
+      case 'medical_report': {
+        // Seções obrigatórias do laudo:
+        // 1. patientIdentification (texto)
+        // 2. historyAndDiagnosis (texto)
+        // 3. Laudo assinado (documento tipo signed_report)
+        // Imagens do exame e conduta são opcionais
+        if (!request.medical_report) return false;
+        let parsed: any = {};
+        try {
+          parsed = JSON.parse(request.medical_report);
+        } catch {
+          return false;
+        }
+        const hasText = (field: string) =>
+          typeof parsed[field] === 'string' && parsed[field].trim().length > 0;
+        return (
+          hasText('patientIdentification') &&
+          hasText('historyAndDiagnosis') &&
+          hasDoc('signed_report')
         );
-        return !activeContest; // resolved = true quando NÃO há contestação ativa
+      }
 
       // ── IN_SCHEDULING ─────────────────────────────────────────────────────
       case 'schedule_dates':
@@ -125,23 +272,70 @@ export class PendencyValidatorService {
   }
 
   /**
-   * Retorna a lista completa de pendências do status atual, com flag `resolved`.
+   * Retorna o resultado completo de validação no formato esperado pelo frontend.
    */
   async validateForStatus(
     requestId: string,
     targetStatus?: SurgeryRequestStatus,
-  ): Promise<ResolvedPendency[]> {
+  ): Promise<ValidationResultDto> {
     const request = await this.loadRequest(requestId);
-    if (!request) return [];
+    if (!request) {
+      return {
+        currentStatus: 0,
+        statusLabel: '',
+        pendencies: [],
+        canAdvance: true,
+        nextStatus: null,
+        completedCount: 0,
+        pendingCount: 0,
+        totalCount: 0,
+      };
+    }
 
     const status = targetStatus ?? request.status;
     const config = getPendenciesForStatus(status);
-    if (!config) return [];
 
-    return config.pendencies.map((p) => ({
-      ...p,
-      resolved: this.checkResolved(request, p),
+    if (!config || config.pendencies.length === 0) {
+      return {
+        currentStatus: status,
+        statusLabel: config?.label ?? '',
+        pendencies: [],
+        canAdvance: true,
+        nextStatus: this.nextStatusMap[status] ?? null,
+        completedCount: 0,
+        pendingCount: 0,
+        totalCount: 0,
+      };
+    }
+
+    const pendencies: CalculatedPendencyDto[] = config.pendencies.map((p) => ({
+      key: p.key,
+      name: p.label,
+      description: '',
+      isComplete: this.checkResolved(request, p),
+      isOptional: !p.blocking,
+      isWaiting: false,
+      responsible: p.responsibleRole,
+      statusContext: status,
+      checkItems: this.getCheckItems(request, p.key),
     }));
+
+    const completedCount = pendencies.filter((p) => p.isComplete).length;
+    const pendingCount = pendencies.filter(
+      (p) => !p.isComplete && !p.isOptional,
+    ).length;
+    const canAdvance = pendingCount === 0;
+
+    return {
+      currentStatus: status,
+      statusLabel: config.label,
+      pendencies,
+      canAdvance,
+      nextStatus: this.nextStatusMap[status] ?? null,
+      completedCount,
+      pendingCount,
+      totalCount: pendencies.length,
+    };
   }
 
   /**
