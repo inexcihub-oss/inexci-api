@@ -2,8 +2,7 @@ import { Module } from '@nestjs/common';
 import { ProceduresService } from './procedures.service';
 import { ProceduresController } from './procedures.controller';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
-import { SurgeryRequestProcedureRepository } from 'src/database/repositories/surgery-request-procedure.repository';
+import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 
@@ -11,8 +10,7 @@ import { StatusUpdateRepository } from 'src/database/repositories/status-update.
   controllers: [ProceduresController],
   providers: [
     ProceduresService,
-    ProcedureRepository,
-    SurgeryRequestProcedureRepository,
+    SurgeryRequestTussItemRepository,
     SurgeryRequestRepository,
     OpmeItemRepository,
     StatusUpdateRepository,

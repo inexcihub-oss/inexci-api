@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
+import { UpdateHospitalDto } from './dto/update-hospital.dto';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { FindOptionsWhere } from 'typeorm';
@@ -71,10 +76,26 @@ export class HospitalsService {
       doctorId = teamMember.doctor_id;
     }
 
+    const existing = await this.hospitalRepository.findOne({
+      name: data.name,
+      doctor_id: doctorId,
+    });
+    if (existing) {
+      throw new ConflictException(
+        `Já existe um hospital com o nome "${data.name}"`,
+      );
+    }
+
     return this.hospitalRepository.create({
       ...data,
       doctor_id: doctorId,
       active: true,
     });
+  }
+
+  async update(id: string, data: UpdateHospitalDto): Promise<Hospital> {
+    const hospital = await this.hospitalRepository.findOne({ id });
+    if (!hospital) throw new NotFoundException('Hospital não encontrado');
+    return this.hospitalRepository.update(id, data);
   }
 }

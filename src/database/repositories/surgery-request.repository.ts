@@ -92,8 +92,8 @@ export class SurgeryRequestRepository {
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
       .leftJoinAndSelect('surgery_request.opme_items', 'opme_items')
-      .leftJoinAndSelect('surgery_request.procedures', 'procedures')
-      .leftJoinAndSelect('procedures.procedure', 'procedure')
+      .leftJoinAndSelect('surgery_request.procedure', 'procedure')
+      .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
       .leftJoinAndSelect('surgery_request.documents', 'documents')
       .leftJoinAndSelect('documents.creator', 'documents_creator')
       .leftJoinAndSelect('surgery_request.quotations', 'quotations')
@@ -142,8 +142,8 @@ export class SurgeryRequestRepository {
       .leftJoinAndSelect('surgery_request.manager', 'manager')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
-      .leftJoinAndSelect('surgery_request.procedures', 'procedures')
-      .leftJoinAndSelect('procedures.procedure', 'procedure')
+      .leftJoinAndSelect('surgery_request.procedure', 'procedure')
+      .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
       .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
       .leftJoin('surgery_request.chats', 'chats')
       .leftJoin('chats.messages', 'messages')
@@ -173,11 +173,8 @@ export class SurgeryRequestRepository {
         'patient.email',
         'health_plan.id',
         'health_plan.name',
-        'procedures.id',
-        'procedures.quantity',
         'procedure.id',
         'procedure.name',
-        'procedure.tuss_code',
       ])
       .addSelect('COUNT(DISTINCT messages.id)', 'messagesCount')
       .addSelect('COUNT(DISTINCT documents.id)', 'attachmentsCount')
@@ -186,7 +183,6 @@ export class SurgeryRequestRepository {
       .addGroupBy('manager.id')
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
-      .addGroupBy('procedures.id')
       .addGroupBy('procedure.id')
       .addGroupBy('status_updates.id');
 
@@ -198,7 +194,7 @@ export class SurgeryRequestRepository {
       results.entities.map(async (entity: any) => {
         const fullEntity = await this.repository.findOne({
           where: { id: entity.id },
-          relations: ['documents', 'patient', 'procedures'],
+          relations: ['documents', 'patient', 'procedure'],
         });
         return fullEntity || entity;
       }),
@@ -319,13 +315,13 @@ export class SurgeryRequestRepository {
     // Lógica simplificada para kanban/listagens
     // A validação detalhada fica no PendencyValidatorService
     const documents = surgeryRequest.documents || [];
-    const procedures = surgeryRequest.procedures || [];
+    const procedure = surgeryRequest.procedure;
     const patient = surgeryRequest.patient;
 
     const checks = [
       !!(patient?.name && patient?.email),
       !!surgeryRequest.health_plan_id,
-      procedures.length > 0,
+      !!procedure,
       documents.some((d: any) => d.type === 'doctorRequest'),
     ];
 

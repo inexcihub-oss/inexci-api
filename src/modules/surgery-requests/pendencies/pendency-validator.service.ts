@@ -73,7 +73,8 @@ export class PendencyValidatorService {
         'patient',
         'hospital',
         'health_plan',
-        'procedures',
+        'procedure',
+        'tuss_items',
         'opme_items',
         'documents',
         'analysis',
@@ -91,15 +92,22 @@ export class PendencyValidatorService {
     key: string,
   ): Array<{ label: string; done: boolean }> {
     const docs = request.documents ?? [];
-    const procedures = request.procedures ?? [];
+    const procedures = request.tuss_items ?? [];
     const opmeItems = request.opme_items ?? [];
     const hasDoc = (k: string) => docs.some((d) => d.key === k);
+    /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
+    const hasPreDoc = (k: string) =>
+      docs.some((d) => d.key === k && d.uri?.startsWith('documents/'));
 
     switch (key) {
       case 'patient_data':
         return [
           { label: 'Nome do paciente', done: !!request.patient?.name },
-          { label: 'Telefone do paciente', done: !!request.patient?.phone },
+          { label: 'Data de nascimento', done: !!request.patient?.birth_date },
+          { label: 'CPF', done: !!request.patient?.cpf },
+          { label: 'Telefone', done: !!request.patient?.phone },
+          { label: 'Endereço', done: !!request.patient?.address },
+          { label: 'CEP', done: !!request.patient?.zip_code },
         ];
 
       case 'hospital_data':
@@ -125,15 +133,20 @@ export class PendencyValidatorService {
         return [
           {
             label: 'RG/CNH do paciente',
-            done: hasDoc('personal_document'),
+            done: hasPreDoc('personal_document'),
           },
           {
-            label: 'Pedido Médico',
-            done: hasDoc('doctor_request'),
+            label: 'Laudo do Exame',
+            done: hasPreDoc('exam_report'),
+          },
+          {
+            label: 'Imagens do Exame',
+            done: hasPreDoc('exam_images'),
           },
         ];
 
       case 'medical_report': {
+        const pt = request.patient;
         let parsed: any = {};
         try {
           parsed = JSON.parse(request.medical_report ?? '{}');
@@ -143,10 +156,12 @@ export class PendencyValidatorService {
         const hasText = (field: string) =>
           typeof parsed[field] === 'string' && parsed[field].trim().length > 0;
         return [
-          {
-            label: 'Identificação do paciente preenchida',
-            done: hasText('patientIdentification'),
-          },
+          { label: 'Nome do paciente', done: !!pt?.name },
+          { label: 'Data de nascimento', done: !!pt?.birth_date },
+          { label: 'CPF', done: !!pt?.cpf },
+          { label: 'Telefone', done: !!pt?.phone },
+          { label: 'Endereço', done: !!pt?.address },
+          { label: 'CEP', done: !!pt?.zip_code },
           {
             label: 'Histórico e diagnóstico preenchido',
             done: hasText('historyAndDiagnosis'),
@@ -193,16 +208,26 @@ export class PendencyValidatorService {
     pendency: PendencyConfig,
   ): boolean {
     const docs = request.documents ?? [];
-    const procedures = request.procedures ?? [];
+    const procedures = request.tuss_items ?? [];
     const opmeItems = request.opme_items ?? [];
 
     /** Verifica se existe um documento pelo campo `key` (campo correto no backend) */
     const hasDoc = (key: string) => docs.some((d) => d.key === key);
+    /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
+    const hasPreDoc = (k: string) =>
+      docs.some((d) => d.key === k && d.uri?.startsWith('documents/'));
 
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────
       case 'patient_data':
-        return !!(request.patient?.name && request.patient?.phone);
+        return !!(
+          request.patient?.name &&
+          request.patient?.birth_date &&
+          request.patient?.cpf &&
+          request.patient?.phone &&
+          request.patient?.address &&
+          request.patient?.zip_code
+        );
 
       case 'hospital_data':
         return !!request.hospital_id;
@@ -215,15 +240,24 @@ export class PendencyValidatorService {
         return opmeItems.length > 0;
 
       case 'documents':
-        // Documentos obrigatórios pré-cirúrgicos
-        return hasDoc('personal_document') && hasDoc('doctor_request');
+        // Documentos obrigatórios pré-cirúrgicos (apenas pasta documents/)
+        return (
+          hasPreDoc('personal_document') &&
+          hasPreDoc('exam_report') &&
+          hasPreDoc('exam_images')
+        );
 
       case 'medical_report': {
-        // Seções obrigatórias do laudo:
-        // 1. patientIdentification (texto)
-        // 2. historyAndDiagnosis (texto)
-        // 3. Laudo assinado (documento tipo signed_report)
-        // Imagens do exame e conduta são opcionais
+        // Campos obrigatórios: dados do paciente + histórico + laudo assinado
+        const pt = request.patient;
+        const patientComplete = !!(
+          pt?.name &&
+          pt?.birth_date &&
+          pt?.cpf &&
+          pt?.phone &&
+          pt?.address &&
+          pt?.zip_code
+        );
         if (!request.medical_report) return false;
         let parsed: any = {};
         try {
@@ -234,7 +268,7 @@ export class PendencyValidatorService {
         const hasText = (field: string) =>
           typeof parsed[field] === 'string' && parsed[field].trim().length > 0;
         return (
-          hasText('patientIdentification') &&
+          patientComplete &&
           hasText('historyAndDiagnosis') &&
           hasDoc('signed_report')
         );

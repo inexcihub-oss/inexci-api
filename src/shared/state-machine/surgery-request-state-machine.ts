@@ -42,7 +42,7 @@ export class SurgeryRequestStateMachine {
         // Validações de dados obrigatórios
         if (!request.patient_id) pendencies.push('Paciente não informado.');
         if (!request.hospital_id) pendencies.push('Hospital não informado.');
-        const procedures = request.procedures ?? [];
+        const procedures = request.tuss_items ?? [];
         if (procedures.length === 0)
           pendencies.push('Nenhum procedimento TUSS informado.');
         break;

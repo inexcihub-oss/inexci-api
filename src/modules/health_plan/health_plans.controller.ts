@@ -1,7 +1,17 @@
-import { Body, Controller, Get, Post, Query, Request } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Request,
+} from '@nestjs/common';
 import { HealthPlansService } from './health_plans_service';
 import { FindManyHealthPlanDto } from './dto/find-many-health-plan.dto';
 import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
+import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
 
 @Controller('health_plans')
 export class HealthPlansController {
@@ -15,5 +25,10 @@ export class HealthPlansController {
   @Post()
   create(@Body() data: CreateHealthPlanDto, @Request() req) {
     return this.healthPlansService.create(data, req.user.userId);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() data: UpdateHealthPlanDto) {
+    return this.healthPlansService.update(id, data);
   }
 }

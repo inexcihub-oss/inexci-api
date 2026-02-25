@@ -17,14 +17,12 @@ import { Patient } from '../entities/patient.entity';
 import { Hospital } from '../entities/hospital.entity';
 import { HealthPlan } from '../entities/health-plan.entity';
 import { Supplier } from '../entities/supplier.entity';
-import { Cid } from '../entities/cid.entity';
 import { Procedure } from '../entities/procedure.entity';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
   SurgeryRequestPriority,
 } from '../entities/surgery-request.entity';
-import { SurgeryRequestProcedure } from '../entities/surgery-request-procedure.entity';
 import { OpmeItem } from '../entities/opme-item.entity';
 import { Document } from '../entities/document.entity';
 import { SurgeryRequestQuotation } from '../entities/surgery-request-quotation.entity';
@@ -147,12 +145,8 @@ async function main() {
   const hospitalRepo = dataSource.getRepository(Hospital);
   const healthPlanRepo = dataSource.getRepository(HealthPlan);
   const supplierRepo = dataSource.getRepository(Supplier);
-  const cidRepo = dataSource.getRepository(Cid);
   const procedureRepo = dataSource.getRepository(Procedure);
   const surgeryRequestRepo = dataSource.getRepository(SurgeryRequest);
-  const surgeryRequestProcedureRepo = dataSource.getRepository(
-    SurgeryRequestProcedure,
-  );
   const opmeItemRepo = dataSource.getRepository(OpmeItem);
   const documentRepo = dataSource.getRepository(Document);
   const quotationRepo = dataSource.getRepository(SurgeryRequestQuotation);
@@ -167,55 +161,31 @@ async function main() {
   );
 
   // ========================================
-  // 1. DADOS BASE (CIDs e Procedimentos)
+  // 1. PROCEDIMENTOS
   // ========================================
-
-  console.log('📋 Criando CIDs...');
-  const cidData = [
-    { id: 'K80.2', description: 'Cálculo vesícula biliar' },
-    { id: 'K40.9', description: 'Hérnia inguinal' },
-    { id: 'K35.8', description: 'Apendicite aguda' },
-    { id: 'M17.1', description: 'Gonartrose primária' },
-    { id: 'M23.2', description: 'Lesão de menisco' },
-    { id: 'M51.1', description: 'Hérnia de disco lombar' },
-    { id: 'M16.1', description: 'Coxartrose primária' },
-    { id: 'K42.9', description: 'Hérnia umbilical' },
-    { id: 'N20.0', description: 'Cálculo renal' },
-    { id: 'J34.2', description: 'Desvio de septo nasal' },
-  ];
-
-  const cids: Cid[] = [];
-  for (const data of cidData) {
-    let cid = await cidRepo.findOne({ where: { id: data.id } });
-    if (!cid) {
-      cid = await cidRepo.save(cidRepo.create(data));
-    }
-    cids.push(cid);
-  }
-  console.log(`✅ ${cids.length} CIDs\n`);
 
   console.log('🔧 Criando procedimentos...');
   const procedureData = [
-    { tuss_code: '31005039', name: 'Colecistectomia videolaparoscópica' },
-    { tuss_code: '31009026', name: 'Herniorrafia inguinal' },
-    { tuss_code: '31009034', name: 'Apendicectomia' },
-    { tuss_code: '30715016', name: 'Artroplastia total do joelho' },
-    { tuss_code: '30715024', name: 'Artroscopia de joelho' },
-    { tuss_code: '30715032', name: 'Discectomia lombar' },
-    { tuss_code: '30715040', name: 'Artroplastia total do quadril' },
-    { tuss_code: '31009042', name: 'Herniorrafia umbilical' },
-    { tuss_code: '31306030', name: 'Nefrolitotripsia percutânea' },
-    { tuss_code: '30601050', name: 'Septoplastia' },
+    { name: 'Colecistectomia videolaparoscópica' },
+    { name: 'Herniorrafia inguinal' },
+    { name: 'Apendicectomia' },
+    { name: 'Artroplastia total do joelho' },
+    { name: 'Artroscopia de joelho' },
+    { name: 'Discectomia lombar' },
+    { name: 'Artroplastia total do quadril' },
+    { name: 'Herniorrafia umbilical' },
+    { name: 'Nefrolitotripsia percutânea' },
+    { name: 'Septoplastia' },
   ];
 
   const procedures: Procedure[] = [];
   for (const data of procedureData) {
     let procedure = await procedureRepo.findOne({
-      where: { tuss_code: data.tuss_code },
+      where: { name: data.name },
     });
     if (!procedure) {
       procedure = await procedureRepo.save(
-        procedureRepo.create({ ...data, active: true }),
+        procedureRepo.create({ name: data.name }),
       );
     }
     procedures.push(procedure);
@@ -614,7 +584,18 @@ async function main() {
     const patient = patients[i % patients.length];
     const status = statuses[i % statuses.length];
     const hospital = faker.helpers.arrayElement(hospitals);
-    const cid = faker.helpers.arrayElement(cids);
+    const cidCode = faker.helpers.arrayElement([
+      'K80.2',
+      'K40.9',
+      'K35.8',
+      'M17.1',
+      'M23.2',
+      'M51.1',
+      'M16.1',
+      'K42.9',
+      'N20.0',
+      'J34.2',
+    ]);
     const healthPlan =
       healthPlans.find((hp) => hp.id === patient.health_plan_id) ||
       healthPlans[0];
@@ -633,7 +614,7 @@ async function main() {
       patient_id: patient.id,
       hospital_id: hospital.id,
       health_plan_id: healthPlan.id,
-      cid_id: cid.id,
+      cid_id: cidCode,
       status,
       priority: faker.helpers.arrayElement([
         SurgeryRequestPriority.LOW,
@@ -642,10 +623,10 @@ async function main() {
         SurgeryRequestPriority.URGENT,
       ]),
       is_indication: faker.datatype.boolean({ probability: 0.2 }),
-      diagnosis: `Paciente apresenta ${cid.description.toLowerCase()} com indicação cirúrgica.`,
+      diagnosis: faker.lorem.sentence(),
       medical_report: faker.lorem.paragraphs(2),
       patient_history: faker.lorem.paragraph(),
-      surgery_description: `Procedimento cirúrgico para tratamento de ${cid.description.toLowerCase()}.`,
+      surgery_description: faker.lorem.sentence(),
       health_plan_registration: patient.health_plan_number,
       health_plan_type: patient.health_plan_type,
     });
@@ -662,28 +643,14 @@ async function main() {
     const savedRequest = await surgeryRequestRepo.save(request);
     surgeryRequests.push(savedRequest);
 
-    // Adicionar procedimentos
-    const numProcedures = faker.number.int({ min: 1, max: 3 });
-    const selectedProcedures = faker.helpers.arrayElements(
-      procedures,
-      numProcedures,
-    );
-    for (const proc of selectedProcedures) {
-      const srp = await surgeryRequestProcedureRepo.save(
-        surgeryRequestProcedureRepo.create({
-          surgery_request_id: savedRequest.id,
-          procedure_id: proc.id,
-          quantity: faker.number.int({ min: 1, max: 2 }),
-          authorized_quantity:
-            status >= SurgeryRequestStatus.IN_SCHEDULING
-              ? faker.number.int({ min: 1, max: 2 })
-              : null,
-        }),
-      );
-    }
+    // Associar um único procedimento à solicitação
+    const selectedProcedure = faker.helpers.arrayElement(procedures);
+    await surgeryRequestRepo.update(savedRequest.id, {
+      procedure_id: selectedProcedure.id,
+    });
 
     // Adicionar itens de OPME se for ortopédica
-    if (cid.id.startsWith('M')) {
+    if (cidCode.startsWith('M')) {
       const numOpme = faker.number.int({ min: 1, max: 4 });
       for (let j = 0; j < numOpme; j++) {
         const opme = await opmeItemRepo.save(

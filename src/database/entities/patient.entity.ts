@@ -24,10 +24,10 @@ export class Patient {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'varchar', length: 100 })
   email: string;
 
-  @Column({ type: 'varchar', length: 15, nullable: true })
+  @Column({ type: 'varchar', length: 15 })
   phone: string;
 
   @Column({ type: 'varchar', length: 14, nullable: true })

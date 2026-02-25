@@ -17,27 +17,20 @@ export class CreatePatientDto {
 
   @IsString()
   @IsNotEmpty()
-  cpf: string;
+  email: string;
+  @IsOptional() @IsString() cpf?: string;
 
+  @IsOptional()
   @IsIn(['M', 'F', 'm', 'f'])
-  gender: string;
+  gender?: string;
 
+  @IsOptional()
   @IsDateString()
-  birth_date: string;
+  birth_date?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  health_plan_id: string;
-
-  @IsString()
-  @IsNotEmpty()
-  health_plan_number: string;
-
-  @IsString()
-  @IsNotEmpty()
-  health_plan_type: string;
-
-  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() health_plan_id?: string;
+  @IsOptional() @IsString() health_plan_number?: string;
+  @IsOptional() @IsString() health_plan_type?: string;
   @IsOptional() @IsString() zip_code?: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsString() address_number?: string;

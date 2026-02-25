@@ -27,7 +27,6 @@ export class SurgeryRequestProcedureRepository {
         procedure: {
           id: true,
           name: true,
-          tuss_code: true,
         },
       },
     });

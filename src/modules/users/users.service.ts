@@ -92,10 +92,26 @@ export class UsersService {
       return user;
     }
 
-    // Médico pode ver a si mesmo ou seus colaboradores
+    // Médico pode ver a si mesmo ou seus colaboradores (via team_members)
+    if (requestingUser.role === UserRole.DOCTOR) {
+      if (id === userId) {
+        const user = await this.userRepository.findOne({ id });
+        if (!user) throw new NotFoundException('Usuário não encontrado');
+        return user;
+      }
+      const teamMembers =
+        await this.teamMemberRepository.findByDoctorId(userId);
+      const collaboratorIds = teamMembers.map((tm) => tm.collaborator_id);
+      if (!collaboratorIds.includes(id)) {
+        throw new ForbiddenException('Sem permissão para ver este usuário');
+      }
+      const user = await this.userRepository.findOne({ id });
+      if (!user) throw new NotFoundException('Usuário não encontrado');
+      return user;
+    }
+
     // Colaborador só pode ver a si mesmo
     if (id !== userId) {
-      // TODO: Verificar se é colaborador do médico via team_member
       throw new ForbiddenException('Sem permissão para ver este usuário');
     }
 
@@ -150,6 +166,58 @@ export class UsersService {
     // Se for médico e tiver campos de perfil médico, atualizar DoctorProfile
     // TODO: Implementar atualização do DoctorProfile separadamente
 
+    delete updatedUser.password;
+    return updatedUser;
+  }
+
+  async updateProfileById(
+    targetId: string,
+    data: UpdateProfileDto,
+    requestingUserId: string,
+  ) {
+    const requesting = await this.userRepository.findOne({
+      id: requestingUserId,
+    });
+    if (!requesting) throw new NotFoundException('Usuário não encontrado');
+
+    const target = await this.userRepository.findOne({ id: targetId });
+    if (!target) throw new NotFoundException('Usuário alvo não encontrado');
+
+    // Apenas admin ou o próprio usuário podem atualizar o perfil
+    if (
+      requesting.role !== UserRole.ADMIN &&
+      requesting.role !== UserRole.DOCTOR &&
+      requestingUserId !== targetId
+    ) {
+      throw new ForbiddenException('Sem permissão para atualizar este perfil');
+    }
+
+    if (data.phone) {
+      const phoneFound = await this.userRepository.findOne({
+        phone: data.phone,
+        id: Not(targetId),
+      });
+      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    }
+
+    if (data.cpf) {
+      const cpfFound = await this.userRepository.findOne({
+        cpf: data.cpf,
+        id: Not(targetId),
+      });
+      if (cpfFound) throw new BadRequestException('CPF já está em uso');
+    }
+
+    const userUpdates: Partial<User> = {};
+    if (data.name !== undefined) userUpdates.name = data.name;
+    if (data.phone !== undefined) userUpdates.phone = data.phone;
+    if (data.cpf !== undefined) userUpdates.cpf = data.cpf;
+    if (data.birth_date !== undefined)
+      userUpdates.birth_date = new Date(data.birth_date);
+    if (data.gender !== undefined) userUpdates.gender = data.gender;
+    if (data.avatar_url !== undefined) userUpdates.avatar_url = data.avatar_url;
+
+    const updatedUser = await this.userRepository.update(targetId, userUpdates);
     delete updatedUser.password;
     return updatedUser;
   }
@@ -236,6 +304,14 @@ export class UsersService {
     });
 
     delete newUser.password;
+
+    // Vincula o novo usuário à equipe do médico criador (se for médico)
+    if (user.role === UserRole.DOCTOR) {
+      await this.teamMemberRepository.save({
+        doctor_id: userId,
+        collaborator_id: newUser.id,
+      });
+    }
 
     // Envia email de boas-vindas
     this.emailService.send(

@@ -9,6 +9,8 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -67,5 +69,14 @@ export class UsersController {
   @Put()
   async update(@Body() data: UpdateUserDto, @Request() req) {
     return await this.usersService.update(data, req.user.userId);
+  }
+
+  @Patch(':id')
+  async updateProfileById(
+    @Param('id') id: string,
+    @Body() data: UpdateProfileDto,
+    @Request() req,
+  ) {
+    return await this.usersService.updateProfileById(id, data, req.user.userId);
   }
 }

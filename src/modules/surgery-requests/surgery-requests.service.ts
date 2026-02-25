@@ -33,7 +33,6 @@ import { Hospital } from 'src/database/entities/hospital.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { Chat } from 'src/database/entities/chat.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
-import { SurgeryRequestProcedure } from 'src/database/entities/surgery-request-procedure.entity';
 import { User, UserRole } from 'src/database/entities/user.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
@@ -162,7 +161,6 @@ export class SurgeryRequestsService {
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const chatRepo = manager.getRepository(Chat);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      const procedureRepo = manager.getRepository(SurgeryRequestProcedure);
       const userRepo = manager.getRepository(User);
 
       let patient = await patientRepo.findOne({
@@ -233,15 +231,9 @@ export class SurgeryRequestsService {
         health_plan_id: healthPlan.id,
         priority: data.priority || SurgeryRequestPriority.MEDIUM,
         deadline: data.deadline || null,
+        procedure_id:
+          !data.is_indication && data.procedure_id ? data.procedure_id : null,
       });
-
-      if (!data.is_indication && data.procedure_id) {
-        await procedureRepo.save({
-          surgery_request_id: newRequest.id,
-          procedure_id: data.procedure_id,
-          quantity: 1,
-        });
-      }
 
       await chatRepo.save({
         surgery_request_id: newRequest.id,
@@ -270,7 +262,6 @@ export class SurgeryRequestsService {
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const chatRepo = manager.getRepository(Chat);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      const procedureRepo = manager.getRepository(SurgeryRequestProcedure);
 
       const newRequest = await surgeryRequestRepo.save({
         doctor_id: doctorId,
@@ -282,12 +273,7 @@ export class SurgeryRequestsService {
         is_indication: false,
         health_plan_id: data.health_plan_id || null,
         priority: data.priority,
-      });
-
-      await procedureRepo.save({
-        surgery_request_id: newRequest.id,
-        procedure_id: data.procedure_id,
-        quantity: 1,
+        procedure_id: data.procedure_id || null,
       });
 
       await chatRepo.save({
@@ -373,6 +359,7 @@ export class SurgeryRequestsService {
           try {
             return {
               ...doc,
+              path: doc.uri,
               uri: await this.storageService.getSignedUrl(doc.uri),
             };
           } catch {
@@ -464,14 +451,11 @@ export class SurgeryRequestsService {
     }
 
     const { id, hospital: _h, health_plan, cid, ...validData } = data;
-    const cidData: { cid_id?: string | null; cid_description?: string | null } =
-      {};
+    const cidData: { cid_id?: string | null } = {};
     if (cid === null) {
       cidData.cid_id = null;
-      cidData.cid_description = null;
     } else if (cid?.id) {
       cidData.cid_id = cid.id;
-      cidData.cid_description = cid.description || null;
     }
 
     await this.surgeryRequestRepository.update(data.id, {
@@ -571,7 +555,6 @@ export class SurgeryRequestsService {
         healthPlanRegistration: request.health_plan_registration,
         healthPlanType: request.health_plan_type,
         cid: request.cid_id,
-        cidDescription: request.cid_description,
         diagnosis: request.diagnosis,
         medicalReport: request.medical_report,
       });
@@ -744,20 +727,18 @@ export class SurgeryRequestsService {
     // ── Dados do paciente ──────────────────────────────────────────────────
     const patient = (request as any).patient;
 
-    // ── Procedimentos com nested relation ─────────────────────────────────
-    const srProcedures = await this.dataSource
-      .getRepository(SurgeryRequestProcedure)
-      .find({
-        where: { surgery_request_id: id },
-        relations: ['procedure'],
-      });
+    // ── Itens TUSS vinculados ──────────────────────────────────────────────
+    const { SurgeryRequestTussItem } =
+      await import('src/database/entities/surgery-request-tuss-item.entity');
+    const tussItems = await this.dataSource
+      .getRepository(SurgeryRequestTussItem)
+      .find({ where: { surgery_request_id: id } });
 
-    const procedures = srProcedures.map((srp) => ({
-      description: (srp as any).procedure?.name ?? '',
-      tussCode: (srp as any).procedure?.tuss_code ?? '',
-      requestedQuantity: srp.quantity,
-      authorizedQuantity:
-        srp.authorized_quantity !== undefined ? srp.authorized_quantity : null,
+    const procedures = tussItems.map((item) => ({
+      description: item.name,
+      tussCode: item.tuss_code,
+      requestedQuantity: item.quantity,
+      authorizedQuantity: item.authorized_quantity ?? null,
     }));
 
     // ── OPME ───────────────────────────────────────────────────────────────
@@ -1193,9 +1174,9 @@ export class SurgeryRequestsService {
         await this.mailService.sendSurgeryAuthorized(to, {
           patientName,
           requestId,
-          authorizedProcedures: (request.procedures ?? [])
+          authorizedProcedures: (request.tuss_items ?? [])
             .filter((p) => p.authorized_quantity)
-            .map((p) => p.procedure?.name ?? p.procedure_id),
+            .map((p) => p.name),
         });
         break;
       case 'surgery-contested':

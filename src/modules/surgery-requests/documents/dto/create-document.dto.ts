@@ -1,6 +1,5 @@
-import { Type } from 'class-transformer';
-import { Allow, IsIn, IsNotEmpty, IsNumber, IsString } from 'class-validator';
-import { DocumentTypes } from 'src/common';
+import { IsIn, IsNotEmpty, IsString } from 'class-validator';
+import { STORAGE_FOLDERS } from 'src/config/storage.config';
 
 export class CreateDocumentDto {
   @IsString()
@@ -9,10 +8,15 @@ export class CreateDocumentDto {
 
   @IsString()
   @IsNotEmpty()
-  // @IsIn(Object.values(DocumentTypes))
   key: string;
 
   @IsString()
   @IsNotEmpty()
   name: string;
+
+  /** Pasta de destino no bucket. */
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(Object.values(STORAGE_FOLDERS))
+  folder: string;
 }

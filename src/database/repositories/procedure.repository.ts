@@ -27,10 +27,9 @@ export class ProcedureRepository {
       take,
       select: {
         id: true,
-        tuss_code: true,
         name: true,
       },
-      order: { tuss_code: 'ASC' },
+      order: { name: 'ASC' },
     });
   }
 
@@ -41,7 +40,6 @@ export class ProcedureRepository {
       where,
       select: {
         id: true,
-        tuss_code: true,
         name: true,
       },
     });

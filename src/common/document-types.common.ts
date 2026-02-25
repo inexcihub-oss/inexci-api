@@ -1,7 +1,6 @@
 export default {
   // PRÉ-CIRUÚRGICOS
   personalDocument: 'personal_document',
-  doctorRequest: 'doctor_request',
   examReport: 'exam_report', // substitui rnm_report
   medicalReport: 'medical_report',
 

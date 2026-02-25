@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
+import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { FindOptionsWhere } from 'typeorm';
@@ -79,7 +80,7 @@ export class PatientsService {
       phone: data.phone,
       cpf: data.cpf,
       gender: data.gender,
-      birth_date: new Date(data.birth_date),
+      birth_date: data.birth_date ? new Date(data.birth_date) : undefined,
       health_plan_id: data.health_plan_id,
       health_plan_number: data.health_plan_number,
       health_plan_type: data.health_plan_type,
@@ -94,5 +95,39 @@ export class PatientsService {
       medical_notes: data.medical_notes,
       active: true,
     });
+  }
+
+  async update(id: string, data: UpdatePatientDto): Promise<Patient> {
+    const patient = await this.patientRepository.findOne({ id });
+    if (!patient) throw new NotFoundException('Paciente não encontrado');
+
+    const updateData: Partial<Patient> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.phone !== undefined) updateData.phone = data.phone;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.cpf !== undefined) updateData.cpf = data.cpf;
+    if (data.gender !== undefined) updateData.gender = data.gender;
+    if (data.birth_date !== undefined)
+      updateData.birth_date = new Date(data.birth_date);
+    if (data.health_plan_id !== undefined)
+      updateData.health_plan_id = data.health_plan_id;
+    if (data.health_plan_number !== undefined)
+      updateData.health_plan_number = data.health_plan_number;
+    if (data.health_plan_type !== undefined)
+      updateData.health_plan_type = data.health_plan_type;
+    if (data.zip_code !== undefined) updateData.zip_code = data.zip_code;
+    if (data.address !== undefined) updateData.address = data.address;
+    if (data.address_number !== undefined)
+      updateData.address_number = data.address_number;
+    if (data.address_complement !== undefined)
+      updateData.address_complement = data.address_complement;
+    if (data.neighborhood !== undefined)
+      updateData.neighborhood = data.neighborhood;
+    if (data.city !== undefined) updateData.city = data.city;
+    if (data.state !== undefined) updateData.state = data.state;
+    if (data.medical_notes !== undefined)
+      updateData.medical_notes = data.medical_notes;
+
+    return this.patientRepository.update(id, updateData);
   }
 }

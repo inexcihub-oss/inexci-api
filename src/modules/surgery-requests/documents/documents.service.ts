@@ -21,19 +21,20 @@ export class DocumentsService {
   ) {
     if (!file) throw new BadRequestException('File is required');
 
-    const uri = await this.storageService.create(file, 'documents');
+    const storagePath = await this.storageService.create(file, data.folder);
 
     const newDocument = await this.documentRepository.create({
       surgery_request_id: data.surgery_request_id,
       created_by: userId,
       key: data.key,
       name: data.name,
-      uri,
+      uri: storagePath,
     });
 
     return {
       ...newDocument,
-      uri: await this.storageService.getSignedUrl(uri),
+      path: storagePath,
+      uri: await this.storageService.getSignedUrl(storagePath),
     };
   }
 

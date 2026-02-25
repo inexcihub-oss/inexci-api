@@ -16,13 +16,14 @@ import { Patient } from './patient.entity';
 import { HealthPlan } from './health-plan.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { OpmeItem } from './opme-item.entity';
-import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
+import { Procedure } from './procedure.entity';
 import { Document } from './document.entity';
 import { Chat } from './chat.entity';
 import { StatusUpdate } from './status-update.entity';
 import { SurgeryRequestAnalysis } from './surgery-request-analysis.entity';
 import { SurgeryRequestBilling } from './surgery-request-billing.entity';
 import { Contestation } from './contestation.entity';
+import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 
 /**
  * Status da solicitação cirúrgica (9 valores — fluxo oficial)
@@ -74,16 +75,11 @@ export class SurgeryRequest {
   @Column({ name: 'health_plan_id', nullable: true })
   health_plan_id: string;
 
+  @Column({ name: 'procedure_id', nullable: true })
+  procedure_id: string;
+
   @Column({ name: 'cid_id', type: 'varchar', length: 75, nullable: true })
   cid_id: string;
-
-  @Column({
-    name: 'cid_description',
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-  })
-  cid_description: string;
 
   // ============ STATUS E CONTROLE ============
 
@@ -228,8 +224,9 @@ export class SurgeryRequest {
   @OneToMany(() => OpmeItem, (item) => item.surgery_request)
   opme_items: OpmeItem[];
 
-  @OneToMany(() => SurgeryRequestProcedure, (proc) => proc.surgery_request)
-  procedures: SurgeryRequestProcedure[];
+  @ManyToOne(() => Procedure, { nullable: true })
+  @JoinColumn({ name: 'procedure_id' })
+  procedure: Procedure;
 
   @OneToMany(() => Document, (doc) => doc.surgery_request)
   documents: Document[];
@@ -256,4 +253,7 @@ export class SurgeryRequest {
 
   @OneToMany(() => Contestation, (contestation) => contestation.surgery_request)
   contestations: Contestation[];
+
+  @OneToMany(() => SurgeryRequestTussItem, (item) => item.surgery_request)
+  tuss_items: SurgeryRequestTussItem[];
 }

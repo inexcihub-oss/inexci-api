@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { FindManySupplierDto } from './dto/find-many-supplier.dto';
+import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
@@ -62,5 +63,11 @@ export class SuppliersService {
     ]);
 
     return { total, records };
+  }
+
+  async update(id: string, data: UpdateSupplierDto): Promise<Supplier> {
+    const supplier = await this.supplierRepository.findOne({ id });
+    if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
+    return this.supplierRepository.update(id, data);
   }
 }

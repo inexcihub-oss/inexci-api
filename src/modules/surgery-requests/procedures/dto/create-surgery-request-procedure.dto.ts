@@ -13,17 +13,17 @@ export class ProcedureItemDto {
   @IsString()
   id?: string;
 
+  @IsOptional()
+  @IsString()
+  procedure_id?: string; // mantido por compatibilidade, não utilizado no save
+
   @IsString()
   @IsNotEmpty()
-  procedure_id: string;
+  tuss_code: string;
 
-  @IsOptional()
   @IsString()
-  tuss_code?: string;
-
-  @IsOptional()
-  @IsString()
-  name?: string;
+  @IsNotEmpty()
+  name: string;
 
   @Type(() => Number)
   @IsNumber()

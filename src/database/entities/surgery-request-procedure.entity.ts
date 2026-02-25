@@ -26,11 +26,11 @@ export class SurgeryRequestProcedure {
   authorized_quantity: number;
 
   // Relations
-  @ManyToOne(() => SurgeryRequest, (request) => request.procedures)
+  @ManyToOne(() => SurgeryRequest)
   @JoinColumn({ name: 'surgery_request_id' })
   surgery_request: SurgeryRequest;
 
-  @ManyToOne(() => Procedure, (procedure) => procedure.surgery_requests)
+  @ManyToOne(() => Procedure)
   @JoinColumn({ name: 'procedure_id' })
   procedure: Procedure;
 }

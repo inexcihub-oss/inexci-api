@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { FindManyHealthPlanDto } from './dto/find-many-health-plan.dto';
 import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
+import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
 import { FindOptionsWhere } from 'typeorm';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
@@ -73,10 +78,26 @@ export class HealthPlansService {
       doctorId = teamMember.doctor_id;
     }
 
+    const existing = await this.healthPlanRepository.findOne({
+      name: data.name,
+      doctor_id: doctorId,
+    });
+    if (existing) {
+      throw new ConflictException(
+        `Já existe um convênio com o nome "${data.name}"`,
+      );
+    }
+
     return this.healthPlanRepository.create({
       ...data,
       doctor_id: doctorId,
       active: true,
     });
+  }
+
+  async update(id: string, data: UpdateHealthPlanDto): Promise<HealthPlan> {
+    const healthPlan = await this.healthPlanRepository.findOne({ id });
+    if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
+    return this.healthPlanRepository.update(id, data);
   }
 }

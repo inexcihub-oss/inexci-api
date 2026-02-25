@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { supabase, SUPABASE_BUCKET } from '../../config/supabase.config';
+import { supabase } from '../../config/supabase.config';
+import { STORAGE_BUCKET, STORAGE_FOLDERS } from '../../config/storage.config';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -12,7 +13,7 @@ export class UploadService {
    */
   async uploadFile(
     file: Express.Multer.File,
-    folder: string = 'documents',
+    folder: string = STORAGE_FOLDERS.DOCUMENTS,
   ): Promise<{ url: string; path: string }> {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo foi enviado');
@@ -26,22 +27,20 @@ export class UploadService {
     try {
       // Upload para o Supabase Storage
       const { data, error } = await supabase.storage
-        .from(SUPABASE_BUCKET)
+        .from(STORAGE_BUCKET)
         .upload(filePath, file.buffer, {
           contentType: file.mimetype,
           upsert: false,
         });
 
       if (error) {
-        throw new BadRequestException(
-          `Erro ao fazer upload: ${error.message}`,
-        );
+        throw new BadRequestException(`Erro ao fazer upload: ${error.message}`);
       }
 
       // Obter URL pública do arquivo
       const {
         data: { publicUrl },
-      } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(data.path);
+      } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(data.path);
 
       return {
         url: publicUrl,
@@ -61,7 +60,7 @@ export class UploadService {
   async deleteFile(filePath: string): Promise<void> {
     try {
       const { error } = await supabase.storage
-        .from(SUPABASE_BUCKET)
+        .from(STORAGE_BUCKET)
         .remove([filePath]);
 
       if (error) {
@@ -84,7 +83,7 @@ export class UploadService {
    */
   async uploadMultipleFiles(
     files: Express.Multer.File[],
-    folder: string = 'documents',
+    folder: string = STORAGE_FOLDERS.DOCUMENTS,
   ): Promise<Array<{ url: string; path: string; originalName: string }>> {
     if (!files || files.length === 0) {
       throw new BadRequestException('Nenhum arquivo foi enviado');

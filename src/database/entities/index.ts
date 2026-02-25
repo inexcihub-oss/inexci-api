@@ -14,20 +14,19 @@ import { Patient } from './patient.entity';
 import { Hospital } from './hospital.entity';
 import { HealthPlan } from './health-plan.entity';
 import { Supplier } from './supplier.entity';
-import { Cid } from './cid.entity';
 import { Procedure } from './procedure.entity';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
   SurgeryRequestPriority,
 } from './surgery-request.entity';
-import { SurgeryRequestProcedure } from './surgery-request-procedure.entity';
 import { OpmeItem } from './opme-item.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { SurgeryRequestAnalysis } from './surgery-request-analysis.entity';
 import { SurgeryRequestBilling } from './surgery-request-billing.entity';
 import { SurgeryRequestTemplate } from './surgery-request-template.entity';
 import { Contestation } from './contestation.entity';
+import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 import { StatusUpdate } from './status-update.entity';
 import { Document } from './document.entity';
 import { DefaultDocumentClinic } from './default-document-clinic.entity';
@@ -50,18 +49,17 @@ export { HealthPlan };
 export { Supplier };
 
 // DADOS DE REFERÊNCIA
-export { Cid };
 export { Procedure };
 
 // SOLICITAÇÃO CIRÚRGICA E RELACIONADOS
 export { SurgeryRequest, SurgeryRequestStatus, SurgeryRequestPriority };
-export { SurgeryRequestProcedure };
 export { OpmeItem };
 export { SurgeryRequestQuotation };
 export { SurgeryRequestAnalysis };
 export { SurgeryRequestBilling };
 export { SurgeryRequestTemplate };
 export { Contestation };
+export { SurgeryRequestTussItem };
 export { StatusUpdate };
 
 // DOCUMENTOS
@@ -86,16 +84,15 @@ export const ENTITIES = [
   Hospital,
   HealthPlan,
   Supplier,
-  Cid,
   Procedure,
   SurgeryRequest,
-  SurgeryRequestProcedure,
   OpmeItem,
   SurgeryRequestQuotation,
   SurgeryRequestAnalysis,
   SurgeryRequestBilling,
   SurgeryRequestTemplate,
   Contestation,
+  SurgeryRequestTussItem,
   StatusUpdate,
   Document,
   DefaultDocumentClinic,

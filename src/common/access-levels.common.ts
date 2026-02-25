@@ -26,7 +26,7 @@ export default {
   },
   '/users/:id': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
-    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
   '/users/profile': {
@@ -226,10 +226,20 @@ export default {
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
+  '/suppliers/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
 
   '/patients': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     POST: [UserRole.ADMIN, UserRole.DOCTOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+  '/patients/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
@@ -240,11 +250,21 @@ export default {
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
+  '/hospitals/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
 
   '/health_plans': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     POST: [UserRole.ADMIN, UserRole.DOCTOR],
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+  '/health_plans/:id': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
   },
 
