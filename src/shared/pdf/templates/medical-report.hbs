@@ -248,7 +248,7 @@
     {{#if examImages}}
       <div class='section'>
         <div class='section-heading'>
-          <span class='section-title'>Imagens do exame</span>
+          <span class='section-title'>Imagens a serem anexadas ao laudo</span>
         </div>
         <div class='images-grid'>
           {{#each examImages}}
@@ -269,6 +269,26 @@
         <p class='body-text'>{{conduct}}</p>
       </div>
     {{/if}}
+
+    <!-- ── Assinatura do Médico ───────────────────────────── -->
+    <div class='signature-block'>
+      {{#if doctorSignatureUrl}}
+        <img
+          class='signature-img'
+          src='{{doctorSignatureUrl}}'
+          alt='Assinatura'
+        />
+      {{/if}}
+      <hr class='signature-line' />
+      <span class='signature-name'>{{doctorName}}</span>
+      {{#if doctorSpecialty}}
+        <span class='signature-specialty'>{{doctorSpecialty}}</span>
+      {{/if}}
+      {{#if doctorCrm}}
+        <span class='signature-crm'>CRM
+          {{doctorCrm}}{{#if doctorCrmState}}/{{doctorCrmState}}{{/if}}</span>
+      {{/if}}
+    </div>
 
   </body>
 </html>

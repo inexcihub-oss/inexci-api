@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { supabase } from '../../config/supabase.config';
+import { supabaseAdmin as supabase } from '../../config/supabase.config';
 import { STORAGE_BUCKET, STORAGE_FOLDERS } from '../../config/storage.config';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -37,13 +37,15 @@ export class UploadService {
         throw new BadRequestException(`Erro ao fazer upload: ${error.message}`);
       }
 
-      // Obter URL pública do arquivo
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(data.path);
+      // Gerar URL assinada (1h) para acesso ao bucket privado
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .createSignedUrl(data.path, 3600);
+
+      const url = signedData?.signedUrl ?? data.path;
 
       return {
-        url: publicUrl,
+        url,
         path: data.path,
       };
     } catch (error) {

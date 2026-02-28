@@ -34,6 +34,10 @@ import { Patient } from 'src/database/entities/patient.entity';
 import { Chat } from 'src/database/entities/chat.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { User, UserRole } from 'src/database/entities/user.entity';
+import {
+  SurgeryRequestActivity,
+  ActivityType,
+} from 'src/database/entities/surgery-request-activity.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 import { EmailService } from 'src/shared/email/email.service';
@@ -115,7 +119,7 @@ export class SurgeryRequestsService {
         'patient',
         'hospital',
         'health_plan',
-        'procedures',
+        'tuss_items',
         'opme_items',
         'documents',
         'analysis',
@@ -127,18 +131,42 @@ export class SurgeryRequestsService {
     return request;
   }
 
-  /** Registra mudança de status em status_updates */
+  /** Rótulos legíveis por humanos para cada status */
+  private readonly statusLabels: Record<number, string> = {
+    1: 'Pendente',
+    2: 'Enviada',
+    3: 'Em Análise',
+    4: 'Em Agendamento',
+    5: 'Agendada',
+    6: 'Realizada',
+    7: 'Faturada',
+    8: 'Finalizada',
+    9: 'Encerrada',
+  };
+
+  /** Registra mudança de status em status_updates e em activities */
   private async recordStatusChange(
     manager: any,
     surgeryRequestId: string,
     prevStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
+    userId: string | null = null,
   ): Promise<void> {
     const statusUpdateRepo = manager.getRepository(StatusUpdate);
     await statusUpdateRepo.save({
       surgery_request_id: surgeryRequestId,
       prev_status: prevStatus,
       new_status: newStatus,
+    });
+
+    const activityRepo = manager.getRepository(SurgeryRequestActivity);
+    const prevLabel = this.statusLabels[prevStatus] ?? String(prevStatus);
+    const newLabel = this.statusLabels[newStatus] ?? String(newStatus);
+    await activityRepo.save({
+      surgery_request_id: surgeryRequestId,
+      user_id: userId,
+      type: ActivityType.STATUS_CHANGE,
+      content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
     });
   }
 
@@ -244,6 +272,13 @@ export class SurgeryRequestsService {
         prev_status: SurgeryRequestStatus.PENDING,
         new_status: SurgeryRequestStatus.PENDING,
       });
+      const activityRepo = manager.getRepository(SurgeryRequestActivity);
+      await activityRepo.save({
+        surgery_request_id: newRequest.id,
+        user_id: userId,
+        type: ActivityType.SYSTEM,
+        content: 'Solicitação cirúrgica criada',
+      });
 
       return newRequest;
     });
@@ -284,6 +319,13 @@ export class SurgeryRequestsService {
         surgery_request_id: newRequest.id,
         prev_status: SurgeryRequestStatus.PENDING,
         new_status: SurgeryRequestStatus.PENDING,
+      });
+      const activityRepo = manager.getRepository(SurgeryRequestActivity);
+      await activityRepo.save({
+        surgery_request_id: newRequest.id,
+        user_id: userId,
+        type: ActivityType.SYSTEM,
+        content: 'Solicitação cirúrgica criada',
       });
 
       return newRequest;
@@ -522,6 +564,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.SENT,
+        userId,
       );
     });
 
@@ -542,23 +585,225 @@ export class SurgeryRequestsService {
     }
 
     if (dto.method === 'download') {
-      const pdfBuffer = await this.pdfService.generateSurgeryRequestSummary({
-        id,
-        protocol: request.protocol,
-        status: 'Enviada',
-        createdAt: new Date(request.created_at).toLocaleDateString('pt-BR'),
-        sentAt: new Date().toLocaleDateString('pt-BR'),
-        doctorName,
-        patientName,
-        healthPlanName,
-        hospitalName,
-        healthPlanRegistration: request.health_plan_registration,
-        healthPlanType: request.health_plan_type,
-        cid: request.cid_id,
-        diagnosis: request.diagnosis,
-        medicalReport: request.medical_report,
+      // ── Dados do médico ────────────────────────────────────────────────────
+      const doctor = await this.userRepository.findOneWithProfile({
+        id: userId,
       });
-      return { pdf: pdfBuffer.toString('base64'), method: 'download' };
+      const profile = (doctor as any)?.doctor_profile;
+
+      let doctorCrm: string | undefined;
+      if (profile?.crm) {
+        doctorCrm = `CRM ${profile.crm}${profile.crm_state ? `/${profile.crm_state}` : ''}`;
+      }
+      const doctorEmail = doctor?.email ?? '';
+      const doctorPhoneRaw = doctor?.phone ?? '';
+
+      // ── Assinatura do médico (signed URL se for path) ─────────────────────────────────────────
+      let doctorSignatureUrl: string | undefined;
+      if (profile?.signature_url) {
+        const rawSig: string = profile.signature_url;
+        if (rawSig.startsWith('http')) {
+          doctorSignatureUrl = rawSig;
+        } else {
+          try {
+            doctorSignatureUrl = await this.storageService.getSignedUrl(rawSig);
+          } catch {
+            // sem assinatura
+          }
+        }
+      }
+
+      // Formatar telefone: (XX) XXXXX-XXXX
+      const digitsOnly = (v: string) => (v ? v.replace(/\D/g, '') : '');
+      const formatPhone = (v: string) => {
+        const d = digitsOnly(v).slice(0, 11);
+        if (d.length <= 10)
+          return d.length > 6
+            ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+            : d;
+        return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+      };
+      const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
+
+      // ── Dados do laudo (medical_report JSON) ───────────────────────────────
+      let reportData: {
+        patientData?: {
+          name?: string;
+          birthDate?: string;
+          rg?: string;
+          cpf?: string;
+          phone?: string;
+          address?: string;
+          zipCode?: string;
+          healthPlan?: string;
+        };
+        historyAndDiagnosis?: string;
+        conduct?: string;
+      } = {};
+      try {
+        if (request.medical_report) {
+          reportData = JSON.parse(request.medical_report as unknown as string);
+        }
+      } catch {
+        // fallback vazio
+      }
+
+      const pd = reportData.patientData ?? {};
+      const patient = (request as any).patient;
+
+      // Formatar CPF
+      const formatCpf = (v: string) => {
+        const d = digitsOnly(v).slice(0, 11);
+        if (d.length <= 3) return d;
+        if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+        if (d.length <= 9)
+          return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+        return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+      };
+      // Formatar CEP
+      const formatCep = (v: string) => {
+        const d = digitsOnly(v).slice(0, 8);
+        if (d.length <= 5) return d;
+        return `${d.slice(0, 5)}-${d.slice(5)}`;
+      };
+      // Formatar data BR
+      const formatDateBR = (v: string) => {
+        if (!v) return '';
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) return v;
+        const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+        return v;
+      };
+
+      // ── Imagens dos exames ─────────────────────────────────────────────────
+      const allDocs = (request as any).documents ?? [];
+      const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
+      const examImages: string[] = (
+        await Promise.all(
+          examDocs.map(async (doc: any) => {
+            const raw: string = doc.uri;
+            if (!raw) return null;
+            if (raw.startsWith('http')) return raw;
+            try {
+              return await this.storageService.getSignedUrl(raw);
+            } catch {
+              return null;
+            }
+          }),
+        )
+      ).filter((u): u is string => !!u);
+
+      // ── Procedimentos (TUSS) ───────────────────────────────────────────────
+      const tussItems = (request as any).tuss_items ?? [];
+      const procedures = tussItems.map((item: any) => ({
+        name: item.name,
+        tussCode: item.tuss_code,
+        quantity: item.quantity ?? 1,
+      }));
+
+      // ── Materiais (OPME) ───────────────────────────────────────────────────
+      const opmeItemsRaw = (request as any).opme_items ?? [];
+      const opmeItems = opmeItemsRaw.map((item: any) => ({
+        name: item.name,
+        quantity: item.quantity ?? 1,
+      }));
+
+      // ── Fabricantes e Fornecedores ─────────────────────────────────────────
+      const unique = (arr: string[]) =>
+        Array.from(new Set(arr.filter(Boolean)));
+      const fabricantes = unique(
+        opmeItemsRaw.map((i: any) => i.brand).filter(Boolean),
+      );
+      const fornecedores = unique(
+        opmeItemsRaw.map((i: any) => i.distributor).filter(Boolean),
+      );
+      const fabricantesText =
+        fabricantes.length > 0 ? fabricantes.join(', ') : '';
+      const fornecedoresText =
+        fornecedores.length > 0 ? fornecedores.join(', ') : '';
+      const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
+
+      // ── Hospital (local) ───────────────────────────────────────────────────
+      const hospital = (request as any).hospital;
+      const localText = [hospital?.name, hospital?.address]
+        .filter(Boolean)
+        .join(' – ');
+
+      const laudoData: import('src/shared/pdf/pdf.service').SurgeryRequestLaudoPdfData =
+        {
+          today: new Date().toLocaleDateString('pt-BR'),
+          patientName: pd.name || patient?.name || undefined,
+          patientBirthDate:
+            pd.birthDate ||
+            (patient?.birth_date
+              ? formatDateBR(patient.birth_date)
+              : undefined),
+          patientRg: pd.rg || patient?.rg || undefined,
+          patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
+          patientPhone:
+            formatPhone(pd.phone || patient?.phone || '') || undefined,
+          patientAddress: pd.address || patient?.address || undefined,
+          patientZipCode:
+            formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
+            undefined,
+          patientHealthPlan:
+            pd.healthPlan || (request as any).health_plan?.name || undefined,
+          historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
+          conduct: reportData.conduct || undefined,
+          examImages: examImages.length ? examImages : undefined,
+          procedures: procedures.length ? procedures : undefined,
+          opmeItems: opmeItems.length ? opmeItems : undefined,
+          fabricantesText: fabricantesText || undefined,
+          fornecedoresText: fornecedoresText || undefined,
+          hasSeparator,
+          localText: localText || undefined,
+          doctorName: doctor?.name ?? 'Médico',
+          doctorEmail: doctorEmail || undefined,
+          doctorPhone: doctorPhoneFormatted || undefined,
+          doctorSpecialty: profile?.specialty || undefined,
+          doctorCrm: doctorCrm || undefined,
+          hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
+          hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
+          doctorSignatureUrl: doctorSignatureUrl || undefined,
+        };
+
+      const summaryBuffer =
+        await this.pdfService.generateSurgeryRequestLaudoPdf(laudoData);
+
+      // ── Buscar documentos da aba Informações Gerais (pasta documents/) ──
+      const infoDocs = allDocs.filter(
+        (d: any) =>
+          d.uri &&
+          String(d.uri).startsWith('documents/') &&
+          d.key !== 'report_images',
+      );
+
+      const docBuffers: Buffer[] = [];
+      for (const doc of infoDocs) {
+        try {
+          const signedUrl = await this.storageService.getSignedUrl(doc.uri);
+          const buf = await this.pdfService.fetchBuffer(signedUrl);
+          if (buf) docBuffers.push(buf);
+        } catch (err: any) {
+          this.logger.warn(
+            `[sendRequest] Não foi possível buscar documento "${doc.uri}": ${err?.message}`,
+          );
+        }
+      }
+
+      // ── Mesclar resumo + documentos em um único PDF ───────────────────────
+      let finalBuffer = summaryBuffer;
+      if (docBuffers.length > 0) {
+        this.logger.log(
+          `[sendRequest] Mesclando PDF com ${docBuffers.length} documento(s) anexo(s)`,
+        );
+        finalBuffer = await this.pdfService.mergePdfs([
+          summaryBuffer,
+          ...docBuffers,
+        ]);
+      }
+
+      return { pdf: finalBuffer.toString('base64'), method: 'download' };
     }
 
     return { sent: true };
@@ -605,6 +850,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.IN_ANALYSIS,
+        userId,
       );
     });
   }
@@ -650,6 +896,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.IN_SCHEDULING,
+        userId,
       );
     });
   }
@@ -834,6 +1081,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.SCHEDULED,
+        userId,
       );
     });
   }
@@ -903,6 +1151,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.PERFORMED,
+        userId,
       );
     });
   }
@@ -966,6 +1215,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.INVOICED,
+        userId,
       );
     });
   }
@@ -1011,6 +1261,7 @@ export class SurgeryRequestsService {
         id,
         request.status,
         SurgeryRequestStatus.FINALIZED,
+        userId,
       );
 
       return { hasDivergence, invoiceValue, receivedValue };
@@ -1114,6 +1365,7 @@ export class SurgeryRequestsService {
         id,
         request.status as SurgeryRequestStatus,
         SurgeryRequestStatus.CLOSED,
+        userId,
       );
     });
   }
@@ -1294,6 +1546,16 @@ export class SurgeryRequestsService {
         prev_status: request.status,
         new_status: newStatus,
       });
+      const activityRepo = manager.getRepository(SurgeryRequestActivity);
+      const prevLabel =
+        this.statusLabels[request.status] ?? String(request.status);
+      const newLabel = this.statusLabels[newStatus] ?? String(newStatus);
+      await activityRepo.save({
+        surgery_request_id: surgeryRequestId,
+        user_id: userId,
+        type: ActivityType.STATUS_CHANGE,
+        content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
+      });
       return repo.findOne({ where: { id: surgeryRequestId } });
     });
   }
@@ -1360,7 +1622,7 @@ export class SurgeryRequestsService {
     this.logger.log(
       `[PDF] Total documents: ${allDocs.length} | keys: ${allDocs.map((d: any) => d.key).join(', ')}`,
     );
-    const examDocs = allDocs.filter((d: any) => d.key === 'exam_images');
+    const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
     this.logger.log(
       `[PDF] examDocs count: ${examDocs.length} | uris: ${examDocs.map((d: any) => String(d.uri).substring(0, 80)).join(' | ')}`,
     );

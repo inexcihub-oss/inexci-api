@@ -16,6 +16,7 @@ import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { EmailService } from 'src/shared/email/email.service';
+import { StorageService } from 'src/shared/storage/storage.service';
 import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
@@ -38,6 +39,7 @@ export class UsersService {
     private readonly emailService: EmailService,
     private readonly teamMemberRepository: TeamMemberRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
@@ -126,7 +128,20 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
     // Remove senha do retorno
-    const { password, ...userWithoutPassword } = user;
+    const { password, ...userWithoutPassword } = user as any;
+
+    // Gerar signed URL para assinatura do médico (bucket privado)
+    const profile = userWithoutPassword.doctor_profile;
+    if (profile?.signature_url && !profile.signature_url.startsWith('http')) {
+      try {
+        profile.signature_url = await this.storageService.getSignedUrl(
+          profile.signature_url,
+        );
+      } catch {
+        // manter path original se falhar
+      }
+    }
+
     return userWithoutPassword;
   }
 
@@ -163,8 +178,16 @@ export class UsersService {
 
     const updatedUser = await this.userRepository.update(userId, userUpdates);
 
-    // Se for médico e tiver campos de perfil médico, atualizar DoctorProfile
-    // TODO: Implementar atualização do DoctorProfile separadamente
+    // Se tiver signature_url, atualizar DoctorProfile
+    if (data.signature_url !== undefined) {
+      const docProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      if (docProfile) {
+        await this.doctorProfileRepository.update(docProfile.id, {
+          signature_url: data.signature_url,
+        });
+      }
+    }
 
     delete updatedUser.password;
     return updatedUser;

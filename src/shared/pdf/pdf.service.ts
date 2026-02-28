@@ -154,6 +154,53 @@ export interface ContestAuthorizationPdfData {
   doctorSignatureUrl?: string;
 }
 
+/**
+ * Dados para o PDF de solicitação cirúrgica no design do laudo (Visualizar documento).
+ */
+export interface SurgeryRequestLaudoPdfData {
+  today: string;
+  // Paciente
+  patientName?: string;
+  patientBirthDate?: string;
+  patientRg?: string;
+  patientCpf?: string;
+  patientPhone?: string;
+  patientAddress?: string;
+  patientZipCode?: string;
+  patientHealthPlan?: string;
+  // Laudo
+  historyAndDiagnosis?: string;
+  conduct?: string;
+  // Imagens dos exames (data URIs ou signed URLs)
+  examImages?: string[];
+  // Procedimentos (TUSS)
+  procedures?: Array<{
+    name: string;
+    tussCode: string;
+    quantity: number;
+  }>;
+  // Materiais (OPME)
+  opmeItems?: Array<{
+    name: string;
+    quantity: number;
+  }>;
+  // Fabricantes/Fornecedores
+  fabricantesText?: string;
+  fornecedoresText?: string;
+  hasSeparator?: boolean;
+  // Hospital (Local)
+  localText?: string;
+  // Médico
+  doctorName: string;
+  doctorEmail?: string;
+  doctorPhone?: string;
+  doctorSpecialty?: string;
+  doctorCrm?: string;
+  hasDoctorContact?: boolean;
+  hasDoctorInfo?: boolean;
+  doctorSignatureUrl?: string;
+}
+
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
@@ -277,6 +324,140 @@ export class PdfService {
         this.logger.warn(`fetchAsDataUri: exceção: ${err?.message}`);
         resolve(null);
       }
+    });
+  }
+
+  /**
+   * Busca uma URL remota e retorna o conteúdo como Buffer raw.
+   * Segue redirects (até 10 saltos). Retorna null em caso de falha.
+   */
+  async fetchBuffer(url: string, depth = 0): Promise<Buffer | null> {
+    if (depth > 10) return null;
+    return new Promise((resolve) => {
+      try {
+        const client = url.startsWith('https') ? https : http;
+        const req = client.get(url, { timeout: 20000 }, (res) => {
+          if (
+            res.statusCode &&
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
+            res.resume();
+            const nextUrl = res.headers.location.startsWith('http')
+              ? res.headers.location
+              : new URL(res.headers.location, url).href;
+            this.fetchBuffer(nextUrl, depth + 1).then(resolve);
+            return;
+          }
+          if (res.statusCode && res.statusCode >= 400) {
+            res.resume();
+            resolve(null);
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(chunk));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', () => resolve(null));
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => {
+          req.destroy();
+          resolve(null);
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  /**
+   * Mescla múltiplos Buffers de PDF (ou imagens PNG/JPEG) em um único PDF.
+   * Cada item vira uma ou mais páginas no documento final.
+   */
+  async mergePdfs(buffers: Buffer[]): Promise<Buffer> {
+    const { PDFDocument } = await import('pdf-lib');
+    const merged = await PDFDocument.create();
+
+    for (const buf of buffers) {
+      // --- tenta como PDF ---
+      try {
+        const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+        const copied = await merged.copyPages(doc, doc.getPageIndices());
+        copied.forEach((p) => merged.addPage(p));
+        continue;
+      } catch {
+        /* não é PDF, tenta como imagem */
+      }
+
+      // --- tenta como PNG ou JPEG ---
+      const a4W = 595.28;
+      const a4H = 841.89;
+      try {
+        let embedded: any;
+        let w: number;
+        let h: number;
+        try {
+          embedded = await merged.embedPng(buf);
+          const dims = embedded.size();
+          w = dims.width;
+          h = dims.height;
+        } catch {
+          embedded = await merged.embedJpg(buf);
+          const dims = embedded.size();
+          w = dims.width;
+          h = dims.height;
+        }
+        const scale = Math.min(a4W / w, a4H / h, 1);
+        const page = merged.addPage([a4W, a4H]);
+        page.drawImage(embedded, {
+          x: (a4W - w * scale) / 2,
+          y: (a4H - h * scale) / 2,
+          width: w * scale,
+          height: h * scale,
+        });
+      } catch {
+        this.logger.warn(
+          '[mergePdfs] Não foi possível incorporar anexo, pulando.',
+        );
+      }
+    }
+
+    return Buffer.from(await merged.save());
+  }
+
+  /**
+   * Gera o PDF de solicitação cirúrgica no design do laudo (idêntico ao "Visualizar documento").
+   */
+  async generateSurgeryRequestLaudoPdf(
+    data: SurgeryRequestLaudoPdfData,
+  ): Promise<Buffer> {
+    // Pré-carregar imagens dos exames como data URIs
+    const resolvedImages: string[] = [];
+    if (data.examImages?.length) {
+      for (const url of data.examImages) {
+        const dataUri = await this.fetchAsDataUri(url);
+        resolvedImages.push(dataUri ?? url);
+      }
+    }
+
+    // Resolver assinatura do médico
+    let signatureUri: string | undefined;
+    if (data.doctorSignatureUrl) {
+      const dataUri = await this.fetchAsDataUri(data.doctorSignatureUrl);
+      signatureUri = dataUri ?? data.doctorSignatureUrl;
+    }
+
+    const templateData = {
+      ...data,
+      examImages: resolvedImages.length ? resolvedImages : undefined,
+      doctorSignatureUrl: signatureUri,
+    };
+
+    const html = this.renderTemplate('surgery-request-laudo', templateData);
+    return this.htmlToPdf(html, {
+      format: 'A4',
+      margin: { top: '32px', right: '32px', bottom: '32px', left: '32px' },
     });
   }
 

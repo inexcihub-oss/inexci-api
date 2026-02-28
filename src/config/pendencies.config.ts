@@ -52,12 +52,6 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
         responsibleRole: 'collaborator',
       },
       {
-        key: 'documents',
-        label: 'Documentos obrigatórios',
-        blocking: true,
-        responsibleRole: 'collaborator',
-      },
-      {
         key: 'medical_report',
         label: 'Laudo Médico',
         blocking: true,

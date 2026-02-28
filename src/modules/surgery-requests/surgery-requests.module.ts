@@ -22,6 +22,7 @@ import { HealthPlanRepository } from 'src/database/repositories/health-plan.repo
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { ChatsModule } from './chats/chats.module';
+import { ActivitiesModule } from './activities/activities.module';
 import { EmailModule } from 'src/shared/email/email.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
@@ -48,6 +49,7 @@ import { DocumentsKeyModule } from './documents-key/documents-key.module';
     ]),
     UsersModule,
     ChatsModule,
+    ActivitiesModule,
     EmailModule,
     MailModule,
     PdfModule,

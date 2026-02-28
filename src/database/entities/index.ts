@@ -28,6 +28,10 @@ import { SurgeryRequestTemplate } from './surgery-request-template.entity';
 import { Contestation } from './contestation.entity';
 import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 import { StatusUpdate } from './status-update.entity';
+import {
+  SurgeryRequestActivity,
+  ActivityType,
+} from './surgery-request-activity.entity';
 import { Document } from './document.entity';
 import { DefaultDocumentClinic } from './default-document-clinic.entity';
 import { Chat } from './chat.entity';
@@ -61,6 +65,7 @@ export { SurgeryRequestTemplate };
 export { Contestation };
 export { SurgeryRequestTussItem };
 export { StatusUpdate };
+export { SurgeryRequestActivity, ActivityType };
 
 // DOCUMENTOS
 export { Document };
@@ -94,6 +99,7 @@ export const ENTITIES = [
   Contestation,
   SurgeryRequestTussItem,
   StatusUpdate,
+  SurgeryRequestActivity,
   Document,
   DefaultDocumentClinic,
   Chat,

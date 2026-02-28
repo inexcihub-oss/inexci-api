@@ -10,9 +10,14 @@ import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { EmailService } from 'src/shared/email/email.service';
 import { JwtService } from '@nestjs/jwt';
+import { StorageModule } from 'src/shared/storage/storage.module';
+import { StorageService } from 'src/shared/storage/storage.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, TeamMember, DoctorProfile])],
+  imports: [
+    TypeOrmModule.forFeature([User, TeamMember, DoctorProfile]),
+    StorageModule,
+  ],
   controllers: [UsersController],
   providers: [
     UsersService,
@@ -21,6 +26,7 @@ import { JwtService } from '@nestjs/jwt';
     DoctorProfileRepository,
     EmailService,
     JwtService,
+    StorageService,
   ],
   exports: [UsersService],
 })

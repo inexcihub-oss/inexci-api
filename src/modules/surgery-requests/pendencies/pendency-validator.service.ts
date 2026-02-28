@@ -80,6 +80,7 @@ export class PendencyValidatorService {
         'analysis',
         'billing',
         'contestations',
+        'doctor',
       ],
     });
   }
@@ -106,8 +107,6 @@ export class PendencyValidatorService {
           { label: 'Data de nascimento', done: !!request.patient?.birth_date },
           { label: 'CPF', done: !!request.patient?.cpf },
           { label: 'Telefone', done: !!request.patient?.phone },
-          { label: 'Endereço', done: !!request.patient?.address },
-          { label: 'CEP', done: !!request.patient?.zip_code },
         ];
 
       case 'hospital_data':
@@ -129,22 +128,6 @@ export class PendencyValidatorService {
           },
         ];
 
-      case 'documents':
-        return [
-          {
-            label: 'RG/CNH do paciente',
-            done: hasPreDoc('personal_document'),
-          },
-          {
-            label: 'Laudo do Exame',
-            done: hasPreDoc('exam_report'),
-          },
-          {
-            label: 'Imagens do Exame',
-            done: hasPreDoc('exam_images'),
-          },
-        ];
-
       case 'medical_report': {
         const pt = request.patient;
         let parsed: any = {};
@@ -160,15 +143,13 @@ export class PendencyValidatorService {
           { label: 'Data de nascimento', done: !!pt?.birth_date },
           { label: 'CPF', done: !!pt?.cpf },
           { label: 'Telefone', done: !!pt?.phone },
-          { label: 'Endereço', done: !!pt?.address },
-          { label: 'CEP', done: !!pt?.zip_code },
           {
             label: 'Histórico e diagnóstico preenchido',
             done: hasText('historyAndDiagnosis'),
           },
           {
             label: 'Laudo assinado anexado',
-            done: hasDoc('signed_report'),
+            done: hasDoc('signed_report') || !!request.doctor?.signature_url,
           },
         ];
       }
@@ -224,9 +205,7 @@ export class PendencyValidatorService {
           request.patient?.name &&
           request.patient?.birth_date &&
           request.patient?.cpf &&
-          request.patient?.phone &&
-          request.patient?.address &&
-          request.patient?.zip_code
+          request.patient?.phone
         );
 
       case 'hospital_data':
@@ -239,14 +218,6 @@ export class PendencyValidatorService {
         // OPME é condicional — só é pendência se houver itens cadastrados.
         return opmeItems.length > 0;
 
-      case 'documents':
-        // Documentos obrigatórios pré-cirúrgicos (apenas pasta documents/)
-        return (
-          hasPreDoc('personal_document') &&
-          hasPreDoc('exam_report') &&
-          hasPreDoc('exam_images')
-        );
-
       case 'medical_report': {
         // Campos obrigatórios: dados do paciente + histórico + laudo assinado
         const pt = request.patient;
@@ -254,9 +225,7 @@ export class PendencyValidatorService {
           pt?.name &&
           pt?.birth_date &&
           pt?.cpf &&
-          pt?.phone &&
-          pt?.address &&
-          pt?.zip_code
+          pt?.phone
         );
         if (!request.medical_report) return false;
         let parsed: any = {};
@@ -270,7 +239,7 @@ export class PendencyValidatorService {
         return (
           patientComplete &&
           hasText('historyAndDiagnosis') &&
-          hasDoc('signed_report')
+          (hasDoc('signed_report') || !!request.doctor?.signature_url)
         );
       }
 

@@ -120,6 +120,12 @@ export default {
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
 
+  // ─── Atividades (comentários e histórico) ────────────────────────────────
+  '/surgery-requests/:id/activities': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
   // ─── Pendências em lote ───────────────────────────────────────────────────
   '/surgery-requests/pendencies/batch-summary': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
