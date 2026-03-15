@@ -554,6 +554,27 @@ export class SurgeryRequestsService {
     return this.surgeryRequestRepository.findOneSimple({ id: data.id });
   }
 
+  async setHasOpme(id: string, hasOpme: boolean, userId: string) {
+    const user = await this.userRepository.findOne({ id: userId });
+    if (!user) throw new NotFoundException('User not found');
+
+    let where: FindOptionsWhere<SurgeryRequest> = { id };
+    if (user.role === UserRole.DOCTOR) {
+      const doctorId = await this.getDoctorId(userId);
+      if (doctorId) where = { ...where, doctor_id: doctorId };
+    } else if (user.role === UserRole.COLLABORATOR) {
+      where = { ...where, created_by_id: userId };
+    }
+
+    const surgeryRequest =
+      await this.surgeryRequestRepository.findOneSimple(where);
+    if (!surgeryRequest)
+      throw new NotFoundException('Surgery request not found');
+
+    await this.surgeryRequestRepository.update(id, { has_opme: hasOpme });
+    return { message: 'OPME status atualizado com sucesso' };
+  }
+
   // ============================================================
   // FASE 4.2 — ENDPOINTS DE TRANSIÇÃO DE STATUS
   // ============================================================

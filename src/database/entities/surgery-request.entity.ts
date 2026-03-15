@@ -102,6 +102,17 @@ export class SurgeryRequest {
   @Column({ type: 'timestamp', nullable: true })
   deadline: Date;
 
+  // ============ OPME ============
+
+  /**
+   * Indica se a solicitação utiliza OPME.
+   * null = ainda não informado (pendência aberta)
+   * true = utiliza OPME (itens devem ser cadastrados)
+   * false = não utiliza OPME (pendência resolvida sem necessidade de itens)
+   */
+  @Column({ type: 'boolean', nullable: true, default: null })
+  has_opme: boolean | null;
+
   // ============ INDICAÇÃO ============
 
   @Column({ type: 'boolean', default: false })

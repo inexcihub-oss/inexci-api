@@ -86,6 +86,19 @@ export class SurgeryRequestsController {
     return this.surgeryRequestsService.update(data, req.user.userId);
   }
 
+  @Patch(':id/has-opme')
+  setHasOpme(
+    @Param('id') id: string,
+    @Body() body: { has_opme: boolean },
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.setHasOpme(
+      id,
+      body.has_opme,
+      req.user.userId,
+    );
+  }
+
   @Patch(':id/basic')
   updateBasic(
     @Param('id') id: string,

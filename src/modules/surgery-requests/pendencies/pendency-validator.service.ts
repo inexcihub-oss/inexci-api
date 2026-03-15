@@ -121,10 +121,24 @@ export class PendencyValidatorService {
         ];
 
       case 'opme_items':
+        if (request.has_opme === false) {
+          return [
+            { label: 'Sem OPME (indicado pelo colaborador)', done: true },
+          ];
+        }
+        if (request.has_opme === true) {
+          return [
+            { label: 'Uso de OPME confirmado', done: true },
+            {
+              label: 'Ao menos 1 item OPME cadastrado',
+              done: opmeItems.length > 0,
+            },
+          ];
+        }
         return [
           {
-            label: 'Itens OPME (opcional)',
-            done: true,
+            label: 'Indicar se há ou não OPME nesta solicitação',
+            done: false,
           },
         ];
 
@@ -215,8 +229,12 @@ export class PendencyValidatorService {
         return procedures.length > 0;
 
       case 'opme_items':
-        // OPME é opcional — não bloqueia o avanço de status.
-        return true;
+        // has_opme === false → usuário indicou que não há OPME (pendência dispensada)
+        if (request.has_opme === false) return true;
+        // has_opme === true → precisa ter ao menos 1 item cadastrado
+        if (request.has_opme === true) return opmeItems.length > 0;
+        // has_opme === null/undefined → usuário ainda não indicou (pendência aberta)
+        return false;
 
       case 'medical_report': {
         // Campos obrigatórios: dados do paciente + histórico + laudo assinado

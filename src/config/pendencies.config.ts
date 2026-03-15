@@ -48,7 +48,7 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
       {
         key: 'opme_items',
         label: 'Itens OPME',
-        blocking: false,
+        blocking: true,
         responsibleRole: 'collaborator',
       },
       {

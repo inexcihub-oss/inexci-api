@@ -207,6 +207,9 @@ export default {
   '/surgery-requests/:id/basic': {
     PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+  '/surgery-requests/:id/has-opme': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
   '/surgery-requests/:id/report-pdf': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
