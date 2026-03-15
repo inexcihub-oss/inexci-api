@@ -123,8 +123,8 @@ export class PendencyValidatorService {
       case 'opme_items':
         return [
           {
-            label: 'Ao menos 1 item OPME cadastrado',
-            done: opmeItems.length > 0,
+            label: 'Itens OPME (opcional)',
+            done: true,
           },
         ];
 
@@ -215,8 +215,8 @@ export class PendencyValidatorService {
         return procedures.length > 0;
 
       case 'opme_items':
-        // OPME é condicional — só é pendência se houver itens cadastrados.
-        return opmeItems.length > 0;
+        // OPME é opcional — não bloqueia o avanço de status.
+        return true;
 
       case 'medical_report': {
         // Campos obrigatórios: dados do paciente + histórico + laudo assinado

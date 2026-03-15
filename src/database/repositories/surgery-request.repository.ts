@@ -53,16 +53,35 @@ export class SurgeryRequestRepository {
   }
 
   async sumInvoiced(where: FindOptionsWhere<SurgeryRequest>) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if ((where as any).doctor_id) {
+      conditions.push(`sr.doctor_id = $${paramIndex}`);
+      params.push((where as any).doctor_id);
+      paramIndex++;
+    }
+
+    if ((where as any).created_by_id) {
+      conditions.push(`sr.created_by_id = $${paramIndex}`);
+      params.push((where as any).created_by_id);
+      paramIndex++;
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
     const result = await this.dataSource.query(
       `
       SELECT 
-        SUM(srb.invoice_value)::numeric AS invoiced_value,
-        SUM(srb.received_value)::numeric AS received_value
+        COALESCE(SUM(srb.invoice_value), 0)::numeric AS invoiced_value,
+        COALESCE(SUM(srb.received_value), 0)::numeric AS received_value
       FROM surgery_request sr
       LEFT JOIN surgery_request_billing srb ON srb.surgery_request_id = sr.id
-      WHERE sr.doctor_id = $1
+      ${whereClause}
     `,
-      [(where as any).doctor_id || null],
+      params,
     );
 
     return {
@@ -148,6 +167,7 @@ export class SurgeryRequestRepository {
       .leftJoin('surgery_request.chats', 'chats')
       .leftJoin('chats.messages', 'messages')
       .leftJoin('surgery_request.documents', 'documents')
+      .leftJoin('surgery_request.activities', 'activities')
       .where(where)
       .orderBy('surgery_request.created_at', 'DESC')
       .skip(skip)
@@ -178,6 +198,7 @@ export class SurgeryRequestRepository {
       ])
       .addSelect('COUNT(DISTINCT messages.id)', 'messagesCount')
       .addSelect('COUNT(DISTINCT documents.id)', 'attachmentsCount')
+      .addSelect('COUNT(DISTINCT activities.id)', 'activitiesCount')
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
       .addGroupBy('manager.id')
@@ -209,6 +230,7 @@ export class SurgeryRequestRepository {
         status_updates: entity.status_updates?.slice(0, 1) || [],
         messagesCount: parseInt(results.raw[index]?.messagesCount || '0'),
         attachmentsCount: parseInt(results.raw[index]?.attachmentsCount || '0'),
+        activitiesCount: parseInt(results.raw[index]?.activitiesCount || '0'),
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
         totalPendencies: pendencies.totalCount,

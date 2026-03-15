@@ -130,4 +130,10 @@ export class PatientsService {
 
     return this.patientRepository.update(id, updateData);
   }
+
+  async delete(id: string): Promise<void> {
+    const patient = await this.patientRepository.findOne({ id });
+    if (!patient) throw new NotFoundException('Paciente n\u00e3o encontrado');
+    await this.patientRepository.delete(id);
+  }
 }

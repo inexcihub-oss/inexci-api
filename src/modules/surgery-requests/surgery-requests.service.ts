@@ -411,6 +411,23 @@ export class SurgeryRequestsService {
       );
     }
 
+    // Converter signature_url do médico para URL pública do Supabase
+    if (
+      rawRequest.doctor?.signature_url &&
+      !rawRequest.doctor.signature_url.startsWith('http')
+    ) {
+      try {
+        rawRequest.doctor = {
+          ...rawRequest.doctor,
+          signature_url: await this.storageService.getSignedUrl(
+            rawRequest.doctor.signature_url,
+          ),
+        };
+      } catch {
+        // mantém o path original em caso de erro
+      }
+    }
+
     return { ...rawRequest, receipt };
   }
 

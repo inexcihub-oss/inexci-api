@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
+import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
@@ -69,5 +70,42 @@ export class SuppliersService {
     const supplier = await this.supplierRepository.findOne({ id });
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     return this.supplierRepository.update(id, data);
+  }
+
+  async create(data: CreateSupplierDto, userId: string): Promise<Supplier> {
+    const user = await this.userRepository.findOne({ id: userId });
+
+    let doctorId: string;
+
+    if (user.role === UserRole.DOCTOR) {
+      const doctorProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      doctorId = doctorProfile?.id;
+    } else if (user.role === UserRole.ADMIN) {
+      // Admin: tenta encontrar um doctor profile associado
+      const doctorProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      doctorId = doctorProfile?.id || userId;
+    } else if (user.role === UserRole.COLLABORATOR) {
+      const teamMember =
+        await this.teamMemberRepository.findByCollaboratorId(userId);
+      if (teamMember) {
+        const doctorProfile = await this.doctorProfileRepository.findByUserId(
+          teamMember.doctor_id,
+        );
+        doctorId = doctorProfile?.id;
+      }
+    }
+
+    return this.supplierRepository.create({
+      ...data,
+      doctor_id: doctorId || userId,
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    const supplier = await this.supplierRepository.findOne({ id });
+    if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
+    await this.supplierRepository.delete(id);
   }
 }
