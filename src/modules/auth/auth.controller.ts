@@ -59,6 +59,12 @@ export class AuthController {
   }
 
   @Public()
+  @Get('plans')
+  async getPlans() {
+    return await this.authService.getAvailablePlans();
+  }
+
+  @Public()
   @Get('health')
   async health() {
     return { status: 'ok', timestamp: new Date().toISOString() };

@@ -2017,6 +2017,25 @@ export class SurgeryRequestsService {
       order: { created_at: 'DESC' },
     });
   }
+
+  /**
+   * DELETE /surgery-requests/templates/:id
+   * Exclui um template do médico logado.
+   */
+  async deleteTemplate(id: string, userId: string): Promise<void> {
+    const templateRepo = this.dataSource.getRepository(
+      (await import('src/database/entities/surgery-request-template.entity'))
+        .SurgeryRequestTemplate,
+    );
+    const template = await templateRepo.findOne({
+      where: { id, doctor_id: userId },
+    });
+    if (!template) {
+      const { NotFoundException } = await import('@nestjs/common');
+      throw new NotFoundException('Template não encontrado ou sem permissão.');
+    }
+    await templateRepo.remove(template);
+  }
 }
 
 function calculateDaysDifference(date: Date): number {

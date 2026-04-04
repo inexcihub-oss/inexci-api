@@ -41,4 +41,8 @@ export class RegisterDto {
   @IsString()
   @IsOptional()
   specialty?: string;
+
+  @IsString()
+  @IsOptional()
+  subscription_plan_id?: string;
 }

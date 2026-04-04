@@ -83,10 +83,18 @@ export class AuthService {
       );
     }
 
-    // Buscar plano Básico como padrão
-    const basicPlan = await this.subscriptionPlanRepo.findOne({
-      where: { name: 'Básico', is_active: true },
-    });
+    // Buscar plano selecionado ou usar Básico como padrão
+    let selectedPlan = null;
+    if (data.subscription_plan_id) {
+      selectedPlan = await this.subscriptionPlanRepo.findOne({
+        where: { id: data.subscription_plan_id, is_active: true },
+      });
+    }
+    if (!selectedPlan) {
+      selectedPlan = await this.subscriptionPlanRepo.findOne({
+        where: { name: 'Básico', is_active: true },
+      });
+    }
 
     // Hash da senha
     const hashedPassword = await bcrypt.hash(data.password, 10);
@@ -106,7 +114,7 @@ export class AuthService {
       crm: isDoctor ? data.crm : null,
       crm_state: isDoctor ? data.crm_state : null,
       specialty: isDoctor ? data.specialty : null,
-      subscription_plan_id: basicPlan?.id || null,
+      subscription_plan_id: selectedPlan?.id || null,
     });
 
     // Retorna dados do usuário e token
@@ -227,6 +235,15 @@ export class AuthService {
     await this.userRepository.update(user.id, { password: password });
 
     return { message: 'Senha alterada com sucesso' };
+  }
+
+  async getAvailablePlans() {
+    const plans = await this.subscriptionPlanRepo.find({
+      where: { is_active: true },
+      order: { max_doctors: 'ASC' },
+      select: ['id', 'name', 'description', 'max_doctors'],
+    });
+    return plans;
   }
 
   async changePasswordAuthenticated(

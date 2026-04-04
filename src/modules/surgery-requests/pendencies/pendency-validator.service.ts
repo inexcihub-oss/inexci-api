@@ -81,6 +81,7 @@ export class PendencyValidatorService {
         'billing',
         'contestations',
         'doctor',
+        'report_sections',
       ],
     });
   }
@@ -144,22 +145,17 @@ export class PendencyValidatorService {
 
       case 'medical_report': {
         const pt = request.patient;
-        let parsed: any = {};
-        try {
-          parsed = JSON.parse(request.medical_report ?? '{}');
-        } catch {
-          parsed = {};
-        }
-        const hasText = (field: string) =>
-          typeof parsed[field] === 'string' && parsed[field].trim().length > 0;
+        const sections = request.report_sections ?? [];
         return [
           { label: 'Nome do paciente', done: !!pt?.name },
           { label: 'Data de nascimento', done: !!pt?.birth_date },
           { label: 'CPF', done: !!pt?.cpf },
           { label: 'Telefone', done: !!pt?.phone },
+          { label: 'Endereço', done: !!pt?.address },
+          { label: 'CEP', done: !!pt?.zip_code },
           {
-            label: 'Histórico e diagnóstico preenchido',
-            done: hasText('historyAndDiagnosis'),
+            label: 'Ao menos 1 seção de laudo preenchida',
+            done: sections.length > 0,
           },
           {
             label: 'Laudo assinado anexado',
@@ -237,26 +233,20 @@ export class PendencyValidatorService {
         return false;
 
       case 'medical_report': {
-        // Campos obrigatórios: dados do paciente + histórico + laudo assinado
+        // Campos obrigatórios: dados do paciente + ao menos 1 seção de laudo + laudo assinado
         const pt = request.patient;
         const patientComplete = !!(
           pt?.name &&
           pt?.birth_date &&
           pt?.cpf &&
-          pt?.phone
+          pt?.phone &&
+          pt?.address &&
+          pt?.zip_code
         );
-        if (!request.medical_report) return false;
-        let parsed: any = {};
-        try {
-          parsed = JSON.parse(request.medical_report);
-        } catch {
-          return false;
-        }
-        const hasText = (field: string) =>
-          typeof parsed[field] === 'string' && parsed[field].trim().length > 0;
+        const sections = request.report_sections ?? [];
         return (
           patientComplete &&
-          hasText('historyAndDiagnosis') &&
+          sections.length > 0 &&
           (hasDoc('signed_report') || !!request.doctor?.signature_url)
         );
       }

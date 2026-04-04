@@ -54,6 +54,28 @@ export class AccessLevel implements NestMiddleware {
             if (accessLevel) break;
           }
         }
+
+        // Fallback robusto: normaliza qualquer nome de parâmetro dinâmico
+        // (ex.: :id, :sectionId, :surgeryRequestId) para ':id' e compara padrões.
+        if (!accessLevel) {
+          const normalizePattern = (path: string) =>
+            path
+              .replace(
+                /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+                '/:id',
+              )
+              .replace(/\/\d+/g, '/:id')
+              .replace(/\/:([a-zA-Z_][a-zA-Z0-9_]*)/g, '/:id');
+
+          const normalizedRequestPath = normalizePattern(req.baseUrl);
+
+          for (const [allowedPath, methods] of Object.entries(AccessLevels)) {
+            if (normalizePattern(allowedPath) === normalizedRequestPath) {
+              accessLevel = (methods as any)?.[req.method];
+              if (accessLevel) break;
+            }
+          }
+        }
       }
 
       if (!accessLevel) {

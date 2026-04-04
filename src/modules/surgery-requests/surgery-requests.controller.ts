@@ -466,4 +466,13 @@ export class SurgeryRequestsController {
   ) {
     return this.surgeryRequestsService.createTemplate(dto, req.user.userId);
   }
+
+  /**
+   * DELETE /surgery-requests/templates/:id
+   * Exclui um template do médico logado.
+   */
+  @Delete('templates/:id')
+  deleteTemplate(@Param('id') id: string, @Request() req) {
+    return this.surgeryRequestsService.deleteTemplate(id, req.user.userId);
+  }
 }
