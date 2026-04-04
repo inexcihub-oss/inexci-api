@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsIn,
   IsOptional,
@@ -11,6 +12,9 @@ import {
  * Transição: PENDING → SENT
  */
 export class SendRequestDto {
+  @IsOptional()
+  @IsBoolean()
+  notify_patient?: boolean;
   @IsIn(['email', 'download'])
   method: 'email' | 'download';
 

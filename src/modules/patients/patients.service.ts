@@ -12,6 +12,7 @@ import { FindOptionsWhere } from 'typeorm';
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserRole } from 'src/database/entities/user.entity';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 
 @Injectable()
 export class PatientsService {
@@ -19,6 +20,7 @@ export class PatientsService {
     private readonly patientRepository: PatientRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly userRepository: UserRepository,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   async findAll(query: FindManyPatientDto, userId: string) {
@@ -74,7 +76,7 @@ export class PatientsService {
       throw new BadRequestException('Apenas médicos podem criar pacientes.');
     }
 
-    return this.patientRepository.create({
+    const patient = await this.patientRepository.create({
       doctor_id: doctorProfileId,
       name: data.name,
       phone: data.phone,
@@ -95,6 +97,13 @@ export class PatientsService {
       medical_notes: data.medical_notes,
       active: true,
     });
+
+    // Notifica o paciente via WhatsApp (assíncrono — não bloqueia o cadastro)
+    if (patient.phone) {
+      this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+    }
+
+    return patient;
   }
 
   async update(id: string, data: UpdatePatientDto): Promise<Patient> {

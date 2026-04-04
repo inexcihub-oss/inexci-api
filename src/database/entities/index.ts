@@ -39,6 +39,12 @@ import { ChatMessage } from './chat-message.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
+import { SubscriptionPlan } from './subscription-plan.entity';
+import {
+  WhatsappMessageLog,
+  WhatsappMessageStatus,
+} from './whatsapp-message-log.entity';
+import { ReportSection } from './report-section.entity';
 
 // Re-exportar tudo
 // USUÁRIOS (fazem login)
@@ -76,6 +82,11 @@ export { Chat };
 export { ChatMessage };
 export { Notification, NotificationType };
 export { UserNotificationSettings };
+export { WhatsappMessageLog, WhatsappMessageStatus };
+export { ReportSection };
+
+// PLANOS DE ASSINATURA
+export { SubscriptionPlan };
 
 // AUTENTICAÇÃO
 export { RecoveryCode };
@@ -107,4 +118,7 @@ export const ENTITIES = [
   Notification,
   UserNotificationSettings,
   RecoveryCode,
+  SubscriptionPlan,
+  WhatsappMessageLog,
+  ReportSection,
 ];

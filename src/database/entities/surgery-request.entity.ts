@@ -25,6 +25,7 @@ import { SurgeryRequestBilling } from './surgery-request-billing.entity';
 import { Contestation } from './contestation.entity';
 import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 import { SurgeryRequestActivity } from './surgery-request-activity.entity';
+import { ReportSection } from './report-section.entity';
 
 /**
  * Status da solicitação cirúrgica (9 valores — fluxo oficial)
@@ -274,4 +275,9 @@ export class SurgeryRequest {
     (activity) => activity.surgery_request,
   )
   activities: SurgeryRequestActivity[];
+
+  @OneToMany(() => ReportSection, (section) => section.surgery_request, {
+    cascade: true,
+  })
+  report_sections: ReportSection[];
 }

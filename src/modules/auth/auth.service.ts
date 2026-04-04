@@ -9,10 +9,13 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { HttpMessages } from 'src/common';
 import { EmailService } from 'src/shared/email/email.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery_code.repository';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { validationCodeDto } from './dto/validation-code.dto';
@@ -37,6 +40,8 @@ export class AuthService {
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
     private readonly emailService: EmailService,
     private jwtService: JwtService,
+    @InjectRepository(SubscriptionPlan)
+    private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
   ) {}
 
   async validateUser(email: string, password: string): Promise<User | null> {
@@ -66,23 +71,42 @@ export class AuthService {
     });
 
     if (existingUser) {
+      if (existingUser.status === UserStatus.PENDING) {
+        throw new HttpException(
+          'Este e-mail está associado a um convite pendente. Verifique sua caixa de entrada para ativar sua conta.',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
       throw new HttpException(
-        'Este e-mail já está cadastrado',
+        'Este e-mail já está cadastrado. Faça login ou recupere sua senha.',
         HttpStatus.BAD_REQUEST,
       );
     }
 
+    // Buscar plano Básico como padrão
+    const basicPlan = await this.subscriptionPlanRepo.findOne({
+      where: { name: 'Básico', is_active: true },
+    });
+
     // Hash da senha
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    // Cria o usuário
+    const isDoctor = data.is_doctor || false;
+
+    // Cria o usuário como Admin
     const user = await this.userRepository.create({
       name: data.name,
       email: data.email,
       password: hashedPassword,
-      role: UserRole.DOCTOR, // Padrão para usuário que se registra
+      role: UserRole.DOCTOR, // Mantém compatibilidade
       status: UserStatus.ACTIVE,
       phone: null,
+      is_admin: true,
+      is_doctor: isDoctor,
+      crm: isDoctor ? data.crm : null,
+      crm_state: isDoctor ? data.crm_state : null,
+      specialty: isDoctor ? data.specialty : null,
+      subscription_plan_id: basicPlan?.id || null,
     });
 
     // Retorna dados do usuário e token
@@ -95,6 +119,10 @@ export class AuthService {
         email: user.email,
         cpf: user.cpf,
         status: user.status,
+        is_admin: user.is_admin,
+        is_doctor: user.is_doctor,
+        crm: user.crm,
+        specialty: user.specialty,
         createdAt: user.created_at?.toISOString() || new Date().toISOString(),
         updatedAt: user.updated_at?.toISOString() || new Date().toISOString(),
       },

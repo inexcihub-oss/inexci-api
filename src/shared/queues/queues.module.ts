@@ -12,6 +12,12 @@ import { BullModule } from '@nestjs/bull';
     BullModule.registerQueue({
       name: 'mail',
     }),
+    BullModule.registerQueue({
+      name: 'whatsapp-messages',
+    }),
+    BullModule.registerQueue({
+      name: 'pdf-generation',
+    }),
   ],
   exports: [BullModule],
 })

@@ -5,6 +5,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { ActivityType } from 'src/database/entities/surgery-request-activity.entity';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UserRole } from 'src/database/entities/user.entity';
+import { StorageService } from 'src/shared/storage/storage.service';
 
 @Injectable()
 export class ActivitiesService {
@@ -12,6 +13,7 @@ export class ActivitiesService {
     private readonly activityRepository: SurgeryRequestActivityRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly userRepository: UserRepository,
+    private readonly storageService: StorageService,
   ) {}
 
   async findAll(surgeryRequestId: string, userId: string) {
@@ -21,15 +23,39 @@ export class ActivitiesService {
     const activities =
       await this.activityRepository.findBySurgeryRequest(surgeryRequestId);
 
-    return activities.map((a) => ({
-      id: a.id,
-      type: a.type,
-      content: a.content,
-      created_at: a.created_at,
-      user: a.user
-        ? { id: a.user.id, name: a.user.name, avatar_url: a.user.avatar_url }
-        : null,
-    }));
+    return Promise.all(
+      activities.map(async (a) => {
+        let content = a.content;
+        let pdf_url: string | undefined;
+
+        if (a.type === ActivityType.PDF_GENERATED) {
+          try {
+            const parsed = JSON.parse(a.content);
+            content = parsed.description ?? a.content;
+            if (parsed.pdf_path) {
+              pdf_url = await this.storageService.getSignedUrl(parsed.pdf_path);
+            }
+          } catch {
+            // conteúdo não é JSON — usa o texto bruto
+          }
+        }
+
+        return {
+          id: a.id,
+          type: a.type,
+          content,
+          pdf_url,
+          created_at: a.created_at,
+          user: a.user
+            ? {
+                id: a.user.id,
+                name: a.user.name,
+                avatar_url: a.user.avatar_url,
+              }
+            : null,
+        };
+      }),
+    );
   }
 
   async create(

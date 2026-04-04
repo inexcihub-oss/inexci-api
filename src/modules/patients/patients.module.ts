@@ -8,9 +8,13 @@ import { PatientsController } from './patients.controller';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
+import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Patient, User, DoctorProfile])],
+  imports: [
+    TypeOrmModule.forFeature([Patient, User, DoctorProfile]),
+    WhatsappModule,
+  ],
   controllers: [PatientsController],
   providers: [
     PatientsService,

@@ -12,14 +12,21 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
+import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
+import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
+import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { EmailService } from 'src/shared/email/email.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 function generateRandomPassword(length = 6) {
   const characters =
@@ -40,6 +47,9 @@ export class UsersService {
     private readonly teamMemberRepository: TeamMemberRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly storageService: StorageService,
+    @InjectRepository(SubscriptionPlan)
+    private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   /**
@@ -351,6 +361,15 @@ export class UsersService {
       `,
     );
 
+    // Envia WhatsApp de boas-vindas ao médico (assíncrono — não bloqueia o fluxo)
+    if (newUser.role === UserRole.DOCTOR && newUser.phone) {
+      this.whatsappService.sendDoctorWelcome(
+        newUser.phone,
+        newUser.name,
+        newUser.email,
+      );
+    }
+
     return newUser;
   }
 
@@ -436,5 +455,255 @@ export class UsersService {
       clinic_cnpj: dto.clinic_cnpj,
       clinic_address: dto.clinic_address,
     });
+  }
+
+  // ============ PERFIL MÉDICO ============
+
+  async updateDoctorProfileById(
+    targetId: string,
+    data: UpdateDoctorProfileDto,
+    requestingUserId: string,
+  ) {
+    const requesting = await this.userRepository.findOne({
+      id: requestingUserId,
+    });
+    if (!requesting) throw new NotFoundException('Usuário não encontrado');
+
+    const target = await this.userRepository.findOne({ id: targetId });
+    if (!target) throw new NotFoundException('Usuário alvo não encontrado');
+
+    // Permitir acesso ao próprio usuário (se for médico) e ao Admin da conta
+    const isSelf = requestingUserId === targetId;
+    const isAdmin =
+      requesting.is_admin && (target.admin_id === requestingUserId || isSelf);
+
+    if (!isSelf && !isAdmin && requesting.role !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'Sem permissão para atualizar este perfil médico',
+      );
+    }
+
+    if (!target.is_doctor) {
+      throw new BadRequestException('Este usuário não é médico');
+    }
+
+    const updates: Partial<User> = {};
+    if (data.crm !== undefined) updates.crm = data.crm;
+    if (data.crm_state !== undefined) updates.crm_state = data.crm_state;
+    if (data.specialty !== undefined) updates.specialty = data.specialty;
+    if (data.signature_image_url !== undefined)
+      updates.signature_image_url = data.signature_image_url;
+
+    const updated = await this.userRepository.update(targetId, updates);
+    delete updated.password;
+    return updated;
+  }
+
+  // ============ GESTÃO DE COLABORADORES ============
+
+  /**
+   * Verifica se o admin pode adicionar mais médicos ao plano
+   */
+  async canAddDoctor(adminId: string): Promise<boolean> {
+    const admin = await this.userRepository.findOneWithProfile({
+      id: adminId,
+    });
+    if (!admin || !admin.is_admin) return false;
+
+    const plan = admin.subscription_plan;
+    if (!plan) return false;
+
+    // Contar médicos existentes vinculados a este admin
+    let doctorCount = await this.userRepository.countDoctorsByAdminId(adminId);
+
+    // Se o admin também é médico, ele conta como 1
+    if (admin.is_doctor) {
+      doctorCount += 1;
+    }
+
+    return doctorCount < plan.max_doctors;
+  }
+
+  async findCollaborators(userId: string, skip = 0, take = 50) {
+    const admin = await this.userRepository.findOne({ id: userId });
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    if (!admin.is_admin)
+      throw new ForbiddenException('Apenas admins podem listar colaboradores');
+
+    const collaborators = await this.userRepository.findManyByAdminId(
+      userId,
+      skip,
+      take,
+    );
+
+    return { records: collaborators };
+  }
+
+  async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    if (!admin.is_admin)
+      throw new ForbiddenException('Apenas admins podem criar colaboradores');
+
+    // Verifica email duplicado
+    const emailFound = await this.userRepository.findOne({ email: data.email });
+    if (emailFound) throw new BadRequestException('Email já está em uso');
+
+    // Verifica telefone duplicado
+    if (data.phone) {
+      const phoneFound = await this.userRepository.findOne({
+        phone: data.phone,
+      });
+      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    }
+
+    // Se é médico, verificar limite do plano
+    const isDoctor = data.is_doctor || false;
+    if (isDoctor) {
+      const canAdd = await this.canAddDoctor(adminId);
+      if (!canAdd) {
+        throw new BadRequestException(
+          'Limite de médicos do plano atingido. Faça upgrade para adicionar mais médicos.',
+        );
+      }
+    }
+
+    const password = generateRandomPassword();
+
+    const newUser = await this.userRepository.create({
+      email: data.email,
+      name: data.name,
+      phone: data.phone,
+      role: UserRole.COLLABORATOR,
+      status: UserStatus.PENDING,
+      password: await bcrypt.hash(password, 10),
+      is_admin: false,
+      is_doctor: isDoctor,
+      crm: isDoctor ? data.crm : null,
+      crm_state: isDoctor ? data.crm_state : null,
+      specialty: isDoctor ? data.specialty : null,
+      admin_id: adminId,
+    });
+
+    delete newUser.password;
+
+    // Vincular como team member do admin (se admin é médico)
+    if (admin.is_doctor || admin.role === UserRole.DOCTOR) {
+      await this.teamMemberRepository.save({
+        doctor_id: adminId,
+        collaborator_id: newUser.id,
+      });
+    }
+
+    // Envia email de boas-vindas
+    this.emailService.send(
+      newUser.email,
+      'Bem-vindo a Inexci!',
+      `
+        <p>Olá, <strong>${newUser.name}</strong></p>
+        <p>Você foi convidado por ${admin.name} a fazer parte da Inexci. <a href='${process.env.DASHBOARD_URL}'>Clique aqui</a> para acessar a plataforma utilizando os dados abaixo:</p>
+        <p><strong>E-mail: </strong>${newUser.email}</p>
+        <p><strong>Senha: </strong>${password}</p>
+        <br />
+        <p>Não consegue clicar no link? Utilize o link abaixo:<br /> ${process.env.DASHBOARD_URL}</p>
+      `,
+    );
+
+    // Envia WhatsApp de boas-vindas ao médico recém-criado (assíncrono)
+    if (isDoctor && newUser.phone) {
+      this.whatsappService.sendDoctorWelcome(
+        newUser.phone,
+        newUser.name,
+        newUser.email,
+      );
+    }
+
+    return newUser;
+  }
+
+  async updateCollaborator(
+    collaboratorId: string,
+    data: UpdateCollaboratorDto,
+    adminId: string,
+  ) {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin || !admin.is_admin)
+      throw new ForbiddenException('Apenas admins podem editar colaboradores');
+
+    const collaborator = await this.userRepository.findOne({
+      id: collaboratorId,
+    });
+    if (!collaborator)
+      throw new NotFoundException('Colaborador não encontrado');
+    if (collaborator.admin_id !== adminId)
+      throw new ForbiddenException('Este colaborador não pertence à sua conta');
+
+    // Verifica email duplicado
+    if (data.email) {
+      const emailFound = await this.userRepository.findOne({
+        email: data.email,
+        id: Not(collaboratorId),
+      });
+      if (emailFound) throw new BadRequestException('Email já está em uso');
+    }
+
+    // Verifica telefone duplicado
+    if (data.phone) {
+      const phoneFound = await this.userRepository.findOne({
+        phone: data.phone,
+        id: Not(collaboratorId),
+      });
+      if (phoneFound) throw new BadRequestException('Telefone já está em uso');
+    }
+
+    // Se está marcando como médico e não era antes, verificar limite
+    if (data.is_doctor === true && !collaborator.is_doctor) {
+      const canAdd = await this.canAddDoctor(adminId);
+      if (!canAdd) {
+        throw new BadRequestException('Limite de médicos do plano atingido.');
+      }
+    }
+
+    const updates: Partial<User> = {};
+    if (data.name !== undefined) updates.name = data.name;
+    if (data.email !== undefined) updates.email = data.email;
+    if (data.phone !== undefined) updates.phone = data.phone;
+    if (data.is_doctor !== undefined) {
+      updates.is_doctor = data.is_doctor;
+      if (data.is_doctor) {
+        updates.crm = data.crm || collaborator.crm;
+        updates.crm_state = data.crm_state || collaborator.crm_state;
+        updates.specialty = data.specialty || collaborator.specialty;
+      } else {
+        updates.crm = null;
+        updates.crm_state = null;
+        updates.specialty = null;
+      }
+    } else {
+      if (data.crm !== undefined) updates.crm = data.crm;
+      if (data.crm_state !== undefined) updates.crm_state = data.crm_state;
+      if (data.specialty !== undefined) updates.specialty = data.specialty;
+    }
+
+    const updated = await this.userRepository.update(collaboratorId, updates);
+    delete updated.password;
+    return updated;
+  }
+
+  async deleteCollaborator(collaboratorId: string, adminId: string) {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin || !admin.is_admin)
+      throw new ForbiddenException('Apenas admins podem remover colaboradores');
+
+    const collaborator = await this.userRepository.findOne({
+      id: collaboratorId,
+    });
+    if (!collaborator)
+      throw new NotFoundException('Colaborador não encontrado');
+    if (collaborator.admin_id !== adminId)
+      throw new ForbiddenException('Este colaborador não pertence à sua conta');
+
+    await this.userRepository.delete(collaboratorId);
+    return { message: 'Colaborador removido com sucesso' };
   }
 }

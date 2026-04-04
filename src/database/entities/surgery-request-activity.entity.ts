@@ -14,11 +14,13 @@ import { User } from './user.entity';
  * - COMMENT: Comentário/anotação manual do usuário
  * - STATUS_CHANGE: Mudança de status automática
  * - SYSTEM: Evento de sistema (envio de email, upload de doc, etc.)
+ * - PDF_GENERATED: PDF da solicitação gerado e armazenado automaticamente
  */
 export enum ActivityType {
   COMMENT = 'comment',
   STATUS_CHANGE = 'status_change',
   SYSTEM = 'system',
+  PDF_GENERATED = 'pdf_generated',
 }
 
 @Entity('surgery_request_activity')

@@ -7,6 +7,7 @@ import {
   Query,
   Put,
   Patch,
+  Delete,
   Param,
   Res,
   HttpStatus,
@@ -36,6 +37,9 @@ import { ContestPaymentDto } from './dto/contest-payment.dto';
 import { UpdateReceiptDto } from './dto/update-receipt.dto';
 import { CloseSurgeryRequestDto } from './dto/close-surgery-request.dto';
 import { NotifySurgeryRequestDto } from './dto/notify-surgery-request.dto';
+import { CreateReportSectionDto } from './dto/create-report-section.dto';
+import { UpdateReportSectionDto } from './dto/update-report-section.dto';
+import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
 
 @Controller('surgery-requests')
 export class SurgeryRequestsController {
@@ -121,6 +125,7 @@ export class SurgeryRequestsController {
       id,
       data.status,
       req.user.userId,
+      data.notify_patient,
     );
   }
 
@@ -343,6 +348,74 @@ export class SurgeryRequestsController {
     @Request() req,
   ) {
     return this.surgeryRequestsService.notify(id, dto, req.user.userId);
+  }
+
+  // ============================================================
+  // SEÇÕES DO LAUDO MÉDICO (CRUD)
+  // ============================================================
+
+  /** GET /surgery-requests/:id/sections — listar sections ordenadas */
+  @Get(':id/sections')
+  getSections(@Param('id') id: string, @Request() req) {
+    return this.surgeryRequestsService.getReportSections(id, req.user.userId);
+  }
+
+  /** POST /surgery-requests/:id/sections — criar section */
+  @Post(':id/sections')
+  createSection(
+    @Param('id') id: string,
+    @Body() dto: CreateReportSectionDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.createReportSection(
+      id,
+      dto,
+      req.user.userId,
+    );
+  }
+
+  /** PATCH /surgery-requests/:id/sections/reorder — reordenar sections */
+  @Patch(':id/sections/reorder')
+  reorderSections(
+    @Param('id') id: string,
+    @Body() dto: ReorderReportSectionsDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.reorderReportSections(
+      id,
+      dto,
+      req.user.userId,
+    );
+  }
+
+  /** PATCH /surgery-requests/:id/sections/:sectionId — editar section */
+  @Patch(':id/sections/:sectionId')
+  updateSection(
+    @Param('id') id: string,
+    @Param('sectionId') sectionId: string,
+    @Body() dto: UpdateReportSectionDto,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.updateReportSection(
+      id,
+      sectionId,
+      dto,
+      req.user.userId,
+    );
+  }
+
+  /** DELETE /surgery-requests/:id/sections/:sectionId — remover section */
+  @Delete(':id/sections/:sectionId')
+  deleteSection(
+    @Param('id') id: string,
+    @Param('sectionId') sectionId: string,
+    @Request() req,
+  ) {
+    return this.surgeryRequestsService.deleteReportSection(
+      id,
+      sectionId,
+      req.user.userId,
+    );
   }
 
   // ============================================================

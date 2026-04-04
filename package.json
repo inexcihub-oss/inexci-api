@@ -58,10 +58,10 @@
     "passport-local": "^1.0.0",
     "pdf-lib": "^1.17.1",
     "pg": "^8.13.1",
-    "pdf-lib": "^1.17.1",
     "puppeteer": "^24.37.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "twilio": "^5.13.1",
     "typeorm": "^0.3.20",
     "uuid": "^11.0.3"
   },
@@ -105,6 +105,9 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

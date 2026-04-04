@@ -163,4 +163,25 @@ export class MailService {
   ) {
     return this.send('payment-contested', to, subject, context);
   }
+
+  /**
+   * Notificação de atualização de status ao paciente.
+   */
+  async sendStatusUpdate(
+    to: string,
+    context: {
+      patientName: string;
+      requestId: string;
+      oldStatus: string;
+      newStatus: string;
+      changedAt: string;
+    },
+  ) {
+    return this.send(
+      'status-update',
+      to,
+      'Atualização de Status da Solicitação',
+      context,
+    );
+  }
 }

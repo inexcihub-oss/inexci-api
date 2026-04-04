@@ -106,7 +106,9 @@ export interface MedicalReportPdfData {
   patientAddress?: string;
   patientZipCode?: string;
   patientHealthPlan?: string;
-  // Conteúdo do laudo
+  // Seções dinâmicas do laudo (substitui historyAndDiagnosis / conduct)
+  sections?: Array<{ title: string; description?: string | null }>;
+  // Campos legados (mantidos para compatibilidade com laudos antigos)
   historyAndDiagnosis?: string;
   conduct?: string;
   // Imagens (data URIs ou signed URLs)

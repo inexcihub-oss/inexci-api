@@ -33,6 +33,14 @@ export class UserRepository {
         birth_date: true,
         avatar_url: true,
         password: selectPassword,
+        is_admin: true,
+        is_doctor: true,
+        crm: true,
+        crm_state: true,
+        specialty: true,
+        signature_image_url: true,
+        subscription_plan_id: true,
+        admin_id: true,
         created_at: true,
         updated_at: true,
       },
@@ -44,7 +52,7 @@ export class UserRepository {
   ) {
     return await this.repository.findOne({
       where,
-      relations: ['doctor_profile'],
+      relations: ['doctor_profile', 'subscription_plan'],
       select: {
         id: true,
         role: true,
@@ -56,6 +64,14 @@ export class UserRepository {
         gender: true,
         birth_date: true,
         avatar_url: true,
+        is_admin: true,
+        is_doctor: true,
+        crm: true,
+        crm_state: true,
+        specialty: true,
+        signature_image_url: true,
+        subscription_plan_id: true,
+        admin_id: true,
         created_at: true,
         updated_at: true,
       },
@@ -82,9 +98,50 @@ export class UserRepository {
         gender: true,
         birth_date: true,
         avatar_url: true,
+        is_admin: true,
+        is_doctor: true,
+        crm: true,
+        crm_state: true,
+        specialty: true,
+        subscription_plan_id: true,
+        admin_id: true,
         created_at: true,
         updated_at: true,
       },
+    });
+  }
+
+  async findManyByAdminId(adminId: string, skip: number, take: number) {
+    return await this.repository.find({
+      where: { admin_id: adminId },
+      skip,
+      take,
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        email: true,
+        name: true,
+        phone: true,
+        cpf: true,
+        gender: true,
+        birth_date: true,
+        avatar_url: true,
+        is_admin: true,
+        is_doctor: true,
+        crm: true,
+        crm_state: true,
+        specialty: true,
+        admin_id: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+  }
+
+  async countDoctorsByAdminId(adminId: string): Promise<number> {
+    return await this.repository.count({
+      where: { admin_id: adminId, is_doctor: true },
     });
   }
 

@@ -4,6 +4,7 @@ import { SeedDataSource } from '../typeorm/seed-data-source';
 
 // Importar entidades
 import { User, UserRole, UserStatus } from '../entities/user.entity';
+import { SubscriptionPlan } from '../entities/subscription-plan.entity';
 import {
   DoctorProfile,
   SubscriptionStatus,
@@ -138,6 +139,7 @@ async function main() {
   const hashedPassword = await bcrypt.hash('123456', 10);
 
   // Repositories
+  const subscriptionPlanRepo = dataSource.getRepository(SubscriptionPlan);
   const userRepo = dataSource.getRepository(User);
   const doctorProfileRepo = dataSource.getRepository(DoctorProfile);
   const teamMemberRepo = dataSource.getRepository(TeamMember);
@@ -193,6 +195,56 @@ async function main() {
   console.log(`✅ ${procedures.length} procedimentos\n`);
 
   // ========================================
+  // 1.5. PLANOS DE ASSINATURA
+  // ========================================
+
+  console.log('📋 Criando planos de assinatura...');
+
+  let basicPlan = await subscriptionPlanRepo.findOne({
+    where: { name: 'Básico' },
+  });
+  if (!basicPlan) {
+    basicPlan = await subscriptionPlanRepo.save(
+      subscriptionPlanRepo.create({
+        name: 'Básico',
+        description: 'Plano básico com 1 CRM permitido',
+        max_doctors: 1,
+        is_active: true,
+      }),
+    );
+  }
+
+  let professionalPlan = await subscriptionPlanRepo.findOne({
+    where: { name: 'Profissional' },
+  });
+  if (!professionalPlan) {
+    professionalPlan = await subscriptionPlanRepo.save(
+      subscriptionPlanRepo.create({
+        name: 'Profissional',
+        description: 'Plano profissional com até 10 CRMs permitidos',
+        max_doctors: 10,
+        is_active: true,
+      }),
+    );
+  }
+
+  let enterprisePlan = await subscriptionPlanRepo.findOne({
+    where: { name: 'Enterprise' },
+  });
+  if (!enterprisePlan) {
+    enterprisePlan = await subscriptionPlanRepo.save(
+      subscriptionPlanRepo.create({
+        name: 'Enterprise',
+        description: 'Plano enterprise com CRMs ilimitados',
+        max_doctors: 999,
+        is_active: true,
+      }),
+    );
+  }
+
+  console.log('✅ 3 planos de assinatura criados\n');
+
+  // ========================================
   // 2. USUÁRIOS (fazem login) - CRIAR ANTES DAS ENTIDADES
   // ========================================
 
@@ -214,11 +266,24 @@ async function main() {
         cpf: generateCPF(),
         gender: 'M',
         birth_date: new Date('1975-05-15'),
+        is_admin: true,
+        is_doctor: true,
+        crm: '123456',
+        crm_state: 'SP',
+        specialty: 'Ortopedia',
+        subscription_plan_id: professionalPlan.id,
       }),
     );
     console.log('  ➕ Criado: medico@inexci.com');
   } else {
-    console.log('  ✓ Existe: medico@inexci.com');
+    // Garante que o usuário existente tenha is_admin e is_doctor corretos
+    await userRepo.update(doctorUser.id, { is_admin: true, is_doctor: true });
+    doctorUser = await userRepo.findOne({
+      where: { email: 'medico@inexci.com' },
+    });
+    console.log(
+      '  ✓ Existe: medico@inexci.com (atualizado is_admin/is_doctor)',
+    );
   }
 
   // Perfil do médico principal
@@ -260,6 +325,12 @@ async function main() {
         cpf: generateCPF(),
         gender: 'F',
         birth_date: new Date('1982-08-22'),
+        is_admin: true,
+        is_doctor: true,
+        crm: '654321',
+        crm_state: 'RJ',
+        specialty: 'Cardiologia',
+        subscription_plan_id: basicPlan.id,
       }),
     );
     console.log('  ➕ Criado: medico2@inexci.com');
@@ -308,6 +379,9 @@ async function main() {
         cpf: generateCPF(),
         gender: 'F',
         birth_date: new Date('1990-03-10'),
+        is_admin: false,
+        is_doctor: false,
+        admin_id: doctorUser.id,
       }),
     );
     console.log('  ➕ Criado: colaborador@inexci.com');
@@ -331,6 +405,9 @@ async function main() {
         cpf: generateCPF(),
         gender: 'M',
         birth_date: new Date('1995-07-25'),
+        is_admin: false,
+        is_doctor: false,
+        admin_id: doctorUser.id,
       }),
     );
     console.log('  ➕ Criado: assistente@inexci.com');
@@ -501,6 +578,9 @@ async function main() {
         password: hashedPassword,
         name: 'Administrador Sistema',
         phone: generatePhone(),
+        is_admin: true,
+        is_doctor: false,
+        subscription_plan_id: enterprisePlan.id,
       }),
     );
     console.log('👑 Admin criado: admin@inexci.com\n');
@@ -814,6 +894,7 @@ async function main() {
 
   console.log('🎉 Seed concluído com sucesso!\n');
   console.log('📊 Resumo:');
+  console.log('  - Planos de Assinatura: 3 (Básico, Profissional, Enterprise)');
   console.log('  - Usuários: 5 (1 admin, 2 médicos, 2 colaboradores)');
   console.log('  - Hospitais: 5');
   console.log('  - Planos de Saúde: 6');

@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   OneToOne,
   OneToMany,
+  ManyToOne,
   JoinColumn,
 } from 'typeorm';
 import { DoctorProfile } from './doctor-profile.entity';
@@ -16,6 +17,7 @@ import { ChatMessage } from './chat-message.entity';
 import { Document } from './document.entity';
 import { Notification } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
+import { SubscriptionPlan } from './subscription-plan.entity';
 
 /**
  * Roles de usuário no sistema
@@ -80,6 +82,32 @@ export class User {
   @Column({ type: 'varchar', length: 255, nullable: true })
   avatar_url: string;
 
+  // ============ NOVOS CAMPOS: ADMIN E MÉDICO ============
+
+  @Column({ type: 'boolean', default: false })
+  is_admin: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  is_doctor: boolean;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  crm: string;
+
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  crm_state: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  specialty: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  signature_image_url: string;
+
+  @Column({ name: 'subscription_plan_id', nullable: true })
+  subscription_plan_id: string;
+
+  @Column({ name: 'admin_id', nullable: true })
+  admin_id: string;
+
   @CreateDateColumn()
   created_at: Date;
 
@@ -87,6 +115,20 @@ export class User {
   updated_at: Date;
 
   // ============ RELAÇÕES ============
+
+  // Plano de assinatura (apenas para Admins)
+  @ManyToOne(() => SubscriptionPlan, (plan) => plan.users, { nullable: true })
+  @JoinColumn({ name: 'subscription_plan_id' })
+  subscription_plan: SubscriptionPlan;
+
+  // Admin que criou este usuário (self-referencing, para colaboradores)
+  @ManyToOne(() => User, (user) => user.managed_users, { nullable: true })
+  @JoinColumn({ name: 'admin_id' })
+  admin: User;
+
+  // Usuários gerenciados por este Admin
+  @OneToMany(() => User, (user) => user.admin)
+  managed_users: User[];
 
   // Perfil de médico (1:1) - só existe se role = DOCTOR
   @OneToOne(() => DoctorProfile, (profile) => profile.user, { cascade: true })

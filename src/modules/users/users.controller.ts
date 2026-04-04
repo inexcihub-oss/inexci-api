@@ -4,10 +4,14 @@ import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
+import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
+import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
+import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import { UsersService } from './users.service';
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -78,5 +82,53 @@ export class UsersController {
     @Request() req,
   ) {
     return await this.usersService.updateProfileById(id, data, req.user.userId);
+  }
+
+  // ============ PERFIL MÉDICO ============
+
+  @Patch('doctor-profile/:id')
+  async updateDoctorProfile(
+    @Param('id') id: string,
+    @Body() data: UpdateDoctorProfileDto,
+    @Request() req,
+  ) {
+    return await this.usersService.updateDoctorProfileById(
+      id,
+      data,
+      req.user.userId,
+    );
+  }
+
+  // ============ COLABORADORES ============
+
+  @Get('collaborators')
+  async findCollaborators(@Request() req) {
+    return await this.usersService.findCollaborators(req.user.userId);
+  }
+
+  @Post('collaborators')
+  async createCollaborator(
+    @Body() data: CreateCollaboratorDto,
+    @Request() req,
+  ) {
+    return await this.usersService.createCollaborator(data, req.user.userId);
+  }
+
+  @Patch('collaborators/:id')
+  async updateCollaborator(
+    @Param('id') id: string,
+    @Body() data: UpdateCollaboratorDto,
+    @Request() req,
+  ) {
+    return await this.usersService.updateCollaborator(
+      id,
+      data,
+      req.user.userId,
+    );
+  }
+
+  @Delete('collaborators/:id')
+  async deleteCollaborator(@Param('id') id: string, @Request() req) {
+    return await this.usersService.deleteCollaborator(id, req.user.userId);
   }
 }

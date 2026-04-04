@@ -48,6 +48,8 @@ import { StatusUpdateRepository } from 'src/database/repositories/status-update.
 import { DocumentsService } from './documents/documents.service';
 import { DocumentsKeyService } from './documents-key/documents-key.service';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
+import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 
 // ── DTOs de transição ────────────────────────────────────────────────────────
 import { SendRequestDto } from './dto/send-request.dto';
@@ -64,6 +66,10 @@ import { ContestPaymentDto } from './dto/contest-payment.dto';
 import { UpdateReceiptDto } from './dto/update-receipt.dto';
 import { CloseSurgeryRequestDto } from './dto/close-surgery-request.dto';
 import { FindManyDocumentKeyDto } from './documents-key/dto/find-many-dto';
+import { ReportSection } from 'src/database/entities/report-section.entity';
+import { CreateReportSectionDto } from './dto/create-report-section.dto';
+import { UpdateReportSectionDto } from './dto/update-report-section.dto';
+import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
 
 @Injectable()
 export class SurgeryRequestsService {
@@ -75,6 +81,7 @@ export class SurgeryRequestsService {
     private readonly emailService: EmailService,
     private readonly mailService: MailService,
     private readonly pdfService: PdfService,
+    private readonly pdfGenerationService: PdfGenerationService,
     private readonly pendencyValidatorService: PendencyValidatorService,
     private readonly userService: UsersService,
     private readonly storageService: StorageService,
@@ -94,6 +101,9 @@ export class SurgeryRequestsService {
     private readonly billingRepository: Repository<SurgeryRequestBilling>,
     @InjectRepository(Contestation)
     private readonly contestationRepository: Repository<Contestation>,
+    @InjectRepository(ReportSection)
+    private readonly reportSectionRepository: Repository<ReportSection>,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   // ============================================================
@@ -170,6 +180,51 @@ export class SurgeryRequestsService {
     });
   }
 
+  /**
+   * Envia e-mail de atualização de status ao paciente, se solicitado.
+   * Não bloqueia nem lança exceção em caso de falha.
+   */
+  private async notifyPatientIfRequested(
+    request: any,
+    prevStatus: SurgeryRequestStatus,
+    newStatus: SurgeryRequestStatus,
+    notifyPatient?: boolean,
+  ): Promise<void> {
+    if (!notifyPatient) return;
+
+    const patientEmail = request.patient?.email;
+    if (!patientEmail) {
+      this.logger.warn(
+        `notify_patient solicitado mas paciente sem e-mail (solicitação ${request.id})`,
+      );
+      return;
+    }
+
+    const patientName = request.patient?.name ?? 'Paciente';
+    const requestId = request.protocol ?? request.id;
+    const oldLabel = this.statusLabels[prevStatus] ?? String(prevStatus);
+    const newLabel = this.statusLabels[newStatus] ?? String(newStatus);
+    const changedAt = new Date().toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    try {
+      await this.mailService.sendStatusUpdate(patientEmail, {
+        patientName,
+        requestId,
+        oldStatus: oldLabel,
+        newStatus: newLabel,
+        changedAt,
+      });
+    } catch (err: any) {
+      this.logger.warn(`Falha ao notificar paciente: ${err?.message}`);
+    }
+  }
+
   // ============================================================
   // CRIAÇÃO
   // ============================================================
@@ -182,7 +237,7 @@ export class SurgeryRequestsService {
       throw new BadRequestException('Perfil de médico não encontrado');
     }
 
-    return await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const patientRepo = manager.getRepository(Patient);
       const healthPlanRepo = manager.getRepository(HealthPlan);
       const hospitalRepo = manager.getRepository(Hospital);
@@ -190,7 +245,6 @@ export class SurgeryRequestsService {
       const chatRepo = manager.getRepository(Chat);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
       const userRepo = manager.getRepository(User);
-
       let patient = await patientRepo.findOne({
         where: { email: data.patient.email, doctor_id: doctorId },
       });
@@ -280,8 +334,18 @@ export class SurgeryRequestsService {
         content: 'Solicitação cirúrgica criada',
       });
 
-      return newRequest;
+      return { request: newRequest, patient };
     });
+
+    // Envia boas-vindas WhatsApp ao paciente (assíncrono — não bloqueia o fluxo)
+    if (result.patient?.phone) {
+      this.whatsappService.sendPatientWelcome(
+        result.patient.phone,
+        result.patient.name,
+      );
+    }
+
+    return result.request;
   }
 
   async createSurgeryRequest(
@@ -293,12 +357,12 @@ export class SurgeryRequestsService {
       throw new BadRequestException('Perfil de médico não encontrado');
     }
 
-    return await this.dataSource.transaction(async (manager) => {
+    const newRequest = await this.dataSource.transaction(async (manager) => {
       const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
       const chatRepo = manager.getRepository(Chat);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
 
-      const newRequest = await surgeryRequestRepo.save({
+      const request = await surgeryRequestRepo.save({
         doctor_id: doctorId,
         created_by_id: userId,
         manager_id: data.manager_id,
@@ -312,24 +376,53 @@ export class SurgeryRequestsService {
       });
 
       await chatRepo.save({
-        surgery_request_id: newRequest.id,
+        surgery_request_id: request.id,
         user_id: userId,
       });
       await statusUpdateRepo.save({
-        surgery_request_id: newRequest.id,
+        surgery_request_id: request.id,
         prev_status: SurgeryRequestStatus.PENDING,
         new_status: SurgeryRequestStatus.PENDING,
       });
       const activityRepo = manager.getRepository(SurgeryRequestActivity);
       await activityRepo.save({
-        surgery_request_id: newRequest.id,
+        surgery_request_id: request.id,
         user_id: userId,
         type: ActivityType.SYSTEM,
         content: 'Solicitação cirúrgica criada',
       });
 
-      return newRequest;
+      return request;
     });
+
+    // Envia boas-vindas WhatsApp ao paciente (assíncrono — não bloqueia o fluxo)
+    this.logger.log(
+      `[WhatsApp] createSurgeryRequest chamado — patient_id: ${data.patient_id}`,
+    );
+    if (data.patient_id) {
+      const patient = await this.patientRepository.findOne({
+        id: data.patient_id,
+      });
+      this.logger.log(
+        `[WhatsApp] paciente encontrado: ${patient?.name} | phone: ${patient?.phone}`,
+      );
+      if (patient?.phone) {
+        this.logger.log(
+          `[WhatsApp] enviando boas-vindas para ${patient.phone}`,
+        );
+        this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+      } else {
+        this.logger.warn(
+          `[WhatsApp] paciente sem telefone cadastrado — mensagem não enviada`,
+        );
+      }
+    } else {
+      this.logger.warn(
+        `[WhatsApp] patient_id não informado — mensagem não enviada`,
+      );
+    }
+
+    return newRequest;
   }
 
   // ============================================================
@@ -587,6 +680,16 @@ export class SurgeryRequestsService {
     const request = await this.loadRequestWithRelations(id);
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.SENT);
 
+    // Validar que existe ao menos uma seção no laudo
+    const sectionCount = await this.reportSectionRepository.count({
+      where: { surgery_request_id: id },
+    });
+    if (sectionCount === 0) {
+      throw new BadRequestException(
+        'É necessário ao menos uma seção no laudo para enviar a solicitação',
+      );
+    }
+
     await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(SurgeryRequest);
       await repo.update(
@@ -605,6 +708,17 @@ export class SurgeryRequestsService {
         userId,
       );
     });
+
+    // Notificar paciente se solicitado
+    await this.notifyPatientIfRequested(
+      request,
+      SurgeryRequestStatus.PENDING,
+      SurgeryRequestStatus.SENT,
+      dto.notify_patient,
+    );
+
+    // Gerar PDF assincronamente (fire-and-forget via Bull queue)
+    this.pdfGenerationService.scheduleGeneration(id, userId);
 
     const doctorName = request.created_by?.name ?? 'Médico';
     const patientName = request.patient?.name ?? 'Paciente';
@@ -891,6 +1005,13 @@ export class SurgeryRequestsService {
         userId,
       );
     });
+
+    await this.notifyPatientIfRequested(
+      request,
+      SurgeryRequestStatus.SENT,
+      SurgeryRequestStatus.IN_ANALYSIS,
+      dto.notify_patient,
+    );
   }
 
   /**
@@ -937,6 +1058,13 @@ export class SurgeryRequestsService {
         userId,
       );
     });
+
+    await this.notifyPatientIfRequested(
+      request,
+      request.status,
+      SurgeryRequestStatus.IN_SCHEDULING,
+      dto.notify_patient,
+    );
   }
 
   /**
@@ -1122,6 +1250,13 @@ export class SurgeryRequestsService {
         userId,
       );
     });
+
+    await this.notifyPatientIfRequested(
+      request,
+      request.status,
+      SurgeryRequestStatus.SCHEDULED,
+      dto.notify_patient,
+    );
   }
 
   /**
@@ -1175,7 +1310,7 @@ export class SurgeryRequestsService {
       SurgeryRequestStatus.PERFORMED,
     );
 
-    return this.dataSource.transaction(async (manager) => {
+    await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(SurgeryRequest);
       await repo.update(
         { id },
@@ -1192,6 +1327,13 @@ export class SurgeryRequestsService {
         userId,
       );
     });
+
+    await this.notifyPatientIfRequested(
+      request,
+      request.status,
+      SurgeryRequestStatus.PERFORMED,
+      dto.notify_patient,
+    );
   }
 
   /**
@@ -1564,6 +1706,7 @@ export class SurgeryRequestsService {
     surgeryRequestId: string,
     newStatus: number,
     userId: string,
+    notifyPatient?: boolean,
   ) {
     const request = await this.surgeryRequestRepository.findOneSimple({
       id: surgeryRequestId,
@@ -1575,7 +1718,7 @@ export class SurgeryRequestsService {
       throw new BadRequestException(`Status inválido: ${newStatus}`);
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(SurgeryRequest);
       const statusUpdateRepo = manager.getRepository(StatusUpdate);
       await repo.update({ id: surgeryRequestId }, { status: newStatus });
@@ -1596,6 +1739,18 @@ export class SurgeryRequestsService {
       });
       return repo.findOne({ where: { id: surgeryRequestId } });
     });
+
+    if (notifyPatient) {
+      const fullRequest = await this.loadRequestWithRelations(surgeryRequestId);
+      await this.notifyPatientIfRequested(
+        fullRequest,
+        request.status,
+        newStatus,
+        true,
+      );
+    }
+
+    return result;
   }
 
   async dateExpired() {
@@ -1615,6 +1770,76 @@ export class SurgeryRequestsService {
         (sr) =>
           sr.daysDifference >= 21 && (!sr.date_call || !sr.hospital_protocol),
       );
+  }
+
+  // ============================================================
+  // SEÇÕES DO LAUDO MÉDICO
+  // ============================================================
+
+  async getReportSections(
+    id: string,
+    _userId: string,
+  ): Promise<ReportSection[]> {
+    return this.reportSectionRepository.find({
+      where: { surgery_request_id: id },
+      order: { order: 'ASC' },
+    });
+  }
+
+  async createReportSection(
+    id: string,
+    dto: CreateReportSectionDto,
+    _userId: string,
+  ): Promise<ReportSection> {
+    const count = await this.reportSectionRepository.count({
+      where: { surgery_request_id: id },
+    });
+    const section = this.reportSectionRepository.create({
+      surgery_request_id: id,
+      title: dto.title,
+      description: dto.description ?? null,
+      order: count,
+    });
+    return this.reportSectionRepository.save(section);
+  }
+
+  async updateReportSection(
+    _id: string,
+    sectionId: string,
+    dto: UpdateReportSectionDto,
+    _userId: string,
+  ): Promise<ReportSection> {
+    const section = await this.reportSectionRepository.findOne({
+      where: { id: sectionId },
+    });
+    if (!section) throw new NotFoundException('Seção não encontrada');
+    if (dto.title !== undefined) section.title = dto.title;
+    if (dto.description !== undefined) section.description = dto.description;
+    return this.reportSectionRepository.save(section);
+  }
+
+  async deleteReportSection(
+    _id: string,
+    sectionId: string,
+    _userId: string,
+  ): Promise<{ deleted: boolean }> {
+    const result = await this.reportSectionRepository.delete({ id: sectionId });
+    return { deleted: (result.affected ?? 0) > 0 };
+  }
+
+  async reorderReportSections(
+    id: string,
+    dto: ReorderReportSectionsDto,
+    _userId: string,
+  ): Promise<ReportSection[]> {
+    const updates = dto.ids.map((sectionId, index) =>
+      this.reportSectionRepository.update(
+        { id: sectionId, surgery_request_id: id },
+        { order: index },
+      ),
+    );
+    await Promise.all(updates);
+    return this.getReportSections(id, _userId);
   }
 
   // ============================================================
@@ -1704,6 +1929,12 @@ export class SurgeryRequestsService {
       }
     }
 
+    // ── Seções dinâmicas do laudo ──────────────────────────────────────────
+    const reportSections = await this.reportSectionRepository.find({
+      where: { surgery_request_id: id },
+      order: { order: 'ASC' },
+    });
+
     // ── Dados do paciente (prioridade: medical_report > entidade patient) ──
     const pd = reportData.patientData ?? {};
     const patient = (request as any).patient;
@@ -1724,8 +1955,19 @@ export class SurgeryRequestsService {
         pd.zipCode || patient?.zip_code || patient?.cep || undefined,
       patientHealthPlan:
         pd.healthPlan || (request as any).health_plan?.name || undefined,
-      historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
-      conduct: reportData.conduct || undefined,
+      // Seções dinâmicas têm prioridade; fallback para campos legados
+      sections: reportSections.length
+        ? reportSections.map((s) => ({
+            title: s.title,
+            description: s.description,
+          }))
+        : undefined,
+      historyAndDiagnosis: reportSections.length
+        ? undefined
+        : reportData.historyAndDiagnosis || undefined,
+      conduct: reportSections.length
+        ? undefined
+        : reportData.conduct || undefined,
       examImages: examImages.length ? examImages : undefined,
       doctorName: doctor?.name ?? 'Médico',
       doctorCrm: profile?.crm || undefined,

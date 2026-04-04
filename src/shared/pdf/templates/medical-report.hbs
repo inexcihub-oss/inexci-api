@@ -89,7 +89,35 @@
         color: #111111;
       }
 
-      /* ── Body text ────────────────────────────────────── */
+      /* ── Rich text content ───────────────────────────── */
+      .rich-text {
+        font-size: 12px;
+        line-height: 1.5;
+        color: #111111;
+      }
+
+      .rich-text p {
+        margin: 0 0 6px 0;
+      }
+
+      .rich-text ul,
+      .rich-text ol {
+        margin: 0 0 6px 16px;
+      }
+
+      .rich-text strong {
+        font-weight: 600;
+      }
+
+      .rich-text em {
+        font-style: italic;
+      }
+
+      .rich-text u {
+        text-decoration: underline;
+      }
+
+      /* ── Body text (legado) ───────────────────────────── */
       .body-text {
         font-size: 12px;
         line-height: 1.333;
@@ -234,14 +262,28 @@
       </div>
     </div>
 
-    <!-- ── Histórico e Diagnóstico ────────────────────────── -->
-    {{#if historyAndDiagnosis}}
-      <div class='section'>
-        <div class='section-heading'>
-          <span class='section-title'>Histórico e diagnóstico</span>
+    <!-- ── Seções dinâmicas do laudo ─────────────────────── -->
+    {{#if sections}}
+      {{#each sections}}
+        <div class='section'>
+          <div class='section-heading'>
+            <span class='section-title'>{{this.title}}</span>
+          </div>
+          {{#if this.description}}
+            <div class='rich-text'>{{{this.description}}}</div>
+          {{/if}}
         </div>
-        <p class='body-text'>{{historyAndDiagnosis}}</p>
-      </div>
+      {{/each}}
+    {{else}}
+      <!-- ── Campos legados (fallback) ───────────────────── -->
+      {{#if historyAndDiagnosis}}
+        <div class='section'>
+          <div class='section-heading'>
+            <span class='section-title'>Histórico e diagnóstico</span>
+          </div>
+          <p class='body-text'>{{historyAndDiagnosis}}</p>
+        </div>
+      {{/if}}
     {{/if}}
 
     <!-- ── Imagens do Exame ────────────────────────────────── -->
@@ -260,15 +302,17 @@
       </div>
     {{/if}}
 
-    <!-- ── Conduta ─────────────────────────────────────────── -->
-    {{#if conduct}}
-      <div class='section'>
-        <div class='section-heading'>
-          <span class='section-title'>Conduta</span>
+    <!-- ── Conduta (legado) ─────────────────────────────── -->
+    {{#unless sections}}
+      {{#if conduct}}
+        <div class='section'>
+          <div class='section-heading'>
+            <span class='section-title'>Conduta</span>
+          </div>
+          <p class='body-text'>{{conduct}}</p>
         </div>
-        <p class='body-text'>{{conduct}}</p>
-      </div>
-    {{/if}}
+      {{/if}}
+    {{/unless}}
 
     <!-- ── Assinatura do Médico ───────────────────────────── -->
     <div class='signature-block'>

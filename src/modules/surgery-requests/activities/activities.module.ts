@@ -8,6 +8,7 @@ import { ActivitiesService } from './activities.service';
 import { ActivitiesController } from './activities.controller';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { User } from 'src/database/entities/user.entity';
+import { StorageService } from 'src/shared/storage/storage.service';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { User } from 'src/database/entities/user.entity';
     SurgeryRequestActivityRepository,
     SurgeryRequestRepository,
     UserRepository,
+    StorageService,
   ],
   exports: [ActivitiesService],
 })

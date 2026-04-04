@@ -33,6 +33,7 @@ import { CronModule } from './shared/cron/cron.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { TussModule } from './modules/tuss/tuss.module';
+import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { TussModule } from './modules/tuss/tuss.module';
     NotificationsModule,
     UploadModule,
     TussModule,
+    WhatsappModule,
     ScheduleModule.forRoot(),
     CronModule,
   ],

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsNumber, Min, Max, IsInt } from 'class-validator';
+import { IsNumber, Min, Max, IsInt, IsOptional, IsBoolean } from 'class-validator';
 
 export class UpdateStatusDto {
   @Type(() => Number)
@@ -8,4 +8,8 @@ export class UpdateStatusDto {
   @Min(1, { message: 'Status must be at least 1' })
   @Max(9, { message: 'Status must be at most 9' })
   status: number;
+
+  @IsOptional()
+  @IsBoolean()
+  notify_patient?: boolean;
 }

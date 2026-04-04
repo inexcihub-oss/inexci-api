@@ -37,6 +37,17 @@ export default {
   '/users/doctor-profile': {
     POST: [UserRole.ADMIN, UserRole.DOCTOR],
   },
+  '/users/doctor-profile/:id': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/users/collaborators': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
+  '/users/collaborators/:id': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR],
+  },
 
   '/surgery-requests': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
@@ -216,6 +227,20 @@ export default {
   '/surgery-requests/:id/contest-authorization-pdf': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
   },
+
+  // ─── Seções do laudo médico ───────────────────────────────────────────────
+  '/surgery-requests/:id/sections': {
+    GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/sections/reorder': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+  '/surgery-requests/:id/sections/:sectionId': {
+    PATCH: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+    DELETE: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
+  },
+
   '/surgery-requests/templates': {
     GET: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],
     POST: [UserRole.ADMIN, UserRole.DOCTOR, UserRole.COLLABORATOR],

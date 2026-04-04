@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/database/entities/user.entity';
 import { RecoveryCode } from 'src/database/entities/recovery-code.entity';
+import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -15,7 +16,7 @@ import { EmailService } from 'src/shared/email/email.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([User, RecoveryCode]),
+    TypeOrmModule.forFeature([User, RecoveryCode, SubscriptionPlan]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

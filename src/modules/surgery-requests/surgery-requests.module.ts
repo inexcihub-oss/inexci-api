@@ -5,6 +5,7 @@ import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-an
 import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 import { Contestation } from 'src/database/entities/contestation.entity';
 import { SurgeryRequestTemplate } from 'src/database/entities/surgery-request-template.entity';
+import { ReportSection } from 'src/database/entities/report-section.entity';
 import { User } from 'src/database/entities/user.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Patient } from 'src/database/entities/patient.entity';
@@ -26,11 +27,13 @@ import { ActivitiesModule } from './activities/activities.module';
 import { EmailModule } from 'src/shared/email/email.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
+import { PdfGenerationModule } from 'src/shared/pdf/pdf-generation.module';
 import { QueuesModule } from 'src/shared/queues/queues.module';
 import { PendenciesModule } from './pendencies/pendencies.module';
 import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 import { DocumentsModule } from './documents/documents.module';
 import { DocumentsKeyModule } from './documents-key/documents-key.module';
+import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -40,6 +43,7 @@ import { DocumentsKeyModule } from './documents-key/documents-key.module';
       SurgeryRequestBilling,
       Contestation,
       SurgeryRequestTemplate,
+      ReportSection,
       User,
       StatusUpdate,
       Patient,
@@ -53,10 +57,12 @@ import { DocumentsKeyModule } from './documents-key/documents-key.module';
     EmailModule,
     MailModule,
     PdfModule,
+    PdfGenerationModule,
     QueuesModule,
     PendenciesModule,
     DocumentsModule,
     DocumentsKeyModule,
+    WhatsappModule,
   ],
   controllers: [SurgeryRequestsController],
   providers: [
