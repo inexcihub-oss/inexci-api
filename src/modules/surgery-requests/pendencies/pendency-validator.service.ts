@@ -108,6 +108,8 @@ export class PendencyValidatorService {
           { label: 'Data de nascimento', done: !!request.patient?.birth_date },
           { label: 'CPF', done: !!request.patient?.cpf },
           { label: 'Telefone', done: !!request.patient?.phone },
+          { label: 'Endereço', done: !!request.patient?.address },
+          { label: 'CEP', done: !!request.patient?.zip_code },
         ];
 
       case 'hospital_data':
@@ -158,8 +160,8 @@ export class PendencyValidatorService {
             done: sections.length > 0,
           },
           {
-            label: 'Laudo assinado anexado',
-            done: hasDoc('signed_report') || !!request.doctor?.signature_url,
+            label: 'Assinatura do médico configurada',
+            done: !!request.doctor?.signature_url,
           },
         ];
       }
@@ -215,7 +217,9 @@ export class PendencyValidatorService {
           request.patient?.name &&
           request.patient?.birth_date &&
           request.patient?.cpf &&
-          request.patient?.phone
+          request.patient?.phone &&
+          request.patient?.address &&
+          request.patient?.zip_code
         );
 
       case 'hospital_data':
@@ -247,7 +251,7 @@ export class PendencyValidatorService {
         return (
           patientComplete &&
           sections.length > 0 &&
-          (hasDoc('signed_report') || !!request.doctor?.signature_url)
+          !!request.doctor?.signature_url
         );
       }
 
