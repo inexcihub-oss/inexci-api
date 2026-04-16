@@ -173,6 +173,31 @@ export class UsersController {
     return await this.usersService.updateCollaborator(id, data, user.userId);
   }
 
+  @Patch('collaborators/:id/status')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Alternar status ativo/inativo do colaborador' })
+  async toggleCollaboratorStatus(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.usersService.toggleCollaboratorStatus(id, user.userId);
+  }
+
+  @Patch('collaborators/:id/reset-password')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Redefinir senha do colaborador' })
+  async resetCollaboratorPassword(
+    @Param('id') id: string,
+    @Body() body: { password: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.usersService.resetCollaboratorPassword(
+      id,
+      body.password,
+      user.userId,
+    );
+  }
+
   @Delete('collaborators/:id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Excluir colaborador' })

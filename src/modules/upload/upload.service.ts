@@ -72,6 +72,28 @@ export class UploadService {
   }
 
   /**
+   * Gera uma URL assinada para um arquivo existente no Storage
+   * @param filePath - Caminho do arquivo no bucket
+   * @param expiresIn - Validade em segundos (padrão 3600 = 1h)
+   */
+  async getSignedUrl(
+    filePath: string,
+    expiresIn = 3600,
+  ): Promise<{ url: string }> {
+    const { data, error } = await this.supabase.storage
+      .from(this.bucket)
+      .createSignedUrl(filePath, expiresIn);
+
+    if (error || !data?.signedUrl) {
+      throw new BadRequestException(
+        `Erro ao gerar URL assinada: ${error?.message ?? 'unknown'}`,
+      );
+    }
+
+    return { url: data.signedUrl };
+  }
+
+  /**
    * Deleta um arquivo do Supabase Storage
    * @param filePath - Caminho do arquivo no bucket
    */

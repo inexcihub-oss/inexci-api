@@ -37,4 +37,28 @@ export class UpdateCollaboratorDto {
   @IsString()
   @IsOptional()
   specialty?: string;
+
+  @IsString()
+  @IsOptional()
+  cep?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsOptional()
+  address_number?: string;
+
+  @IsString()
+  @IsOptional()
+  address_complement?: string;
+
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @IsString()
+  @IsOptional()
+  state?: string;
 }

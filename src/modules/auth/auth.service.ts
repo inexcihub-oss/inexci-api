@@ -2,7 +2,8 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
-  Logger, Injectable,
+  Logger,
+  Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -232,6 +233,7 @@ export class AuthService {
       phone: user.phone,
       email: user.email,
       account_id: user.account_id,
+      avatar_url: user.avatar_url ?? null,
       is_doctor: !!doctorProfile,
       doctor_profile: doctorProfile
         ? {

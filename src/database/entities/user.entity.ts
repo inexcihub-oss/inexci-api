@@ -77,6 +77,24 @@ export class User {
   @Column({ type: 'varchar', length: 14, nullable: true })
   cpf: string;
 
+  @Column({ type: 'varchar', length: 9, nullable: true })
+  cep: string;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  address: string;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  address_number: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  address_complement: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  city: string;
+
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  state: string;
+
   @Column({ type: 'char', length: 1, nullable: true })
   gender: string;
 

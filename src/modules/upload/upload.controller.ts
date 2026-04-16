@@ -1,6 +1,8 @@
 import {
   Controller,
   Post,
+  Get,
+  Query,
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
@@ -57,6 +59,19 @@ export class UploadController {
    * POST /upload/multiple
    * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
    */
+  /**
+   * Gera URL assinada para um arquivo existente
+   * GET /upload/signed-url?path=avatars/uuid.png
+   */
+  @Get('signed-url')
+  async getSignedUrl(@Query('path') filePath: string) {
+    if (!filePath) {
+      throw new BadRequestException('O parâmetro "path" é obrigatório');
+    }
+    const result = await this.uploadService.getSignedUrl(filePath);
+    return { data: result };
+  }
+
   @Post('multiple')
   @ApiOperation({ summary: 'Upload de múltiplos arquivos' })
   @ApiConsumes('multipart/form-data')

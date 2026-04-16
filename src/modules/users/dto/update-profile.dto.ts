@@ -77,10 +77,34 @@ export class UpdateProfileDto {
   crm_state?: string;
 
   @IsOptional()
-  @IsString()
-  avatar_url?: string;
+  @Transform(({ value }) => value ?? null)
+  avatar_url?: string | null;
 
   @IsOptional()
   @IsString()
   signature_url?: string;
+
+  @IsOptional()
+  @IsString()
+  cep?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  address_number?: string;
+
+  @IsOptional()
+  @IsString()
+  address_complement?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
 }

@@ -124,7 +124,9 @@ export class PdfGenerationProcessor {
 
       // ── Imagens dos exames (documentos com key report_images) ─────────────
       const allDocs = request.documents ?? [];
-      const examDocs = allDocs.filter((d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES);
+      const examDocs = allDocs.filter(
+        (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
+      );
       const examImages: string[] = (
         await Promise.all(
           examDocs.map(async (doc: any) => {
@@ -182,41 +184,40 @@ export class PdfGenerationProcessor {
 
       // ── Dados do laudo ────────────────────────────────────────────────────
       const laudoData: SurgeryRequestLaudoPdfData = {
-          today: new Date().toLocaleDateString('pt-BR'),
-          patientName: pd.name || patient?.name || undefined,
-          patientBirthDate:
-            pd.birthDate ||
-            (patient?.birth_date
-              ? formatDateBR(patient.birth_date)
-              : undefined),
-          patientRg: pd.rg || patient?.rg || undefined,
-          patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
-          patientPhone:
-            formatPhone(pd.phone || patient?.phone || '') || undefined,
-          patientAddress: pd.address || patient?.address || undefined,
-          patientZipCode:
-            formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
-            undefined,
-          patientHealthPlan:
-            pd.healthPlan || request.health_plan?.name || undefined,
-          historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
-          conduct: reportData.conduct || undefined,
-          examImages: examImages.length ? examImages : undefined,
-          procedures: procedures.length ? procedures : undefined,
-          opmeItems: opmeItems.length ? opmeItems : undefined,
-          fabricantesText: fabricantesText || undefined,
-          fornecedoresText: fornecedoresText || undefined,
-          hasSeparator,
-          localText: localText || undefined,
-          doctorName: doctor?.name ?? 'Médico',
-          doctorEmail: doctorEmail || undefined,
-          doctorPhone: doctorPhoneFormatted || undefined,
-          doctorSpecialty: profile?.specialty || undefined,
-          doctorCrm: doctorCrm || undefined,
-          hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
-          hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
-          doctorSignatureUrl: doctorSignatureUrl || undefined,
-        };
+        today: new Date().toLocaleDateString('pt-BR'),
+        patientName: pd.name || patient?.name || undefined,
+        patientBirthDate:
+          pd.birthDate ||
+          (patient?.birth_date
+            ? formatDateBR(patient.birth_date.toISOString())
+            : undefined),
+        patientRg: pd.rg || undefined,
+        patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
+        patientPhone:
+          formatPhone(pd.phone || patient?.phone || '') || undefined,
+        patientAddress: pd.address || patient?.address || undefined,
+        patientZipCode:
+          formatCep(pd.zipCode || patient?.zip_code || '') || undefined,
+        patientHealthPlan:
+          pd.healthPlan || request.health_plan?.name || undefined,
+        historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
+        conduct: reportData.conduct || undefined,
+        examImages: examImages.length ? examImages : undefined,
+        procedures: procedures.length ? procedures : undefined,
+        opmeItems: opmeItems.length ? opmeItems : undefined,
+        fabricantesText: fabricantesText || undefined,
+        fornecedoresText: fornecedoresText || undefined,
+        hasSeparator,
+        localText: localText || undefined,
+        doctorName: doctor?.name ?? 'Médico',
+        doctorEmail: doctorEmail || undefined,
+        doctorPhone: doctorPhoneFormatted || undefined,
+        doctorSpecialty: profile?.specialty || undefined,
+        doctorCrm: doctorCrm || undefined,
+        hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
+        hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
+        doctorSignatureUrl: doctorSignatureUrl || undefined,
+      };
 
       // ── Gerar PDF do laudo ────────────────────────────────────────────────
       const summaryBuffer =

@@ -157,7 +157,10 @@ export class UsersService {
       }
     }
 
-    return userWithoutPassword;
+    return {
+      ...userWithoutPassword,
+      is_doctor: !!userWithoutPassword.doctor_profile,
+    };
   }
 
   async updateProfile(data: UpdateProfileDto, userId: string) {
@@ -189,7 +192,16 @@ export class UsersService {
     if (data.cpf) userUpdates.cpf = data.cpf;
     if (data.birth_date) userUpdates.birth_date = new Date(data.birth_date);
     if (data.gender) userUpdates.gender = data.gender;
-    if (data.avatar_url) userUpdates.avatar_url = data.avatar_url;
+    if (data.avatar_url !== undefined)
+      userUpdates.avatar_url = data.avatar_url ?? null;
+    if (data.cep !== undefined) userUpdates.cep = data.cep;
+    if (data.address !== undefined) userUpdates.address = data.address;
+    if (data.address_number !== undefined)
+      userUpdates.address_number = data.address_number;
+    if (data.address_complement !== undefined)
+      userUpdates.address_complement = data.address_complement;
+    if (data.city !== undefined) userUpdates.city = data.city;
+    if (data.state !== undefined) userUpdates.state = data.state;
 
     const updatedUser = await this.userRepository.update(userId, userUpdates);
 
@@ -521,7 +533,9 @@ export class UsersService {
       take,
     );
 
-    return { records: collaborators };
+    // Excluir o próprio admin da lista de colaboradores
+    const filtered = collaborators.filter((c) => c.id !== userId);
+    return { records: filtered };
   }
 
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
@@ -651,6 +665,14 @@ export class UsersService {
     if (data.name !== undefined) updates.name = data.name;
     if (data.email !== undefined) updates.email = data.email;
     if (data.phone !== undefined) updates.phone = data.phone;
+    if (data.cep !== undefined) updates.cep = data.cep;
+    if (data.address !== undefined) updates.address = data.address;
+    if (data.address_number !== undefined)
+      updates.address_number = data.address_number;
+    if (data.address_complement !== undefined)
+      updates.address_complement = data.address_complement;
+    if (data.city !== undefined) updates.city = data.city;
+    if (data.state !== undefined) updates.state = data.state;
 
     // Gestão do doctor_profile
     if (data.is_doctor !== undefined) {
@@ -745,6 +767,52 @@ export class UsersService {
         return rest;
       }),
     };
+  }
+
+  async toggleCollaboratorStatus(collaboratorId: string, adminId: string) {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin || admin.role !== UserRole.ADMIN)
+      throw new ForbiddenException(
+        'Apenas admins podem alterar status de colaboradores',
+      );
+
+    const collaborator = await this.userRepository.findOne({
+      id: collaboratorId,
+    });
+    if (!collaborator)
+      throw new NotFoundException('Colaborador não encontrado');
+    if (collaborator.admin_id !== adminId)
+      throw new ForbiddenException('Este colaborador não pertence à sua conta');
+
+    const newStatus =
+      collaborator.status === UserStatus.ACTIVE
+        ? UserStatus.INACTIVE
+        : UserStatus.ACTIVE;
+
+    await this.userRepository.update(collaboratorId, { status: newStatus });
+    return { status: newStatus };
+  }
+
+  async resetCollaboratorPassword(
+    collaboratorId: string,
+    newPassword: string,
+    adminId: string,
+  ) {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin || admin.role !== UserRole.ADMIN)
+      throw new ForbiddenException('Apenas admins podem redefinir senhas');
+
+    const collaborator = await this.userRepository.findOne({
+      id: collaboratorId,
+    });
+    if (!collaborator)
+      throw new NotFoundException('Colaborador não encontrado');
+    if (collaborator.admin_id !== adminId)
+      throw new ForbiddenException('Este colaborador não pertence à sua conta');
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await this.userRepository.update(collaboratorId, { password: hashed });
+    return { message: 'Senha redefinida com sucesso' };
   }
 
   /**
