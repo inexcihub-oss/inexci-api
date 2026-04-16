@@ -7,6 +7,7 @@ import {
   IsIn,
   IsDateString,
 } from 'class-validator';
+import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -16,7 +17,7 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => (value ? Mask.phone.raw(value) : value))
+  @PhoneTransform()
   phone?: string;
 
   @IsOptional()

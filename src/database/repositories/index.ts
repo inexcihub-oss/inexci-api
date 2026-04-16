@@ -19,3 +19,5 @@ export { SurgeryRequestRepository } from './surgery-request.repository';
 export { NotificationRepository } from './notification.repository';
 export { UserNotificationSettingsRepository } from './user-notification-settings.repository';
 export { SurgeryRequestActivityRepository } from './surgery-request-activity.repository';
+export { SurgeryRequestAnalysisRepository } from './surgery-request-analysis.repository';
+export { ContestationRepository } from './contestation.repository';

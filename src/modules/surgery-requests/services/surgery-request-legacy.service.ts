@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 import {
   SurgeryRequest,
@@ -51,7 +53,8 @@ export class SurgeryRequestLegacyService {
         'contestations',
       ],
     );
-    if (!request) throw new NotFoundException('Solicitação não encontrada');
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     return request;
   }
 
@@ -64,33 +67,38 @@ export class SurgeryRequestLegacyService {
     const request = await this.surgeryRequestRepository.findOneSimple({
       id: surgeryRequestId,
     });
-    if (!request) throw new NotFoundException('Solicitação não encontrada');
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     const validStatuses = [1, 2, 3, 4, 5, 6, 7, 8, 9];
     if (!validStatuses.includes(newStatus)) {
       throw new BadRequestException(`Status inválido: ${newStatus}`);
     }
 
-    const result = await this.dataSource.transaction(async (manager) => {
-      const repo = manager.getRepository(SurgeryRequest);
-      const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      await repo.update({ id: surgeryRequestId }, { status: newStatus });
-      await statusUpdateRepo.save({
-        surgery_request_id: surgeryRequestId,
-        prev_status: request.status,
-        new_status: newStatus,
-      });
-      const activityRepo = manager.getRepository(SurgeryRequestActivity);
-      const prevLabel = getStatusLabel(request.status);
-      const newLabel = getStatusLabel(newStatus);
-      await activityRepo.save({
-        surgery_request_id: surgeryRequestId,
-        user_id: userId,
-        type: ActivityType.STATUS_CHANGE,
-        content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
-      });
-      return repo.findOne({ where: { id: surgeryRequestId } });
-    });
+    const result = await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const repo = manager.getRepository(SurgeryRequest);
+        const statusUpdateRepo = manager.getRepository(StatusUpdate);
+        await repo.update({ id: surgeryRequestId }, { status: newStatus });
+        await statusUpdateRepo.save({
+          surgery_request_id: surgeryRequestId,
+          prev_status: request.status,
+          new_status: newStatus,
+        });
+        const activityRepo = manager.getRepository(SurgeryRequestActivity);
+        const prevLabel = getStatusLabel(request.status);
+        const newLabel = getStatusLabel(newStatus);
+        await activityRepo.save({
+          surgery_request_id: surgeryRequestId,
+          user_id: userId,
+          type: ActivityType.STATUS_CHANGE,
+          content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
+        });
+        return repo.findOne({ where: { id: surgeryRequestId } });
+      },
+      { logger: this.logger, operationName: 'updateStatus' },
+    );
 
     if (notifyPatient) {
       const fullRequest = await this.loadRequestWithRelations(surgeryRequestId);

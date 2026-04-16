@@ -1,6 +1,6 @@
 import { Type, Transform } from 'class-transformer';
 import { IsNumber, IsOptional, IsString, IsDateString } from 'class-validator';
-import { SurgeryRequestPriority } from '../../../database/entities';
+import { SurgeryRequestPriority } from 'src/database/entities';
 
 export class UpdateSurgeryRequestBasicDto {
   @IsOptional()

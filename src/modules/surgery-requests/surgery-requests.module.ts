@@ -13,6 +13,10 @@ import { Hospital } from 'src/database/entities/hospital.entity';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { SurgeryRequestsService } from './surgery-requests.service';
 import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
+import { SendAnalysisHandler } from './services/workflow/send-analysis.handler';
+import { AuthorizationHandler } from './services/workflow/authorization.handler';
+import { SchedulingHandler } from './services/workflow/scheduling.handler';
+import { ExecutionHandler } from './services/workflow/execution.handler';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
@@ -20,6 +24,7 @@ import { SurgeryRequestNotificationService } from './services/surgery-request-no
 import { SurgeryRequestPdfAssemblyService } from './services/surgery-request-pdf-assembly.service';
 import { SurgeryRequestBillingService } from './services/surgery-request-billing.service';
 import { SurgeryRequestLegacyService } from './services/surgery-request-legacy.service';
+import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { SurgeryRequestsController } from './surgery-requests.controller';
 import { UsersModule } from '../users/users.module';
 import { StorageService } from 'src/shared/storage/storage.service';
@@ -68,12 +73,17 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
     SurgeryRequestsService,
     SurgeryRequestMutationService,
     SurgeryRequestWorkflowService,
+    SendAnalysisHandler,
+    AuthorizationHandler,
+    SchedulingHandler,
+    ExecutionHandler,
     SurgeryRequestReportService,
     SurgeryRequestTemplateService,
     SurgeryRequestNotificationService,
     SurgeryRequestPdfAssemblyService,
     SurgeryRequestBillingService,
     SurgeryRequestLegacyService,
+    DoctorResolutionService,
     StorageService,
   ],
   exports: [SurgeryRequestsService],

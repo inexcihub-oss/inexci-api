@@ -12,6 +12,7 @@ import {
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { getStatusLabel } from 'src/shared/utils';
+import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 @Injectable()
 export class SurgeryRequestNotificationService {
@@ -93,7 +94,7 @@ export class SurgeryRequestNotificationService {
         'tuss_items',
         'billing',
       ]);
-    if (!request) throw new NotFoundException('Solicitação não encontrada');
+    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     const allowed = this.STATUS_TEMPLATE_MAP[request.status] ?? [];
     if (!allowed.includes(dto.template)) {
@@ -155,7 +156,7 @@ export class SurgeryRequestNotificationService {
         break;
       case 'invoice-sent':
         if (!request.billing)
-          throw new BadRequestException('Sem dados de faturamento.');
+          throw new BadRequestException(ERROR_MESSAGES.NO_BILLING_DATA);
         await this.mailService.sendInvoiceSent(to, {
           patientName,
           requestId,
@@ -170,7 +171,7 @@ export class SurgeryRequestNotificationService {
         break;
       case 'payment-received':
         if (!request.billing)
-          throw new BadRequestException('Sem dados de faturamento.');
+          throw new BadRequestException(ERROR_MESSAGES.NO_BILLING_DATA);
         await this.mailService.sendPaymentReceived(to, {
           patientName,
           requestId,
@@ -182,7 +183,7 @@ export class SurgeryRequestNotificationService {
         break;
       case 'payment-contested':
         if (!request.billing)
-          throw new BadRequestException('Sem dados de faturamento.');
+          throw new BadRequestException(ERROR_MESSAGES.NO_BILLING_DATA);
         await this.mailService.sendPaymentContested(
           to,
           'Contestação de Pagamento — Inexci',

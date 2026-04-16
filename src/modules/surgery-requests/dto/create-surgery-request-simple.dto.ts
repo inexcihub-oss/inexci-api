@@ -1,5 +1,5 @@
 import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
-import { SurgeryRequestPriority } from '../../../database/entities';
+import { SurgeryRequestPriority } from 'src/database/entities';
 
 export class CreateSurgeryRequestSimpleDto {
   @IsString()

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Logger,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 
 @Injectable()
 export class PatientsService {
+  private readonly logger = new Logger(PatientsService.name);
   constructor(
     private readonly patientRepository: PatientRepository,
     private readonly userRepository: UserRepository,
@@ -29,7 +31,9 @@ export class PatientsService {
       return { total: 0, records: [] };
     }
 
-    const where: FindOptionsWhere<Patient> = { doctor_id: In(doctorIds) };
+    const where: FindOptionsWhere<Patient> = {
+      doctor_id: In(doctorIds),
+    };
 
     const [total, records] = await Promise.all([
       this.patientRepository.total(where),
@@ -120,7 +124,7 @@ export class PatientsService {
 
   async delete(id: string): Promise<void> {
     const patient = await this.patientRepository.findOne({ id });
-    if (!patient) throw new NotFoundException('Paciente n\u00e3o encontrado');
+    if (!patient) throw new NotFoundException('Paciente não encontrado');
     await this.patientRepository.delete(id);
   }
 }

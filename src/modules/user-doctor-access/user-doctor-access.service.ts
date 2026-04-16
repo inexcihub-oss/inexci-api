@@ -2,9 +2,11 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
@@ -16,6 +18,8 @@ import {
 
 @Injectable()
 export class UserDoctorAccessService {
+  private readonly logger = new Logger(UserDoctorAccessService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly userRepository: UserRepository,
@@ -102,36 +106,40 @@ export class UserDoctorAccessService {
       await this.validateDoctorUser(doctorId, admin.account_id);
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      // Buscar vínculos existentes
-      const existing =
-        await this.userDoctorAccessRepository.findAllByUserId(userId);
+    return executeInTransaction(
+      this.dataSource,
+      async (_manager) => {
+        // Buscar vínculos existentes
+        const existing =
+          await this.userDoctorAccessRepository.findAllByUserId(userId);
 
-      // Desativar vínculos que não estão na nova lista
-      for (const access of existing) {
-        if (!doctorUserIds.includes(access.doctor_user_id)) {
-          await this.userDoctorAccessRepository.deactivate(
-            userId,
-            access.doctor_user_id,
-          );
+        // Desativar vínculos que não estão na nova lista
+        for (const access of existing) {
+          if (!doctorUserIds.includes(access.doctor_user_id)) {
+            await this.userDoctorAccessRepository.deactivate(
+              userId,
+              access.doctor_user_id,
+            );
+          }
         }
-      }
 
-      // Criar/ativar vínculos novos
-      for (const doctorId of doctorUserIds) {
-        await this.userDoctorAccessRepository.upsert({
-          userId: userId,
-          doctorUserId: doctorId,
-          status: UserDoctorAccessStatus.ACTIVE,
-          createdById: adminId,
-        });
-      }
+        // Criar/ativar vínculos novos
+        for (const doctorId of doctorUserIds) {
+          await this.userDoctorAccessRepository.upsert({
+            userId: userId,
+            doctorUserId: doctorId,
+            status: UserDoctorAccessStatus.ACTIVE,
+            createdById: adminId,
+          });
+        }
 
-      // Retornar estado final
-      const updated =
-        await this.userDoctorAccessRepository.findAllByUserId(userId);
-      return { records: updated };
-    });
+        // Retornar estado final
+        const updated =
+          await this.userDoctorAccessRepository.findAllByUserId(userId);
+        return { records: updated };
+      },
+      { logger: this.logger, operationName: 'setAccess' },
+    );
   }
 
   /**

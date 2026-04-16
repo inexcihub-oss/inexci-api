@@ -1,5 +1,5 @@
-import { Mask } from '@tboerc/maskfy';
 import { Transform, Type } from 'class-transformer';
+import { stripObjectPhoneMask } from 'src/shared/pipes/phone-mask.pipe';
 import {
   Allow,
   IsNotEmpty,
@@ -14,12 +14,7 @@ export class UpdateSurgeryRequestDto {
   id: string;
 
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value?.phone) {
-      value.phone = Mask.phone.raw(value.phone);
-    }
-    return value;
-  })
+  @Transform(({ value }) => stripObjectPhoneMask(value))
   health_plan?: {
     id: string;
     name: string;

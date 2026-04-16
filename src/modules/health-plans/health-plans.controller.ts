@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -54,5 +55,12 @@ export class HealthPlansController {
   @ApiOperation({ summary: 'Atualizar plano de saúde' })
   update(@Param('id') id: string, @Body() data: UpdateHealthPlanDto) {
     return this.healthPlansService.update(id, data);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir plano de saúde (soft delete)' })
+  delete(@Param('id') id: string) {
+    return this.healthPlansService.delete(id);
   }
 }

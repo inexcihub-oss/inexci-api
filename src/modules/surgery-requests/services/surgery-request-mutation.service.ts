@@ -1,4 +1,6 @@
 import { DataSource } from 'typeorm';
+import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import {
   ForbiddenException,
   Injectable,
@@ -7,6 +9,7 @@ import {
 } from '@nestjs/common';
 
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
@@ -41,6 +44,7 @@ export class SurgeryRequestMutationService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly accessControlService: AccessControlService,
+    private readonly doctorResolutionService: DoctorResolutionService,
     private readonly whatsappService: WhatsappService,
     private readonly userRepository: UserRepository,
     private readonly patientRepository: PatientRepository,
@@ -50,144 +54,131 @@ export class SurgeryRequestMutationService {
   ) {}
 
   /**
-   * Resolve o doctor_id para operações de escrita.
-   * - Se doctorIdFromPayload fornecido: valida acesso e retorna
-   * - Se usuário é médico (tem doctor_profile): retorna user.id
-   * - Caso contrário: retorna o primeiro médico acessível
+   * Delega para DoctorResolutionService.
+   * @deprecated Use doctorResolutionService.resolveDoctorId() diretamente.
    */
   async resolveDoctorId(
     userId: string,
     doctorIdFromPayload?: string,
   ): Promise<string> {
-    if (doctorIdFromPayload) {
-      const doctorIds =
-        await this.accessControlService.getAccessibleDoctorIds(userId);
-      if (!doctorIds.includes(doctorIdFromPayload)) {
-        throw new ForbiddenException(
-          'Você não tem permissão para criar solicitações para este médico.',
-        );
-      }
-      return doctorIdFromPayload;
-    }
-
-    const user = await this.userRepository.findOneWithProfile({ id: userId });
-    if (user?.doctor_profile) return user.id;
-
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
-      throw new ForbiddenException(
-        'Nenhum médico acessível encontrado para este usuário.',
-      );
-    }
-    return doctorIds[0];
+    return this.doctorResolutionService.resolveDoctorId(
+      userId,
+      doctorIdFromPayload,
+    );
   }
 
   async create(data: CreateSurgeryRequestDto, userId: string) {
+    this.logger.log(
+      `[create] Criando solicitação cirúrgica completa por usuário ${userId}`,
+    );
     const doctorId = await this.resolveDoctorId(userId);
 
-    const result = await this.dataSource.transaction(async (manager) => {
-      const patientRepo = manager.getRepository(Patient);
-      const healthPlanRepo = manager.getRepository(HealthPlan);
-      const hospitalRepo = manager.getRepository(Hospital);
-      const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-      const chatRepo = manager.getRepository(Chat);
-      const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      const userRepo = manager.getRepository(User);
+    const result = await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const patientRepo = manager.getRepository(Patient);
+        const healthPlanRepo = manager.getRepository(HealthPlan);
+        const hospitalRepo = manager.getRepository(Hospital);
+        const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
+        const chatRepo = manager.getRepository(Chat);
+        const statusUpdateRepo = manager.getRepository(StatusUpdate);
+        const userRepo = manager.getRepository(User);
 
-      let patient = await patientRepo.findOne({
-        where: { email: data.patient.email, doctor_id: doctorId },
-      });
-      if (!patient) {
-        patient = await patientRepo.save({
-          doctor_id: doctorId,
-          name: data.patient.name,
-          email: data.patient.email,
-          phone: data.patient.phone,
+        let patient = await patientRepo.findOne({
+          where: { email: data.patient.email, doctor_id: doctorId },
         });
-      }
-
-      let healthPlan = await healthPlanRepo.findOne({
-        where: { name: data.health_plan.name },
-      });
-      if (!healthPlan) {
-        healthPlan = await healthPlanRepo.save({
-          name: data.health_plan.name,
-          email: data.health_plan.email,
-          phone: data.health_plan.phone,
-          doctor_id: doctorId,
-        });
-      }
-
-      let hospital = null;
-      if (data.hospital?.name) {
-        hospital = await hospitalRepo.findOne({
-          where: { name: data.hospital.name },
-        });
-        if (!hospital) {
-          hospital = await hospitalRepo.save({
+        if (!patient) {
+          patient = await patientRepo.save({
             doctor_id: doctorId,
-            name: data.hospital.name,
-            email: data.hospital.email,
+            name: data.patient.name,
+            email: data.patient.email,
+            phone: data.patient.phone,
           });
         }
-      }
 
-      let managerId: string | null = null;
-      if (data.collaborator) {
-        let collaborator = await userRepo.findOne({
-          where: { email: data.collaborator.email },
+        let healthPlan = await healthPlanRepo.findOne({
+          where: { name: data.health_plan.name },
         });
-        if (!collaborator) {
-          collaborator = await userRepo.save(
-            userRepo.create({
-              role: UserRole.COLLABORATOR,
-              status: UserStatus.PENDING,
-              name: data.collaborator.name,
-              email: data.collaborator.email,
-              phone: data.collaborator.phone,
-              password: data.collaborator.password,
-            }),
-          );
+        if (!healthPlan) {
+          healthPlan = await healthPlanRepo.save({
+            name: data.health_plan.name,
+            email: data.health_plan.email,
+            phone: data.health_plan.phone,
+            doctor_id: doctorId,
+          });
         }
-        managerId = collaborator.id;
-      }
 
-      const newRequest = await surgeryRequestRepo.save({
-        doctor_id: doctorId,
-        created_by_id: userId,
-        manager_id: managerId,
-        patient_id: patient.id,
-        hospital_id: hospital?.id || null,
-        status: SurgeryRequestStatus.PENDING,
-        is_indication: data.is_indication,
-        indication_name: data.indication_name,
-        health_plan_id: healthPlan.id,
-        priority: data.priority || SurgeryRequestPriority.MEDIUM,
-        deadline: data.deadline || null,
-        procedure_id:
-          !data.is_indication && data.procedure_id ? data.procedure_id : null,
-      });
+        let hospital = null;
+        if (data.hospital?.name) {
+          hospital = await hospitalRepo.findOne({
+            where: { name: data.hospital.name },
+          });
+          if (!hospital) {
+            hospital = await hospitalRepo.save({
+              doctor_id: doctorId,
+              name: data.hospital.name,
+              email: data.hospital.email,
+            });
+          }
+        }
 
-      await chatRepo.save({
-        surgery_request_id: newRequest.id,
-        user_id: userId,
-      });
-      await statusUpdateRepo.save({
-        surgery_request_id: newRequest.id,
-        prev_status: SurgeryRequestStatus.PENDING,
-        new_status: SurgeryRequestStatus.PENDING,
-      });
-      const activityRepo = manager.getRepository(SurgeryRequestActivity);
-      await activityRepo.save({
-        surgery_request_id: newRequest.id,
-        user_id: userId,
-        type: ActivityType.SYSTEM,
-        content: 'Solicitação cirúrgica criada',
-      });
+        let managerId: string | null = null;
+        if (data.collaborator) {
+          let collaborator = await userRepo.findOne({
+            where: { email: data.collaborator.email },
+          });
+          if (!collaborator) {
+            collaborator = await userRepo.save(
+              userRepo.create({
+                role: UserRole.COLLABORATOR,
+                status: UserStatus.PENDING,
+                name: data.collaborator.name,
+                email: data.collaborator.email,
+                phone: data.collaborator.phone,
+                password: data.collaborator.password,
+              }),
+            );
+          }
+          managerId = collaborator.id;
+        }
 
-      return { request: newRequest, patient };
-    });
+        const newRequest = await surgeryRequestRepo.save({
+          doctor_id: doctorId,
+          created_by_id: userId,
+          manager_id: managerId,
+          patient_id: patient.id,
+          hospital_id: hospital?.id || null,
+          status: SurgeryRequestStatus.PENDING,
+          is_indication: data.is_indication,
+          indication_name: data.indication_name,
+          health_plan_id: healthPlan.id,
+          priority: data.priority || SurgeryRequestPriority.MEDIUM,
+          deadline: data.deadline || null,
+          procedure_id:
+            !data.is_indication && data.procedure_id ? data.procedure_id : null,
+        });
+
+        await chatRepo.save({
+          surgery_request_id: newRequest.id,
+          user_id: userId,
+        });
+        await statusUpdateRepo.save({
+          surgery_request_id: newRequest.id,
+          prev_status: SurgeryRequestStatus.PENDING,
+          new_status: SurgeryRequestStatus.PENDING,
+        });
+        const activityRepo = manager.getRepository(SurgeryRequestActivity);
+        await activityRepo.save({
+          surgery_request_id: newRequest.id,
+          user_id: userId,
+          type: ActivityType.SYSTEM,
+          content: 'Solicitação cirúrgica criada',
+        });
+
+        return { request: newRequest, patient };
+      },
+      { logger: this.logger, operationName: 'create' },
+    );
 
     // Envia boas-vindas WhatsApp ao paciente (assíncrono — não bloqueia o fluxo)
     if (result.patient?.phone) {
@@ -197,6 +188,9 @@ export class SurgeryRequestMutationService {
       );
     }
 
+    this.logger.log(
+      `[create] Solicitação ${result.request.id} criada com sucesso`,
+    );
     return result.request;
   }
 
@@ -204,45 +198,52 @@ export class SurgeryRequestMutationService {
     data: CreateSurgeryRequestSimpleDto,
     userId: string,
   ) {
+    this.logger.log(
+      `[createSurgeryRequest] Criando solicitação simplificada por usuário ${userId}`,
+    );
     const doctorId = await this.resolveDoctorId(userId, data.doctor_id);
 
-    const newRequest = await this.dataSource.transaction(async (manager) => {
-      const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-      const chatRepo = manager.getRepository(Chat);
-      const statusUpdateRepo = manager.getRepository(StatusUpdate);
+    const newRequest = await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
+        const chatRepo = manager.getRepository(Chat);
+        const statusUpdateRepo = manager.getRepository(StatusUpdate);
 
-      const request = await surgeryRequestRepo.save({
-        doctor_id: doctorId,
-        created_by_id: userId,
-        manager_id: data.manager_id,
-        patient_id: data.patient_id,
-        hospital_id: data.hospital_id || null,
-        status: SurgeryRequestStatus.PENDING,
-        is_indication: false,
-        health_plan_id: data.health_plan_id || null,
-        priority: data.priority,
-        procedure_id: data.procedure_id || null,
-      });
+        const request = await surgeryRequestRepo.save({
+          doctor_id: doctorId,
+          created_by_id: userId,
+          manager_id: data.manager_id,
+          patient_id: data.patient_id,
+          hospital_id: data.hospital_id || null,
+          status: SurgeryRequestStatus.PENDING,
+          is_indication: false,
+          health_plan_id: data.health_plan_id || null,
+          priority: data.priority,
+          procedure_id: data.procedure_id || null,
+        });
 
-      await chatRepo.save({
-        surgery_request_id: request.id,
-        user_id: userId,
-      });
-      await statusUpdateRepo.save({
-        surgery_request_id: request.id,
-        prev_status: SurgeryRequestStatus.PENDING,
-        new_status: SurgeryRequestStatus.PENDING,
-      });
-      const activityRepo = manager.getRepository(SurgeryRequestActivity);
-      await activityRepo.save({
-        surgery_request_id: request.id,
-        user_id: userId,
-        type: ActivityType.SYSTEM,
-        content: 'Solicitação cirúrgica criada',
-      });
+        await chatRepo.save({
+          surgery_request_id: request.id,
+          user_id: userId,
+        });
+        await statusUpdateRepo.save({
+          surgery_request_id: request.id,
+          prev_status: SurgeryRequestStatus.PENDING,
+          new_status: SurgeryRequestStatus.PENDING,
+        });
+        const activityRepo = manager.getRepository(SurgeryRequestActivity);
+        await activityRepo.save({
+          surgery_request_id: request.id,
+          user_id: userId,
+          type: ActivityType.SYSTEM,
+          content: 'Solicitação cirúrgica criada',
+        });
 
-      return request;
-    });
+        return request;
+      },
+      { logger: this.logger, operationName: 'createSurgeryRequest' },
+    );
 
     this.logger.log(
       `[WhatsApp] createSurgeryRequest chamado — patient_id: ${data.patient_id}`,
@@ -285,7 +286,7 @@ export class SurgeryRequestMutationService {
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
     if (!surgeryRequest)
-      throw new NotFoundException('Surgery request not found');
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     const doctorId = surgeryRequest.doctor_id;
     let hospitalId: string | null = surgeryRequest.hospital_id;
@@ -346,7 +347,7 @@ export class SurgeryRequestMutationService {
 
   async updateBasic(data: UpdateSurgeryRequestBasicDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
     let where: FindOptionsWhere<SurgeryRequest> = { id: data.id };
     const doctorIds =
@@ -358,7 +359,7 @@ export class SurgeryRequestMutationService {
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
     if (!surgeryRequest)
-      throw new NotFoundException('Surgery request not found');
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     const updateData: Partial<SurgeryRequest> = {};
     if (data.priority !== undefined) updateData.priority = data.priority;
@@ -372,7 +373,7 @@ export class SurgeryRequestMutationService {
 
   async setHasOpme(id: string, hasOpme: boolean, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
     let where: FindOptionsWhere<SurgeryRequest> = { id };
     const doctorIds =
@@ -384,7 +385,7 @@ export class SurgeryRequestMutationService {
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
     if (!surgeryRequest)
-      throw new NotFoundException('Surgery request not found');
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     await this.surgeryRequestRepository.update(id, { has_opme: hasOpme });
     return this.surgeryRequestRepository.findOneSimple({ id });

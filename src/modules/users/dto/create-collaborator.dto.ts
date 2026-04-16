@@ -1,5 +1,3 @@
-import { Transform } from 'class-transformer';
-import { Mask } from '@tboerc/maskfy';
 import {
   IsBoolean,
   IsEmail,
@@ -8,6 +6,7 @@ import {
   IsString,
   ValidateIf,
 } from 'class-validator';
+import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 
 export class CreateCollaboratorDto {
   @IsString()
@@ -21,7 +20,7 @@ export class CreateCollaboratorDto {
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => (value ? Mask.phone.raw(value) : value))
+  @PhoneTransform()
   phone?: string;
 
   @IsBoolean()

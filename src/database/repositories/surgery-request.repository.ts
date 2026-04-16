@@ -1,12 +1,28 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, DataSource } from 'typeorm';
+import {
+  Repository,
+  FindOptionsWhere,
+  DataSource,
+  EntityManager,
+} from 'typeorm';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
+
+export interface SumInvoicedFilter {
+  doctorIds?: string[];
+}
 
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from '../entities/surgery-request.entity';
+import {
+  SurgeryRequestActivity,
+  ActivityType,
+} from '../entities/surgery-request-activity.entity';
+import { StatusUpdate } from '../entities/status-update.entity';
 import { BaseRepository } from './base.repository';
+import { getStatusLabel } from 'src/shared/utils';
 
 @Global()
 @Injectable()
@@ -20,86 +36,63 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   }
 
   async totalByHospital(doctorIds: string[]) {
-    return await this.dataSource.query(
-      `
-        SELECT COUNT(*)::int as total,
-               sr.hospital_id,
-               COALESCE(h.name, 'Sem Hospital') as hospital_name
-        FROM surgery_request sr
-        LEFT JOIN hospital h ON h.id = sr.hospital_id
-        WHERE sr.doctor_id = ANY($1)
-        GROUP BY sr.hospital_id, h.name
-        ORDER BY total DESC
-      `,
-      [doctorIds],
-    );
+    return this.repository
+      .createQueryBuilder('sr')
+      .leftJoin('sr.hospital', 'h')
+      .select('sr.hospital_id', 'hospital_id')
+      .addSelect("COALESCE(h.name, 'Sem Hospital')", 'hospital_name')
+      .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds })
+      .groupBy('sr.hospital_id')
+      .addGroupBy('h.name')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany();
   }
 
   async totalByStatus(doctorIds: string[]) {
-    return await this.dataSource.query(
-      `
-        SELECT COUNT(*)::int as total, sr.status
-        FROM surgery_request sr
-        WHERE sr.doctor_id = ANY($1)
-        GROUP BY sr.status
-        ORDER BY total DESC
-      `,
-      [doctorIds],
-    );
+    return this.repository
+      .createQueryBuilder('sr')
+      .select('sr.status', 'status')
+      .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds })
+      .groupBy('sr.status')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany();
   }
 
   async totalByHealthPlan(doctorIds: string[]) {
-    return await this.dataSource.query(
-      `
-        SELECT COUNT(*)::int as total,
-               sr.health_plan_id,
-               COALESCE(hp.name, 'Sem Convênio') as health_plan_name
-        FROM surgery_request sr
-        LEFT JOIN health_plan hp ON hp.id = sr.health_plan_id
-        WHERE sr.doctor_id = ANY($1)
-        GROUP BY sr.health_plan_id, hp.name
-        ORDER BY total DESC
-      `,
-      [doctorIds],
-    );
+    return this.repository
+      .createQueryBuilder('sr')
+      .leftJoin('sr.health_plan', 'hp')
+      .select('sr.health_plan_id', 'health_plan_id')
+      .addSelect("COALESCE(hp.name, 'Sem Convênio')", 'health_plan_name')
+      .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds })
+      .groupBy('sr.health_plan_id')
+      .addGroupBy('hp.name')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany();
   }
 
-  async sumInvoiced(where: FindOptionsWhere<SurgeryRequest>) {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramIndex = 1;
+  async sumInvoiced(filter: SumInvoicedFilter) {
+    const qb = this.repository
+      .createQueryBuilder('sr')
+      .leftJoin('sr.billing', 'srb')
+      .select('COALESCE(SUM(srb.invoice_value), 0)', 'invoiced_value')
+      .addSelect('COALESCE(SUM(srb.received_value), 0)', 'received_value');
 
-    if ((where as any).doctor_id) {
-      conditions.push(`sr.doctor_id = $${paramIndex}`);
-      params.push((where as any).doctor_id);
-      paramIndex++;
+    if (filter.doctorIds?.length) {
+      qb.andWhere('sr.doctor_id IN (:...doctorIds)', {
+        doctorIds: filter.doctorIds,
+      });
     }
 
-    if ((where as any).created_by_id) {
-      conditions.push(`sr.created_by_id = $${paramIndex}`);
-      params.push((where as any).created_by_id);
-      paramIndex++;
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const result = await this.dataSource.query(
-      `
-      SELECT 
-        COALESCE(SUM(srb.invoice_value), 0)::numeric AS invoiced_value,
-        COALESCE(SUM(srb.received_value), 0)::numeric AS received_value
-      FROM surgery_request sr
-      LEFT JOIN surgery_request_billing srb ON srb.surgery_request_id = sr.id
-      ${whereClause}
-    `,
-      params,
-    );
+    const result = await qb.getRawOne();
 
     return {
       _sum: {
-        invoiced_value: result?.[0]?.invoiced_value || null,
-        received_value: result?.[0]?.received_value || null,
+        invoiced_value: result?.invoiced_value || null,
+        received_value: result?.received_value || null,
       },
     };
   }
@@ -110,8 +103,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
   async findOne(
     where: FindOptionsWhere<SurgeryRequest>,
-    whereChat?: any, // Será filtrado posteriormente
-    whereQuotation?: any, // Será filtrado posteriormente
   ): Promise<SurgeryRequest | null> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
@@ -150,7 +141,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
         totalPendencies: pendencies.totalCount,
-      } as any;
+      } as SurgeryRequest & {
+        pendenciesCount: number;
+        completedCount: number;
+        totalPendencies: number;
+      };
     }
 
     return entity;
@@ -262,6 +257,50 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     });
   }
 
+  /** Carrega solicitação com todas as relações padrão necessárias para a state machine */
+  async findOneWithAllRelations(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return this.findOneWithRelations(where, [
+      'created_by',
+      'patient',
+      'hospital',
+      'health_plan',
+      'tuss_items',
+      'opme_items',
+      'documents',
+      'analysis',
+      'billing',
+      'contestations',
+    ]);
+  }
+
+  /** Registra mudança de status em status_updates e em activities (deve ser chamado dentro de uma transação) */
+  async recordStatusChange(
+    manager: EntityManager,
+    surgeryRequestId: string,
+    prevStatus: SurgeryRequestStatus,
+    newStatus: SurgeryRequestStatus,
+    userId: string | null = null,
+  ): Promise<void> {
+    const statusUpdateRepo = manager.getRepository(StatusUpdate);
+    await statusUpdateRepo.save({
+      surgery_request_id: surgeryRequestId,
+      prev_status: prevStatus,
+      new_status: newStatus,
+    });
+
+    const activityRepo = manager.getRepository(SurgeryRequestActivity);
+    const prevLabel = getStatusLabel(prevStatus);
+    const newLabel = getStatusLabel(newStatus);
+    await activityRepo.save({
+      surgery_request_id: surgeryRequestId,
+      user_id: userId,
+      type: ActivityType.STATUS_CHANGE,
+      content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
+    });
+  }
+
   async getTemporalEvolution(
     where: FindOptionsWhere<SurgeryRequest>,
     startDate: Date,
@@ -345,7 +384,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       !!(patient?.name && patient?.email),
       !!surgeryRequest.health_plan_id,
       !!procedure,
-      documents.some((d: any) => d.type === 'doctorRequest'),
+      documents.some((d: any) => d.type === DOCUMENT_KEYS.DOCTOR_REQUEST),
     ];
 
     const completedCount = checks.filter(Boolean).length;

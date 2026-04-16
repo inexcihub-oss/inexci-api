@@ -15,6 +15,8 @@ import {
   formatCep,
   formatDateBR,
 } from 'src/shared/utils';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
+import { SendMethod } from 'src/shared/constants/send-method';
 
 @Injectable()
 export class SurgeryRequestPdfAssemblyService {
@@ -48,7 +50,7 @@ export class SurgeryRequestPdfAssemblyService {
    */
   async loadDoctorData(userId: string) {
     const doctor = await this.userRepository.findOneWithProfile({ id: userId });
-    const profile = (doctor as any)?.doctor_profile;
+    const profile = doctor?.doctor_profile;
 
     let doctorCrm: string | undefined;
     if (profile?.crm) {
@@ -66,7 +68,7 @@ export class SurgeryRequestPdfAssemblyService {
   async generateLaudoPdf(
     request: any,
     userId: string,
-  ): Promise<{ pdf: string; method: 'download' }> {
+  ): Promise<{ pdf: string; method: SendMethod.DOWNLOAD }> {
     const { doctor, profile, doctorCrm, doctorSignatureUrl } =
       await this.loadDoctorData(userId);
 
@@ -98,11 +100,11 @@ export class SurgeryRequestPdfAssemblyService {
     }
 
     const pd = reportData.patientData ?? {};
-    const patient = (request as any).patient;
+    const patient = request.patient;
 
     // ── Imagens dos exames ─────────────────────────────────────────────────
-    const allDocs = (request as any).documents ?? [];
-    const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
+    const allDocs = request.documents ?? [];
+    const examDocs = allDocs.filter((d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES);
     const examImages: string[] = (
       await Promise.all(
         examDocs.map(async (doc: any) => {
@@ -119,7 +121,7 @@ export class SurgeryRequestPdfAssemblyService {
     ).filter((u): u is string => !!u);
 
     // ── Procedimentos (TUSS) ─────────────────────────────────────────────
-    const tussItems = (request as any).tuss_items ?? [];
+    const tussItems = request.tuss_items ?? [];
     const procedures = tussItems.map((item: any) => ({
       name: item.name,
       tussCode: item.tuss_code,
@@ -127,7 +129,7 @@ export class SurgeryRequestPdfAssemblyService {
     }));
 
     // ── Materiais (OPME) ─────────────────────────────────────────────────
-    const opmeItemsRaw = (request as any).opme_items ?? [];
+    const opmeItemsRaw = request.opme_items ?? [];
     const opmeItems = opmeItemsRaw.map((item: any) => ({
       name: item.name,
       quantity: item.quantity ?? 1,
@@ -149,7 +151,7 @@ export class SurgeryRequestPdfAssemblyService {
     const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
 
     // ── Hospital (local) ────────────────────────────────────────────────
-    const hospital = (request as any).hospital;
+    const hospital = request.hospital;
     const localText = [hospital?.name, hospital?.address]
       .filter(Boolean)
       .join(' – ');
@@ -169,7 +171,7 @@ export class SurgeryRequestPdfAssemblyService {
         formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
         undefined,
       patientHealthPlan:
-        pd.healthPlan || (request as any).health_plan?.name || undefined,
+        pd.healthPlan || request.health_plan?.name || undefined,
       historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
       conduct: reportData.conduct || undefined,
       examImages: examImages.length ? examImages : undefined,
@@ -197,7 +199,7 @@ export class SurgeryRequestPdfAssemblyService {
       (d: any) =>
         d.uri &&
         String(d.uri).startsWith('documents/') &&
-        d.key !== 'report_images',
+        d.key !== DOCUMENT_KEYS.REPORT_IMAGES,
     );
 
     const docBuffers: Buffer[] = [];
@@ -225,7 +227,7 @@ export class SurgeryRequestPdfAssemblyService {
       ]);
     }
 
-    return { pdf: finalBuffer.toString('base64'), method: 'download' };
+    return { pdf: finalBuffer.toString('base64'), method: SendMethod.DOWNLOAD };
   }
 
   /**
@@ -236,7 +238,7 @@ export class SurgeryRequestPdfAssemblyService {
     id: string,
     userId: string,
   ): Promise<Buffer> {
-    const contestations = (request as any).contestations ?? [];
+    const contestations = request.contestations ?? [];
     const latestContestation = contestations
       .filter((c: any) => c.type === 'authorization')
       .sort(
@@ -248,7 +250,7 @@ export class SurgeryRequestPdfAssemblyService {
       latestContestation?.reason ??
       'Venho por meio deste contestar a negativa de autorização referente aos códigos e materiais OPME solicitados.';
 
-    const patient = (request as any).patient;
+    const patient = request.patient;
 
     const tussItems = await this.dataSource
       .getRepository(SurgeryRequestTussItem)
@@ -261,7 +263,7 @@ export class SurgeryRequestPdfAssemblyService {
       authorizedQuantity: item.authorized_quantity ?? null,
     }));
 
-    const opmeItems = ((request as any).opme_items ?? []).map((item: any) => ({
+    const opmeItems = (request.opme_items ?? []).map((item: any) => ({
       name: item.name,
       requestedQuantity: item.quantity,
       authorizedQuantity:
@@ -285,7 +287,7 @@ export class SurgeryRequestPdfAssemblyService {
       patientPhone: patient?.phone ?? undefined,
       patientAddress: patient?.address ?? undefined,
       patientZipCode: patient?.zip_code ?? patient?.cep ?? undefined,
-      patientHealthPlan: (request as any).health_plan?.name ?? undefined,
+      patientHealthPlan: request.health_plan?.name ?? undefined,
       procedures: procedures.length ? procedures : undefined,
       opmeItems: opmeItems.length ? opmeItems : undefined,
       doctorName: doctor?.name ?? 'Médico',

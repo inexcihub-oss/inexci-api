@@ -427,7 +427,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       const result = await service.deleteCollaborator('collab-1', 'admin-1');
 
-      expect(result).toEqual({ message: 'Colaborador removido com sucesso' });
+      expect(result).toEqual({ message: 'Colaborador desativado com sucesso' });
       expect(mockUserRepository.delete).toHaveBeenCalledWith('collab-1');
     });
 

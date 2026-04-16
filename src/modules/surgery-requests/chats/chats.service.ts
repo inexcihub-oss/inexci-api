@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Logger, Injectable, NotFoundException } from '@nestjs/common';
 import { ChatRepository } from 'src/database/repositories/chat.repository';
 import { FindOptionsWhere, In } from 'typeorm';
 import { CreateMessageDto } from './dto/create-message.dto';
@@ -10,6 +10,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 
 @Injectable()
 export class ChatsService {
+  private readonly logger = new Logger(ChatsService.name);
   constructor(
     private readonly chatMessageRepository: ChatMessageRepository,
     private readonly chatRepository: ChatRepository,

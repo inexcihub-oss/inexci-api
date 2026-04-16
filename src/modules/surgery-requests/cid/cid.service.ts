@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { FindManyCidDto } from './dto/find-many-cid.controller.dto';
-import * as cidData from '../../../utils/cid.json';
+import * as cidData from 'src/utils/cid.json';
 
 interface CidItem {
   codigo: string;
@@ -17,7 +17,7 @@ export class CidService {
   private cidList: CidItem[];
 
   constructor() {
-    this.cidList = (cidData as any).rows;
+    this.cidList = (cidData as { rows: CidItem[] }).rows;
   }
 
   async findAll(query: FindManyCidDto) {

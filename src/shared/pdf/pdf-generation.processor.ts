@@ -19,6 +19,7 @@ import {
   formatCep,
   formatDateBR,
 } from 'src/shared/utils';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
 @Processor('pdf-generation')
 export class PdfGenerationProcessor {
@@ -119,11 +120,11 @@ export class PdfGenerationProcessor {
       }
 
       const pd = reportData.patientData ?? {};
-      const patient = (request as any).patient;
+      const patient = request.patient;
 
       // ── Imagens dos exames (documentos com key report_images) ─────────────
-      const allDocs = (request as any).documents ?? [];
-      const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
+      const allDocs = request.documents ?? [];
+      const examDocs = allDocs.filter((d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES);
       const examImages: string[] = (
         await Promise.all(
           examDocs.map(async (doc: any) => {
@@ -140,7 +141,7 @@ export class PdfGenerationProcessor {
       ).filter((u): u is string => !!u);
 
       // ── Procedimentos (TUSS) ──────────────────────────────────────────────
-      const tussItems = (request as any).tuss_items ?? [];
+      const tussItems = request.tuss_items ?? [];
       const procedures = tussItems.map((item: any) => ({
         name: item.name,
         tussCode: item.tuss_code,
@@ -148,7 +149,7 @@ export class PdfGenerationProcessor {
       }));
 
       // ── Materiais (OPME) ──────────────────────────────────────────────────
-      const opmeItemsRaw = (request as any).opme_items ?? [];
+      const opmeItemsRaw = request.opme_items ?? [];
       const opmeItems = opmeItemsRaw.map((item: any) => ({
         name: item.name,
         quantity: item.quantity ?? 1,
@@ -170,7 +171,7 @@ export class PdfGenerationProcessor {
       const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
 
       // ── Hospital (local) ──────────────────────────────────────────────────
-      const hospital = (request as any).hospital;
+      const hospital = request.hospital;
       const localText = [hospital?.name, hospital?.address]
         .filter(Boolean)
         .join(' – ');
@@ -197,7 +198,7 @@ export class PdfGenerationProcessor {
             formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
             undefined,
           patientHealthPlan:
-            pd.healthPlan || (request as any).health_plan?.name || undefined,
+            pd.healthPlan || request.health_plan?.name || undefined,
           historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
           conduct: reportData.conduct || undefined,
           examImages: examImages.length ? examImages : undefined,
@@ -226,7 +227,7 @@ export class PdfGenerationProcessor {
         (d: any) =>
           d.uri &&
           String(d.uri).startsWith('documents/') &&
-          d.key !== 'report_images',
+          d.key !== DOCUMENT_KEYS.REPORT_IMAGES,
       );
 
       const docBuffers: Buffer[] = [];

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -9,6 +9,8 @@ import { StorageService } from 'src/shared/storage/storage.service';
 
 @Injectable()
 export class ActivitiesService {
+  private readonly logger = new Logger(ActivitiesService.name);
+
   constructor(
     private readonly activityRepository: SurgeryRequestActivityRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
@@ -37,6 +39,7 @@ export class ActivitiesService {
             }
           } catch {
             // conteúdo não é JSON — usa o texto bruto
+            this.logger.warn(`Atividade ${a.id}: conteúdo não é JSON válido, usando texto bruto`);
           }
         }
 

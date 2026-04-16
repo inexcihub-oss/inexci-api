@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Logger, Injectable, NotFoundException } from '@nestjs/common';
 import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
@@ -9,6 +9,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 
 @Injectable()
 export class SuppliersService {
+  private readonly logger = new Logger(SuppliersService.name);
   constructor(
     private readonly supplierRepository: SupplierRepository,
     private readonly accessControlService: AccessControlService,
@@ -21,7 +22,9 @@ export class SuppliersService {
       return { total: 0, records: [] };
     }
 
-    const where: FindOptionsWhere<Supplier> = { doctor_id: In(doctorIds) };
+    const where: FindOptionsWhere<Supplier> = {
+      doctor_id: In(doctorIds),
+    };
 
     const [total, records] = await Promise.all([
       this.supplierRepository.total(where),

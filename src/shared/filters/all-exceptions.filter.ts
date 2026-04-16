@@ -28,17 +28,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (typeof exResponse === 'string') {
         message = exResponse;
       } else if (typeof exResponse === 'object' && exResponse !== null) {
-        const res = exResponse as any;
-        message = res.message || message;
+        const res = exResponse as Record<string, unknown>;
+        message = (res.message as string | string[]) || message;
         details = res.details;
       }
     } else if (exception instanceof QueryFailedError) {
       status = HttpStatus.BAD_REQUEST;
       message = 'Erro na operação do banco de dados';
-      this.logger.error(
-        `DB Error: ${exception.message}`,
-        exception.stack,
-      );
+      this.logger.error(`DB Error: ${exception.message}`, exception.stack);
     } else if (exception instanceof EntityNotFoundError) {
       status = HttpStatus.NOT_FOUND;
       message = 'Recurso não encontrado';

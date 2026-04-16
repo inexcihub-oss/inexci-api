@@ -7,7 +7,13 @@ import { SurgeryRequestWorkflowService } from './surgery-request-workflow.servic
 import { SurgeryRequestBillingService } from './surgery-request-billing.service';
 import { SurgeryRequestNotificationService } from './surgery-request-notification.service';
 import { SurgeryRequestPdfAssemblyService } from './surgery-request-pdf-assembly.service';
+import { SendAnalysisHandler } from './workflow/send-analysis.handler';
+import { AuthorizationHandler } from './workflow/authorization.handler';
+import { SchedulingHandler } from './workflow/scheduling.handler';
+import { ExecutionHandler } from './workflow/execution.handler';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { ContestationRepository } from 'src/database/repositories/contestation.repository';
+import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
 
@@ -15,8 +21,6 @@ import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
-import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
-import { Contestation } from 'src/database/entities/contestation.entity';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,16 +77,17 @@ describe('SurgeryRequestWorkflowService', () => {
   >;
   let billingService: jest.Mocked<Partial<SurgeryRequestBillingService>>;
   let reportSectionRepo: jest.Mocked<Partial<Repository<ReportSection>>>;
-  let contestationRepo: jest.Mocked<Partial<Repository<Contestation>>>;
-  let analysisRepo: jest.Mocked<Partial<Repository<SurgeryRequestAnalysis>>>;
+  let contestationRepository: jest.Mocked<Partial<ContestationRepository>>;
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     surgeryRequestRepository = {
       findOneWithRelations: jest.fn(),
+      findOneWithAllRelations: jest.fn(),
       findOneSimple: jest.fn(),
       update: jest.fn(),
       findMany: jest.fn(),
+      recordStatusChange: jest.fn().mockResolvedValue(undefined),
     };
 
     mailService = {
@@ -118,12 +123,8 @@ describe('SurgeryRequestWorkflowService', () => {
       count: jest.fn(),
     };
 
-    contestationRepo = {
-      save: jest.fn().mockResolvedValue({}),
-    };
-
-    analysisRepo = {
-      save: jest.fn().mockResolvedValue({}),
+    contestationRepository = {
+      create: jest.fn().mockResolvedValue({}),
     };
 
     // Mock DataSource.transaction to execute the callback with a mock manager
@@ -137,6 +138,10 @@ describe('SurgeryRequestWorkflowService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SurgeryRequestWorkflowService,
+        SendAnalysisHandler,
+        AuthorizationHandler,
+        SchedulingHandler,
+        ExecutionHandler,
         { provide: DataSource, useValue: dataSource },
         { provide: MailService, useValue: mailService },
         { provide: PdfGenerationService, useValue: pdfGenerationService },
@@ -145,12 +150,8 @@ describe('SurgeryRequestWorkflowService', () => {
           useValue: surgeryRequestRepository,
         },
         {
-          provide: getRepositoryToken(SurgeryRequestAnalysis),
-          useValue: analysisRepo,
-        },
-        {
-          provide: getRepositoryToken(Contestation),
-          useValue: contestationRepo,
+          provide: ContestationRepository,
+          useValue: contestationRepository,
         },
         {
           provide: getRepositoryToken(ReportSection),
@@ -175,31 +176,39 @@ describe('SurgeryRequestWorkflowService', () => {
 
   describe('sendRequest', () => {
     it('should throw NotFoundException when request not found', async () => {
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(null);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(null);
 
       await expect(
-        service.sendRequest('non-existent', { method: 'download' }, 'user-1'),
+        service.sendRequest(
+          'non-existent',
+          { method: SendMethod.DOWNLOAD },
+          'user-1',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException when no report sections exist', async () => {
       const request = makeRequest();
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
       reportSectionRepo.count.mockResolvedValue(0);
 
       await expect(
-        service.sendRequest('req-1', { method: 'download' }, 'user-1'),
+        service.sendRequest('req-1', { method: SendMethod.DOWNLOAD }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should succeed and return download when method is download', async () => {
       const request = makeRequest();
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
       reportSectionRepo.count.mockResolvedValue(3);
 
       const result = await service.sendRequest(
         'req-1',
-        { method: 'download' },
+        { method: SendMethod.DOWNLOAD },
         'user-1',
       );
 
@@ -214,12 +223,14 @@ describe('SurgeryRequestWorkflowService', () => {
 
     it('should send email when method is email with destination', async () => {
       const request = makeRequest();
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
       reportSectionRepo.count.mockResolvedValue(1);
 
       const result = await service.sendRequest(
         'req-1',
-        { method: 'email', to: 'test@test.com' },
+        { method: SendMethod.EMAIL, to: 'test@test.com' },
         'user-1',
       );
 
@@ -227,15 +238,17 @@ describe('SurgeryRequestWorkflowService', () => {
         'test@test.com',
         expect.objectContaining({ patientName: 'Paciente Test' }),
       );
-      expect(result).toEqual({ sent: true, method: 'email' });
+      expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });
     });
 
     it('should throw when status is not PENDING', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
-        service.sendRequest('req-1', { method: 'download' }, 'user-1'),
+        service.sendRequest('req-1', { method: SendMethod.DOWNLOAD }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -245,7 +258,9 @@ describe('SurgeryRequestWorkflowService', () => {
   describe('startAnalysis', () => {
     it('should throw when status is not SENT', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.PENDING });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
         service.startAnalysis(
@@ -258,7 +273,9 @@ describe('SurgeryRequestWorkflowService', () => {
 
     it('should succeed when status is SENT', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.SENT });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await service.startAnalysis(
         'req-1',
@@ -276,7 +293,9 @@ describe('SurgeryRequestWorkflowService', () => {
   describe('acceptAuthorization', () => {
     it('should throw when status is not IN_ANALYSIS', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.PENDING });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
         service.acceptAuthorization(
@@ -289,7 +308,9 @@ describe('SurgeryRequestWorkflowService', () => {
 
     it('should succeed when status is IN_ANALYSIS', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await service.acceptAuthorization(
         'req-1',
@@ -307,12 +328,14 @@ describe('SurgeryRequestWorkflowService', () => {
   describe('contestAuthorization', () => {
     it('should throw when status is not IN_ANALYSIS', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.SENT });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
         service.contestAuthorization(
           'req-1',
-          { reason: 'Negado', method: 'email', to: 'a@b.com' },
+          { reason: 'Negado', method: SendMethod.EMAIL, to: 'a@b.com' },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -320,15 +343,21 @@ describe('SurgeryRequestWorkflowService', () => {
 
     it('should save contestation and send email when method is email', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       const result = await service.contestAuthorization(
         'req-1',
-        { reason: 'Negado pelo plano', method: 'email', to: 'plano@test.com' },
+        {
+          reason: 'Negado pelo plano',
+          method: SendMethod.EMAIL,
+          to: 'plano@test.com',
+        },
         'user-1',
       );
 
-      expect(contestationRepo.save).toHaveBeenCalledWith(
+      expect(contestationRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           surgery_request_id: 'req-1',
           type: 'authorization',
@@ -336,7 +365,7 @@ describe('SurgeryRequestWorkflowService', () => {
         }),
       );
       expect(mailService.sendSurgeryContested).toHaveBeenCalled();
-      expect(result).toEqual({ sent: true, method: 'email' });
+      expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });
     });
   });
 
@@ -345,7 +374,9 @@ describe('SurgeryRequestWorkflowService', () => {
   describe('confirmDate', () => {
     it('should throw when status is not IN_SCHEDULING', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
         service.confirmDate('req-1', { selected_date_index: 0 }, 'user-1'),
@@ -357,7 +388,9 @@ describe('SurgeryRequestWorkflowService', () => {
         status: SurgeryRequestStatus.IN_SCHEDULING,
         date_options: ['2026-03-01'],
       });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
         service.confirmDate(
@@ -373,7 +406,9 @@ describe('SurgeryRequestWorkflowService', () => {
         status: SurgeryRequestStatus.IN_SCHEDULING,
         date_options: ['2026-03-01', '2026-03-10'] as any,
       });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await service.confirmDate('req-1', { selected_date_index: 0 }, 'user-1');
 
@@ -450,7 +485,9 @@ describe('SurgeryRequestWorkflowService', () => {
       const request = makeRequest({
         status: SurgeryRequestStatus.IN_SCHEDULING,
       });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await expect(
         service.markPerformed(
@@ -463,7 +500,9 @@ describe('SurgeryRequestWorkflowService', () => {
 
     it('should succeed when status is SCHEDULED', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.SCHEDULED });
-      surgeryRequestRepository.findOneWithRelations.mockResolvedValue(request);
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
 
       await service.markPerformed(
         'req-1',

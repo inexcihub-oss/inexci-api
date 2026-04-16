@@ -17,7 +17,7 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
 import { STORAGE_FOLDERS } from '../../config/storage.config';
 
-const ALLOWED_FOLDERS = Object.values(STORAGE_FOLDERS);
+const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
 @Controller('upload')
 export class UploadController {
@@ -38,7 +38,7 @@ export class UploadController {
       throw new BadRequestException('Nenhum arquivo foi enviado');
     }
 
-    if (!folder || !ALLOWED_FOLDERS.includes(folder as any)) {
+    if (!folder || !ALLOWED_FOLDERS.includes(folder)) {
       throw new BadRequestException(
         `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
       );
@@ -69,7 +69,7 @@ export class UploadController {
       throw new BadRequestException('Nenhum arquivo foi enviado');
     }
 
-    if (!folder || !ALLOWED_FOLDERS.includes(folder as any)) {
+    if (!folder || !ALLOWED_FOLDERS.includes(folder)) {
       throw new BadRequestException(
         `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
       );

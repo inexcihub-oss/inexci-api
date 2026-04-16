@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ReportSection } from 'src/database/entities/report-section.entity';
@@ -13,6 +9,7 @@ import { PdfService, MedicalReportPdfData } from 'src/shared/pdf/pdf.service';
 import { CreateReportSectionDto } from '../dto/create-report-section.dto';
 import { UpdateReportSectionDto } from '../dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from '../dto/reorder-report-sections.dto';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
 @Injectable()
 export class SurgeryRequestReportService {
@@ -136,14 +133,16 @@ export class SurgeryRequestReportService {
 
     // ── Dados do médico com perfil ─────────────────────────────────────────
     const doctor = await this.userRepository.findOneWithProfile({ id: userId });
-    const profile = (doctor as any)?.doctor_profile;
+    const profile = doctor?.doctor_profile;
 
     // ── Imagens dos exames (signed URLs) ───────────────────────────────────
-    const allDocs = (request as any).documents ?? [];
+    const allDocs = request.documents ?? [];
     this.logger.log(
       `[PDF] Total documents: ${allDocs.length} | keys: ${allDocs.map((d: any) => d.key).join(', ')}`,
     );
-    const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
+    const examDocs = allDocs.filter(
+      (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
+    );
     this.logger.log(
       `[PDF] examDocs count: ${examDocs.length} | uris: ${examDocs.map((d: any) => String(d.uri).substring(0, 80)).join(' | ')}`,
     );
@@ -192,7 +191,7 @@ export class SurgeryRequestReportService {
 
     // ── Dados do paciente (prioridade: medical_report > entidade patient) ──
     const pd = reportData.patientData ?? {};
-    const patient = (request as any).patient;
+    const patient = request.patient;
 
     const pdfData: MedicalReportPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),
@@ -202,14 +201,13 @@ export class SurgeryRequestReportService {
         (patient?.birth_date
           ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
           : undefined),
-      patientRg: pd.rg || patient?.rg || undefined,
+      patientRg: pd.rg || undefined,
       patientCpf: pd.cpf || patient?.cpf || undefined,
       patientPhone: pd.phone || patient?.phone || undefined,
       patientAddress: pd.address || patient?.address || undefined,
-      patientZipCode:
-        pd.zipCode || patient?.zip_code || patient?.cep || undefined,
+      patientZipCode: pd.zipCode || patient?.zip_code || undefined,
       patientHealthPlan:
-        pd.healthPlan || (request as any).health_plan?.name || undefined,
+        pd.healthPlan || request.health_plan?.name || undefined,
       sections: reportSections.length
         ? reportSections.map((s) => ({
             title: s.title,

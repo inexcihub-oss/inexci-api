@@ -18,7 +18,7 @@ export class TussService {
   private tussList: TussItem[];
 
   constructor() {
-    this.tussList = (tussData as any).rows;
+    this.tussList = (tussData as { rows: TussItem[] }).rows;
   }
 
   search(search?: string, limit: number = 50): TussResponse[] {

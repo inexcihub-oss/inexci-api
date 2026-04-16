@@ -1,4 +1,5 @@
-import { IsIn, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { IsEnum, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { SendMethod } from 'src/shared/constants/send-method';
 
 /**
  * POST /surgery-requests/:id/contest-authorization
@@ -8,18 +9,18 @@ export class ContestAuthorizationDto {
   @IsString()
   reason: string;
 
-  @IsIn(['email', 'document'])
-  method: 'email' | 'document';
+  @IsEnum(SendMethod)
+  method: SendMethod;
 
-  @ValidateIf((o) => o.method === 'email')
+  @ValidateIf((o) => o.method === SendMethod.EMAIL)
   @IsString()
   to?: string;
 
-  @ValidateIf((o) => o.method === 'email')
+  @ValidateIf((o) => o.method === SendMethod.EMAIL)
   @IsString()
   subject?: string;
 
-  @ValidateIf((o) => o.method === 'email')
+  @ValidateIf((o) => o.method === SendMethod.EMAIL)
   @IsString()
   message?: string;
 

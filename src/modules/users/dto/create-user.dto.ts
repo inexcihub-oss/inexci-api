@@ -1,5 +1,4 @@
-import { Mask } from '@tboerc/maskfy';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
   IsEmail,
   IsIn,
@@ -8,6 +7,7 @@ import {
   IsString,
 } from 'class-validator';
 import { UserRole } from 'src/database/entities/user.entity';
+import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 
 export class CreateUserDto {
   @IsOptional()
@@ -26,6 +26,6 @@ export class CreateUserDto {
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }) => (value ? Mask.phone.raw(value) : value))
+  @PhoneTransform()
   phone?: string;
 }

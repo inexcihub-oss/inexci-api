@@ -3,9 +3,15 @@ import {
   FindOptionsWhere,
   DeepPartial,
   ObjectLiteral,
+  QueryDeepPartialEntity,
 } from 'typeorm';
 
-export abstract class BaseRepository<T extends ObjectLiteral> {
+/** Interface que garante a presença de campo `id` para operações de update/findOne por id */
+interface HasId {
+  id: string;
+}
+
+export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
   constructor(protected readonly repository: Repository<T>) {}
 
   async findOne(where: FindOptionsWhere<T>): Promise<T | null> {
@@ -31,13 +37,13 @@ export abstract class BaseRepository<T extends ObjectLiteral> {
     return this.repository.save(entity);
   }
 
-  async update(id: string, data: Partial<T>): Promise<T | null> {
-    await this.repository.update(id, data as any);
-    return this.findOne({ id } as any);
+  async update(id: string, data: QueryDeepPartialEntity<T>): Promise<T | null> {
+    await this.repository.update(id, data);
+    return this.findOne({ id } as FindOptionsWhere<T>);
   }
 
   async delete(id: string): Promise<void> {
-    await this.repository.delete(id);
+    await this.repository.softDelete(id);
   }
 
   getRepository(): Repository<T> {

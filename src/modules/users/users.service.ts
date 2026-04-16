@@ -2,6 +2,7 @@ import * as bcrypt from 'bcrypt';
 import { FindOptionsWhere, Not, In } from 'typeorm';
 import {
   BadRequestException,
+  Logger,
   Injectable,
   NotFoundException,
   ForbiddenException,
@@ -34,6 +35,7 @@ import { generateTemporaryPassword } from 'src/shared/utils';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
   constructor(
     private readonly userRepository: UserRepository,
     private readonly emailService: EmailService,
@@ -141,7 +143,7 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
     // Remove senha do retorno
-    const { password, ...userWithoutPassword } = user as any;
+    const { password, ...userWithoutPassword } = user;
 
     // Gerar signed URL para assinatura do médico (bucket privado)
     const profile = userWithoutPassword.doctor_profile;
@@ -719,7 +721,7 @@ export class UsersService {
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
     await this.userRepository.delete(collaboratorId);
-    return { message: 'Colaborador removido com sucesso' };
+    return { message: 'Colaborador desativado com sucesso' };
   }
 
   // ============ MÉDICOS DA CONTA ============
@@ -739,7 +741,7 @@ export class UsersService {
 
     return {
       records: doctors.map((d) => {
-        const { password, ...rest } = d as any;
+        const { password, ...rest } = d;
         return rest;
       }),
     };
@@ -767,7 +769,7 @@ export class UsersService {
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    const { password, ...userWithoutPassword } = collaborator as any;
+    const { password, ...userWithoutPassword } = collaborator;
 
     return {
       ...userWithoutPassword,

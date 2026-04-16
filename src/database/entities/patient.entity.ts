@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   OneToMany,
   JoinColumn,
@@ -89,6 +90,9 @@ export class Patient {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @DeleteDateColumn()
+  deleted_at: Date;
 
   // ============ RELAÇÕES ============
 

@@ -2,7 +2,7 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
-  Injectable,
+  Logger, Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -30,6 +30,7 @@ import { generateValidationCode } from 'src/shared/utils';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly userRepository: UserRepository,
     private readonly recoveryCodeRepository: RecoveryCodeRepository,

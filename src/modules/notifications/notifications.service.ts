@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { MessageResponse } from 'src/shared/types/api-responses';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -67,17 +68,23 @@ export class NotificationsService {
     return await this.notificationRepository.countUnread(userId);
   }
 
-  async markAsRead(notificationId: string, userId: string) {
+  async markAsRead(
+    notificationId: string,
+    userId: string,
+  ): Promise<MessageResponse> {
     await this.notificationRepository.markAsRead(notificationId, userId);
     return { message: 'Notificação marcada como lida' };
   }
 
-  async markAllAsRead(userId: string) {
+  async markAllAsRead(userId: string): Promise<MessageResponse> {
     await this.notificationRepository.markAllAsRead(userId);
     return { message: 'Todas as notificações marcadas como lidas' };
   }
 
-  async deleteNotification(notificationId: string, userId: string) {
+  async deleteNotification(
+    notificationId: string,
+    userId: string,
+  ): Promise<MessageResponse> {
     await this.notificationRepository.deleteByUser(notificationId, userId);
     return { message: 'Notificação removida' };
   }

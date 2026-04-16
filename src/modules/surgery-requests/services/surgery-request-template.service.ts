@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Logger, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { SurgeryRequestTemplate } from 'src/database/entities/surgery-request-template.entity';
 
 @Injectable()
 export class SurgeryRequestTemplateService {
+  private readonly logger = new Logger(SurgeryRequestTemplateService.name);
   constructor(private readonly dataSource: DataSource) {}
 
   async createTemplate(
@@ -14,7 +15,7 @@ export class SurgeryRequestTemplateService {
     const template = templateRepo.create({
       doctor_id: userId,
       name: dto.name,
-      template_data: dto.template_data as any,
+      template_data: dto.template_data,
     });
     return templateRepo.save(template);
   }

@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Logger,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 
 @Injectable()
 export class HospitalsService {
+  private readonly logger = new Logger(HospitalsService.name);
   constructor(
     private readonly hospitalRepository: HospitalRepository,
     private readonly accessControlService: AccessControlService,
@@ -25,7 +27,9 @@ export class HospitalsService {
       return { total: 0, records: [] };
     }
 
-    const where: FindOptionsWhere<Hospital> = { doctor_id: In(doctorIds) };
+    const where: FindOptionsWhere<Hospital> = {
+      doctor_id: In(doctorIds),
+    };
 
     const [total, records] = await Promise.all([
       this.hospitalRepository.total(where),
@@ -64,5 +68,10 @@ export class HospitalsService {
     const hospital = await this.hospitalRepository.findOne({ id });
     if (!hospital) throw new NotFoundException('Hospital não encontrado');
     return this.hospitalRepository.update(id, data);
+  }
+  async delete(id: string): Promise<void> {
+    const hospital = await this.hospitalRepository.findOne({ id });
+    if (!hospital) throw new NotFoundException('Hospital não encontrado');
+    await this.hospitalRepository.delete(id);
   }
 }

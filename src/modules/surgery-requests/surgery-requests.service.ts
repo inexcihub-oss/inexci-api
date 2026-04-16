@@ -1,25 +1,15 @@
-import { FindOptionsWhere, In, Repository } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 
-import { UsersService } from '../users/users.service';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { SurgeryRequestQuotationRepository } from 'src/database/repositories/surgery-request-quotation.repository';
-import {
-  SurgeryRequest,
-  SurgeryRequestStatus,
-} from 'src/database/entities/surgery-request.entity';
-import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
-import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
-import { Contestation } from 'src/database/entities/contestation.entity';
+import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
-import { PendencyValidatorService } from './pendencies/pendency-validator.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
 // ── DTOs de transição ────────────────────────────────────────────────────────
@@ -36,10 +26,13 @@ import { ConfirmReceiptDto } from './dto/confirm-receipt.dto';
 import { ContestPaymentDto } from './dto/contest-payment.dto';
 import { UpdateReceiptDto } from './dto/update-receipt.dto';
 import { CloseSurgeryRequestDto } from './dto/close-surgery-request.dto';
-import { ReportSection } from 'src/database/entities/report-section.entity';
 import { CreateReportSectionDto } from './dto/create-report-section.dto';
 import { UpdateReportSectionDto } from './dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
+import {
+  transformDocumentUrls,
+  transformDoctorSignatureUrl,
+} from 'src/shared/transformers/signed-url.transformer';
 
 // ── Sub-services ─────────────────────────────────────────────────────────────
 import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
@@ -47,27 +40,18 @@ import { SurgeryRequestReportService } from './services/surgery-request-report.s
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
 import { SurgeryRequestLegacyService } from './services/surgery-request-legacy.service';
+import { SendMethod } from 'src/shared/constants/send-method';
+import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 @Injectable()
 export class SurgeryRequestsService {
   private readonly logger = new Logger(SurgeryRequestsService.name);
 
   constructor(
-    private readonly pendencyValidatorService: PendencyValidatorService,
-    private readonly userService: UsersService,
     private readonly storageService: StorageService,
     private readonly accessControlService: AccessControlService,
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly surgeryRequestQuotationRepository: SurgeryRequestQuotationRepository,
-    @InjectRepository(SurgeryRequestAnalysis)
-    private readonly analysisRepository: Repository<SurgeryRequestAnalysis>,
-    @InjectRepository(SurgeryRequestBilling)
-    private readonly billingRepository: Repository<SurgeryRequestBilling>,
-    @InjectRepository(Contestation)
-    private readonly contestationRepository: Repository<Contestation>,
-    @InjectRepository(ReportSection)
-    private readonly reportSectionRepository: Repository<ReportSection>,
     // ── Sub-services ───────────────────────────────────────────────────────
     private readonly mutationService: SurgeryRequestMutationService,
     private readonly workflowService: SurgeryRequestWorkflowService,
@@ -95,7 +79,7 @@ export class SurgeryRequestsService {
   async findAll(query: FindManySurgeryRequestDto, userId: string) {
     let where: FindOptionsWhere<SurgeryRequest> = {};
     const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
     if (query.status) {
       where = { ...where, status: In(query.status) };
@@ -119,7 +103,7 @@ export class SurgeryRequestsService {
   async findOne(id: string, userId: string) {
     let where: FindOptionsWhere<SurgeryRequest> = { id };
     const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
@@ -129,10 +113,10 @@ export class SurgeryRequestsService {
 
     const surgeryRequest = await this.surgeryRequestRepository.findOne(where);
     if (!surgeryRequest)
-      throw new NotFoundException('Surgery request not found');
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     // Computar campo `receipt` derivado de `billing`
-    const billing = (surgeryRequest as any).billing;
+    const billing = surgeryRequest.billing;
     const receipt =
       billing?.received_value != null
         ? {
@@ -147,48 +131,27 @@ export class SurgeryRequestsService {
           }
         : null;
 
-    // Converter uri dos documentos para URL pública do Supabase
-    const rawRequest = surgeryRequest as any;
-    if (Array.isArray(rawRequest.documents)) {
-      rawRequest.documents = await Promise.all(
-        rawRequest.documents.map(async (doc: any) => {
-          try {
-            return {
-              ...doc,
-              path: doc.uri,
-              uri: await this.storageService.getSignedUrl(doc.uri),
-            };
-          } catch {
-            return doc;
-          }
-        }),
+    // Converter uri dos documentos e signature_url do médico para URLs assinadas do Supabase
+    if (Array.isArray(surgeryRequest.documents)) {
+      surgeryRequest.documents = await transformDocumentUrls(
+        surgeryRequest.documents,
+        this.storageService,
+      );
+    }
+    if (surgeryRequest.doctor) {
+      surgeryRequest.doctor = await transformDoctorSignatureUrl(
+        surgeryRequest.doctor,
+        this.storageService,
       );
     }
 
-    // Converter signature_url do médico para URL pública do Supabase
-    if (
-      rawRequest.doctor?.signature_url &&
-      !rawRequest.doctor.signature_url.startsWith('http')
-    ) {
-      try {
-        rawRequest.doctor = {
-          ...rawRequest.doctor,
-          signature_url: await this.storageService.getSignedUrl(
-            rawRequest.doctor.signature_url,
-          ),
-        };
-      } catch {
-        // mantém o path original em caso de erro
-      }
-    }
-
-    return { ...rawRequest, receipt };
+    return { ...surgeryRequest, receipt };
   }
 
   async findOneSimple(id: string, userId: string) {
     let where: FindOptionsWhere<SurgeryRequest> = { id };
     const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
@@ -199,7 +162,7 @@ export class SurgeryRequestsService {
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
     if (!surgeryRequest)
-      throw new NotFoundException('Surgery request not found');
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     return surgeryRequest;
   }
 
@@ -306,7 +269,7 @@ export class SurgeryRequestsService {
   send(data: any, userId: string) {
     return this.workflowService.sendRequest(
       data.id,
-      { method: 'download' },
+      { method: SendMethod.DOWNLOAD },
       userId,
     );
   }

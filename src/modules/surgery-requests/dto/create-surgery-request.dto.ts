@@ -1,4 +1,3 @@
-import { Mask } from '@tboerc/maskfy';
 import { Transform, Type } from 'class-transformer';
 import {
   Allow,
@@ -8,6 +7,7 @@ import {
   IsString,
   ValidateIf,
 } from 'class-validator';
+import { stripObjectPhoneMask } from 'src/shared/pipes/phone-mask.pipe';
 
 export class CreateSurgeryRequestDto {
   @IsBoolean()
@@ -23,11 +23,7 @@ export class CreateSurgeryRequestDto {
   procedure_id?: string;
 
   @Allow()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
-
-    return value;
-  })
+  @Transform(({ value }) => stripObjectPhoneMask(value))
   patient: {
     name: string;
     email: string;
@@ -35,11 +31,7 @@ export class CreateSurgeryRequestDto {
   };
 
   @Allow()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
-
-    return value;
-  })
+  @Transform(({ value }) => stripObjectPhoneMask(value))
   collaborator: {
     status: number;
     name: string;
@@ -49,11 +41,7 @@ export class CreateSurgeryRequestDto {
   };
 
   @Allow()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
-
-    return value;
-  })
+  @Transform(({ value }) => stripObjectPhoneMask(value))
   health_plan: {
     name: string;
     email: string;
@@ -61,12 +49,7 @@ export class CreateSurgeryRequestDto {
   };
 
   @Allow()
-  @Transform(({ value }) => {
-    if (value?.phone) {
-      value.phone = Mask.phone.raw(value.phone);
-    }
-    return value;
-  })
+  @Transform(({ value }) => stripObjectPhoneMask(value))
   hospital?: {
     name: string;
     email: string;

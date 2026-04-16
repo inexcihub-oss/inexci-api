@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Logger, Injectable } from '@nestjs/common';
 import { FindOptionsWhere, Between, LessThan, In } from 'typeorm';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import {
@@ -9,6 +9,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly accessControlService: AccessControlService,
@@ -61,7 +62,7 @@ export class ReportsService {
       totalByStatus,
       totalByHospital,
     ]: any = await Promise.all([
-      this.surgeryRequestRepository.sumInvoiced(where),
+      this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
       this.surgeryRequestRepository.totalByHealthPlan(doctorIds),
       this.surgeryRequestRepository.totalByStatus(doctorIds),
       this.surgeryRequestRepository.totalByHospital(doctorIds),

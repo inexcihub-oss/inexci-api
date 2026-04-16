@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   OneToOne,
   OneToMany,
   ManyToOne,
@@ -99,6 +100,9 @@ export class User {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @DeleteDateColumn()
+  deleted_at: Date;
 
   // ============ RELAÇÕES ============
 

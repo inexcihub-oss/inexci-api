@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Logger,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 
 @Injectable()
 export class HealthPlansService {
+  private readonly logger = new Logger(HealthPlansService.name);
   constructor(
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly accessControlService: AccessControlService,
@@ -25,13 +27,18 @@ export class HealthPlansService {
       return { total: 0, records: [] };
     }
 
-    const where: FindOptionsWhere<HealthPlan> = { doctor_id: In(doctorIds) };
+    const where: FindOptionsWhere<HealthPlan> = {
+      doctor_id: In(doctorIds),
+    };
 
     const [total, records] = await Promise.all([
       this.healthPlanRepository.total(where),
       this.healthPlanRepository.findMany(where, query.skip, query.take),
     ]);
 
+    this.logger.debug(
+      `findAll: ${total} convênios encontrados para userId=${userId}`,
+    );
     return { total, records };
   }
 
@@ -53,16 +60,28 @@ export class HealthPlansService {
       );
     }
 
-    return this.healthPlanRepository.create({
+    const healthPlan = await this.healthPlanRepository.create({
       ...data,
       doctor_id: doctorId,
       active: true,
     });
+    this.logger.log(
+      `Convênio criado: id=${healthPlan.id}, name=${healthPlan.name}`,
+    );
+    return healthPlan;
   }
 
   async update(id: string, data: UpdateHealthPlanDto): Promise<HealthPlan> {
     const healthPlan = await this.healthPlanRepository.findOne({ id });
     if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
+    this.logger.log(`Convênio atualizado: id=${id}`);
     return this.healthPlanRepository.update(id, data);
+  }
+
+  async delete(id: string): Promise<void> {
+    const healthPlan = await this.healthPlanRepository.findOne({ id });
+    if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
+    await this.healthPlanRepository.delete(id);
+    this.logger.log(`Convênio soft-deleted: id=${id}`);
   }
 }

@@ -112,7 +112,12 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1"
+      "^src/(.*)$": "<rootDir>/$1",
+      "^@shared/(.*)$": "<rootDir>/shared/$1",
+      "^@modules/(.*)$": "<rootDir>/modules/$1",
+      "^@entities/(.*)$": "<rootDir>/database/entities/$1",
+      "^@repositories/(.*)$": "<rootDir>/database/repositories/$1",
+      "^@utils/(.*)$": "<rootDir>/utils/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
