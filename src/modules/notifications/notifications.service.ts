@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -9,6 +9,8 @@ import { EmailService } from 'src/shared/email/email.service';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(
     private readonly notificationRepository: NotificationRepository,
     private readonly settingsRepository: UserNotificationSettingsRepository,
@@ -76,7 +78,7 @@ export class NotificationsService {
   }
 
   async deleteNotification(notificationId: string, userId: string) {
-    await this.notificationRepository.delete(notificationId, userId);
+    await this.notificationRepository.deleteByUser(notificationId, userId);
     return { message: 'Notificação removida' };
   }
 
@@ -152,7 +154,7 @@ export class NotificationsService {
         `,
       );
     } catch (error) {
-      console.error('Erro ao enviar e-mail de notificação:', error);
+      this.logger.error('Erro ao enviar e-mail de notificacao', error);
     }
   }
 

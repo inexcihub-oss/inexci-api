@@ -81,6 +81,7 @@ export class PendencyValidatorService {
         'billing',
         'contestations',
         'doctor',
+        'doctor.doctor_profile',
         'report_sections',
       ],
     });
@@ -161,7 +162,7 @@ export class PendencyValidatorService {
           },
           {
             label: 'Assinatura do médico configurada',
-            done: !!request.doctor?.signature_url,
+            done: !!request.doctor?.doctor_profile?.signature_url,
           },
         ];
       }
@@ -251,7 +252,7 @@ export class PendencyValidatorService {
         return (
           patientComplete &&
           sections.length > 0 &&
-          !!request.doctor?.signature_url
+          !!request.doctor?.doctor_profile?.signature_url
         );
       }
 

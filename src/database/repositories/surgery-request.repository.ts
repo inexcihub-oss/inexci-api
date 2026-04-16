@@ -2,54 +2,66 @@ import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, DataSource } from 'typeorm';
 
-import { SurgeryRequest } from '../entities/surgery-request.entity';
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from '../entities/surgery-request.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class SurgeryRequestRepository {
+export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   constructor(
     @InjectRepository(SurgeryRequest)
-    private readonly repository: Repository<SurgeryRequest>,
+    repository: Repository<SurgeryRequest>,
     private readonly dataSource: DataSource,
-  ) {}
+  ) {
+    super(repository);
+  }
 
-  async totalByHospital(where: string) {
-    // PostgreSQL: Ajustada query raw com JOIN na tabela hospital
-    return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, 
+  async totalByHospital(doctorIds: string[]) {
+    return await this.dataSource.query(
+      `
+        SELECT COUNT(*)::int as total,
                sr.hospital_id,
                COALESCE(h.name, 'Sem Hospital') as hospital_name
         FROM surgery_request sr
         LEFT JOIN hospital h ON h.id = sr.hospital_id
-        ${where}
+        WHERE sr.doctor_id = ANY($1)
         GROUP BY sr.hospital_id, h.name
         ORDER BY total DESC
-      `);
+      `,
+      [doctorIds],
+    );
   }
 
-  async totalByStatus(where: string) {
-    // PostgreSQL: Ajustada query raw com alias
-    return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, sr.status 
+  async totalByStatus(doctorIds: string[]) {
+    return await this.dataSource.query(
+      `
+        SELECT COUNT(*)::int as total, sr.status
         FROM surgery_request sr
-        ${where}
+        WHERE sr.doctor_id = ANY($1)
         GROUP BY sr.status
         ORDER BY total DESC
-      `);
+      `,
+      [doctorIds],
+    );
   }
 
-  async totalByHealthPlan(where: string) {
-    // PostgreSQL: Ajustada query raw com LEFT JOIN na tabela health_plan
-    return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, 
-               sr.health_plan_id, 
+  async totalByHealthPlan(doctorIds: string[]) {
+    return await this.dataSource.query(
+      `
+        SELECT COUNT(*)::int as total,
+               sr.health_plan_id,
                COALESCE(hp.name, 'Sem Convênio') as health_plan_name
         FROM surgery_request sr
         LEFT JOIN health_plan hp ON hp.id = sr.health_plan_id
-        ${where}
+        WHERE sr.doctor_id = ANY($1)
         GROUP BY sr.health_plan_id, hp.name
         ORDER BY total DESC
-      `);
+      `,
+      [doctorIds],
+    );
   }
 
   async sumInvoiced(where: FindOptionsWhere<SurgeryRequest>) {
@@ -106,7 +118,7 @@ export class SurgeryRequestRepository {
       .leftJoinAndSelect('surgery_request.created_by', 'created_by')
       .leftJoinAndSelect('surgery_request.manager', 'manager')
       .leftJoinAndSelect('surgery_request.doctor', 'doctor')
-      .leftJoinAndSelect('doctor.user', 'doctor_user')
+      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
@@ -166,7 +178,7 @@ export class SurgeryRequestRepository {
       .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
       .leftJoin('surgery_request.chats', 'chats')
       .leftJoin('chats.messages', 'messages')
-      .leftJoin('surgery_request.documents', 'documents')
+      .leftJoinAndSelect('surgery_request.documents', 'documents')
       .leftJoin('surgery_request.activities', 'activities')
       .where(where)
       .orderBy('surgery_request.created_at', 'DESC')
@@ -195,9 +207,10 @@ export class SurgeryRequestRepository {
         'health_plan.name',
         'procedure.id',
         'procedure.name',
+        'documents.id',
+        'documents.type',
       ])
       .addSelect('COUNT(DISTINCT messages.id)', 'messagesCount')
-      .addSelect('COUNT(DISTINCT documents.id)', 'attachmentsCount')
       .addSelect('COUNT(DISTINCT activities.id)', 'activitiesCount')
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
@@ -205,31 +218,19 @@ export class SurgeryRequestRepository {
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
       .addGroupBy('procedure.id')
-      .addGroupBy('status_updates.id');
+      .addGroupBy('status_updates.id')
+      .addGroupBy('documents.id');
 
-    // Limitando status_updates a 1
     const results = await queryBuilder.getRawAndEntities();
 
-    // Para cada entidade, precisamos buscar os documentos para calcular pendências
-    const entitiesWithDocuments = await Promise.all(
-      results.entities.map(async (entity: any) => {
-        const fullEntity = await this.repository.findOne({
-          where: { id: entity.id },
-          relations: ['documents', 'patient', 'procedure'],
-        });
-        return fullEntity || entity;
-      }),
-    );
-
     return results.entities.map((entity: any, index: number) => {
-      const fullEntity = entitiesWithDocuments[index];
-      const pendencies = this.calculatePendencies(fullEntity);
+      const pendencies = this.calculatePendencies(entity);
 
       return {
         ...entity,
         status_updates: entity.status_updates?.slice(0, 1) || [],
         messagesCount: parseInt(results.raw[index]?.messagesCount || '0'),
-        attachmentsCount: parseInt(results.raw[index]?.attachmentsCount || '0'),
+        attachmentsCount: entity.documents?.length || 0,
         activitiesCount: parseInt(results.raw[index]?.activitiesCount || '0'),
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
@@ -314,7 +315,7 @@ export class SurgeryRequestRepository {
         'AVG(EXTRACT(DAY FROM (surgery_request.updated_at - surgery_request.created_at)))',
         'average_days',
       )
-      .where({ ...where, status: 9 }) // Status finalizada
+      .where({ ...where, status: SurgeryRequestStatus.CLOSED })
       .getRawOne();
 
     return {

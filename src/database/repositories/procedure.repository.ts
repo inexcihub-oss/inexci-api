@@ -1,26 +1,24 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-
 import { Procedure } from '../entities/procedure.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class ProcedureRepository {
+export class ProcedureRepository extends BaseRepository<Procedure> {
   constructor(
     @InjectRepository(Procedure)
-    private readonly repository: Repository<Procedure>,
-  ) {}
-
-  async total(where: FindOptionsWhere<Procedure>): Promise<number> {
-    return await this.repository.count({ where });
+    repository: Repository<Procedure>,
+  ) {
+    super(repository);
   }
 
   async findMany(
     where: FindOptionsWhere<Procedure>,
     skip: number,
     take: number,
-  ): Promise<Partial<Procedure>[]> {
+  ): Promise<Procedure[]> {
     return await this.repository.find({
       where,
       skip,
@@ -35,7 +33,7 @@ export class ProcedureRepository {
 
   async findOne(
     where: FindOptionsWhere<Procedure>,
-  ): Promise<Partial<Procedure> | null> {
+  ): Promise<Procedure | null> {
     return await this.repository.findOne({
       where,
       select: {
@@ -43,10 +41,5 @@ export class ProcedureRepository {
         name: true,
       },
     });
-  }
-
-  async create(data: Partial<Procedure>): Promise<Procedure> {
-    const procedure = this.repository.create(data);
-    return this.repository.save(procedure);
   }
 }

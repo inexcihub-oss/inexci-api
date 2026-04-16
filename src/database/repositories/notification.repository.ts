@@ -1,23 +1,17 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere, LessThan } from 'typeorm';
-import {
-  Notification,
-  NotificationType,
-} from '../entities/notification.entity';
+import { Notification } from '../entities/notification.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class NotificationRepository {
+export class NotificationRepository extends BaseRepository<Notification> {
   constructor(
     @InjectRepository(Notification)
-    private readonly repository: Repository<Notification>,
-  ) {}
-
-  async findOne(
-    where: FindOptionsWhere<Notification>,
-  ): Promise<Notification | null> {
-    return await this.repository.findOne({ where });
+    repository: Repository<Notification>,
+  ) {
+    super(repository);
   }
 
   async findByUserId(
@@ -44,11 +38,6 @@ export class NotificationRepository {
     });
   }
 
-  async create(data: Partial<Notification>): Promise<Notification> {
-    const entity = this.repository.create(data);
-    return await this.repository.save(entity);
-  }
-
   async markAsRead(notificationId: string, userId: string): Promise<void> {
     await this.repository.update(
       { id: notificationId, user_id: userId },
@@ -63,7 +52,7 @@ export class NotificationRepository {
     );
   }
 
-  async delete(notificationId: string, userId: string): Promise<void> {
+  async deleteByUser(notificationId: string, userId: string): Promise<void> {
     await this.repository.delete({ id: notificationId, user_id: userId });
   }
 

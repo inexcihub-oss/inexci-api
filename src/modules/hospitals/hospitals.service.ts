@@ -7,53 +7,25 @@ import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
 import { UpdateHospitalDto } from './dto/update-hospital.dto';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { Hospital } from 'src/database/entities/hospital.entity';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserRole } from 'src/database/entities/user.entity';
-import { TeamMemberRepository } from 'src/database/repositories/team-member.repository';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class HospitalsService {
   constructor(
     private readonly hospitalRepository: HospitalRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
-    private readonly userRepository: UserRepository,
-    private readonly teamMemberRepository: TeamMemberRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   async findAll(query: FindManyHospitalDto, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    // Determinar o doctor_id baseado no role do usuário
-    let doctorId: string;
-
-    if (user.role === UserRole.DOCTOR) {
-      doctorId = userId;
-    } else if (user.role === UserRole.COLLABORATOR) {
-      // Buscar o médico do colaborador via TeamMember
-      const teamMember =
-        await this.teamMemberRepository.findByCollaboratorId(userId);
-      if (!teamMember) {
-        return { total: 0, records: [] };
-      }
-      doctorId = teamMember.doctor_id;
-    } else if (user.role === UserRole.ADMIN) {
-      // Admin pode ver todos os hospitais
-      const [total, records] = await Promise.all([
-        this.hospitalRepository.total({}),
-        this.hospitalRepository.findMany({}, query.skip, query.take),
-      ]);
-      return { total, records };
-    }
-
-    if (!doctorId) {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length === 0) {
       return { total: 0, records: [] };
     }
 
-    // Buscar apenas hospitais do médico
-    const where: FindOptionsWhere<Hospital> = { doctor_id: doctorId };
+    const where: FindOptionsWhere<Hospital> = { doctor_id: In(doctorIds) };
 
     const [total, records] = await Promise.all([
       this.hospitalRepository.total(where),
@@ -64,17 +36,12 @@ export class HospitalsService {
   }
 
   async create(data: CreateHospitalDto, userId: string): Promise<Hospital> {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    let doctorId = userId;
-    if (user.role === UserRole.COLLABORATOR) {
-      const teamMember =
-        await this.teamMemberRepository.findByCollaboratorId(userId);
-      if (!teamMember)
-        throw new NotFoundException('Médico responsável não encontrado');
-      doctorId = teamMember.doctor_id;
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length === 0) {
+      throw new NotFoundException('Nenhum médico acessível');
     }
+    const doctorId = doctorIds.includes(userId) ? userId : doctorIds[0];
 
     const existing = await this.hospitalRepository.findOne({
       name: data.name,

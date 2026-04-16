@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bull';
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bull';
 
 export interface WhatsappJobData {
@@ -14,6 +15,7 @@ export class WhatsappService {
   constructor(
     @InjectQueue('whatsapp-messages')
     private readonly whatsappQueue: Queue,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -60,8 +62,7 @@ export class WhatsappService {
     doctorName: string,
     email: string,
   ): Promise<void> {
-    const dashboardUrl =
-      process.env.DASHBOARD_URL || 'https://app.inexci.com.br';
+    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
     const body =
       `Olá, Dr(a). ${doctorName}! 👨‍⚕️\n\n` +
       `Sua conta na plataforma *Inexci* foi criada com sucesso. ` +

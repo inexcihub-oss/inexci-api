@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Body,
-  Request,
   Query,
   Put,
   Patch,
@@ -13,6 +12,10 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { SurgeryRequestsService } from './surgery-requests.service';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
 // DTOs gerais
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
@@ -54,11 +57,11 @@ export class SurgeryRequestsController {
   @Post()
   createSurgeryRequest(
     @Body() data: CreateSurgeryRequestSimpleDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.createSurgeryRequest(
       data,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -67,17 +70,23 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Get()
-  findAll(@Query() query: FindManySurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.findAll(query, req.user.userId);
+  findAll(
+    @Query() query: FindManySurgeryRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.findAll(query, user.userId);
   }
 
   @Get('one')
-  findOne(@Query() query: FindOneSurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.findOne(query.id, req.user.userId);
+  findOne(
+    @Query() query: FindOneSurgeryRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.findOne(query.id, user.userId);
   }
 
   @Get('date-expired')
-  dateExpired(@Request() req) {
+  dateExpired() {
     return this.surgeryRequestsService.dateExpired();
   }
 
@@ -86,20 +95,23 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Put()
-  update(@Body() data: UpdateSurgeryRequestDto, @Request() req) {
-    return this.surgeryRequestsService.update(data, req.user.userId);
+  update(
+    @Body() data: UpdateSurgeryRequestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.update(data, user.userId);
   }
 
   @Patch(':id/has-opme')
   setHasOpme(
     @Param('id') id: string,
     @Body() body: { has_opme: boolean },
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.setHasOpme(
       id,
       body.has_opme,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -107,11 +119,11 @@ export class SurgeryRequestsController {
   updateBasic(
     @Param('id') id: string,
     @Body() data: UpdateSurgeryRequestBasicDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.updateBasic(
       { ...data, id },
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -119,12 +131,12 @@ export class SurgeryRequestsController {
   updateStatus(
     @Param('id') id: string,
     @Body() data: UpdateStatusDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.updateStatus(
       id,
       data.status,
-      req.user.userId,
+      user.userId,
       data.notify_patient,
     );
   }
@@ -141,9 +153,9 @@ export class SurgeryRequestsController {
   sendRequest(
     @Param('id') id: string,
     @Body() dto: SendRequestDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.sendRequest(id, dto, req.user.userId);
+    return this.surgeryRequestsService.sendRequest(id, dto, user.userId);
   }
 
   /**
@@ -154,9 +166,9 @@ export class SurgeryRequestsController {
   startAnalysis(
     @Param('id') id: string,
     @Body() dto: StartAnalysisDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.startAnalysis(id, dto, req.user.userId);
+    return this.surgeryRequestsService.startAnalysis(id, dto, user.userId);
   }
 
   /**
@@ -167,12 +179,12 @@ export class SurgeryRequestsController {
   acceptAuthorization(
     @Param('id') id: string,
     @Body() dto: AcceptAuthorizationDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.acceptAuthorization(
       id,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -184,12 +196,12 @@ export class SurgeryRequestsController {
   contestAuthorization(
     @Param('id') id: string,
     @Body() dto: ContestAuthorizationDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.contestAuthorization(
       id,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -200,13 +212,13 @@ export class SurgeryRequestsController {
   @Get(':id/contest-authorization-pdf')
   async getContestAuthorizationPdf(
     @Param('id') id: string,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
     @Res() res: any,
   ) {
     const buffer =
       await this.surgeryRequestsService.generateContestAuthorizationPdf(
         id,
-        req.user.userId,
+        user.userId,
       );
     res.set({
       'Content-Type': 'application/pdf',
@@ -224,9 +236,9 @@ export class SurgeryRequestsController {
   confirmDate(
     @Param('id') id: string,
     @Body() dto: ConfirmDateDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.confirmDate(id, dto, req.user.userId);
+    return this.surgeryRequestsService.confirmDate(id, dto, user.userId);
   }
 
   /**
@@ -236,12 +248,12 @@ export class SurgeryRequestsController {
   updateDateOptions(
     @Param('id') id: string,
     @Body() dto: UpdateDateOptionsDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.updateDateOptions(
       id,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -252,9 +264,9 @@ export class SurgeryRequestsController {
   reschedule(
     @Param('id') id: string,
     @Body() dto: RescheduleDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.reschedule(id, dto, req.user.userId);
+    return this.surgeryRequestsService.reschedule(id, dto, user.userId);
   }
 
   /**
@@ -265,9 +277,9 @@ export class SurgeryRequestsController {
   markPerformed(
     @Param('id') id: string,
     @Body() dto: MarkPerformedDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.markPerformed(id, dto, req.user.userId);
+    return this.surgeryRequestsService.markPerformed(id, dto, user.userId);
   }
 
   /**
@@ -278,9 +290,9 @@ export class SurgeryRequestsController {
   invoiceRequest(
     @Param('id') id: string,
     @Body() dto: InvoiceRequestDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.invoiceRequest(id, dto, req.user.userId);
+    return this.surgeryRequestsService.invoiceRequest(id, dto, user.userId);
   }
 
   /**
@@ -291,9 +303,9 @@ export class SurgeryRequestsController {
   confirmReceipt(
     @Param('id') id: string,
     @Body() dto: ConfirmReceiptDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.confirmReceipt(id, dto, req.user.userId);
+    return this.surgeryRequestsService.confirmReceipt(id, dto, user.userId);
   }
 
   /**
@@ -304,9 +316,9 @@ export class SurgeryRequestsController {
   contestPayment(
     @Param('id') id: string,
     @Body() dto: ContestPaymentDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.contestPayment(id, dto, req.user.userId);
+    return this.surgeryRequestsService.contestPayment(id, dto, user.userId);
   }
 
   /**
@@ -316,9 +328,9 @@ export class SurgeryRequestsController {
   updateReceipt(
     @Param('id') id: string,
     @Body() dto: UpdateReceiptDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.updateReceipt(id, dto, req.user.userId);
+    return this.surgeryRequestsService.updateReceipt(id, dto, user.userId);
   }
 
   /**
@@ -329,12 +341,12 @@ export class SurgeryRequestsController {
   closeSurgeryRequest(
     @Param('id') id: string,
     @Body() dto: CloseSurgeryRequestDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.closeSurgeryRequest(
       id,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -345,9 +357,9 @@ export class SurgeryRequestsController {
   notify(
     @Param('id') id: string,
     @Body() dto: NotifySurgeryRequestDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.notify(id, dto, req.user.userId);
+    return this.surgeryRequestsService.notify(id, dto, user.userId);
   }
 
   // ============================================================
@@ -356,8 +368,11 @@ export class SurgeryRequestsController {
 
   /** GET /surgery-requests/:id/sections — listar sections ordenadas */
   @Get(':id/sections')
-  getSections(@Param('id') id: string, @Request() req) {
-    return this.surgeryRequestsService.getReportSections(id, req.user.userId);
+  getSections(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.getReportSections(id, user.userId);
   }
 
   /** POST /surgery-requests/:id/sections — criar section */
@@ -365,12 +380,12 @@ export class SurgeryRequestsController {
   createSection(
     @Param('id') id: string,
     @Body() dto: CreateReportSectionDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.createReportSection(
       id,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -379,12 +394,12 @@ export class SurgeryRequestsController {
   reorderSections(
     @Param('id') id: string,
     @Body() dto: ReorderReportSectionsDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.reorderReportSections(
       id,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -394,13 +409,13 @@ export class SurgeryRequestsController {
     @Param('id') id: string,
     @Param('sectionId') sectionId: string,
     @Body() dto: UpdateReportSectionDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.updateReportSection(
       id,
       sectionId,
       dto,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -409,12 +424,12 @@ export class SurgeryRequestsController {
   deleteSection(
     @Param('id') id: string,
     @Param('sectionId') sectionId: string,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.deleteReportSection(
       id,
       sectionId,
-      req.user.userId,
+      user.userId,
     );
   }
 
@@ -427,10 +442,14 @@ export class SurgeryRequestsController {
    * GET /surgery-requests/:id/report-pdf
    */
   @Get(':id/report-pdf')
-  async getReportPdf(@Param('id') id: string, @Request() req, @Res() res: any) {
+  async getReportPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: any,
+  ) {
     const buffer = await this.surgeryRequestsService.generateReportPdf(
       id,
-      req.user.userId,
+      user.userId,
     );
     res.set({
       'Content-Type': 'application/pdf',
@@ -445,14 +464,24 @@ export class SurgeryRequestsController {
   // ============================================================
 
   /**
+   * GET /surgery-requests/available-doctors
+   * Lista os médicos disponíveis para o usuário logado criar solicitações.
+   * IMPORTANTE: rota registrada ANTES de ':id/...' para não conflitar.
+   */
+  @Get('available-doctors')
+  getAvailableDoctors(@CurrentUser() user: AuthenticatedUser) {
+    return this.surgeryRequestsService.getAvailableDoctors(user.userId);
+  }
+
+  /**
    * GET /surgery-requests/templates
    * Lista os templates salvos do médico logado.
    * IMPORTANTE: Esta rota deve ser registrada ANTES de ':id/...' para não ser
    * capturada pelo guard de parâmetro dinâmico.
    */
   @Get('templates')
-  getTemplates(@Request() req) {
-    return this.surgeryRequestsService.getTemplates(req.user.userId);
+  getTemplates(@CurrentUser() user: AuthenticatedUser) {
+    return this.surgeryRequestsService.getTemplates(user.userId);
   }
 
   /**
@@ -462,9 +491,9 @@ export class SurgeryRequestsController {
   @Post('templates')
   createTemplate(
     @Body() dto: { name: string; template_data: object },
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.createTemplate(dto, req.user.userId);
+    return this.surgeryRequestsService.createTemplate(dto, user.userId);
   }
 
   /**
@@ -472,7 +501,10 @@ export class SurgeryRequestsController {
    * Exclui um template do médico logado.
    */
   @Delete('templates/:id')
-  deleteTemplate(@Param('id') id: string, @Request() req) {
-    return this.surgeryRequestsService.deleteTemplate(id, req.user.userId);
+  deleteTemplate(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.deleteTemplate(id, user.userId);
   }
 }

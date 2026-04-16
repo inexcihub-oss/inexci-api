@@ -335,6 +335,7 @@ describe('Auth (e2e)', () => {
     it('should change password successfully', async () => {
       const userData = TestDataFactory.generateRegisterData();
       const newPassword = 'NewPassword123!';
+      const DataSource = (await import('typeorm')).DataSource;
 
       // Register user
       await request(app.getHttpServer())
@@ -342,7 +343,32 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
-      // Change password
+      // Step 1: Request password recovery (sends code)
+      await request(app.getHttpServer())
+        .post('/auth/sendRecoveryPasswordEmail')
+        .send({ email: userData.email })
+        .expect(201);
+
+      // Step 2: Validate the recovery code (marks it as used)
+      const dataSource = app.get(DataSource);
+      const user = await dataSource.query(
+        'SELECT * FROM "user" WHERE email = $1',
+        [userData.email],
+      );
+      const recoveryCode = await dataSource.query(
+        'SELECT * FROM recovery_code WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        [user[0].id],
+      );
+
+      await request(app.getHttpServer())
+        .post('/auth/validateRecoveryPasswordCode')
+        .send({
+          email: userData.email,
+          code: recoveryCode[0].code,
+        })
+        .expect(201);
+
+      // Step 3: Change password (requires validated recovery code)
       const response = await request(app.getHttpServer())
         .post('/auth/changePassword')
         .send({
@@ -406,6 +432,7 @@ describe('Auth (e2e)', () => {
       const userData = TestDataFactory.generateRegisterData();
       const oldPassword = userData.password;
       const newPassword = 'NewPassword123!';
+      const DataSource = (await import('typeorm')).DataSource;
 
       // Register user
       await request(app.getHttpServer())
@@ -422,7 +449,32 @@ describe('Auth (e2e)', () => {
         })
         .expect(201);
 
-      // Change password
+      // Step 1: Request password recovery
+      await request(app.getHttpServer())
+        .post('/auth/sendRecoveryPasswordEmail')
+        .send({ email: userData.email })
+        .expect(201);
+
+      // Step 2: Validate the recovery code
+      const dataSource = app.get(DataSource);
+      const user = await dataSource.query(
+        'SELECT * FROM "user" WHERE email = $1',
+        [userData.email],
+      );
+      const recoveryCode = await dataSource.query(
+        'SELECT * FROM recovery_code WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        [user[0].id],
+      );
+
+      await request(app.getHttpServer())
+        .post('/auth/validateRecoveryPasswordCode')
+        .send({
+          email: userData.email,
+          code: recoveryCode[0].code,
+        })
+        .expect(201);
+
+      // Step 3: Change password
       await request(app.getHttpServer())
         .post('/auth/changePassword')
         .send({

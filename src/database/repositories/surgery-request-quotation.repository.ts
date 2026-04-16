@@ -1,21 +1,17 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-
 import { SurgeryRequestQuotation } from '../entities/surgery-request-quotation.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class SurgeryRequestQuotationRepository {
+export class SurgeryRequestQuotationRepository extends BaseRepository<SurgeryRequestQuotation> {
   constructor(
     @InjectRepository(SurgeryRequestQuotation)
-    private readonly repository: Repository<SurgeryRequestQuotation>,
-  ) {}
-
-  async findOne(
-    where: FindOptionsWhere<SurgeryRequestQuotation>,
-  ): Promise<SurgeryRequestQuotation | null> {
-    return await this.repository.findOne({ where });
+    repository: Repository<SurgeryRequestQuotation>,
+  ) {
+    super(repository);
   }
 
   async findMany(
@@ -30,7 +26,6 @@ export class SurgeryRequestQuotationRepository {
     const quotation = this.repository.create(data);
     const saved = await this.repository.save(quotation);
 
-    // Carregar com relacionamento supplier
     return await this.repository.findOne({
       where: { id: saved.id },
       relations: ['supplier'],
@@ -44,13 +39,5 @@ export class SurgeryRequestQuotationRepository {
         },
       },
     });
-  }
-
-  async update(
-    id: string,
-    data: Partial<SurgeryRequestQuotation>,
-  ): Promise<SurgeryRequestQuotation> {
-    await this.repository.update(id, data);
-    return await this.repository.findOne({ where: { id } });
   }
 }

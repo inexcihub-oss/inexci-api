@@ -6,12 +6,15 @@ import {
   Body,
   UseInterceptors,
   UploadedFile,
-  Request,
   Delete,
 } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { DeleteDocumentDto } from './dto/delete-document.dto';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
 @Controller('surgery-requests/documents')
 export class DocumentsController {
@@ -21,10 +24,10 @@ export class DocumentsController {
   @UseInterceptors(FileInterceptor('document'))
   create(
     @Body() data: CreateDocumentDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.documentsService.create(data, req.user.userId, file);
+    return this.documentsService.create(data, user.userId, file);
   }
 
   @Delete()

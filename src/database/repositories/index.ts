@@ -1,6 +1,6 @@
 export { UserRepository } from './user.repository';
 export { DoctorProfileRepository } from './doctor-profile.repository';
-export { TeamMemberRepository } from './team-member.repository';
+export { UserDoctorAccessRepository } from './user-doctor-access.repository';
 export { PatientRepository } from './patient.repository';
 export { HospitalRepository } from './hospital.repository';
 export { SupplierRepository } from './supplier.repository';
@@ -11,7 +11,7 @@ export { DocumentRepository } from './document.repository';
 export { HealthPlanRepository } from './health-plan.repository';
 export { OpmeItemRepository } from './opme-item.repository';
 export { ProcedureRepository } from './procedure.repository';
-export { RecoveryCodeRepository } from './recovery_code.repository';
+export { RecoveryCodeRepository } from './recovery-code.repository';
 export { StatusUpdateRepository } from './status-update.repository';
 export { SurgeryRequestTussItemRepository } from './surgery-request-tuss-item.repository';
 export { SurgeryRequestQuotationRepository } from './surgery-request-quotation.repository';

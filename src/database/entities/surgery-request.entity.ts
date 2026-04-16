@@ -9,7 +9,6 @@ import {
   OneToOne,
   JoinColumn,
 } from 'typeorm';
-import { DoctorProfile } from './doctor-profile.entity';
 import { User } from './user.entity';
 import { Hospital } from './hospital.entity';
 import { Patient } from './patient.entity';
@@ -200,9 +199,9 @@ export class SurgeryRequest {
 
   // ============ RELAÇÕES ============
 
-  @ManyToOne(() => DoctorProfile, (doctor) => doctor.surgery_requests)
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: DoctorProfile;
+  doctor: User;
 
   @ManyToOne(() => User, { nullable: false })
   @JoinColumn({ name: 'created_by_id' })

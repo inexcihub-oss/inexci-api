@@ -7,8 +7,13 @@ import {
   Patch,
   Post,
   Query,
-  Request,
 } from '@nestjs/common';
+import { Roles } from 'src/shared/decorators/roles.decorator';
+import { UserRole } from 'src/database/entities/user.entity';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 import { PatientsService } from './patients.service';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
@@ -19,13 +24,20 @@ export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
 
   @Get()
-  findAll(@Query() query: FindManyPatientDto, @Request() req) {
-    return this.patientsService.findAll(query, req.user.userId);
+  findAll(
+    @Query() query: FindManyPatientDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patientsService.findAll(query, user.userId);
   }
 
   @Post()
-  create(@Body() data: CreatePatientDto, @Request() req) {
-    return this.patientsService.create(data, req.user.userId);
+  @Roles(UserRole.ADMIN)
+  create(
+    @Body() data: CreatePatientDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patientsService.create(data, user.userId);
   }
 
   @Patch(':id')
@@ -34,6 +46,7 @@ export class PatientsController {
   }
 
   @Delete(':id')
+  @Roles(UserRole.ADMIN)
   delete(@Param('id') id: string) {
     return this.patientsService.delete(id);
   }

@@ -6,9 +6,6 @@ import {
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestQuotationRepository } from 'src/database/repositories/surgery-request-quotation.repository';
 import { SurgeryRequestsService } from '../surgery-requests.service';
 import { ChatsService } from '../chats/chats.service';
@@ -22,6 +19,7 @@ import { SurgeryRequestQuotation } from 'src/database/entities/surgery-request-q
 import { Chat } from 'src/database/entities/chat.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Supplier } from 'src/database/entities/supplier.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class QuotationsService {
@@ -29,24 +27,11 @@ export class QuotationsService {
     private readonly dataSource: DataSource,
     private readonly chatsService: ChatsService,
     private readonly emailService: EmailService,
-    private readonly userRepository: UserRepository,
     private readonly supplierRepository: SupplierRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly accessControlService: AccessControlService,
     private readonly surgeryRequestsService: SurgeryRequestsService,
     private readonly surgeryRequestQuotationRepository: SurgeryRequestQuotationRepository,
   ) {}
-
-  private async getDoctorId(userId: string): Promise<string | null> {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    if (user.role === UserRole.DOCTOR) {
-      // supplier.doctor_id → user.id (FK para user, não para doctor_profile)
-      return userId;
-    }
-
-    // TODO: Para colaboradores, obter via TeamMember
-    return null;
-  }
 
   async create(data: CreateQuotationDto, userId: string) {
     const surgeryRequest = await this.surgeryRequestsService.findOne(
@@ -54,7 +39,9 @@ export class QuotationsService {
       userId,
     );
 
-    const doctorId = await this.getDoctorId(userId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    const doctorId = doctorIds.length ? doctorIds[0] : null;
     let supplierId = null;
 
     // Buscar fornecedor pelo email

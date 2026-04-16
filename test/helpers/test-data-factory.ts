@@ -1,17 +1,17 @@
 import { faker } from '@faker-js/faker';
 
 // Constantes de UserRole (espelhando src/database/entities/user.entity.ts)
+// PRD v3: Apenas admin e collaborator. "Médico" = quem tem doctor_profile.
 const UserRole = {
   admin: 'admin',
-  doctor: 'doctor',
   collaborator: 'collaborator',
 };
 
-// Constantes de UserStatuses
+// Constantes de UserStatuses (PRD v3: enum strings)
 const UserStatuses = {
-  pending: 1,
-  active: 2,
-  inactive: 3,
+  pending: 'pending',
+  active: 'active',
+  inactive: 'inactive',
 };
 
 export class TestDataFactory {
@@ -30,10 +30,7 @@ export class TestDataFactory {
       name: faker.person.fullName(),
       email: faker.internet.email().toLowerCase(),
       phone: this.generatePhone(),
-      role: faker.helpers.arrayElement([
-        UserRole.doctor,
-        UserRole.collaborator,
-      ]),
+      role: faker.helpers.arrayElement([UserRole.admin, UserRole.collaborator]),
     };
   }
 
@@ -45,7 +42,7 @@ export class TestDataFactory {
       password: 'Test@1234',
       cpf: this.generateCPF(),
       phone: this.generatePhone(),
-      role: UserRole.doctor,
+      role: UserRole.collaborator,
     };
   }
 

@@ -42,6 +42,10 @@ const DOCTOR = {
   name: 'Dr. Teste Fluxo E2E',
   email: `dr.e2e.flow.${Date.now()}@inexci.test`,
   password: 'Senha@12345',
+  is_doctor: true,
+  crm: 'CRM123456',
+  crm_state: 'SP',
+  specialty: 'Cirurgia Geral',
 };
 
 let app: INestApplication;
@@ -76,7 +80,7 @@ beforeAll(async () => {
   app = await createTestApp();
   await cleanDatabase(app);
 
-  // 1. Registrar medico
+  // 1. Registrar medico (is_doctor: true cria doctor_profile automaticamente)
   const registerRes = await request(app.getHttpServer())
     .post('/auth/register')
     .send(DOCTOR)
@@ -86,32 +90,30 @@ beforeAll(async () => {
   expect(token).toBeDefined();
   expect(userId).toBeDefined();
 
-  // 2. Criar perfil de medico
-  await request(app.getHttpServer())
-    .post('/users/doctor-profile')
-    .set(authHeader())
-    .send({ specialty: 'Cirurgia Geral', crm: 'CRM123456', crm_state: 'SP' })
-    .expect(201);
-
-  // 3. Criar procedimento
+  // 2. Criar procedimento
   const procedureRes = await request(app.getHttpServer())
     .post('/procedures')
     .set(authHeader())
-    .send({ name: 'Colecistectomia Laparoscopica', tuss_code: '31303029' })
+    .send({ name: 'Colecistectomia Laparoscopica' })
     .expect(201);
   const procedureId: string = procedureRes.body.id;
   expect(procedureId).toBeDefined();
 
-  // 4. Criar plano de saude
+  // 3. Criar plano de saude
   const healthPlanRes = await request(app.getHttpServer())
     .post('/health_plans')
     .set(authHeader())
-    .send({ name: 'Plano Saude E2E', default_payment_days: 30 })
+    .send({
+      name: 'Plano Saude E2E',
+      phone: '11999990001',
+      email: 'plano@e2e.com',
+      default_payment_days: 30,
+    })
     .expect(201);
   const healthPlanId: string = healthPlanRes.body.id;
   expect(healthPlanId).toBeDefined();
 
-  // 5. Criar hospital
+  // 4. Criar hospital
   const hospitalRes = await request(app.getHttpServer())
     .post('/hospitals')
     .set(authHeader())
@@ -120,14 +122,15 @@ beforeAll(async () => {
   const hospitalId: string = hospitalRes.body.id;
   expect(hospitalId).toBeDefined();
 
-  // 6. Criar paciente
+  // 5. Criar paciente
   const patientRes = await request(app.getHttpServer())
     .post('/patients')
     .set(authHeader())
     .send({
       name: 'Paciente Teste E2E',
       phone: '11999990000',
-      cpf: '123.456.789-00',
+      email: 'paciente@e2e.com',
+      cpf: '12345678900',
       gender: 'M',
       birth_date: '1985-06-15',
       health_plan_id: healthPlanId,
@@ -138,7 +141,7 @@ beforeAll(async () => {
   const patientId: string = patientRes.body.id;
   expect(patientId).toBeDefined();
 
-  // 7. Criar solicitacao cirurgica
+  // 6. Criar solicitacao cirurgica
   const srRes = await request(app.getHttpServer())
     .post('/surgery-requests')
     .set(authHeader())
@@ -179,12 +182,44 @@ describe('1. Criacao - Status PENDING (1)', () => {
 // ----------------------------------------------------------------
 
 describe('2. Transicao PENDING -> SENT (2)', () => {
-  it('deve enviar a solicitacao (method email sem destinatario)', async () => {
+  it('deve criar ao menos uma secao de laudo antes de enviar', async () => {
     await request(app.getHttpServer())
+      .post(`/surgery-requests/${surgeryRequestId}/sections`)
+      .set(authHeader())
+      .send({
+        title: 'Indicação Cirúrgica',
+        description:
+          '<p>Paciente apresenta indicação para colecistectomia videolaparoscópica.</p>',
+      })
+      .expect(201);
+  });
+
+  it('deve adicionar ao menos um procedimento TUSS', async () => {
+    await request(app.getHttpServer())
+      .post('/surgery-requests/procedures')
+      .set(authHeader())
+      .send({
+        surgery_request_id: surgeryRequestId,
+        procedures: [
+          {
+            tuss_code: '30101012',
+            name: 'Colecistectomia Videolaparoscópica',
+            quantity: 1,
+          },
+        ],
+      })
+      .expect(201);
+  });
+
+  it('deve enviar a solicitacao (method email sem destinatario)', async () => {
+    const res = await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/send`)
       .set(authHeader())
-      .send({ method: 'email' })
-      .expect(201);
+      .send({ method: 'email' });
+    if (res.status !== 201) {
+      console.error('SEND ERROR:', res.status, JSON.stringify(res.body));
+    }
+    expect(res.status).toBe(201);
   });
 
   it('deve confirmar status SENT apos envio', async () => {

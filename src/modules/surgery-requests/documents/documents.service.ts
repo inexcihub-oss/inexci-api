@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { DocumentRepository } from 'src/database/repositories/document.repository';
@@ -8,6 +8,8 @@ import { Document } from 'src/database/entities/document.entity';
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
@@ -59,7 +61,7 @@ export class DocumentsService {
         try {
           await this.storageService.delete(document.uri);
         } catch (error) {
-          console.error('Erro ao deletar arquivo do Supabase:', error);
+          this.logger.error('Erro ao deletar arquivo do Supabase', error);
           // Não falha a transação se o arquivo não existir no storage
         }
       }

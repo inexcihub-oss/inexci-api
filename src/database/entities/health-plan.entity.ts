@@ -4,8 +4,11 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
   OneToMany,
+  JoinColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 import { Patient } from './patient.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 
@@ -80,6 +83,10 @@ export class HealthPlan {
   updated_at: Date;
 
   // ============ RELAÇÕES ============
+
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'doctor_id' })
+  doctor: User;
 
   @OneToMany(() => Patient, (patient) => patient.health_plan)
   patients: Patient[];

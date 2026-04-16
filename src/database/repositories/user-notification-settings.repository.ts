@@ -1,31 +1,21 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import { UserNotificationSettings } from '../entities/user-notification-settings.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class UserNotificationSettingsRepository {
+export class UserNotificationSettingsRepository extends BaseRepository<UserNotificationSettings> {
   constructor(
     @InjectRepository(UserNotificationSettings)
-    private readonly repository: Repository<UserNotificationSettings>,
-  ) {}
-
-  async findOne(
-    where: FindOptionsWhere<UserNotificationSettings>,
-  ): Promise<UserNotificationSettings | null> {
-    return await this.repository.findOne({ where });
+    repository: Repository<UserNotificationSettings>,
+  ) {
+    super(repository);
   }
 
   async findByUserId(userId: string): Promise<UserNotificationSettings | null> {
     return await this.repository.findOne({ where: { user_id: userId } });
-  }
-
-  async create(
-    data: Partial<UserNotificationSettings>,
-  ): Promise<UserNotificationSettings> {
-    const entity = this.repository.create(data);
-    return await this.repository.save(entity);
   }
 
   async update(

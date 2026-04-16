@@ -18,7 +18,7 @@ import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 
 /**
  * Testes unitários focados no PRD:
- * - PRD Reformulação Usuários e Permissões
+ * - PRD Reformulação Usuários e Permissões v3
  * - PRD Comunicação WhatsApp (boas-vindas ao médico)
  *
  * Usa instanciação direta com mocks para evitar problemas de DI com repositórios
@@ -30,20 +30,44 @@ describe('UsersService — Colaboradores e Permissões', () => {
   const mockUserRepository = {
     findOne: jest.fn(),
     findOneWithProfile: jest.fn(),
-    findManyByAdminId: jest.fn(),
-    countDoctorsByAdminId: jest.fn(),
+    findByAccountId: jest.fn(),
+    countDoctorsByAccountId: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    total: jest.fn(),
+    findMany: jest.fn(),
   };
   const mockEmailService = { send: jest.fn() };
-  const mockTeamMemberRepository = { save: jest.fn() };
-  const mockDoctorProfileRepository = {};
-  const mockStorageService = { uploadFile: jest.fn(), deleteFile: jest.fn() };
+  const mockUserDoctorAccessRepository = {
+    findActiveByUserId: jest.fn(),
+    findActiveByDoctorUserId: jest.fn(),
+    findByAccountId: jest.fn(),
+    upsert: jest.fn(),
+    deactivate: jest.fn(),
+  };
+  const mockDoctorProfileRepository = {
+    findByUserId: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    existsByUserId: jest.fn(),
+  };
+  const mockStorageService = {
+    uploadFile: jest.fn(),
+    deleteFile: jest.fn(),
+    getSignedUrl: jest.fn(),
+  };
   const mockSubscriptionPlanRepo = { findOne: jest.fn() };
   const mockWhatsappService = {
     sendDoctorWelcome: jest.fn(),
     sendPatientWelcome: jest.fn(),
+  };
+  const mockConfigService = {
+    get: jest.fn((key: string) => {
+      if (key === 'DASHBOARD_URL') return 'http://localhost:3000';
+      return undefined;
+    }),
   };
 
   beforeEach(() => {
@@ -53,11 +77,12 @@ describe('UsersService — Colaboradores e Permissões', () => {
     service = new UsersService(
       mockUserRepository as any,
       mockEmailService as any,
-      mockTeamMemberRepository as any,
+      mockUserDoctorAccessRepository as any,
       mockDoctorProfileRepository as any,
       mockStorageService as any,
       mockSubscriptionPlanRepo as any,
       mockWhatsappService as any,
+      mockConfigService as any,
     );
   });
 
@@ -65,7 +90,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     expect(service).toBeDefined();
   });
 
-  // ─── PRD: Usuários/Permissões — US-006: Controle de limite de médicos ───
+  // ─── PRD v3: Controle de limite de médicos ───
   describe('canAddDoctor', () => {
     it('deve retornar false se admin não encontrado', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue(null);
@@ -75,7 +100,8 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve retornar false se usuário não é admin', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-1',
-        is_admin: false,
+        role: UserRole.COLLABORATOR,
+        account_id: 'acc-1',
       });
       expect(await service.canAddDoctor('admin-1')).toBe(false);
     });
@@ -83,80 +109,78 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve retornar false se admin não tem plano', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-1',
-        is_admin: true,
+        role: UserRole.ADMIN,
+        account_id: 'admin-1',
         subscription_plan: null,
       });
       expect(await service.canAddDoctor('admin-1')).toBe(false);
     });
 
-    it('plano Básico (maxDoctors=1): admin é médico → não pode adicionar outro', async () => {
+    it('plano Básico (maxDoctors=1): 1 médico na conta → não pode adicionar outro', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-1',
-        is_admin: true,
-        is_doctor: true,
+        role: UserRole.ADMIN,
+        account_id: 'admin-1',
         subscription_plan: { max_doctors: 1 },
       });
-      mockUserRepository.countDoctorsByAdminId.mockResolvedValue(0);
+      mockUserRepository.countDoctorsByAccountId.mockResolvedValue(1);
 
-      // Admin médico já conta como 1, então 0 + 1 = 1 >= maxDoctors(1) → false
       expect(await service.canAddDoctor('admin-1')).toBe(false);
     });
 
-    it('plano Básico (maxDoctors=1): admin NÃO é médico → pode adicionar 1', async () => {
+    it('plano Básico (maxDoctors=1): 0 médicos → pode adicionar 1', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-1',
-        is_admin: true,
-        is_doctor: false,
+        role: UserRole.ADMIN,
+        account_id: 'admin-1',
         subscription_plan: { max_doctors: 1 },
       });
-      mockUserRepository.countDoctorsByAdminId.mockResolvedValue(0);
+      mockUserRepository.countDoctorsByAccountId.mockResolvedValue(0);
 
-      // 0 médicos vinculados, admin não é médico → 0 < 1 → true
       expect(await service.canAddDoctor('admin-1')).toBe(true);
     });
 
-    it('plano Profissional (maxDoctors=10): 3 médicos + admin médico = 4 < 10 → true', async () => {
+    it('plano Profissional (maxDoctors=10): 3 médicos < 10 → true', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-1',
-        is_admin: true,
-        is_doctor: true,
+        role: UserRole.ADMIN,
+        account_id: 'admin-1',
         subscription_plan: { max_doctors: 10 },
       });
-      mockUserRepository.countDoctorsByAdminId.mockResolvedValue(3);
+      mockUserRepository.countDoctorsByAccountId.mockResolvedValue(3);
 
-      // 3 + 1 (admin) = 4 < 10 → true
       expect(await service.canAddDoctor('admin-1')).toBe(true);
     });
 
-    it('plano Profissional (maxDoctors=10): 9 médicos + admin médico = 10 → false', async () => {
+    it('plano Profissional (maxDoctors=10): 10 médicos → false', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-1',
-        is_admin: true,
-        is_doctor: true,
+        role: UserRole.ADMIN,
+        account_id: 'admin-1',
         subscription_plan: { max_doctors: 10 },
       });
-      mockUserRepository.countDoctorsByAdminId.mockResolvedValue(9);
+      mockUserRepository.countDoctorsByAccountId.mockResolvedValue(10);
 
-      // 9 + 1 = 10 >= 10 → false
       expect(await service.canAddDoctor('admin-1')).toBe(false);
     });
   });
 
-  // ─── PRD: Usuários/Permissões — US-004: Gestão de colaboradores ─────────
+  // ─── PRD v3: Gestão de colaboradores ─────────
   describe('findCollaborators', () => {
-    it('deve retornar lista de colaboradores do admin', async () => {
+    it('deve retornar lista de colaboradores da conta', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'admin-1',
-        is_admin: true,
+        role: UserRole.ADMIN,
+        account_id: 'admin-1',
       });
-      mockUserRepository.findManyByAdminId.mockResolvedValue([
+      mockUserRepository.findByAccountId.mockResolvedValue([
         { id: 'collab-1', name: 'Colaborador 1' },
       ]);
 
       const result = await service.findCollaborators('admin-1');
 
       expect(result.records).toHaveLength(1);
-      expect(mockUserRepository.findManyByAdminId).toHaveBeenCalledWith(
+      expect(mockUserRepository.findByAccountId).toHaveBeenCalledWith(
         'admin-1',
         0,
         50,
@@ -174,7 +198,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve lançar ForbiddenException se não é admin', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
-        is_admin: false,
+        role: UserRole.COLLABORATOR,
       });
 
       await expect(service.findCollaborators('user-1')).rejects.toThrow(
@@ -187,9 +211,8 @@ describe('UsersService — Colaboradores e Permissões', () => {
     const adminUser = {
       id: 'admin-1',
       name: 'Admin',
-      is_admin: true,
-      is_doctor: true,
-      role: UserRole.DOCTOR,
+      role: UserRole.ADMIN,
+      account_id: 'admin-1',
     };
 
     beforeEach(() => {
@@ -205,7 +228,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'novo@email.com',
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
-        is_doctor: false,
+        account_id: 'admin-1',
         admin_id: 'admin-1',
       });
 
@@ -218,7 +241,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         expect.objectContaining({
           role: UserRole.COLLABORATOR,
           status: UserStatus.PENDING,
-          is_admin: false,
+          account_id: 'admin-1',
           admin_id: 'admin-1',
         }),
       );
@@ -250,9 +273,9 @@ describe('UsersService — Colaboradores e Permissões', () => {
         ...adminUser,
         subscription_plan: { max_doctors: 1 },
       });
-      mockUserRepository.countDoctorsByAdminId.mockResolvedValue(0);
+      mockUserRepository.countDoctorsByAccountId.mockResolvedValue(1);
 
-      // Admin é médico e plano Básico (1 CRM) — não pode adicionar mais médico
+      // 1 médico na conta e plano permite 1 → não pode adicionar mais
       await expect(
         service.createCollaborator(
           {
@@ -273,7 +296,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         name: 'Novo',
         email: 'novo@email.com',
         role: UserRole.COLLABORATOR,
-        is_doctor: false,
       });
 
       await service.createCollaborator(
@@ -288,7 +310,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       );
     });
 
-    it('deve enviar WhatsApp de boas-vindas se colaborador é médico com telefone (PRD WhatsApp US-004)', async () => {
+    it('deve criar doctor_profile e enviar WhatsApp se colaborador é médico com telefone', async () => {
       mockUserRepository.findOne
         .mockReset()
         .mockResolvedValueOnce(adminUser) // admin
@@ -297,10 +319,9 @@ describe('UsersService — Colaboradores e Permissões', () => {
       // Permitir criar médico (plano com espaço)
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         ...adminUser,
-        is_doctor: false, // Admin não é médico → 1 vaga
-        subscription_plan: { max_doctors: 1 },
+        subscription_plan: { max_doctors: 2 },
       });
-      mockUserRepository.countDoctorsByAdminId.mockResolvedValue(0);
+      mockUserRepository.countDoctorsByAccountId.mockResolvedValue(0);
 
       mockUserRepository.create.mockResolvedValue({
         id: 'new-1',
@@ -308,7 +329,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'joao@email.com',
         phone: '+5511999999999',
         role: UserRole.COLLABORATOR,
-        is_doctor: true,
       });
 
       await service.createCollaborator(
@@ -323,6 +343,15 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'admin-1',
       );
 
+      // Deve ter criado o doctor_profile
+      expect(mockDoctorProfileRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'new-1',
+          crm: '123',
+          crm_state: 'SP',
+        }),
+      );
+
       expect(mockWhatsappService.sendDoctorWelcome).toHaveBeenCalledWith(
         '+5511999999999',
         'Dr. João',
@@ -335,7 +364,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve lançar ForbiddenException se não é admin', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
-        is_admin: false,
+        role: UserRole.COLLABORATOR,
       });
 
       await expect(
@@ -344,34 +373,38 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar ForbiddenException se colaborador pertence a outro admin', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', is_admin: true })
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          admin_id: 'another-admin',
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'admin-1',
+        role: UserRole.ADMIN,
+      });
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'collab-1',
+        admin_id: 'another-admin',
+      });
 
       await expect(
         service.updateCollaborator('collab-1', { name: 'Novo' }, 'admin-1'),
       ).rejects.toThrow('Este colaborador não pertence à sua conta');
     });
 
-    it('deve limpar campos médicos ao desmarcar is_doctor', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', is_admin: true })
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          admin_id: 'admin-1',
-          is_doctor: true,
+    it('deve remover doctor_profile ao desmarcar is_doctor', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'admin-1',
+        role: UserRole.ADMIN,
+      });
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'collab-1',
+        admin_id: 'admin-1',
+        doctor_profile: {
+          id: 'dp-1',
           crm: '123',
           crm_state: 'SP',
           specialty: 'Ortopedia',
-        });
+        },
+      });
 
       mockUserRepository.update.mockResolvedValue({
         id: 'collab-1',
-        is_doctor: false,
-        crm: null,
       });
 
       await service.updateCollaborator(
@@ -380,22 +413,15 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'admin-1',
       );
 
-      expect(mockUserRepository.update).toHaveBeenCalledWith(
-        'collab-1',
-        expect.objectContaining({
-          is_doctor: false,
-          crm: null,
-          crm_state: null,
-          specialty: null,
-        }),
-      );
+      // Deve ter deletado o doctor_profile
+      expect(mockDoctorProfileRepository.delete).toHaveBeenCalledWith('dp-1');
     });
   });
 
   describe('deleteCollaborator', () => {
     it('deve deletar colaborador e retornar mensagem de sucesso', async () => {
       mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', is_admin: true })
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
         .mockResolvedValueOnce({ id: 'collab-1', admin_id: 'admin-1' });
       mockUserRepository.delete.mockResolvedValue(undefined);
 
@@ -408,7 +434,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve lançar ForbiddenException se não é admin', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
-        is_admin: false,
+        role: UserRole.COLLABORATOR,
       });
 
       await expect(
@@ -418,7 +444,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
     it('deve lançar NotFoundException se colaborador não existe', async () => {
       mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', is_admin: true })
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
         .mockResolvedValueOnce(null);
 
       await expect(
@@ -427,24 +453,23 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
   });
 
-  // ─── PRD: Usuários/Permissões — US-005: Perfil médico ──────────────────
+  // ─── PRD v3: Perfil médico (doctor_profile) ──────────────────
   describe('updateDoctorProfileById', () => {
     it('deve permitir médico editar próprio perfil', async () => {
-      mockUserRepository.findOne
+      mockUserRepository.findOneWithProfile
         .mockResolvedValueOnce({
           id: 'user-1',
-          is_admin: false,
-          is_doctor: true,
-          role: UserRole.DOCTOR,
+          role: UserRole.COLLABORATOR,
+          doctor_profile: { id: 'dp-1', crm: '111', crm_state: 'RJ' },
         })
         .mockResolvedValueOnce({
           id: 'user-1',
-          is_doctor: true,
+          doctor_profile: { id: 'dp-1', crm: '111', crm_state: 'RJ' },
+        })
+        .mockResolvedValueOnce({
+          id: 'user-1',
+          doctor_profile: { id: 'dp-1', crm: '999999', crm_state: 'RJ' },
         });
-      mockUserRepository.update.mockResolvedValue({
-        id: 'user-1',
-        crm: '999999',
-      });
 
       const result = await service.updateDoctorProfileById(
         'user-1',
@@ -452,18 +477,21 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'user-1',
       );
 
-      expect(mockUserRepository.update).toHaveBeenCalledWith(
-        'user-1',
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-1',
         expect.objectContaining({ crm: '999999' }),
       );
     });
 
     it('deve lançar BadRequestException se alvo não é médico', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', is_admin: true })
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'admin-1',
+          role: UserRole.ADMIN,
+        })
         .mockResolvedValueOnce({
           id: 'user-2',
-          is_doctor: false,
+          doctor_profile: null,
           admin_id: 'admin-1',
         });
 
@@ -473,15 +501,14 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar ForbiddenException se não é o próprio nem admin', async () => {
-      mockUserRepository.findOne
+      mockUserRepository.findOneWithProfile
         .mockResolvedValueOnce({
           id: 'other-user',
-          is_admin: false,
           role: UserRole.COLLABORATOR,
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          is_doctor: true,
+          doctor_profile: { id: 'dp-1' },
           admin_id: 'real-admin',
         });
 

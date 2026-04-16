@@ -1,22 +1,36 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { ConfigService } from '@nestjs/config';
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_KEY || '';
-// service_role bypassa RLS — usado apenas no backend para storage
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || supabaseKey;
+/**
+ * Factory para criar o cliente Supabase público.
+ * Utilizado via injeção de dependência (SUPABASE_CLIENT).
+ */
+export function createSupabaseClient(config: ConfigService): SupabaseClient {
+  const url = config.get<string>('SUPABASE_URL', '');
+  const key = config.get<string>('SUPABASE_KEY', '');
+  return createClient(url, key, {
+    auth: { persistSession: false },
+  });
+}
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    persistSession: false,
-  },
-});
+/**
+ * Factory para criar o cliente Supabase com service_role.
+ * Bypassa RLS — usado apenas no backend para storage.
+ * Utilizado via injeção de dependência (SUPABASE_ADMIN_CLIENT).
+ */
+export function createSupabaseAdminClient(
+  config: ConfigService,
+): SupabaseClient {
+  const url = config.get<string>('SUPABASE_URL', '');
+  const key = config.get<string>('SUPABASE_KEY', '');
+  const serviceKey = config.get<string>('SUPABASE_SERVICE_KEY', '') || key;
+  return createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
-/** Cliente com service_role: usa para operações de storage no backend */
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
+/** Token de injeção para o cliente Supabase público */
+export const SUPABASE_CLIENT = 'SUPABASE_CLIENT';
 
-export const SUPABASE_BUCKET = process.env.SUPABASE_BUCKET_NAME || 'documents';
+/** Token de injeção para o cliente Supabase admin (service_role) */
+export const SUPABASE_ADMIN_CLIENT = 'SUPABASE_ADMIN_CLIENT';

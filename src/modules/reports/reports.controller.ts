@@ -1,34 +1,44 @@
-import { Controller, Get, Request, Query } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ReportsService } from './reports.service';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Get('dashboard')
-  dashboard(@Request() req) {
-    return this.reportsService.dashboard(req.user.userId);
+  dashboard(@CurrentUser() user: AuthenticatedUser) {
+    return this.reportsService.dashboard(user.userId);
   }
 
   @Get('temporal-evolution')
-  temporalEvolution(@Request() req, @Query('days') days?: string) {
+  temporalEvolution(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+  ) {
     const daysNumber = days ? parseInt(days, 10) : 30;
-    return this.reportsService.temporalEvolution(req.user.userId, daysNumber);
+    return this.reportsService.temporalEvolution(user.userId, daysNumber);
   }
 
   @Get('average-completion-time')
-  averageCompletionTime(@Request() req) {
-    return this.reportsService.averageCompletionTime(req.user.userId);
+  averageCompletionTime(@CurrentUser() user: AuthenticatedUser) {
+    return this.reportsService.averageCompletionTime(user.userId);
   }
 
   @Get('pending-notifications')
-  pendingNotifications(@Request() req) {
-    return this.reportsService.pendingNotifications(req.user.userId);
+  pendingNotifications(@CurrentUser() user: AuthenticatedUser) {
+    return this.reportsService.pendingNotifications(user.userId);
   }
 
   @Get('monthly-evolution')
-  monthlyEvolution(@Request() req, @Query('months') months?: string) {
+  monthlyEvolution(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+  ) {
     const monthsNumber = months ? parseInt(months, 10) : 6;
-    return this.reportsService.monthlyEvolution(req.user.userId, monthsNumber);
+    return this.reportsService.monthlyEvolution(user.userId, monthsNumber);
   }
 }

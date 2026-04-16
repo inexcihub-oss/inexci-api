@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as puppeteer from 'puppeteer';
 import * as Handlebars from 'handlebars';
 import * as path from 'path';
@@ -207,7 +208,7 @@ export interface SurgeryRequestLaudoPdfData {
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
-  constructor() {
+  constructor(private readonly configService: ConfigService) {
     // Helper para checar se um valor foi definido (inclusive 0)
     Handlebars.registerHelper(
       'isDefined',
@@ -543,7 +544,7 @@ export class PdfService {
     try {
       browser = await puppeteer.launch({
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        executablePath: this.configService.get<string>('PUPPETEER_EXECUTABLE_PATH') || undefined,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

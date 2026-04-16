@@ -5,6 +5,10 @@ export interface RegisterData {
   email: string;
   password: string;
   name: string;
+  is_doctor?: boolean;
+  crm?: string;
+  crm_state?: string;
+  specialty?: string;
 }
 
 export interface AuthTokens {
@@ -17,6 +21,10 @@ export const testUsers = {
     email: 'admin@test.com',
     password: 'Admin@1234',
     name: 'Admin Test',
+    is_doctor: true,
+    crm: '999999',
+    crm_state: 'SP',
+    specialty: 'Cirurgia Geral',
   } as RegisterData,
   user: {
     email: 'user@test.com',

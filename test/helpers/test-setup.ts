@@ -4,6 +4,8 @@ import { AppModule } from '../../src/app.module';
 import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { getQueueToken } from '@nestjs/bull';
+import { Queue } from 'bull';
 
 // Carregar variáveis de ambiente para testes
 config({ path: resolve(__dirname, '../../.env') });
@@ -18,6 +20,9 @@ if (!process.env.DATABASE_URL) {
 }
 
 export async function createTestApp(): Promise<INestApplication> {
+  // NODE_ENV=test desabilita rate limiting via CustomThrottlerGuard
+  process.env.NODE_ENV = 'test';
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   }).compile();
@@ -80,11 +85,11 @@ export async function seedTestData(app: INestApplication): Promise<void> {
 
   if (parseInt(existingProcedures[0].count) === 0) {
     await dataSource.query(`
-      INSERT INTO procedure (name, tuss_code, active, created_at, updated_at)
+      INSERT INTO procedure (name)
       VALUES 
-        ('Cirurgia de Catarata', '31201019', true, NOW(), NOW()),
-        ('Cirurgia de Hérnia', '31203019', true, NOW(), NOW()),
-        ('Cirurgia de Vesícula', '31303029', true, NOW(), NOW())
+        ('Cirurgia de Catarata'),
+        ('Cirurgia de Hérnia'),
+        ('Cirurgia de Vesícula')
       ON CONFLICT DO NOTHING
     `);
   }
@@ -99,38 +104,59 @@ export async function createUserWithRole(
   options: {
     email: string;
     name: string;
-    role?: 'admin' | 'doctor' | 'collaborator'; // UserRole value
-    status?: number; // UserStatus value (1=PENDING, 2=ACTIVE, 3=INACTIVE)
+    role?: 'admin' | 'collaborator';
+    status?: 'pending' | 'active' | 'inactive';
     password?: string;
+    account_id?: string; // UUID do admin da conta (para collaborators)
   },
 ): Promise<{
-  id: number;
+  id: string;
   email: string;
   name: string;
   role: string;
-  status: number;
+  status: string;
+  account_id: string;
 }> {
   const dataSource = app.get(DataSource);
   const bcrypt = require('bcrypt');
 
   const hashedPassword = await bcrypt.hash(options.password || 'Test@1234', 10);
+  const role = options.role || 'admin';
+  const status = options.status || 'active';
 
-  const result = await dataSource.query(
-    `
-    INSERT INTO "user" (name, email, password, role, status, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-    RETURNING id, email, name, role, status
-  `,
-    [
-      options.name,
-      options.email,
-      hashedPassword,
-      options.role || 'doctor',
-      options.status || 2, // ACTIVE by default
-    ],
-  );
-
-  return result[0];
+  if (role === 'admin' && !options.account_id) {
+    // Admin: account_id = self.id — precisa gerar UUID antes
+    const [{ id: generatedId }] = await dataSource.query(
+      `SELECT uuid_generate_v4() AS id`,
+    );
+    const result = await dataSource.query(
+      `
+      INSERT INTO "user" (id, name, email, password, role, status, account_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $1)
+      RETURNING id, email, name, role, status, account_id
+    `,
+      [generatedId, options.name, options.email, hashedPassword, role, status],
+    );
+    return result[0];
+  } else {
+    // Collaborator: precisa de account_id fornecido
+    const result = await dataSource.query(
+      `
+      INSERT INTO "user" (name, email, password, role, status, account_id, admin_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $6)
+      RETURNING id, email, name, role, status, account_id
+    `,
+      [
+        options.name,
+        options.email,
+        hashedPassword,
+        role,
+        status,
+        options.account_id,
+      ],
+    );
+    return result[0];
+  }
 }
 
 // Alias para compatibilidade com código existente
@@ -139,6 +165,30 @@ export const createUserWithPv = createUserWithRole;
 
 export async function closeTestApp(app: INestApplication): Promise<void> {
   if (app) {
-    await app.close();
+    // Fechar filas Bull antes de fechar o app para evitar
+    // unhandled rejections do ioredis durante o teardown
+    const queueNames = [
+      'mail',
+      'pdf-generation',
+      'whatsapp-messages',
+      'surgery-request-status',
+      'surgery-request-update',
+      'surgery-request-notification',
+    ];
+    for (const name of queueNames) {
+      try {
+        const queue = app.get<Queue>(getQueueToken(name));
+        if (queue) {
+          await queue.close();
+        }
+      } catch {
+        // Queue pode não existir neste módulo
+      }
+    }
+    try {
+      await app.close();
+    } catch {
+      // Ignorar erros de teardown
+    }
   }
 }

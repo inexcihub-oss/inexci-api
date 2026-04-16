@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { WhatsappProcessor } from './whatsapp.processor';
 import {
   WhatsappMessageLog,
@@ -29,6 +30,17 @@ describe('WhatsappProcessor', () => {
         {
           provide: getRepositoryToken(WhatsappMessageLog),
           useValue: mockLogRepository,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              if (key === 'TWILIO_ACCOUNT_SID') return undefined;
+              if (key === 'TWILIO_AUTH_TOKEN') return undefined;
+              if (key === 'TWILIO_WHATSAPP_FROM') return '+5511999999999';
+              return undefined;
+            }),
+          },
         },
       ],
     }).compile();

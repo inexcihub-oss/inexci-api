@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bull';
+import { ConfigService } from '@nestjs/config';
 import { WhatsappService } from './whatsapp.service';
 
 describe('WhatsappService', () => {
@@ -17,6 +18,15 @@ describe('WhatsappService', () => {
         {
           provide: getQueueToken('whatsapp-messages'),
           useValue: mockQueue,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              if (key === 'DASHBOARD_URL') return 'http://localhost:3000';
+              return undefined;
+            }),
+          },
         },
       ],
     }).compile();

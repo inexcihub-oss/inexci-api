@@ -1,16 +1,18 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-
 import { SurgeryRequestProcedure } from '../entities/surgery-request-procedure.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class SurgeryRequestProcedureRepository {
+export class SurgeryRequestProcedureRepository extends BaseRepository<SurgeryRequestProcedure> {
   constructor(
     @InjectRepository(SurgeryRequestProcedure)
-    private readonly repository: Repository<SurgeryRequestProcedure>,
-  ) {}
+    repository: Repository<SurgeryRequestProcedure>,
+  ) {
+    super(repository);
+  }
 
   async create(
     data: Partial<SurgeryRequestProcedure>,
@@ -18,7 +20,6 @@ export class SurgeryRequestProcedureRepository {
     const surgeryRequestProcedure = this.repository.create(data);
     const saved = await this.repository.save(surgeryRequestProcedure);
 
-    // Carregar relacionamento procedure com campos específicos
     return await this.repository.findOne({
       where: { id: saved.id },
       relations: ['procedure'],
@@ -30,23 +31,5 @@ export class SurgeryRequestProcedureRepository {
         },
       },
     });
-  }
-
-  async findOne(
-    where: Partial<SurgeryRequestProcedure>,
-  ): Promise<SurgeryRequestProcedure | null> {
-    return await this.repository.findOne({ where });
-  }
-
-  async update(
-    id: string,
-    data: Partial<SurgeryRequestProcedure>,
-  ): Promise<SurgeryRequestProcedure> {
-    await this.repository.update(id, data);
-    return await this.repository.findOne({ where: { id } });
-  }
-
-  async delete(id: string): Promise<void> {
-    await this.repository.delete(id);
   }
 }

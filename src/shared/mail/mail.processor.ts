@@ -1,5 +1,6 @@
 import { Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
+import { ConfigType } from '@nestjs/config';
 import { Job } from 'bull';
 import * as nodemailer from 'nodemailer';
 import * as Handlebars from 'handlebars';
@@ -13,14 +14,17 @@ export class MailProcessor {
   private readonly logger = new Logger(MailProcessor.name);
   private readonly transporter: nodemailer.Transporter;
 
-  constructor() {
+  constructor(
+    @Inject(mailConfig.KEY)
+    private readonly mail: ConfigType<typeof mailConfig>,
+  ) {
     this.transporter = nodemailer.createTransport({
-      host: mailConfig.host,
-      port: mailConfig.port,
-      secure: mailConfig.secure,
+      host: this.mail.host,
+      port: this.mail.port,
+      secure: this.mail.secure,
       auth: {
-        user: mailConfig.auth.user,
-        pass: mailConfig.auth.pass,
+        user: this.mail.auth.user,
+        pass: this.mail.auth.pass,
       },
     });
   }
@@ -33,7 +37,7 @@ export class MailProcessor {
       const html = this.renderTemplate(template, context);
 
       await this.transporter.sendMail({
-        from: `"${mailConfig.from.name}" <${mailConfig.from.address}>`,
+        from: `"${this.mail.from.name}" <${this.mail.from.address}>`,
         to,
         subject,
         html,

@@ -1,6 +1,7 @@
 import { Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { Job } from 'bull';
 import Twilio = require('twilio');
@@ -14,6 +15,7 @@ import { WhatsappJobData } from './whatsapp.service';
 export class WhatsappProcessor {
   private readonly logger = new Logger(WhatsappProcessor.name);
   private readonly twilioClient: ReturnType<typeof Twilio> | null;
+  private readonly twilioWhatsappFrom: string;
 
   /**
    * Normaliza um número de telefone para o formato E.164 exigido pelo Twilio.
@@ -40,9 +42,10 @@ export class WhatsappProcessor {
   constructor(
     @InjectRepository(WhatsappMessageLog)
     private readonly logRepository: Repository<WhatsappMessageLog>,
+    private readonly configService: ConfigService,
   ) {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
+    const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
 
     if (accountSid && authToken) {
       this.twilioClient = Twilio(accountSid, authToken);
@@ -52,12 +55,17 @@ export class WhatsappProcessor {
         'Twilio não configurado (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN ausentes). Mensagens WhatsApp serão apenas logadas.',
       );
     }
+
+    this.twilioWhatsappFrom = this.configService.get<string>(
+      'TWILIO_WHATSAPP_FROM',
+      'whatsapp:+14155238886',
+    );
   }
 
   @Process('send-whatsapp')
   async handleSendWhatsapp(job: Job<WhatsappJobData>): Promise<void> {
     const { to, body } = job.data;
-    const from = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
+    const from = this.twilioWhatsappFrom;
 
     // TO: normaliza o número do paciente (pode estar em vários formatos, ex: "(31) 98908-5791")
     const toNormalized = this.normalizeToE164(to);

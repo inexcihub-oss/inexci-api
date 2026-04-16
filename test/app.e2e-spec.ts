@@ -17,7 +17,11 @@ describe('AppController (e2e)', () => {
 
   afterEach(async () => {
     if (app) {
-      await app.close();
+      try {
+        await app.close();
+      } catch {
+        // Ignorar erros de teardown do Bull/Redis
+      }
     }
   });
 

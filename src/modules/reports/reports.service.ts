@@ -1,51 +1,42 @@
 import { Injectable } from '@nestjs/common';
-import { FindOptionsWhere, Between, LessThan } from 'typeorm';
+import { FindOptionsWhere, Between, LessThan, In } from 'typeorm';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { UserRole } from 'src/database/entities/user.entity';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class ReportsService {
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly userRepository: UserRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
-  private async getDoctorId(userId: string): Promise<string | null> {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      return doctorProfile?.id || null;
-    }
-
-    // TODO: Para colaboradores, obter via TeamMember
-    return null;
-  }
-
   async dashboard(userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    const doctorId = await this.getDoctorId(userId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
 
-    let where: FindOptionsWhere<SurgeryRequest> = {};
-    let whereString = 'WHERE ';
-
-    if (user.role === UserRole.DOCTOR && doctorId) {
-      where = { ...where, doctor_id: doctorId };
-      whereString += `sr.doctor_id='${doctorId}'`;
-    } else if (user.role === UserRole.COLLABORATOR) {
-      where = { ...where, created_by_id: userId };
-      whereString += `sr.created_by_id='${userId}'`;
-    } else if (user.role === UserRole.ADMIN) {
-      whereString += '1=1'; // Admin vê tudo
+    if (doctorIds.length === 0) {
+      return {
+        surgery_request: {
+          total: 0,
+          total_scheduled: 0,
+          total_performed: 0,
+          total_invoiced_count: 0,
+          total_invoiced_value: 0,
+          total_received_value: 0,
+          total_by_health_plan: [],
+          total_by_status: [],
+          total_by_hospital: [],
+        },
+      };
     }
+
+    const where: FindOptionsWhere<SurgeryRequest> = {
+      doctor_id: In(doctorIds),
+    };
 
     const [respTotal, respTotalScheduled, respPerformed, respInvoiced] =
       await Promise.all([
@@ -71,9 +62,9 @@ export class ReportsService {
       totalByHospital,
     ]: any = await Promise.all([
       this.surgeryRequestRepository.sumInvoiced(where),
-      this.surgeryRequestRepository.totalByHealthPlan(whereString),
-      this.surgeryRequestRepository.totalByStatus(whereString),
-      this.surgeryRequestRepository.totalByHospital(whereString),
+      this.surgeryRequestRepository.totalByHealthPlan(doctorIds),
+      this.surgeryRequestRepository.totalByStatus(doctorIds),
+      this.surgeryRequestRepository.totalByHospital(doctorIds),
     ]);
 
     totalByHealthPlan = totalByHealthPlan.map((item) => {
@@ -107,21 +98,18 @@ export class ReportsService {
   }
 
   private async getWhereConditions(userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    const doctorId = await this.getDoctorId(userId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
 
     let where: FindOptionsWhere<SurgeryRequest> = {};
-    let whereString = 'WHERE 1=1';
 
-    if (user.role === UserRole.DOCTOR && doctorId) {
-      where = { ...where, doctor_id: doctorId };
-      whereString += ` AND doctor_id='${doctorId}'`;
-    } else if (user.role === UserRole.COLLABORATOR) {
-      where = { ...where, created_by_id: userId };
-      whereString += ` AND created_by_id='${userId}'`;
+    if (doctorIds.length > 0) {
+      where = { ...where, doctor_id: In(doctorIds) };
+    } else {
+      where = { ...where, doctor_id: In(['__none__']) };
     }
 
-    return { where, whereString };
+    return { where, doctorIds };
   }
 
   async temporalEvolution(userId: string, days: number = 30) {

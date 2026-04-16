@@ -1,10 +1,25 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { supabaseAdmin as supabase } from '../../config/supabase.config';
-import { STORAGE_BUCKET, STORAGE_FOLDERS } from '../../config/storage.config';
+import { Inject, Injectable, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
+import { STORAGE_FOLDERS } from '../../config/storage.config';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class UploadService {
+  private readonly bucket: string;
+
+  constructor(
+    @Inject(SUPABASE_ADMIN_CLIENT)
+    private readonly supabase: SupabaseClient,
+    private readonly configService: ConfigService,
+  ) {
+    this.bucket = this.configService.get<string>(
+      'storage.bucket',
+      'inexci-storage',
+    );
+  }
+
   /**
    * Faz upload de um arquivo para o Supabase Storage
    * @param file - Arquivo do multer
@@ -26,8 +41,8 @@ export class UploadService {
 
     try {
       // Upload para o Supabase Storage
-      const { data, error } = await supabase.storage
-        .from(STORAGE_BUCKET)
+      const { data, error } = await this.supabase.storage
+        .from(this.bucket)
         .upload(filePath, file.buffer, {
           contentType: file.mimetype,
           upsert: false,
@@ -38,9 +53,10 @@ export class UploadService {
       }
 
       // Gerar URL assinada (1h) para acesso ao bucket privado
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .createSignedUrl(data.path, 3600);
+      const { data: signedData, error: signedError } =
+        await this.supabase.storage
+          .from(this.bucket)
+          .createSignedUrl(data.path, 3600);
 
       const url = signedData?.signedUrl ?? data.path;
 
@@ -61,8 +77,8 @@ export class UploadService {
    */
   async deleteFile(filePath: string): Promise<void> {
     try {
-      const { error } = await supabase.storage
-        .from(STORAGE_BUCKET)
+      const { error } = await this.supabase.storage
+        .from(this.bucket)
         .remove([filePath]);
 
       if (error) {

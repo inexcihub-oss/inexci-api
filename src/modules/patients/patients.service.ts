@@ -7,50 +7,29 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserRole } from 'src/database/entities/user.entity';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class PatientsService {
   constructor(
     private readonly patientRepository: PatientRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly userRepository: UserRepository,
     private readonly whatsappService: WhatsappService,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   async findAll(query: FindManyPatientDto, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    // Determinar o doctor_id baseado no role do usuário
-    let doctorId: string;
-
-    if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      doctorId = doctorProfile?.id;
-    } else if (user.role === UserRole.COLLABORATOR) {
-      // TODO: Implementar lógica para obter o doctor do colaborador via TeamMember
-      // Por enquanto, retorna vazio
-      return { total: 0, records: [] };
-    } else if (user.role === UserRole.ADMIN) {
-      // Admin pode ver todos os pacientes - sem filtro por doctor_id
-      const [total, records] = await Promise.all([
-        this.patientRepository.total({}),
-        this.patientRepository.findMany({}, query.skip, query.take),
-      ]);
-      return { total, records };
-    }
-
-    if (!doctorId) {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length === 0) {
       return { total: 0, records: [] };
     }
 
-    const where: FindOptionsWhere<Patient> = { doctor_id: doctorId };
+    const where: FindOptionsWhere<Patient> = { doctor_id: In(doctorIds) };
 
     const [total, records] = await Promise.all([
       this.patientRepository.total(where),
@@ -64,20 +43,19 @@ export class PatientsService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    let doctorProfileId: string;
-    if (user.role === UserRole.DOCTOR) {
-      const profile = await this.doctorProfileRepository.findByUserId(userId);
-      if (!profile)
-        throw new BadRequestException(
-          'Perfil de médico não encontrado. Configure seu perfil antes de criar pacientes.',
-        );
-      doctorProfileId = profile.id;
-    } else {
-      throw new BadRequestException('Apenas médicos podem criar pacientes.');
+    // doctor_id agora é user.id do médico
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length === 0) {
+      throw new BadRequestException(
+        'Nenhum médico acessível para criar pacientes.',
+      );
     }
+    // Priorizar o próprio usuário se ele for médico
+    const doctorId = doctorIds.includes(userId) ? userId : doctorIds[0];
 
     const patient = await this.patientRepository.create({
-      doctor_id: doctorProfileId,
+      doctor_id: doctorId,
       name: data.name,
       phone: data.phone,
       cpf: data.cpf,

@@ -1,21 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ChatRepository } from 'src/database/repositories/chat.repository';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { CreateChatDto } from './dto/create-chat.dto';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { UserRole } from 'src/database/entities/user.entity';
 import { ChatMessageRepository } from 'src/database/repositories/chat-message.repository';
 import { Chat } from 'src/database/entities/chat.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class ChatsService {
   constructor(
     private readonly chatMessageRepository: ChatMessageRepository,
     private readonly chatRepository: ChatRepository,
-    private readonly userRepository: UserRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   async findOne(where: FindOptionsWhere<Chat>) {
@@ -36,20 +34,11 @@ export class ChatsService {
   async sendMessage(data: CreateMessageDto, userId: string) {
     let where: FindOptionsWhere<Chat> = { id: data.chat_id };
 
-    const user = await this.userRepository.findOne({ id: userId });
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
 
-    if (user.role === UserRole.COLLABORATOR) {
-      where = { ...where, surgery_request: { created_by_id: userId } };
-    } else if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      if (doctorProfile) {
-        where = { ...where, surgery_request: { doctor_id: doctorProfile.id } };
-      }
-    } else if (user.role === UserRole.ADMIN) {
-      // Admin pode enviar para qualquer chat
-    } else {
-      where = { ...where, user_id: userId };
+    if (doctorIds.length > 0) {
+      where = { ...where, surgery_request: { doctor_id: In(doctorIds) } };
     }
 
     const chat = await this.chatRepository.findOne(where);

@@ -1,50 +1,18 @@
 import * as bcrypt from 'bcrypt';
 import { faker } from '@faker-js/faker';
+import { Logger } from '@nestjs/common';
 import { SeedDataSource } from '../typeorm/seed-data-source';
 
-// Importar entidades
-import { User, UserRole, UserStatus } from '../entities/user.entity';
-import { SubscriptionPlan } from '../entities/subscription-plan.entity';
-import {
-  DoctorProfile,
-  SubscriptionStatus,
-} from '../entities/doctor-profile.entity';
-import {
-  TeamMember,
-  TeamMemberRole,
-  TeamMemberStatus,
-} from '../entities/team-member.entity';
-import { Patient } from '../entities/patient.entity';
-import { Hospital } from '../entities/hospital.entity';
-import { HealthPlan } from '../entities/health-plan.entity';
-import { Supplier } from '../entities/supplier.entity';
-import { Procedure } from '../entities/procedure.entity';
-import {
-  SurgeryRequest,
-  SurgeryRequestStatus,
-  SurgeryRequestPriority,
-} from '../entities/surgery-request.entity';
-import { OpmeItem } from '../entities/opme-item.entity';
-import { Document } from '../entities/document.entity';
-import { SurgeryRequestQuotation } from '../entities/surgery-request-quotation.entity';
-import { StatusUpdate } from '../entities/status-update.entity';
-import { Chat } from '../entities/chat.entity';
-import { ChatMessage } from '../entities/chat-message.entity';
-import { RecoveryCode } from '../entities/recovery-code.entity';
-import { DefaultDocumentClinic } from '../entities/default-document-clinic.entity';
-import {
-  Notification,
-  NotificationType,
-} from '../entities/notification.entity';
-import { UserNotificationSettings } from '../entities/user-notification-settings.entity';
+const logger = new Logger('Seed');
 
 /**
- * 🌱 SEED PARA NOVA ESTRUTURA DE DADOS
+ * 🌱 SEED v3 — Nova estrutura de usuários e permissões
  *
- * Nova Arquitetura:
- * - USUÁRIOS (fazem login): Admin, Médico, Colaborador
- * - ENTIDADES DE NEGÓCIO (não fazem login): Paciente, Hospital, Plano de Saúde, Fornecedor
- * - RELAÇÃO MÉDICO-COLABORADOR: TeamMember com permissões granulares
+ * Arquitetura:
+ * - role: 'admin' | 'collaborator' (médico = existência de doctor_profile)
+ * - account_id: isolamento de tenant (todos da mesma conta compartilham)
+ * - user_doctor_access: controle binário de acesso médico↔usuário
+ * - doctor_id em todas as tabelas → user.id
  */
 
 // Verificação de ambiente
@@ -53,15 +21,14 @@ function checkEnvironment() {
   const allowedEnvs = ['development', 'local', 'dev'];
 
   if (!allowedEnvs.includes(nodeEnv.toLowerCase())) {
-    console.error(
+    logger.error(
       '❌ ERRO: Seed só pode ser executado em ambiente local ou de desenvolvimento!',
     );
     process.exit(1);
   }
-  console.log(`✅ Ambiente verificado: ${nodeEnv}`);
+  logger.log(`✅ Ambiente verificado: ${nodeEnv}`);
 }
 
-// Função auxiliar para gerar CPF válido
 function generateCPF(): string {
   const randomDigits = () => Math.floor(Math.random() * 9);
   let cpf = '';
@@ -86,7 +53,6 @@ function generateCPF(): string {
   return cpf;
 }
 
-// Função auxiliar para gerar CNPJ válido
 function generateCNPJ(): string {
   const randomDigits = () => Math.floor(Math.random() * 9);
   let cnpj = '';
@@ -132,788 +98,493 @@ function generatePhone(): string {
 async function main() {
   checkEnvironment();
 
-  console.log('🌱 Iniciando seed do banco de dados (Nova Estrutura)...');
-  console.log('⏳ Este processo pode levar alguns minutos...\n');
+  logger.log('🌱 Iniciando seed do banco de dados (v3 — Nova Estrutura)...');
+  logger.log('⏳ Este processo pode levar alguns minutos...\n');
 
   const dataSource = await SeedDataSource.initialize();
   const hashedPassword = await bcrypt.hash('123456', 10);
 
-  // Repositories
-  const subscriptionPlanRepo = dataSource.getRepository(SubscriptionPlan);
-  const userRepo = dataSource.getRepository(User);
-  const doctorProfileRepo = dataSource.getRepository(DoctorProfile);
-  const teamMemberRepo = dataSource.getRepository(TeamMember);
-  const patientRepo = dataSource.getRepository(Patient);
-  const hospitalRepo = dataSource.getRepository(Hospital);
-  const healthPlanRepo = dataSource.getRepository(HealthPlan);
-  const supplierRepo = dataSource.getRepository(Supplier);
-  const procedureRepo = dataSource.getRepository(Procedure);
-  const surgeryRequestRepo = dataSource.getRepository(SurgeryRequest);
-  const opmeItemRepo = dataSource.getRepository(OpmeItem);
-  const documentRepo = dataSource.getRepository(Document);
-  const quotationRepo = dataSource.getRepository(SurgeryRequestQuotation);
-  const statusUpdateRepo = dataSource.getRepository(StatusUpdate);
-  const chatRepo = dataSource.getRepository(Chat);
-  const chatMessageRepo = dataSource.getRepository(ChatMessage);
-  const recoveryCodeRepo = dataSource.getRepository(RecoveryCode);
-  const defaultDocRepo = dataSource.getRepository(DefaultDocumentClinic);
-  const notificationRepo = dataSource.getRepository(Notification);
-  const notificationSettingsRepo = dataSource.getRepository(
-    UserNotificationSettings,
-  );
+  // ========================================
+  // 1. PLANOS DE ASSINATURA
+  // ========================================
+  logger.log('📋 Criando planos de assinatura...');
+
+  const basicPlan = await dataSource.query(`
+    INSERT INTO subscription_plan (name, description, max_doctors, is_active)
+    VALUES ('Básico', 'Plano básico com 1 CRM permitido', 1, true)
+    RETURNING id
+  `);
+  const basicPlanId = basicPlan[0].id;
+
+  const professionalPlan = await dataSource.query(`
+    INSERT INTO subscription_plan (name, description, max_doctors, is_active)
+    VALUES ('Profissional', 'Plano profissional com até 10 CRMs permitidos', 10, true)
+    RETURNING id
+  `);
+  const professionalPlanId = professionalPlan[0].id;
+
+  logger.log('✅ 2 planos de assinatura criados\n');
 
   // ========================================
-  // 1. PROCEDIMENTOS
+  // 2. PROCEDIMENTOS
   // ========================================
+  logger.log('🔧 Criando procedimentos...');
 
-  console.log('🔧 Criando procedimentos...');
-  const procedureData = [
-    { name: 'Colecistectomia videolaparoscópica' },
-    { name: 'Herniorrafia inguinal' },
-    { name: 'Apendicectomia' },
-    { name: 'Artroplastia total do joelho' },
-    { name: 'Artroscopia de joelho' },
-    { name: 'Discectomia lombar' },
-    { name: 'Artroplastia total do quadril' },
-    { name: 'Herniorrafia umbilical' },
-    { name: 'Nefrolitotripsia percutânea' },
-    { name: 'Septoplastia' },
+  const procedureNames = [
+    'Colecistectomia videolaparoscópica',
+    'Herniorrafia inguinal',
+    'Apendicectomia',
+    'Artroplastia total do joelho',
+    'Artroscopia de joelho',
+    'Discectomia lombar',
+    'Artroplastia total do quadril',
+    'Herniorrafia umbilical',
+    'Nefrolitotripsia percutânea',
+    'Septoplastia',
   ];
 
-  const procedures: Procedure[] = [];
-  for (const data of procedureData) {
-    let procedure = await procedureRepo.findOne({
-      where: { name: data.name },
-    });
-    if (!procedure) {
-      procedure = await procedureRepo.save(
-        procedureRepo.create({ name: data.name }),
-      );
-    }
-    procedures.push(procedure);
+  const procedureIds: string[] = [];
+  for (const name of procedureNames) {
+    const result = await dataSource.query(
+      `INSERT INTO procedure (name) VALUES ($1) RETURNING id`,
+      [name],
+    );
+    procedureIds.push(result[0].id);
   }
-  console.log(`✅ ${procedures.length} procedimentos\n`);
+  logger.log(`✅ ${procedureIds.length} procedimentos criados\n`);
 
   // ========================================
-  // 1.5. PLANOS DE ASSINATURA
+  // 3. ADMIN (médico — tem doctor_profile)
   // ========================================
+  logger.log('👤 Criando admin (médico principal)...');
 
-  console.log('📋 Criando planos de assinatura...');
+  // Para admin, account_id = self.id (auto-referência).
+  // Como a FK account_id → user.id impede inserir com UUID inexistente,
+  // pré-geramos o UUID e usamos no INSERT.
+  const preGeneratedId = await dataSource.query(
+    `SELECT uuid_generate_v4() AS id`,
+  );
+  const adminId = preGeneratedId[0].id;
 
-  let basicPlan = await subscriptionPlanRepo.findOne({
-    where: { name: 'Básico' },
-  });
-  if (!basicPlan) {
-    basicPlan = await subscriptionPlanRepo.save(
-      subscriptionPlanRepo.create({
-        name: 'Básico',
-        description: 'Plano básico com 1 CRM permitido',
-        max_doctors: 1,
-        is_active: true,
-      }),
-    );
-  }
+  await dataSource.query(
+    `
+    INSERT INTO "user" (id, name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, subscription_plan_id)
+    VALUES (
+      $1,
+      'Dr. Carlos Silva',
+      'admin@inexci.com',
+      $2,
+      '${generatePhone()}',
+      '${generateCPF()}',
+      'M',
+      '1975-05-15',
+      'admin',
+      'active',
+      $1,
+      NULL,
+      $3
+    )
+  `,
+    [adminId, hashedPassword, professionalPlanId],
+  );
 
-  let professionalPlan = await subscriptionPlanRepo.findOne({
-    where: { name: 'Profissional' },
-  });
-  if (!professionalPlan) {
-    professionalPlan = await subscriptionPlanRepo.save(
-      subscriptionPlanRepo.create({
-        name: 'Profissional',
-        description: 'Plano profissional com até 10 CRMs permitidos',
-        max_doctors: 10,
-        is_active: true,
-      }),
-    );
-  }
+  // Criar doctor_profile para o admin
+  await dataSource.query(
+    `
+    INSERT INTO doctor_profile (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
+    VALUES ($1, '123456', 'SP', 'Ortopedia', 'Clínica Ortopédica Silva', '${generateCNPJ()}', 'Rua das Flores, 123 - São Paulo, SP')
+  `,
+    [adminId],
+  );
 
-  let enterprisePlan = await subscriptionPlanRepo.findOne({
-    where: { name: 'Enterprise' },
-  });
-  if (!enterprisePlan) {
-    enterprisePlan = await subscriptionPlanRepo.save(
-      subscriptionPlanRepo.create({
-        name: 'Enterprise',
-        description: 'Plano enterprise com CRMs ilimitados',
-        max_doctors: 999,
-        is_active: true,
-      }),
-    );
-  }
-
-  console.log('✅ 3 planos de assinatura criados\n');
+  logger.log('  ✅ Admin criado: admin@inexci.com (médico, Ortopedia)\n');
 
   // ========================================
-  // 2. USUÁRIOS (fazem login) - CRIAR ANTES DAS ENTIDADES
+  // 4. COLLABORATORS
   // ========================================
+  logger.log('👩‍💼 Criando colaboradores...');
 
-  console.log('👨‍⚕️ Criando usuários médicos...');
+  // Collaborator A: tem doctor_profile (médico da equipe)
+  const collabAResult = await dataSource.query(
+    `
+    INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id)
+    VALUES (
+      'Dra. Mariana Costa',
+      'medica@inexci.com',
+      $1,
+      '${generatePhone()}',
+      '${generateCPF()}',
+      'F',
+      '1982-08-22',
+      'collaborator',
+      'active',
+      $2,
+      $2
+    )
+    RETURNING id
+  `,
+    [hashedPassword, adminId],
+  );
+  const collabAId = collabAResult[0].id;
 
-  // Médico principal de teste
-  let doctorUser = await userRepo.findOne({
-    where: { email: 'medico@inexci.com' },
-  });
-  if (!doctorUser) {
-    doctorUser = await userRepo.save(
-      userRepo.create({
-        role: UserRole.DOCTOR,
-        status: UserStatus.ACTIVE,
-        email: 'medico@inexci.com',
-        password: hashedPassword,
-        name: 'Dr. Carlos Silva',
-        phone: generatePhone(),
-        cpf: generateCPF(),
-        gender: 'M',
-        birth_date: new Date('1975-05-15'),
-        is_admin: true,
-        is_doctor: true,
-        crm: '123456',
-        crm_state: 'SP',
-        specialty: 'Ortopedia',
-        subscription_plan_id: professionalPlan.id,
-      }),
-    );
-    console.log('  ➕ Criado: medico@inexci.com');
-  } else {
-    // Garante que o usuário existente tenha is_admin e is_doctor corretos
-    await userRepo.update(doctorUser.id, { is_admin: true, is_doctor: true });
-    doctorUser = await userRepo.findOne({
-      where: { email: 'medico@inexci.com' },
-    });
-    console.log(
-      '  ✓ Existe: medico@inexci.com (atualizado is_admin/is_doctor)',
-    );
-  }
+  // Criar doctor_profile para collaborator A
+  await dataSource.query(
+    `
+    INSERT INTO doctor_profile (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj)
+    VALUES ($1, '654321', 'RJ', 'Cardiologia', 'Clínica Cardíaca Costa', '${generateCNPJ()}')
+  `,
+    [collabAId],
+  );
 
-  // Perfil do médico principal
-  let doctorProfile = await doctorProfileRepo.findOne({
-    where: { user_id: doctorUser.id },
-  });
-  if (!doctorProfile) {
-    doctorProfile = await doctorProfileRepo.save(
-      doctorProfileRepo.create({
-        user_id: doctorUser.id,
-        specialty: 'Ortopedia',
-        crm: '123456',
-        crm_state: 'SP',
-        clinic_name: 'Clínica Ortopédica Silva',
-        clinic_cnpj: generateCNPJ(),
-        subscription_status: SubscriptionStatus.ACTIVE,
-        subscription_plan: 'professional',
-        max_requests_per_month: 100,
-        max_team_members: 5,
-      }),
-    );
-  }
+  logger.log('  ➕ Collaborator A: medica@inexci.com (médica, Cardiologia)');
 
-  console.log('  ✅ Médico principal criado\n');
+  // Collaborator B: sem doctor_profile (assistente)
+  const collabBResult = await dataSource.query(
+    `
+    INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id)
+    VALUES (
+      'Ana Paula Oliveira',
+      'assistente1@inexci.com',
+      $1,
+      '${generatePhone()}',
+      '${generateCPF()}',
+      'F',
+      '1990-03-10',
+      'collaborator',
+      'active',
+      $2,
+      $2
+    )
+    RETURNING id
+  `,
+    [hashedPassword, adminId],
+  );
+  const collabBId = collabBResult[0].id;
 
-  // Médico secundário de teste (medico2)
-  let doctorUser2 = await userRepo.findOne({
-    where: { email: 'medico2@inexci.com' },
-  });
-  if (!doctorUser2) {
-    doctorUser2 = await userRepo.save(
-      userRepo.create({
-        role: UserRole.DOCTOR,
-        status: UserStatus.ACTIVE,
-        email: 'medico2@inexci.com',
-        password: hashedPassword,
-        name: 'Dra. Mariana Costa',
-        phone: generatePhone(),
-        cpf: generateCPF(),
-        gender: 'F',
-        birth_date: new Date('1982-08-22'),
-        is_admin: true,
-        is_doctor: true,
-        crm: '654321',
-        crm_state: 'RJ',
-        specialty: 'Cardiologia',
-        subscription_plan_id: basicPlan.id,
-      }),
-    );
-    console.log('  ➕ Criado: medico2@inexci.com');
-  } else {
-    console.log('  ✓ Existe: medico2@inexci.com');
-  }
+  logger.log('  ➕ Collaborator B: assistente1@inexci.com (assistente)');
 
-  // Perfil do médico secundário
-  const doctorProfile2 = await doctorProfileRepo.findOne({
-    where: { user_id: doctorUser2.id },
-  });
-  if (!doctorProfile2) {
-    await doctorProfileRepo.save(
-      doctorProfileRepo.create({
-        user_id: doctorUser2.id,
-        specialty: 'Cardiologia',
-        crm: '654321',
-        crm_state: 'RJ',
-        clinic_name: 'Clínica Cardíaca Costa',
-        clinic_cnpj: generateCNPJ(),
-        subscription_status: SubscriptionStatus.ACTIVE,
-        subscription_plan: 'basic',
-        max_requests_per_month: 50,
-        max_team_members: 2,
-      }),
-    );
-  }
+  // Collaborator C: sem doctor_profile (assistente)
+  const collabCResult = await dataSource.query(
+    `
+    INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id)
+    VALUES (
+      'João Pedro Lima',
+      'assistente2@inexci.com',
+      $1,
+      '${generatePhone()}',
+      '${generateCPF()}',
+      'M',
+      '1995-07-25',
+      'collaborator',
+      'active',
+      $2,
+      $2
+    )
+    RETURNING id
+  `,
+    [hashedPassword, adminId],
+  );
+  const collabCId = collabCResult[0].id;
 
-  console.log('  ✅ Médico secundário criado\n');
-
-  console.log('👩‍💼 Criando usuários colaboradores...');
-
-  // Colaborador 1 - Gestor
-  let collaborator1 = await userRepo.findOne({
-    where: { email: 'colaborador@inexci.com' },
-  });
-  if (!collaborator1) {
-    collaborator1 = await userRepo.save(
-      userRepo.create({
-        role: UserRole.COLLABORATOR,
-        status: UserStatus.ACTIVE,
-        email: 'colaborador@inexci.com',
-        password: hashedPassword,
-        name: 'Ana Paula Oliveira',
-        phone: generatePhone(),
-        cpf: generateCPF(),
-        gender: 'F',
-        birth_date: new Date('1990-03-10'),
-        is_admin: false,
-        is_doctor: false,
-        admin_id: doctorUser.id,
-      }),
-    );
-    console.log('  ➕ Criado: colaborador@inexci.com');
-  } else {
-    console.log('  ✓ Existe: colaborador@inexci.com');
-  }
-
-  // Colaborador 2 - Editor
-  let collaborator2 = await userRepo.findOne({
-    where: { email: 'assistente@inexci.com' },
-  });
-  if (!collaborator2) {
-    collaborator2 = await userRepo.save(
-      userRepo.create({
-        role: UserRole.COLLABORATOR,
-        status: UserStatus.ACTIVE,
-        email: 'assistente@inexci.com',
-        password: hashedPassword,
-        name: 'João Pedro Lima',
-        phone: generatePhone(),
-        cpf: generateCPF(),
-        gender: 'M',
-        birth_date: new Date('1995-07-25'),
-        is_admin: false,
-        is_doctor: false,
-        admin_id: doctorUser.id,
-      }),
-    );
-    console.log('  ➕ Criado: assistente@inexci.com');
-  } else {
-    console.log('  ✓ Existe: assistente@inexci.com');
-  }
-
-  console.log('  ✅ 2 colaboradores criados\n');
-
-  // Vincular colaboradores ao médico
-  console.log('🔗 Vinculando colaboradores ao médico...');
-
-  let teamMember1 = await teamMemberRepo.findOne({
-    where: { doctor_id: doctorUser.id, collaborator_id: collaborator1.id },
-  });
-  if (!teamMember1) {
-    teamMember1 = await teamMemberRepo.save(
-      teamMemberRepo.create({
-        doctor_id: doctorUser.id, // Corrigido: deve ser user.id, não doctorProfile.id
-        collaborator_id: collaborator1.id,
-        role: TeamMemberRole.MANAGER,
-        status: TeamMemberStatus.ACTIVE,
-        can_create_requests: true,
-        can_edit_requests: true,
-        can_delete_requests: true,
-        can_manage_documents: true,
-        can_manage_patients: true,
-        can_manage_billing: true,
-        can_manage_team: true,
-        can_view_reports: true,
-        accepted_at: new Date(),
-      }),
-    );
-    console.log('  ➕ Vinculado: Ana Paula como GESTOR');
-  }
-
-  let teamMember2 = await teamMemberRepo.findOne({
-    where: { doctor_id: doctorUser.id, collaborator_id: collaborator2.id },
-  });
-  if (!teamMember2) {
-    teamMember2 = await teamMemberRepo.save(
-      teamMemberRepo.create({
-        doctor_id: doctorUser.id, // Corrigido: deve ser user.id, não doctorProfile.id
-        collaborator_id: collaborator2.id,
-        role: TeamMemberRole.EDITOR,
-        status: TeamMemberStatus.ACTIVE,
-        can_create_requests: true,
-        can_edit_requests: true,
-        can_delete_requests: false,
-        can_manage_documents: true,
-        can_manage_patients: true,
-        can_manage_billing: false,
-        can_manage_team: false,
-        can_view_reports: true,
-        accepted_at: new Date(),
-      }),
-    );
-    console.log('  ➕ Vinculado: João Pedro como EDITOR');
-  }
-
-  console.log('  ✅ Colaboradores vinculados\n');
+  logger.log('  ➕ Collaborator C: assistente2@inexci.com (assistente)');
+  logger.log('  ✅ 3 colaboradores criados\n');
 
   // ========================================
-  // 3. ENTIDADES DE NEGÓCIO (vinculadas ao médico)
+  // 5. VÍNCULOS user_doctor_access
   // ========================================
+  logger.log('🔗 Criando vínculos de acesso...');
 
-  console.log('🏥 Criando hospitais...');
+  // Collaborator B → acesso ao Admin (médico) + Collaborator A (médico)
+  await dataSource.query(
+    `
+    INSERT INTO user_doctor_access (user_id, doctor_user_id, status, created_by_id)
+    VALUES ($1, $2, 'active', $3)
+  `,
+    [collabBId, adminId, adminId],
+  );
+
+  await dataSource.query(
+    `
+    INSERT INTO user_doctor_access (user_id, doctor_user_id, status, created_by_id)
+    VALUES ($1, $2, 'active', $3)
+  `,
+    [collabBId, collabAId, adminId],
+  );
+
+  logger.log('  ➕ Collaborator B → acesso ao Admin + Collaborator A');
+
+  // Collaborator C → acesso apenas ao Collaborator A (médico)
+  await dataSource.query(
+    `
+    INSERT INTO user_doctor_access (user_id, doctor_user_id, status, created_by_id)
+    VALUES ($1, $2, 'active', $3)
+  `,
+    [collabCId, collabAId, adminId],
+  );
+
+  logger.log('  ➕ Collaborator C → acesso apenas ao Collaborator A');
+  logger.log('  ✅ Vínculos criados\n');
+
+  // ========================================
+  // 6. HOSPITAIS (vinculados ao admin-médico)
+  // ========================================
+  logger.log('🏥 Criando hospitais...');
+
   const hospitalData = [
     { name: 'Hospital São Lucas', city: 'São Paulo', state: 'SP' },
     { name: 'Hospital Santa Maria', city: 'Rio de Janeiro', state: 'RJ' },
-    { name: 'Hospital Albert Einstein', city: 'São Paulo', state: 'SP' },
-    { name: 'Hospital Sírio-Libanês', city: 'São Paulo', state: 'SP' },
-    { name: 'Hospital das Clínicas', city: 'Belo Horizonte', state: 'MG' },
   ];
 
-  const hospitals: Hospital[] = [];
+  const hospitalIds: string[] = [];
   for (const data of hospitalData) {
-    let hospital = await hospitalRepo.findOne({ where: { name: data.name } });
-    if (!hospital) {
-      hospital = await hospitalRepo.save(
-        hospitalRepo.create({
-          name: data.name,
-          cnpj: generateCNPJ(),
-          email: faker.internet.email({ provider: 'hospital.com.br' }),
-          phone: generatePhone(),
-          city: data.city,
-          state: data.state,
-          active: true,
-          doctor_id: doctorUser.id,
-        }),
-      );
-    }
-    hospitals.push(hospital);
+    const result = await dataSource.query(
+      `
+      INSERT INTO hospital (name, cnpj, email, phone, city, state, active, doctor_id)
+      VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+      RETURNING id
+    `,
+      [
+        data.name,
+        generateCNPJ(),
+        faker.internet.email({ provider: 'hospital.com.br' }),
+        generatePhone(),
+        data.city,
+        data.state,
+        adminId,
+      ],
+    );
+    hospitalIds.push(result[0].id);
   }
-  console.log(`✅ ${hospitals.length} hospitais\n`);
+  logger.log(`  ✅ ${hospitalIds.length} hospitais criados\n`);
 
-  console.log('💳 Criando planos de saúde...');
+  // ========================================
+  // 7. CONVÊNIOS (vinculados ao admin-médico)
+  // ========================================
+  logger.log('💳 Criando convênios...');
+
   const healthPlanData = [
-    { name: 'Unimed', ans_code: '304701' },
-    { name: 'Bradesco Saúde', ans_code: '005711' },
-    { name: 'SulAmérica', ans_code: '006246' },
+    { name: 'Unimed', ans_code: '301337' },
     { name: 'Amil', ans_code: '326305' },
-    { name: 'Porto Seguro Saúde', ans_code: '416428' },
-    { name: 'NotreDame Intermédica', ans_code: '359017' },
   ];
 
-  const healthPlans: HealthPlan[] = [];
+  const healthPlanIds: string[] = [];
   for (const data of healthPlanData) {
-    let plan = await healthPlanRepo.findOne({ where: { name: data.name } });
-    if (!plan) {
-      plan = await healthPlanRepo.save(
-        healthPlanRepo.create({
-          name: data.name,
-          ans_code: data.ans_code,
-          cnpj: generateCNPJ(),
-          email: faker.internet.email({ provider: 'planodesaude.com.br' }),
-          phone: generatePhone(),
-          website: `https://www.${data.name.toLowerCase().replace(/ /g, '')}.com.br`,
-          active: true,
-          doctor_id: doctorUser.id,
-        }),
-      );
-    }
-    healthPlans.push(plan);
-  }
-  console.log(`✅ ${healthPlans.length} planos de saúde\n`);
-
-  console.log('🏭 Criando fornecedores de OPME...');
-  const supplierData = [
-    'Johnson & Johnson Medical',
-    'Medtronic do Brasil',
-    'Stryker Brasil',
-    'Zimmer Biomet',
-    'Smith & Nephew',
-  ];
-
-  const suppliers: Supplier[] = [];
-  for (const name of supplierData) {
-    let supplier = await supplierRepo.findOne({ where: { name } });
-    if (!supplier) {
-      supplier = await supplierRepo.save(
-        supplierRepo.create({
-          name,
-          cnpj: generateCNPJ(),
-          email: faker.internet.email({ provider: 'opme.com.br' }),
-          phone: generatePhone(),
-          contact_name: faker.person.fullName(),
-          contact_phone: generatePhone(),
-          active: true,
-          doctor_id: doctorUser.id,
-        }),
-      );
-    }
-    suppliers.push(supplier);
-  }
-  console.log(`✅ ${suppliers.length} fornecedores\n`);
-
-  // Admin (para futuro uso)
-  let adminUser = await userRepo.findOne({
-    where: { email: 'admin@inexci.com' },
-  });
-  if (!adminUser) {
-    adminUser = await userRepo.save(
-      userRepo.create({
-        role: UserRole.ADMIN,
-        status: UserStatus.ACTIVE,
-        email: 'admin@inexci.com',
-        password: hashedPassword,
-        name: 'Administrador Sistema',
-        phone: generatePhone(),
-        is_admin: true,
-        is_doctor: false,
-        subscription_plan_id: enterprisePlan.id,
-      }),
+    const result = await dataSource.query(
+      `
+      INSERT INTO health_plan (name, ans_code, cnpj, email, phone, active, doctor_id)
+      VALUES ($1, $2, $3, $4, $5, true, $6)
+      RETURNING id
+    `,
+      [
+        data.name,
+        data.ans_code,
+        generateCNPJ(),
+        faker.internet.email({ provider: 'plano.com.br' }),
+        generatePhone(),
+        adminId,
+      ],
     );
-    console.log('👑 Admin criado: admin@inexci.com\n');
+    healthPlanIds.push(result[0].id);
   }
+  logger.log(`  ✅ ${healthPlanIds.length} convênios criados\n`);
 
   // ========================================
-  // 4. PACIENTES (do médico principal)
+  // 8. FORNECEDORES (vinculados ao admin-médico)
   // ========================================
+  logger.log('📦 Criando fornecedores...');
 
-  console.log('👥 Criando pacientes...');
-  const patients: Patient[] = [];
-
-  const patientNames = [
-    { name: 'Roberto Ferreira', gender: 'M' },
-    { name: 'Mariana Costa', gender: 'F' },
-    { name: 'José Almeida', gender: 'M' },
-    { name: 'Fernanda Souza', gender: 'F' },
-    { name: 'Paulo Ribeiro', gender: 'M' },
-    { name: 'Juliana Martins', gender: 'F' },
-    { name: 'Antônio Pereira', gender: 'M' },
-    { name: 'Camila Rodrigues', gender: 'F' },
-    { name: 'Marcos Oliveira', gender: 'M' },
-    { name: 'Beatriz Santos', gender: 'F' },
-  ];
-
-  for (const data of patientNames) {
-    let patient = await patientRepo.findOne({
-      where: { doctor_id: doctorProfile.id, name: data.name },
-    });
-    if (!patient) {
-      const healthPlan = faker.helpers.arrayElement(healthPlans);
-      patient = await patientRepo.save(
-        patientRepo.create({
-          doctor_id: doctorProfile.id,
-          name: data.name,
-          email: faker.internet.email({ firstName: data.name.split(' ')[0] }),
-          phone: generatePhone(),
-          cpf: generateCPF(),
-          gender: data.gender,
-          birth_date: faker.date.birthdate({ min: 25, max: 75, mode: 'age' }),
-          health_plan_id: healthPlan.id,
-          health_plan_number: faker.string.numeric(12),
-          health_plan_type: faker.helpers.arrayElement([
-            'Apartamento',
-            'Enfermaria',
-            'VIP',
-          ]),
-          city: faker.helpers.arrayElement([
-            'São Paulo',
-            'Rio de Janeiro',
-            'Belo Horizonte',
-          ]),
-          state: faker.helpers.arrayElement(['SP', 'RJ', 'MG']),
-          active: true,
-        }),
-      );
-    }
-    patients.push(patient);
-  }
-  console.log(`✅ ${patients.length} pacientes criados\n`);
+  const supplierResult = await dataSource.query(
+    `
+    INSERT INTO supplier (name, cnpj, email, phone, active, doctor_id)
+    VALUES ($1, $2, $3, $4, true, $5)
+    RETURNING id
+  `,
+    [
+      'Medical Supplies Ltda',
+      generateCNPJ(),
+      faker.internet.email({ provider: 'supplier.com.br' }),
+      generatePhone(),
+      adminId,
+    ],
+  );
+  const supplierId = supplierResult[0].id;
+  logger.log('  ✅ 1 fornecedor criado\n');
 
   // ========================================
-  // 5. SOLICITAÇÕES CIRÚRGICAS
+  // 9. PACIENTES
   // ========================================
+  logger.log('🧑‍🤝‍🧑 Criando pacientes...');
 
-  console.log('📝 Criando solicitações cirúrgicas...');
-  const surgeryRequests: SurgeryRequest[] = [];
-  const statuses = [
-    SurgeryRequestStatus.PENDING,
-    SurgeryRequestStatus.SENT,
-    SurgeryRequestStatus.IN_ANALYSIS,
-    SurgeryRequestStatus.IN_SCHEDULING,
-    SurgeryRequestStatus.SCHEDULED,
-    SurgeryRequestStatus.PERFORMED,
-    SurgeryRequestStatus.INVOICED,
-    SurgeryRequestStatus.FINALIZED,
-    SurgeryRequestStatus.CLOSED,
-  ];
-
-  for (let i = 0; i < 15; i++) {
-    const patient = patients[i % patients.length];
-    const status = statuses[i % statuses.length];
-    const hospital = faker.helpers.arrayElement(hospitals);
-    const cidCode = faker.helpers.arrayElement([
-      'K80.2',
-      'K40.9',
-      'K35.8',
-      'M17.1',
-      'M23.2',
-      'M51.1',
-      'M16.1',
-      'K42.9',
-      'N20.0',
-      'J34.2',
-    ]);
-    const healthPlan =
-      healthPlans.find((hp) => hp.id === patient.health_plan_id) ||
-      healthPlans[0];
-
-    const request = surgeryRequestRepo.create({
-      doctor_id: doctorProfile.id,
-      created_by_id: faker.helpers.arrayElement([
-        doctorUser.id,
-        collaborator1.id,
-        collaborator2.id,
-      ]),
-      manager_id: faker.helpers.arrayElement([
-        collaborator1.id,
-        collaborator2.id,
-      ]),
-      patient_id: patient.id,
-      hospital_id: hospital.id,
-      health_plan_id: healthPlan.id,
-      cid_id: cidCode,
-      status,
-      priority: faker.helpers.arrayElement([
-        SurgeryRequestPriority.LOW,
-        SurgeryRequestPriority.MEDIUM,
-        SurgeryRequestPriority.HIGH,
-        SurgeryRequestPriority.URGENT,
-      ]),
-      is_indication: faker.datatype.boolean({ probability: 0.2 }),
-      diagnosis: faker.lorem.sentence(),
-      medical_report: faker.lorem.paragraphs(2),
-      patient_history: faker.lorem.paragraph(),
-      surgery_description: faker.lorem.sentence(),
-      health_plan_registration: patient.health_plan_number,
-      health_plan_type: patient.health_plan_type,
-    });
-
-    // Definir datas baseadas no status
-    if (status >= SurgeryRequestStatus.SCHEDULED) {
-      request.surgery_date = faker.date.future({ years: 0.5 });
-    }
-    if (status >= SurgeryRequestStatus.PERFORMED) {
-      request.surgery_date = faker.date.recent({ days: 30 });
-      request.surgery_performed_at = faker.date.recent({ days: 30 });
-    }
-
-    const savedRequest = await surgeryRequestRepo.save(request);
-    surgeryRequests.push(savedRequest);
-
-    // Associar um único procedimento à solicitação
-    const selectedProcedure = faker.helpers.arrayElement(procedures);
-    await surgeryRequestRepo.update(savedRequest.id, {
-      procedure_id: selectedProcedure.id,
-    });
-
-    // Adicionar itens de OPME se for ortopédica
-    if (cidCode.startsWith('M')) {
-      const numOpme = faker.number.int({ min: 1, max: 4 });
-      for (let j = 0; j < numOpme; j++) {
-        const opme = await opmeItemRepo.save(
-          opmeItemRepo.create({
-            surgery_request_id: savedRequest.id,
-            name: faker.helpers.arrayElement([
-              'Prótese de Joelho',
-              'Placa de Titânio',
-              'Parafuso Ósseo',
-              'Âncora de Sutura',
-            ]),
-            brand: faker.helpers.arrayElement([
-              'Zimmer',
-              'DePuy',
-              'Stryker',
-              'Smith & Nephew',
-            ]),
-            distributor: faker.helpers.arrayElement(suppliers).name,
-            quantity: faker.number.int({ min: 1, max: 4 }),
-            authorized_quantity:
-              status >= SurgeryRequestStatus.IN_SCHEDULING
-                ? faker.number.int({ min: 1, max: 4 })
-                : null,
-          }),
-        );
-      }
-    }
-
-    // Adicionar cotações
-    if (status >= SurgeryRequestStatus.SENT) {
-      const numQuotations = faker.number.int({ min: 1, max: 3 });
-      const selectedSuppliers = faker.helpers.arrayElements(
-        suppliers,
-        numQuotations,
-      );
-      for (let k = 0; k < selectedSuppliers.length; k++) {
-        const quotation = await quotationRepo.save(
-          quotationRepo.create({
-            surgery_request_id: savedRequest.id,
-            supplier_id: selectedSuppliers[k].id,
-            proposal_number: `PROP-${faker.string.alphanumeric(6).toUpperCase()}`,
-            total_value: parseFloat(
-              faker.commerce.price({ min: 5000, max: 30000 }),
-            ),
-            submission_date: faker.date.recent({ days: 30 }),
-            valid_until: faker.date.future({ years: 0.25 }),
-            selected: k === 0 && status >= SurgeryRequestStatus.IN_SCHEDULING,
-          }),
-        );
-      }
-    }
-
-    // Adicionar documentos
-    const docTypes = [
-      { key: 'laudoMedico', name: 'Laudo Médico' },
-      { key: 'exameLaboratorial', name: 'Exames Laboratoriais' },
-      { key: 'imagemDiagnostica', name: 'Imagem Diagnóstica' },
-      { key: 'termoConsentimento', name: 'Termo de Consentimento' },
-    ];
-    const numDocs = faker.number.int({ min: 1, max: docTypes.length });
-    const selectedDocs = faker.helpers.arrayElements(docTypes, numDocs);
-    for (const docType of selectedDocs) {
-      const doc = await documentRepo.save(
-        documentRepo.create({
-          surgery_request_id: savedRequest.id,
-          created_by: faker.helpers.arrayElement([
-            doctorUser.id,
-            collaborator1.id,
-          ]),
-          key: docType.key,
-          name: docType.name,
-          uri: `https://storage.inexci.com/docs/${savedRequest.id}/${faker.string.uuid()}.pdf`,
-        }),
-      );
-    }
-
-    // Adicionar histórico de status
-    if (status > SurgeryRequestStatus.PENDING) {
-      for (let s = 1; s < status; s++) {
-        const statusUpdate = await statusUpdateRepo.save(
-          statusUpdateRepo.create({
-            surgery_request_id: savedRequest.id,
-            prev_status: s,
-            new_status: s + 1,
-          }),
-        );
-      }
-    }
-  }
-
-  console.log(`✅ ${surgeryRequests.length} solicitações cirúrgicas criadas\n`);
-
-  // ========================================
-  // 6. NOTIFICAÇÕES
-  // ========================================
-
-  console.log('🔔 Criando notificações...');
-
-  const notificationData = [
+  // 2 pacientes do admin-médico
+  const patientIds: string[] = [];
+  const adminPatients = [
     {
-      user_id: doctorUser.id,
-      type: NotificationType.NEW_SURGERY_REQUEST,
-      title: 'Nova solicitação criada',
-      message:
-        'Ana Paula criou uma nova solicitação cirúrgica para Roberto Ferreira.',
-      link: '/solicitacoes/1',
+      name: 'Maria da Silva',
+      email: 'maria@email.com',
+      gender: 'F',
+      birth: '1960-03-15',
     },
     {
-      user_id: doctorUser.id,
-      type: NotificationType.STATUS_UPDATE,
-      title: 'Status atualizado',
-      message: 'A solicitação INX-2400001 foi autorizada pelo convênio.',
-      link: '/solicitacoes/1',
-    },
-    {
-      user_id: collaborator1.id,
-      type: NotificationType.INFO,
-      title: 'Bem-vindo à equipe!',
-      message: 'Você foi adicionado como colaborador do Dr. Carlos Silva.',
+      name: 'José Santos',
+      email: 'jose@email.com',
+      gender: 'M',
+      birth: '1975-11-20',
     },
   ];
 
-  for (const data of notificationData) {
-    const notification = await notificationRepo.save(
-      notificationRepo.create(data),
+  for (const p of adminPatients) {
+    const result = await dataSource.query(
+      `
+      INSERT INTO patient (doctor_id, name, email, phone, cpf, gender, birth_date, health_plan_id, health_plan_number, active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+      RETURNING id
+    `,
+      [
+        adminId,
+        p.name,
+        p.email,
+        generatePhone(),
+        generateCPF(),
+        p.gender,
+        p.birth,
+        healthPlanIds[0],
+        faker.string.numeric(10),
+      ],
+    );
+    patientIds.push(result[0].id);
+  }
+
+  // 1 paciente do collaborator A (médico)
+  const collabAPatientResult = await dataSource.query(
+    `
+    INSERT INTO patient (doctor_id, name, email, phone, cpf, gender, birth_date, health_plan_id, health_plan_number, active)
+    VALUES ($1, $2, $3, $4, $5, 'M', '1988-06-10', $6, $7, true)
+    RETURNING id
+  `,
+    [
+      collabAId,
+      'Pedro Ferreira',
+      'pedro@email.com',
+      generatePhone(),
+      generateCPF(),
+      healthPlanIds[1],
+      faker.string.numeric(10),
+    ],
+  );
+  patientIds.push(collabAPatientResult[0].id);
+
+  logger.log(`  ✅ ${patientIds.length} pacientes criados\n`);
+
+  // ========================================
+  // 10. SOLICITAÇÕES CIRÚRGICAS
+  // ========================================
+  logger.log('📋 Criando solicitações cirúrgicas...');
+
+  // 2 solicitações do admin-médico
+  for (let i = 0; i < 2; i++) {
+    await dataSource.query(
+      `
+      INSERT INTO surgery_request (
+        doctor_id, created_by_id, patient_id, hospital_id, health_plan_id,
+        procedure_id, status, priority, diagnosis, medical_report, surgery_description
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `,
+      [
+        adminId,
+        adminId,
+        patientIds[i],
+        hospitalIds[i % hospitalIds.length],
+        healthPlanIds[i % healthPlanIds.length],
+        procedureIds[i],
+        i === 0 ? 1 : 2, // PENDING e SENT
+        2, // MEDIUM
+        `Diagnóstico do paciente ${i + 1}`,
+        `Laudo médico do paciente ${i + 1}`,
+        `Descrição cirúrgica do paciente ${i + 1}`,
+      ],
     );
   }
-  console.log(`✅ ${notificationData.length} notificações criadas\n`);
+
+  // 1 solicitação do collaborator A (médico)
+  await dataSource.query(
+    `
+    INSERT INTO surgery_request (
+      doctor_id, created_by_id, patient_id, hospital_id, health_plan_id,
+      procedure_id, status, priority, diagnosis, medical_report, surgery_description
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+  `,
+    [
+      collabAId,
+      collabAId,
+      patientIds[2],
+      hospitalIds[0],
+      healthPlanIds[1],
+      procedureIds[2],
+      1, // PENDING
+      3, // HIGH
+      'Diagnóstico do paciente 3',
+      'Laudo médico do paciente 3',
+      'Descrição cirúrgica do paciente 3',
+    ],
+  );
+
+  logger.log('  ✅ 3 solicitações cirúrgicas criadas\n');
 
   // ========================================
-  // 7. CONFIGURAÇÕES DE NOTIFICAÇÃO
+  // 11. NOTIFICATION SETTINGS
   // ========================================
+  logger.log('🔔 Criando configurações de notificação...');
 
-  console.log('⚙️ Criando configurações de notificação...');
-
-  for (const user of [doctorUser, collaborator1, collaborator2]) {
-    let settings = await notificationSettingsRepo.findOne({
-      where: { user_id: user.id },
-    });
-    if (!settings) {
-      settings = await notificationSettingsRepo.save(
-        notificationSettingsRepo.create({
-          user_id: user.id,
-          email_notifications: true,
-          sms_notifications: false,
-          push_notifications: true,
-          new_surgery_request: true,
-          status_update: true,
-          pendencies: true,
-          expiring_documents: true,
-          weekly_report: false,
-        }),
-      );
-    }
+  const allUserIds = [adminId, collabAId, collabBId, collabCId];
+  for (const userId of allUserIds) {
+    await dataSource.query(
+      `
+      INSERT INTO user_notification_settings (user_id)
+      VALUES ($1)
+    `,
+      [userId],
+    );
   }
-  console.log(`✅ Configurações de notificação criadas\n`);
+  logger.log(`  ✅ ${allUserIds.length} configurações criadas\n`);
 
   // ========================================
-  // FINALIZAÇÃO
+  // RESUMO
   // ========================================
-
-  console.log('🎉 Seed concluído com sucesso!\n');
-  console.log('📊 Resumo:');
-  console.log('  - Planos de Assinatura: 3 (Básico, Profissional, Enterprise)');
-  console.log('  - Usuários: 5 (1 admin, 2 médicos, 2 colaboradores)');
-  console.log('  - Hospitais: 5');
-  console.log('  - Planos de Saúde: 6');
-  console.log('  - Fornecedores: 5');
-  console.log('  - Pacientes: 10');
-  console.log('  - Solicitações: 15');
-  console.log('');
-  console.log('🔐 Credenciais de teste:');
-  console.log('  - Admin: admin@inexci.com / 123456');
-  console.log('  - Médico: medico@inexci.com / 123456');
-  console.log('  - Médico 2: medico2@inexci.com / 123456');
-  console.log('  - Colaborador (Gestor): colaborador@inexci.com / 123456');
-  console.log('  - Colaborador (Editor): assistente@inexci.com / 123456');
+  logger.log('═══════════════════════════════════════════════');
+  logger.log('🎉 Seed v3 concluído com sucesso!');
+  logger.log('═══════════════════════════════════════════════');
+  logger.log('');
+  logger.log('📊 Dados criados:');
+  logger.log('  • 2 planos de assinatura (Básico, Profissional)');
+  logger.log('  • 10 procedimentos');
+  logger.log('  • 1 admin (admin@inexci.com) — médico, Ortopedia');
+  logger.log('  • 3 colaboradores:');
+  logger.log('    - medica@inexci.com — médica, Cardiologia');
+  logger.log('    - assistente1@inexci.com — assistente');
+  logger.log('    - assistente2@inexci.com — assistente');
+  logger.log('  • 3 vínculos de acesso (user_doctor_access)');
+  logger.log('  • 2 hospitais, 2 convênios, 1 fornecedor');
+  logger.log('  • 3 pacientes, 3 solicitações cirúrgicas');
+  logger.log('');
+  logger.log('🔐 Credenciais (todos com senha: 123456):');
+  logger.log('  • admin@inexci.com      — Admin (médico)');
+  logger.log('  • medica@inexci.com     — Collaborator A (médica)');
+  logger.log('  • assistente1@inexci.com — Collaborator B (assistente)');
+  logger.log('  • assistente2@inexci.com — Collaborator C (assistente)');
+  logger.log('');
+  logger.log('🔗 Regras de acesso esperadas:');
+  logger.log('  • Admin → vê tudo da conta');
+  logger.log(
+    '  • Collaborator A (médica) → vê apenas suas próprias solicitações',
+  );
+  logger.log('  • Collaborator B → vê solicitações do Admin + Collaborator A');
+  logger.log('  • Collaborator C → vê apenas solicitações do Collaborator A');
 
   await dataSource.destroy();
   process.exit(0);
 }
 
 main().catch((error) => {
-  console.error('❌ Erro durante o seed:', error);
+  logger.error('❌ Erro durante o seed:', error);
   process.exit(1);
 });

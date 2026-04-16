@@ -1,19 +1,19 @@
 import { APP_GUARD } from '@nestjs/core';
-import {
-  MiddlewareConsumer,
-  Module,
-  NestModule,
-  RequestMethod,
-} from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
-import { UserRepository } from './database/repositories/user.repository';
-import { AccessLevel } from './middlewares/access-level.middleware';
+import { RolesGuard } from './shared/guards/roles.guard';
+import { CustomThrottlerGuard } from './shared/guards/custom-throttler.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { DatabaseModule } from './database/typeorm/database.module';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { envValidationSchema } from './config/app.config';
+import { storageConfig } from './config/storage.config';
+import { mailConfig } from './config/mail.config';
+import { SupabaseModule } from './config/supabase.module';
 import { SurgeryRequestsModule } from './modules/surgery-requests/surgery-requests.module';
 import { OpmeModule } from './modules/surgery-requests/opme/opme.module';
 import { ProceduresModule } from './modules/procedures/procedures.module';
@@ -27,30 +27,45 @@ import { QuotationsModule } from './modules/surgery-requests/quotations/quotatio
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CidModule } from './modules/surgery-requests/cid/cid.module';
-import { HealthPlansModule } from './modules/health_plan/health_plans.module';
+import { HealthPlansModule } from './modules/health-plans/health-plans.module';
 import { CronService } from './shared/cron/cron.service';
 import { CronModule } from './shared/cron/cron.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { TussModule } from './modules/tuss/tuss.module';
 import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
+import { AccessControlModule } from './shared/services/access-control.module';
+import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor-access.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-        // Não bloqueia o app se Redis estiver offline:
-        // comandos falham imediatamente em vez de ficarem enfileirados
-        enableOfflineQueue: false,
-        // Não trava o app no startup aguardando conexão
-        lazyConnect: true,
-      },
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema: envValidationSchema,
+      load: [storageConfig, mailConfig],
+    }),
+    SupabaseModule,
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 1000, limit: 3 },
+      { name: 'medium', ttl: 10000, limit: 20 },
+      { name: 'long', ttl: 60000, limit: 100 },
+    ]),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        redis: {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: config.get<number>('REDIS_PORT', 6379),
+          enableOfflineQueue: true,
+          lazyConnect: true,
+          maxRetriesPerRequest: null,
+          retryStrategy: (times: number) => Math.min(times * 200, 5000),
+        },
+      }),
     }),
     AuthModule,
     DatabaseModule,
+    AccessControlModule,
     UsersModule,
     OpmeModule,
     SurgeryRequestsModule,
@@ -70,24 +85,25 @@ import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
     UploadModule,
     TussModule,
     WhatsappModule,
+    UserDoctorAccessModule,
     ScheduleModule.forRoot(),
     CronModule,
   ],
   controllers: [],
   providers: [
-    UserRepository,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CustomThrottlerGuard,
+    },
   ],
   exports: [],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(AccessLevel)
-      .exclude({ path: 'auth/login', method: RequestMethod.ALL })
-      .forRoutes('*');
-  }
-}
+export class AppModule {}

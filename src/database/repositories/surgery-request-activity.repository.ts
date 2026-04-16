@@ -2,19 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SurgeryRequestActivity } from '../entities/surgery-request-activity.entity';
+import { BaseRepository } from './base.repository';
 
 @Injectable()
-export class SurgeryRequestActivityRepository {
+export class SurgeryRequestActivityRepository extends BaseRepository<SurgeryRequestActivity> {
   constructor(
     @InjectRepository(SurgeryRequestActivity)
-    private readonly repository: Repository<SurgeryRequestActivity>,
-  ) {}
-
-  async create(
-    data: Partial<SurgeryRequestActivity>,
-  ): Promise<SurgeryRequestActivity> {
-    const activity = this.repository.create(data);
-    return await this.repository.save(activity);
+    repository: Repository<SurgeryRequestActivity>,
+  ) {
+    super(repository);
   }
 
   async findBySurgeryRequest(

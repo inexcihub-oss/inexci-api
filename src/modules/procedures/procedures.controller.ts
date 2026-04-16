@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Roles } from 'src/shared/decorators/roles.decorator';
+import { UserRole } from 'src/database/entities/user.entity';
 import { ProceduresService } from './procedures.service';
 import { FindManyProcedureDto } from './dto/find-many-procedure.dto';
 import { CreateProcedureDto } from './dto/create-procedure.dto';
@@ -13,6 +15,7 @@ export class ProceduresController {
   }
 
   @Post()
+  @Roles(UserRole.ADMIN)
   create(@Body() data: CreateProcedureDto) {
     return this.proceduresService.create(data);
   }

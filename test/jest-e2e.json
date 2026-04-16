@@ -1,7 +1,8 @@
 {
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
-  "testEnvironment": "node",
+  "roots": ["<rootDir>"],
+  "testEnvironment": "<rootDir>/e2e-test-environment.js",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
@@ -9,7 +10,11 @@
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/../src/$1"
   },
-  "transformIgnorePatterns": ["node_modules/(?!(@faker-js)/)"],
+  "transformIgnorePatterns": [
+    "node_modules/(?!(@faker-js)/)",
+    "e2e-test-environment\\.js$"
+  ],
   "testTimeout": 30000,
-  "setupFiles": ["<rootDir>/env.setup.ts"]
+  "setupFiles": ["<rootDir>/env.setup.ts"],
+  "forceExit": true
 }

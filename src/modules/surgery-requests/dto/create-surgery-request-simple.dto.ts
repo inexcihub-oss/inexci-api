@@ -16,6 +16,10 @@ export class CreateSurgeryRequestSimpleDto {
 
   @IsOptional()
   @IsString()
+  doctor_id?: string;
+
+  @IsOptional()
+  @IsString()
   health_plan_id?: string;
 
   @IsOptional()

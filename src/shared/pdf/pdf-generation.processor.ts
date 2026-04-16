@@ -10,9 +10,15 @@ import {
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { User } from 'src/database/entities/user.entity';
 import { ReportSection } from 'src/database/entities/report-section.entity';
-import { PdfService } from './pdf.service';
+import { PdfService, SurgeryRequestLaudoPdfData } from './pdf.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { PdfGenerationJobData } from './pdf-generation.service';
+import {
+  formatPhone,
+  formatCpf,
+  formatCep,
+  formatDateBR,
+} from 'src/shared/utils';
 
 @Processor('pdf-generation')
 export class PdfGenerationProcessor {
@@ -82,38 +88,6 @@ export class PdfGenerationProcessor {
           }
         }
       }
-
-      // ── Helpers de formatação ─────────────────────────────────────────────
-      const digitsOnly = (v: string) => (v ? v.replace(/\D/g, '') : '');
-      const formatPhone = (v: string) => {
-        const d = digitsOnly(v).slice(0, 11);
-        if (d.length <= 10) {
-          return d.length > 6
-            ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
-            : d;
-        }
-        return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-      };
-      const formatCpf = (v: string) => {
-        const d = digitsOnly(v).slice(0, 11);
-        if (d.length <= 3) return d;
-        if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
-        if (d.length <= 9)
-          return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
-        return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
-      };
-      const formatCep = (v: string) => {
-        const d = digitsOnly(v).slice(0, 8);
-        if (d.length <= 5) return d;
-        return `${d.slice(0, 5)}-${d.slice(5)}`;
-      };
-      const formatDateBR = (v: string) => {
-        if (!v) return '';
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) return v;
-        const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-        return v;
-      };
 
       // ── CRM formatado ─────────────────────────────────────────────────────
       let doctorCrm: string | undefined;
@@ -206,8 +180,7 @@ export class PdfGenerationProcessor {
       const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
 
       // ── Dados do laudo ────────────────────────────────────────────────────
-      const laudoData: import('src/shared/pdf/pdf.service').SurgeryRequestLaudoPdfData =
-        {
+      const laudoData: SurgeryRequestLaudoPdfData = {
           today: new Date().toLocaleDateString('pt-BR'),
           patientName: pd.name || patient?.name || undefined,
           patientBirthDate:

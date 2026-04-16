@@ -6,8 +6,13 @@ import {
   Patch,
   Post,
   Query,
-  Request,
 } from '@nestjs/common';
+import { Roles } from 'src/shared/decorators/roles.decorator';
+import { UserRole } from 'src/database/entities/user.entity';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 import { HospitalsService } from './hospitals.service';
 import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
@@ -18,13 +23,20 @@ export class HospitalsController {
   constructor(private readonly hospitalsService: HospitalsService) {}
 
   @Get()
-  findAll(@Query() query: FindManyHospitalDto, @Request() req) {
-    return this.hospitalsService.findAll(query, req.user.userId);
+  findAll(
+    @Query() query: FindManyHospitalDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.hospitalsService.findAll(query, user.userId);
   }
 
   @Post()
-  create(@Body() data: CreateHospitalDto, @Request() req) {
-    return this.hospitalsService.create(data, req.user.userId);
+  @Roles(UserRole.ADMIN)
+  create(
+    @Body() data: CreateHospitalDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.hospitalsService.create(data, user.userId);
   }
 
   @Patch(':id')

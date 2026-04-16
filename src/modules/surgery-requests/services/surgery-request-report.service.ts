@@ -1,0 +1,235 @@
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ReportSection } from 'src/database/entities/report-section.entity';
+import { UserRepository } from 'src/database/repositories/user.repository';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { StorageService } from 'src/shared/storage/storage.service';
+import { PdfService, MedicalReportPdfData } from 'src/shared/pdf/pdf.service';
+import { CreateReportSectionDto } from '../dto/create-report-section.dto';
+import { UpdateReportSectionDto } from '../dto/update-report-section.dto';
+import { ReorderReportSectionsDto } from '../dto/reorder-report-sections.dto';
+
+@Injectable()
+export class SurgeryRequestReportService {
+  private readonly logger = new Logger(SurgeryRequestReportService.name);
+
+  constructor(
+    @InjectRepository(ReportSection)
+    private readonly reportSectionRepository: Repository<ReportSection>,
+    private readonly surgeryRequestRepository: SurgeryRequestRepository,
+    private readonly userRepository: UserRepository,
+    private readonly storageService: StorageService,
+    private readonly pdfService: PdfService,
+  ) {}
+
+  async getReportSections(
+    id: string,
+    _userId: string,
+  ): Promise<ReportSection[]> {
+    return this.reportSectionRepository.find({
+      where: { surgery_request_id: id },
+      order: { order: 'ASC' },
+    });
+  }
+
+  async createReportSection(
+    id: string,
+    dto: CreateReportSectionDto,
+    _userId: string,
+  ): Promise<ReportSection> {
+    const count = await this.reportSectionRepository.count({
+      where: { surgery_request_id: id },
+    });
+    const section = this.reportSectionRepository.create({
+      surgery_request_id: id,
+      title: dto.title,
+      description: dto.description ?? null,
+      order: count,
+    });
+    return this.reportSectionRepository.save(section);
+  }
+
+  async updateReportSection(
+    _id: string,
+    sectionId: string,
+    dto: UpdateReportSectionDto,
+    _userId: string,
+  ): Promise<ReportSection> {
+    const section = await this.reportSectionRepository.findOne({
+      where: { id: sectionId },
+    });
+    if (!section) throw new NotFoundException('Seção não encontrada');
+    if (dto.title !== undefined) section.title = dto.title;
+    if (dto.description !== undefined) section.description = dto.description;
+    return this.reportSectionRepository.save(section);
+  }
+
+  async deleteReportSection(
+    _id: string,
+    sectionId: string,
+    _userId: string,
+  ): Promise<{ deleted: boolean }> {
+    const result = await this.reportSectionRepository.delete({ id: sectionId });
+    return { deleted: (result.affected ?? 0) > 0 };
+  }
+
+  async reorderReportSections(
+    id: string,
+    dto: ReorderReportSectionsDto,
+    _userId: string,
+  ): Promise<ReportSection[]> {
+    const updates = dto.ids.map((sectionId, index) =>
+      this.reportSectionRepository.update(
+        { id: sectionId, surgery_request_id: id },
+        { order: index },
+      ),
+    );
+    await Promise.all(updates);
+    return this.getReportSections(id, _userId);
+  }
+
+  async generateReportPdf(id: string, userId: string): Promise<Buffer> {
+    const request = await this.surgeryRequestRepository.findOneWithRelations(
+      { id },
+      [
+        'created_by',
+        'patient',
+        'hospital',
+        'health_plan',
+        'tuss_items',
+        'opme_items',
+        'documents',
+        'analysis',
+        'billing',
+        'contestations',
+      ],
+    );
+    if (!request) throw new NotFoundException('Solicitação não encontrada');
+
+    // ── Parsear medical_report ─────────────────────────────────────────────
+    let reportData: {
+      patientData?: {
+        name?: string;
+        birthDate?: string;
+        rg?: string;
+        cpf?: string;
+        phone?: string;
+        address?: string;
+        zipCode?: string;
+        healthPlan?: string;
+      };
+      historyAndDiagnosis?: string;
+      conduct?: string;
+    } = {};
+    try {
+      if (request.medical_report) {
+        reportData = JSON.parse(request.medical_report as unknown as string);
+      }
+    } catch {
+      // fallback vazio
+    }
+
+    // ── Dados do médico com perfil ─────────────────────────────────────────
+    const doctor = await this.userRepository.findOneWithProfile({ id: userId });
+    const profile = (doctor as any)?.doctor_profile;
+
+    // ── Imagens dos exames (signed URLs) ───────────────────────────────────
+    const allDocs = (request as any).documents ?? [];
+    this.logger.log(
+      `[PDF] Total documents: ${allDocs.length} | keys: ${allDocs.map((d: any) => d.key).join(', ')}`,
+    );
+    const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
+    this.logger.log(
+      `[PDF] examDocs count: ${examDocs.length} | uris: ${examDocs.map((d: any) => String(d.uri).substring(0, 80)).join(' | ')}`,
+    );
+    const examImages: string[] = (
+      await Promise.all(
+        examDocs.map(async (doc: any) => {
+          const raw: string = doc.uri;
+          if (!raw) return null;
+          if (raw.startsWith('http')) {
+            this.logger.log(`[PDF] image already signed URL, using directly`);
+            return raw;
+          }
+          try {
+            const signed = await this.storageService.getSignedUrl(raw);
+            this.logger.log(`[PDF] signed URL generated OK`);
+            return signed;
+          } catch (err: any) {
+            this.logger.warn(
+              `[PDF] getSignedUrl failed for "${raw}": ${err?.message}`,
+            );
+            return null;
+          }
+        }),
+      )
+    ).filter((u): u is string => !!u);
+    this.logger.log(`[PDF] final examImages count: ${examImages.length}`);
+
+    // ── Assinatura do médico (signed URL se for path) ──────────────────────
+    let doctorSignatureUrl: string | undefined;
+    if (profile?.signature_url) {
+      try {
+        const raw: string = profile.signature_url;
+        doctorSignatureUrl = raw.startsWith('http')
+          ? raw
+          : await this.storageService.getSignedUrl(raw);
+      } catch {
+        doctorSignatureUrl = profile.signature_url;
+      }
+    }
+
+    // ── Seções dinâmicas do laudo ──────────────────────────────────────────
+    const reportSections = await this.reportSectionRepository.find({
+      where: { surgery_request_id: id },
+      order: { order: 'ASC' },
+    });
+
+    // ── Dados do paciente (prioridade: medical_report > entidade patient) ──
+    const pd = reportData.patientData ?? {};
+    const patient = (request as any).patient;
+
+    const pdfData: MedicalReportPdfData = {
+      today: new Date().toLocaleDateString('pt-BR'),
+      patientName: pd.name || patient?.name || undefined,
+      patientBirthDate:
+        pd.birthDate ||
+        (patient?.birth_date
+          ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
+          : undefined),
+      patientRg: pd.rg || patient?.rg || undefined,
+      patientCpf: pd.cpf || patient?.cpf || undefined,
+      patientPhone: pd.phone || patient?.phone || undefined,
+      patientAddress: pd.address || patient?.address || undefined,
+      patientZipCode:
+        pd.zipCode || patient?.zip_code || patient?.cep || undefined,
+      patientHealthPlan:
+        pd.healthPlan || (request as any).health_plan?.name || undefined,
+      sections: reportSections.length
+        ? reportSections.map((s) => ({
+            title: s.title,
+            description: s.description,
+          }))
+        : undefined,
+      historyAndDiagnosis: reportSections.length
+        ? undefined
+        : reportData.historyAndDiagnosis || undefined,
+      conduct: reportSections.length
+        ? undefined
+        : reportData.conduct || undefined,
+      examImages: examImages.length ? examImages : undefined,
+      doctorName: doctor?.name ?? 'Médico',
+      doctorCrm: profile?.crm || undefined,
+      doctorCrmState: profile?.crm_state || undefined,
+      doctorSpecialty: profile?.specialty || undefined,
+      doctorSignatureUrl,
+    };
+
+    return this.pdfService.generateMedicalReportPdf(pdfData);
+  }
+}

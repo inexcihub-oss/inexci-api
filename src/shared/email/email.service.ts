@@ -1,15 +1,19 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as Brevo from '@getbrevo/brevo';
 import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class EmailService {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async send(email: string, subject: string, message) {
     try {
       const apiInstance = new Brevo.TransactionalEmailsApi();
-      apiInstance.setApiKey(0, process.env.BREVO_API_KEY);
+      apiInstance.setApiKey(0, this.configService.get<string>('BREVO_API_KEY'));
 
       await apiInstance.sendTransacEmail({
         to: [{ email }],
@@ -32,9 +36,10 @@ export class EmailService {
     try {
       const token = this.jwtService.sign(
         { userId: user.id },
-        { secret: process.env.JWT_SECRET, expiresIn: '1y' },
+        { secret: this.configService.get<string>('JWT_SECRET'), expiresIn: '1y' },
       );
-      const link = `${process.env.DASHBOARD_URL}/completeRegister?token=${token}`;
+      const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
+      const link = `${dashboardUrl}/completeRegister?token=${token}`;
 
       await this.send(
         email,

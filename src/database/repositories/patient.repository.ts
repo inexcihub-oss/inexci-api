@@ -1,17 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere } from 'typeorm';
 import { Patient } from '../entities/patient.entity';
+import { BaseRepository } from './base.repository';
 
 @Injectable()
-export class PatientRepository {
-  private repository: Repository<Patient>;
-
+export class PatientRepository extends BaseRepository<Patient> {
   constructor(private readonly dataSource: DataSource) {
-    this.repository = this.dataSource.getRepository(Patient);
-  }
-
-  async findOne(where: FindOptionsWhere<Patient>): Promise<Patient | null> {
-    return this.repository.findOne({ where });
+    super(dataSource.getRepository(Patient));
   }
 
   async findMany(
@@ -25,26 +20,6 @@ export class PatientRepository {
       take,
       order: { name: 'ASC' },
     });
-  }
-
-  async total(
-    where: FindOptionsWhere<Patient> | FindOptionsWhere<Patient>[],
-  ): Promise<number> {
-    return this.repository.count({ where });
-  }
-
-  async create(data: Partial<Patient>): Promise<Patient> {
-    const patient = this.repository.create(data);
-    return this.repository.save(patient);
-  }
-
-  async update(id: string, data: Partial<Patient>): Promise<Patient | null> {
-    await this.repository.update(id, data);
-    return this.findOne({ id });
-  }
-
-  async delete(id: string): Promise<void> {
-    await this.repository.delete(id);
   }
 
   async findByDoctorId(doctorId: string): Promise<Patient[]> {
