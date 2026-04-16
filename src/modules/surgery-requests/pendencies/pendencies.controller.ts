@@ -1,4 +1,10 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { PendencyValidatorService } from './pendency-validator.service';
 
 @Controller('surgery-requests/pendencies')
@@ -54,6 +60,7 @@ export class PendenciesController {
    * GET /surgery-requests/pendencies/summary/:id
    */
   @Get('summary/:surgeryRequestId')
+  @ApiOperation({ summary: 'Resumo de pendências' })
   getSummary(@Param('surgeryRequestId') surgeryRequestId: string) {
     return this.pendencyValidatorService.getSummary(surgeryRequestId);
   }
@@ -63,6 +70,7 @@ export class PendenciesController {
    * GET /surgery-requests/pendencies/validate/:id
    */
   @Get('validate/:surgeryRequestId')
+  @ApiOperation({ summary: 'Validar pendências para avanço de status' })
   validatePendencies(@Param('surgeryRequestId') surgeryRequestId: string) {
     return this.pendencyValidatorService.validateForStatus(surgeryRequestId);
   }

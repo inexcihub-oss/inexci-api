@@ -1,6 +1,12 @@
 import { Body, Controller, Get, Post, Put, Res, Req } from '@nestjs/common';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -14,6 +20,7 @@ import {
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
 
+@ApiTags('Autenticação')
 @Controller('auth')
 export class AuthController {
   /** Cookie httpOnly para refresh token */
@@ -43,6 +50,8 @@ export class AuthController {
 
   @Public()
   @Post('register')
+  @ApiOperation({ summary: 'Registrar novo usuário' })
+  @ApiResponse({ status: 201, description: 'Usuário registrado com sucesso' })
   async register(
     @Body() req: RegisterDto,
     @Res({ passthrough: true }) res: Response,
@@ -57,6 +66,9 @@ export class AuthController {
   @Public()
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('login')
+  @ApiOperation({ summary: 'Login com email e senha' })
+  @ApiResponse({ status: 200, description: 'Login realizado com sucesso' })
+  @ApiResponse({ status: 401, description: 'Credenciais inválidas' })
   async login(@Body() req: AuthDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(req);
     if (result) {
@@ -67,6 +79,9 @@ export class AuthController {
   }
 
   @Get('me')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obter dados do usuário autenticado' })
+  @ApiResponse({ status: 200, description: 'Dados do usuário' })
   async me(@CurrentUser() user: AuthenticatedUser) {
     return await this.authService.me(user.userId);
   }
@@ -74,6 +89,8 @@ export class AuthController {
   @Public()
   @Throttle({ default: { ttl: 3600000, limit: 3 } })
   @Post('sendRecoveryPasswordEmail')
+  @ApiOperation({ summary: 'Enviar email de recuperação de senha' })
+  @ApiResponse({ status: 200, description: 'Email enviado' })
   async sendRecoveryPasswordEmail(@Body('email') email: string) {
     return await this.authService.sendRecoveryPasswordEmail(email);
   }
@@ -81,6 +98,8 @@ export class AuthController {
   @Public()
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('validateRecoveryPasswordCode')
+  @ApiOperation({ summary: 'Validar código de recuperação de senha' })
+  @ApiResponse({ status: 200, description: 'Código válido' })
   async validateRecoveryPasswordCode(@Body() data: validationCodeDto) {
     return await this.authService.validateRecoveryPasswordCode(data);
   }
@@ -88,11 +107,16 @@ export class AuthController {
   @Public()
   @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('changePassword')
+  @ApiOperation({ summary: 'Alterar senha (com código de recuperação)' })
+  @ApiResponse({ status: 200, description: 'Senha alterada' })
   async changePassword(@Body() data: changePasswordDto) {
     return await this.authService.changePassword(data);
   }
 
   @Put('changePassword')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Alterar senha (autenticado)' })
+  @ApiResponse({ status: 200, description: 'Senha alterada' })
   async changePasswordAuthenticated(
     @Body() data: ChangePasswordAuthenticatedDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -110,6 +134,8 @@ export class AuthController {
 
   @Public()
   @Get('plans')
+  @ApiOperation({ summary: 'Listar planos de assinatura disponíveis' })
+  @ApiResponse({ status: 200, description: 'Lista de planos' })
   async getPlans() {
     return await this.authService.getAvailablePlans();
   }
@@ -117,6 +143,8 @@ export class AuthController {
   @Public()
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post('refresh')
+  @ApiOperation({ summary: 'Renovar access token via refresh token' })
+  @ApiResponse({ status: 200, description: 'Token renovado' })
   async refresh(
     @Req() req: Request,
     @Body('refresh_token') bodyToken: string,
@@ -131,6 +159,9 @@ export class AuthController {
   }
 
   @Post('logout')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout e revogação de tokens' })
+  @ApiResponse({ status: 200, description: 'Logout realizado' })
   async logout(
     @CurrentUser() user: AuthenticatedUser,
     @Res({ passthrough: true }) res: Response,
@@ -142,6 +173,8 @@ export class AuthController {
 
   @Public()
   @Get('health')
+  @ApiOperation({ summary: 'Health check da API' })
+  @ApiResponse({ status: 200, description: 'API operacional' })
   async health() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }

@@ -7,6 +7,12 @@ import {
   BadRequestException,
   Body,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
 import { STORAGE_FOLDERS } from '../../config/storage.config';
@@ -52,6 +58,8 @@ export class UploadController {
    * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
    */
   @Post('multiple')
+  @ApiOperation({ summary: 'Upload de múltiplos arquivos' })
+  @ApiConsumes('multipart/form-data')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultiple(
     @UploadedFiles() files: Express.Multer.File[],

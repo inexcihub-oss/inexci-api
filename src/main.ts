@@ -8,6 +8,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
 import dataSource from './database/typeorm/data-source';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
@@ -61,6 +62,26 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
+  // Swagger / OpenAPI
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Inexci API')
+    .setDescription(
+      'Documentação completa da API Inexci — gestão de solicitações cirúrgicas',
+    )
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, document, {
+    swaggerOptions: {
+      persistAuthorization: true,
+      docExpansion: 'none',
+      filter: true,
+      tagsSorter: 'alpha',
+      operationsSorter: 'alpha',
+    },
+  });
+
   const configService = app.get(ConfigService);
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS');
@@ -91,6 +112,6 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  await app.listen(configService.get<number>('PORT') || 8088);
+  await app.listen(configService.get<number>('PORT') || 3000);
 }
 bootstrap();

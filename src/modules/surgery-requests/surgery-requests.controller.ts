@@ -11,6 +11,12 @@ import {
   Res,
   HttpStatus,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiParam,
+} from '@nestjs/swagger';
 import { SurgeryRequestsService } from './surgery-requests.service';
 import {
   CurrentUser,
@@ -44,6 +50,8 @@ import { CreateReportSectionDto } from './dto/create-report-section.dto';
 import { UpdateReportSectionDto } from './dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
 
+@ApiTags('Solicitações Cirúrgicas')
+@ApiBearerAuth()
 @Controller('surgery-requests')
 export class SurgeryRequestsController {
   constructor(
@@ -55,14 +63,12 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Post()
+  @ApiOperation({ summary: 'Criar solicitação cirúrgica' })
   createSurgeryRequest(
     @Body() data: CreateSurgeryRequestSimpleDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.createSurgeryRequest(
-      data,
-      user.userId,
-    );
+    return this.surgeryRequestsService.createSurgeryRequest(data, user.userId);
   }
 
   // ============================================================
@@ -70,6 +76,7 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Get()
+  @ApiOperation({ summary: 'Listar solicitações cirúrgicas' })
   findAll(
     @Query() query: FindManySurgeryRequestDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -78,6 +85,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('one')
+  @ApiOperation({ summary: 'Buscar solicitação por ID' })
   findOne(
     @Query() query: FindOneSurgeryRequestDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -86,6 +94,7 @@ export class SurgeryRequestsController {
   }
 
   @Get('date-expired')
+  @ApiOperation({ summary: 'Solicitações com data expirada' })
   dateExpired() {
     return this.surgeryRequestsService.dateExpired();
   }
@@ -95,6 +104,7 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Put()
+  @ApiOperation({ summary: 'Atualizar solicitação cirúrgica' })
   update(
     @Body() data: UpdateSurgeryRequestDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -103,6 +113,7 @@ export class SurgeryRequestsController {
   }
 
   @Patch(':id/has-opme')
+  @ApiOperation({ summary: 'Definir se possui OPME' })
   setHasOpme(
     @Param('id') id: string,
     @Body() body: { has_opme: boolean },
@@ -116,6 +127,7 @@ export class SurgeryRequestsController {
   }
 
   @Patch(':id/basic')
+  @ApiOperation({ summary: 'Atualizar dados básicos' })
   updateBasic(
     @Param('id') id: string,
     @Body() data: UpdateSurgeryRequestBasicDto,
@@ -128,6 +140,7 @@ export class SurgeryRequestsController {
   }
 
   @Patch(':id/status')
+  @ApiOperation({ summary: 'Atualizar status' })
   updateStatus(
     @Param('id') id: string,
     @Body() data: UpdateStatusDto,
@@ -150,6 +163,7 @@ export class SurgeryRequestsController {
    * Envia a solicitação ao convênio
    */
   @Post(':id/send')
+  @ApiOperation({ summary: 'Enviar solicitação ao convênio' })
   sendRequest(
     @Param('id') id: string,
     @Body() dto: SendRequestDto,
@@ -163,6 +177,7 @@ export class SurgeryRequestsController {
    * Registra início da análise com dados do convênio
    */
   @Post(':id/start-analysis')
+  @ApiOperation({ summary: 'Iniciar análise' })
   startAnalysis(
     @Param('id') id: string,
     @Body() dto: StartAnalysisDto,
@@ -176,6 +191,7 @@ export class SurgeryRequestsController {
    * Aceita a autorização do convênio e fornece opções de data
    */
   @Post(':id/accept-authorization')
+  @ApiOperation({ summary: 'Aceitar autorização' })
   acceptAuthorization(
     @Param('id') id: string,
     @Body() dto: AcceptAuthorizationDto,
@@ -193,6 +209,7 @@ export class SurgeryRequestsController {
    * Contesta a negativa de autorização
    */
   @Post(':id/contest-authorization')
+  @ApiOperation({ summary: 'Contestar autorização' })
   contestAuthorization(
     @Param('id') id: string,
     @Body() dto: ContestAuthorizationDto,
@@ -210,6 +227,7 @@ export class SurgeryRequestsController {
    * GET /surgery-requests/:id/contest-authorization-pdf
    */
   @Get(':id/contest-authorization-pdf')
+  @ApiOperation({ summary: 'Gerar PDF de contestação' })
   async getContestAuthorizationPdf(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -233,6 +251,7 @@ export class SurgeryRequestsController {
    * Confirma a data escolhida pelo paciente
    */
   @Post(':id/confirm-date')
+  @ApiOperation({ summary: 'Confirmar data da cirurgia' })
   confirmDate(
     @Param('id') id: string,
     @Body() dto: ConfirmDateDto,
@@ -245,22 +264,20 @@ export class SurgeryRequestsController {
    * IN_SCHEDULING → IN_SCHEDULING (atualiza opções de data sem mudar status)
    */
   @Patch(':id/date-options')
+  @ApiOperation({ summary: 'Atualizar opções de data' })
   updateDateOptions(
     @Param('id') id: string,
     @Body() dto: UpdateDateOptionsDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.updateDateOptions(
-      id,
-      dto,
-      user.userId,
-    );
+    return this.surgeryRequestsService.updateDateOptions(id, dto, user.userId);
   }
 
   /**
    * SCHEDULED → SCHEDULED (reagenda sem mudar status)
    */
   @Patch(':id/reschedule')
+  @ApiOperation({ summary: 'Reagendar cirurgia' })
   reschedule(
     @Param('id') id: string,
     @Body() dto: RescheduleDto,
@@ -274,6 +291,7 @@ export class SurgeryRequestsController {
    * Marca como realizada após a cirurgia
    */
   @Post(':id/mark-performed')
+  @ApiOperation({ summary: 'Marcar como realizada' })
   markPerformed(
     @Param('id') id: string,
     @Body() dto: MarkPerformedDto,
@@ -287,6 +305,7 @@ export class SurgeryRequestsController {
    * Registra o faturamento enviado ao convênio
    */
   @Post(':id/invoice')
+  @ApiOperation({ summary: 'Faturar solicitação' })
   invoiceRequest(
     @Param('id') id: string,
     @Body() dto: InvoiceRequestDto,
@@ -300,6 +319,7 @@ export class SurgeryRequestsController {
    * Confirma o recebimento do pagamento
    */
   @Post(':id/confirm-receipt')
+  @ApiOperation({ summary: 'Confirmar recebimento' })
   confirmReceipt(
     @Param('id') id: string,
     @Body() dto: ConfirmReceiptDto,
@@ -313,6 +333,7 @@ export class SurgeryRequestsController {
    * Contesta divergência de pagamento
    */
   @Post(':id/contest-payment')
+  @ApiOperation({ summary: 'Contestar pagamento' })
   contestPayment(
     @Param('id') id: string,
     @Body() dto: ContestPaymentDto,
@@ -325,6 +346,7 @@ export class SurgeryRequestsController {
    * FINALIZED → FINALIZED (edita recebimento após contestação)
    */
   @Patch(':id/billing/receipt')
+  @ApiOperation({ summary: 'Atualizar recebimento' })
   updateReceipt(
     @Param('id') id: string,
     @Body() dto: UpdateReceiptDto,
@@ -338,6 +360,7 @@ export class SurgeryRequestsController {
    * Fecha/arquiva a solicitação
    */
   @Post(':id/close')
+  @ApiOperation({ summary: 'Encerrar solicitação' })
   closeSurgeryRequest(
     @Param('id') id: string,
     @Body() dto: CloseSurgeryRequestDto,
@@ -354,6 +377,7 @@ export class SurgeryRequestsController {
    * ANY — Envia manualmente um e-mail de notificação
    */
   @Post(':id/notify')
+  @ApiOperation({ summary: 'Enviar notificação manual' })
   notify(
     @Param('id') id: string,
     @Body() dto: NotifySurgeryRequestDto,
@@ -368,15 +392,14 @@ export class SurgeryRequestsController {
 
   /** GET /surgery-requests/:id/sections — listar sections ordenadas */
   @Get(':id/sections')
-  getSections(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
+  @ApiOperation({ summary: 'Listar seções do laudo' })
+  getSections(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getReportSections(id, user.userId);
   }
 
   /** POST /surgery-requests/:id/sections — criar section */
   @Post(':id/sections')
+  @ApiOperation({ summary: 'Criar seção do laudo' })
   createSection(
     @Param('id') id: string,
     @Body() dto: CreateReportSectionDto,
@@ -391,6 +414,7 @@ export class SurgeryRequestsController {
 
   /** PATCH /surgery-requests/:id/sections/reorder — reordenar sections */
   @Patch(':id/sections/reorder')
+  @ApiOperation({ summary: 'Reordenar seções do laudo' })
   reorderSections(
     @Param('id') id: string,
     @Body() dto: ReorderReportSectionsDto,
@@ -405,6 +429,7 @@ export class SurgeryRequestsController {
 
   /** PATCH /surgery-requests/:id/sections/:sectionId — editar section */
   @Patch(':id/sections/:sectionId')
+  @ApiOperation({ summary: 'Atualizar seção do laudo' })
   updateSection(
     @Param('id') id: string,
     @Param('sectionId') sectionId: string,
@@ -421,6 +446,7 @@ export class SurgeryRequestsController {
 
   /** DELETE /surgery-requests/:id/sections/:sectionId — remover section */
   @Delete(':id/sections/:sectionId')
+  @ApiOperation({ summary: 'Excluir seção do laudo' })
   deleteSection(
     @Param('id') id: string,
     @Param('sectionId') sectionId: string,
@@ -442,6 +468,7 @@ export class SurgeryRequestsController {
    * GET /surgery-requests/:id/report-pdf
    */
   @Get(':id/report-pdf')
+  @ApiOperation({ summary: 'Gerar PDF do laudo' })
   async getReportPdf(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -469,6 +496,7 @@ export class SurgeryRequestsController {
    * IMPORTANTE: rota registrada ANTES de ':id/...' para não conflitar.
    */
   @Get('available-doctors')
+  @ApiOperation({ summary: 'Listar médicos disponíveis' })
   getAvailableDoctors(@CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getAvailableDoctors(user.userId);
   }
@@ -480,6 +508,7 @@ export class SurgeryRequestsController {
    * capturada pelo guard de parâmetro dinâmico.
    */
   @Get('templates')
+  @ApiOperation({ summary: 'Listar templates' })
   getTemplates(@CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getTemplates(user.userId);
   }
@@ -489,6 +518,7 @@ export class SurgeryRequestsController {
    * Cria um novo template de solicitação.
    */
   @Post('templates')
+  @ApiOperation({ summary: 'Criar template' })
   createTemplate(
     @Body() dto: { name: string; template_data: object },
     @CurrentUser() user: AuthenticatedUser,
@@ -501,6 +531,7 @@ export class SurgeryRequestsController {
    * Exclui um template do médico logado.
    */
   @Delete('templates/:id')
+  @ApiOperation({ summary: 'Excluir template' })
   deleteTemplate(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,

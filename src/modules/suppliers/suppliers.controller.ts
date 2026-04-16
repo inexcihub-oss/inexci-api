@@ -8,6 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Roles } from 'src/shared/decorators/roles.decorator';
 import { UserRole } from 'src/database/entities/user.entity';
 import {
@@ -19,11 +20,14 @@ import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 
+@ApiTags('Fornecedores')
+@ApiBearerAuth()
 @Controller('suppliers')
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
+  @ApiOperation({ summary: 'Listar fornecedores' })
   findAll(
     @Query() query: FindManySupplierDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -33,6 +37,7 @@ export class SuppliersController {
 
   @Post()
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Criar fornecedor' })
   create(
     @Body() data: CreateSupplierDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -41,12 +46,14 @@ export class SuppliersController {
   }
 
   @Patch(':id')
+  @ApiOperation({ summary: 'Atualizar fornecedor' })
   update(@Param('id') id: string, @Body() data: UpdateSupplierDto) {
     return this.suppliersService.update(id, data);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir fornecedor' })
   delete(@Param('id') id: string) {
     return this.suppliersService.delete(id);
   }

@@ -8,6 +8,12 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { Roles } from 'src/shared/decorators/roles.decorator';
 import { UserRole } from 'src/database/entities/user.entity';
 import {
@@ -16,6 +22,8 @@ import {
 } from 'src/shared/decorators/current-user.decorator';
 import { UserDoctorAccessService } from './user-doctor-access.service';
 
+@ApiTags('Acesso Usuário-Médico')
+@ApiBearerAuth()
 @Controller('user-doctor-access')
 @Roles(UserRole.ADMIN)
 export class UserDoctorAccessController {
@@ -32,10 +40,7 @@ export class UserDoctorAccessController {
     @Query('userId') userId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.userDoctorAccessService.getAccessForUser(
-      userId,
-      user.userId,
-    );
+    return this.userDoctorAccessService.getAccessForUser(userId, user.userId);
   }
 
   /**
