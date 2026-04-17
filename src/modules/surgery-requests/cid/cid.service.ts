@@ -1,48 +1,46 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, ILike } from 'typeorm';
+import { Cid } from 'src/database/entities/cid.entity';
 import { FindManyCidDto } from './dto/find-many-cid.controller.dto';
-import * as cidData from 'src/utils/cid.json';
-
-interface CidItem {
-  codigo: string;
-  descricao: string;
-}
 
 export interface CidResponse {
   id: string;
+  code: string;
   description: string;
 }
 
 @Injectable()
 export class CidService {
-  private cidList: CidItem[];
-
-  constructor() {
-    this.cidList = (cidData as { rows: CidItem[] }).rows;
-  }
+  constructor(
+    @InjectRepository(Cid)
+    private readonly cidRepository: Repository<Cid>,
+  ) {}
 
   async findAll(query: FindManyCidDto) {
     const { search, skip = 0, take = 50 } = query;
 
-    let filtered: CidItem[];
+    const where: any[] = [];
 
-    if (!search || search.length < 2) {
-      filtered = this.cidList;
-    } else {
-      const searchLower = search.toLowerCase();
-      
-      filtered = this.cidList.filter(
-        (item) =>
-          item.codigo.toLowerCase().includes(searchLower) ||
-          item.descricao.toLowerCase().includes(searchLower)
-      );
+    if (search && search.length >= 2) {
+      where.push({ code: ILike(`%${search}%`) });
+      where.push({ description: ILike(`%${search}%`) });
     }
 
-    const total = filtered.length;
-    const records = filtered.slice(skip, skip + take).map((item) => ({
-      id: item.codigo,
-      description: item.descricao,
-    }));
+    const [records, total] = await this.cidRepository.findAndCount({
+      where: where.length > 0 ? where : undefined,
+      skip,
+      take,
+      order: { code: 'ASC' },
+    });
 
-    return { total, records };
+    return {
+      total,
+      records: records.map((item) => ({
+        id: item.id,
+        code: item.code,
+        description: item.description,
+      })),
+    };
   }
 }

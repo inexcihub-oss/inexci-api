@@ -352,4 +352,16 @@ export class SurgeryRequestsService {
   deleteTemplate(id: string, userId: string) {
     return this.templateService.deleteTemplate(id, userId);
   }
+
+  updateTemplate(
+    id: string,
+    dto: { name?: string; template_data?: object },
+    userId: string,
+  ) {
+    return this.templateService.updateTemplate(id, dto, userId);
+  }
+
+  incrementTemplateUsage(id: string, userId: string) {
+    return this.templateService.incrementUsage(id, userId);
+  }
 }

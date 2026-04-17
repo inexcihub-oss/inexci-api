@@ -26,7 +26,9 @@
     "typeorm:migration:create": "npm run typeorm -- migration:create",
     "typeorm:migration:run": "npm run typeorm -- migration:run -d src/database/typeorm/data-source.ts",
     "typeorm:migration:revert": "npm run typeorm -- migration:revert -d src/database/typeorm/data-source.ts",
-    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
+    "seed:cid": "ts-node -r tsconfig-paths/register src/database/seeds/seed-cid.ts",
+    "seed:tuss": "ts-node -r tsconfig-paths/register src/database/seeds/seed-tuss.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -62,6 +64,7 @@
     "handlebars": "^4.7.8",
     "joi": "^18.1.2",
     "nodemailer": "^8.0.1",
+    "openai": "^4.104.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",

@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsArray,
+} from 'class-validator';
 import { SurgeryRequestPriority } from 'src/database/entities';
 
 export class CreateSurgeryRequestSimpleDto {
@@ -28,4 +34,8 @@ export class CreateSurgeryRequestSimpleDto {
 
   @IsNumber()
   priority: SurgeryRequestPriority;
+
+  @IsOptional()
+  @IsArray()
+  required_documents?: Array<{ type: string; name: string }>;
 }

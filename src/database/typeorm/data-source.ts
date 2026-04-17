@@ -6,10 +6,11 @@ config();
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: ['dist/src/database/entities/**/*.entity.js'],
-  migrations: ['dist/src/database/typeorm/migrations/**/*.js'],
+  entities: ['dist/database/entities/**/*.entity.js'],
+  migrations: ['dist/database/typeorm/migrations/**/*.js'],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
+  migrationsTransactionMode: 'each',
   extra: {
     charset: 'utf8mb4',
   },

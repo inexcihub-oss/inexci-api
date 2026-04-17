@@ -40,6 +40,9 @@ import { TussModule } from './modules/tuss/tuss.module';
 import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
 import { AccessControlModule } from './shared/services/access-control.module';
 import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor-access.module';
+import { WebhookModule } from './modules/webhook/webhook.module';
+import { AiModule } from './shared/ai/ai.module';
+import { RagModule } from './shared/rag/rag.module';
 
 @Module({
   imports: [
@@ -91,6 +94,9 @@ import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor
     WhatsappModule,
     UserDoctorAccessModule,
     NotificationsHealthModule,
+    WebhookModule,
+    AiModule,
+    RagModule,
     BullBoardModule.forRoot({
       route: '/admin/queues',
       adapter: ExpressAdapter,
@@ -101,6 +107,10 @@ import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor
     }),
     BullBoardModule.forFeature({
       name: 'whatsapp-messages',
+      adapter: BullAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: 'ai-messages',
       adapter: BullAdapter,
     }),
     ScheduleModule.forRoot(),

@@ -25,6 +25,8 @@ import { Contestation } from './contestation.entity';
 import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 import { SurgeryRequestActivity } from './surgery-request-activity.entity';
 import { ReportSection } from './report-section.entity';
+import { Cid } from './cid.entity';
+import { Tuss } from './tuss.entity';
 
 /**
  * Status da solicitação cirúrgica (9 valores — fluxo oficial)
@@ -79,8 +81,11 @@ export class SurgeryRequest {
   @Column({ name: 'procedure_id', nullable: true })
   procedure_id: string;
 
-  @Column({ name: 'cid_id', type: 'varchar', length: 75, nullable: true })
+  @Column({ name: 'cid_id', type: 'uuid', nullable: true })
   cid_id: string;
+
+  @Column({ name: 'tuss_id', type: 'uuid', nullable: true })
+  tuss_id: string;
 
   // ============ STATUS E CONTROLE ============
 
@@ -112,6 +117,9 @@ export class SurgeryRequest {
    */
   @Column({ type: 'boolean', nullable: true, default: null })
   has_opme: boolean | null;
+
+  @Column({ type: 'jsonb', nullable: true, default: null })
+  required_documents: Array<{ type: string; name: string }> | null;
 
   // ============ INDICAÇÃO ============
 
@@ -282,4 +290,12 @@ export class SurgeryRequest {
     cascade: true,
   })
   report_sections: ReportSection[];
+
+  @ManyToOne(() => Cid, { nullable: true })
+  @JoinColumn({ name: 'cid_id' })
+  cid: Cid;
+
+  @ManyToOne(() => Tuss, { nullable: true })
+  @JoinColumn({ name: 'tuss_id' })
+  tuss: Tuss;
 }

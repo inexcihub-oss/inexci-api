@@ -1,11 +1,26 @@
 import { Logger, Injectable } from '@nestjs/common';
-import { FindOptionsWhere, Between, LessThan, In } from 'typeorm';
+import {
+  FindOptionsWhere,
+  Between,
+  LessThan,
+  In,
+  MoreThanOrEqual,
+  LessThanOrEqual,
+  And,
+} from 'typeorm';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+
+export interface ReportFilters {
+  hospitalId?: string;
+  healthPlanId?: string;
+  startDate?: Date;
+  endDate?: Date;
+}
 
 @Injectable()
 export class ReportsService {
@@ -15,7 +30,25 @@ export class ReportsService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  async dashboard(userId: string) {
+  private applyFilters(
+    where: FindOptionsWhere<SurgeryRequest>,
+    filters?: ReportFilters,
+  ): FindOptionsWhere<SurgeryRequest> {
+    if (!filters) return where;
+    const w = { ...where };
+    if (filters.hospitalId) w.hospital_id = filters.hospitalId;
+    if (filters.healthPlanId) w.health_plan_id = filters.healthPlanId;
+    if (filters.startDate && filters.endDate) {
+      w.created_at = Between(filters.startDate, filters.endDate);
+    } else if (filters.startDate) {
+      w.created_at = MoreThanOrEqual(filters.startDate);
+    } else if (filters.endDate) {
+      w.created_at = LessThanOrEqual(filters.endDate);
+    }
+    return w;
+  }
+
+  async dashboard(userId: string, filters?: ReportFilters) {
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
 
@@ -35,9 +68,10 @@ export class ReportsService {
       };
     }
 
-    const where: FindOptionsWhere<SurgeryRequest> = {
+    const baseWhere: FindOptionsWhere<SurgeryRequest> = {
       doctor_id: In(doctorIds),
     };
+    const where = this.applyFilters(baseWhere, filters);
 
     const [respTotal, respTotalScheduled, respPerformed, respInvoiced] =
       await Promise.all([
@@ -63,9 +97,9 @@ export class ReportsService {
       totalByHospital,
     ]: any = await Promise.all([
       this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
-      this.surgeryRequestRepository.totalByHealthPlan(doctorIds),
-      this.surgeryRequestRepository.totalByStatus(doctorIds),
-      this.surgeryRequestRepository.totalByHospital(doctorIds),
+      this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
+      this.surgeryRequestRepository.totalByStatus(doctorIds, filters),
+      this.surgeryRequestRepository.totalByHospital(doctorIds, filters),
     ]);
 
     totalByHealthPlan = totalByHealthPlan.map((item) => {
@@ -98,7 +132,7 @@ export class ReportsService {
     };
   }
 
-  private async getWhereConditions(userId: string) {
+  private async getWhereConditions(userId: string, filters?: ReportFilters) {
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
 
@@ -110,15 +144,21 @@ export class ReportsService {
       where = { ...where, doctor_id: In(['__none__']) };
     }
 
+    where = this.applyFilters(where, filters);
+
     return { where, doctorIds };
   }
 
-  async temporalEvolution(userId: string, days: number = 30) {
-    const { where } = await this.getWhereConditions(userId);
+  async temporalEvolution(
+    userId: string,
+    days: number = 30,
+    filters?: ReportFilters,
+  ) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const endDate = filters?.endDate || new Date();
+    const startDate =
+      filters?.startDate || new Date(endDate.getTime() - days * 86400000);
 
     const results = await this.surgeryRequestRepository.getTemporalEvolution(
       where,
@@ -129,8 +169,8 @@ export class ReportsService {
     return results;
   }
 
-  async averageCompletionTime(userId: string) {
-    const { where } = await this.getWhereConditions(userId);
+  async averageCompletionTime(userId: string, filters?: ReportFilters) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
     const result =
       await this.surgeryRequestRepository.getAverageCompletionTime(where);
@@ -140,8 +180,8 @@ export class ReportsService {
     };
   }
 
-  async pendingNotifications(userId: string) {
-    const { where } = await this.getWhereConditions(userId);
+  async pendingNotifications(userId: string, filters?: ReportFilters) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
     // Considerar como pendentes: solicitações em análise ou reanálise há mais de 5 dias
     const fiveDaysAgo = new Date();
@@ -167,8 +207,12 @@ export class ReportsService {
     };
   }
 
-  async monthlyEvolution(userId: string, months: number = 6) {
-    const { where } = await this.getWhereConditions(userId);
+  async monthlyEvolution(
+    userId: string,
+    months: number = 6,
+    filters?: ReportFilters,
+  ) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
     const results = await this.surgeryRequestRepository.getMonthlyEvolution(
       where,

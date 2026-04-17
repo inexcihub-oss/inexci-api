@@ -141,4 +141,8 @@ export class UserRepository extends BaseRepository<User> {
     await this.repository.update(id, data);
     return await this.findOne({ id });
   }
+
+  async findOneByPhone(phone: string): Promise<User | null> {
+    return this.findOne({ phone });
+  }
 }

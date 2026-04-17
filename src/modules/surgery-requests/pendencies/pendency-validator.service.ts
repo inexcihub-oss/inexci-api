@@ -88,6 +88,20 @@ export class PendencyValidatorService {
   }
 
   /**
+   * Gera pendências dinâmicas a partir dos documentos obrigatórios definidos no template.
+   */
+  private buildDocumentPendencies(request: SurgeryRequest): PendencyConfig[] {
+    const requiredDocs: Array<{ type: string; name: string }> =
+      (request as any).required_documents ?? [];
+    return requiredDocs.map((doc) => ({
+      key: `doc_${doc.name}`,
+      label: `Documento: ${doc.name}`,
+      blocking: false, // documentos são avisos, não bloqueantes
+      responsibleRole: 'collaborator' as const,
+    }));
+  }
+
+  /**
    * Retorna os sub-itens de checklist para cada tipo de pendência.
    */
   private getCheckItems(
@@ -190,6 +204,14 @@ export class PendencyValidatorService {
         ];
 
       default:
+        // Pendências dinâmicas de documentos (prefixo 'doc_')
+        if (key.startsWith('doc_')) {
+          const docName = key.slice(4);
+          const hasUploaded = docs.some(
+            (d) => d.name === docName || d.key === docName,
+          );
+          return [{ label: `Upload de "${docName}"`, done: hasUploaded }];
+        }
         return [];
     }
   }
@@ -283,6 +305,11 @@ export class PendencyValidatorService {
         );
 
       default:
+        // Pendências dinâmicas de documentos (prefixo 'doc_')
+        if (pendency.key.startsWith('doc_')) {
+          const docName = pendency.key.slice(4);
+          return docs.some((d) => d.name === docName || d.key === docName);
+        }
         return false;
     }
   }
@@ -324,7 +351,13 @@ export class PendencyValidatorService {
       };
     }
 
-    const pendencies: CalculatedPendencyDto[] = config.pendencies.map((p) => ({
+    // Combina pendências fixas + pendências dinâmicas de documentos obrigatórios
+    const allPendencies: PendencyConfig[] = [
+      ...config.pendencies,
+      ...this.buildDocumentPendencies(request),
+    ];
+
+    const pendencies: CalculatedPendencyDto[] = allPendencies.map((p) => ({
       key: p.key,
       name: p.label,
       description: '',
@@ -376,7 +409,12 @@ export class PendencyValidatorService {
       return { pending: 0, total: 0, canAdvance: true, items: [] };
     }
 
-    const items: ResolvedPendency[] = config.pendencies.map((p) => ({
+    const allPendencies: PendencyConfig[] = [
+      ...config.pendencies,
+      ...this.buildDocumentPendencies(request),
+    ];
+
+    const items: ResolvedPendency[] = allPendencies.map((p) => ({
       ...p,
       resolved: this.checkResolved(request, p),
     }));
@@ -406,10 +444,15 @@ export class PendencyValidatorService {
       return { pendingCount: 0, completedCount: 0, totalCount: 0 };
     }
 
+    const allPendencies: PendencyConfig[] = [
+      ...config.pendencies,
+      ...this.buildDocumentPendencies(request),
+    ];
+
     let pendingCount = 0;
     let completedCount = 0;
 
-    for (const p of config.pendencies) {
+    for (const p of allPendencies) {
       const resolved = this.checkResolved(request, p);
       if (resolved) {
         completedCount++;

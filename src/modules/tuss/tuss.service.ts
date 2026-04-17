@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import * as tussData from '../../utils/tuss.json';
-
-interface TussItem {
-  codigo: number;
-  procedimento: string;
-}
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, ILike } from 'typeorm';
+import { Tuss } from 'src/database/entities/tuss.entity';
 
 export interface TussResponse {
   id: string;
@@ -15,40 +12,36 @@ export interface TussResponse {
 
 @Injectable()
 export class TussService {
-  private tussList: TussItem[];
+  constructor(
+    @InjectRepository(Tuss)
+    private readonly tussRepository: Repository<Tuss>,
+  ) {}
 
-  constructor() {
-    this.tussList = (tussData as { rows: TussItem[] }).rows;
-  }
+  async search(search?: string, limit: number = 50): Promise<TussResponse[]> {
+    const where: any[] = [];
 
-  search(search?: string, limit: number = 50): TussResponse[] {
-    let filtered: TussItem[];
-
-    if (!search || search.length < 2) {
-      filtered = this.tussList.slice(0, limit);
-    } else {
-      const searchLower = search.toLowerCase();
-      
-      filtered = this.tussList
-        .filter(
-          (item) =>
-            item.codigo.toString().includes(searchLower) ||
-            item.procedimento.toLowerCase().includes(searchLower)
-        )
-        .slice(0, limit);
+    if (search && search.length >= 2) {
+      where.push({ code: ILike(`%${search}%`) });
+      where.push({ procedure: ILike(`%${search}%`) });
     }
 
+    const records = await this.tussRepository.find({
+      where: where.length > 0 ? where : undefined,
+      take: limit,
+      order: { code: 'ASC' },
+    });
+
     // Formatar para o padrão esperado pelo frontend
-    return filtered.map((item) => ({
-      id: item.codigo.toString(),
-      tuss_code: this.formatTussCode(item.codigo),
-      name: item.procedimento,
+    return records.map((item) => ({
+      id: item.id,
+      tuss_code: this.formatTussCode(item.code),
+      name: item.procedure,
       active: true,
     }));
   }
 
-  private formatTussCode(codigo: number): string {
-    const str = codigo.toString().padStart(10, '0');
+  private formatTussCode(codigo: string): string {
+    const str = codigo.padStart(10, '0');
     // Formato: XX.XX.XX.XXX-X
     return `${str.slice(0, 2)}.${str.slice(2, 4)}.${str.slice(4, 6)}.${str.slice(6, 9)}-${str.slice(9)}`;
   }

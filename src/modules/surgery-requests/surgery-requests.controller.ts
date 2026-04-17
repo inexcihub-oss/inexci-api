@@ -538,4 +538,27 @@ export class SurgeryRequestsController {
   ) {
     return this.surgeryRequestsService.deleteTemplate(id, user.userId);
   }
+
+  /**
+   * PATCH /surgery-requests/templates/:id
+   * Atualiza um template do médico logado.
+   */
+  @Patch('templates/:id')
+  @ApiOperation({ summary: 'Atualizar template' })
+  updateTemplate(
+    @Param('id') id: string,
+    @Body() dto: { name?: string; template_data?: object },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.updateTemplate(id, dto, user.userId);
+  }
+
+  @Post('templates/:id/increment-usage')
+  @ApiOperation({ summary: 'Incrementar uso do template' })
+  incrementTemplateUsage(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.incrementTemplateUsage(id, user.userId);
+  }
 }

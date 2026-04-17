@@ -45,6 +45,9 @@ export class SurgeryRequestTemplate {
     required_exams?: string[];
   };
 
+  @Column({ type: 'int', default: 0 })
+  usage_count: number;
+
   @CreateDateColumn()
   created_at: Date;
 

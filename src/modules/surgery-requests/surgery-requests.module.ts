@@ -86,6 +86,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
     DoctorResolutionService,
     StorageService,
   ],
-  exports: [SurgeryRequestsService],
+  exports: [
+    SurgeryRequestsService,
+    SurgeryRequestWorkflowService,
+    SurgeryRequestMutationService,
+    SurgeryRequestNotificationService,
+  ],
 })
 export class SurgeryRequestsModule {}

@@ -221,6 +221,9 @@ export class SurgeryRequestMutationService {
           health_plan_id: data.health_plan_id || null,
           priority: data.priority,
           procedure_id: data.procedure_id || null,
+          required_documents: data.required_documents?.length
+            ? data.required_documents
+            : null,
         });
 
         await chatRepo.save({

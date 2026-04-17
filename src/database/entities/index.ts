@@ -51,6 +51,10 @@ import {
   NotificationSendStatus,
 } from './notification-send-log.entity';
 import { StaleNotificationLog } from './stale-notification-log.entity';
+import { WhatsappConversation } from './whatsapp-conversation.entity';
+import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
+import { Cid } from './cid.entity';
+import { Tuss } from './tuss.entity';
 
 // Re-exportar tudo
 // USUÁRIOS E ACESSO
@@ -102,6 +106,14 @@ export { RefreshToken };
 export { NotificationSendLog, NotificationChannel, NotificationSendStatus };
 export { StaleNotificationLog };
 
+// IA / WHATSAPP CONVERSAÇÃO
+export { WhatsappConversation };
+export { AiKnowledgeChunk };
+
+// DADOS DE REFERÊNCIA (CID/TUSS)
+export { Cid };
+export { Tuss };
+
 // Array apenas com classes de entidade (sem enums) para TypeORM
 export const ENTITIES = [
   User,
@@ -135,4 +147,8 @@ export const ENTITIES = [
   ReportSection,
   NotificationSendLog,
   StaleNotificationLog,
+  WhatsappConversation,
+  AiKnowledgeChunk,
+  Cid,
+  Tuss,
 ];

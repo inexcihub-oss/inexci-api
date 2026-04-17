@@ -21,3 +21,5 @@ export { UserNotificationSettingsRepository } from './user-notification-settings
 export { SurgeryRequestActivityRepository } from './surgery-request-activity.repository';
 export { SurgeryRequestAnalysisRepository } from './surgery-request-analysis.repository';
 export { ContestationRepository } from './contestation.repository';
+export { WhatsappConversationRepository } from './whatsapp-conversation.repository';
+export { AiKnowledgeChunkRepository } from './ai-knowledge-chunk.repository';

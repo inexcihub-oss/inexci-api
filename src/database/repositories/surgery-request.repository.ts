@@ -35,39 +35,105 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     super(repository);
   }
 
-  async totalByHospital(doctorIds: string[]) {
-    return this.repository
+  async totalByHospital(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ) {
+    const qb = this.repository
       .createQueryBuilder('sr')
       .leftJoin('sr.hospital', 'h')
       .select('sr.hospital_id', 'hospital_id')
       .addSelect("COALESCE(h.name, 'Sem Hospital')", 'hospital_name')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
-      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds })
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospital_id = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate)
+      qb.andWhere('sr.created_at >= :startDate', {
+        startDate: filters.startDate,
+      });
+    if (filters?.endDate)
+      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+    return qb
       .groupBy('sr.hospital_id')
       .addGroupBy('h.name')
       .orderBy('COUNT(*)', 'DESC')
       .getRawMany();
   }
 
-  async totalByStatus(doctorIds: string[]) {
-    return this.repository
+  async totalByStatus(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ) {
+    const qb = this.repository
       .createQueryBuilder('sr')
       .select('sr.status', 'status')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
-      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds })
-      .groupBy('sr.status')
-      .orderBy('COUNT(*)', 'DESC')
-      .getRawMany();
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospital_id = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate)
+      qb.andWhere('sr.created_at >= :startDate', {
+        startDate: filters.startDate,
+      });
+    if (filters?.endDate)
+      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+    return qb.groupBy('sr.status').orderBy('COUNT(*)', 'DESC').getRawMany();
   }
 
-  async totalByHealthPlan(doctorIds: string[]) {
-    return this.repository
+  async totalByHealthPlan(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ) {
+    const qb = this.repository
       .createQueryBuilder('sr')
       .leftJoin('sr.health_plan', 'hp')
       .select('sr.health_plan_id', 'health_plan_id')
       .addSelect("COALESCE(hp.name, 'Sem Convênio')", 'health_plan_name')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
-      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds })
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospital_id = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate)
+      qb.andWhere('sr.created_at >= :startDate', {
+        startDate: filters.startDate,
+      });
+    if (filters?.endDate)
+      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+    return qb
       .groupBy('sr.health_plan_id')
       .addGroupBy('hp.name')
       .orderBy('COUNT(*)', 'DESC')
@@ -116,6 +182,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('surgery_request.opme_items', 'opme_items')
       .leftJoinAndSelect('surgery_request.procedure', 'procedure')
       .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
+      .leftJoinAndSelect('surgery_request.cid', 'cid')
       .leftJoinAndSelect('surgery_request.documents', 'documents')
       .leftJoinAndSelect('documents.creator', 'documents_creator')
       .leftJoinAndSelect('surgery_request.quotations', 'quotations')
@@ -164,17 +231,13 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   ): Promise<any[]> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
-      .leftJoinAndSelect('surgery_request.created_by', 'created_by')
-      .leftJoinAndSelect('surgery_request.manager', 'manager')
-      .leftJoinAndSelect('surgery_request.patient', 'patient')
-      .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
-      .leftJoinAndSelect('surgery_request.procedure', 'procedure')
-      .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
-      .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
-      .leftJoin('surgery_request.chats', 'chats')
-      .leftJoin('chats.messages', 'messages')
-      .leftJoinAndSelect('surgery_request.documents', 'documents')
-      .leftJoin('surgery_request.activities', 'activities')
+      .leftJoin('surgery_request.created_by', 'created_by')
+      .leftJoin('surgery_request.manager', 'manager')
+      .leftJoin('surgery_request.patient', 'patient')
+      .leftJoin('surgery_request.health_plan', 'health_plan')
+      .leftJoin('surgery_request.hospital', 'hospital')
+      .leftJoin('surgery_request.procedure', 'procedure')
+      .leftJoin('surgery_request.documents', 'documents')
       .where(where)
       .orderBy('surgery_request.created_at', 'DESC')
       .skip(skip)
@@ -183,10 +246,10 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'surgery_request.id',
         'surgery_request.status',
         'surgery_request.health_plan_id',
+        'surgery_request.hospital_id',
         'surgery_request.created_at',
         'surgery_request.is_indication',
         'surgery_request.indication_name',
-        'surgery_request.date_call',
         'surgery_request.deadline',
         'surgery_request.protocol',
         'surgery_request.priority',
@@ -194,39 +257,33 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'created_by.name',
         'manager.id',
         'manager.name',
-        'manager.email',
         'patient.id',
         'patient.name',
-        'patient.email',
         'health_plan.id',
         'health_plan.name',
+        'hospital.id',
+        'hospital.name',
         'procedure.id',
         'procedure.name',
         'documents.id',
         'documents.type',
       ])
-      .addSelect('COUNT(DISTINCT messages.id)', 'messagesCount')
-      .addSelect('COUNT(DISTINCT activities.id)', 'activitiesCount')
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
       .addGroupBy('manager.id')
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
+      .addGroupBy('hospital.id')
       .addGroupBy('procedure.id')
-      .addGroupBy('status_updates.id')
       .addGroupBy('documents.id');
 
     const results = await queryBuilder.getRawAndEntities();
 
-    return results.entities.map((entity: any, index: number) => {
+    return results.entities.map((entity: any) => {
       const pendencies = this.calculatePendencies(entity);
 
       return {
         ...entity,
-        status_updates: entity.status_updates?.slice(0, 1) || [],
-        messagesCount: parseInt(results.raw[index]?.messagesCount || '0'),
-        attachmentsCount: entity.documents?.length || 0,
-        activitiesCount: parseInt(results.raw[index]?.activitiesCount || '0'),
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
         totalPendencies: pendencies.totalCount,

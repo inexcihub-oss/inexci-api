@@ -12,6 +12,15 @@ import { BullModule } from '@nestjs/bull';
     BullModule.registerQueue({
       name: 'pdf-generation',
     }),
+    BullModule.registerQueue({
+      name: 'ai-messages',
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 3000 },
+        removeOnComplete: 50,
+        removeOnFail: 100,
+      },
+    }),
   ],
   exports: [BullModule],
 })
