@@ -76,6 +76,21 @@ export class SchedulingHandler {
       SurgeryRequestStatus.SCHEDULED,
       dto.notify_patient,
     );
+
+    await this.notificationService.notifyAdminsOfWorkflowAction(
+      userId,
+      request.patient?.name ?? 'Paciente',
+      request.protocol ?? id,
+      'Data de cirurgia confirmada',
+      `/solicitacoes/${id}`,
+    );
+
+    await this.notificationService.notifyStakeholdersOfStatusChange(
+      request,
+      SurgeryRequestStatus.IN_SCHEDULING,
+      SurgeryRequestStatus.SCHEDULED,
+      userId,
+    );
   }
 
   async updateDateOptions(

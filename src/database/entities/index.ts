@@ -45,6 +45,12 @@ import {
   WhatsappMessageStatus,
 } from './whatsapp-message-log.entity';
 import { ReportSection } from './report-section.entity';
+import {
+  NotificationSendLog,
+  NotificationChannel,
+  NotificationSendStatus,
+} from './notification-send-log.entity';
+import { StaleNotificationLog } from './stale-notification-log.entity';
 
 // Re-exportar tudo
 // USUÁRIOS E ACESSO
@@ -92,6 +98,10 @@ export { SubscriptionPlan };
 export { RecoveryCode };
 export { RefreshToken };
 
+// OBSERVABILIDADE
+export { NotificationSendLog, NotificationChannel, NotificationSendStatus };
+export { StaleNotificationLog };
+
 // Array apenas com classes de entidade (sem enums) para TypeORM
 export const ENTITIES = [
   User,
@@ -123,4 +133,6 @@ export const ENTITIES = [
   SubscriptionPlan,
   WhatsappMessageLog,
   ReportSection,
+  NotificationSendLog,
+  StaleNotificationLog,
 ];

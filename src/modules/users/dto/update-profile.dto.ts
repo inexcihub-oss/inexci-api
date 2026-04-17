@@ -81,8 +81,8 @@ export class UpdateProfileDto {
   avatar_url?: string | null;
 
   @IsOptional()
-  @IsString()
-  signature_url?: string;
+  @Transform(({ value }) => value ?? null)
+  signature_url?: string | null;
 
   @IsOptional()
   @IsString()

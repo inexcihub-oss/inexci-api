@@ -191,6 +191,8 @@ export interface SurgeryRequestLaudoPdfData {
   fabricantesText?: string;
   fornecedoresText?: string;
   hasSeparator?: boolean;
+  // Seções dinâmicas do laudo (substitui historyAndDiagnosis / conduct)
+  sections?: Array<{ title: string; description?: string | null }>;
   // Hospital (Local)
   localText?: string;
   // Médico
@@ -544,7 +546,9 @@ export class PdfService {
     try {
       browser = await puppeteer.launch({
         headless: true,
-        executablePath: this.configService.get<string>('PUPPETEER_EXECUTABLE_PATH') || undefined,
+        executablePath:
+          this.configService.get<string>('PUPPETEER_EXECUTABLE_PATH') ||
+          undefined,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

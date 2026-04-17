@@ -3,6 +3,9 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { BullBoardModule } from '@bull-board/nestjs';
+import { ExpressAdapter } from '@bull-board/express';
+import { BullAdapter } from '@bull-board/api/bullAdapter';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
 import { CustomThrottlerGuard } from './shared/guards/custom-throttler.guard';
@@ -31,6 +34,7 @@ import { HealthPlansModule } from './modules/health-plans/health-plans.module';
 import { CronService } from './shared/cron/cron.service';
 import { CronModule } from './shared/cron/cron.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { NotificationsHealthModule } from './modules/notifications/health/notifications-health.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { TussModule } from './modules/tuss/tuss.module';
 import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
@@ -86,6 +90,19 @@ import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor
     TussModule,
     WhatsappModule,
     UserDoctorAccessModule,
+    NotificationsHealthModule,
+    BullBoardModule.forRoot({
+      route: '/admin/queues',
+      adapter: ExpressAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: 'mail',
+      adapter: BullAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: 'whatsapp-messages',
+      adapter: BullAdapter,
+    }),
     ScheduleModule.forRoot(),
     CronModule,
   ],

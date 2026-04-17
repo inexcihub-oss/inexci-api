@@ -32,8 +32,7 @@ export const envValidationSchema = Joi.object({
   SUPABASE_BUCKET: Joi.string().allow('').default('inexci-storage'),
   SUPABASE_BUCKET_NAME: Joi.string().allow('').default('documents'),
 
-  // ── Email (Brevo) ────────────────────────────────────
-  BREVO_API_KEY: Joi.string().allow('').default(''),
+  // ── Email (SMTP) ─────────────────────────────────────
   MAIL_HOST: Joi.string().allow('').default('smtp.example.com'),
   MAIL_PORT: Joi.number().default(587),
   MAIL_SECURE: Joi.string().allow('').default('false'),

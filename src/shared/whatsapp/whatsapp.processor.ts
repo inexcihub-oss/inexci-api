@@ -1,4 +1,4 @@
-import { Process, Processor } from '@nestjs/bull';
+import { OnQueueFailed, Process, Processor } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -9,6 +9,11 @@ import {
   WhatsappMessageLog,
   WhatsappMessageStatus,
 } from 'src/database/entities/whatsapp-message-log.entity';
+import {
+  NotificationSendLog,
+  NotificationChannel,
+  NotificationSendStatus,
+} from 'src/database/entities/notification-send-log.entity';
 import { WhatsappJobData } from './whatsapp.service';
 
 @Processor('whatsapp-messages')
@@ -42,6 +47,8 @@ export class WhatsappProcessor {
   constructor(
     @InjectRepository(WhatsappMessageLog)
     private readonly logRepository: Repository<WhatsappMessageLog>,
+    @InjectRepository(NotificationSendLog)
+    private readonly sendLogRepository: Repository<NotificationSendLog>,
     private readonly configService: ConfigService,
   ) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
@@ -64,7 +71,7 @@ export class WhatsappProcessor {
 
   @Process('send-whatsapp')
   async handleSendWhatsapp(job: Job<WhatsappJobData>): Promise<void> {
-    const { to, body } = job.data;
+    const { to, body, contentSid, variables } = job.data;
     const from = this.twilioWhatsappFrom;
 
     // TO: normaliza o número do paciente (pode estar em vários formatos, ex: "(31) 98908-5791")
@@ -76,9 +83,14 @@ export class WhatsappProcessor {
       ? from
       : `whatsapp:${from}`;
 
+    const isTemplate = !!contentSid;
+    const logBody = isTemplate
+      ? `[template:${contentSid}] vars=${JSON.stringify(variables ?? {})}`
+      : (body ?? '');
+
     const log = this.logRepository.create({
       to: toNormalized,
-      body,
+      body: logBody,
       status: WhatsappMessageStatus.SENT,
       sentAt: null,
       errorMessage: null,
@@ -86,12 +98,24 @@ export class WhatsappProcessor {
 
     try {
       if (!this.twilioClient) {
-        // Modo dev: apenas loga, sem enviar
         this.logger.log(
-          `[DEV] Mensagem WhatsApp (sem Twilio configurado) → ${toFormatted}: ${body}`,
+          `[DEV] WhatsApp (sem Twilio) → ${toFormatted}: ${logBody}`,
         );
         log.status = WhatsappMessageStatus.SENT;
         log.sentAt = new Date();
+      } else if (isTemplate) {
+        this.logger.log(
+          `Enviando template WhatsApp: from=${fromNormalized} to=${toFormatted} contentSid=${contentSid}`,
+        );
+        await this.twilioClient.messages.create({
+          from: fromNormalized,
+          to: toFormatted,
+          contentSid,
+          contentVariables: JSON.stringify(variables ?? {}),
+        } as any);
+        log.status = WhatsappMessageStatus.SENT;
+        log.sentAt = new Date();
+        this.logger.log(`Template WhatsApp enviado com sucesso para: ${to}`);
       } else {
         this.logger.log(
           `Enviando WhatsApp: from=${fromNormalized} to=${toFormatted}`,
@@ -121,6 +145,45 @@ export class WhatsappProcessor {
           `Falha ao salvar log de WhatsApp: ${logErr?.message}`,
         );
       }
+
+      // Salvar no notification_send_log unificado
+      try {
+        const sendLog = this.sendLogRepository.create({
+          channel: NotificationChannel.WHATSAPP,
+          status:
+            log.status === WhatsappMessageStatus.SENT
+              ? NotificationSendStatus.SENT
+              : NotificationSendStatus.FAILED,
+          to: toNormalized,
+          template: isTemplate ? contentSid : null,
+          error_message: log.errorMessage,
+          job_id: String(job.id),
+          attempts: job.attemptsMade + 1,
+          sent_at: log.sentAt,
+        });
+        await this.sendLogRepository.save(sendLog);
+      } catch (logErr: any) {
+        this.logger.error(
+          `Falha ao salvar notification_send_log: ${logErr?.message}`,
+        );
+      }
+    }
+  }
+
+  @OnQueueFailed()
+  async handleFailedJob(job: Job<WhatsappJobData>, error: Error) {
+    const maxAttempts = job.opts?.attempts ?? 3;
+    if (job.attemptsMade >= maxAttempts) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'whatsapp_dead_letter',
+          to: job.data.to,
+          contentSid: job.data.contentSid ?? null,
+          jobId: job.id,
+          attemptsMade: job.attemptsMade,
+          error: error.message,
+        }),
+      );
     }
   }
 }

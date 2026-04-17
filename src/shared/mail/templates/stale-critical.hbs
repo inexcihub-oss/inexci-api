@@ -1,0 +1,18 @@
+{{#> _layout title="⚠️ ALERTA CRÍTICO — Solicitação Parada" preferencesUrl=preferencesUrl}}
+  <div class='alert-critical'>
+    <p><strong>⚠️ Atenção!</strong> A solicitação abaixo está parada há <strong>{{staleDays}} dias</strong>.</p>
+  </div>
+
+  <div class='info-box'>
+    <p><strong>Paciente:</strong> {{patientName}}</p>
+    <p><strong>Protocolo:</strong> {{requestId}}</p>
+    <p><strong>Status atual:</strong> {{currentStatus}}</p>
+    <p><strong>Última movimentação:</strong> {{lastMovedAt}}</p>
+  </div>
+
+  <p>Esta solicitação ultrapassou o prazo esperado de resolução. É necessária ação imediata para evitar prejuízos ao paciente.</p>
+
+  {{#if dashboardUrl}}
+    <p><a class='btn' href='{{dashboardUrl}}'>Abrir Solicitação</a></p>
+  {{/if}}
+{{/_layout}}

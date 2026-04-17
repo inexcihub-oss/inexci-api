@@ -10,13 +10,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
-import { EmailService } from 'src/shared/email/email.service';
+import { MailModule } from 'src/shared/mail/mail.module';
 
 @Module({
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([User, RecoveryCode, RefreshToken, SubscriptionPlan]),
     PassportModule,
+    MailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -35,7 +36,6 @@ import { EmailService } from 'src/shared/email/email.service';
   providers: [
     AuthService,
     JwtStrategy,
-    EmailService,
   ],
   controllers: [AuthController],
   exports: [AuthService],

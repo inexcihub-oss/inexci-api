@@ -92,6 +92,21 @@ export class SendAnalysisHandler {
       dto.notify_patient,
     );
 
+    await this.notificationService.notifyAdminsOfWorkflowAction(
+      userId,
+      request.patient?.name ?? 'Paciente',
+      request.protocol ?? id,
+      'Solicitação enviada para análise',
+      `/solicitacoes/${id}`,
+    );
+
+    await this.notificationService.notifyStakeholdersOfStatusChange(
+      request,
+      SurgeryRequestStatus.PENDING,
+      SurgeryRequestStatus.SENT,
+      userId,
+    );
+
     try {
       this.pdfGenerationService.scheduleGeneration(id, userId);
     } catch (err) {
@@ -182,6 +197,21 @@ export class SendAnalysisHandler {
       SurgeryRequestStatus.SENT,
       SurgeryRequestStatus.IN_ANALYSIS,
       dto.notify_patient,
+    );
+
+    await this.notificationService.notifyAdminsOfWorkflowAction(
+      userId,
+      request.patient?.name ?? 'Paciente',
+      request.protocol ?? id,
+      'Análise iniciada',
+      `/solicitacoes/${id}`,
+    );
+
+    await this.notificationService.notifyStakeholdersOfStatusChange(
+      request,
+      SurgeryRequestStatus.SENT,
+      SurgeryRequestStatus.IN_ANALYSIS,
+      userId,
     );
     this.logger.log(`[startAnalysis] Solicitação ${id} movida para Em Análise`);
   }

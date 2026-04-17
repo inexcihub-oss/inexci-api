@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { FindOptionsWhere, Not, In } from 'typeorm';
 import {
   BadRequestException,
@@ -20,7 +20,7 @@ import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { EmailService } from 'src/shared/email/email.service';
+import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { CompleteRegisterDto } from './dto/complete-register.dto';
@@ -38,7 +38,7 @@ export class UsersService {
   private readonly logger = new Logger(UsersService.name);
   constructor(
     private readonly userRepository: UserRepository,
-    private readonly emailService: EmailService,
+    private readonly mailService: MailService,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly storageService: StorageService,
@@ -203,13 +203,42 @@ export class UsersService {
     if (data.city !== undefined) userUpdates.city = data.city;
     if (data.state !== undefined) userUpdates.state = data.state;
 
+    // Deletar avatar antigo do Storage quando for removido ou substituído
+    if (data.avatar_url !== undefined) {
+      const oldAvatar = user.avatar_url;
+      if (
+        oldAvatar &&
+        !oldAvatar.startsWith('http') &&
+        oldAvatar !== data.avatar_url
+      ) {
+        try {
+          await this.storageService.delete(oldAvatar);
+        } catch {
+          // não bloqueia a atualização se falhar
+        }
+      }
+    }
+
     const updatedUser = await this.userRepository.update(userId, userUpdates);
 
-    // Se tiver signature_url, atualizar DoctorProfile
+    // Se tiver signature_url, atualizar DoctorProfile e deletar antiga do Storage
     if (data.signature_url !== undefined) {
       const docProfile =
         await this.doctorProfileRepository.findByUserId(userId);
       if (docProfile) {
+        // Deletar assinatura antiga do Storage
+        const oldSignature = docProfile.signature_url;
+        if (
+          oldSignature &&
+          !oldSignature.startsWith('http') &&
+          oldSignature !== data.signature_url
+        ) {
+          try {
+            await this.storageService.delete(oldSignature);
+          } catch {
+            // não bloqueia a atualização se falhar
+          }
+        }
         await this.doctorProfileRepository.update(docProfile.id, {
           signature_url: data.signature_url,
         });
@@ -348,7 +377,7 @@ export class UsersService {
     });
 
     // Envia email de boas-vindas
-    this.emailService.send(
+    this.mailService.sendRaw(
       newUser.email,
       'Bem-vindo a Inexci!',
       `
@@ -591,7 +620,7 @@ export class UsersService {
     }
 
     // Envia email de boas-vindas
-    this.emailService.send(
+    this.mailService.sendRaw(
       newUser.email,
       'Bem-vindo a Inexci!',
       `

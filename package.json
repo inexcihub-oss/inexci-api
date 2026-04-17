@@ -31,7 +31,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
     "@aws-sdk/s3-request-presigner": "^3.693.0",
-    "@getbrevo/brevo": "^2.2.0",
+    "@bull-board/api": "^7.0.0",
+    "@bull-board/express": "^7.0.0",
+    "@bull-board/nestjs": "^7.0.0",
     "@nestjs/bull": "^11.0.4",
     "@nestjs/common": "^10.3.9",
     "@nestjs/config": "^3.2.3",
@@ -42,13 +44,16 @@
     "@nestjs/platform-express": "^10.3.9",
     "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^7.4.2",
+    "@nestjs/terminus": "^11.1.1",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^10.0.2",
     "@supabase/supabase-js": "^2.94.1",
     "@tboerc/maskfy": "1.0.0",
+    "@types/bcryptjs": "^2.4.6",
     "@typescript-eslint/eslint-plugin": "^8.9.0",
     "@typescript-eslint/parser": "^8.9.0",
     "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -123,6 +128,7 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "maxWorkers": 2
   }
 }

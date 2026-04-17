@@ -20,7 +20,9 @@ export async function transformDocumentUrls(
           uri: await storageService.getSignedUrl(doc.uri),
         };
       } catch {
-        logger.warn(`Falha ao gerar signed URL para documento ${doc.id ?? doc.uri}`);
+        logger.warn(
+          `Falha ao gerar signed URL para documento ${doc.id ?? doc.uri}`,
+        );
         return doc;
       }
     }),
@@ -35,16 +37,29 @@ export async function transformDoctorSignatureUrl(
   doctor: any,
   storageService: StorageService,
 ): Promise<any> {
-  if (!doctor?.signature_url || doctor.signature_url.startsWith('http')) {
+  // A assinatura fica em doctor.doctor_profile.signature_url (path bruto).
+  // Promove para doctor.signature_url como signed URL para uso no frontend.
+  const rawSignature: string | undefined =
+    doctor?.doctor_profile?.signature_url || doctor?.signature_url;
+
+  if (!rawSignature) {
     return doctor;
   }
+
+  if (rawSignature.startsWith('http')) {
+    // Já é uma URL HTTP — apenas garante que está no campo top-level
+    return { ...doctor, signature_url: rawSignature };
+  }
+
   try {
     return {
       ...doctor,
-      signature_url: await storageService.getSignedUrl(doctor.signature_url),
+      signature_url: await storageService.getSignedUrl(rawSignature),
     };
   } catch {
-    logger.warn(`Falha ao gerar signed URL para assinatura do médico ${doctor.id}`);
+    logger.warn(
+      `Falha ao gerar signed URL para assinatura do médico ${doctor.id}`,
+    );
     return doctor;
   }
 }

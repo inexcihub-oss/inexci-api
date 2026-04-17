@@ -189,6 +189,9 @@ export class SurgeryRequest {
   @Column({ type: 'timestamp', nullable: true })
   closed_at: Date; // Quando foi encerrada/arquivada
 
+  @Column({ type: 'timestamp', nullable: true })
+  last_status_changed_at: Date;
+
   // ============ TIMESTAMPS ============
 
   @CreateDateColumn()

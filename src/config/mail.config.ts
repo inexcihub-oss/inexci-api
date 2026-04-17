@@ -30,7 +30,14 @@ export type MailTemplateName =
   | 'invoice-sent'
   | 'payment-received'
   | 'payment-contested'
-  | 'status-update';
+  | 'status-update'
+  | 'status-change-stakeholder'
+  | 'status-change-patient'
+  | 'stale-reminder'
+  | 'stale-critical'
+  | 'action-admin-alert'
+  | 'welcome-patient'
+  | 'welcome-doctor';
 
 export const MAIL_TEMPLATES: MailTemplateName[] = [
   'surgery-request-sent',
@@ -41,4 +48,11 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'payment-received',
   'payment-contested',
   'status-update',
+  'status-change-stakeholder',
+  'status-change-patient',
+  'stale-reminder',
+  'stale-critical',
+  'action-admin-alert',
+  'welcome-patient',
+  'welcome-doctor',
 ];

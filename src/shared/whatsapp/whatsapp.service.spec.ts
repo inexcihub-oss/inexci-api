@@ -75,6 +75,48 @@ describe('WhatsappService', () => {
     });
   });
 
+  // ─── PRD: Comunicação WhatsApp — INC-04 (templates pré-aprovados) ────────
+  describe('sendTemplate', () => {
+    it('deve enfileirar job com contentSid e variables', async () => {
+      await service.sendTemplate(
+        '+5511999999999',
+        'HXabc123',
+        { '1': 'João', '2': 'Em Análise', '3': 'Hospital Geral' },
+      );
+
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'send-whatsapp',
+        {
+          to: '+5511999999999',
+          contentSid: 'HXabc123',
+          variables: { '1': 'João', '2': 'Em Análise', '3': 'Hospital Geral' },
+        },
+        expect.objectContaining({
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        }),
+      );
+    });
+
+    it('não deve propagar exceção se a fila falhar', async () => {
+      mockQueue.add.mockRejectedValue(new Error('Redis offline'));
+
+      await expect(
+        service.sendTemplate('+5511999999999', 'HXabc123', { '1': 'Teste' }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('não deve incluir campo body no job de template', async () => {
+      await service.sendTemplate('+5511999999999', 'HXxyz', { '1': 'A' });
+
+      const [, jobData] = mockQueue.add.mock.calls[0];
+      expect(jobData.body).toBeUndefined();
+      expect(jobData.contentSid).toBe('HXxyz');
+    });
+  });
+
   // ─── PRD: Comunicação WhatsApp — US-003 ──────────────────────────────────
   describe('sendPatientWelcome', () => {
     it('deve enviar mensagem de boas-vindas ao paciente com nome correto', async () => {

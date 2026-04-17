@@ -38,7 +38,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     total: jest.fn(),
     findMany: jest.fn(),
   };
-  const mockEmailService = { send: jest.fn() };
+  const mockMailService = { sendRaw: jest.fn() };
   const mockUserDoctorAccessRepository = {
     findActiveByUserId: jest.fn(),
     findActiveByDoctorUserId: jest.fn(),
@@ -76,7 +76,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     // Instanciação direta — evita NestJS DI que requer DataSource real
     service = new UsersService(
       mockUserRepository as any,
-      mockEmailService as any,
+      mockMailService as any,
       mockUserDoctorAccessRepository as any,
       mockDoctorProfileRepository as any,
       mockStorageService as any,
@@ -303,7 +303,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'admin-1',
       );
 
-      expect(mockEmailService.send).toHaveBeenCalledWith(
+      expect(mockMailService.sendRaw).toHaveBeenCalledWith(
         'novo@email.com',
         expect.any(String),
         expect.stringContaining('Novo'),

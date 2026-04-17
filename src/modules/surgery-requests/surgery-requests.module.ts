@@ -30,7 +30,6 @@ import { UsersModule } from '../users/users.module';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { ChatsModule } from './chats/chats.module';
 import { ActivitiesModule } from './activities/activities.module';
-import { EmailModule } from 'src/shared/email/email.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
 import { PdfGenerationModule } from 'src/shared/pdf/pdf-generation.module';
@@ -39,6 +38,7 @@ import { PendenciesModule } from './pendencies/pendencies.module';
 import { DocumentsModule } from './documents/documents.module';
 import { DocumentsKeyModule } from './documents-key/documents-key.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -58,7 +58,6 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
     UsersModule,
     ChatsModule,
     ActivitiesModule,
-    EmailModule,
     MailModule,
     PdfModule,
     PdfGenerationModule,
@@ -67,6 +66,7 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
     DocumentsModule,
     DocumentsKeyModule,
     WhatsappModule,
+    NotificationsModule,
   ],
   controllers: [SurgeryRequestsController],
   providers: [

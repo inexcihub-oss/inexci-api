@@ -1,4 +1,4 @@
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { faker } from '@faker-js/faker';
 import { Logger } from '@nestjs/common';
 import { SeedDataSource } from '../typeorm/seed-data-source';
@@ -1581,6 +1581,67 @@ async function main() {
   logger.log(`  ✅ ${allUserIds.length} configurações criadas\n`);
 
   // ========================================
+  // 16. STALE NOTIFICATION LOG
+  // ========================================
+  logger.log('⏰ Criando logs de notificações de solicitações paradas...');
+
+  // Solicitar stale para as 2 primeiras SRs da conta 2 (status 1 e 2 = paradas)
+  const staleSrIds = [srIds2[0], srIds2[1]];
+  const staleTiers = [3, 7, 15, 30];
+  let staleCount = 0;
+  for (const srId of staleSrIds) {
+    const tiersForSr = srId === staleSrIds[0] ? staleTiers : [3, 7]; // primeira com todos os tiers, segunda com 2
+    for (const days of tiersForSr) {
+      const notifiedAt = new Date('2026-02-23');
+      notifiedAt.setDate(notifiedAt.getDate() + days);
+      await dataSource.query(
+        `INSERT INTO stale_notification_log (surgery_request_id, stale_days, channel, notified_at)
+         VALUES ($1, $2, $3, $4)`,
+        [srId, days, 'in_app', notifiedAt.toISOString()],
+      );
+      staleCount++;
+    }
+  }
+  logger.log(`  ✅ ${staleCount} logs de stale criados\n`);
+
+  // ========================================
+  // 17. NOTIFICATION SEND LOG
+  // ========================================
+  logger.log('📨 Criando logs de envio de notificação (email/whatsapp)...');
+
+  // E-mail enviado com sucesso — nova solicitação
+  await dataSource.query(
+    `INSERT INTO notification_send_log (channel, status, "to", subject, template, job_id, attempts, sent_at, created_at)
+     VALUES ('email', 'sent', 'admin@inexci.com', 'Nova solicitação cirúrgica criada', 'new-surgery-request', 'mail-seed-1', 1, NOW() - INTERVAL '30 days', NOW() - INTERVAL '30 days')`,
+  );
+
+  // E-mail enviado — atualização de status
+  await dataSource.query(
+    `INSERT INTO notification_send_log (channel, status, "to", subject, template, job_id, attempts, sent_at, created_at)
+     VALUES ('email', 'sent', 'assistente1@inexci.com', 'Status atualizado - Solicitação em agendamento', 'status-update', 'mail-seed-2', 1, NOW() - INTERVAL '25 days', NOW() - INTERVAL '25 days')`,
+  );
+
+  // WhatsApp enviado — lembrete stale
+  await dataSource.query(
+    `INSERT INTO notification_send_log (channel, status, "to", subject, template, job_id, attempts, sent_at, created_at)
+     VALUES ('whatsapp', 'sent', '21998765432', NULL, 'stale-reminder', 'wa-seed-1', 1, NOW() - INTERVAL '20 days', NOW() - INTERVAL '20 days')`,
+  );
+
+  // E-mail falhou — erro SMTP
+  await dataSource.query(
+    `INSERT INTO notification_send_log (channel, status, "to", subject, template, error_message, job_id, attempts, created_at)
+     VALUES ('email', 'failed', 'invalido@teste.com', 'Lembrete de solicitação parada', 'stale-reminder', 'SMTP connection refused after 3 attempts', 'mail-seed-3', 3, NOW() - INTERVAL '15 days')`,
+  );
+
+  // WhatsApp na fila
+  await dataSource.query(
+    `INSERT INTO notification_send_log (channel, status, "to", template, job_id, attempts, created_at)
+     VALUES ('whatsapp', 'queued', '21976543210', 'patient-notification', 'wa-seed-2', 0, NOW())`,
+  );
+
+  logger.log('  ✅ 5 logs de envio criados\n');
+
+  // ========================================
   // RESUMO
   // ========================================
   logger.log('═══════════════════════════════════════════════════════════');
@@ -1602,6 +1663,8 @@ async function main() {
   logger.log(
     '  • OPME, cotações, análises, faturamentos, contestações, laudos',
   );
+  logger.log('  • 6 logs de stale notification (solicitações paradas)');
+  logger.log('  • 5 logs de envio (email/whatsapp — sent, failed, queued)');
   logger.log('');
   logger.log('🔐 Credenciais (todos com senha: 123456):');
   logger.log('  ┌─────────────────────────────────────────────────────────┐');

@@ -11,7 +11,6 @@ import { SurgeryRequestQuotationRepository } from 'src/database/repositories/sur
 import { ChatsService } from '../chats/chats.service';
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 import { BUSINESS_RULES } from 'src/shared/constants/business-rules';
-import { EmailService } from 'src/shared/email/email.service';
 import { DataSource, IsNull, Not } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import {
@@ -30,7 +29,6 @@ export class QuotationsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly chatsService: ChatsService,
-    private readonly emailService: EmailService,
     private readonly supplierRepository: SupplierRepository,
     private readonly accessControlService: AccessControlService,
     private readonly surgeryRequestAccessValidator: SurgeryRequestAccessValidator,

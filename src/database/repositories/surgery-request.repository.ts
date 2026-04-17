@@ -275,6 +275,19 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     ]);
   }
 
+  async findDistinctActivityUserIds(
+    surgeryRequestId: string,
+  ): Promise<string[]> {
+    const results = await this.dataSource
+      .getRepository(SurgeryRequestActivity)
+      .createQueryBuilder('a')
+      .select('DISTINCT a.user_id', 'user_id')
+      .where('a.surgery_request_id = :surgeryRequestId', { surgeryRequestId })
+      .andWhere('a.user_id IS NOT NULL')
+      .getRawMany();
+    return results.map((r) => r.user_id);
+  }
+
   /** Registra mudança de status em status_updates e em activities (deve ser chamado dentro de uma transação) */
   async recordStatusChange(
     manager: EntityManager,
@@ -283,6 +296,13 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     newStatus: SurgeryRequestStatus,
     userId: string | null = null,
   ): Promise<void> {
+    const now = new Date();
+
+    const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
+    await surgeryRequestRepo.update(surgeryRequestId, {
+      last_status_changed_at: now,
+    });
+
     const statusUpdateRepo = manager.getRepository(StatusUpdate);
     await statusUpdateRepo.save({
       surgery_request_id: surgeryRequestId,
@@ -392,5 +412,30 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const pendingCount = totalCount - completedCount;
 
     return { pendingCount, completedCount, totalCount };
+  }
+
+  /**
+   * Busca solicitações paradas (stale) — que não mudaram de status há mais de `minDays` dias.
+   * Exclui status finais: PERFORMED, INVOICED, FINALIZED, CLOSED.
+   */
+  async findStaleRequests(minDays: number): Promise<SurgeryRequest[]> {
+    const terminalStatuses = [
+      SurgeryRequestStatus.PERFORMED,
+      SurgeryRequestStatus.INVOICED,
+      SurgeryRequestStatus.FINALIZED,
+      SurgeryRequestStatus.CLOSED,
+    ];
+
+    return this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.created_by', 'created_by')
+      .where('sr.status NOT IN (:...terminalStatuses)', { terminalStatuses })
+      .andWhere(
+        `sr.last_status_changed_at IS NOT NULL AND sr.last_status_changed_at <= NOW() - INTERVAL '1 day' * :minDays`,
+        { minDays },
+      )
+      .andWhere('sr.deleted_at IS NULL')
+      .getMany();
   }
 }

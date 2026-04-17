@@ -7,18 +7,18 @@ import { AuthService } from './auth.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { EmailService } from 'src/shared/email/email.service';
+import { MailService } from 'src/shared/mail/mail.service';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { ConfigService } from '@nestjs/config';
 
-// Mock bcrypt before it's imported by the service
-jest.mock('bcrypt', () => ({
+// Mock bcryptjs before it's imported by the service
+jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
   hash: jest.fn(),
 }));
-import * as bcrypt from 'bcrypt';
+import * as bcryptjs from 'bcryptjs';
 
 jest.mock('uuid', () => ({ v4: () => 'mock-uuid-1234' }));
 jest.mock('src/shared/utils', () => ({
@@ -47,8 +47,8 @@ describe('AuthService', () => {
     create: jest.fn(),
   };
 
-  const mockEmailService = {
-    send: jest.fn(),
+  const mockMailService = {
+    sendRaw: jest.fn(),
   };
 
   const mockJwtService = {
@@ -77,7 +77,7 @@ describe('AuthService', () => {
         { provide: UserRepository, useValue: mockUserRepository },
         { provide: RecoveryCodeRepository, useValue: mockRecoveryCodeRepository },
         { provide: DoctorProfileRepository, useValue: mockDoctorProfileRepository },
-        { provide: EmailService, useValue: mockEmailService },
+        { provide: MailService, useValue: mockMailService },
         { provide: JwtService, useValue: mockJwtService },
         { provide: getRepositoryToken(SubscriptionPlan), useValue: mockSubscriptionPlanRepo },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepo },
@@ -101,7 +101,7 @@ describe('AuthService', () => {
 
     it('should return user when credentials are correct', async () => {
       mockUserRepository.findOne.mockResolvedValue(mockUser);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
 
       const result = await service.validateUser('test@example.com', 'correct-password');
       expect(result).toEqual(mockUser);
@@ -113,13 +113,13 @@ describe('AuthService', () => {
 
     it('should throw HttpException when password is wrong', async () => {
       mockUserRepository.findOne.mockResolvedValue(mockUser);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(
         service.validateUser('test@example.com', 'wrong-password'),
       ).rejects.toThrow(HttpException);
 
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(false);
       await expect(
         service.validateUser('test@example.com', 'wrong-password'),
       ).rejects.toMatchObject({
@@ -177,7 +177,7 @@ describe('AuthService', () => {
     it('should create user with doctor profile and return token', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       mockSubscriptionPlanRepo.findOne.mockResolvedValue(mockPlan);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
 
       const createdUser = {
         id: 'mock-uuid-1234',
@@ -230,7 +230,7 @@ describe('AuthService', () => {
     it('should create user without doctor profile when is_doctor is false', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       mockSubscriptionPlanRepo.findOne.mockResolvedValue(mockPlan);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
 
       const createdUser = {
         id: 'mock-uuid-1234',
@@ -264,7 +264,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('should return user data and access_token', async () => {
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
       const mockUser = {
         id: 'user-1',
         email: 'test@example.com',
@@ -335,7 +335,7 @@ describe('AuthService', () => {
       expect(expiresAt).toBeGreaterThanOrEqual(beforeCall + 15 * 60 * 1000 - 100);
       expect(expiresAt).toBeLessThanOrEqual(afterCall + 15 * 60 * 1000 + 100);
 
-      expect(mockEmailService.send).toHaveBeenCalledWith(
+      expect(mockMailService.sendRaw).toHaveBeenCalledWith(
         'test@example.com',
         'Inexci - Recuperação de senha',
         expect.stringContaining('123456'),
@@ -435,7 +435,7 @@ describe('AuthService', () => {
         user_id: 'user-1',
         used: true,
       });
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-new-password');
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-new-password');
       mockUserRepository.update.mockResolvedValue({});
       mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
 
@@ -446,8 +446,8 @@ describe('AuthService', () => {
 
       expect(result).toEqual({ message: 'Senha alterada com sucesso' });
 
-      // Verify bcrypt.hash was called with the plain password
-      expect(bcrypt.hash).toHaveBeenCalledWith('new-password-123', 10);
+      // Verify bcryptjs.hash was called with the plain password
+      expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 10);
 
       // Verify the hashed password was stored
       const updateCall = mockUserRepository.update.mock.calls[0];

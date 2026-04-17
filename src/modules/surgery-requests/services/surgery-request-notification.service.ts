@@ -11,6 +11,10 @@ import {
 } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { MailService } from 'src/shared/mail/mail.service';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
+import { NotificationsService } from 'src/modules/notifications/notifications.service';
+import { PatientNotificationService } from 'src/modules/notifications/patient-notification.service';
+import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 import { getStatusLabel } from 'src/shared/utils';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
@@ -30,11 +34,14 @@ export class SurgeryRequestNotificationService {
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly mailService: MailService,
+    private readonly whatsappService: WhatsappService,
+    private readonly notificationsService: NotificationsService,
+    private readonly patientNotificationService: PatientNotificationService,
   ) {}
 
   /**
-   * Envia e-mail de atualização de status ao paciente, se solicitado.
-   * Não bloqueia nem lança exceção em caso de falha.
+   * Envia e-mail + WhatsApp de atualização de status ao paciente, se solicitado.
+   * Delega para PatientNotificationService. Não bloqueia nem lança exceção.
    */
   async notifyPatientIfRequested(
     request: any,
@@ -42,39 +49,12 @@ export class SurgeryRequestNotificationService {
     newStatus: SurgeryRequestStatus,
     notifyPatient?: boolean,
   ): Promise<void> {
-    if (!notifyPatient) return;
-
-    const patientEmail = request.patient?.email;
-    if (!patientEmail) {
-      this.logger.warn(
-        `notify_patient solicitado mas paciente sem e-mail (solicitação ${request.id})`,
-      );
-      return;
-    }
-
-    const patientName = request.patient?.name ?? 'Paciente';
-    const requestId = request.protocol ?? request.id;
-    const oldLabel = getStatusLabel(prevStatus);
-    const newLabel = getStatusLabel(newStatus);
-    const changedAt = new Date().toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    await this.patientNotificationService.notifyPatientStatusChange({
+      request,
+      oldStatus: prevStatus,
+      newStatus,
+      notifyPatient,
     });
-
-    try {
-      await this.mailService.sendStatusUpdate(patientEmail, {
-        patientName,
-        requestId,
-        oldStatus: oldLabel,
-        newStatus: newLabel,
-        changedAt,
-      });
-    } catch (err: any) {
-      this.logger.warn(`Falha ao notificar paciente: ${err?.message}`);
-    }
   }
 
   /**
@@ -85,16 +65,19 @@ export class SurgeryRequestNotificationService {
     dto: { template: string; to?: string },
     userId: string,
   ) {
-    const request =
-      await this.surgeryRequestRepository.findOneWithRelations({ id }, [
+    const request = await this.surgeryRequestRepository.findOneWithRelations(
+      { id },
+      [
         'created_by',
         'patient',
         'hospital',
         'health_plan',
         'tuss_items',
         'billing',
-      ]);
-    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+      ],
+    );
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     const allowed = this.STATUS_TEMPLATE_MAP[request.status] ?? [];
     if (!allowed.includes(dto.template)) {
@@ -204,5 +187,43 @@ export class SurgeryRequestNotificationService {
     }
 
     return { notified: true, template: dto.template, to };
+  }
+
+  /**
+   * Notifica todos os envolvidos na solicitação sobre uma mudança de status.
+   */
+  async notifyStakeholdersOfStatusChange(
+    request: { id: string; doctor_id: string; created_by_id: string },
+    oldStatus: SurgeryRequestStatus,
+    newStatus: SurgeryRequestStatus,
+    actorId: string,
+  ): Promise<void> {
+    await this.notificationsService.notifyStatusChange(
+      request.id,
+      request.doctor_id,
+      request.created_by_id,
+      oldStatus,
+      newStatus,
+      actorId,
+    );
+  }
+
+  /**
+   * Notifica admins da conta sobre uma ação de workflow realizada por um usuário.
+   */
+  async notifyAdminsOfWorkflowAction(
+    actorId: string,
+    patientName: string,
+    requestId: string,
+    actionLabel: string,
+    link: string,
+  ): Promise<void> {
+    await this.notificationsService.notifyAdminsOfAction(
+      actorId,
+      'Ação na Solicitação Cirúrgica',
+      `${actionLabel} — Paciente: ${patientName} (Protocolo: ${requestId})`,
+      link,
+      { requestId },
+    );
   }
 }

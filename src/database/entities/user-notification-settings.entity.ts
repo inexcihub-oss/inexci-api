@@ -27,6 +27,9 @@ export class UserNotificationSettings {
   @Column({ type: 'boolean', default: true })
   push_notifications: boolean;
 
+  @Column({ type: 'boolean', default: true })
+  whatsapp_notifications: boolean;
+
   // Tipos de notificação
   @Column({ type: 'boolean', default: true })
   new_surgery_request: boolean;

@@ -5,7 +5,10 @@ import { ReportSection } from 'src/database/entities/report-section.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { PdfService, MedicalReportPdfData } from 'src/shared/pdf/pdf.service';
+import {
+  PdfService,
+  SurgeryRequestLaudoPdfData,
+} from 'src/shared/pdf/pdf.service';
 import { CreateReportSectionDto } from '../dto/create-report-section.dto';
 import { UpdateReportSectionDto } from '../dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from '../dto/reorder-report-sections.dto';
@@ -193,7 +196,60 @@ export class SurgeryRequestReportService {
     const pd = reportData.patientData ?? {};
     const patient = request.patient;
 
-    const pdfData: MedicalReportPdfData = {
+    // ── Procedimentos (TUSS) ────────────────────────────────────────────────
+    const procedures = (request.tuss_items ?? []).map((item: any) => ({
+      name: item.name || item.description || '',
+      tussCode: item.tuss_code || item.tussCode || '',
+      quantity: item.quantity ?? 1,
+    }));
+
+    // ── Materiais (OPME) ────────────────────────────────────────────────────
+    const opmeItems = (request.opme_items ?? []).map((item: any) => ({
+      name: item.name || '',
+      quantity: item.quantity ?? 1,
+    }));
+
+    // ── Fabricantes e Fornecedores ──────────────────────────────────────────
+    const unique = <T>(arr: T[]): T[] => [...new Set(arr)];
+    const fabricantesText =
+      unique(
+        (request.opme_items ?? []).map((i: any) => i.brand).filter(Boolean),
+      ).join(', ') || undefined;
+    const fornecedoresText =
+      unique(
+        (request.opme_items ?? [])
+          .map((i: any) => i.distributor)
+          .filter(Boolean),
+      ).join(', ') || undefined;
+
+    // ── Hospital (Local) ────────────────────────────────────────────────────
+    const hospitalName = request.hospital?.name || '';
+    const hospitalAddress = request.hospital?.address || '';
+    const localText =
+      [hospitalName, hospitalAddress].filter(Boolean).join(' – ') || undefined;
+
+    const crmText = profile?.crm
+      ? `CRM ${profile.crm}${profile.crm_state ? '/' + profile.crm_state : ''}`
+      : undefined;
+
+    // ── Helpers de formatação ──────────────────────────────────────────
+    const formatCpf = (v?: string) => {
+      if (!v) return undefined;
+      const d = v.replace(/\D/g, '');
+      if (d.length !== 11) return v;
+      return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+    };
+    const formatPhone = (v?: string) => {
+      if (!v) return undefined;
+      const d = v.replace(/\D/g, '');
+      if (d.length === 11)
+        return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+      if (d.length === 10)
+        return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+      return v;
+    };
+
+    const pdfData: SurgeryRequestLaudoPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),
       patientName: pd.name || patient?.name || undefined,
       patientBirthDate:
@@ -202,8 +258,8 @@ export class SurgeryRequestReportService {
           ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
           : undefined),
       patientRg: pd.rg || undefined,
-      patientCpf: pd.cpf || patient?.cpf || undefined,
-      patientPhone: pd.phone || patient?.phone || undefined,
+      patientCpf: formatCpf(pd.cpf || patient?.cpf || undefined),
+      patientPhone: formatPhone(pd.phone || patient?.phone || undefined),
       patientAddress: pd.address || patient?.address || undefined,
       patientZipCode: pd.zipCode || patient?.zip_code || undefined,
       patientHealthPlan:
@@ -221,13 +277,22 @@ export class SurgeryRequestReportService {
         ? undefined
         : reportData.conduct || undefined,
       examImages: examImages.length ? examImages : undefined,
+      procedures: procedures.length ? procedures : undefined,
+      opmeItems: opmeItems.length ? opmeItems : undefined,
+      fabricantesText,
+      fornecedoresText,
+      hasSeparator: !!(fabricantesText || fornecedoresText || localText),
+      localText,
       doctorName: doctor?.name ?? 'Médico',
-      doctorCrm: profile?.crm || undefined,
-      doctorCrmState: profile?.crm_state || undefined,
+      doctorEmail: doctor?.email || undefined,
+      doctorPhone: formatPhone(doctor?.phone) || undefined,
+      doctorCrm: crmText,
       doctorSpecialty: profile?.specialty || undefined,
+      hasDoctorContact: !!(doctor?.email || doctor?.phone),
+      hasDoctorInfo: !!(profile?.specialty || crmText),
       doctorSignatureUrl,
     };
 
-    return this.pdfService.generateMedicalReportPdf(pdfData);
+    return this.pdfService.generateSurgeryRequestLaudoPdf(pdfData);
   }
 }

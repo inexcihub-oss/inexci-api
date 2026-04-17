@@ -67,6 +67,21 @@ export class ExecutionHandler {
       SurgeryRequestStatus.PERFORMED,
       dto.notify_patient,
     );
+
+    await this.notificationService.notifyAdminsOfWorkflowAction(
+      userId,
+      request.patient?.name ?? 'Paciente',
+      request.protocol ?? id,
+      'Cirurgia marcada como realizada',
+      `/solicitacoes/${id}`,
+    );
+
+    await this.notificationService.notifyStakeholdersOfStatusChange(
+      request,
+      request.status,
+      SurgeryRequestStatus.PERFORMED,
+      userId,
+    );
   }
 
   async closeSurgeryRequest(

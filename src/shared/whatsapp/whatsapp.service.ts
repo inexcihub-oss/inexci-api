@@ -5,7 +5,12 @@ import { Queue } from 'bull';
 
 export interface WhatsappJobData {
   to: string;
-  body: string;
+  /** Mensagem freeform — usado apenas dentro da janela de 24h de conversa iniciada pelo usuário */
+  body?: string;
+  /** contentSid do template pré-aprovado pela Meta via Twilio Content API */
+  contentSid?: string;
+  /** Variáveis do template com chaves numéricas: {"1": valor1, "2": valor2} */
+  variables?: Record<string, string>;
 }
 
 @Injectable()
@@ -38,6 +43,36 @@ export class WhatsappService {
     } catch (err: any) {
       this.logger.warn(
         `Falha ao enfileirar mensagem WhatsApp (Redis offline?): to="${to}" — ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Enfileira um template WhatsApp pré-aprovado para envio assíncrono via Bull.
+   * Deve ser usado para mensagens proativas (fora da janela de 24h).
+   */
+  async sendTemplate(
+    to: string,
+    contentSid: string,
+    variables: Record<string, string>,
+  ): Promise<void> {
+    try {
+      await this.whatsappQueue.add(
+        'send-whatsapp',
+        { to, contentSid, variables } satisfies WhatsappJobData,
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+      this.logger.log(
+        `Template WhatsApp enfileirado para: ${to} (contentSid: ${contentSid})`,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao enfileirar template WhatsApp: to="${to}" contentSid="${contentSid}" — ${err?.message}`,
       );
     }
   }

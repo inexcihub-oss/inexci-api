@@ -1,25 +1,17 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * Migration consolidada — v3 do modelo de usuários e permissões.
+ * Migration consolidada — schema completo do sistema InExci.
  *
- * Alterações em relação ao schema anterior:
- * - user: removidos is_admin, is_doctor, crm, crm_state, specialty, signature_image_url
- * - user: adicionado account_id (FK self-ref para isolamento de tenant)
- * - user: role agora é enum('admin', 'collaborator') — sem 'doctor'
- * - user: status agora é enum('pending', 'active', 'inactive') em vez de smallint
- * - doctor_profile: removidos subscription_status, subscription_plan, subscription_expires_at,
- *                   max_requests_per_month, max_team_members
- * - team_member: REMOVIDA — substituída por user_doctor_access
- * - user_doctor_access: NOVA — controle binário de acesso médico↔usuário
- * - surgery_request.doctor_id → user.id (antes: doctor_profile.id)
- * - patient.doctor_id → user.id (antes: doctor_profile.id)
- * - default_document_clinic.doctor_id → user.id (antes: doctor_profile.id)
- * - hospital, health_plan, supplier: FK formal doctor_id → user.id
- * - Índices conforme seção 2.8 do PRD
+ * Consolida as migrations anteriores:
+ * - InitialSchema
+ * - AddRefreshToken
+ * - AddSoftDeleteColumns
+ * - AddAddressFieldsToUser
+ * - NotificationSystemTables
  */
-export class InitialSchema1740182400000 implements MigrationInterface {
-  name = 'InitialSchema1740182400000';
+export class ConsolidatedSchema1740182400000 implements MigrationInterface {
+  name = 'ConsolidatedSchema1740182400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // ------------------------------------------------------------------ //
@@ -65,6 +57,20 @@ export class InitialSchema1740182400000 implements MigrationInterface {
       END $$;
     `);
 
+    await queryRunner.query(`
+      DO $$ BEGIN
+        CREATE TYPE "notification_channel_enum" AS ENUM ('email', 'whatsapp');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+
+    await queryRunner.query(`
+      DO $$ BEGIN
+        CREATE TYPE "notification_send_status_enum" AS ENUM ('queued', 'sent', 'failed');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+
     // ------------------------------------------------------------------ //
     // Tabela: subscription_plan
     // ------------------------------------------------------------------ //
@@ -82,7 +88,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: user
+    // Tabela: user (com deleted_at e campos de endereço já incluídos)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "user" (
@@ -100,6 +106,13 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         "account_id"           UUID NOT NULL,
         "admin_id"             UUID,
         "subscription_plan_id" UUID,
+        "cep"                  varchar(9),
+        "address"              varchar(200),
+        "address_number"       varchar(10),
+        "address_complement"   varchar(100),
+        "city"                 varchar(100),
+        "state"                varchar(2),
+        "deleted_at"           TIMESTAMP,
         "created_at"           TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"           TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "UQ_user_email" UNIQUE ("email"),
@@ -107,7 +120,6 @@ export class InitialSchema1740182400000 implements MigrationInterface {
       );
     `);
 
-    // FKs da tabela user (self-refs + subscription_plan)
     await queryRunner.query(`
       ALTER TABLE "user"
         ADD CONSTRAINT "FK_user_account"
@@ -119,6 +131,23 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         ADD CONSTRAINT "FK_user_subscription_plan"
           FOREIGN KEY ("subscription_plan_id") REFERENCES "subscription_plan"("id")
           ON DELETE SET NULL ON UPDATE CASCADE;
+    `);
+
+    // ------------------------------------------------------------------ //
+    // Tabela: refresh_token
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(`
+      CREATE TABLE "refresh_token" (
+        "id"         uuid NOT NULL DEFAULT gen_random_uuid(),
+        "user_id"    uuid NOT NULL,
+        "token"      character varying(512) NOT NULL,
+        "expires_at" TIMESTAMP NOT NULL,
+        "revoked"    boolean NOT NULL DEFAULT false,
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_refresh_token" PRIMARY KEY ("id"),
+        CONSTRAINT "FK_refresh_token_user" FOREIGN KEY ("user_id")
+          REFERENCES "user"("id") ON DELETE CASCADE
+      );
     `);
 
     // ------------------------------------------------------------------ //
@@ -146,7 +175,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: user_doctor_access (substitui team_member)
+    // Tabela: user_doctor_access
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "user_doctor_access" (
@@ -172,7 +201,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: hospital
+    // Tabela: hospital (com deleted_at)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "hospital" (
@@ -192,6 +221,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         "state"          character(2),
         "active"         boolean NOT NULL DEFAULT true,
         "doctor_id"      UUID NOT NULL,
+        "deleted_at"     TIMESTAMP,
         "created_at"     TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"     TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_hospital" PRIMARY KEY ("id"),
@@ -202,7 +232,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: health_plan
+    // Tabela: health_plan (com deleted_at)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "health_plan" (
@@ -221,6 +251,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         "notes"                  text,
         "active"                 boolean NOT NULL DEFAULT true,
         "doctor_id"              UUID NOT NULL,
+        "deleted_at"             TIMESTAMP,
         "created_at"             TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"             TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_health_plan" PRIMARY KEY ("id"),
@@ -231,7 +262,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: supplier
+    // Tabela: supplier (com deleted_at)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "supplier" (
@@ -252,6 +283,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         "notes"          text,
         "active"         boolean NOT NULL DEFAULT true,
         "doctor_id"      UUID NOT NULL,
+        "deleted_at"     TIMESTAMP,
         "created_at"     TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"     TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_supplier" PRIMARY KEY ("id"),
@@ -275,7 +307,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: patient
+    // Tabela: patient (com deleted_at)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "patient" (
@@ -299,6 +331,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         "state"               character(2),
         "medical_notes"       text,
         "active"              boolean NOT NULL DEFAULT true,
+        "deleted_at"          TIMESTAMP,
         "created_at"          TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"          TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_patient" PRIMARY KEY ("id"),
@@ -333,7 +366,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: surgery_request
+    // Tabela: surgery_request (com last_status_changed_at)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "surgery_request" (
@@ -371,6 +404,7 @@ export class InitialSchema1740182400000 implements MigrationInterface {
         "surgery_performed_at"     TIMESTAMP,
         "cancel_reason"            text,
         "closed_at"                TIMESTAMP,
+        "last_status_changed_at"   TIMESTAMP,
         "created_at"               TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"               TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "UQ_surgery_request_protocol" UNIQUE ("protocol"),
@@ -695,22 +729,23 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: user_notification_settings
+    // Tabela: user_notification_settings (com whatsapp_notifications)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "user_notification_settings" (
-        "id"                   UUID NOT NULL DEFAULT uuid_generate_v4(),
-        "user_id"              UUID NOT NULL,
-        "email_notifications"  boolean NOT NULL DEFAULT true,
-        "sms_notifications"    boolean NOT NULL DEFAULT false,
-        "push_notifications"   boolean NOT NULL DEFAULT true,
-        "new_surgery_request"  boolean NOT NULL DEFAULT true,
-        "status_update"        boolean NOT NULL DEFAULT true,
-        "pendencies"           boolean NOT NULL DEFAULT true,
-        "expiring_documents"   boolean NOT NULL DEFAULT true,
-        "weekly_report"        boolean NOT NULL DEFAULT false,
-        "created_at"           TIMESTAMP NOT NULL DEFAULT now(),
-        "updated_at"           TIMESTAMP NOT NULL DEFAULT now(),
+        "id"                       UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "user_id"                  UUID NOT NULL,
+        "email_notifications"      boolean NOT NULL DEFAULT true,
+        "sms_notifications"        boolean NOT NULL DEFAULT false,
+        "push_notifications"       boolean NOT NULL DEFAULT true,
+        "whatsapp_notifications"   boolean NOT NULL DEFAULT true,
+        "new_surgery_request"      boolean NOT NULL DEFAULT true,
+        "status_update"            boolean NOT NULL DEFAULT true,
+        "pendencies"               boolean NOT NULL DEFAULT true,
+        "expiring_documents"       boolean NOT NULL DEFAULT true,
+        "weekly_report"            boolean NOT NULL DEFAULT false,
+        "created_at"               TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at"               TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "UQ_user_notification_settings_user" UNIQUE ("user_id"),
         CONSTRAINT "PK_user_notification_settings"       PRIMARY KEY ("id"),
         CONSTRAINT "FK_user_notification_settings_user"
@@ -721,7 +756,6 @@ export class InitialSchema1740182400000 implements MigrationInterface {
 
     // ------------------------------------------------------------------ //
     // Tabela: default_document_clinic
-    // FK doctor_id → user.id (corrigido de doctor_profile.id)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "default_document_clinic" (
@@ -798,7 +832,44 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Índices (conforme seção 2.8 do PRD v3)
+    // Tabela: stale_notification_log
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(`
+      CREATE TABLE "stale_notification_log" (
+        "id"                  uuid DEFAULT uuid_generate_v4() NOT NULL,
+        "surgery_request_id"  uuid NOT NULL,
+        "stale_days"          integer NOT NULL,
+        "channel"             varchar(20) NOT NULL DEFAULT 'in_app',
+        "notified_at"         timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_stale_notification_log" PRIMARY KEY ("id"),
+        CONSTRAINT "FK_stale_notification_log_surgery_request"
+          FOREIGN KEY ("surgery_request_id") REFERENCES "surgery_request"("id")
+          ON DELETE CASCADE
+      );
+    `);
+
+    // ------------------------------------------------------------------ //
+    // Tabela: notification_send_log
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(`
+      CREATE TABLE "notification_send_log" (
+        "id"            uuid DEFAULT uuid_generate_v4() NOT NULL,
+        "channel"       "notification_channel_enum" NOT NULL,
+        "status"        "notification_send_status_enum" NOT NULL DEFAULT 'queued',
+        "to"            varchar(255) NOT NULL,
+        "subject"       varchar(255),
+        "template"      varchar(100),
+        "error_message" text,
+        "job_id"        varchar(100),
+        "attempts"      integer NOT NULL DEFAULT 0,
+        "sent_at"       timestamptz,
+        "created_at"    timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_notification_send_log" PRIMARY KEY ("id")
+      );
+    `);
+
+    // ------------------------------------------------------------------ //
+    // Índices
     // ------------------------------------------------------------------ //
 
     // user
@@ -807,6 +878,20 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     );
     await queryRunner.query(
       `CREATE INDEX "idx_user_admin_id" ON "user" ("admin_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_user_deleted_at" ON "user" ("deleted_at")`,
+    );
+
+    // refresh_token
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "UQ_refresh_token_token" ON "refresh_token" ("token")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_refresh_token_user_id" ON "refresh_token" ("user_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_refresh_token_revoked" ON "refresh_token" ("revoked")`,
     );
 
     // user_doctor_access
@@ -829,16 +914,28 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX "idx_patient_doctor_id" ON "patient" ("doctor_id")`,
     );
+    await queryRunner.query(
+      `CREATE INDEX "idx_patient_deleted_at" ON "patient" ("deleted_at")`,
+    );
 
     // hospital, health_plan, supplier
     await queryRunner.query(
       `CREATE INDEX "idx_hospital_doctor_id" ON "hospital" ("doctor_id")`,
     );
     await queryRunner.query(
+      `CREATE INDEX "idx_hospital_deleted_at" ON "hospital" ("deleted_at")`,
+    );
+    await queryRunner.query(
       `CREATE INDEX "idx_health_plan_doctor_id" ON "health_plan" ("doctor_id")`,
     );
     await queryRunner.query(
+      `CREATE INDEX "idx_health_plan_deleted_at" ON "health_plan" ("deleted_at")`,
+    );
+    await queryRunner.query(
       `CREATE INDEX "idx_supplier_doctor_id" ON "supplier" ("doctor_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_supplier_deleted_at" ON "supplier" ("deleted_at")`,
     );
 
     // surgery_request_activity
@@ -848,94 +945,120 @@ export class InitialSchema1740182400000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX "IDX_activity_created_at" ON "surgery_request_activity" ("created_at" DESC)`,
     );
+
+    // stale_notification_log
+    await queryRunner.query(
+      `CREATE INDEX "IDX_stale_log_request_days" ON "stale_notification_log" ("surgery_request_id", "stale_days")`,
+    );
+
+    // notification_send_log
+    await queryRunner.query(
+      `CREATE INDEX "IDX_send_log_channel_status" ON "notification_send_log" ("channel", "status")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_send_log_created_at" ON "notification_send_log" ("created_at")`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
+      `DROP TABLE IF EXISTS "notification_send_log"        CASCADE`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "stale_notification_log"       CASCADE`,
+    );
+    await queryRunner.query(
       `DROP TABLE IF EXISTS "report_section"               CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "whatsapp_message_log"          CASCADE`,
+      `DROP TABLE IF EXISTS "whatsapp_message_log"         CASCADE`,
     );
     await queryRunner.query(
       `DROP TABLE IF EXISTS "recovery_code"                CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "default_document_clinic"       CASCADE`,
+      `DROP TABLE IF EXISTS "default_document_clinic"      CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "user_notification_settings"    CASCADE`,
+      `DROP TABLE IF EXISTS "user_notification_settings"   CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "notification"                  CASCADE`,
+      `DROP TABLE IF EXISTS "notification"                 CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "chat_message"                  CASCADE`,
+      `DROP TABLE IF EXISTS "chat_message"                 CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "chat"                          CASCADE`,
+      `DROP TABLE IF EXISTS "chat"                         CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_activity"      CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_activity"     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_template"      CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_template"     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_billing"       CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_billing"      CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_analysis"      CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_analysis"     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "status_update"                 CASCADE`,
+      `DROP TABLE IF EXISTS "status_update"                CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "document"                      CASCADE`,
+      `DROP TABLE IF EXISTS "document"                     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "contestation"                  CASCADE`,
+      `DROP TABLE IF EXISTS "contestation"                 CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_quotation"     CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_quotation"    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "opme_item"                     CASCADE`,
+      `DROP TABLE IF EXISTS "opme_item"                    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_tuss_item"     CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_tuss_item"    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request"               CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request"              CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "patient"                       CASCADE`,
+      `DROP TABLE IF EXISTS "patient"                      CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "procedure"                     CASCADE`,
+      `DROP TABLE IF EXISTS "procedure"                    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "supplier"                      CASCADE`,
+      `DROP TABLE IF EXISTS "supplier"                     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "health_plan"                   CASCADE`,
+      `DROP TABLE IF EXISTS "health_plan"                  CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "hospital"                      CASCADE`,
+      `DROP TABLE IF EXISTS "hospital"                     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "user_doctor_access"            CASCADE`,
+      `DROP TABLE IF EXISTS "user_doctor_access"           CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "doctor_profile"                CASCADE`,
+      `DROP TABLE IF EXISTS "doctor_profile"               CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "user"                          CASCADE`,
+      `DROP TABLE IF EXISTS "refresh_token"                CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "subscription_plan"             CASCADE`,
+      `DROP TABLE IF EXISTS "user"                         CASCADE`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "subscription_plan"            CASCADE`,
     );
     await queryRunner.query(`DROP FUNCTION IF EXISTS generate_protocol`);
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "notification_send_status_enum"`,
+    );
+    await queryRunner.query(`DROP TYPE IF EXISTS "notification_channel_enum"`);
     await queryRunner.query(
       `DROP TYPE IF EXISTS "whatsapp_message_log_status_enum"`,
     );

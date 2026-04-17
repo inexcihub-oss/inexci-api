@@ -3,10 +3,14 @@ import { MessageResponse } from 'src/shared/types/api-responses';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
 import { NotificationType } from 'src/database/entities/notification.entity';
-import { EmailService } from 'src/shared/email/email.service';
+import { UserRole } from 'src/database/entities/user.entity';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
+import { MailService } from 'src/shared/mail/mail.service';
+import { getStatusLabel } from 'src/shared/utils';
 
 @Injectable()
 export class NotificationsService {
@@ -16,7 +20,8 @@ export class NotificationsService {
     private readonly notificationRepository: NotificationRepository,
     private readonly settingsRepository: UserNotificationSettingsRepository,
     private readonly userRepository: UserRepository,
-    private readonly emailService: EmailService,
+    private readonly surgeryRequestRepository: SurgeryRequestRepository,
+    private readonly mailService: MailService,
   ) {}
 
   // ============ Settings ============
@@ -31,6 +36,7 @@ export class NotificationsService {
         email_notifications: true,
         sms_notifications: false,
         push_notifications: true,
+        whatsapp_notifications: true,
         new_surgery_request: true,
         status_update: true,
         pendencies: true,
@@ -122,13 +128,14 @@ export class NotificationsService {
 
     const created = await this.notificationRepository.createBulk(notifications);
 
-    // Envia e-mails para usuários com preferência habilitada
-    for (const userId of userIds) {
-      await this.sendEmailIfEnabled(
-        userId,
-        created.find((n) => n.user_id === userId),
-      );
-    }
+    await Promise.all(
+      userIds.map((userId) =>
+        this.sendEmailIfEnabled(
+          userId,
+          created.find((n) => n.user_id === userId),
+        ),
+      ),
+    );
 
     return created;
   }
@@ -151,7 +158,7 @@ export class NotificationsService {
       const user = await this.userRepository.findOne({ id: userId });
       if (!user?.email) return;
 
-      await this.emailService.send(
+      await this.mailService.sendRaw(
         user.email,
         notification.title,
         `
@@ -227,5 +234,131 @@ export class NotificationsService {
       message: `O documento "${documentName}" expira em ${daysUntilExpiry} dias`,
       metadata: { documentName, daysUntilExpiry },
     });
+  }
+
+  /**
+   * Notifica todos os envolvidos numa solicitação cirúrgica sobre uma mudança de status.
+   * Envolvidos = médico + criador + admins da conta + usuários com atividade registrada.
+   * O próprio ator não recebe notificação.
+   */
+  async notifyStatusChange(
+    surgeryRequestId: string,
+    doctorId: string,
+    createdById: string,
+    oldStatus: SurgeryRequestStatus,
+    newStatus: SurgeryRequestStatus,
+    actorId: string,
+  ): Promise<void> {
+    try {
+      const actor = await this.userRepository.findOne({ id: actorId });
+      if (!actor) return;
+
+      const [allUsersInAccount, activityUserIds] = await Promise.all([
+        this.userRepository.findByAccountId(actor.account_id),
+        this.surgeryRequestRepository.findDistinctActivityUserIds(
+          surgeryRequestId,
+        ),
+      ]);
+
+      const adminIds = allUsersInAccount
+        .filter((u) => u.role === UserRole.ADMIN)
+        .map((u) => u.id);
+
+      const stakeholderIds = [
+        ...new Set([doctorId, createdById, ...adminIds, ...activityUserIds]),
+      ].filter((id) => id && id !== actorId);
+
+      if (!stakeholderIds.length) return;
+
+      const oldLabel = getStatusLabel(oldStatus);
+      const newLabel = getStatusLabel(newStatus);
+
+      await this.createNotificationForUsers(stakeholderIds, {
+        type: NotificationType.STATUS_UPDATE,
+        title: 'Status da Solicitação Atualizado',
+        message: `Status alterado de "${oldLabel}" para "${newLabel}"`,
+        link: `/solicitacoes/${surgeryRequestId}`,
+        metadata: { surgeryRequestId, oldStatus, newStatus },
+      });
+
+      // Enviar e-mail com template para stakeholders com e-mail habilitado
+      const changedAt = new Date().toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const request = await this.surgeryRequestRepository.findOneWithRelations(
+        { id: surgeryRequestId },
+        ['patient'],
+      );
+      const patientName = request?.patient?.name ?? 'Paciente';
+
+      await Promise.all(
+        stakeholderIds.map(async (uid) => {
+          try {
+            const [settings, user] = await Promise.all([
+              this.settingsRepository.findByUserId(uid),
+              this.userRepository.findOne({ id: uid }),
+            ]);
+            if (!settings?.email_notifications || !user?.email) return;
+            await this.mailService.sendStatusChangeStakeholder(user.email, {
+              patientName,
+              oldStatus: oldLabel,
+              newStatus: newLabel,
+              changedBy: actor.name ?? 'Usuário',
+              changedAt,
+              dashboardUrl: `/solicitacoes/${surgeryRequestId}`,
+            });
+          } catch (emailErr: any) {
+            this.logger.warn(
+              `Falha ao enviar e-mail de status para ${uid}: ${emailErr?.message}`,
+            );
+          }
+        }),
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao notificar envolvidos sobre mudança de status: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Notifica todos os admins da conta sobre uma ação realizada por um usuário.
+   * O próprio ator não recebe notificação.
+   */
+  async notifyAdminsOfAction(
+    actorId: string,
+    title: string,
+    message: string,
+    link?: string,
+    metadata?: Record<string, any>,
+  ): Promise<void> {
+    try {
+      const actor = await this.userRepository.findOne({ id: actorId });
+      if (!actor) return;
+
+      const allUsersInAccount = await this.userRepository.findByAccountId(
+        actor.account_id,
+      );
+
+      const adminIds = allUsersInAccount
+        .filter((u) => u.role === UserRole.ADMIN && u.id !== actorId)
+        .map((u) => u.id);
+
+      if (!adminIds.length) return;
+
+      await this.createNotificationForUsers(adminIds, {
+        type: NotificationType.ACTION_BY_USER,
+        title,
+        message,
+        link,
+        metadata,
+      });
+    } catch (err: any) {
+      this.logger.warn(`Falha ao notificar admins: ${err?.message}`);
+    }
   }
 }

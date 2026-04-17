@@ -29,6 +29,8 @@ function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
   return {
     id: 'req-1',
     status: SurgeryRequestStatus.PENDING,
+    doctor_id: 'doctor-1',
+    created_by_id: 'user-1',
     patient_id: 'patient-1',
     hospital_id: 'hospital-1',
     health_plan_id: 'hp-1',
@@ -102,6 +104,8 @@ describe('SurgeryRequestWorkflowService', () => {
 
     notificationService = {
       notifyPatientIfRequested: jest.fn().mockResolvedValue(undefined),
+      notifyAdminsOfWorkflowAction: jest.fn().mockResolvedValue(undefined),
+      notifyStakeholdersOfStatusChange: jest.fn().mockResolvedValue(undefined),
       notify: jest.fn().mockResolvedValue(undefined),
     };
 

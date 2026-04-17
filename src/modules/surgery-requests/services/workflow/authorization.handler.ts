@@ -95,6 +95,21 @@ export class AuthorizationHandler {
       SurgeryRequestStatus.IN_SCHEDULING,
       dto.notify_patient,
     );
+
+    await this.notificationService.notifyAdminsOfWorkflowAction(
+      userId,
+      request.patient?.name ?? 'Paciente',
+      request.protocol ?? id,
+      'Autorização aceita',
+      `/solicitacoes/${id}`,
+    );
+
+    await this.notificationService.notifyStakeholdersOfStatusChange(
+      request,
+      request.status,
+      SurgeryRequestStatus.IN_SCHEDULING,
+      userId,
+    );
   }
 
   async contestAuthorization(
@@ -125,6 +140,14 @@ export class AuthorizationHandler {
 
     const patientName = request.patient?.name ?? 'Paciente';
     const requestId = request.protocol ?? id;
+
+    await this.notificationService.notifyAdminsOfWorkflowAction(
+      userId,
+      patientName,
+      requestId,
+      'Autorização contestada',
+      `/solicitacoes/${id}`,
+    );
 
     if (dto.method === SendMethod.EMAIL && dto.to) {
       await this.mailService.sendSurgeryContested(

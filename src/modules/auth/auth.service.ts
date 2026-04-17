@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
@@ -15,7 +15,7 @@ import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { HttpMessages } from 'src/common';
-import { EmailService } from 'src/shared/email/email.service';
+import { MailService } from 'src/shared/mail/mail.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
@@ -36,7 +36,7 @@ export class AuthService {
     private readonly userRepository: UserRepository,
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
-    private readonly emailService: EmailService,
+    private readonly mailService: MailService,
     private jwtService: JwtService,
     @InjectRepository(SubscriptionPlan)
     private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
@@ -268,14 +268,14 @@ export class AuthService {
       expires_at: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
     });
 
-    this.emailService.send(
+    this.mailService.sendRaw(
       user.email,
       'Inexci - Recuperação de senha',
       `
       <p>Olá, <strong>${user.name}</strong></p>
       <p>Você solicitou a recuperação de senha. Para continuar, utilize o código abaixo:</p>
       <p><strong>${validationCode}</strong></p>
-      <p>Se você não solicitou a recuperação de senha, por favor, ignore este e-mail.</p> 
+      <p>Se você não solicitou a recuperação de senha, por favor, ignore este e-mail.</p>
       `,
     );
 
