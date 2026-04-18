@@ -1,8 +1,10 @@
+import { registerAs } from '@nestjs/config';
+
 /**
  * Configuração de e-mail via Nodemailer (SMTP genérico).
- * As credenciais são lidas das variáveis de ambiente.
+ * As credenciais são lidas das variáveis de ambiente via ConfigService.
  */
-export const mailConfig = {
+export const mailConfig = registerAs('mail', () => ({
   host: process.env.MAIL_HOST || 'smtp.example.com',
   port: parseInt(process.env.MAIL_PORT || '587', 10),
   secure: process.env.MAIL_SECURE === 'true',
@@ -14,7 +16,7 @@ export const mailConfig = {
     name: process.env.MAIL_FROM_NAME || 'Inexci',
     address: process.env.MAIL_FROM_ADDRESS || 'noreply@inexci.com.br',
   },
-};
+}));
 
 /**
  * Templates de e-mail disponíveis.
@@ -28,7 +30,14 @@ export type MailTemplateName =
   | 'invoice-sent'
   | 'payment-received'
   | 'payment-contested'
-  | 'status-update';
+  | 'status-update'
+  | 'status-change-stakeholder'
+  | 'status-change-patient'
+  | 'stale-reminder'
+  | 'stale-critical'
+  | 'action-admin-alert'
+  | 'welcome-patient'
+  | 'welcome-doctor';
 
 export const MAIL_TEMPLATES: MailTemplateName[] = [
   'surgery-request-sent',
@@ -39,4 +48,11 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'payment-received',
   'payment-contested',
   'status-update',
+  'status-change-stakeholder',
+  'status-change-patient',
+  'stale-reminder',
+  'stale-critical',
+  'action-admin-alert',
+  'welcome-patient',
+  'welcome-doctor',
 ];

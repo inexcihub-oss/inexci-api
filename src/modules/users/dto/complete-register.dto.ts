@@ -1,6 +1,7 @@
 import * as dayjs from 'dayjs';
 import { Mask } from '@tboerc/maskfy';
 import { Transform } from 'class-transformer';
+import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 import {
   IsDate,
   IsIn,
@@ -18,7 +19,7 @@ export class CompleteRegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => Mask.phone.raw(value))
+  @PhoneTransform()
   phone: string;
 
   @IsString()

@@ -2,39 +2,40 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/database/entities/user.entity';
 import { RecoveryCode } from 'src/database/entities/recovery-code.entity';
+import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { UserRepository } from 'src/database/repositories/user.repository';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
-import { RecoveryCodeRepository } from 'src/database/repositories/recovery_code.repository';
-import { EmailService } from 'src/shared/email/email.service';
+import { MailModule } from 'src/shared/mail/mail.module';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([User, RecoveryCode, SubscriptionPlan]),
+    TypeOrmModule.forFeature([User, RecoveryCode, RefreshToken, SubscriptionPlan]),
     PassportModule,
+    MailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        secret:
-          configService.get<string>('JWT_SECRET') ||
-          'fallback-secret-for-development',
-        signOptions: { expiresIn: '7d' },
+        secret: (() => {
+          const secret = configService.get<string>('JWT_SECRET');
+          if (!secret) {
+            throw new Error('JWT_SECRET environment variable is required');
+          }
+          return secret;
+        })(),
+        signOptions: { expiresIn: '15m' },
       }),
       inject: [ConfigService],
     }),
   ],
   providers: [
-    UserRepository,
     AuthService,
     JwtStrategy,
-    RecoveryCodeRepository,
-    EmailService,
   ],
   controllers: [AuthController],
   exports: [AuthService],

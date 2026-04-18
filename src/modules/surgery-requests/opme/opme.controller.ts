@@ -1,24 +1,34 @@
-import { Controller, Post, Body, Request, Delete, Param, Put } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Param, Put } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OpmeService } from './opme.service';
 import { CreateOpmeDto } from './dto/create-opme.dto';
 import { UpdateOpmeDto } from './dto/update-opme.dto';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
+@ApiTags('OPME')
+@ApiBearerAuth()
 @Controller('surgery-requests/opme')
 export class OpmeController {
   constructor(private readonly opmeService: OpmeService) {}
 
   @Post()
-  create(@Body() data: CreateOpmeDto, @Request() req) {
-    return this.opmeService.create(data, req.user.userId);
+  @ApiOperation({ summary: 'Criar item OPME' })
+  create(@Body() data: CreateOpmeDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.opmeService.create(data, user.userId);
   }
 
   @Put()
-  update(@Body() data: UpdateOpmeDto, @Request() req) {
-    return this.opmeService.update(data, req.user.userId);
+  @ApiOperation({ summary: 'Atualizar item OPME' })
+  update(@Body() data: UpdateOpmeDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.opmeService.update(data, user.userId);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string, @Request() req) {
-    return this.opmeService.delete(id, req.user.userId);
+  @ApiOperation({ summary: 'Excluir item OPME' })
+  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.opmeService.delete(id, user.userId);
   }
 }

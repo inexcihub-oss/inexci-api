@@ -1,20 +1,17 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-
 import { ChatMessage } from '../entities/chat-message.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class ChatMessageRepository {
+export class ChatMessageRepository extends BaseRepository<ChatMessage> {
   constructor(
     @InjectRepository(ChatMessage)
-    private readonly repository: Repository<ChatMessage>,
-  ) {}
-
-  async create(data: Partial<ChatMessage>): Promise<ChatMessage> {
-    const chatMessage = this.repository.create(data);
-    return await this.repository.save(chatMessage);
+    repository: Repository<ChatMessage>,
+  ) {
+    super(repository);
   }
 
   async updateMany(

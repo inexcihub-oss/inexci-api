@@ -6,28 +6,42 @@ import {
   Body,
   UseInterceptors,
   UploadedFile,
-  Request,
   Delete,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { DeleteDocumentDto } from './dto/delete-document.dto';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
+@ApiTags('Documentos da Solicitação')
+@ApiBearerAuth()
 @Controller('surgery-requests/documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('document'))
+  @ApiOperation({ summary: 'Enviar documento' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }))
   create(
     @Body() data: CreateDocumentDto,
-    @Request() req,
+    @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.documentsService.create(data, req.user.userId, file);
+    return this.documentsService.create(data, user.userId, file);
   }
 
   @Delete()
+  @ApiOperation({ summary: 'Excluir documento' })
   delete(@Body() data: DeleteDocumentDto) {
     return this.documentsService.delete(data);
   }

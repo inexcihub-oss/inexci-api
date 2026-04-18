@@ -4,10 +4,12 @@ import { Queue } from 'bull';
 import { MailTemplateName } from 'src/config/mail.config';
 
 export interface MailJobData {
-  template: MailTemplateName;
+  template?: MailTemplateName;
+  /** HTML bruto — usado quando não há template Handlebars disponível */
+  html?: string;
   to: string;
   subject: string;
-  context: Record<string, any>;
+  context?: Record<string, any>;
 }
 
 @Injectable()
@@ -17,7 +19,7 @@ export class MailService {
   constructor(@InjectQueue('mail') private readonly mailQueue: Queue) {}
 
   /**
-   * Enfileira um e-mail para envio assíncrono.
+   * Enfileira um e-mail para envio assíncrono usando template Handlebars.
    */
   async send(
     template: MailTemplateName,
@@ -25,22 +27,30 @@ export class MailService {
     subject: string,
     context: Record<string, any>,
   ): Promise<void> {
+    await this.enqueue({ template, to, subject, context });
+  }
+
+  /**
+   * Enfileira um e-mail com HTML arbitrário (sem template Handlebars).
+   */
+  async sendRaw(to: string, subject: string, html: string): Promise<void> {
+    await this.enqueue({ html, to, subject });
+  }
+
+  private async enqueue(data: MailJobData): Promise<void> {
     try {
-      await this.mailQueue.add(
-        'send-mail',
-        { template, to, subject, context } satisfies MailJobData,
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: true,
-          removeOnFail: false,
-        },
+      await this.mailQueue.add('send-mail', data, {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: false,
+      });
+      this.logger.log(
+        `E-mail enfileirado: ${data.template ? `template="${data.template}"` : '(raw html)'} to="${data.to}"`,
       );
-      this.logger.log(`E-mail enfileirado: template="${template}" to="${to}"`);
     } catch (err: any) {
-      // Redis indisponível — loga aviso mas não quebra o fluxo principal
       this.logger.warn(
-        `Falha ao enfileirar e-mail (Redis offline?): template="${template}" to="${to}" — ${err?.message}`,
+        `Falha ao enfileirar e-mail (Redis offline?): to="${data.to}" — ${err?.message}`,
       );
     }
   }
@@ -48,7 +58,7 @@ export class MailService {
   /**
    * Solicitação enviada ao convênio.
    */
-  async sendSurgeryRequestSent(
+  sendSurgeryRequestSent(
     to: string,
     context: {
       patientName: string;
@@ -69,7 +79,7 @@ export class MailService {
   /**
    * Autorização recebida do convênio.
    */
-  async sendSurgeryAuthorized(
+  sendSurgeryAuthorized(
     to: string,
     context: {
       patientName: string;
@@ -83,7 +93,7 @@ export class MailService {
   /**
    * Contestação de autorização enviada.
    */
-  async sendSurgeryContested(
+  sendSurgeryContested(
     to: string,
     subject: string,
     context: {
@@ -99,7 +109,7 @@ export class MailService {
   /**
    * Cirurgia agendada.
    */
-  async sendSurgeryScheduled(
+  sendSurgeryScheduled(
     to: string,
     context: {
       patientName: string;
@@ -114,7 +124,7 @@ export class MailService {
   /**
    * Fatura enviada ao convênio.
    */
-  async sendInvoiceSent(
+  sendInvoiceSent(
     to: string,
     context: {
       patientName: string;
@@ -130,7 +140,7 @@ export class MailService {
   /**
    * Pagamento recebido confirmado.
    */
-  async sendPaymentReceived(
+  sendPaymentReceived(
     to: string,
     context: {
       patientName: string;
@@ -150,7 +160,7 @@ export class MailService {
   /**
    * Contestação de pagamento enviada.
    */
-  async sendPaymentContested(
+  sendPaymentContested(
     to: string,
     subject: string,
     context: {
@@ -167,7 +177,7 @@ export class MailService {
   /**
    * Notificação de atualização de status ao paciente.
    */
-  async sendStatusUpdate(
+  sendStatusUpdate(
     to: string,
     context: {
       patientName: string;
@@ -181,6 +191,153 @@ export class MailService {
       'status-update',
       to,
       'Atualização de Status da Solicitação',
+      context,
+    );
+  }
+
+  sendStatusChangeStakeholder(
+    to: string,
+    context: {
+      patientName: string;
+      oldStatus: string;
+      newStatus: string;
+      changedBy: string;
+      changedAt: string;
+      dashboardUrl?: string;
+    },
+  ) {
+    return this.send(
+      'status-change-stakeholder',
+      to,
+      'Status da Solicitação Atualizado',
+      context,
+    );
+  }
+
+  /**
+   * Notificação de mudança de status ao paciente (usa layout unificado).
+   */
+  sendStatusChangePatient(
+    to: string,
+    context: {
+      patientName: string;
+      requestId: string;
+      oldStatus: string;
+      newStatus: string;
+      changedAt: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send(
+      'status-change-patient',
+      to,
+      'Atualização da sua Solicitação Cirúrgica',
+      context,
+    );
+  }
+
+  /**
+   * Lembrete de solicitação parada (stale).
+   */
+  sendStaleReminder(
+    to: string,
+    context: {
+      patientName: string;
+      requestId: string;
+      currentStatus: string;
+      staleDays: number;
+      lastMovedAt: string;
+      dashboardUrl?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send(
+      'stale-reminder',
+      to,
+      `Solicitação parada há ${context.staleDays} dias`,
+      context,
+    );
+  }
+
+  /**
+   * Alerta crítico de solicitação parada (15+ dias).
+   */
+  sendStaleCritical(
+    to: string,
+    context: {
+      patientName: string;
+      requestId: string;
+      currentStatus: string;
+      staleDays: number;
+      lastMovedAt: string;
+      dashboardUrl?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send(
+      'stale-critical',
+      to,
+      `⚠️ ALERTA: Solicitação parada há ${context.staleDays} dias`,
+      context,
+    );
+  }
+
+  /**
+   * Alerta de ação para admins.
+   */
+  sendActionAdminAlert(
+    to: string,
+    context: {
+      actionLabel: string;
+      actorName: string;
+      patientName: string;
+      requestId: string;
+      actionAt: string;
+      dashboardUrl?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send(
+      'action-admin-alert',
+      to,
+      'Ação Realizada em Solicitação',
+      context,
+    );
+  }
+
+  /**
+   * Boas-vindas ao paciente.
+   */
+  sendWelcomePatient(
+    to: string,
+    context: {
+      patientName: string;
+      doctorName: string;
+      hospitalName?: string;
+      dashboardUrl?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send('welcome-patient', to, 'Bem-vindo ao Inexci!', context);
+  }
+
+  /**
+   * Boas-vindas ao médico.
+   */
+  sendWelcomeDoctor(
+    to: string,
+    context: {
+      doctorName: string;
+      email: string;
+      hospitalName?: string;
+      dashboardUrl?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send(
+      'welcome-doctor',
+      to,
+      'Bem-vindo ao Inexci, Dr(a)!',
       context,
     );
   }

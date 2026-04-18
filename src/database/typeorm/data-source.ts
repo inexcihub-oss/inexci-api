@@ -10,6 +10,7 @@ export const dataSourceOptions: DataSourceOptions = {
   migrations: ['dist/database/typeorm/migrations/**/*.js'],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',
+  migrationsTransactionMode: 'each',
   extra: {
     charset: 'utf8mb4',
   },

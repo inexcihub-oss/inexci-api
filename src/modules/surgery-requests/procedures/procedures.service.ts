@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-procedure.dto';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
@@ -58,7 +58,7 @@ export class ProceduresService {
   }
 
   async authorize(data: AuthorizeProceduresDto) {
-    await this.surgeryRequestRepository.findOne({
+    await this.surgeryRequestRepository.findOneSimple({
       id: data.surgery_request_id,
     });
 
@@ -85,7 +85,7 @@ export class ProceduresService {
     const item = await this.tussItemRepository.findOne({ id });
 
     if (!item) {
-      throw new BadRequestException('Procedimento TUSS não encontrado');
+      throw new NotFoundException('Procedimento TUSS não encontrado');
     }
 
     await this.tussItemRepository.delete(id);

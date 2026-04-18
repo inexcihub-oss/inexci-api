@@ -4,8 +4,12 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
+  ManyToOne,
   OneToMany,
+  JoinColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 
 /**
@@ -76,7 +80,14 @@ export class Hospital {
   @UpdateDateColumn()
   updated_at: Date;
 
+  @DeleteDateColumn()
+  deleted_at: Date;
+
   // ============ RELAÇÕES ============
+
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'doctor_id' })
+  doctor: User;
 
   @OneToMany(() => SurgeryRequest, (request) => request.hospital)
   surgery_requests: SurgeryRequest[];

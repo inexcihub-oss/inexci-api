@@ -8,8 +8,8 @@ jest.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
-import { Repository } from 'typeorm';
-import { SurgeryRequestsService } from './surgery-requests.service';
+import { DataSource, Repository } from 'typeorm';
+import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 
 /**
@@ -18,39 +18,26 @@ import { ReportSection } from 'src/database/entities/report-section.entity';
  * - PRD Registro PDF Histórico
  * - PRD Modal Confirmação Notificação
  *
- * Usa instanciação direta com mocks para evitar problemas de DI com repositórios
- * que dependem de DataSource/TypeORM no construtor.
+ * Testa o SurgeryRequestReportService diretamente (lógica real),
+ * não o SurgeryRequestsService que agora é apenas fachada.
  */
-describe('SurgeryRequestsService — Report Sections (PRD Laudos)', () => {
-  let service: SurgeryRequestsService;
+describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
+  let service: SurgeryRequestReportService;
   let mockReportSectionRepo: Partial<Repository<ReportSection>>;
 
-  // Mocks mínimos para as dependências do SurgeryRequestsService
-  const mockDataSource = { transaction: jest.fn(), query: jest.fn() };
-  const mockEmailService = { send: jest.fn() };
-  const mockMailService = { send: jest.fn(), sendStatusUpdate: jest.fn() };
-  const mockPdfService = { generateSurgeryRequestLaudoPdf: jest.fn() };
-  const mockPdfGenerationService = { scheduleGeneration: jest.fn() };
-  const mockPendencyValidatorService = { validate: jest.fn() };
-  const mockUserService = { findOne: jest.fn() };
-  const mockStorageService = { create: jest.fn(), getSignedUrl: jest.fn() };
-  const mockDocumentsService = {};
-  const mockDocumentsKeyService = {};
-  const mockUserRepository = { findOne: jest.fn(), findOneSimple: jest.fn() };
-  const mockPatientRepository = {};
-  const mockHospitalRepository = {};
-  const mockHealthPlanRepository = {};
-  const mockDoctorProfileRepository = {};
   const mockSurgeryRequestRepository = {
     findOneSimple: jest.fn(),
     findOne: jest.fn(),
+    findOneWithRelations: jest.fn(),
   };
-  const mockStatusUpdateRepository = {};
-  const mockQuotationRepository = {};
-  const mockAnalysisRepository = {};
-  const mockBillingRepository = {};
-  const mockContestationRepository = {};
-  const mockWhatsappService = { sendMessage: jest.fn() };
+  const mockUserRepository = { findOne: jest.fn(), findOneSimple: jest.fn() };
+  const mockStorageService = {
+    create: jest.fn(),
+    getSignedUrl: jest.fn(),
+    uploadBuffer: jest.fn(),
+  };
+  const mockPdfService = { generateMedicalReportPdf: jest.fn() };
+  const mockDataSource = { query: jest.fn() } as unknown as DataSource;
 
   beforeEach(() => {
     mockReportSectionRepo = {
@@ -62,32 +49,17 @@ describe('SurgeryRequestsService — Report Sections (PRD Laudos)', () => {
       delete: jest.fn(),
       update: jest.fn(),
     };
+    (mockDataSource.query as jest.Mock).mockReset();
+    (mockDataSource.query as jest.Mock).mockResolvedValue([]);
 
-    // Instanciação direta — mesma ordem do construtor do SurgeryRequestsService
-    service = new SurgeryRequestsService(
-      mockDataSource as any,
-      mockEmailService as any,
-      mockMailService as any,
-      mockPdfService as any,
-      mockPdfGenerationService as any,
-      mockPendencyValidatorService as any,
-      mockUserService as any,
-      mockStorageService as any,
-      mockDocumentsService as any,
-      mockDocumentsKeyService as any,
-      mockUserRepository as any,
-      mockPatientRepository as any,
-      mockHospitalRepository as any,
-      mockHealthPlanRepository as any,
-      mockDoctorProfileRepository as any,
-      mockSurgeryRequestRepository as any,
-      mockStatusUpdateRepository as any,
-      mockQuotationRepository as any,
-      mockAnalysisRepository as any,
-      mockBillingRepository as any,
-      mockContestationRepository as any,
+    // Instanciação direta do SurgeryRequestReportService
+    service = new SurgeryRequestReportService(
       mockReportSectionRepo as any,
-      mockWhatsappService as any,
+      mockSurgeryRequestRepository as any,
+      mockUserRepository as any,
+      mockStorageService as any,
+      mockPdfService as any,
+      mockDataSource,
     );
   });
 
@@ -235,10 +207,7 @@ describe('SurgeryRequestsService — Report Sections (PRD Laudos)', () => {
 
   // ─── PRD: Reformulação Laudos — US-003 (reorder) ────────────────────────
   describe('reorderReportSections', () => {
-    it('deve atualizar ordem das sections com base nos IDs fornecidos', async () => {
-      (mockReportSectionRepo.update as jest.Mock).mockResolvedValue({
-        affected: 1,
-      });
+    it('deve executar batch update com dataSource.query para todas as sections', async () => {
       (mockReportSectionRepo.find as jest.Mock).mockResolvedValue([]);
 
       await service.reorderReportSections(
@@ -247,19 +216,26 @@ describe('SurgeryRequestsService — Report Sections (PRD Laudos)', () => {
         'user-1',
       );
 
-      // Verifica que update foi chamado com order correto para cada ID
-      expect(mockReportSectionRepo.update).toHaveBeenCalledWith(
-        { id: 'sec-3', surgery_request_id: 'req-1' },
-        { order: 0 },
-      );
-      expect(mockReportSectionRepo.update).toHaveBeenCalledWith(
-        { id: 'sec-1', surgery_request_id: 'req-1' },
-        { order: 1 },
-      );
-      expect(mockReportSectionRepo.update).toHaveBeenCalledWith(
-        { id: 'sec-2', surgery_request_id: 'req-1' },
-        { order: 2 },
-      );
+      // Batch: apenas 1 query em vez de N updates individuais
+      expect(mockDataSource.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = (mockDataSource.query as jest.Mock).mock.calls[0];
+      expect(sql).toContain('UPDATE report_section rs');
+      expect(sql).toContain('VALUES');
+      expect(params).toContain('sec-3');
+      expect(params).toContain('sec-1');
+      expect(params).toContain('sec-2');
+      expect(params).toContain(0);
+      expect(params).toContain(1);
+      expect(params).toContain(2);
+      expect(params).toContain('req-1');
+    });
+
+    it('deve retornar lista vazia sem executar query quando ids está vazio', async () => {
+      (mockReportSectionRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await service.reorderReportSections('req-1', { ids: [] }, 'user-1');
+
+      expect(mockDataSource.query).not.toHaveBeenCalled();
     });
   });
 });

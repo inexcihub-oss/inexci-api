@@ -4,6 +4,8 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { SurgeryRequest } from './surgery-request.entity';
 import { Procedure } from './procedure.entity';
@@ -24,6 +26,12 @@ export class SurgeryRequestProcedure {
 
   @Column({ type: 'int', nullable: true })
   authorized_quantity: number;
+
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 
   // Relations
   @ManyToOne(() => SurgeryRequest)

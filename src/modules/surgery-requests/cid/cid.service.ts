@@ -1,48 +1,61 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, ILike } from 'typeorm';
+import { Cid } from 'src/database/entities/cid.entity';
 import { FindManyCidDto } from './dto/find-many-cid.controller.dto';
-import * as cidData from '../../../utils/cid.json';
-
-interface CidItem {
-  codigo: string;
-  descricao: string;
-}
 
 export interface CidResponse {
   id: string;
+  code: string;
   description: string;
 }
 
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const TTL_MS = 5 * 60 * 1000; // 5 minutos
+
 @Injectable()
 export class CidService {
-  private cidList: CidItem[];
+  private readonly cache = new Map<string, CacheEntry<any>>();
 
-  constructor() {
-    this.cidList = (cidData as any).rows;
-  }
+  constructor(
+    @InjectRepository(Cid)
+    private readonly cidRepository: Repository<Cid>,
+  ) {}
 
   async findAll(query: FindManyCidDto) {
     const { search, skip = 0, take = 50 } = query;
+    const cacheKey = `cid:${search ?? ''}:${skip}:${take}`;
 
-    let filtered: CidItem[];
+    const hit = this.cache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
 
-    if (!search || search.length < 2) {
-      filtered = this.cidList;
-    } else {
-      const searchLower = search.toLowerCase();
-      
-      filtered = this.cidList.filter(
-        (item) =>
-          item.codigo.toLowerCase().includes(searchLower) ||
-          item.descricao.toLowerCase().includes(searchLower)
-      );
+    const where: any[] = [];
+    if (search && search.length >= 2) {
+      where.push({ code: ILike(`%${search}%`) });
+      where.push({ description: ILike(`%${search}%`) });
     }
 
-    const total = filtered.length;
-    const records = filtered.slice(skip, skip + take).map((item) => ({
-      id: item.codigo,
-      description: item.descricao,
-    }));
+    const [records, total] = await this.cidRepository.findAndCount({
+      where: where.length > 0 ? where : undefined,
+      skip,
+      take,
+      order: { code: 'ASC' },
+    });
 
-    return { total, records };
+    const result = {
+      total,
+      records: records.map((item) => ({
+        id: item.id,
+        code: item.code,
+        description: item.description,
+      })),
+    };
+
+    this.cache.set(cacheKey, { value: result, expiresAt: Date.now() + TTL_MS });
+    return result;
   }
 }

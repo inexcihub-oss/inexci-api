@@ -15,5 +15,5 @@ export class UpdateDoctorProfileDto {
 
   @IsString()
   @IsOptional()
-  signature_image_url?: string;
+  signature_image_url?: string | null;
 }

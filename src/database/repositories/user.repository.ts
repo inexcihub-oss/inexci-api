@@ -2,14 +2,17 @@ import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { User } from '../entities/user.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class UserRepository {
+export class UserRepository extends BaseRepository<User> {
   constructor(
     @InjectRepository(User)
-    private readonly repository: Repository<User>,
-  ) {}
+    repository: Repository<User>,
+  ) {
+    super(repository);
+  }
 
   async total(where: FindOptionsWhere<User> | FindOptionsWhere<User>[]) {
     return await this.repository.count({ where });
@@ -21,6 +24,7 @@ export class UserRepository {
   ) {
     return await this.repository.findOne({
       where,
+      relations: ['doctor_profile'],
       select: {
         id: true,
         role: true,
@@ -33,14 +37,15 @@ export class UserRepository {
         birth_date: true,
         avatar_url: true,
         password: selectPassword,
-        is_admin: true,
-        is_doctor: true,
-        crm: true,
-        crm_state: true,
-        specialty: true,
-        signature_image_url: true,
+        account_id: true,
         subscription_plan_id: true,
         admin_id: true,
+        cep: true,
+        address: true,
+        address_number: true,
+        address_complement: true,
+        city: true,
+        state: true,
         created_at: true,
         updated_at: true,
       },
@@ -64,12 +69,7 @@ export class UserRepository {
         gender: true,
         birth_date: true,
         avatar_url: true,
-        is_admin: true,
-        is_doctor: true,
-        crm: true,
-        crm_state: true,
-        specialty: true,
-        signature_image_url: true,
+        account_id: true,
         subscription_plan_id: true,
         admin_id: true,
         created_at: true,
@@ -87,6 +87,7 @@ export class UserRepository {
       where,
       skip,
       take,
+      relations: ['doctor_profile'],
       select: {
         id: true,
         role: true,
@@ -98,11 +99,7 @@ export class UserRepository {
         gender: true,
         birth_date: true,
         avatar_url: true,
-        is_admin: true,
-        is_doctor: true,
-        crm: true,
-        crm_state: true,
-        specialty: true,
+        account_id: true,
         subscription_plan_id: true,
         admin_id: true,
         created_at: true,
@@ -111,38 +108,35 @@ export class UserRepository {
     });
   }
 
-  async findManyByAdminId(adminId: string, skip: number, take: number) {
+  async findByAccountId(
+    accountId: string,
+    skip?: number,
+    take?: number,
+  ): Promise<User[]> {
     return await this.repository.find({
-      where: { admin_id: adminId },
+      where: { account_id: accountId },
       skip,
       take,
-      select: {
-        id: true,
-        role: true,
-        status: true,
-        email: true,
-        name: true,
-        phone: true,
-        cpf: true,
-        gender: true,
-        birth_date: true,
-        avatar_url: true,
-        is_admin: true,
-        is_doctor: true,
-        crm: true,
-        crm_state: true,
-        specialty: true,
-        admin_id: true,
-        created_at: true,
-        updated_at: true,
-      },
+      relations: ['doctor_profile'],
+      order: { name: 'ASC' },
     });
   }
 
-  async countDoctorsByAdminId(adminId: string): Promise<number> {
-    return await this.repository.count({
-      where: { admin_id: adminId, is_doctor: true },
-    });
+  async findDoctorsByAccountId(accountId: string): Promise<User[]> {
+    return await this.repository
+      .createQueryBuilder('user')
+      .innerJoinAndSelect('user.doctor_profile', 'dp')
+      .where('user.account_id = :accountId', { accountId })
+      .orderBy('user.name', 'ASC')
+      .getMany();
+  }
+
+  async countDoctorsByAccountId(accountId: string): Promise<number> {
+    return await this.repository
+      .createQueryBuilder('user')
+      .innerJoin('doctor_profile', 'dp', 'dp.user_id = user.id')
+      .where('user.account_id = :accountId', { accountId })
+      .getCount();
   }
 
   async create(data: Partial<User>) {
@@ -155,7 +149,7 @@ export class UserRepository {
     return await this.findOne({ id });
   }
 
-  async delete(id: string) {
-    return await this.repository.delete(id);
+  findOneByPhone(phone: string): Promise<User | null> {
+    return this.findOne({ phone });
   }
 }

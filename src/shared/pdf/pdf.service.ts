@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as puppeteer from 'puppeteer';
 import * as Handlebars from 'handlebars';
 import * as path from 'path';
@@ -190,6 +191,8 @@ export interface SurgeryRequestLaudoPdfData {
   fabricantesText?: string;
   fornecedoresText?: string;
   hasSeparator?: boolean;
+  // Seções dinâmicas do laudo (substitui historyAndDiagnosis / conduct)
+  sections?: Array<{ title: string; description?: string | null }>;
   // Hospital (Local)
   localText?: string;
   // Médico
@@ -207,7 +210,7 @@ export interface SurgeryRequestLaudoPdfData {
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
-  constructor() {
+  constructor(private readonly configService: ConfigService) {
     // Helper para checar se um valor foi definido (inclusive 0)
     Handlebars.registerHelper(
       'isDefined',
@@ -243,7 +246,7 @@ export class PdfService {
       doctorSignatureUrl: signatureUri,
     };
 
-    const html = this.renderTemplate('medical-report', templateData);
+    const html = await this.renderTemplate('medical-report', templateData);
     return this.htmlToPdf(html, {
       format: 'A4',
       margin: { top: '12mm', right: '12mm', bottom: '16mm', left: '12mm' },
@@ -281,7 +284,7 @@ export class PdfService {
             const nextUrl = location.startsWith('http')
               ? location
               : new URL(location, url).href;
-            this.fetchAsDataUri(nextUrl, depth + 1).then(resolve);
+            void this.fetchAsDataUri(nextUrl, depth + 1).then(resolve);
             return;
           }
 
@@ -349,7 +352,7 @@ export class PdfService {
             const nextUrl = res.headers.location.startsWith('http')
               ? res.headers.location
               : new URL(res.headers.location, url).href;
-            this.fetchBuffer(nextUrl, depth + 1).then(resolve);
+            void this.fetchBuffer(nextUrl, depth + 1).then(resolve);
             return;
           }
           if (res.statusCode && res.statusCode >= 400) {
@@ -456,7 +459,7 @@ export class PdfService {
       doctorSignatureUrl: signatureUri,
     };
 
-    const html = this.renderTemplate('surgery-request-laudo', templateData);
+    const html = await this.renderTemplate('surgery-request-laudo', templateData);
     return this.htmlToPdf(html, {
       format: 'A4',
       margin: { top: '32px', right: '32px', bottom: '32px', left: '32px' },
@@ -469,7 +472,7 @@ export class PdfService {
   async generateSurgeryRequestSummary(
     data: SurgeryRequestPdfData,
   ): Promise<Buffer> {
-    const html = this.renderTemplate('surgery-request', data);
+    const html = await this.renderTemplate('surgery-request', data);
     return this.htmlToPdf(html);
   }
 
@@ -477,7 +480,7 @@ export class PdfService {
    * Gera o PDF de relatório de faturamento.
    */
   async generateInvoiceReport(data: InvoicePdfData): Promise<Buffer> {
-    const html = this.renderTemplate('invoice-report', data);
+    const html = await this.renderTemplate('invoice-report', data);
     return this.htmlToPdf(html);
   }
 
@@ -509,28 +512,30 @@ export class PdfService {
       doctorSignatureUrl: signatureUri,
     };
 
-    const html = this.renderTemplate('contest-authorization', templateData);
+    const html = await this.renderTemplate('contest-authorization', templateData);
     return this.htmlToPdf(html, {
       format: 'A4',
       margin: { top: '12mm', right: '12mm', bottom: '16mm', left: '12mm' },
     });
   }
 
-  private renderTemplate(
+  private async renderTemplate(
     templateName: string,
     context: Record<string, any>,
-  ): string {
+  ): Promise<string> {
     const templatePath = path.join(
       __dirname,
       'templates',
       `${templateName}.hbs`,
     );
 
-    if (!fs.existsSync(templatePath)) {
+    try {
+      await fs.promises.access(templatePath);
+    } catch {
       throw new Error(`Template de PDF não encontrado: ${templateName}`);
     }
 
-    const source = fs.readFileSync(templatePath, 'utf-8');
+    const source = await fs.promises.readFile(templatePath, 'utf-8');
     const compiled = Handlebars.compile(source);
     return compiled(context);
   }
@@ -543,7 +548,9 @@ export class PdfService {
     try {
       browser = await puppeteer.launch({
         headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        executablePath:
+          this.configService.get<string>('PUPPETEER_EXECUTABLE_PATH') ||
+          undefined,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

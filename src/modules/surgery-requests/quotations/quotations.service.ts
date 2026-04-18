@@ -1,60 +1,49 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestQuotationRepository } from 'src/database/repositories/surgery-request-quotation.repository';
-import { SurgeryRequestsService } from '../surgery-requests.service';
 import { ChatsService } from '../chats/chats.service';
-import { EmailService } from 'src/shared/email/email.service';
+import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
+import { BUSINESS_RULES } from 'src/shared/constants/business-rules';
 import { DataSource, IsNull, Not } from 'typeorm';
+import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestQuotation } from 'src/database/entities/surgery-request-quotation.entity';
-import { Chat } from 'src/database/entities/chat.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Supplier } from 'src/database/entities/supplier.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class QuotationsService {
+  private readonly logger = new Logger(QuotationsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly chatsService: ChatsService,
-    private readonly emailService: EmailService,
-    private readonly userRepository: UserRepository,
     private readonly supplierRepository: SupplierRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
-    private readonly surgeryRequestsService: SurgeryRequestsService,
+    private readonly accessControlService: AccessControlService,
+    private readonly surgeryRequestAccessValidator: SurgeryRequestAccessValidator,
     private readonly surgeryRequestQuotationRepository: SurgeryRequestQuotationRepository,
   ) {}
 
-  private async getDoctorId(userId: string): Promise<string | null> {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    if (user.role === UserRole.DOCTOR) {
-      // supplier.doctor_id → user.id (FK para user, não para doctor_profile)
-      return userId;
-    }
-
-    // TODO: Para colaboradores, obter via TeamMember
-    return null;
-  }
-
   async create(data: CreateQuotationDto, userId: string) {
-    const surgeryRequest = await this.surgeryRequestsService.findOne(
+    await this.surgeryRequestAccessValidator.validateAndFetch(
       data.surgery_request_id,
       userId,
     );
 
-    const doctorId = await this.getDoctorId(userId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    const doctorId = doctorIds.length ? doctorIds[0] : null;
     let supplierId = null;
 
     // Buscar fornecedor pelo email
@@ -81,25 +70,24 @@ export class QuotationsService {
       surgery_request_id: data.surgery_request_id,
     });
     if (quotation)
-      throw new NotFoundException(
+      throw new BadRequestException(
         'A quotation for this supplier already exists',
       );
 
-    return await this.dataSource.transaction(async (manager) => {
-      const quotationRepo = manager.getRepository(SurgeryRequestQuotation);
-      const chatRepo = manager.getRepository(Chat);
+    return await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const quotationRepo = manager.getRepository(SurgeryRequestQuotation);
 
-      const newQuotation = await quotationRepo.save({
-        supplier_id: supplierId,
-        surgery_request_id: data.surgery_request_id,
-      });
+        const newQuotation = await quotationRepo.save({
+          supplier_id: supplierId,
+          surgery_request_id: data.surgery_request_id,
+        });
 
-      // Chat para fornecedor - associado ao userId (não ao supplier_id)
-      // Na nova arquitetura, fornecedores não fazem login, então comentamos isso
-      // Chats são entre usuários logados (médicos/colaboradores)
-
-      return newQuotation;
-    });
+        return newQuotation;
+      },
+      { logger: this.logger, operationName: 'createQuotation' },
+    );
   }
 
   async update(data: UpdateQuotationDto, userId: string) {
@@ -108,47 +96,52 @@ export class QuotationsService {
     });
     if (!quotation) throw new NotFoundException('Quotation not found');
 
-    const surgeryRequest = await this.surgeryRequestsService.findOneSimple(
-      quotation.surgery_request_id,
-      userId,
-    );
-
-    return await this.dataSource.transaction(async (manager) => {
-      const quotationRepo = manager.getRepository(SurgeryRequestQuotation);
-      const statusUpdateRepo = manager.getRepository(StatusUpdate);
-      const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-
-      const updated = await quotationRepo.update(
-        { id: data.surgery_request_quotation_id },
-        {
-          proposal_number: data.proposal_number,
-          submission_date: data.submission_date,
-        },
+    const surgeryRequest =
+      await this.surgeryRequestAccessValidator.validateAndFetch(
+        quotation.surgery_request_id,
+        userId,
       );
 
-      const quotations = await quotationRepo.find({
-        where: {
-          surgery_request_id: surgeryRequest.id,
-          submission_date: Not(IsNull()),
-        },
-      });
+    return await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const quotationRepo = manager.getRepository(SurgeryRequestQuotation);
+        const statusUpdateRepo = manager.getRepository(StatusUpdate);
+        const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
 
-      // Quando há 3+ cotações com data de submissão, muda para Em Análise
-      if (quotations.length >= 3) {
-        await Promise.all([
-          statusUpdateRepo.save({
+        const updated = await quotationRepo.update(
+          { id: data.surgery_request_quotation_id },
+          {
+            proposal_number: data.proposal_number,
+            submission_date: data.submission_date,
+          },
+        );
+
+        const quotations = await quotationRepo.find({
+          where: {
             surgery_request_id: surgeryRequest.id,
-            prev_status: surgeryRequest.status,
-            new_status: SurgeryRequestStatus.IN_ANALYSIS,
-          }),
-          surgeryRequestRepo.update(
-            { id: surgeryRequest.id },
-            { status: SurgeryRequestStatus.IN_ANALYSIS },
-          ),
-        ]);
-      }
+            submission_date: Not(IsNull()),
+          },
+        });
 
-      return updated;
-    });
+        // Quando há cotações suficientes com data de submissão, muda para Em Análise
+        if (quotations.length >= BUSINESS_RULES.MIN_QUOTATIONS_FOR_ANALYSIS) {
+          await Promise.all([
+            statusUpdateRepo.save({
+              surgery_request_id: surgeryRequest.id,
+              prev_status: surgeryRequest.status,
+              new_status: SurgeryRequestStatus.IN_ANALYSIS,
+            }),
+            surgeryRequestRepo.update(
+              { id: surgeryRequest.id },
+              { status: SurgeryRequestStatus.IN_ANALYSIS },
+            ),
+          ]);
+        }
+
+        return updated;
+      },
+      { logger: this.logger, operationName: 'updateQuotation' },
+    );
   }
 }

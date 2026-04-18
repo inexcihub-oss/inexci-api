@@ -1,40 +1,25 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DocumentKeyRepository } from 'src/database/repositories/document-key.repository';
 import { CreateDocumentKeyDto } from './dto/create-document-key.dto';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { FindManyDocumentKeyDto } from './dto/find-many-dto';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { DefaultDocumentClinic } from 'src/database/entities/default-document-clinic.entity';
-import { UserRole } from 'src/database/entities/user.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class DocumentsKeyService {
   constructor(
     private readonly documentKeyRepository: DocumentKeyRepository,
-    private readonly userRepository: UserRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
-  private async getDoctorId(userId: string): Promise<string | null> {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      return doctorProfile?.id || null;
-    }
-
-    // TODO: Para colaboradores, obter via TeamMember
-    return null;
-  }
-
   async create(data: CreateDocumentKeyDto, userId: string) {
-    const doctorId = await this.getDoctorId(userId);
-
-    if (!doctorId) {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (!doctorIds.length) {
       throw new BadRequestException('Doctor profile not found');
     }
+    const doctorId = doctorIds[0];
 
     const keyFound = await this.documentKeyRepository.findOne({
       key: data.key,
@@ -53,14 +38,14 @@ export class DocumentsKeyService {
   }
 
   async findAll(query: FindManyDocumentKeyDto, userId: string) {
-    const doctorId = await this.getDoctorId(userId);
-
-    if (!doctorId) {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (!doctorIds.length) {
       return { total: 0, records: [] };
     }
 
     const where: FindOptionsWhere<DefaultDocumentClinic> = {
-      doctor_id: doctorId,
+      doctor_id: In(doctorIds),
     };
 
     const [total, records] = await Promise.all([

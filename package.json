@@ -26,12 +26,16 @@
     "typeorm:migration:create": "npm run typeorm -- migration:create",
     "typeorm:migration:run": "npm run typeorm -- migration:run -d src/database/typeorm/data-source.ts",
     "typeorm:migration:revert": "npm run typeorm -- migration:revert -d src/database/typeorm/data-source.ts",
-    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
+    "seed:cid": "ts-node -r tsconfig-paths/register src/database/seeds/seed-cid.ts",
+    "seed:tuss": "ts-node -r tsconfig-paths/register src/database/seeds/seed-tuss.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
     "@aws-sdk/s3-request-presigner": "^3.693.0",
-    "@getbrevo/brevo": "^2.2.0",
+    "@bull-board/api": "^7.0.0",
+    "@bull-board/express": "^7.0.0",
+    "@bull-board/nestjs": "^7.0.0",
     "@nestjs/bull": "^11.0.4",
     "@nestjs/common": "^10.3.9",
     "@nestjs/config": "^3.2.3",
@@ -41,18 +45,26 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.9",
     "@nestjs/schedule": "^5.0.1",
+    "@nestjs/swagger": "^7.4.2",
+    "@nestjs/terminus": "^11.1.1",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^10.0.2",
     "@supabase/supabase-js": "^2.94.1",
     "@tboerc/maskfy": "1.0.0",
+    "@types/bcryptjs": "^2.4.6",
     "@typescript-eslint/eslint-plugin": "^8.9.0",
     "@typescript-eslint/parser": "^8.9.0",
     "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.7",
     "dayjs": "^1.11.11",
     "handlebars": "^4.7.8",
+    "joi": "^18.1.2",
     "nodemailer": "^8.0.1",
+    "openai": "^4.104.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
@@ -72,6 +84,7 @@
     "@nestjs/testing": "^10.3.9",
     "@types/bcrypt": "^5.0.2",
     "@types/bull": "^4.10.4",
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^4.17.21",
     "@types/handlebars": "^4.1.0",
     "@types/jest": "^29.5.12",
@@ -107,12 +120,18 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1"
+      "^src/(.*)$": "<rootDir>/$1",
+      "^@shared/(.*)$": "<rootDir>/shared/$1",
+      "^@modules/(.*)$": "<rootDir>/modules/$1",
+      "^@entities/(.*)$": "<rootDir>/database/entities/$1",
+      "^@repositories/(.*)$": "<rootDir>/database/repositories/$1",
+      "^@utils/(.*)$": "<rootDir>/utils/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "maxWorkers": 2
   }
 }

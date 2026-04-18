@@ -10,6 +10,8 @@ import {
   PendencyConfig,
 } from 'src/config/pendencies.config';
 
+const PREDOC_FOLDER_PREFIX = 'documents/';
+
 export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
 }
@@ -66,7 +68,7 @@ export class PendencyValidatorService {
   /**
    * Carrega a solicitação com todas as relações necessárias para avaliação.
    */
-  private async loadRequest(id: string): Promise<SurgeryRequest> {
+  private loadRequest(id: string): Promise<SurgeryRequest> {
     return this.surgeryRequestRepository.findOne({
       where: { id },
       relations: [
@@ -81,9 +83,24 @@ export class PendencyValidatorService {
         'billing',
         'contestations',
         'doctor',
+        'doctor.doctor_profile',
         'report_sections',
       ],
     });
+  }
+
+  /**
+   * Gera pendências dinâmicas a partir dos documentos obrigatórios definidos no template.
+   */
+  private buildDocumentPendencies(request: SurgeryRequest): PendencyConfig[] {
+    const requiredDocs: Array<{ type: string; name: string }> =
+      (request as any).required_documents ?? [];
+    return requiredDocs.map((doc) => ({
+      key: `doc_${doc.name}`,
+      label: `Documento: ${doc.name}`,
+      blocking: false, // documentos são avisos, não bloqueantes
+      responsibleRole: 'collaborator' as const,
+    }));
   }
 
   /**
@@ -99,7 +116,7 @@ export class PendencyValidatorService {
     const hasDoc = (k: string) => docs.some((d) => d.key === k);
     /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
     const hasPreDoc = (k: string) =>
-      docs.some((d) => d.key === k && d.uri?.startsWith('documents/'));
+      docs.some((d) => d.key === k && d.uri?.startsWith(PREDOC_FOLDER_PREFIX));
 
     switch (key) {
       case 'patient_data':
@@ -161,7 +178,7 @@ export class PendencyValidatorService {
           },
           {
             label: 'Assinatura do médico configurada',
-            done: !!request.doctor?.signature_url,
+            done: !!request.doctor?.doctor_profile?.signature_url,
           },
         ];
       }
@@ -189,6 +206,14 @@ export class PendencyValidatorService {
         ];
 
       default:
+        // Pendências dinâmicas de documentos (prefixo 'doc_')
+        if (key.startsWith('doc_')) {
+          const docName = key.slice(4);
+          const hasUploaded = docs.some(
+            (d) => d.name === docName || d.key === docName,
+          );
+          return [{ label: `Upload de "${docName}"`, done: hasUploaded }];
+        }
         return [];
     }
   }
@@ -208,7 +233,7 @@ export class PendencyValidatorService {
     const hasDoc = (key: string) => docs.some((d) => d.key === key);
     /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
     const hasPreDoc = (k: string) =>
-      docs.some((d) => d.key === k && d.uri?.startsWith('documents/'));
+      docs.some((d) => d.key === k && d.uri?.startsWith(PREDOC_FOLDER_PREFIX));
 
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────
@@ -251,7 +276,7 @@ export class PendencyValidatorService {
         return (
           patientComplete &&
           sections.length > 0 &&
-          !!request.doctor?.signature_url
+          !!request.doctor?.doctor_profile?.signature_url
         );
       }
 
@@ -282,6 +307,11 @@ export class PendencyValidatorService {
         );
 
       default:
+        // Pendências dinâmicas de documentos (prefixo 'doc_')
+        if (pendency.key.startsWith('doc_')) {
+          const docName = pendency.key.slice(4);
+          return docs.some((d) => d.name === docName || d.key === docName);
+        }
         return false;
     }
   }
@@ -323,7 +353,13 @@ export class PendencyValidatorService {
       };
     }
 
-    const pendencies: CalculatedPendencyDto[] = config.pendencies.map((p) => ({
+    // Combina pendências fixas + pendências dinâmicas de documentos obrigatórios
+    const allPendencies: PendencyConfig[] = [
+      ...config.pendencies,
+      ...this.buildDocumentPendencies(request),
+    ];
+
+    const pendencies: CalculatedPendencyDto[] = allPendencies.map((p) => ({
       key: p.key,
       name: p.label,
       description: '',
@@ -375,7 +411,12 @@ export class PendencyValidatorService {
       return { pending: 0, total: 0, canAdvance: true, items: [] };
     }
 
-    const items: ResolvedPendency[] = config.pendencies.map((p) => ({
+    const allPendencies: PendencyConfig[] = [
+      ...config.pendencies,
+      ...this.buildDocumentPendencies(request),
+    ];
+
+    const items: ResolvedPendency[] = allPendencies.map((p) => ({
       ...p,
       resolved: this.checkResolved(request, p),
     }));
@@ -392,6 +433,34 @@ export class PendencyValidatorService {
     };
   }
 
+  async getBatchSummary(
+    rawIds: string,
+  ): Promise<Record<string, { pending: number; total: number; canAdvance: boolean }>> {
+    const ids = rawIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
+
+    const summaries = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const result = await this.getSummary(id);
+          return { id, pending: result.pending, total: result.total, canAdvance: result.canAdvance };
+        } catch {
+          return { id, pending: 0, total: 0, canAdvance: true };
+        }
+      }),
+    );
+
+    return summaries.reduce(
+      (acc, { id, ...summary }) => {
+        acc[id] = summary;
+        return acc;
+      },
+      {} as Record<string, { pending: number; total: number; canAdvance: boolean }>,
+    );
+  }
+
   /**
    * Versão síncrona para cálculos rápidos no kanban (sem I/O).
    */
@@ -405,10 +474,15 @@ export class PendencyValidatorService {
       return { pendingCount: 0, completedCount: 0, totalCount: 0 };
     }
 
+    const allPendencies: PendencyConfig[] = [
+      ...config.pendencies,
+      ...this.buildDocumentPendencies(request),
+    ];
+
     let pendingCount = 0;
     let completedCount = 0;
 
-    for (const p of config.pendencies) {
+    for (const p of allPendencies) {
       const resolved = this.checkResolved(request, p);
       if (resolved) {
         completedCount++;

@@ -11,29 +11,33 @@ import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { Hospital } from 'src/database/entities/hospital.entity';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
-import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { SurgeryRequestsService } from './surgery-requests.service';
+import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
+import { SendAnalysisHandler } from './services/workflow/send-analysis.handler';
+import { AuthorizationHandler } from './services/workflow/authorization.handler';
+import { SchedulingHandler } from './services/workflow/scheduling.handler';
+import { ExecutionHandler } from './services/workflow/execution.handler';
+import { SurgeryRequestReportService } from './services/surgery-request-report.service';
+import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
+import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
+import { SurgeryRequestNotificationService } from './services/surgery-request-notification.service';
+import { SurgeryRequestPdfAssemblyService } from './services/surgery-request-pdf-assembly.service';
+import { SurgeryRequestBillingService } from './services/surgery-request-billing.service';
+import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { SurgeryRequestsController } from './surgery-requests.controller';
 import { UsersModule } from '../users/users.module';
-import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { HospitalRepository } from 'src/database/repositories/hospital.repository';
-import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { ChatsModule } from './chats/chats.module';
 import { ActivitiesModule } from './activities/activities.module';
-import { EmailModule } from 'src/shared/email/email.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
 import { PdfGenerationModule } from 'src/shared/pdf/pdf-generation.module';
 import { QueuesModule } from 'src/shared/queues/queues.module';
 import { PendenciesModule } from './pendencies/pendencies.module';
-import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 import { DocumentsModule } from './documents/documents.module';
 import { DocumentsKeyModule } from './documents-key/documents-key.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -49,12 +53,10 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
       Patient,
       Hospital,
       HealthPlan,
-      DoctorProfile,
     ]),
     UsersModule,
     ChatsModule,
     ActivitiesModule,
-    EmailModule,
     MailModule,
     PdfModule,
     PdfGenerationModule,
@@ -63,19 +65,30 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
     DocumentsModule,
     DocumentsKeyModule,
     WhatsappModule,
+    NotificationsModule,
   ],
   controllers: [SurgeryRequestsController],
   providers: [
     SurgeryRequestsService,
-    SurgeryRequestRepository,
-    UserRepository,
-    PatientRepository,
-    HospitalRepository,
-    HealthPlanRepository,
-    DoctorProfileRepository,
+    SurgeryRequestMutationService,
+    SurgeryRequestWorkflowService,
+    SendAnalysisHandler,
+    AuthorizationHandler,
+    SchedulingHandler,
+    ExecutionHandler,
+    SurgeryRequestReportService,
+    SurgeryRequestTemplateService,
+    SurgeryRequestNotificationService,
+    SurgeryRequestPdfAssemblyService,
+    SurgeryRequestBillingService,
+    DoctorResolutionService,
     StorageService,
-    StatusUpdateRepository,
   ],
-  exports: [SurgeryRequestsService],
+  exports: [
+    SurgeryRequestsService,
+    SurgeryRequestWorkflowService,
+    SurgeryRequestMutationService,
+    SurgeryRequestNotificationService,
+  ],
 })
 export class SurgeryRequestsModule {}

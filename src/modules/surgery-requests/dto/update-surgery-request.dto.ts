@@ -1,5 +1,5 @@
-import { Mask } from '@tboerc/maskfy';
 import { Transform, Type } from 'class-transformer';
+import { stripObjectPhoneMask } from 'src/shared/pipes/phone-mask.pipe';
 import {
   Allow,
   IsNotEmpty,
@@ -8,24 +8,40 @@ import {
   IsString,
 } from 'class-validator';
 
+export class UpdateSurgeryRequestHealthPlanDto {
+  @Allow()
+  id: string;
+  @Allow()
+  name: string;
+  @Allow()
+  email: string;
+  @Allow()
+  phone: string;
+}
+
+export class UpdateSurgeryRequestCidDto {
+  @Allow()
+  id: string;
+  @Allow()
+  description: string;
+}
+
+export class UpdateSurgeryRequestHospitalDto {
+  @Allow()
+  name: string;
+  @Allow()
+  email: string;
+}
+
 export class UpdateSurgeryRequestDto {
   @IsString()
   @IsNotEmpty()
   id: string;
 
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value?.phone) {
-      value.phone = Mask.phone.raw(value.phone);
-    }
-    return value;
-  })
-  health_plan?: {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-  };
+  @Transform(({ value }) => stripObjectPhoneMask(value))
+  @Type(() => UpdateSurgeryRequestHealthPlanDto)
+  health_plan?: UpdateSurgeryRequestHealthPlanDto;
 
   @IsOptional()
   @IsString()
@@ -37,10 +53,8 @@ export class UpdateSurgeryRequestDto {
 
   @IsOptional()
   @Allow()
-  cid?: {
-    id: string;
-    description: string;
-  };
+  @Type(() => UpdateSurgeryRequestCidDto)
+  cid?: UpdateSurgeryRequestCidDto;
 
   @IsOptional()
   @IsString()
@@ -56,10 +70,8 @@ export class UpdateSurgeryRequestDto {
 
   @IsOptional()
   @Allow()
-  hospital?: {
-    name: string;
-    email: string;
-  };
+  @Type(() => UpdateSurgeryRequestHospitalDto)
+  hospital?: UpdateSurgeryRequestHospitalDto;
 
   @IsOptional()
   @IsNumber()

@@ -1,14 +1,30 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuid } from 'uuid';
-import { supabaseAdmin } from '../../config/supabase.config';
-import { STORAGE_BUCKET } from '../../config/storage.config';
-
-// Usa supabaseAdmin (service_role) para todas as operações de storage,
-// garantindo que as políticas RLS não bloqueiem o backend.
-const supabase = supabaseAdmin;
+import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
+import { STORAGE_FOLDERS } from '../../config/storage.config';
 
 @Injectable()
 export class StorageService {
+  private readonly logger = new Logger(StorageService.name);
+  private readonly bucket: string;
+
+  constructor(
+    @Inject(SUPABASE_ADMIN_CLIENT)
+    private readonly supabase: SupabaseClient,
+    private readonly configService: ConfigService,
+  ) {
+    this.bucket = this.configService.get<string>(
+      'storage.bucket',
+      'inexci-storage',
+    );
+  }
   /**
    * Sanitiza o nome do arquivo removendo acentos e caracteres inválidos
    * para garantir compatibilidade com as chaves do Supabase Storage.
@@ -33,31 +49,26 @@ export class StorageService {
     const filename = `${uuid()}-${sanitizedName}`;
     const filePath = `${folder}/${filename}`;
 
-    console.log('=== STORAGE SERVICE - CREATE ===');
-    console.log('BUCKET:', STORAGE_BUCKET);
-    console.log('File path:', filePath);
-    console.log('File mimetype:', file.mimetype);
-    console.log('File size:', file.buffer?.length || 0);
+    this.logger.debug(
+      `Upload: bucket=${this.bucket}, path=${filePath}, type=${file.mimetype}, size=${file.buffer?.length || 0}`,
+    );
 
     try {
-      const { data, error } = await supabase.storage
-        .from(STORAGE_BUCKET)
+      const { data, error } = await this.supabase.storage
+        .from(this.bucket)
         .upload(filePath, file.buffer, {
           contentType: file.mimetype,
           upsert: false,
         });
 
-      console.log('Supabase response - data:', data);
-      console.log('Supabase response - error:', error);
-
       if (error) {
-        console.error('Supabase upload error:', JSON.stringify(error, null, 2));
+        this.logger.error(`Supabase upload error: ${JSON.stringify(error)}`);
         throw new BadRequestException(`Erro ao fazer upload: ${error.message}`);
       }
 
       return data.path;
     } catch (error: any) {
-      console.error('Storage service error:', error);
+      this.logger.error('Storage service error', error.stack);
       throw new BadRequestException(
         `Erro ao fazer upload do arquivo: ${error.message}`,
       );
@@ -71,8 +82,8 @@ export class StorageService {
    */
   async getSignedUrl(filePath: string): Promise<string> {
     try {
-      const { data, error } = await supabase.storage
-        .from(STORAGE_BUCKET)
+      const { data, error } = await this.supabase.storage
+        .from(this.bucket)
         .createSignedUrl(filePath, 3600); // expira em 1 hora
 
       if (error || !data?.signedUrl) {
@@ -95,8 +106,8 @@ export class StorageService {
    */
   async delete(filePath: string): Promise<void> {
     try {
-      const { error } = await supabase.storage
-        .from(STORAGE_BUCKET)
+      const { error } = await this.supabase.storage
+        .from(this.bucket)
         .remove([filePath]);
 
       if (error) {

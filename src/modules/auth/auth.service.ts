@@ -2,47 +2,64 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  Logger,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
+import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { HttpMessages } from 'src/common';
-import { EmailService } from 'src/shared/email/email.service';
+import { MailService } from 'src/shared/mail/mail.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { RecoveryCodeRepository } from 'src/database/repositories/recovery_code.repository';
+import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { validationCodeDto } from './dto/validation-code.dto';
 import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
-
-function generateValidationCode(length = 6) {
-  const characters =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let validationCode = '';
-  for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
-    validationCode += characters[randomIndex];
-  }
-  return validationCode;
-}
+import { generateValidationCode } from 'src/shared/utils';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly userRepository: UserRepository,
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
-    private readonly emailService: EmailService,
-    private jwtService: JwtService,
+    private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly mailService: MailService,
+    private readonly jwtService: JwtService,
     @InjectRepository(SubscriptionPlan)
     private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
+    @InjectRepository(RefreshToken)
+    private readonly refreshTokenRepo: Repository<RefreshToken>,
+    private readonly configService: ConfigService,
   ) {}
+
+  /** Refresh token expiry: 7 days */
+  private readonly REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+  /**
+   * Generates a new refresh token, persists it, and returns it.
+   */
+  private async createRefreshToken(userId: string): Promise<string> {
+    const token = uuidv4();
+    await this.refreshTokenRepo.save({
+      user_id: userId,
+      token,
+      expires_at: new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY_MS),
+    });
+    return token;
+  }
 
   async validateUser(email: string, password: string): Promise<User | null> {
     const user = await this.userRepository.findOne(
@@ -101,23 +118,36 @@ export class AuthService {
 
     const isDoctor = data.is_doctor || false;
 
-    // Cria o usuário como Admin
+    // Gera o UUID antes para usar como id E account_id (self-referência)
+    const userId = uuidv4();
+
+    // Cria o usuário como Admin com account_id = self.id na mesma operação
     const user = await this.userRepository.create({
+      id: userId,
       name: data.name,
       email: data.email,
       password: hashedPassword,
-      role: UserRole.DOCTOR, // Mantém compatibilidade
+      role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
       phone: null,
-      is_admin: true,
-      is_doctor: isDoctor,
-      crm: isDoctor ? data.crm : null,
-      crm_state: isDoctor ? data.crm_state : null,
-      specialty: isDoctor ? data.specialty : null,
+      account_id: userId, // self-referência — mesmo ID
       subscription_plan_id: selectedPlan?.id || null,
-    });
+    } as Partial<User>);
 
-    // Retorna dados do usuário e token
+    // Se é médico, criar doctor_profile
+    let doctorProfile = null;
+    if (isDoctor) {
+      doctorProfile = await this.doctorProfileRepository.create({
+        user_id: user.id,
+        crm: data.crm || '',
+        crm_state: data.crm_state || '',
+        specialty: data.specialty || null,
+      });
+    }
+
+    // Retorna dados do usuário e tokens
+    const refreshToken = await this.createRefreshToken(user.id);
+
     return {
       user: {
         id: user.id.toString(),
@@ -127,14 +157,23 @@ export class AuthService {
         email: user.email,
         cpf: user.cpf,
         status: user.status,
-        is_admin: user.is_admin,
-        is_doctor: user.is_doctor,
-        crm: user.crm,
-        specialty: user.specialty,
+        account_id: user.account_id,
+        is_doctor: !!doctorProfile,
+        doctor_profile: doctorProfile
+          ? {
+              id: doctorProfile.id,
+              crm: doctorProfile.crm,
+              crm_state: doctorProfile.crm_state,
+              specialty: doctorProfile.specialty,
+              signature_url: doctorProfile.signature_url,
+              clinic_name: doctorProfile.clinic_name,
+            }
+          : null,
         createdAt: user.created_at?.toISOString() || new Date().toISOString(),
         updatedAt: user.updated_at?.toISOString() || new Date().toISOString(),
       },
       access_token: this.jwtService.sign({ userId: user.id }),
+      refresh_token: refreshToken,
     };
   }
 
@@ -142,6 +181,15 @@ export class AuthService {
     const result = await this.validateUser(user.email, user.password);
 
     if (result) {
+      // Buscar doctor_profile para o response
+      const doctorProfile = await this.doctorProfileRepository.findByUserId(
+        result.id,
+      );
+      // Buscar user com account_id
+      const fullUser = await this.userRepository.findOne({ id: result.id });
+
+      const refreshToken = await this.createRefreshToken(result.id);
+
       return {
         user: {
           id: result.id.toString(),
@@ -151,28 +199,53 @@ export class AuthService {
           email: result.email,
           cpf: result.cpf,
           status: result.status,
+          account_id: fullUser?.account_id,
+          is_doctor: !!doctorProfile,
+          doctor_profile: doctorProfile
+            ? {
+                id: doctorProfile.id,
+                crm: doctorProfile.crm,
+                crm_state: doctorProfile.crm_state,
+                specialty: doctorProfile.specialty,
+                signature_url: doctorProfile.signature_url,
+                clinic_name: doctorProfile.clinic_name,
+              }
+            : null,
           createdAt:
             result.created_at?.toISOString() || new Date().toISOString(),
           updatedAt:
             result.updated_at?.toISOString() || new Date().toISOString(),
         },
         access_token: this.jwtService.sign({ userId: result.id }),
+        refresh_token: refreshToken,
       };
     }
   }
 
   async me(userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    const doctorProfile = user?.doctor_profile || null;
 
-    const dataToReturn = {
+    return {
       id: user.id,
       role: user.role,
       name: user.name,
       phone: user.phone,
       email: user.email,
+      account_id: user.account_id,
+      avatar_url: user.avatar_url ?? null,
+      is_doctor: !!doctorProfile,
+      doctor_profile: doctorProfile
+        ? {
+            id: doctorProfile.id,
+            crm: doctorProfile.crm,
+            crm_state: doctorProfile.crm_state,
+            specialty: doctorProfile.specialty,
+            signature_url: doctorProfile.signature_url,
+            clinic_name: doctorProfile.clinic_name,
+          }
+        : null,
     };
-
-    return dataToReturn;
   }
 
   async sendRecoveryPasswordEmail(email: string) {
@@ -180,12 +253,11 @@ export class AuthService {
 
     if (!user) throw new NotFoundException('User not found');
 
-    const codeExists = await this.recoveryCodeRepository.findOne({
+    // Remove any existing unused recovery codes for this user
+    await this.recoveryCodeRepository.deleteMany({
       user_id: user.id,
+      used: false,
     });
-
-    if (codeExists)
-      throw new BadRequestException('Código já enviado por email');
 
     const validationCode = generateValidationCode();
 
@@ -193,16 +265,17 @@ export class AuthService {
       user_id: user.id,
       used: false,
       code: validationCode,
+      expires_at: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
     });
 
-    this.emailService.send(
+    void this.mailService.sendRaw(
       user.email,
       'Inexci - Recuperação de senha',
       `
       <p>Olá, <strong>${user.name}</strong></p>
       <p>Você solicitou a recuperação de senha. Para continuar, utilize o código abaixo:</p>
       <p><strong>${validationCode}</strong></p>
-      <p>Se você não solicitou a recuperação de senha, por favor, ignore este e-mail.</p> 
+      <p>Se você não solicitou a recuperação de senha, por favor, ignore este e-mail.</p>
       `,
     );
 
@@ -217,7 +290,14 @@ export class AuthService {
 
     if (!validationCode) throw new NotFoundException('Código inválido');
 
-    await this.recoveryCodeRepository.update(
+    if (
+      validationCode.expires_at &&
+      new Date() > new Date(validationCode.expires_at)
+    ) {
+      throw new BadRequestException('Código expirado');
+    }
+
+    await this.recoveryCodeRepository.updateByWhere(
       { id: validationCode.id },
       { used: true },
     );
@@ -230,9 +310,24 @@ export class AuthService {
 
     if (!user) throw new NotFoundException('User not found');
 
+    // Verify that a recovery code was recently validated for this user
+    const validatedCode = await this.recoveryCodeRepository.findOne({
+      user_id: user.id,
+      used: true,
+    });
+
+    if (!validatedCode) {
+      throw new BadRequestException(
+        'Nenhum código de recuperação validado encontrado',
+      );
+    }
+
     const password = await bcrypt.hash(data.password, 10);
 
     await this.userRepository.update(user.id, { password: password });
+
+    // Invalidate all recovery codes for this user after successful password change
+    await this.recoveryCodeRepository.deleteMany({ user_id: user.id });
 
     return { message: 'Senha alterada com sucesso' };
   }
@@ -270,5 +365,45 @@ export class AuthService {
     await this.userRepository.update(user.id, { password: newPasswordHash });
 
     return { message: 'Senha alterada com sucesso' };
+  }
+
+  /**
+   * Validates a refresh token and returns a new access_token + rotated refresh_token.
+   */
+  async refreshAccessToken(token: string) {
+    const storedToken = await this.refreshTokenRepo.findOne({
+      where: { token, revoked: false },
+    });
+
+    if (!storedToken) {
+      throw new BadRequestException('Refresh token inválido');
+    }
+
+    if (new Date() > new Date(storedToken.expires_at)) {
+      // Revoke expired token
+      await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
+      throw new BadRequestException('Refresh token expirado');
+    }
+
+    // Revoke the used token (rotation)
+    await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
+
+    // Issue new tokens
+    const newRefreshToken = await this.createRefreshToken(storedToken.user_id);
+
+    return {
+      access_token: this.jwtService.sign({ userId: storedToken.user_id }),
+      refresh_token: newRefreshToken,
+    };
+  }
+
+  /**
+   * Revokes all refresh tokens for a user (used on logout or password change).
+   */
+  async revokeRefreshTokens(userId: string) {
+    await this.refreshTokenRepo.update(
+      { user_id: userId, revoked: false },
+      { revoked: true },
+    );
   }
 }

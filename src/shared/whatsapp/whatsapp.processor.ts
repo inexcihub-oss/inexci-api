@@ -1,6 +1,7 @@
-import { Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { OnQueueFailed, Process, Processor } from '@nestjs/bull';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { Job } from 'bull';
 import Twilio = require('twilio');
@@ -8,12 +9,19 @@ import {
   WhatsappMessageLog,
   WhatsappMessageStatus,
 } from 'src/database/entities/whatsapp-message-log.entity';
+import {
+  NotificationSendLog,
+  NotificationChannel,
+  NotificationSendStatus,
+} from 'src/database/entities/notification-send-log.entity';
 import { WhatsappJobData } from './whatsapp.service';
 
+@Injectable()
 @Processor('whatsapp-messages')
 export class WhatsappProcessor {
   private readonly logger = new Logger(WhatsappProcessor.name);
   private readonly twilioClient: ReturnType<typeof Twilio> | null;
+  private readonly twilioWhatsappFrom: string;
 
   /**
    * Normaliza um número de telefone para o formato E.164 exigido pelo Twilio.
@@ -40,9 +48,12 @@ export class WhatsappProcessor {
   constructor(
     @InjectRepository(WhatsappMessageLog)
     private readonly logRepository: Repository<WhatsappMessageLog>,
+    @InjectRepository(NotificationSendLog)
+    private readonly sendLogRepository: Repository<NotificationSendLog>,
+    private readonly configService: ConfigService,
   ) {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
+    const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
 
     if (accountSid && authToken) {
       this.twilioClient = Twilio(accountSid, authToken);
@@ -52,12 +63,17 @@ export class WhatsappProcessor {
         'Twilio não configurado (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN ausentes). Mensagens WhatsApp serão apenas logadas.',
       );
     }
+
+    this.twilioWhatsappFrom = this.configService.get<string>(
+      'TWILIO_WHATSAPP_FROM',
+      'whatsapp:+14155238886',
+    );
   }
 
   @Process('send-whatsapp')
   async handleSendWhatsapp(job: Job<WhatsappJobData>): Promise<void> {
-    const { to, body } = job.data;
-    const from = process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886';
+    const { to, body, contentSid, variables } = job.data;
+    const from = this.twilioWhatsappFrom;
 
     // TO: normaliza o número do paciente (pode estar em vários formatos, ex: "(31) 98908-5791")
     const toNormalized = this.normalizeToE164(to);
@@ -68,9 +84,14 @@ export class WhatsappProcessor {
       ? from
       : `whatsapp:${from}`;
 
+    const isTemplate = !!contentSid;
+    const logBody = isTemplate
+      ? `[template:${contentSid}] vars=${JSON.stringify(variables ?? {})}`
+      : (body ?? '');
+
     const log = this.logRepository.create({
       to: toNormalized,
-      body,
+      body: logBody,
       status: WhatsappMessageStatus.SENT,
       sentAt: null,
       errorMessage: null,
@@ -78,12 +99,24 @@ export class WhatsappProcessor {
 
     try {
       if (!this.twilioClient) {
-        // Modo dev: apenas loga, sem enviar
         this.logger.log(
-          `[DEV] Mensagem WhatsApp (sem Twilio configurado) → ${toFormatted}: ${body}`,
+          `[DEV] WhatsApp (sem Twilio) → ${toFormatted}: ${logBody}`,
         );
         log.status = WhatsappMessageStatus.SENT;
         log.sentAt = new Date();
+      } else if (isTemplate) {
+        this.logger.log(
+          `Enviando template WhatsApp: from=${fromNormalized} to=${toFormatted} contentSid=${contentSid}`,
+        );
+        await this.twilioClient.messages.create({
+          from: fromNormalized,
+          to: toFormatted,
+          contentSid,
+          contentVariables: JSON.stringify(variables ?? {}),
+        } as any);
+        log.status = WhatsappMessageStatus.SENT;
+        log.sentAt = new Date();
+        this.logger.log(`Template WhatsApp enviado com sucesso para: ${to}`);
       } else {
         this.logger.log(
           `Enviando WhatsApp: from=${fromNormalized} to=${toFormatted}`,
@@ -113,6 +146,45 @@ export class WhatsappProcessor {
           `Falha ao salvar log de WhatsApp: ${logErr?.message}`,
         );
       }
+
+      // Salvar no notification_send_log unificado
+      try {
+        const sendLog = this.sendLogRepository.create({
+          channel: NotificationChannel.WHATSAPP,
+          status:
+            log.status === WhatsappMessageStatus.SENT
+              ? NotificationSendStatus.SENT
+              : NotificationSendStatus.FAILED,
+          to: toNormalized,
+          template: isTemplate ? contentSid : null,
+          error_message: log.errorMessage,
+          job_id: String(job.id),
+          attempts: job.attemptsMade + 1,
+          sent_at: log.sentAt,
+        });
+        await this.sendLogRepository.save(sendLog);
+      } catch (logErr: any) {
+        this.logger.error(
+          `Falha ao salvar notification_send_log: ${logErr?.message}`,
+        );
+      }
+    }
+  }
+
+  @OnQueueFailed()
+  handleFailedJob(job: Job<WhatsappJobData>, error: Error) {
+    const maxAttempts = job.opts?.attempts ?? 3;
+    if (job.attemptsMade >= maxAttempts) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'whatsapp_dead_letter',
+          to: job.data.to,
+          contentSid: job.data.contentSid ?? null,
+          jobId: job.id,
+          attemptsMade: job.attemptsMade,
+          error: error.message,
+        }),
+      );
     }
   }
 }

@@ -1,10 +1,16 @@
 import { InjectQueue } from '@nestjs/bull';
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bull';
 
 export interface WhatsappJobData {
   to: string;
-  body: string;
+  /** Mensagem freeform — usado apenas dentro da janela de 24h de conversa iniciada pelo usuário */
+  body?: string;
+  /** contentSid do template pré-aprovado pela Meta via Twilio Content API */
+  contentSid?: string;
+  /** Variáveis do template com chaves numéricas: {"1": valor1, "2": valor2} */
+  variables?: Record<string, string>;
 }
 
 @Injectable()
@@ -14,6 +20,7 @@ export class WhatsappService {
   constructor(
     @InjectQueue('whatsapp-messages')
     private readonly whatsappQueue: Queue,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -41,9 +48,39 @@ export class WhatsappService {
   }
 
   /**
+   * Enfileira um template WhatsApp pré-aprovado para envio assíncrono via Bull.
+   * Deve ser usado para mensagens proativas (fora da janela de 24h).
+   */
+  async sendTemplate(
+    to: string,
+    contentSid: string,
+    variables: Record<string, string>,
+  ): Promise<void> {
+    try {
+      await this.whatsappQueue.add(
+        'send-whatsapp',
+        { to, contentSid, variables } satisfies WhatsappJobData,
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+      this.logger.log(
+        `Template WhatsApp enfileirado para: ${to} (contentSid: ${contentSid})`,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao enfileirar template WhatsApp: to="${to}" contentSid="${contentSid}" — ${err?.message}`,
+      );
+    }
+  }
+
+  /**
    * Envia mensagem de boas-vindas ao paciente recém-cadastrado.
    */
-  async sendPatientWelcome(to: string, patientName: string): Promise<void> {
+  sendPatientWelcome(to: string, patientName: string): Promise<void> {
     const body =
       `Olá, ${patientName}! 👋\n\n` +
       `Você foi cadastrado na plataforma *Inexci*. ` +
@@ -55,13 +92,12 @@ export class WhatsappService {
   /**
    * Envia mensagem de boas-vindas ao médico recém-cadastrado.
    */
-  async sendDoctorWelcome(
+  sendDoctorWelcome(
     to: string,
     doctorName: string,
     email: string,
   ): Promise<void> {
-    const dashboardUrl =
-      process.env.DASHBOARD_URL || 'https://app.inexci.com.br';
+    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
     const body =
       `Olá, Dr(a). ${doctorName}! 👨‍⚕️\n\n` +
       `Sua conta na plataforma *Inexci* foi criada com sucesso. ` +

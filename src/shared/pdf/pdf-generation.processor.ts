@@ -1,5 +1,5 @@
 import { Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job } from 'bull';
@@ -10,10 +10,18 @@ import {
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { User } from 'src/database/entities/user.entity';
 import { ReportSection } from 'src/database/entities/report-section.entity';
-import { PdfService } from './pdf.service';
+import { PdfService, SurgeryRequestLaudoPdfData } from './pdf.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { PdfGenerationJobData } from './pdf-generation.service';
+import {
+  formatPhone,
+  formatCpf,
+  formatCep,
+  formatDateBR,
+} from 'src/shared/utils';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
+@Injectable()
 @Processor('pdf-generation')
 export class PdfGenerationProcessor {
   private readonly logger = new Logger(PdfGenerationProcessor.name);
@@ -50,6 +58,7 @@ export class PdfGenerationProcessor {
           'tuss_items',
           'opme_items',
           'documents',
+          'report_sections',
         ],
       });
 
@@ -83,38 +92,6 @@ export class PdfGenerationProcessor {
         }
       }
 
-      // ── Helpers de formatação ─────────────────────────────────────────────
-      const digitsOnly = (v: string) => (v ? v.replace(/\D/g, '') : '');
-      const formatPhone = (v: string) => {
-        const d = digitsOnly(v).slice(0, 11);
-        if (d.length <= 10) {
-          return d.length > 6
-            ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
-            : d;
-        }
-        return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-      };
-      const formatCpf = (v: string) => {
-        const d = digitsOnly(v).slice(0, 11);
-        if (d.length <= 3) return d;
-        if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
-        if (d.length <= 9)
-          return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
-        return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
-      };
-      const formatCep = (v: string) => {
-        const d = digitsOnly(v).slice(0, 8);
-        if (d.length <= 5) return d;
-        return `${d.slice(0, 5)}-${d.slice(5)}`;
-      };
-      const formatDateBR = (v: string) => {
-        if (!v) return '';
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) return v;
-        const m = v.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-        return v;
-      };
-
       // ── CRM formatado ─────────────────────────────────────────────────────
       let doctorCrm: string | undefined;
       if (profile?.crm) {
@@ -145,11 +122,13 @@ export class PdfGenerationProcessor {
       }
 
       const pd = reportData.patientData ?? {};
-      const patient = (request as any).patient;
+      const patient = request.patient;
 
       // ── Imagens dos exames (documentos com key report_images) ─────────────
-      const allDocs = (request as any).documents ?? [];
-      const examDocs = allDocs.filter((d: any) => d.key === 'report_images');
+      const allDocs = request.documents ?? [];
+      const examDocs = allDocs.filter(
+        (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
+      );
       const examImages: string[] = (
         await Promise.all(
           examDocs.map(async (doc: any) => {
@@ -166,7 +145,7 @@ export class PdfGenerationProcessor {
       ).filter((u): u is string => !!u);
 
       // ── Procedimentos (TUSS) ──────────────────────────────────────────────
-      const tussItems = (request as any).tuss_items ?? [];
+      const tussItems = request.tuss_items ?? [];
       const procedures = tussItems.map((item: any) => ({
         name: item.name,
         tussCode: item.tuss_code,
@@ -174,7 +153,7 @@ export class PdfGenerationProcessor {
       }));
 
       // ── Materiais (OPME) ──────────────────────────────────────────────────
-      const opmeItemsRaw = (request as any).opme_items ?? [];
+      const opmeItemsRaw = request.opme_items ?? [];
       const opmeItems = opmeItemsRaw.map((item: any) => ({
         name: item.name,
         quantity: item.quantity ?? 1,
@@ -196,7 +175,7 @@ export class PdfGenerationProcessor {
       const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
 
       // ── Hospital (local) ──────────────────────────────────────────────────
-      const hospital = (request as any).hospital;
+      const hospital = request.hospital;
       const localText = [hospital?.name, hospital?.address]
         .filter(Boolean)
         .join(' – ');
@@ -205,44 +184,57 @@ export class PdfGenerationProcessor {
       const doctorPhoneRaw = doctor?.phone ?? '';
       const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
 
+      // ── Seções dinâmicas do laudo ──────────────────────────────────────
+      const reportSections = (request.report_sections ?? []).sort(
+        (a: any, b: any) => (a.order ?? 0) - (b.order ?? 0),
+      );
+
       // ── Dados do laudo ────────────────────────────────────────────────────
-      const laudoData: import('src/shared/pdf/pdf.service').SurgeryRequestLaudoPdfData =
-        {
-          today: new Date().toLocaleDateString('pt-BR'),
-          patientName: pd.name || patient?.name || undefined,
-          patientBirthDate:
-            pd.birthDate ||
-            (patient?.birth_date
-              ? formatDateBR(patient.birth_date)
-              : undefined),
-          patientRg: pd.rg || patient?.rg || undefined,
-          patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
-          patientPhone:
-            formatPhone(pd.phone || patient?.phone || '') || undefined,
-          patientAddress: pd.address || patient?.address || undefined,
-          patientZipCode:
-            formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
-            undefined,
-          patientHealthPlan:
-            pd.healthPlan || (request as any).health_plan?.name || undefined,
-          historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
-          conduct: reportData.conduct || undefined,
-          examImages: examImages.length ? examImages : undefined,
-          procedures: procedures.length ? procedures : undefined,
-          opmeItems: opmeItems.length ? opmeItems : undefined,
-          fabricantesText: fabricantesText || undefined,
-          fornecedoresText: fornecedoresText || undefined,
-          hasSeparator,
-          localText: localText || undefined,
-          doctorName: doctor?.name ?? 'Médico',
-          doctorEmail: doctorEmail || undefined,
-          doctorPhone: doctorPhoneFormatted || undefined,
-          doctorSpecialty: profile?.specialty || undefined,
-          doctorCrm: doctorCrm || undefined,
-          hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
-          hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
-          doctorSignatureUrl: doctorSignatureUrl || undefined,
-        };
+      const laudoData: SurgeryRequestLaudoPdfData = {
+        today: new Date().toLocaleDateString('pt-BR'),
+        patientName: pd.name || patient?.name || undefined,
+        patientBirthDate:
+          pd.birthDate ||
+          (patient?.birth_date
+            ? formatDateBR(patient.birth_date.toISOString())
+            : undefined),
+        patientRg: pd.rg || undefined,
+        patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
+        patientPhone:
+          formatPhone(pd.phone || patient?.phone || '') || undefined,
+        patientAddress: pd.address || patient?.address || undefined,
+        patientZipCode:
+          formatCep(pd.zipCode || patient?.zip_code || '') || undefined,
+        patientHealthPlan:
+          pd.healthPlan || request.health_plan?.name || undefined,
+        historyAndDiagnosis: reportSections.length
+          ? undefined
+          : reportData.historyAndDiagnosis || undefined,
+        conduct: reportSections.length
+          ? undefined
+          : reportData.conduct || undefined,
+        sections: reportSections.length
+          ? reportSections.map((s: any) => ({
+              title: s.title,
+              description: s.description,
+            }))
+          : undefined,
+        examImages: examImages.length ? examImages : undefined,
+        procedures: procedures.length ? procedures : undefined,
+        opmeItems: opmeItems.length ? opmeItems : undefined,
+        fabricantesText: fabricantesText || undefined,
+        fornecedoresText: fornecedoresText || undefined,
+        hasSeparator,
+        localText: localText || undefined,
+        doctorName: doctor?.name ?? 'Médico',
+        doctorEmail: doctorEmail || undefined,
+        doctorPhone: doctorPhoneFormatted || undefined,
+        doctorSpecialty: profile?.specialty || undefined,
+        doctorCrm: doctorCrm || undefined,
+        hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
+        hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
+        doctorSignatureUrl: doctorSignatureUrl || undefined,
+      };
 
       // ── Gerar PDF do laudo ────────────────────────────────────────────────
       const summaryBuffer =
@@ -253,7 +245,7 @@ export class PdfGenerationProcessor {
         (d: any) =>
           d.uri &&
           String(d.uri).startsWith('documents/') &&
-          d.key !== 'report_images',
+          d.key !== DOCUMENT_KEYS.REPORT_IMAGES,
       );
 
       const docBuffers: Buffer[] = [];

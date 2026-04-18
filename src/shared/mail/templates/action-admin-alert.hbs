@@ -1,0 +1,16 @@
+{{#> _layout title="Ação Realizada em Solicitação Cirúrgica" preferencesUrl=preferencesUrl}}
+  <p>Olá, Administrador!</p>
+  <p>Uma ação foi realizada em uma solicitação cirúrgica que requer sua atenção:</p>
+
+  <div class='info-box'>
+    <p><strong>Ação:</strong> {{actionLabel}}</p>
+    <p><strong>Realizada por:</strong> {{actorName}}</p>
+    <p><strong>Paciente:</strong> {{patientName}}</p>
+    <p><strong>Protocolo:</strong> {{requestId}}</p>
+    <p><strong>Data/Hora:</strong> {{actionAt}}</p>
+  </div>
+
+  {{#if dashboardUrl}}
+    <p><a class='btn' href='{{dashboardUrl}}'>Ver Detalhes</a></p>
+  {{/if}}
+{{/_layout}}

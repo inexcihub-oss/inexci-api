@@ -4,13 +4,15 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   OneToOne,
   OneToMany,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { DoctorProfile } from './doctor-profile.entity';
-import { TeamMember } from './team-member.entity';
+import { UserDoctorAccess } from './user-doctor-access.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { Chat } from './chat.entity';
 import { ChatMessage } from './chat-message.entity';
@@ -21,13 +23,13 @@ import { SubscriptionPlan } from './subscription-plan.entity';
 
 /**
  * Roles de usuário no sistema
- * - ADMIN: Administrador da plataforma (acesso a todos os médicos)
- * - DOCTOR: Médico (dono da conta, gestor principal)
- * - COLLABORATOR: Colaborador/Assistente (trabalha para um ou mais médicos)
+ * - ADMIN: Administrador da conta (gerencia usuários e plano)
+ * - COLLABORATOR: Colaborador criado por um admin
+ *
+ * "Médico" não é um role — é definido pela existência de um doctor_profile.
  */
 export enum UserRole {
   ADMIN = 'admin',
-  DOCTOR = 'doctor',
   COLLABORATOR = 'collaborator',
 }
 
@@ -35,9 +37,9 @@ export enum UserRole {
  * Status do usuário
  */
 export enum UserStatus {
-  PENDING = 1, // Aguardando ativação
-  ACTIVE = 2, // Ativo
-  INACTIVE = 3, // Inativo/Suspenso
+  PENDING = 'pending',
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
 }
 
 @Entity('user')
@@ -48,12 +50,13 @@ export class User {
   @Column({
     type: 'enum',
     enum: UserRole,
-    default: UserRole.DOCTOR,
+    default: UserRole.COLLABORATOR,
   })
   role: UserRole;
 
   @Column({
-    type: 'smallint',
+    type: 'enum',
+    enum: UserStatus,
     default: UserStatus.PENDING,
   })
   status: UserStatus;
@@ -61,7 +64,8 @@ export class User {
   @Column({ type: 'varchar', length: 100, unique: true })
   email: string;
 
-  @Column({ type: 'varchar', length: 60, nullable: true })
+  @Exclude()
+  @Column({ type: 'varchar', length: 60, nullable: true, select: false })
   password: string;
 
   @Column({ type: 'varchar', length: 100 })
@@ -73,6 +77,24 @@ export class User {
   @Column({ type: 'varchar', length: 14, nullable: true })
   cpf: string;
 
+  @Column({ type: 'varchar', length: 9, nullable: true })
+  cep: string;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  address: string;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  address_number: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  address_complement: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  city: string;
+
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  state: string;
+
   @Column({ type: 'char', length: 1, nullable: true })
   gender: string;
 
@@ -82,25 +104,8 @@ export class User {
   @Column({ type: 'varchar', length: 255, nullable: true })
   avatar_url: string;
 
-  // ============ NOVOS CAMPOS: ADMIN E MÉDICO ============
-
-  @Column({ type: 'boolean', default: false })
-  is_admin: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  is_doctor: boolean;
-
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  crm: string;
-
-  @Column({ type: 'varchar', length: 2, nullable: true })
-  crm_state: string;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  specialty: string;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  signature_image_url: string;
+  @Column({ name: 'account_id' })
+  account_id: string;
 
   @Column({ name: 'subscription_plan_id', nullable: true })
   subscription_plan_id: string;
@@ -114,7 +119,17 @@ export class User {
   @UpdateDateColumn()
   updated_at: Date;
 
+  @DeleteDateColumn()
+  deleted_at: Date;
+
   // ============ RELAÇÕES ============
+
+  // Conta raiz (particionamento por tenant) — self-referencing
+  // nullable: true é necessário no TypeORM para evitar CircularRelationsError
+  // na prática o DB garante NOT NULL via migration
+  @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'account_id' })
+  account: User;
 
   // Plano de assinatura (apenas para Admins)
   @ManyToOne(() => SubscriptionPlan, (plan) => plan.users, { nullable: true })
@@ -130,17 +145,17 @@ export class User {
   @OneToMany(() => User, (user) => user.admin)
   managed_users: User[];
 
-  // Perfil de médico (1:1) - só existe se role = DOCTOR
+  // Perfil de médico (1:1) — existe se o usuário é médico
   @OneToOne(() => DoctorProfile, (profile) => profile.user, { cascade: true })
   doctor_profile: DoctorProfile;
 
-  // Colaboradores que este médico gerencia (quando role = DOCTOR)
-  @OneToMany(() => TeamMember, (tm) => tm.doctor)
-  team_members: TeamMember[];
+  // Médicos que este usuário acessa (vínculos ativos em user_doctor_access)
+  @OneToMany(() => UserDoctorAccess, (uda) => uda.user)
+  doctor_accesses: UserDoctorAccess[];
 
-  // Médicos para quem este colaborador trabalha (quando role = COLLABORATOR)
-  @OneToMany(() => TeamMember, (tm) => tm.collaborator)
-  works_for: TeamMember[];
+  // Quem acessa este usuário como médico (inverso do vínculo)
+  @OneToMany(() => UserDoctorAccess, (uda) => uda.doctor)
+  accessible_by: UserDoctorAccess[];
 
   // Códigos de recuperação de senha
   @OneToMany(() => RecoveryCode, (code) => code.user)
@@ -165,4 +180,15 @@ export class User {
   // Configurações de notificação
   @OneToOne(() => UserNotificationSettings, (settings) => settings.user)
   notification_settings: UserNotificationSettings;
+
+  // ============ PROPRIEDADE VIRTUAL ============
+
+  /**
+   * Indica se o usuário é médico.
+   * Baseado na existência de doctor_profile (precisa ser carregado via relation).
+   * Usado apenas para serialização no response, NÃO para lógica interna.
+   */
+  get is_doctor(): boolean {
+    return !!this.doctor_profile;
+  }
 }

@@ -1,51 +1,77 @@
-import { Injectable } from '@nestjs/common';
-import { FindOptionsWhere, Between, LessThan } from 'typeorm';
+import { Logger, Injectable } from '@nestjs/common';
+import {
+  FindOptionsWhere,
+  Between,
+  LessThan,
+  In,
+  MoreThanOrEqual,
+  LessThanOrEqual,
+  And,
+} from 'typeorm';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { UserRepository } from 'src/database/repositories/user.repository';
-import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { UserRole } from 'src/database/entities/user.entity';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
+
+export interface ReportFilters {
+  hospitalId?: string;
+  healthPlanId?: string;
+  startDate?: Date;
+  endDate?: Date;
+}
 
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly userRepository: UserRepository,
-    private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
-  private async getDoctorId(userId: string): Promise<string | null> {
-    const user = await this.userRepository.findOne({ id: userId });
-
-    if (user.role === UserRole.DOCTOR) {
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      return doctorProfile?.id || null;
+  private applyFilters(
+    where: FindOptionsWhere<SurgeryRequest>,
+    filters?: ReportFilters,
+  ): FindOptionsWhere<SurgeryRequest> {
+    if (!filters) return where;
+    const w = { ...where };
+    if (filters.hospitalId) w.hospital_id = filters.hospitalId;
+    if (filters.healthPlanId) w.health_plan_id = filters.healthPlanId;
+    if (filters.startDate && filters.endDate) {
+      w.created_at = Between(filters.startDate, filters.endDate);
+    } else if (filters.startDate) {
+      w.created_at = MoreThanOrEqual(filters.startDate);
+    } else if (filters.endDate) {
+      w.created_at = LessThanOrEqual(filters.endDate);
     }
-
-    // TODO: Para colaboradores, obter via TeamMember
-    return null;
+    return w;
   }
 
-  async dashboard(userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    const doctorId = await this.getDoctorId(userId);
+  async dashboard(userId: string, filters?: ReportFilters) {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
 
-    let where: FindOptionsWhere<SurgeryRequest> = {};
-    let whereString = 'WHERE ';
-
-    if (user.role === UserRole.DOCTOR && doctorId) {
-      where = { ...where, doctor_id: doctorId };
-      whereString += `sr.doctor_id='${doctorId}'`;
-    } else if (user.role === UserRole.COLLABORATOR) {
-      where = { ...where, created_by_id: userId };
-      whereString += `sr.created_by_id='${userId}'`;
-    } else if (user.role === UserRole.ADMIN) {
-      whereString += '1=1'; // Admin vê tudo
+    if (doctorIds.length === 0) {
+      return {
+        surgery_request: {
+          total: 0,
+          total_scheduled: 0,
+          total_performed: 0,
+          total_invoiced_count: 0,
+          total_invoiced_value: 0,
+          total_received_value: 0,
+          total_by_health_plan: [],
+          total_by_status: [],
+          total_by_hospital: [],
+        },
+      };
     }
+
+    const baseWhere: FindOptionsWhere<SurgeryRequest> = {
+      doctor_id: In(doctorIds),
+    };
+    const where = this.applyFilters(baseWhere, filters);
 
     const [respTotal, respTotalScheduled, respPerformed, respInvoiced] =
       await Promise.all([
@@ -70,10 +96,10 @@ export class ReportsService {
       totalByStatus,
       totalByHospital,
     ]: any = await Promise.all([
-      this.surgeryRequestRepository.sumInvoiced(where),
-      this.surgeryRequestRepository.totalByHealthPlan(whereString),
-      this.surgeryRequestRepository.totalByStatus(whereString),
-      this.surgeryRequestRepository.totalByHospital(whereString),
+      this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
+      this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
+      this.surgeryRequestRepository.totalByStatus(doctorIds, filters),
+      this.surgeryRequestRepository.totalByHospital(doctorIds, filters),
     ]);
 
     totalByHealthPlan = totalByHealthPlan.map((item) => {
@@ -106,30 +132,33 @@ export class ReportsService {
     };
   }
 
-  private async getWhereConditions(userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    const doctorId = await this.getDoctorId(userId);
+  private async getWhereConditions(userId: string, filters?: ReportFilters) {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
 
     let where: FindOptionsWhere<SurgeryRequest> = {};
-    let whereString = 'WHERE 1=1';
 
-    if (user.role === UserRole.DOCTOR && doctorId) {
-      where = { ...where, doctor_id: doctorId };
-      whereString += ` AND doctor_id='${doctorId}'`;
-    } else if (user.role === UserRole.COLLABORATOR) {
-      where = { ...where, created_by_id: userId };
-      whereString += ` AND created_by_id='${userId}'`;
+    if (doctorIds.length > 0) {
+      where = { ...where, doctor_id: In(doctorIds) };
+    } else {
+      where = { ...where, doctor_id: In(['__none__']) };
     }
 
-    return { where, whereString };
+    where = this.applyFilters(where, filters);
+
+    return { where, doctorIds };
   }
 
-  async temporalEvolution(userId: string, days: number = 30) {
-    const { where } = await this.getWhereConditions(userId);
+  async temporalEvolution(
+    userId: string,
+    days: number = 30,
+    filters?: ReportFilters,
+  ) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const endDate = filters?.endDate || new Date();
+    const startDate =
+      filters?.startDate || new Date(endDate.getTime() - days * 86400000);
 
     const results = await this.surgeryRequestRepository.getTemporalEvolution(
       where,
@@ -140,8 +169,8 @@ export class ReportsService {
     return results;
   }
 
-  async averageCompletionTime(userId: string) {
-    const { where } = await this.getWhereConditions(userId);
+  async averageCompletionTime(userId: string, filters?: ReportFilters) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
     const result =
       await this.surgeryRequestRepository.getAverageCompletionTime(where);
@@ -151,8 +180,8 @@ export class ReportsService {
     };
   }
 
-  async pendingNotifications(userId: string) {
-    const { where } = await this.getWhereConditions(userId);
+  async pendingNotifications(userId: string, filters?: ReportFilters) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
     // Considerar como pendentes: solicitações em análise ou reanálise há mais de 5 dias
     const fiveDaysAgo = new Date();
@@ -178,8 +207,12 @@ export class ReportsService {
     };
   }
 
-  async monthlyEvolution(userId: string, months: number = 6) {
-    const { where } = await this.getWhereConditions(userId);
+  async monthlyEvolution(
+    userId: string,
+    months: number = 6,
+    filters?: ReportFilters,
+  ) {
+    const { where } = await this.getWhereConditions(userId, filters);
 
     const results = await this.surgeryRequestRepository.getMonthlyEvolution(
       where,

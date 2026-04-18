@@ -1,20 +1,17 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-
 import { StatusUpdate } from '../entities/status-update.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class StatusUpdateRepository {
+export class StatusUpdateRepository extends BaseRepository<StatusUpdate> {
   constructor(
     @InjectRepository(StatusUpdate)
-    private readonly repository: Repository<StatusUpdate>,
-  ) {}
-
-  async create(data: Partial<StatusUpdate>): Promise<StatusUpdate> {
-    const statusUpdate = this.repository.create(data);
-    return await this.repository.save(statusUpdate);
+    repository: Repository<StatusUpdate>,
+  ) {
+    super(repository);
   }
 
   async findMany(): Promise<StatusUpdate[]> {

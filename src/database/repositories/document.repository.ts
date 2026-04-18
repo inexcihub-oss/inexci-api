@@ -1,22 +1,23 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-
 import { Document } from '../entities/document.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class DocumentRepository {
+export class DocumentRepository extends BaseRepository<Document> {
   constructor(
     @InjectRepository(Document)
-    private readonly repository: Repository<Document>,
-  ) {}
+    repository: Repository<Document>,
+  ) {
+    super(repository);
+  }
 
   async create(data: Partial<Document>): Promise<Document> {
     const document = this.repository.create(data);
     const saved = await this.repository.save(document);
 
-    // Carregar com relacionamento creator
     return await this.repository.findOne({
       where: { id: saved.id },
       relations: ['creator'],

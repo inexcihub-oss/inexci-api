@@ -15,6 +15,10 @@ export class UpdateNotificationSettingsDto {
 
   @IsOptional()
   @IsBoolean()
+  whatsapp_notifications?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   new_surgery_request?: boolean;
 
   @IsOptional()

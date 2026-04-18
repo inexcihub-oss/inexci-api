@@ -1,16 +1,18 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
-
 import { DefaultDocumentClinic } from '../entities/default-document-clinic.entity';
+import { BaseRepository } from './base.repository';
 
 @Global()
 @Injectable()
-export class DocumentKeyRepository {
+export class DocumentKeyRepository extends BaseRepository<DefaultDocumentClinic> {
   constructor(
     @InjectRepository(DefaultDocumentClinic)
-    private readonly repository: Repository<DefaultDocumentClinic>,
-  ) {}
+    repository: Repository<DefaultDocumentClinic>,
+  ) {
+    super(repository);
+  }
 
   async create(
     data: Partial<DefaultDocumentClinic>,
@@ -18,7 +20,6 @@ export class DocumentKeyRepository {
     const documentKey = this.repository.create(data);
     const saved = await this.repository.save(documentKey);
 
-    // Carregar com relacionamento creator
     return await this.repository.findOne({
       where: { id: saved.id },
       relations: ['creator'],
@@ -35,7 +36,7 @@ export class DocumentKeyRepository {
     });
   }
 
-  async findOne(
+  async findDoctorId(
     where: FindOptionsWhere<DefaultDocumentClinic>,
   ): Promise<{ doctor_id: string } | null> {
     const result = await this.repository.findOne({
@@ -49,9 +50,5 @@ export class DocumentKeyRepository {
     where: FindOptionsWhere<DefaultDocumentClinic>,
   ): Promise<DefaultDocumentClinic[]> {
     return await this.repository.find({ where });
-  }
-
-  async total(where: FindOptionsWhere<DefaultDocumentClinic>): Promise<number> {
-    return await this.repository.count({ where });
   }
 }

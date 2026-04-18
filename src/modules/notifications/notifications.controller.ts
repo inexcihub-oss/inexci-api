@@ -4,14 +4,21 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
-  Post,
   Put,
   Query,
-  Request,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
 @Controller('notifications')
 export class NotificationsController {
@@ -20,31 +27,33 @@ export class NotificationsController {
   // ============ Settings ============
 
   @Get('settings')
-  async getSettings(@Request() req: any) {
-    return await this.notificationsService.getSettings(req.user.userId);
+  async getSettings(@CurrentUser() user: AuthenticatedUser) {
+    return await this.notificationsService.getSettings(user.userId);
   }
 
   @Put('settings')
+  @ApiOperation({ summary: 'Atualizar configurações de notificação' })
   async updateSettings(
     @Body() data: UpdateNotificationSettingsDto,
-    @Request() req: any,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return await this.notificationsService.updateSettings(
-      req.user.userId,
-      data,
-    );
+    return await this.notificationsService.updateSettings(user.userId, data);
   }
 
   // ============ Notifications ============
 
   @Get()
+  @ApiOperation({ summary: 'Listar notificações' })
+  @ApiQuery({ name: 'skip', required: false })
+  @ApiQuery({ name: 'take', required: false })
+  @ApiQuery({ name: 'unreadOnly', required: false })
   async getNotifications(
-    @Request() req: any,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
     @Query('unreadOnly') unreadOnly?: string,
   ) {
-    return await this.notificationsService.getNotifications(req.user.userId, {
+    return await this.notificationsService.getNotifications(user.userId, {
       skip: skip ? parseInt(skip, 10) : undefined,
       take: take ? parseInt(take, 10) : undefined,
       unreadOnly: unreadOnly === 'true',
@@ -52,28 +61,33 @@ export class NotificationsController {
   }
 
   @Get('unread-count')
-  async getUnreadCount(@Request() req: any) {
-    const count = await this.notificationsService.getUnreadCount(
-      req.user.userId,
-    );
+  @ApiOperation({ summary: 'Contagem de notificações não lidas' })
+  async getUnreadCount(@CurrentUser() user: AuthenticatedUser) {
+    const count = await this.notificationsService.getUnreadCount(user.userId);
     return { count };
   }
 
   @Put(':id/read')
-  async markAsRead(@Param('id') id: string, @Request() req: any) {
-    return await this.notificationsService.markAsRead(id, req.user.userId);
+  @ApiOperation({ summary: 'Marcar notificação como lida' })
+  async markAsRead(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.notificationsService.markAsRead(id, user.userId);
   }
 
   @Put('read-all')
-  async markAllAsRead(@Request() req: any) {
-    return await this.notificationsService.markAllAsRead(req.user.userId);
+  @ApiOperation({ summary: 'Marcar todas como lidas' })
+  async markAllAsRead(@CurrentUser() user: AuthenticatedUser) {
+    return await this.notificationsService.markAllAsRead(user.userId);
   }
 
   @Delete(':id')
-  async deleteNotification(@Param('id') id: string, @Request() req: any) {
-    return await this.notificationsService.deleteNotification(
-      id,
-      req.user.userId,
-    );
+  @ApiOperation({ summary: 'Excluir notificação' })
+  async deleteNotification(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.notificationsService.deleteNotification(id, user.userId);
   }
 }

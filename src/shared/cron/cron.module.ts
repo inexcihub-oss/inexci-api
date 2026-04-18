@@ -1,13 +1,26 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { CronService } from './cron.service';
-import { SurgeryRequestsModule } from 'src/modules/surgery-requests/surgery-requests.module';
-import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { EmailService } from '../email/email.service';
-import { JwtService } from '@nestjs/jwt';
+import { MailModule } from '../mail/mail.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { NotificationsModule } from 'src/modules/notifications/notifications.module';
+import { StaleNotificationService } from 'src/modules/notifications/stale-notification.service';
+import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
+import { StaleNotificationLogRepository } from 'src/database/repositories/stale-notification-log.repository';
+import { User } from 'src/database/entities/user.entity';
 
 @Module({
-  imports: [SurgeryRequestsModule],
-  providers: [CronService, SurgeryRequestRepository, EmailService, JwtService],
-  exports: [CronService],
+  imports: [
+    TypeOrmModule.forFeature([StaleNotificationLog, User]),
+    MailModule,
+    WhatsappModule,
+    NotificationsModule,
+  ],
+  providers: [
+    CronService,
+    StaleNotificationService,
+    StaleNotificationLogRepository,
+  ],
+  exports: [CronService, StaleNotificationService],
 })
 export class CronModule {}

@@ -1,0 +1,301 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+
+import {
+  PdfService,
+  SurgeryRequestLaudoPdfData,
+  ContestAuthorizationPdfData,
+} from 'src/shared/pdf/pdf.service';
+import { UserRepository } from 'src/database/repositories/user.repository';
+import { StorageService } from 'src/shared/storage/storage.service';
+import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
+import {
+  formatPhone,
+  formatCpf,
+  formatCep,
+  formatDateBR,
+} from 'src/shared/utils';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
+import { SendMethod } from 'src/shared/constants/send-method';
+
+@Injectable()
+export class SurgeryRequestPdfAssemblyService {
+  private readonly logger = new Logger(SurgeryRequestPdfAssemblyService.name);
+
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly pdfService: PdfService,
+    private readonly userRepository: UserRepository,
+    private readonly storageService: StorageService,
+  ) {}
+
+  /**
+   * Resolve a URL da assinatura do médico (signed URL se for path do storage).
+   */
+  async resolveDoctorSignatureUrl(
+    profile: any,
+  ): Promise<string | undefined> {
+    if (!profile?.signature_url) return undefined;
+    const raw: string = profile.signature_url;
+    if (raw.startsWith('http')) return raw;
+    try {
+      return await this.storageService.getSignedUrl(raw);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Carrega dados do médico (profile, CRM, assinatura) necessários para PDFs.
+   */
+  async loadDoctorData(userId: string) {
+    const doctor = await this.userRepository.findOneWithProfile({ id: userId });
+    const profile = doctor?.doctor_profile;
+
+    let doctorCrm: string | undefined;
+    if (profile?.crm) {
+      doctorCrm = `CRM ${profile.crm}${profile.crm_state ? `/${profile.crm_state}` : ''}`;
+    }
+
+    const doctorSignatureUrl = await this.resolveDoctorSignatureUrl(profile);
+
+    return { doctor, profile, doctorCrm, doctorSignatureUrl };
+  }
+
+  /**
+   * Gera o PDF do laudo (resumo da solicitação) com merge de documentos anexos.
+   */
+  async generateLaudoPdf(
+    request: any,
+    userId: string,
+  ): Promise<{ pdf: string; method: SendMethod.DOWNLOAD }> {
+    const { doctor, profile, doctorCrm, doctorSignatureUrl } =
+      await this.loadDoctorData(userId);
+
+    const doctorEmail = doctor?.email ?? '';
+    const doctorPhoneRaw = doctor?.phone ?? '';
+    const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
+
+    // ── Dados do laudo (medical_report JSON) ───────────────────────────────
+    let reportData: {
+      patientData?: {
+        name?: string;
+        birthDate?: string;
+        rg?: string;
+        cpf?: string;
+        phone?: string;
+        address?: string;
+        zipCode?: string;
+        healthPlan?: string;
+      };
+      historyAndDiagnosis?: string;
+      conduct?: string;
+    } = {};
+    try {
+      if (request.medical_report) {
+        reportData = JSON.parse(request.medical_report as unknown as string);
+      }
+    } catch {
+      // fallback vazio
+    }
+
+    const pd = reportData.patientData ?? {};
+    const patient = request.patient;
+
+    // ── Imagens dos exames ─────────────────────────────────────────────────
+    const allDocs = request.documents ?? [];
+    const examDocs = allDocs.filter((d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES);
+    const examImages: string[] = (
+      await Promise.all(
+        examDocs.map(async (doc: any) => {
+          const raw: string = doc.uri;
+          if (!raw) return null;
+          if (raw.startsWith('http')) return raw;
+          try {
+            return await this.storageService.getSignedUrl(raw);
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((u): u is string => !!u);
+
+    // ── Procedimentos (TUSS) ─────────────────────────────────────────────
+    const tussItems = request.tuss_items ?? [];
+    const procedures = tussItems.map((item: any) => ({
+      name: item.name,
+      tussCode: item.tuss_code,
+      quantity: item.quantity ?? 1,
+    }));
+
+    // ── Materiais (OPME) ─────────────────────────────────────────────────
+    const opmeItemsRaw = request.opme_items ?? [];
+    const opmeItems = opmeItemsRaw.map((item: any) => ({
+      name: item.name,
+      quantity: item.quantity ?? 1,
+    }));
+
+    // ── Fabricantes e Fornecedores ───────────────────────────────────────
+    const unique = (arr: string[]) =>
+      Array.from(new Set(arr.filter(Boolean)));
+    const fabricantes = unique(
+      opmeItemsRaw.map((i: any) => i.brand).filter(Boolean),
+    );
+    const fornecedores = unique(
+      opmeItemsRaw.map((i: any) => i.distributor).filter(Boolean),
+    );
+    const fabricantesText =
+      fabricantes.length > 0 ? fabricantes.join(', ') : '';
+    const fornecedoresText =
+      fornecedores.length > 0 ? fornecedores.join(', ') : '';
+    const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
+
+    // ── Hospital (local) ────────────────────────────────────────────────
+    const hospital = request.hospital;
+    const localText = [hospital?.name, hospital?.address]
+      .filter(Boolean)
+      .join(' – ');
+
+    const laudoData: SurgeryRequestLaudoPdfData = {
+      today: new Date().toLocaleDateString('pt-BR'),
+      patientName: pd.name || patient?.name || undefined,
+      patientBirthDate:
+        pd.birthDate ||
+        (patient?.birth_date ? formatDateBR(patient.birth_date) : undefined),
+      patientRg: pd.rg || patient?.rg || undefined,
+      patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
+      patientPhone:
+        formatPhone(pd.phone || patient?.phone || '') || undefined,
+      patientAddress: pd.address || patient?.address || undefined,
+      patientZipCode:
+        formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
+        undefined,
+      patientHealthPlan:
+        pd.healthPlan || request.health_plan?.name || undefined,
+      historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
+      conduct: reportData.conduct || undefined,
+      examImages: examImages.length ? examImages : undefined,
+      procedures: procedures.length ? procedures : undefined,
+      opmeItems: opmeItems.length ? opmeItems : undefined,
+      fabricantesText: fabricantesText || undefined,
+      fornecedoresText: fornecedoresText || undefined,
+      hasSeparator,
+      localText: localText || undefined,
+      doctorName: doctor?.name ?? 'Médico',
+      doctorEmail: doctorEmail || undefined,
+      doctorPhone: doctorPhoneFormatted || undefined,
+      doctorSpecialty: profile?.specialty || undefined,
+      doctorCrm: doctorCrm || undefined,
+      hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
+      hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
+      doctorSignatureUrl: doctorSignatureUrl || undefined,
+    };
+
+    const summaryBuffer =
+      await this.pdfService.generateSurgeryRequestLaudoPdf(laudoData);
+
+    // ── Buscar documentos da aba Informações Gerais (pasta documents/) ──
+    const infoDocs = allDocs.filter(
+      (d: any) =>
+        d.uri &&
+        String(d.uri).startsWith('documents/') &&
+        d.key !== DOCUMENT_KEYS.REPORT_IMAGES,
+    );
+
+    const docBuffers: Buffer[] = [];
+    for (const doc of infoDocs) {
+      try {
+        const signedUrl = await this.storageService.getSignedUrl(doc.uri);
+        const buf = await this.pdfService.fetchBuffer(signedUrl);
+        if (buf) docBuffers.push(buf);
+      } catch (err: any) {
+        this.logger.warn(
+          `[generateLaudoPdf] Não foi possível buscar documento "${doc.uri}": ${err?.message}`,
+        );
+      }
+    }
+
+    // ── Mesclar resumo + documentos em um único PDF ─────────────────────
+    let finalBuffer = summaryBuffer;
+    if (docBuffers.length > 0) {
+      this.logger.log(
+        `[generateLaudoPdf] Mesclando PDF com ${docBuffers.length} documento(s) anexo(s)`,
+      );
+      finalBuffer = await this.pdfService.mergePdfs([
+        summaryBuffer,
+        ...docBuffers,
+      ]);
+    }
+
+    return { pdf: finalBuffer.toString('base64'), method: SendMethod.DOWNLOAD };
+  }
+
+  /**
+   * Gera o PDF de contestação de autorização.
+   */
+  async generateContestAuthorizationPdf(
+    request: any,
+    id: string,
+    userId: string,
+  ): Promise<Buffer> {
+    const contestations = request.contestations ?? [];
+    const latestContestation = contestations
+      .filter((c: any) => c.type === 'authorization')
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )[0];
+
+    const reason =
+      latestContestation?.reason ??
+      'Venho por meio deste contestar a negativa de autorização referente aos códigos e materiais OPME solicitados.';
+
+    const patient = request.patient;
+
+    const tussItems = await this.dataSource
+      .getRepository(SurgeryRequestTussItem)
+      .find({ where: { surgery_request_id: id } });
+
+    const procedures = tussItems.map((item) => ({
+      description: item.name,
+      tussCode: item.tuss_code,
+      requestedQuantity: item.quantity,
+      authorizedQuantity: item.authorized_quantity ?? null,
+    }));
+
+    const opmeItems = (request.opme_items ?? []).map((item: any) => ({
+      name: item.name,
+      requestedQuantity: item.quantity,
+      authorizedQuantity:
+        item.authorized_quantity !== undefined
+          ? item.authorized_quantity
+          : null,
+    }));
+
+    const { doctor, profile, doctorCrm, doctorSignatureUrl } =
+      await this.loadDoctorData(userId);
+
+    const pdfData: ContestAuthorizationPdfData = {
+      today: new Date().toLocaleDateString('pt-BR'),
+      reason,
+      patientName: patient?.name ?? undefined,
+      patientBirthDate: patient?.birth_date
+        ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
+        : undefined,
+      patientRg: patient?.rg ?? undefined,
+      patientCpf: patient?.cpf ?? undefined,
+      patientPhone: patient?.phone ?? undefined,
+      patientAddress: patient?.address ?? undefined,
+      patientZipCode: patient?.zip_code ?? patient?.cep ?? undefined,
+      patientHealthPlan: request.health_plan?.name ?? undefined,
+      procedures: procedures.length ? procedures : undefined,
+      opmeItems: opmeItems.length ? opmeItems : undefined,
+      doctorName: doctor?.name ?? 'Médico',
+      doctorCrm,
+      doctorSpecialty: profile?.specialty ?? undefined,
+      doctorSignatureUrl,
+    };
+
+    return this.pdfService.generateContestAuthorizationPdf(pdfData);
+  }
+}

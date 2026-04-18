@@ -1,17 +1,21 @@
 import {
   Controller,
   Post,
+  Get,
+  Query,
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
-  BadRequestException,
   Body,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
-import { STORAGE_FOLDERS } from '../../config/storage.config';
-
-const ALLOWED_FOLDERS = Object.values(STORAGE_FOLDERS);
 
 @Controller('upload')
 export class UploadController {
@@ -28,16 +32,6 @@ export class UploadController {
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder: string,
   ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    if (!folder || !ALLOWED_FOLDERS.includes(folder as any)) {
-      throw new BadRequestException(
-        `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
-      );
-    }
-
     const result = await this.uploadService.uploadFile(file, folder);
 
     return {
@@ -51,22 +45,27 @@ export class UploadController {
    * POST /upload/multiple
    * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
    */
+  /**
+   * Gera URL assinada para um arquivo existente
+   * GET /upload/signed-url?path=avatars/uuid.png
+   */
+  @Get('signed-url')
+  async getSignedUrl(@Query('path') filePath: string) {
+    if (!filePath) {
+      throw new BadRequestException('O parâmetro "path" é obrigatório');
+    }
+    const result = await this.uploadService.getSignedUrl(filePath);
+    return { data: result };
+  }
+
   @Post('multiple')
+  @ApiOperation({ summary: 'Upload de múltiplos arquivos' })
+  @ApiConsumes('multipart/form-data')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultiple(
     @UploadedFiles() files: Express.Multer.File[],
     @Body('folder') folder: string,
   ) {
-    if (!files || files.length === 0) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    if (!folder || !ALLOWED_FOLDERS.includes(folder as any)) {
-      throw new BadRequestException(
-        `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
-      );
-    }
-
     const results = await this.uploadService.uploadMultipleFiles(files, folder);
 
     return {

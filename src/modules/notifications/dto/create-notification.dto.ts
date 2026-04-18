@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsNotEmpty,
@@ -29,5 +30,6 @@ export class CreateNotificationDto {
   link?: string;
 
   @IsOptional()
+  @Type(() => Object)
   metadata?: Record<string, any>;
 }

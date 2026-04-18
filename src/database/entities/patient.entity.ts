@@ -4,14 +4,18 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   ManyToOne,
   OneToMany,
   JoinColumn,
 } from 'typeorm';
+import { User } from './user.entity';
+import { HealthPlan } from './health-plan.entity';
+import { SurgeryRequest } from './surgery-request.entity';
 
 /**
  * Paciente - Entidade de negócio (não faz login)
- * Pertence a um médico específico
+ * Pertence a um médico (doctor_id → user.id)
  */
 @Entity('patient')
 export class Patient {
@@ -87,16 +91,19 @@ export class Patient {
   @UpdateDateColumn()
   updated_at: Date;
 
+  @DeleteDateColumn()
+  deleted_at: Date;
+
   // ============ RELAÇÕES ============
 
-  @ManyToOne('DoctorProfile', 'patients')
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: any; // DoctorProfile
+  doctor: User;
 
-  @ManyToOne('HealthPlan', 'patients', { nullable: true })
+  @ManyToOne(() => HealthPlan, (hp) => hp.patients, { nullable: true })
   @JoinColumn({ name: 'health_plan_id' })
-  health_plan: any; // HealthPlan
+  health_plan: HealthPlan;
 
-  @OneToMany('SurgeryRequest', 'patient')
-  surgery_requests: any[]; // SurgeryRequest[]
+  @OneToMany(() => SurgeryRequest, (sr) => sr.patient)
+  surgery_requests: SurgeryRequest[];
 }

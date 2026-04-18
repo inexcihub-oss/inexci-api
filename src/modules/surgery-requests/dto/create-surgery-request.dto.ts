@@ -1,13 +1,72 @@
-import { Mask } from '@tboerc/maskfy';
 import { Transform, Type } from 'class-transformer';
 import {
-  Allow,
   IsBoolean,
+  IsDate,
+  IsEmail,
+  IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import { stripObjectPhoneMask } from 'src/shared/pipes/phone-mask.pipe';
+import { SurgeryRequestPriority } from 'src/database/entities/surgery-request.entity';
+
+export class PatientInputDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsEmail()
+  email: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class CollaboratorInputDto {
+  @IsOptional()
+  @IsNumber()
+  status?: number;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsEmail()
+  email: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class HealthPlanInputDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class HospitalInputDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+}
 
 export class CreateSurgeryRequestDto {
   @IsBoolean()
@@ -19,62 +78,38 @@ export class CreateSurgeryRequestDto {
   @IsNotEmpty()
   indication_name: string;
 
-  @Allow()
+  @IsOptional()
+  @IsString()
   procedure_id?: string;
 
-  @Allow()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
+  @ValidateNested()
+  @Type(() => PatientInputDto)
+  @Transform(({ value }) => stripObjectPhoneMask(value))
+  patient: PatientInputDto;
 
-    return value;
-  })
-  patient: {
-    name: string;
-    email: string;
-    phone: string;
-  };
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CollaboratorInputDto)
+  @Transform(({ value }) => stripObjectPhoneMask(value))
+  collaborator?: CollaboratorInputDto;
 
-  @Allow()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
+  @ValidateNested()
+  @Type(() => HealthPlanInputDto)
+  @Transform(({ value }) => stripObjectPhoneMask(value))
+  health_plan: HealthPlanInputDto;
 
-    return value;
-  })
-  collaborator: {
-    status: number;
-    name: string;
-    email: string;
-    phone: string;
-    password: string;
-  };
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => HospitalInputDto)
+  @Transform(({ value }) => stripObjectPhoneMask(value))
+  hospital?: HospitalInputDto;
 
-  @Allow()
-  @Transform(({ value }) => {
-    value.phone = Mask.phone.raw(value.phone);
+  @IsOptional()
+  @IsEnum(SurgeryRequestPriority)
+  priority?: SurgeryRequestPriority;
 
-    return value;
-  })
-  health_plan: {
-    name: string;
-    email: string;
-    phone: string;
-  };
-
-  @Allow()
-  @Transform(({ value }) => {
-    if (value?.phone) {
-      value.phone = Mask.phone.raw(value.phone);
-    }
-    return value;
-  })
-  hospital?: {
-    name: string;
-    email: string;
-  };
-
-  @Allow()
-  priority?: number;
-
-  @Allow()
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
   deadline?: Date;
 }

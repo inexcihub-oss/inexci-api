@@ -1,15 +1,14 @@
 // ============================================
-// NOVA ARQUITETURA DE ENTIDADES
+// NOVA ARQUITETURA DE ENTIDADES (v3)
 // ============================================
 
 // Importar todas as entidades primeiro
 import { User, UserRole, UserStatus } from './user.entity';
-import { DoctorProfile, SubscriptionStatus } from './doctor-profile.entity';
+import { DoctorProfile } from './doctor-profile.entity';
 import {
-  TeamMember,
-  TeamMemberRole,
-  TeamMemberStatus,
-} from './team-member.entity';
+  UserDoctorAccess,
+  UserDoctorAccessStatus,
+} from './user-doctor-access.entity';
 import { Patient } from './patient.entity';
 import { Hospital } from './hospital.entity';
 import { HealthPlan } from './health-plan.entity';
@@ -39,18 +38,29 @@ import { ChatMessage } from './chat-message.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
+import { RefreshToken } from './refresh-token.entity';
 import { SubscriptionPlan } from './subscription-plan.entity';
 import {
   WhatsappMessageLog,
   WhatsappMessageStatus,
 } from './whatsapp-message-log.entity';
 import { ReportSection } from './report-section.entity';
+import {
+  NotificationSendLog,
+  NotificationChannel,
+  NotificationSendStatus,
+} from './notification-send-log.entity';
+import { StaleNotificationLog } from './stale-notification-log.entity';
+import { WhatsappConversation } from './whatsapp-conversation.entity';
+import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
+import { Cid } from './cid.entity';
+import { Tuss } from './tuss.entity';
 
 // Re-exportar tudo
-// USUÁRIOS (fazem login)
+// USUÁRIOS E ACESSO
 export { User, UserRole, UserStatus };
-export { DoctorProfile, SubscriptionStatus };
-export { TeamMember, TeamMemberRole, TeamMemberStatus };
+export { DoctorProfile };
+export { UserDoctorAccess, UserDoctorAccessStatus };
 
 // ENTIDADES DE NEGÓCIO (não fazem login)
 export { Patient };
@@ -90,12 +100,25 @@ export { SubscriptionPlan };
 
 // AUTENTICAÇÃO
 export { RecoveryCode };
+export { RefreshToken };
+
+// OBSERVABILIDADE
+export { NotificationSendLog, NotificationChannel, NotificationSendStatus };
+export { StaleNotificationLog };
+
+// IA / WHATSAPP CONVERSAÇÃO
+export { WhatsappConversation };
+export { AiKnowledgeChunk };
+
+// DADOS DE REFERÊNCIA (CID/TUSS)
+export { Cid };
+export { Tuss };
 
 // Array apenas com classes de entidade (sem enums) para TypeORM
 export const ENTITIES = [
   User,
   DoctorProfile,
-  TeamMember,
+  UserDoctorAccess,
   Patient,
   Hospital,
   HealthPlan,
@@ -118,7 +141,14 @@ export const ENTITIES = [
   Notification,
   UserNotificationSettings,
   RecoveryCode,
+  RefreshToken,
   SubscriptionPlan,
   WhatsappMessageLog,
   ReportSection,
+  NotificationSendLog,
+  StaleNotificationLog,
+  WhatsappConversation,
+  AiKnowledgeChunk,
+  Cid,
+  Tuss,
 ];

@@ -1,93 +1,164 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, DataSource } from 'typeorm';
+import {
+  Repository,
+  FindOptionsWhere,
+  DataSource,
+  EntityManager,
+} from 'typeorm';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
-import { SurgeryRequest } from '../entities/surgery-request.entity';
+export interface SumInvoicedFilter {
+  doctorIds?: string[];
+}
+
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from '../entities/surgery-request.entity';
+import {
+  SurgeryRequestActivity,
+  ActivityType,
+} from '../entities/surgery-request-activity.entity';
+import { StatusUpdate } from '../entities/status-update.entity';
+import { BaseRepository } from './base.repository';
+import { getStatusLabel } from 'src/shared/utils';
 
 @Global()
 @Injectable()
-export class SurgeryRequestRepository {
+export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   constructor(
     @InjectRepository(SurgeryRequest)
-    private readonly repository: Repository<SurgeryRequest>,
+    repository: Repository<SurgeryRequest>,
     private readonly dataSource: DataSource,
-  ) {}
-
-  async totalByHospital(where: string) {
-    // PostgreSQL: Ajustada query raw com JOIN na tabela hospital
-    return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, 
-               sr.hospital_id,
-               COALESCE(h.name, 'Sem Hospital') as hospital_name
-        FROM surgery_request sr
-        LEFT JOIN hospital h ON h.id = sr.hospital_id
-        ${where}
-        GROUP BY sr.hospital_id, h.name
-        ORDER BY total DESC
-      `);
+  ) {
+    super(repository);
   }
 
-  async totalByStatus(where: string) {
-    // PostgreSQL: Ajustada query raw com alias
-    return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, sr.status 
-        FROM surgery_request sr
-        ${where}
-        GROUP BY sr.status
-        ORDER BY total DESC
-      `);
+  totalByHospital(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ) {
+    const qb = this.repository
+      .createQueryBuilder('sr')
+      .leftJoin('sr.hospital', 'h')
+      .select('sr.hospital_id', 'hospital_id')
+      .addSelect("COALESCE(h.name, 'Sem Hospital')", 'hospital_name')
+      .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospital_id = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate)
+      qb.andWhere('sr.created_at >= :startDate', {
+        startDate: filters.startDate,
+      });
+    if (filters?.endDate)
+      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+    return qb
+      .groupBy('sr.hospital_id')
+      .addGroupBy('h.name')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany();
   }
 
-  async totalByHealthPlan(where: string) {
-    // PostgreSQL: Ajustada query raw com LEFT JOIN na tabela health_plan
-    return await this.dataSource.query(`
-        SELECT COUNT(*)::int as total, 
-               sr.health_plan_id, 
-               COALESCE(hp.name, 'Sem Convênio') as health_plan_name
-        FROM surgery_request sr
-        LEFT JOIN health_plan hp ON hp.id = sr.health_plan_id
-        ${where}
-        GROUP BY sr.health_plan_id, hp.name
-        ORDER BY total DESC
-      `);
+  totalByStatus(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ) {
+    const qb = this.repository
+      .createQueryBuilder('sr')
+      .select('sr.status', 'status')
+      .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospital_id = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate)
+      qb.andWhere('sr.created_at >= :startDate', {
+        startDate: filters.startDate,
+      });
+    if (filters?.endDate)
+      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+    return qb.groupBy('sr.status').orderBy('COUNT(*)', 'DESC').getRawMany();
   }
 
-  async sumInvoiced(where: FindOptionsWhere<SurgeryRequest>) {
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let paramIndex = 1;
+  totalByHealthPlan(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ) {
+    const qb = this.repository
+      .createQueryBuilder('sr')
+      .leftJoin('sr.health_plan', 'hp')
+      .select('sr.health_plan_id', 'health_plan_id')
+      .addSelect("COALESCE(hp.name, 'Sem Convênio')", 'health_plan_name')
+      .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
+      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospital_id = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate)
+      qb.andWhere('sr.created_at >= :startDate', {
+        startDate: filters.startDate,
+      });
+    if (filters?.endDate)
+      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+    return qb
+      .groupBy('sr.health_plan_id')
+      .addGroupBy('hp.name')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany();
+  }
 
-    if ((where as any).doctor_id) {
-      conditions.push(`sr.doctor_id = $${paramIndex}`);
-      params.push((where as any).doctor_id);
-      paramIndex++;
+  async sumInvoiced(filter: SumInvoicedFilter) {
+    const qb = this.repository
+      .createQueryBuilder('sr')
+      .leftJoin('sr.billing', 'srb')
+      .select('COALESCE(SUM(srb.invoice_value), 0)', 'invoiced_value')
+      .addSelect('COALESCE(SUM(srb.received_value), 0)', 'received_value');
+
+    if (filter.doctorIds?.length) {
+      qb.andWhere('sr.doctor_id IN (:...doctorIds)', {
+        doctorIds: filter.doctorIds,
+      });
     }
 
-    if ((where as any).created_by_id) {
-      conditions.push(`sr.created_by_id = $${paramIndex}`);
-      params.push((where as any).created_by_id);
-      paramIndex++;
-    }
-
-    const whereClause =
-      conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const result = await this.dataSource.query(
-      `
-      SELECT 
-        COALESCE(SUM(srb.invoice_value), 0)::numeric AS invoiced_value,
-        COALESCE(SUM(srb.received_value), 0)::numeric AS received_value
-      FROM surgery_request sr
-      LEFT JOIN surgery_request_billing srb ON srb.surgery_request_id = sr.id
-      ${whereClause}
-    `,
-      params,
-    );
+    const result = await qb.getRawOne();
 
     return {
       _sum: {
-        invoiced_value: result?.[0]?.invoiced_value || null,
-        received_value: result?.[0]?.received_value || null,
+        invoiced_value: result?.invoiced_value || null,
+        received_value: result?.received_value || null,
       },
     };
   }
@@ -98,30 +169,33 @@ export class SurgeryRequestRepository {
 
   async findOne(
     where: FindOptionsWhere<SurgeryRequest>,
-    whereChat?: any, // Será filtrado posteriormente
-    whereQuotation?: any, // Será filtrado posteriormente
   ): Promise<SurgeryRequest | null> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
-      .leftJoinAndSelect('surgery_request.created_by', 'created_by')
-      .leftJoinAndSelect('surgery_request.manager', 'manager')
-      .leftJoinAndSelect('surgery_request.doctor', 'doctor')
-      .leftJoinAndSelect('doctor.user', 'doctor_user')
+      .leftJoin('surgery_request.created_by', 'created_by')
+      .addSelect(['created_by.id', 'created_by.name', 'created_by.avatar_url'])
+      .leftJoin('surgery_request.manager', 'manager')
+      .addSelect(['manager.id', 'manager.name', 'manager.avatar_url'])
+      .leftJoin('surgery_request.doctor', 'doctor')
+      .addSelect(['doctor.id', 'doctor.name', 'doctor.avatar_url'])
+      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
       .leftJoinAndSelect('surgery_request.opme_items', 'opme_items')
       .leftJoinAndSelect('surgery_request.procedure', 'procedure')
       .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
+      .leftJoinAndSelect('surgery_request.cid', 'cid')
       .leftJoinAndSelect('surgery_request.documents', 'documents')
-      .leftJoinAndSelect('documents.creator', 'documents_creator')
+      .leftJoin('documents.creator', 'documents_creator')
+      .addSelect(['documents_creator.id', 'documents_creator.name'])
       .leftJoinAndSelect('surgery_request.quotations', 'quotations')
       .leftJoinAndSelect('quotations.supplier', 'quotations_supplier')
       .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
       .leftJoinAndSelect('surgery_request.chats', 'chats')
-      .leftJoinAndSelect('chats.user', 'chats_user')
+      .leftJoin('chats.user', 'chats_user')
+      .addSelect(['chats_user.id', 'chats_user.name', 'chats_user.avatar_url'])
       .leftJoinAndSelect('chats.messages', 'messages')
-      // Relações adicionadas para suporte ao frontend (Fase 9)
       .leftJoinAndSelect('surgery_request.analysis', 'analysis')
       .leftJoinAndSelect('surgery_request.billing', 'billing')
       .leftJoinAndSelect('surgery_request.contestations', 'contestations')
@@ -138,7 +212,11 @@ export class SurgeryRequestRepository {
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
         totalPendencies: pendencies.totalCount,
-      } as any;
+      } as SurgeryRequest & {
+        pendenciesCount: number;
+        completedCount: number;
+        totalPendencies: number;
+      };
     }
 
     return entity;
@@ -150,6 +228,61 @@ export class SurgeryRequestRepository {
     return await this.repository.findOne({ where });
   }
 
+  /** Carrega campos base + paciente, médico e plano. Sem documents/chats/quotations. */
+  async findOneMinimal(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
+      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.hospital', 'hospital')
+      .leftJoinAndSelect('sr.procedure', 'procedure')
+      .where(where)
+      .getOne();
+  }
+
+  /** Carrega dados de workflow: campos base + activities + análise + contestações. */
+  async findOneForWorkflow(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
+      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.hospital', 'hospital')
+      .leftJoinAndSelect('sr.procedure', 'procedure')
+      .leftJoinAndSelect('sr.analysis', 'analysis')
+      .leftJoinAndSelect('sr.contestations', 'contestations')
+      .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
+      .leftJoinAndSelect('sr.opme_items', 'opme_items')
+      .leftJoinAndSelect('sr.documents', 'documents')
+      .where(where)
+      .getOne();
+  }
+
+  /** Carrega dados de faturamento: campos base + billing + procedures + tuss. */
+  async findOneForBilling(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.hospital', 'hospital')
+      .leftJoinAndSelect('sr.procedure', 'procedure')
+      .leftJoinAndSelect('sr.billing', 'billing')
+      .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
+      .leftJoinAndSelect('sr.opme_items', 'opme_items')
+      .where(where)
+      .getOne();
+  }
+
   async findMany(
     where: FindOptionsWhere<SurgeryRequest>,
     skip: number,
@@ -157,17 +290,13 @@ export class SurgeryRequestRepository {
   ): Promise<any[]> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
-      .leftJoinAndSelect('surgery_request.created_by', 'created_by')
-      .leftJoinAndSelect('surgery_request.manager', 'manager')
-      .leftJoinAndSelect('surgery_request.patient', 'patient')
-      .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
-      .leftJoinAndSelect('surgery_request.procedure', 'procedure')
-      .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
-      .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
-      .leftJoin('surgery_request.chats', 'chats')
-      .leftJoin('chats.messages', 'messages')
+      .leftJoin('surgery_request.created_by', 'created_by')
+      .leftJoin('surgery_request.manager', 'manager')
+      .leftJoin('surgery_request.patient', 'patient')
+      .leftJoin('surgery_request.health_plan', 'health_plan')
+      .leftJoin('surgery_request.hospital', 'hospital')
+      .leftJoin('surgery_request.procedure', 'procedure')
       .leftJoin('surgery_request.documents', 'documents')
-      .leftJoin('surgery_request.activities', 'activities')
       .where(where)
       .orderBy('surgery_request.created_at', 'DESC')
       .skip(skip)
@@ -176,10 +305,10 @@ export class SurgeryRequestRepository {
         'surgery_request.id',
         'surgery_request.status',
         'surgery_request.health_plan_id',
+        'surgery_request.hospital_id',
         'surgery_request.created_at',
         'surgery_request.is_indication',
         'surgery_request.indication_name',
-        'surgery_request.date_call',
         'surgery_request.deadline',
         'surgery_request.protocol',
         'surgery_request.priority',
@@ -187,50 +316,33 @@ export class SurgeryRequestRepository {
         'created_by.name',
         'manager.id',
         'manager.name',
-        'manager.email',
         'patient.id',
         'patient.name',
-        'patient.email',
         'health_plan.id',
         'health_plan.name',
+        'hospital.id',
+        'hospital.name',
         'procedure.id',
         'procedure.name',
+        'documents.id',
+        'documents.type',
       ])
-      .addSelect('COUNT(DISTINCT messages.id)', 'messagesCount')
-      .addSelect('COUNT(DISTINCT documents.id)', 'attachmentsCount')
-      .addSelect('COUNT(DISTINCT activities.id)', 'activitiesCount')
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
       .addGroupBy('manager.id')
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
+      .addGroupBy('hospital.id')
       .addGroupBy('procedure.id')
-      .addGroupBy('status_updates.id');
+      .addGroupBy('documents.id');
 
-    // Limitando status_updates a 1
     const results = await queryBuilder.getRawAndEntities();
 
-    // Para cada entidade, precisamos buscar os documentos para calcular pendências
-    const entitiesWithDocuments = await Promise.all(
-      results.entities.map(async (entity: any) => {
-        const fullEntity = await this.repository.findOne({
-          where: { id: entity.id },
-          relations: ['documents', 'patient', 'procedure'],
-        });
-        return fullEntity || entity;
-      }),
-    );
-
-    return results.entities.map((entity: any, index: number) => {
-      const fullEntity = entitiesWithDocuments[index];
-      const pendencies = this.calculatePendencies(fullEntity);
+    return results.entities.map((entity: any) => {
+      const pendencies = this.calculatePendencies(entity);
 
       return {
         ...entity,
-        status_updates: entity.status_updates?.slice(0, 1) || [],
-        messagesCount: parseInt(results.raw[index]?.messagesCount || '0'),
-        attachmentsCount: parseInt(results.raw[index]?.attachmentsCount || '0'),
-        activitiesCount: parseInt(results.raw[index]?.activitiesCount || '0'),
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
         totalPendencies: pendencies.totalCount,
@@ -258,6 +370,70 @@ export class SurgeryRequestRepository {
     return await this.repository.findOne({
       where,
       relations,
+    });
+  }
+
+  /** Carrega solicitação com todas as relações padrão necessárias para a state machine */
+  findOneWithAllRelations(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return this.findOneWithRelations(where, [
+      'created_by',
+      'patient',
+      'hospital',
+      'health_plan',
+      'tuss_items',
+      'opme_items',
+      'documents',
+      'analysis',
+      'billing',
+      'contestations',
+    ]);
+  }
+
+  async findDistinctActivityUserIds(
+    surgeryRequestId: string,
+  ): Promise<string[]> {
+    const results = await this.dataSource
+      .getRepository(SurgeryRequestActivity)
+      .createQueryBuilder('a')
+      .select('DISTINCT a.user_id', 'user_id')
+      .where('a.surgery_request_id = :surgeryRequestId', { surgeryRequestId })
+      .andWhere('a.user_id IS NOT NULL')
+      .getRawMany();
+    return results.map((r) => r.user_id);
+  }
+
+  /** Registra mudança de status em status_updates e em activities (deve ser chamado dentro de uma transação) */
+  async recordStatusChange(
+    manager: EntityManager,
+    surgeryRequestId: string,
+    prevStatus: SurgeryRequestStatus,
+    newStatus: SurgeryRequestStatus,
+    userId: string | null = null,
+  ): Promise<void> {
+    const now = new Date();
+
+    const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
+    await surgeryRequestRepo.update(surgeryRequestId, {
+      last_status_changed_at: now,
+    });
+
+    const statusUpdateRepo = manager.getRepository(StatusUpdate);
+    await statusUpdateRepo.save({
+      surgery_request_id: surgeryRequestId,
+      prev_status: prevStatus,
+      new_status: newStatus,
+    });
+
+    const activityRepo = manager.getRepository(SurgeryRequestActivity);
+    const prevLabel = getStatusLabel(prevStatus);
+    const newLabel = getStatusLabel(newStatus);
+    await activityRepo.save({
+      surgery_request_id: surgeryRequestId,
+      user_id: userId,
+      type: ActivityType.STATUS_CHANGE,
+      content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
     });
   }
 
@@ -314,7 +490,7 @@ export class SurgeryRequestRepository {
         'AVG(EXTRACT(DAY FROM (surgery_request.updated_at - surgery_request.created_at)))',
         'average_days',
       )
-      .where({ ...where, status: 9 }) // Status finalizada
+      .where({ ...where, status: SurgeryRequestStatus.CLOSED })
       .getRawOne();
 
     return {
@@ -344,7 +520,7 @@ export class SurgeryRequestRepository {
       !!(patient?.name && patient?.email),
       !!surgeryRequest.health_plan_id,
       !!procedure,
-      documents.some((d: any) => d.type === 'doctorRequest'),
+      documents.some((d: any) => d.type === DOCUMENT_KEYS.DOCTOR_REQUEST),
     ];
 
     const completedCount = checks.filter(Boolean).length;
@@ -352,5 +528,30 @@ export class SurgeryRequestRepository {
     const pendingCount = totalCount - completedCount;
 
     return { pendingCount, completedCount, totalCount };
+  }
+
+  /**
+   * Busca solicitações paradas (stale) — que não mudaram de status há mais de `minDays` dias.
+   * Exclui status finais: PERFORMED, INVOICED, FINALIZED, CLOSED.
+   */
+  findStaleRequests(minDays: number): Promise<SurgeryRequest[]> {
+    const terminalStatuses = [
+      SurgeryRequestStatus.PERFORMED,
+      SurgeryRequestStatus.INVOICED,
+      SurgeryRequestStatus.FINALIZED,
+      SurgeryRequestStatus.CLOSED,
+    ];
+
+    return this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.created_by', 'created_by')
+      .where('sr.status NOT IN (:...terminalStatuses)', { terminalStatuses })
+      .andWhere(
+        `sr.last_status_changed_at IS NOT NULL AND sr.last_status_changed_at <= NOW() - INTERVAL '1 day' * :minDays`,
+        { minDays },
+      )
+      .andWhere('sr.deleted_at IS NULL')
+      .getMany();
   }
 }

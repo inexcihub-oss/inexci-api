@@ -16,9 +16,16 @@
  * para a pasta dentro dele. Nunca escreva strings literais no código.
  */
 
-// ── Bucket ────────────────────────────────────────────────────────────────────
+import { registerAs } from '@nestjs/config';
 
-export const STORAGE_BUCKET = process.env.SUPABASE_BUCKET || 'inexci-storage';
+// ── Config registrada via ConfigService ──────────────────────────────────────
+
+export const storageConfig = registerAs('storage', () => ({
+  bucket: process.env.SUPABASE_BUCKET || 'inexci-storage',
+}));
+
+/** Token para acesso direto ao nome do bucket (retrocompatibilidade) */
+export const STORAGE_BUCKET_TOKEN = 'STORAGE_BUCKET';
 
 // ── Pastas ────────────────────────────────────────────────────────────────────
 

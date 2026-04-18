@@ -4,6 +4,23 @@ import { resolve } from 'path';
 // Carrega as variáveis de ambiente ANTES de qualquer módulo ser avaliado
 config({ path: resolve(__dirname, '../.env') });
 
+// Definir NODE_ENV=test para desabilitar rate limiting
+process.env.NODE_ENV = 'test';
+
+// Suprimir erros de teardown do Bull/Redis durante fechamento do app
+// Estes erros ocorrem quando workers do Bull tentam se desconectar
+process.on('unhandledRejection', (reason) => {
+  // Ignorar erros de stream do Redis durante shutdown e rejeições com undefined
+  if (reason === undefined) return;
+  if (
+    reason instanceof Error &&
+    (reason.message?.includes("Stream isn't writeable") ||
+      reason.message?.includes('enableOfflineQueue'))
+  ) {
+    return;
+  }
+});
+
 // Valores padrão para testes
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret-key-for-e2e-tests-123456789';
@@ -20,4 +37,13 @@ if (!process.env.SUPABASE_KEY) {
 }
 if (!process.env.SUPABASE_BUCKET_NAME) {
   process.env.SUPABASE_BUCKET_NAME = 'documents';
+}
+if (!process.env.DASHBOARD_URL) {
+  process.env.DASHBOARD_URL = 'http://localhost:3001';
+}
+if (!process.env.MAIL_USER) {
+  process.env.MAIL_USER = 'test@test.com';
+}
+if (!process.env.MAIL_PASS) {
+  process.env.MAIL_PASS = 'test-password';
 }

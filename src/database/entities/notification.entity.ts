@@ -13,6 +13,7 @@ export enum NotificationType {
   STATUS_UPDATE = 'status_update',
   PENDENCY = 'pendency',
   EXPIRING_DOCUMENT = 'expiring_document',
+  ACTION_BY_USER = 'action_by_user',
   SYSTEM = 'system',
   INFO = 'info',
 }

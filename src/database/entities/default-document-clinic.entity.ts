@@ -6,7 +6,6 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DoctorProfile } from './doctor-profile.entity';
 import { User } from './user.entity';
 
 /**
@@ -41,9 +40,9 @@ export class DefaultDocumentClinic {
 
   // ============ RELAÇÕES ============
 
-  @ManyToOne(() => DoctorProfile, (doctor) => doctor.default_documents)
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: DoctorProfile;
+  doctor: User;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'created_by' })
