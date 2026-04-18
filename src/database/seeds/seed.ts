@@ -1559,7 +1559,647 @@ async function main() {
   logger.log(`  ✅ ${srIds1.length} solicitações criadas para conta 1\n`);
 
   // ========================================
-  // 15. NOTIFICATION SETTINGS
+  // 15. CID (Códigos de Diagnóstico)
+  // ========================================
+  logger.log('🏷️ Criando códigos CID...');
+
+  const cidsData = [
+    {
+      code: 'K80.2',
+      description: 'Calculose da vesícula biliar sem colecistite',
+    },
+    {
+      code: 'K40.9',
+      description:
+        'Hérnia inguinal unilateral ou não especificada, sem obstrução ou gangrena',
+    },
+    {
+      code: 'K42.9',
+      description: 'Hérnia umbilical sem obstrução ou gangrena',
+    },
+    {
+      code: 'K35.8',
+      description: 'Apendicite aguda, outra e a não especificada',
+    },
+    { code: 'M17.0', description: 'Gonartrose primária bilateral' },
+    {
+      code: 'M23.2',
+      description: 'Transtorno de menisco devido a ruptura ou lesão antiga',
+    },
+    {
+      code: 'M51.1',
+      description:
+        'Transtornos de discos lombares e de outros discos intervertebrais com radiculopatia',
+    },
+    { code: 'M16.1', description: 'Coxartrose primária unilateral' },
+    { code: 'N20.1', description: 'Calculose do ureter' },
+    { code: 'J34.2', description: 'Desvio do septo nasal' },
+    { code: 'E04.1', description: 'Bócio não-tóxico uninodular' },
+    {
+      code: 'C50.9',
+      description: 'Neoplasia maligna da mama, não especificada',
+    },
+    { code: 'I25.1', description: 'Doença aterosclerótica do coração' },
+    { code: 'K29.7', description: 'Gastrite não especificada' },
+    { code: 'K63.5', description: 'Pólipo do cólon' },
+    { code: 'N80.0', description: 'Endometriose do útero' },
+    { code: 'N40', description: 'Hiperplasia da próstata' },
+    { code: 'H25.9', description: 'Catarata senil não especificada' },
+    { code: 'J34.3', description: 'Hipertrofia dos cornetos nasais' },
+    { code: 'M43.1', description: 'Espondilolistese' },
+    { code: 'S72.0', description: 'Fratura do colo do fêmur' },
+  ];
+
+  const cidIds: string[] = [];
+  for (const c of cidsData) {
+    const r = await dataSource.query(
+      `INSERT INTO cid (code, description) VALUES ($1, $2) RETURNING id`,
+      [c.code, c.description],
+    );
+    cidIds.push(r[0].id);
+  }
+  logger.log(`  ✅ ${cidIds.length} códigos CID criados\n`);
+
+  // ========================================
+  // 15b. TUSS (Códigos de Procedimento)
+  // ========================================
+  logger.log('🏷️ Criando códigos TUSS...');
+
+  const tussData = [
+    { code: '31005497', procedure: 'Colecistectomia videolaparoscópica' },
+    { code: '31007260', procedure: 'Herniorrafia inguinal bilateral' },
+    { code: '31007171', procedure: 'Herniorrafia umbilical' },
+    { code: '31005314', procedure: 'Apendicectomia laparoscópica' },
+    { code: '30727014', procedure: 'Artroplastia total do joelho' },
+    { code: '30727073', procedure: 'Artroscopia de joelho com meniscectomia' },
+    { code: '30806011', procedure: 'Discectomia por via posterior' },
+    { code: '30727022', procedure: 'Artroplastia total do quadril' },
+    { code: '31102018', procedure: 'Nefrolitotripsia percutânea' },
+    { code: '30501012', procedure: 'Septoplastia' },
+    { code: '30201039', procedure: 'Tireoidectomia total' },
+    { code: '30401034', procedure: 'Mastectomia radical modificada' },
+    { code: '30904010', procedure: 'Revascularização miocárdica com CEC' },
+    { code: '40202011', procedure: 'Endoscopia digestiva alta com biópsia' },
+    { code: '40202046', procedure: 'Colonoscopia com polipectomia' },
+    { code: '31301010', procedure: 'Histerectomia total laparoscópica' },
+    { code: '31101038', procedure: 'Prostatectomia radical laparoscópica' },
+    {
+      code: '30301017',
+      procedure: 'Facectomia com implante de lente intraocular',
+    },
+    { code: '30501020', procedure: 'Rinoplastia funcional' },
+    { code: '30806038', procedure: 'Artrodese de coluna lombar' },
+  ];
+
+  const tussIds: string[] = [];
+  for (const t of tussData) {
+    const r = await dataSource.query(
+      `INSERT INTO tuss (code, procedure) VALUES ($1, $2) RETURNING id`,
+      [t.code, t.procedure],
+    );
+    tussIds.push(r[0].id);
+  }
+  logger.log(`  ✅ ${tussIds.length} códigos TUSS criados\n`);
+
+  // ========================================
+  // 15c. Vincular CID e TUSS nas solicitações cirúrgicas
+  // ========================================
+  logger.log('🔗 Vinculando CID/TUSS às solicitações...');
+
+  // Conta 2: SR1 (colecistectomia) → CID K80.2, TUSS colecistectomia
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[0], tussIds[0], srIds2[0]],
+  );
+  // SR2 (hérnia umbilical) → CID K42.9
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[2], tussIds[2], srIds2[1]],
+  );
+  // SR3 (ATJ) → CID M17.0
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[4], tussIds[4], srIds2[2]],
+  );
+  // SR4 (colecistectomia) → CID K80.2
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[0], tussIds[0], srIds2[3]],
+  );
+  // SR5 (revascularização) → CID I25.1
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[12], tussIds[12], srIds2[4]],
+  );
+  // SR6 (nefrolitotripsia) → CID N20.1
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[8], tussIds[8], srIds2[5]],
+  );
+  // SR7 (endoscopia) → CID K29.7
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[13], tussIds[13], srIds2[6]],
+  );
+  // SR8 (septoplastia) → CID J34.2
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[9], tussIds[9], srIds2[7]],
+  );
+  // SR9 (colonoscopia) → CID K63.5
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[14], tussIds[14], srIds2[8]],
+  );
+  // SR10 (discectomia) → CID M51.1
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[6], tussIds[6], srIds2[9]],
+  );
+  // SR11 (artrodese) → CID M43.1
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[19], tussIds[19], srIds2[10]],
+  );
+
+  // Conta 1
+  // SR C1-1 (ATJ) → CID M17.0
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[4], tussIds[4], srIds1[0]],
+  );
+  // SR C1-2 (ATQ) → CID S72.0
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[20], tussIds[7], srIds1[1]],
+  );
+  // SR C1-3 (artroscopia) → CID M23.2
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[5], tussIds[5], srIds1[2]],
+  );
+  // SR C1-4 (ATJ) → CID M17.0
+  await dataSource.query(
+    `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
+    [cidIds[4], tussIds[4], srIds1[3]],
+  );
+
+  logger.log('  ✅ CID/TUSS vinculados às solicitações\n');
+
+  // ========================================
+  // 15d. ITENS TUSS nas solicitações
+  // ========================================
+  logger.log('📋 Criando itens TUSS nas solicitações...');
+
+  // SR3 (ATJ conta 2) — múltiplos itens TUSS
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '30727014', 'Artroplastia total do joelho', 1, NULL)`,
+    [srIds2[2]],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '20104090', 'Anestesia geral', 1, NULL)`,
+    [srIds2[2]],
+  );
+  // SR5 (revascularização)
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '30904010', 'Revascularização miocárdica com CEC', 1, 1)`,
+    [srIds2[4]],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '30904150', 'Circulação extracorpórea', 1, 1)`,
+    [srIds2[4]],
+  );
+  // SR10 (discectomia - Dra. Fernanda)
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '30806011', 'Discectomia por via posterior', 1, NULL)`,
+    [srIds2[9]],
+  );
+  // SR C1-1 (ATJ conta 1)
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '30727014', 'Artroplastia total do joelho', 1, 1)`,
+    [srIds1[0]],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '20104090', 'Anestesia geral', 1, 1)`,
+    [srIds1[0]],
+  );
+  // SR C1-2 (ATQ conta 1)
+  await dataSource.query(
+    `INSERT INTO surgery_request_tuss_item (surgery_request_id, tuss_code, name, quantity, authorized_quantity) VALUES ($1, '30727022', 'Artroplastia total do quadril', 1, NULL)`,
+    [srIds1[1]],
+  );
+
+  logger.log('  ✅ Itens TUSS criados nas solicitações\n');
+
+  // ========================================
+  // 15e. TEMPLATES DE SOLICITAÇÃO
+  // ========================================
+  logger.log('📝 Criando templates de solicitação...');
+
+  await dataSource.query(
+    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    [
+      adminMedicoId,
+      'ATJ Padrão',
+      JSON.stringify({
+        procedure_id: procedureIds[4],
+        opme_items: [
+          {
+            name: 'Prótese total de joelho cimentada',
+            brand: 'Stryker Triathlon',
+            distributor: 'Zimmer Biomet Brasil',
+            quantity: 1,
+          },
+          {
+            name: 'Cimento ósseo com antibiótico 40g',
+            brand: 'Palacos',
+            distributor: 'DePuy Synthes',
+            quantity: 2,
+          },
+        ],
+        required_documents: [
+          'personal_document',
+          'doctor_request',
+          'medical_report',
+          'preoperative_exams',
+        ],
+        required_exams: [
+          'Hemograma',
+          'Coagulograma',
+          'RX joelho AP/P',
+          'Risco cirúrgico',
+        ],
+      }),
+      8,
+    ],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    [
+      adminMedicoId,
+      'Artroscopia de Joelho',
+      JSON.stringify({
+        procedure_id: procedureIds[5],
+        opme_items: [],
+        required_documents: [
+          'personal_document',
+          'doctor_request',
+          'medical_report',
+        ],
+        required_exams: ['RNM joelho', 'Hemograma', 'Coagulograma'],
+      }),
+      3,
+    ],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    [
+      adminId,
+      'Revascularização Miocárdica',
+      JSON.stringify({
+        procedure_id: procedureIds[12],
+        opme_items: [
+          {
+            name: 'Oxigenador de membrana',
+            brand: 'Sorin Group',
+            distributor: 'BioMed Implantes',
+            quantity: 1,
+          },
+        ],
+        required_documents: [
+          'personal_document',
+          'doctor_request',
+          'medical_report',
+          'preoperative_exams',
+          'cardiac_evaluation',
+        ],
+        required_exams: [
+          'Coronariografia',
+          'Ecocardiograma',
+          'Cintilografia miocárdica',
+          'Hemograma completo',
+        ],
+      }),
+      2,
+    ],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    [
+      collabMedicaId,
+      'Discectomia Lombar',
+      JSON.stringify({
+        procedure_id: procedureIds[6],
+        opme_items: [
+          {
+            name: 'Cage intersomático TLIF PEEK',
+            brand: 'Medtronic',
+            distributor: 'Synthes Johnson & Johnson',
+            quantity: 1,
+          },
+          {
+            name: 'Parafusos pediculares (kit 4)',
+            brand: 'Synthes',
+            distributor: 'Synthes Johnson & Johnson',
+            quantity: 1,
+          },
+        ],
+        required_documents: [
+          'personal_document',
+          'doctor_request',
+          'medical_report',
+          'preoperative_exams',
+        ],
+        required_exams: [
+          'RNM coluna lombar',
+          'EMG membros inferiores',
+          'Hemograma',
+          'Risco cirúrgico',
+        ],
+      }),
+      5,
+    ],
+  );
+
+  logger.log('  ✅ 4 templates criados\n');
+
+  // ========================================
+  // 15f. ATIVIDADES nas solicitações
+  // ========================================
+  logger.log('📊 Criando atividades nas solicitações...');
+
+  // SR C1-1 — atividades diversas
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Paciente confirmou disponibilidade para cirurgia na data proposta. Exames pré-operatórios em dia.')`,
+    [srIds1[0], assistenteOrtId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'PDF da solicitação gerado e enviado para o convênio via e-mail.')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Enviada para Em Análise')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Análise para Em Agendamento')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Zimmer Biomet selecionada. Valor: R$ 21.500,00.')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Agendamento para Agendada')`,
+    [srIds1[0], adminMedicoId],
+  );
+
+  // SR2 conta 2
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
+    [srIds2[1], assistente1Id],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Solicitação enviada por e-mail ao convênio Amil.')`,
+    [srIds2[1], assistente1Id],
+  );
+
+  // SR10 — Dra. Fernanda
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'Solicitação criada com OPME. Aguardando cotação.')`,
+    [srIds2[9], collabMedicaId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Synthes recebida. Valor R$ 24.500,00. Aguardando aprovação do convênio.')`,
+    [srIds2[9], collabMedicaId],
+  );
+
+  // SR C1-4 (finalizada com contestação)
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'pdf_generated', 'PDF da solicitação cirúrgica gerado automaticamente.')`,
+    [srIds1[3], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Convênio glosou R$ 4.600,00 referente ao implante. Contestação protocolada.')`,
+    [srIds1[3], adminMedicoId],
+  );
+
+  logger.log('  ✅ Atividades criadas nas solicitações\n');
+
+  // ========================================
+  // 15g. DOCUMENTOS nas solicitações
+  // ========================================
+  logger.log('📄 Criando documentos nas solicitações...');
+
+  // SR C1-1 (ATJ agendada)
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'personal_document','rg','RG do paciente','https://storage.inexci.com/docs/sr-c1-1/rg-fernando.pdf')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'doctor_request','guia_sadt','Guia SADT','https://storage.inexci.com/docs/sr-c1-1/guia-sadt.pdf')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'medical_report','laudo','Laudo Médico','https://storage.inexci.com/docs/sr-c1-1/laudo-medico.pdf')`,
+    [srIds1[0], adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'preoperative_exams','hemograma','Hemograma Completo','https://storage.inexci.com/docs/sr-c1-1/hemograma.pdf')`,
+    [srIds1[0], assistenteOrtId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'preoperative_exams','rx_joelho','RX Joelho AP/Perfil','https://storage.inexci.com/docs/sr-c1-1/rx-joelho.pdf')`,
+    [srIds1[0], assistenteOrtId],
+  );
+
+  // SR5 conta 2 (revascularização agendada)
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'doctor_request','guia_sadt','Guia SADT','https://storage.inexci.com/docs/sr2-5/guia-sadt.pdf')`,
+    [srIds2[4], adminId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'preoperative_exams','coronariografia','Coronariografia','https://storage.inexci.com/docs/sr2-5/coronariografia.pdf')`,
+    [srIds2[4], adminId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'preoperative_exams','ecocardiograma','Ecocardiograma','https://storage.inexci.com/docs/sr2-5/ecocardiograma.pdf')`,
+    [srIds2[4], adminId],
+  );
+
+  // SR10 (discectomia - Dra. Fernanda)
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'medical_report','laudo','Laudo Médico','https://storage.inexci.com/docs/sr2-10/laudo-neuro.pdf')`,
+    [srIds2[9], collabMedicaId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'preoperative_exams','rnm_lombar','RNM Coluna Lombar','https://storage.inexci.com/docs/sr2-10/rnm-lombar.pdf')`,
+    [srIds2[9], collabMedicaId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'preoperative_exams','emg','Eletroneuromiografia','https://storage.inexci.com/docs/sr2-10/emg.pdf')`,
+    [srIds2[9], assistente2Id],
+  );
+
+  // SR C1-4 (finalizada)
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'doctor_request','guia_sadt','Guia SADT','https://storage.inexci.com/docs/sr-c1-4/guia-sadt.pdf')`,
+    [srIds1[3], assistenteOrtId],
+  );
+  await dataSource.query(
+    `INSERT INTO document (surgery_request_id, created_by, type, key, name, uri) VALUES ($1,$2,'medical_report','laudo','Laudo Médico','https://storage.inexci.com/docs/sr-c1-4/laudo-atj.pdf')`,
+    [srIds1[3], adminMedicoId],
+  );
+
+  logger.log('  ✅ Documentos criados\n');
+
+  // ========================================
+  // 15h. DOCUMENTOS PADRÃO DA CLÍNICA
+  // ========================================
+  logger.log('📁 Criando documentos padrão da clínica...');
+
+  await dataSource.query(
+    `INSERT INTO default_document_clinic (doctor_id, created_by, key, name, description) VALUES ($1,$1,'consent_form','Termo de Consentimento Informado','Modelo padrão de TCLE para procedimentos ortopédicos')`,
+    [adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO default_document_clinic (doctor_id, created_by, key, name, description) VALUES ($1,$1,'surgery_checklist','Checklist Pré-Operatório','Lista de verificação padrão para cirurgias ortopédicas')`,
+    [adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO default_document_clinic (doctor_id, created_by, key, name, description) VALUES ($1,$1,'consent_form','Termo de Consentimento Cardíaco','TCLE específico para procedimentos cardíacos intervencionistas')`,
+    [adminId],
+  );
+  await dataSource.query(
+    `INSERT INTO default_document_clinic (doctor_id, created_by, key, name, description) VALUES ($1,$1,'consent_form','Termo de Consentimento Neurocirúrgico','TCLE para procedimentos neurocirúrgicos')`,
+    [collabMedicaId],
+  );
+
+  logger.log('  ✅ 4 documentos padrão criados\n');
+
+  // ========================================
+  // 15i. NOTIFICAÇÕES
+  // ========================================
+  logger.log('🔔 Criando notificações...');
+
+  // Notificações para admin conta 1
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'new_surgery_request','Nova solicitação criada','A solicitação de ATJ para Fernando Augusto Costa foi criada.',true,'/solicitacoes/${srIds1[0]}','{"surgery_request_id":"${srIds1[0]}"}')`,
+    [adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'status_update','Solicitação agendada','A cirurgia de ATJ para Fernando Augusto Costa foi agendada.',true,'/solicitacoes/${srIds1[0]}','{"surgery_request_id":"${srIds1[0]}","new_status":5}')`,
+    [adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'status_update','ATQ urgente em agendamento','A solicitação de ATQ para Beatriz Helena Santos está em fase de agendamento.',false,'/solicitacoes/${srIds1[1]}','{"surgery_request_id":"${srIds1[1]}","new_status":4}')`,
+    [adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'pendency','Contestação pendente','Há uma contestação de pagamento aberta na solicitação de ATJ para Marcos Antônio Ribeiro.',false,'/solicitacoes/${srIds1[3]}','{"surgery_request_id":"${srIds1[3]}"}')`,
+    [adminMedicoId],
+  );
+
+  // Notificações para assistente conta 1
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'status_update','Solicitação agendada','A cirurgia de ATJ para Fernando Augusto Costa foi agendada.',false,'/solicitacoes/${srIds1[0]}')`,
+    [assistenteOrtId],
+  );
+
+  // Notificações para admin conta 2
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'new_surgery_request','Nova solicitação','Uma nova solicitação cirúrgica foi criada para Roberto Carlos Ferreira.',true,'/solicitacoes/${srIds2[0]}','{"surgery_request_id":"${srIds2[0]}"}')`,
+    [adminId],
+  );
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'status_update','Cirurgia agendada','A revascularização de Carlos Eduardo Pinto foi agendada.',true,'/solicitacoes/${srIds2[4]}')`,
+    [adminId],
+  );
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'system','Solicitação parada há 15 dias','A solicitação de Roberto Carlos Ferreira está pendente há mais de 15 dias.',false,'/solicitacoes/${srIds2[0]}')`,
+    [adminId],
+  );
+
+  // Notificações para Dra. Fernanda
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'status_update','Solicitação em análise','A discectomia de Luciana Mendes Barbosa está em análise pelo convênio.',false,'/solicitacoes/${srIds2[9]}','{"surgery_request_id":"${srIds2[9]}","new_status":3}')`,
+    [collabMedicaId],
+  );
+
+  // Notificações para assistentes conta 2
+  await dataSource.query(
+    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'info','Bem-vindo ao InExci','Sua conta foi criada. Você tem acesso às solicitações de Dr. Rafael e Dra. Fernanda.',true,'/dashboard')`,
+    [assistente1Id],
+  );
+
+  logger.log('  ✅ Notificações criadas\n');
+
+  // ========================================
+  // 15j. CHATS e MENSAGENS
+  // ========================================
+  logger.log('💬 Criando chats e mensagens...');
+
+  // Chat na SR5 (revascularização - agendada)
+  const chat1Result = await dataSource.query(
+    `INSERT INTO chat (surgery_request_id, user_id) VALUES ($1, $2) RETURNING id`,
+    [srIds2[4], adminId],
+  );
+  const chat1Id = chat1Result[0].id;
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Precisamos confirmar a disponibilidade do oxigenador de membrana para a data agendada.', true)`,
+    [chat1Id, adminId],
+  );
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Confirmado com a Stryker. Equipamento reservado para a data.', true)`,
+    [chat1Id, assistente1Id],
+  );
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Perfeito. Paciente confirmou jejum e internação na véspera.', true)`,
+    [chat1Id, adminId],
+  );
+
+  // Chat na SR10 (discectomia - Dra. Fernanda)
+  const chat2Result = await dataSource.query(
+    `INSERT INTO chat (surgery_request_id, user_id) VALUES ($1, $2) RETURNING id`,
+    [srIds2[9], collabMedicaId],
+  );
+  const chat2Id = chat2Result[0].id;
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Cotação da Synthes chegou. R$ 24.500. Acho que podemos negociar.', true)`,
+    [chat2Id, collabMedicaId],
+  );
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Vou entrar em contato com o Marcelo da Synthes para tentar reduzir o valor do cage.', false)`,
+    [chat2Id, assistente2Id],
+  );
+
+  // Chat na SR C1-1 (ATJ conta 1)
+  const chat3Result = await dataSource.query(
+    `INSERT INTO chat (surgery_request_id, user_id) VALUES ($1, $2) RETURNING id`,
+    [srIds1[0], adminMedicoId],
+  );
+  const chat3Id = chat3Result[0].id;
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Patricia, confirme com o Einstein a reserva do bloco para o dia agendado.', true)`,
+    [chat3Id, adminMedicoId],
+  );
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Confirmado Dr. Carlos! Bloco 3, turno da manhã, às 7h.', true)`,
+    [chat3Id, assistenteOrtId],
+  );
+  await dataSource.query(
+    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Ótimo. Lembre de enviar o checklist pré-operatório ao paciente.', false)`,
+    [chat3Id, adminMedicoId],
+  );
+
+  logger.log('  ✅ Chats e mensagens criados\n');
+
+  // ========================================
+  // 16. NOTIFICATION SETTINGS
   // ========================================
   logger.log('🔔 Criando configurações de notificação...');
 
@@ -1651,6 +2291,7 @@ async function main() {
   logger.log('📊 Dados criados:');
   logger.log('  • 3 planos de assinatura');
   logger.log('  • 20 procedimentos cirúrgicos');
+  logger.log('  • 21 códigos CID + 20 códigos TUSS');
   logger.log('  • 2 contas independentes (tenant isolation)');
   logger.log('  • 7 usuários');
   logger.log('  • 5 hospitais (3 RJ, 2 SP) com endereços reais');
@@ -1660,9 +2301,15 @@ async function main() {
     '  • 13 pacientes com dados completos (endereço, convênio, histórico)',
   );
   logger.log('  • 15 solicitações cirúrgicas cobrindo todos os 9 status');
+  logger.log('  • CID/TUSS vinculados + itens TUSS nas solicitações');
   logger.log(
     '  • OPME, cotações, análises, faturamentos, contestações, laudos',
   );
+  logger.log('  • 4 templates de solicitação');
+  logger.log('  • Atividades (comentários, mudanças de status, sistema)');
+  logger.log('  • 13 documentos em solicitações + 4 documentos padrão clínica');
+  logger.log('  • 10+ notificações in-app');
+  logger.log('  • 3 chats com mensagens');
   logger.log('  • 6 logs de stale notification (solicitações paradas)');
   logger.log('  • 5 logs de envio (email/whatsapp — sent, failed, queued)');
   logger.log('');

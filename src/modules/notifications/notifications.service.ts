@@ -192,7 +192,7 @@ export class NotificationsService {
 
   // ============ Convenience Methods ============
 
-  async notifyStatusUpdate(
+  notifyStatusUpdate(
     userId: string,
     surgeryRequestId: string,
     newStatus: string,
@@ -207,7 +207,7 @@ export class NotificationsService {
     });
   }
 
-  async notifyNewPendency(
+  notifyNewPendency(
     userId: string,
     surgeryRequestId: string,
     pendencyType: string,
@@ -222,7 +222,7 @@ export class NotificationsService {
     });
   }
 
-  async notifyExpiringDocument(
+  notifyExpiringDocument(
     userId: string,
     documentName: string,
     daysUntilExpiry: number,

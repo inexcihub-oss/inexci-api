@@ -10,7 +10,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
-import dataSource from './database/typeorm/data-source';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 
 dayjs.extend(customParse);
@@ -18,26 +17,9 @@ dayjs.extend(customParse);
 const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
-  // Executar migrations automaticamente
-  try {
-    await dataSource.initialize();
-    logger.log('Executando migrations...');
-    const migrations = await dataSource.runMigrations();
-    if (migrations.length > 0) {
-      logger.log(`${migrations.length} migration(s) executada(s) com sucesso`);
-      migrations.forEach((migration) => {
-        logger.log(`  - ${migration.name}`);
-      });
-    } else {
-      logger.log('Banco de dados ja esta atualizado');
-    }
-    await dataSource.destroy();
-  } catch (error) {
-    logger.error('Erro ao executar migrations:', error.message);
-    process.exit(1);
-  }
-
-  // NOTA: Para executar seeds, use manualmente: npm run seed
+  // NOTA: As migrations NÃO são executadas automaticamente.
+  // Para rodá-las manualmente: npm run migration:run
+  // Para executar seeds, use manualmente: npm run seed
   // Não executamos automaticamente para evitar duplicações em hot reload
 
   const app = await NestFactory.create(AppModule, {

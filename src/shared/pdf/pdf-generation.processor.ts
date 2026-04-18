@@ -1,5 +1,5 @@
 import { Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job } from 'bull';
@@ -21,6 +21,7 @@ import {
 } from 'src/shared/utils';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
+@Injectable()
 @Processor('pdf-generation')
 export class PdfGenerationProcessor {
   private readonly logger = new Logger(PdfGenerationProcessor.name);

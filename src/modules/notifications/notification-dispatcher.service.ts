@@ -124,7 +124,7 @@ export class NotificationDispatcherService {
     );
   }
 
-  private async getSettings(userId: string) {
+  private getSettings(userId: string) {
     return this.settingsRepository.findByUserId(userId);
   }
 

@@ -13,7 +13,7 @@ export class OpenaiService {
     });
   }
 
-  async chatCompletion(params: {
+  chatCompletion(params: {
     messages: OpenAI.ChatCompletionMessageParam[];
     tools?: OpenAI.ChatCompletionTool[];
     temperature?: number;

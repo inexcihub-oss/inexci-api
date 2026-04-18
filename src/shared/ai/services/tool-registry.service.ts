@@ -58,13 +58,13 @@ export class ToolRegistryService {
     return this.tools.get(name);
   }
 
-  async executeTool(
+  executeTool(
     name: string,
     args: Record<string, any>,
     context: ToolContext,
   ): Promise<string> {
     const tool = this.tools.get(name);
-    if (!tool) return `Ferramenta "${name}" não encontrada.`;
+    if (!tool) return Promise.resolve(`Ferramenta "${name}" não encontrada.`);
     return tool.execute(args, context);
   }
 }

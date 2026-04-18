@@ -5,7 +5,7 @@ import { OpenaiService } from '../ai/services/openai.service';
 export class EmbeddingService {
   constructor(private readonly openaiService: OpenaiService) {}
 
-  async generate(text: string): Promise<number[]> {
+  generate(text: string): Promise<number[]> {
     return this.openaiService.createEmbedding(text);
   }
 

@@ -9,7 +9,7 @@ export class SupplierRepository extends BaseRepository<Supplier> {
     super(dataSource.getRepository(Supplier));
   }
 
-  async findMany(
+  findMany(
     where: FindOptionsWhere<Supplier> | FindOptionsWhere<Supplier>[],
     skip?: number,
     take?: number,
@@ -22,7 +22,7 @@ export class SupplierRepository extends BaseRepository<Supplier> {
     });
   }
 
-  async findByDoctorId(doctorId: string): Promise<Supplier[]> {
+  findByDoctorId(doctorId: string): Promise<Supplier[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
       order: { name: 'ASC' },

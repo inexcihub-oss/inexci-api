@@ -68,7 +68,7 @@ export class PendencyValidatorService {
   /**
    * Carrega a solicitação com todas as relações necessárias para avaliação.
    */
-  private async loadRequest(id: string): Promise<SurgeryRequest> {
+  private loadRequest(id: string): Promise<SurgeryRequest> {
     return this.surgeryRequestRepository.findOne({
       where: { id },
       relations: [
@@ -431,6 +431,34 @@ export class PendencyValidatorService {
       canAdvance: blockingPending === 0,
       items,
     };
+  }
+
+  async getBatchSummary(
+    rawIds: string,
+  ): Promise<Record<string, { pending: number; total: number; canAdvance: boolean }>> {
+    const ids = rawIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
+
+    const summaries = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const result = await this.getSummary(id);
+          return { id, pending: result.pending, total: result.total, canAdvance: result.canAdvance };
+        } catch {
+          return { id, pending: 0, total: 0, canAdvance: true };
+        }
+      }),
+    );
+
+    return summaries.reduce(
+      (acc, { id, ...summary }) => {
+        acc[id] = summary;
+        return acc;
+      },
+      {} as Record<string, { pending: number; total: number; canAdvance: boolean }>,
+    );
   }
 
   /**

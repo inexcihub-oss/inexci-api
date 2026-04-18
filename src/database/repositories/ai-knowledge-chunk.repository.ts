@@ -13,7 +13,7 @@ export class AiKnowledgeChunkRepository extends BaseRepository<AiKnowledgeChunk>
     super(repository);
   }
 
-  async findByCategory(category: string): Promise<AiKnowledgeChunk[]> {
+  findByCategory(category: string): Promise<AiKnowledgeChunk[]> {
     return this.repository.find({
       where: { category, active: true },
       order: { created_at: 'ASC' },

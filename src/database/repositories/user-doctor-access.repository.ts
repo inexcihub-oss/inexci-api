@@ -12,7 +12,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     super(dataSource.getRepository(UserDoctorAccess));
   }
 
-  async findActiveByUserId(userId: string): Promise<UserDoctorAccess[]> {
+  findActiveByUserId(userId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
       where: {
         user_id: userId,
@@ -22,7 +22,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     });
   }
 
-  async findActiveByDoctorUserId(
+  findActiveByDoctorUserId(
     doctorUserId: string,
   ): Promise<UserDoctorAccess[]> {
     return this.repository.find({
@@ -34,7 +34,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     });
   }
 
-  async findByAccountId(accountId: string): Promise<UserDoctorAccess[]> {
+  findByAccountId(accountId: string): Promise<UserDoctorAccess[]> {
     return this.repository
       .createQueryBuilder('uda')
       .innerJoin('user', 'u', 'u.id = uda.user_id')
@@ -44,7 +44,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
       .getMany();
   }
 
-  async findByUserAndDoctor(
+  findByUserAndDoctor(
     userId: string,
     doctorUserId: string,
   ): Promise<UserDoctorAccess | null> {
@@ -90,7 +90,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     return this.repository.save(access);
   }
 
-  async findAllByUserId(userId: string): Promise<UserDoctorAccess[]> {
+  findAllByUserId(userId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
       where: { user_id: userId },
       relations: ['doctor'],

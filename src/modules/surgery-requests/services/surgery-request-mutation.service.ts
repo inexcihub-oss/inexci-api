@@ -59,7 +59,7 @@ export class SurgeryRequestMutationService {
    * Delega para DoctorResolutionService.
    * @deprecated Use doctorResolutionService.resolveDoctorId() diretamente.
    */
-  async resolveDoctorId(
+  resolveDoctorId(
     userId: string,
     doctorIdFromPayload?: string,
   ): Promise<string> {
@@ -175,7 +175,7 @@ export class SurgeryRequestMutationService {
 
     // Envia boas-vindas WhatsApp ao paciente (assíncrono — não bloqueia o fluxo)
     if (result.patient?.phone) {
-      this.whatsappService.sendPatientWelcome(
+      void this.whatsappService.sendPatientWelcome(
         result.patient.phone,
         result.patient.name,
       );
@@ -255,7 +255,7 @@ export class SurgeryRequestMutationService {
         this.logger.log(
           `[WhatsApp] enviando boas-vindas para ${patient.phone}`,
         );
-        this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+        void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
       } else {
         this.logger.warn(
           `[WhatsApp] paciente sem telefone cadastrado — mensagem não enviada`,

@@ -1,11 +1,18 @@
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsArray,
+  ValidateNested,
 } from 'class-validator';
 import { SurgeryRequestPriority } from 'src/database/entities';
+
+export class RequiredDocumentDto {
+  type: string;
+  name: string;
+}
 
 export class CreateSurgeryRequestSimpleDto {
   @IsString()
@@ -32,10 +39,13 @@ export class CreateSurgeryRequestSimpleDto {
   @IsString()
   hospital_id?: string;
 
+  @Type(() => Number)
   @IsNumber()
   priority: SurgeryRequestPriority;
 
   @IsOptional()
   @IsArray()
-  required_documents?: Array<{ type: string; name: string }>;
+  @ValidateNested({ each: true })
+  @Type(() => RequiredDocumentDto)
+  required_documents?: RequiredDocumentDto[];
 }

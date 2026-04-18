@@ -9,7 +9,7 @@ export class DoctorProfileRepository extends BaseRepository<DoctorProfile> {
     super(dataSource.getRepository(DoctorProfile));
   }
 
-  async findOne(
+  findOne(
     where: FindOptionsWhere<DoctorProfile>,
   ): Promise<DoctorProfile | null> {
     return this.repository.findOne({
@@ -18,14 +18,14 @@ export class DoctorProfileRepository extends BaseRepository<DoctorProfile> {
     });
   }
 
-  async findByUserId(userId: string): Promise<DoctorProfile | null> {
+  findByUserId(userId: string): Promise<DoctorProfile | null> {
     return this.repository.findOne({
       where: { user_id: userId },
       relations: ['user'],
     });
   }
 
-  async findMany(
+  findMany(
     where: FindOptionsWhere<DoctorProfile> | FindOptionsWhere<DoctorProfile>[],
     skip?: number,
     take?: number,

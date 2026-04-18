@@ -18,41 +18,10 @@ export class PendenciesController {
    * GET /surgery-requests/pendencies/batch-summary?ids=id1,id2,id3
    */
   @Get('batch-summary')
-  async getBatchSummary(
+  getBatchSummary(
     @Query('ids') ids: string,
-  ): Promise<
-    Record<string, { pending: number; total: number; canAdvance: boolean }>
-  > {
-    const idArray = ids
-      .split(',')
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0);
-
-    const summaries = await Promise.all(
-      idArray.map(async (id) => {
-        try {
-          const result = await this.pendencyValidatorService.getSummary(id);
-          return { id, ...result };
-        } catch {
-          return { id, pending: 0, total: 0, canAdvance: true, items: [] };
-        }
-      }),
-    );
-
-    return summaries.reduce(
-      (acc, { id, ...summary }) => {
-        acc[id] = {
-          pending: summary.pending,
-          total: summary.total,
-          canAdvance: summary.canAdvance,
-        };
-        return acc;
-      },
-      {} as Record<
-        string,
-        { pending: number; total: number; canAdvance: boolean }
-      >,
-    );
+  ): Promise<Record<string, { pending: number; total: number; canAdvance: boolean }>> {
+    return this.pendencyValidatorService.getBatchSummary(ids);
   }
 
   /**

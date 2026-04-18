@@ -80,7 +80,7 @@ export class WhatsappService {
   /**
    * Envia mensagem de boas-vindas ao paciente recém-cadastrado.
    */
-  async sendPatientWelcome(to: string, patientName: string): Promise<void> {
+  sendPatientWelcome(to: string, patientName: string): Promise<void> {
     const body =
       `Olá, ${patientName}! 👋\n\n` +
       `Você foi cadastrado na plataforma *Inexci*. ` +
@@ -92,7 +92,7 @@ export class WhatsappService {
   /**
    * Envia mensagem de boas-vindas ao médico recém-cadastrado.
    */
-  async sendDoctorWelcome(
+  sendDoctorWelcome(
     to: string,
     doctorName: string,
     email: string,

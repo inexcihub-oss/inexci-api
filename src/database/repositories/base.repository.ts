@@ -14,11 +14,11 @@ interface HasId {
 export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
   constructor(protected readonly repository: Repository<T>) {}
 
-  async findOne(where: FindOptionsWhere<T>): Promise<T | null> {
+  findOne(where: FindOptionsWhere<T>): Promise<T | null> {
     return this.repository.findOne({ where });
   }
 
-  async findMany(
+  findMany(
     where: FindOptionsWhere<T> | FindOptionsWhere<T>[],
     skip?: number,
     take?: number,
@@ -26,13 +26,13 @@ export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
     return this.repository.find({ where, skip, take });
   }
 
-  async total(
+  total(
     where: FindOptionsWhere<T> | FindOptionsWhere<T>[],
   ): Promise<number> {
     return this.repository.count({ where });
   }
 
-  async create(data: DeepPartial<T>): Promise<T> {
+  create(data: DeepPartial<T>): Promise<T> {
     const entity = this.repository.create(data);
     return this.repository.save(entity);
   }

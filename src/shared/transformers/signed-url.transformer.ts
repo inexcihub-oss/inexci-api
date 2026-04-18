@@ -7,7 +7,7 @@ const logger = new Logger('SignedUrlTransformer');
  * Transforma os documentos de uma solicitação cirúrgica, substituindo
  * os `uri` internos por URLs assinadas do Supabase.
  */
-export async function transformDocumentUrls(
+export function transformDocumentUrls(
   documents: any[],
   storageService: StorageService,
 ): Promise<any[]> {

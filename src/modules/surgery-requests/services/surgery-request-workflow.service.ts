@@ -44,21 +44,21 @@ export class SurgeryRequestWorkflowService {
 
   // ── Envio e Análise ────────────────────────────────────────────────────────
 
-  async exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
+  exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
     return this.sendAnalysisHandler.exportSurgeryRequestPdf(id, userId);
   }
 
-  async sendRequest(id: string, dto: SendRequestDto, userId: string) {
+  sendRequest(id: string, dto: SendRequestDto, userId: string) {
     return this.sendAnalysisHandler.sendRequest(id, dto, userId);
   }
 
-  async startAnalysis(id: string, dto: StartAnalysisDto, userId: string) {
+  startAnalysis(id: string, dto: StartAnalysisDto, userId: string) {
     return this.sendAnalysisHandler.startAnalysis(id, dto, userId);
   }
 
   // ── Autorização ────────────────────────────────────────────────────────────
 
-  async acceptAuthorization(
+  acceptAuthorization(
     id: string,
     dto: AcceptAuthorizationDto,
     userId: string,
@@ -66,7 +66,7 @@ export class SurgeryRequestWorkflowService {
     return this.authorizationHandler.acceptAuthorization(id, dto, userId);
   }
 
-  async contestAuthorization(
+  contestAuthorization(
     id: string,
     dto: ContestAuthorizationDto,
     userId: string,
@@ -74,7 +74,7 @@ export class SurgeryRequestWorkflowService {
     return this.authorizationHandler.contestAuthorization(id, dto, userId);
   }
 
-  async generateContestAuthorizationPdf(
+  generateContestAuthorizationPdf(
     id: string,
     userId: string,
   ): Promise<Buffer> {
@@ -86,11 +86,11 @@ export class SurgeryRequestWorkflowService {
 
   // ── Agendamento ────────────────────────────────────────────────────────────
 
-  async confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
+  confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
     return this.schedulingHandler.confirmDate(id, dto, userId);
   }
 
-  async updateDateOptions(
+  updateDateOptions(
     id: string,
     dto: UpdateDateOptionsDto,
     userId: string,
@@ -98,17 +98,17 @@ export class SurgeryRequestWorkflowService {
     return this.schedulingHandler.updateDateOptions(id, dto, userId);
   }
 
-  async reschedule(id: string, dto: RescheduleDto, userId: string) {
+  reschedule(id: string, dto: RescheduleDto, userId: string) {
     return this.schedulingHandler.reschedule(id, dto, userId);
   }
 
   // ── Execução e Encerramento ────────────────────────────────────────────────
 
-  async markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
+  markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
     return this.executionHandler.markPerformed(id, dto, userId);
   }
 
-  async closeSurgeryRequest(
+  closeSurgeryRequest(
     id: string,
     dto: CloseSurgeryRequestDto,
     userId: string,
@@ -118,25 +118,25 @@ export class SurgeryRequestWorkflowService {
 
   // ── Billing (delegado para SurgeryRequestBillingService) ───────────────────
 
-  async invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
+  invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
     return this.billingService.invoiceRequest(id, dto, userId);
   }
 
-  async confirmReceipt(id: string, dto: ConfirmReceiptDto, userId: string) {
+  confirmReceipt(id: string, dto: ConfirmReceiptDto, userId: string) {
     return this.billingService.confirmReceipt(id, dto, userId);
   }
 
-  async contestPayment(id: string, dto: ContestPaymentDto, userId: string) {
+  contestPayment(id: string, dto: ContestPaymentDto, userId: string) {
     return this.billingService.contestPayment(id, dto, userId);
   }
 
-  async updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
+  updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
     return this.billingService.updateReceipt(id, dto, userId);
   }
 
   // ── Notificação ────────────────────────────────────────────────────────────
 
-  async notify(
+  notify(
     id: string,
     dto: { template: string; to?: string },
     userId: string,

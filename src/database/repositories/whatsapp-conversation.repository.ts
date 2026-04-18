@@ -13,7 +13,7 @@ export class WhatsappConversationRepository extends BaseRepository<WhatsappConve
     super(repository);
   }
 
-  async findActiveByPhone(phone: string): Promise<WhatsappConversation | null> {
+  findActiveByPhone(phone: string): Promise<WhatsappConversation | null> {
     return this.repository.findOne({
       where: { phone, active: true },
       order: { last_message_at: 'DESC' },

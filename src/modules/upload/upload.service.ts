@@ -5,6 +5,8 @@ import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
 import { STORAGE_FOLDERS } from '../../config/storage.config';
 import { v4 as uuidv4 } from 'uuid';
 
+const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
+
 @Injectable()
 export class UploadService {
   private readonly bucket: string;
@@ -32,6 +34,12 @@ export class UploadService {
   ): Promise<{ url: string; path: string }> {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    if (!folder || !ALLOWED_FOLDERS.includes(folder)) {
+      throw new BadRequestException(
+        `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
+      );
     }
 
     // Gerar nome único para o arquivo
@@ -121,12 +129,18 @@ export class UploadService {
    * @param folder - Pasta dentro do bucket
    * @returns Array de URLs públicas
    */
-  async uploadMultipleFiles(
+  uploadMultipleFiles(
     files: Express.Multer.File[],
     folder: string = STORAGE_FOLDERS.DOCUMENTS,
   ): Promise<Array<{ url: string; path: string; originalName: string }>> {
     if (!files || files.length === 0) {
       throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    if (!folder || !ALLOWED_FOLDERS.includes(folder)) {
+      throw new BadRequestException(
+        `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
+      );
     }
 
     const uploadPromises = files.map(async (file) => {

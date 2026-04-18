@@ -9,6 +9,7 @@ export class UpdateSurgeryRequestBasicDto {
 
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
+  @Type(() => Number)
   priority?: SurgeryRequestPriority;
 
   @IsOptional()

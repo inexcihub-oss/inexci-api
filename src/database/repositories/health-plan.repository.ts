@@ -18,7 +18,7 @@ export class HealthPlanRepository extends BaseRepository<HealthPlan> {
     return await this.repository.find({ where: { active: true } });
   }
 
-  async findMany(
+  findMany(
     where: FindOptionsWhere<HealthPlan> | FindOptionsWhere<HealthPlan>[],
     skip?: number,
     take?: number,
@@ -31,7 +31,7 @@ export class HealthPlanRepository extends BaseRepository<HealthPlan> {
     });
   }
 
-  async findByDoctorId(doctorId: string): Promise<HealthPlan[]> {
+  findByDoctorId(doctorId: string): Promise<HealthPlan[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
       order: { name: 'ASC' },

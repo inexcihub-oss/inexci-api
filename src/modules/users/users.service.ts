@@ -377,7 +377,7 @@ export class UsersService {
     });
 
     // Envia email de boas-vindas
-    this.mailService.sendRaw(
+    void this.mailService.sendRaw(
       newUser.email,
       'Bem-vindo a Inexci!',
       `
@@ -620,7 +620,7 @@ export class UsersService {
     }
 
     // Envia email de boas-vindas
-    this.mailService.sendRaw(
+    void this.mailService.sendRaw(
       newUser.email,
       'Bem-vindo a Inexci!',
       `
@@ -635,7 +635,7 @@ export class UsersService {
 
     // Envia WhatsApp de boas-vindas ao médico recém-criado (assíncrono)
     if (isDoctor && newUser.phone) {
-      this.whatsappService.sendDoctorWelcome(
+      void this.whatsappService.sendDoctorWelcome(
         newUser.phone,
         newUser.name,
         newUser.email,

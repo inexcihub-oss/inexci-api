@@ -37,7 +37,7 @@ export class AuthService {
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly mailService: MailService,
-    private jwtService: JwtService,
+    private readonly jwtService: JwtService,
     @InjectRepository(SubscriptionPlan)
     private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
     @InjectRepository(RefreshToken)
@@ -268,7 +268,7 @@ export class AuthService {
       expires_at: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
     });
 
-    this.mailService.sendRaw(
+    void this.mailService.sendRaw(
       user.email,
       'Inexci - Recuperação de senha',
       `

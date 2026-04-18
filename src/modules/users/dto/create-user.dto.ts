@@ -11,6 +11,7 @@ import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 
 export class CreateUserDto {
   @IsOptional()
+  @Type(() => String)
   @IsString()
   @IsIn(Object.values(UserRole))
   role?: UserRole;

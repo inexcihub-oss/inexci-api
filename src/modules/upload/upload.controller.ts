@@ -6,7 +6,6 @@ import {
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
-  BadRequestException,
   Body,
 } from '@nestjs/common';
 import {
@@ -17,9 +16,6 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
-import { STORAGE_FOLDERS } from '../../config/storage.config';
-
-const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
 @Controller('upload')
 export class UploadController {
@@ -36,16 +32,6 @@ export class UploadController {
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder: string,
   ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    if (!folder || !ALLOWED_FOLDERS.includes(folder)) {
-      throw new BadRequestException(
-        `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
-      );
-    }
-
     const result = await this.uploadService.uploadFile(file, folder);
 
     return {
@@ -80,16 +66,6 @@ export class UploadController {
     @UploadedFiles() files: Express.Multer.File[],
     @Body('folder') folder: string,
   ) {
-    if (!files || files.length === 0) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    if (!folder || !ALLOWED_FOLDERS.includes(folder)) {
-      throw new BadRequestException(
-        `Pasta inválida. Valores permitidos: ${ALLOWED_FOLDERS.join(', ')}`,
-      );
-    }
-
     const results = await this.uploadService.uploadMultipleFiles(files, folder);
 
     return {

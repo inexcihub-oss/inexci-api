@@ -28,7 +28,7 @@ export class SurgeryRequestReportService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async getReportSections(
+  getReportSections(
     id: string,
     _userId: string,
   ): Promise<ReportSection[]> {

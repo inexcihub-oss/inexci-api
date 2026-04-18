@@ -20,7 +20,7 @@ export class StaleNotificationLogRepository {
     return count > 0;
   }
 
-  async record(
+  record(
     surgeryRequestId: string,
     staleDays: number,
     channel: string,

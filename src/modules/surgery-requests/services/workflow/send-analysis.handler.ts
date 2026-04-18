@@ -124,7 +124,7 @@ export class SendAnalysisHandler {
     );
 
     try {
-      this.pdfGenerationService.scheduleGeneration(id, userId);
+      void this.pdfGenerationService.scheduleGeneration(id, userId);
     } catch (err) {
       this.logger.warn(
         `Falha ao agendar geração de PDF para solicitação ${id}: ${err?.message}`,

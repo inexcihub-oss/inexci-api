@@ -1,5 +1,5 @@
 import { OnQueueFailed, Process, Processor } from '@nestjs/bull';
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -16,8 +16,9 @@ import {
   NotificationSendStatus,
 } from 'src/database/entities/notification-send-log.entity';
 
+@Injectable()
 @Processor('mail')
-export class MailProcessor {
+export class MailProcessor implements OnModuleInit {
   private readonly logger = new Logger(MailProcessor.name);
   private readonly transporter: nodemailer.Transporter;
 
@@ -36,23 +37,34 @@ export class MailProcessor {
         pass: this.mail.auth.pass,
       },
     });
-
-    // Registrar partials Handlebars
-    this.registerPartials();
   }
 
-  private registerPartials() {
-    const partialsDir = path.join(__dirname, 'templates', 'partials');
-    if (!fs.existsSync(partialsDir)) return;
+  async onModuleInit() {
+    await this.registerPartials();
+  }
 
-    fs.readdirSync(partialsDir)
-      .filter((f) => f.endsWith('.hbs'))
-      .forEach((file) => {
-        const name = file.replace('.hbs', '');
-        const source = fs.readFileSync(path.join(partialsDir, file), 'utf-8');
-        Handlebars.registerPartial(name, source);
-        this.logger.log(`Handlebars partial registrado: ${name}`);
-      });
+  private async registerPartials() {
+    const partialsDir = path.join(__dirname, 'templates', 'partials');
+    try {
+      await fs.promises.access(partialsDir);
+    } catch {
+      return;
+    }
+
+    const files = await fs.promises.readdir(partialsDir);
+    await Promise.all(
+      files
+        .filter((f) => f.endsWith('.hbs'))
+        .map(async (file) => {
+          const name = file.replace('.hbs', '');
+          const source = await fs.promises.readFile(
+            path.join(partialsDir, file),
+            'utf-8',
+          );
+          Handlebars.registerPartial(name, source);
+          this.logger.log(`Handlebars partial registrado: ${name}`);
+        }),
+    );
   }
 
   @Process('send-mail')
@@ -70,7 +82,7 @@ export class MailProcessor {
     });
 
     try {
-      const html = rawHtml ?? this.renderTemplate(template, context ?? {});
+      const html = rawHtml ?? await this.renderTemplate(template, context ?? {});
 
       await this.transporter.sendMail({
         from: `"${this.mail.from.name}" <${this.mail.from.address}>`,
@@ -121,27 +133,29 @@ export class MailProcessor {
     }
   }
 
-  private renderTemplate(
+  private async renderTemplate(
     templateName: string,
     context: Record<string, any>,
-  ): string {
+  ): Promise<string> {
     const templatePath = path.join(
       __dirname,
       'templates',
       `${templateName}.hbs`,
     );
 
-    if (!fs.existsSync(templatePath)) {
+    try {
+      await fs.promises.access(templatePath);
+    } catch {
       throw new Error(`Template de e-mail não encontrado: ${templateName}`);
     }
 
-    const source = fs.readFileSync(templatePath, 'utf-8');
+    const source = await fs.promises.readFile(templatePath, 'utf-8');
     const compiled = Handlebars.compile(source);
     return compiled(context);
   }
 
   @OnQueueFailed()
-  async handleFailedJob(job: Job<MailJobData>, error: Error) {
+  handleFailedJob(job: Job<MailJobData>, error: Error) {
     const maxAttempts = job.opts?.attempts ?? 3;
     if (job.attemptsMade >= maxAttempts) {
       this.logger.error(

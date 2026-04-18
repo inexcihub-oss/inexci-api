@@ -26,7 +26,7 @@ export class ProceduresService {
     return procedure;
   }
 
-  async create(data: CreateProcedureDto): Promise<Procedure> {
+  create(data: CreateProcedureDto): Promise<Procedure> {
     return this.procedureRepository.create(data);
   }
 

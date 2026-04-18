@@ -35,7 +35,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     super(repository);
   }
 
-  async totalByHospital(
+  totalByHospital(
     doctorIds: string[],
     filters?: {
       hospitalId?: string;
@@ -72,7 +72,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .getRawMany();
   }
 
-  async totalByStatus(
+  totalByStatus(
     doctorIds: string[],
     filters?: {
       hospitalId?: string;
@@ -103,7 +103,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return qb.groupBy('sr.status').orderBy('COUNT(*)', 'DESC').getRawMany();
   }
 
-  async totalByHealthPlan(
+  totalByHealthPlan(
     doctorIds: string[],
     filters?: {
       hospitalId?: string;
@@ -374,7 +374,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   }
 
   /** Carrega solicitação com todas as relações padrão necessárias para a state machine */
-  async findOneWithAllRelations(
+  findOneWithAllRelations(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
     return this.findOneWithRelations(where, [
@@ -534,7 +534,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
    * Busca solicitações paradas (stale) — que não mudaram de status há mais de `minDays` dias.
    * Exclui status finais: PERFORMED, INVOICED, FINALIZED, CLOSED.
    */
-  async findStaleRequests(minDays: number): Promise<SurgeryRequest[]> {
+  findStaleRequests(minDays: number): Promise<SurgeryRequest[]> {
     const terminalStatuses = [
       SurgeryRequestStatus.PERFORMED,
       SurgeryRequestStatus.INVOICED,

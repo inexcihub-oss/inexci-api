@@ -149,7 +149,7 @@ export class UserRepository extends BaseRepository<User> {
     return await this.findOne({ id });
   }
 
-  async findOneByPhone(phone: string): Promise<User | null> {
+  findOneByPhone(phone: string): Promise<User | null> {
     return this.findOne({ phone });
   }
 }

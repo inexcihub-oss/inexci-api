@@ -58,7 +58,7 @@ export class MailService {
   /**
    * Solicitação enviada ao convênio.
    */
-  async sendSurgeryRequestSent(
+  sendSurgeryRequestSent(
     to: string,
     context: {
       patientName: string;
@@ -79,7 +79,7 @@ export class MailService {
   /**
    * Autorização recebida do convênio.
    */
-  async sendSurgeryAuthorized(
+  sendSurgeryAuthorized(
     to: string,
     context: {
       patientName: string;
@@ -93,7 +93,7 @@ export class MailService {
   /**
    * Contestação de autorização enviada.
    */
-  async sendSurgeryContested(
+  sendSurgeryContested(
     to: string,
     subject: string,
     context: {
@@ -109,7 +109,7 @@ export class MailService {
   /**
    * Cirurgia agendada.
    */
-  async sendSurgeryScheduled(
+  sendSurgeryScheduled(
     to: string,
     context: {
       patientName: string;
@@ -124,7 +124,7 @@ export class MailService {
   /**
    * Fatura enviada ao convênio.
    */
-  async sendInvoiceSent(
+  sendInvoiceSent(
     to: string,
     context: {
       patientName: string;
@@ -140,7 +140,7 @@ export class MailService {
   /**
    * Pagamento recebido confirmado.
    */
-  async sendPaymentReceived(
+  sendPaymentReceived(
     to: string,
     context: {
       patientName: string;
@@ -160,7 +160,7 @@ export class MailService {
   /**
    * Contestação de pagamento enviada.
    */
-  async sendPaymentContested(
+  sendPaymentContested(
     to: string,
     subject: string,
     context: {
@@ -177,7 +177,7 @@ export class MailService {
   /**
    * Notificação de atualização de status ao paciente.
    */
-  async sendStatusUpdate(
+  sendStatusUpdate(
     to: string,
     context: {
       patientName: string;
@@ -195,7 +195,7 @@ export class MailService {
     );
   }
 
-  async sendStatusChangeStakeholder(
+  sendStatusChangeStakeholder(
     to: string,
     context: {
       patientName: string;
@@ -217,7 +217,7 @@ export class MailService {
   /**
    * Notificação de mudança de status ao paciente (usa layout unificado).
    */
-  async sendStatusChangePatient(
+  sendStatusChangePatient(
     to: string,
     context: {
       patientName: string;
@@ -239,7 +239,7 @@ export class MailService {
   /**
    * Lembrete de solicitação parada (stale).
    */
-  async sendStaleReminder(
+  sendStaleReminder(
     to: string,
     context: {
       patientName: string;
@@ -262,7 +262,7 @@ export class MailService {
   /**
    * Alerta crítico de solicitação parada (15+ dias).
    */
-  async sendStaleCritical(
+  sendStaleCritical(
     to: string,
     context: {
       patientName: string;
@@ -285,7 +285,7 @@ export class MailService {
   /**
    * Alerta de ação para admins.
    */
-  async sendActionAdminAlert(
+  sendActionAdminAlert(
     to: string,
     context: {
       actionLabel: string;
@@ -308,7 +308,7 @@ export class MailService {
   /**
    * Boas-vindas ao paciente.
    */
-  async sendWelcomePatient(
+  sendWelcomePatient(
     to: string,
     context: {
       patientName: string;
@@ -324,7 +324,7 @@ export class MailService {
   /**
    * Boas-vindas ao médico.
    */
-  async sendWelcomeDoctor(
+  sendWelcomeDoctor(
     to: string,
     context: {
       doctorName: string;

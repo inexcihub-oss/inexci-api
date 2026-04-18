@@ -1,5 +1,5 @@
 import { Process, Processor, OnQueueFailed } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bull';
 import { AiOrchestratorService } from './services/ai-orchestrator.service';
 
@@ -10,6 +10,7 @@ interface InboundMessageJob {
   mediaUrl: string | null;
 }
 
+@Injectable()
 @Processor('ai-messages')
 export class AiMessageProcessor {
   private readonly logger = new Logger(AiMessageProcessor.name);

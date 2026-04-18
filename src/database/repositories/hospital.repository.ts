@@ -9,7 +9,7 @@ export class HospitalRepository extends BaseRepository<Hospital> {
     super(dataSource.getRepository(Hospital));
   }
 
-  async findMany(
+  findMany(
     where: FindOptionsWhere<Hospital> | FindOptionsWhere<Hospital>[],
     skip?: number,
     take?: number,
@@ -22,7 +22,7 @@ export class HospitalRepository extends BaseRepository<Hospital> {
     });
   }
 
-  async findByDoctorId(doctorId: string): Promise<Hospital[]> {
+  findByDoctorId(doctorId: string): Promise<Hospital[]> {
     return this.repository.find({
       where: { doctor_id: doctorId },
       order: { name: 'ASC' },

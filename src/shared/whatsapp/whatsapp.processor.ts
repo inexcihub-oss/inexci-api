@@ -1,5 +1,5 @@
 import { OnQueueFailed, Process, Processor } from '@nestjs/bull';
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
@@ -16,6 +16,7 @@ import {
 } from 'src/database/entities/notification-send-log.entity';
 import { WhatsappJobData } from './whatsapp.service';
 
+@Injectable()
 @Processor('whatsapp-messages')
 export class WhatsappProcessor {
   private readonly logger = new Logger(WhatsappProcessor.name);
@@ -171,7 +172,7 @@ export class WhatsappProcessor {
   }
 
   @OnQueueFailed()
-  async handleFailedJob(job: Job<WhatsappJobData>, error: Error) {
+  handleFailedJob(job: Job<WhatsappJobData>, error: Error) {
     const maxAttempts = job.opts?.attempts ?? 3;
     if (job.attemptsMade >= maxAttempts) {
       this.logger.error(

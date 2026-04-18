@@ -82,7 +82,7 @@ export class PatientsService {
 
     // Notifica o paciente via WhatsApp (assíncrono — não bloqueia o cadastro)
     if (patient.phone) {
-      this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+      void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
     }
 
     return patient;
