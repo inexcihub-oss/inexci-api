@@ -7,6 +7,7 @@ import {
   UploadedFile,
   UploadedFiles,
   Body,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
