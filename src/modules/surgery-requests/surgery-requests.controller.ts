@@ -17,6 +17,8 @@ import {
   ApiBearerAuth,
   ApiParam,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { Response } from 'express';
 import { SurgeryRequestsService } from './surgery-requests.service';
 import {
   CurrentUser,
@@ -29,7 +31,6 @@ import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
-import { UpdateStatusDto } from './dto/update-status.dto';
 
 // DTOs de transição
 import { SendRequestDto } from './dto/send-request.dto';
@@ -63,6 +64,7 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Post()
+  @Throttle({ short: { ttl: 60000, limit: 10 } })
   @ApiOperation({ summary: 'Criar solicitação cirúrgica' })
   createSurgeryRequest(
     @Body() data: CreateSurgeryRequestSimpleDto,
@@ -91,12 +93,6 @@ export class SurgeryRequestsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.findOne(query.id, user.userId);
-  }
-
-  @Get('date-expired')
-  @ApiOperation({ summary: 'Solicitações com data expirada' })
-  dateExpired() {
-    return this.surgeryRequestsService.dateExpired();
   }
 
   // ============================================================
@@ -136,21 +132,6 @@ export class SurgeryRequestsController {
     return this.surgeryRequestsService.updateBasic(
       { ...data, id },
       user.userId,
-    );
-  }
-
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Atualizar status' })
-  updateStatus(
-    @Param('id') id: string,
-    @Body() data: UpdateStatusDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.surgeryRequestsService.updateStatus(
-      id,
-      data.status,
-      user.userId,
-      data.notify_patient,
     );
   }
 
@@ -231,7 +212,7 @@ export class SurgeryRequestsController {
   async getContestAuthorizationPdf(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
-    @Res() res: any,
+    @Res() res: Response,
   ) {
     const buffer =
       await this.surgeryRequestsService.generateContestAuthorizationPdf(
@@ -464,6 +445,30 @@ export class SurgeryRequestsController {
   // ============================================================
 
   /**
+   * Exporta o PDF da solicitação cirúrgica sem alterar o status.
+   * Disponível para solicitações já enviadas (status ≥ 2).
+   * GET /surgery-requests/:id/export-pdf
+   */
+  @Get(':id/export-pdf')
+  @ApiOperation({ summary: 'Exportar PDF da solicitação cirúrgica' })
+  async exportSurgeryRequestPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.surgeryRequestsService.exportSurgeryRequestPdf(
+      id,
+      user.userId,
+    );
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="solicitacao-${id}.pdf"`,
+      'Content-Length': buffer.length,
+    });
+    res.status(HttpStatus.OK).end(buffer);
+  }
+
+  /**
    * Gera o PDF do laudo médico e retorna como download
    * GET /surgery-requests/:id/report-pdf
    */
@@ -472,7 +477,7 @@ export class SurgeryRequestsController {
   async getReportPdf(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
-    @Res() res: any,
+    @Res() res: Response,
   ) {
     const buffer = await this.surgeryRequestsService.generateReportPdf(
       id,

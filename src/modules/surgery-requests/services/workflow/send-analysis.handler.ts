@@ -42,6 +42,22 @@ export class SendAnalysisHandler {
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
   ) {}
 
+  /**
+   * Exporta o PDF da solicitação cirúrgica sem alterar o status.
+   * Disponível para solicitações já enviadas (status ≥ 2).
+   */
+  async exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
+    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
+      { id },
+    );
+    if (!request) throw new NotFoundException('Solicitação não encontrada');
+    const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
+      request,
+      userId,
+    );
+    return Buffer.from(pdf, 'base64');
+  }
+
   async sendRequest(id: string, dto: SendRequestDto, userId: string) {
     this.logger.log(
       `[sendRequest] Iniciando envio da solicitação ${id} por usuário ${userId}`,

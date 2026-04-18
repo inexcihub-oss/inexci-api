@@ -8,7 +8,7 @@ jest.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 
@@ -37,6 +37,7 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     uploadBuffer: jest.fn(),
   };
   const mockPdfService = { generateMedicalReportPdf: jest.fn() };
+  const mockDataSource = { query: jest.fn() } as unknown as DataSource;
 
   beforeEach(() => {
     mockReportSectionRepo = {
@@ -48,6 +49,8 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
       delete: jest.fn(),
       update: jest.fn(),
     };
+    (mockDataSource.query as jest.Mock).mockReset();
+    (mockDataSource.query as jest.Mock).mockResolvedValue([]);
 
     // Instanciação direta do SurgeryRequestReportService
     service = new SurgeryRequestReportService(
@@ -56,6 +59,7 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
       mockUserRepository as any,
       mockStorageService as any,
       mockPdfService as any,
+      mockDataSource,
     );
   });
 
@@ -203,10 +207,7 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
 
   // ─── PRD: Reformulação Laudos — US-003 (reorder) ────────────────────────
   describe('reorderReportSections', () => {
-    it('deve atualizar ordem das sections com base nos IDs fornecidos', async () => {
-      (mockReportSectionRepo.update as jest.Mock).mockResolvedValue({
-        affected: 1,
-      });
+    it('deve executar batch update com dataSource.query para todas as sections', async () => {
       (mockReportSectionRepo.find as jest.Mock).mockResolvedValue([]);
 
       await service.reorderReportSections(
@@ -215,19 +216,26 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
         'user-1',
       );
 
-      // Verifica que update foi chamado com order correto para cada ID
-      expect(mockReportSectionRepo.update).toHaveBeenCalledWith(
-        { id: 'sec-3', surgery_request_id: 'req-1' },
-        { order: 0 },
-      );
-      expect(mockReportSectionRepo.update).toHaveBeenCalledWith(
-        { id: 'sec-1', surgery_request_id: 'req-1' },
-        { order: 1 },
-      );
-      expect(mockReportSectionRepo.update).toHaveBeenCalledWith(
-        { id: 'sec-2', surgery_request_id: 'req-1' },
-        { order: 2 },
-      );
+      // Batch: apenas 1 query em vez de N updates individuais
+      expect(mockDataSource.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = (mockDataSource.query as jest.Mock).mock.calls[0];
+      expect(sql).toContain('UPDATE report_section rs');
+      expect(sql).toContain('VALUES');
+      expect(params).toContain('sec-3');
+      expect(params).toContain('sec-1');
+      expect(params).toContain('sec-2');
+      expect(params).toContain(0);
+      expect(params).toContain(1);
+      expect(params).toContain(2);
+      expect(params).toContain('req-1');
+    });
+
+    it('deve retornar lista vazia sem executar query quando ids está vazio', async () => {
+      (mockReportSectionRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await service.reorderReportSections('req-1', { ids: [] }, 'user-1');
+
+      expect(mockDataSource.query).not.toHaveBeenCalled();
     });
   });
 });

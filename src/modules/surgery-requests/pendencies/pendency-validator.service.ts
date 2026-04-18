@@ -10,6 +10,8 @@ import {
   PendencyConfig,
 } from 'src/config/pendencies.config';
 
+const PREDOC_FOLDER_PREFIX = 'documents/';
+
 export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
 }
@@ -114,7 +116,7 @@ export class PendencyValidatorService {
     const hasDoc = (k: string) => docs.some((d) => d.key === k);
     /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
     const hasPreDoc = (k: string) =>
-      docs.some((d) => d.key === k && d.uri?.startsWith('documents/'));
+      docs.some((d) => d.key === k && d.uri?.startsWith(PREDOC_FOLDER_PREFIX));
 
     switch (key) {
       case 'patient_data':
@@ -231,7 +233,7 @@ export class PendencyValidatorService {
     const hasDoc = (key: string) => docs.some((d) => d.key === key);
     /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
     const hasPreDoc = (k: string) =>
-      docs.some((d) => d.key === k && d.uri?.startsWith('documents/'));
+      docs.some((d) => d.key === k && d.uri?.startsWith(PREDOC_FOLDER_PREFIX));
 
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────

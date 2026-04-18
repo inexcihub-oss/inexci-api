@@ -70,7 +70,7 @@ export class QuotationsService {
       surgery_request_id: data.surgery_request_id,
     });
     if (quotation)
-      throw new NotFoundException(
+      throw new BadRequestException(
         'A quotation for this supplier already exists',
       );
 

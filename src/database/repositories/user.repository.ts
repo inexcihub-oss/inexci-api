@@ -24,6 +24,7 @@ export class UserRepository extends BaseRepository<User> {
   ) {
     return await this.repository.findOne({
       where,
+      relations: ['doctor_profile'],
       select: {
         id: true,
         role: true,
@@ -39,6 +40,12 @@ export class UserRepository extends BaseRepository<User> {
         account_id: true,
         subscription_plan_id: true,
         admin_id: true,
+        cep: true,
+        address: true,
+        address_number: true,
+        address_complement: true,
+        city: true,
+        state: true,
         created_at: true,
         updated_at: true,
       },

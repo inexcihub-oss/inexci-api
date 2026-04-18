@@ -172,9 +172,12 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   ): Promise<SurgeryRequest | null> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
-      .leftJoinAndSelect('surgery_request.created_by', 'created_by')
-      .leftJoinAndSelect('surgery_request.manager', 'manager')
-      .leftJoinAndSelect('surgery_request.doctor', 'doctor')
+      .leftJoin('surgery_request.created_by', 'created_by')
+      .addSelect(['created_by.id', 'created_by.name', 'created_by.avatar_url'])
+      .leftJoin('surgery_request.manager', 'manager')
+      .addSelect(['manager.id', 'manager.name', 'manager.avatar_url'])
+      .leftJoin('surgery_request.doctor', 'doctor')
+      .addSelect(['doctor.id', 'doctor.name', 'doctor.avatar_url'])
       .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
@@ -184,14 +187,15 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
       .leftJoinAndSelect('surgery_request.cid', 'cid')
       .leftJoinAndSelect('surgery_request.documents', 'documents')
-      .leftJoinAndSelect('documents.creator', 'documents_creator')
+      .leftJoin('documents.creator', 'documents_creator')
+      .addSelect(['documents_creator.id', 'documents_creator.name'])
       .leftJoinAndSelect('surgery_request.quotations', 'quotations')
       .leftJoinAndSelect('quotations.supplier', 'quotations_supplier')
       .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
       .leftJoinAndSelect('surgery_request.chats', 'chats')
-      .leftJoinAndSelect('chats.user', 'chats_user')
+      .leftJoin('chats.user', 'chats_user')
+      .addSelect(['chats_user.id', 'chats_user.name', 'chats_user.avatar_url'])
       .leftJoinAndSelect('chats.messages', 'messages')
-      // Relações adicionadas para suporte ao frontend (Fase 9)
       .leftJoinAndSelect('surgery_request.analysis', 'analysis')
       .leftJoinAndSelect('surgery_request.billing', 'billing')
       .leftJoinAndSelect('surgery_request.contestations', 'contestations')
@@ -222,6 +226,61 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
     return await this.repository.findOne({ where });
+  }
+
+  /** Carrega campos base + paciente, médico e plano. Sem documents/chats/quotations. */
+  async findOneMinimal(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
+      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.hospital', 'hospital')
+      .leftJoinAndSelect('sr.procedure', 'procedure')
+      .where(where)
+      .getOne();
+  }
+
+  /** Carrega dados de workflow: campos base + activities + análise + contestações. */
+  async findOneForWorkflow(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
+      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.hospital', 'hospital')
+      .leftJoinAndSelect('sr.procedure', 'procedure')
+      .leftJoinAndSelect('sr.analysis', 'analysis')
+      .leftJoinAndSelect('sr.contestations', 'contestations')
+      .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
+      .leftJoinAndSelect('sr.opme_items', 'opme_items')
+      .leftJoinAndSelect('sr.documents', 'documents')
+      .where(where)
+      .getOne();
+  }
+
+  /** Carrega dados de faturamento: campos base + billing + procedures + tuss. */
+  async findOneForBilling(
+    where: FindOptionsWhere<SurgeryRequest>,
+  ): Promise<SurgeryRequest | null> {
+    return await this.repository
+      .createQueryBuilder('sr')
+      .leftJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.hospital', 'hospital')
+      .leftJoinAndSelect('sr.procedure', 'procedure')
+      .leftJoinAndSelect('sr.billing', 'billing')
+      .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
+      .leftJoinAndSelect('sr.opme_items', 'opme_items')
+      .where(where)
+      .getOne();
   }
 
   async findMany(

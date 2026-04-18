@@ -515,7 +515,7 @@ export class UsersService {
     if (data.crm_state !== undefined) profileUpdates.crm_state = data.crm_state;
     if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
     if (data.signature_image_url !== undefined)
-      profileUpdates.signature_url = data.signature_image_url;
+      profileUpdates.signature_url = data.signature_image_url ?? null;
 
     await this.doctorProfileRepository.update(
       target.doctor_profile.id,

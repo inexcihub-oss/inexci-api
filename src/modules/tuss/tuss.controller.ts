@@ -22,6 +22,8 @@ export class TussController {
     description: 'Limite de resultados',
   })
   search(@Query('search') search?: string, @Query('limit') limit?: string) {
-    return this.tussService.search(search, limit ? parseInt(limit) : 50);
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+    const clampedLimit = Math.min(Math.max(parsedLimit, 1), 100);
+    return this.tussService.search(search, clampedLimit);
   }
 }

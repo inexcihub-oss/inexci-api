@@ -44,6 +44,10 @@ export class SurgeryRequestWorkflowService {
 
   // ── Envio e Análise ────────────────────────────────────────────────────────
 
+  async exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
+    return this.sendAnalysisHandler.exportSurgeryRequestPdf(id, userId);
+  }
+
   async sendRequest(id: string, dto: SendRequestDto, userId: string) {
     return this.sendAnalysisHandler.sendRequest(id, dto, userId);
   }

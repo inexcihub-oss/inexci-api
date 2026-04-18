@@ -92,7 +92,7 @@ export class ActivitiesService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
 
-    const request = await this.surgeryRequestRepository.findOne({
+    const request = await this.surgeryRequestRepository.findOneSimple({
       id: surgeryRequestId,
     });
     if (!request) throw new NotFoundException('Solicitação não encontrada.');

@@ -1,3 +1,5 @@
+import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -96,30 +98,19 @@ export class SurgeryRequestMutationService {
           });
         }
 
-        let healthPlan = await healthPlanRepo.findOne({
-          where: { name: data.health_plan.name },
-        });
-        if (!healthPlan) {
-          healthPlan = await healthPlanRepo.save({
-            name: data.health_plan.name,
-            email: data.health_plan.email,
-            phone: data.health_plan.phone,
-            doctor_id: doctorId,
-          });
-        }
+        const healthPlan = await this.resolveHealthPlan(
+          data.health_plan,
+          doctorId,
+          { findOne: (w) => healthPlanRepo.findOne({ where: w }), save: (d) => healthPlanRepo.save(d) },
+        );
 
         let hospital = null;
         if (data.hospital?.name) {
-          hospital = await hospitalRepo.findOne({
-            where: { name: data.hospital.name },
-          });
-          if (!hospital) {
-            hospital = await hospitalRepo.save({
-              doctor_id: doctorId,
-              name: data.hospital.name,
-              email: data.hospital.email,
-            });
-          }
+          hospital = await this.resolveHospital(
+            data.hospital,
+            doctorId,
+            { findOne: (w) => hospitalRepo.findOne({ where: w }), save: (d) => hospitalRepo.save(d) },
+          );
         }
 
         let managerId: string | null = null;
@@ -128,6 +119,8 @@ export class SurgeryRequestMutationService {
             where: { email: data.collaborator.email },
           });
           if (!collaborator) {
+            const tempPassword = crypto.randomBytes(16).toString('hex');
+            const hashedPassword = await bcrypt.hash(tempPassword, 10);
             collaborator = await userRepo.save(
               userRepo.create({
                 role: UserRole.COLLABORATOR,
@@ -135,7 +128,7 @@ export class SurgeryRequestMutationService {
                 name: data.collaborator.name,
                 email: data.collaborator.email,
                 phone: data.collaborator.phone,
-                password: data.collaborator.password,
+                password: hashedPassword,
               }),
             );
           }
@@ -278,18 +271,7 @@ export class SurgeryRequestMutationService {
   }
 
   async update(data: UpdateSurgeryRequestDto, userId: string) {
-    let where: FindOptionsWhere<SurgeryRequest> = { id: data.id };
-
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
-    }
-
-    const surgeryRequest =
-      await this.surgeryRequestRepository.findOneSimple(where);
-    if (!surgeryRequest)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    const surgeryRequest = await this.findWithAccess(data.id, userId);
 
     const doctorId = surgeryRequest.doctor_id;
     let hospitalId: string | null = surgeryRequest.hospital_id;
@@ -297,36 +279,15 @@ export class SurgeryRequestMutationService {
     if (data.hospital === null) {
       hospitalId = null;
     } else if (data.hospital?.name) {
-      const hospital = await this.hospitalRepository.findOne({
-        name: data.hospital.name,
-      });
-      if (hospital) {
-        hospitalId = hospital.id;
-      } else {
-        const newHospital = await this.hospitalRepository.create({
-          name: data.hospital.name,
-          email: data.hospital.email,
-          doctor_id: doctorId,
-        });
-        hospitalId = newHospital.id;
-      }
+      const hospital = await this.resolveHospital(data.hospital, doctorId, this.hospitalRepository);
+      hospitalId = hospital.id;
     }
 
     let healthPlanId: string | null = surgeryRequest.health_plan_id;
     if (data.health_plan === null) {
       healthPlanId = null;
     } else if (data.health_plan?.name) {
-      let healthPlan = await this.healthPlanRepository.findOne({
-        name: data.health_plan.name,
-      });
-      if (!healthPlan) {
-        healthPlan = await this.healthPlanRepository.create({
-          name: data.health_plan.name,
-          email: data.health_plan.email,
-          phone: data.health_plan.phone,
-          doctor_id: doctorId,
-        });
-      }
+      const healthPlan = await this.resolveHealthPlan(data.health_plan, doctorId, this.healthPlanRepository);
       healthPlanId = healthPlan.id;
     }
 
@@ -352,17 +313,7 @@ export class SurgeryRequestMutationService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    let where: FindOptionsWhere<SurgeryRequest> = { id: data.id };
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
-    }
-
-    const surgeryRequest =
-      await this.surgeryRequestRepository.findOneSimple(where);
-    if (!surgeryRequest)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    const surgeryRequest = await this.findWithAccess(data.id, userId);
 
     const updateData: Partial<SurgeryRequest> = {};
     if (data.priority !== undefined) updateData.priority = data.priority;
@@ -378,19 +329,46 @@ export class SurgeryRequestMutationService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    let where: FindOptionsWhere<SurgeryRequest> = { id };
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
-    }
-
-    const surgeryRequest =
-      await this.surgeryRequestRepository.findOneSimple(where);
-    if (!surgeryRequest)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    const surgeryRequest = await this.findWithAccess(id, userId);
 
     await this.surgeryRequestRepository.update(id, { has_opme: hasOpme });
     return this.surgeryRequestRepository.findOneSimple({ id });
+  }
+
+  private async findWithAccess(id: string, userId: string): Promise<SurgeryRequest> {
+    let where: FindOptionsWhere<SurgeryRequest> = { id };
+    const doctorIds = await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length > 0) {
+      where = { ...where, doctor_id: In(doctorIds) };
+    }
+    const surgeryRequest = await this.surgeryRequestRepository.findOneSimple(where);
+    if (!surgeryRequest) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    return surgeryRequest;
+  }
+
+  private async resolveHealthPlan(
+    data: { name: string; email?: string; phone?: string },
+    doctorId: string,
+    repo: { findOne: (w: any) => Promise<HealthPlan | null>; save?: (d: any) => Promise<HealthPlan>; create?: (d: any) => Promise<HealthPlan> },
+  ): Promise<HealthPlan> {
+    let entity = await repo.findOne({ name: data.name });
+    if (!entity) {
+      const payload = { name: data.name, email: data.email, phone: data.phone, doctor_id: doctorId };
+      entity = repo.save ? await repo.save(payload) : await (repo as any).create(payload);
+    }
+    return entity;
+  }
+
+  private async resolveHospital(
+    data: { name: string; email?: string },
+    doctorId: string,
+    repo: { findOne: (w: any) => Promise<Hospital | null>; save?: (d: any) => Promise<Hospital>; create?: (d: any) => Promise<Hospital> },
+  ): Promise<Hospital> {
+    let entity = await repo.findOne({ name: data.name });
+    if (!entity) {
+      const payload = { name: data.name, email: data.email, doctor_id: doctorId };
+      entity = repo.save ? await repo.save(payload) : await (repo as any).create(payload);
+    }
+    return entity;
   }
 }

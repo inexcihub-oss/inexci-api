@@ -10,16 +10,28 @@ export interface TussResponse {
   active: boolean;
 }
 
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const TTL_MS = 5 * 60 * 1000; // 5 minutos
+
 @Injectable()
 export class TussService {
+  private readonly cache = new Map<string, CacheEntry<TussResponse[]>>();
+
   constructor(
     @InjectRepository(Tuss)
     private readonly tussRepository: Repository<Tuss>,
   ) {}
 
   async search(search?: string, limit: number = 50): Promise<TussResponse[]> {
-    const where: any[] = [];
+    const cacheKey = `tuss:${search ?? ''}:${limit}`;
+    const hit = this.cache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
 
+    const where: any[] = [];
     if (search && search.length >= 2) {
       where.push({ code: ILike(`%${search}%`) });
       where.push({ procedure: ILike(`%${search}%`) });
@@ -31,13 +43,15 @@ export class TussService {
       order: { code: 'ASC' },
     });
 
-    // Formatar para o padrão esperado pelo frontend
-    return records.map((item) => ({
+    const result = records.map((item) => ({
       id: item.id,
       tuss_code: this.formatTussCode(item.code),
       name: item.procedure,
       active: true,
     }));
+
+    this.cache.set(cacheKey, { value: result, expiresAt: Date.now() + TTL_MS });
+    return result;
   }
 
   private formatTussCode(codigo: string): string {

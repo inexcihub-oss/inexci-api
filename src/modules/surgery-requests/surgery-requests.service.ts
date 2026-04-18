@@ -33,13 +33,13 @@ import {
   transformDocumentUrls,
   transformDoctorSignatureUrl,
 } from 'src/shared/transformers/signed-url.transformer';
+import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 
 // ── Sub-services ─────────────────────────────────────────────────────────────
 import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
-import { SurgeryRequestLegacyService } from './services/surgery-request-legacy.service';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
@@ -57,7 +57,6 @@ export class SurgeryRequestsService {
     private readonly workflowService: SurgeryRequestWorkflowService,
     private readonly reportService: SurgeryRequestReportService,
     private readonly templateService: SurgeryRequestTemplateService,
-    private readonly legacyService: SurgeryRequestLegacyService,
   ) {}
 
   // ============================================================
@@ -77,20 +76,15 @@ export class SurgeryRequestsService {
   // ============================================================
 
   async findAll(query: FindManySurgeryRequestDto, userId: string) {
-    let where: FindOptionsWhere<SurgeryRequest> = {};
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    if (query.status) {
-      where = { ...where, status: In(query.status) };
-    }
-
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
-      return { total: 0, records: [] };
-    }
-    where = { ...where, doctor_id: In(doctorIds) };
+    if (doctorIds.length === 0) return { total: 0, records: [] };
+
+    let where: FindOptionsWhere<SurgeryRequest> = { doctor_id: In(doctorIds) };
+    if (query.status) where = { ...where, status: In(query.status) };
 
     const [total, records] = await Promise.all([
       this.surgeryRequestRepository.total(where),
@@ -101,37 +95,14 @@ export class SurgeryRequestsService {
   }
 
   async findOne(id: string, userId: string) {
-    let where: FindOptionsWhere<SurgeryRequest> = { id };
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
-    }
-
+    const where = await this.buildAccessWhere({ id }, userId);
     const surgeryRequest = await this.surgeryRequestRepository.findOne(where);
     if (!surgeryRequest)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
-    // Computar campo `receipt` derivado de `billing`
-    const billing = surgeryRequest.billing;
-    const receipt =
-      billing?.received_value != null
-        ? {
-            received_value: Number(billing.received_value),
-            received_at: billing.received_at,
-            receipt_notes: billing.receipt_notes ?? null,
-            is_contested: billing.contested_received_value != null,
-            contested_received_value: billing.contested_received_value
-              ? Number(billing.contested_received_value)
-              : null,
-            contested_received_at: billing.contested_received_at ?? null,
-          }
-        : null;
-
-    // Converter uri dos documentos e signature_url do médico para URLs assinadas do Supabase
     if (Array.isArray(surgeryRequest.documents)) {
       surgeryRequest.documents = await transformDocumentUrls(
         surgeryRequest.documents,
@@ -145,20 +116,17 @@ export class SurgeryRequestsService {
       );
     }
 
-    return { ...surgeryRequest, receipt };
+    return {
+      ...surgeryRequest,
+      receipt: this.buildReceipt(surgeryRequest.billing),
+    };
   }
 
   async findOneSimple(id: string, userId: string) {
-    let where: FindOptionsWhere<SurgeryRequest> = { id };
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
-    }
-
+    const where = await this.buildAccessWhere({ id }, userId);
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
     if (!surgeryRequest)
@@ -266,7 +234,7 @@ export class SurgeryRequestsService {
     return this.workflowService.notify(id, dto, userId);
   }
 
-  send(data: any, userId: string) {
+  send(data: { id: string }, userId: string) {
     return this.workflowService.sendRequest(
       data.id,
       { method: SendMethod.DOWNLOAD },
@@ -274,30 +242,12 @@ export class SurgeryRequestsService {
     );
   }
 
-  cancel(data: any, userId: string) {
+  cancel(data: { id: string; reason?: string }, userId: string) {
     return this.workflowService.closeSurgeryRequest(
       data.id,
       { reason: data.reason },
       userId,
     );
-  }
-
-  updateStatus(
-    surgeryRequestId: string,
-    newStatus: number,
-    userId: string,
-    notifyPatient?: boolean,
-  ) {
-    return this.legacyService.updateStatus(
-      surgeryRequestId,
-      newStatus,
-      userId,
-      notifyPatient,
-    );
-  }
-
-  dateExpired() {
-    return this.legacyService.dateExpired();
   }
 
   // ============================================================
@@ -337,6 +287,10 @@ export class SurgeryRequestsService {
     return this.reportService.generateReportPdf(id, userId);
   }
 
+  exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
+    return this.workflowService.exportSurgeryRequestPdf(id, userId);
+  }
+
   // ============================================================
   // DELEGAÇÃO → TEMPLATE SERVICE
   // ============================================================
@@ -363,5 +317,31 @@ export class SurgeryRequestsService {
 
   incrementTemplateUsage(id: string, userId: string) {
     return this.templateService.incrementUsage(id, userId);
+  }
+
+  // ── Helpers privados ────────────────────────────────────────────────────────
+
+  private async buildAccessWhere(
+    base: FindOptionsWhere<SurgeryRequest>,
+    userId: string,
+  ): Promise<FindOptionsWhere<SurgeryRequest>> {
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length === 0) return base;
+    return { ...base, doctor_id: In(doctorIds) };
+  }
+
+  private buildReceipt(billing: SurgeryRequestBilling | null | undefined) {
+    if (billing?.received_value == null) return null;
+    return {
+      received_value: Number(billing.received_value),
+      received_at: billing.received_at,
+      receipt_notes: billing.receipt_notes ?? null,
+      is_contested: billing.contested_received_value != null,
+      contested_received_value: billing.contested_received_value
+        ? Number(billing.contested_received_value)
+        : null,
+      contested_received_at: billing.contested_received_at ?? null,
+    };
   }
 }

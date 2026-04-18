@@ -57,6 +57,7 @@ export class PdfGenerationProcessor {
           'tuss_items',
           'opme_items',
           'documents',
+          'report_sections',
         ],
       });
 
@@ -182,6 +183,11 @@ export class PdfGenerationProcessor {
       const doctorPhoneRaw = doctor?.phone ?? '';
       const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
 
+      // ── Seções dinâmicas do laudo ──────────────────────────────────────
+      const reportSections = (request.report_sections ?? []).sort(
+        (a: any, b: any) => (a.order ?? 0) - (b.order ?? 0),
+      );
+
       // ── Dados do laudo ────────────────────────────────────────────────────
       const laudoData: SurgeryRequestLaudoPdfData = {
         today: new Date().toLocaleDateString('pt-BR'),
@@ -200,8 +206,18 @@ export class PdfGenerationProcessor {
           formatCep(pd.zipCode || patient?.zip_code || '') || undefined,
         patientHealthPlan:
           pd.healthPlan || request.health_plan?.name || undefined,
-        historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
-        conduct: reportData.conduct || undefined,
+        historyAndDiagnosis: reportSections.length
+          ? undefined
+          : reportData.historyAndDiagnosis || undefined,
+        conduct: reportSections.length
+          ? undefined
+          : reportData.conduct || undefined,
+        sections: reportSections.length
+          ? reportSections.map((s: any) => ({
+              title: s.title,
+              description: s.description,
+            }))
+          : undefined,
         examImages: examImages.length ? examImages : undefined,
         procedures: procedures.length ? procedures : undefined,
         opmeItems: opmeItems.length ? opmeItems : undefined,

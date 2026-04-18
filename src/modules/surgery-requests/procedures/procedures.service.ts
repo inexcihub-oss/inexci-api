@@ -58,7 +58,7 @@ export class ProceduresService {
   }
 
   async authorize(data: AuthorizeProceduresDto) {
-    await this.surgeryRequestRepository.findOne({
+    await this.surgeryRequestRepository.findOneSimple({
       id: data.surgery_request_id,
     });
 

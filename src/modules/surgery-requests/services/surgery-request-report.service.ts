@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
@@ -25,6 +25,7 @@ export class SurgeryRequestReportService {
     private readonly userRepository: UserRepository,
     private readonly storageService: StorageService,
     private readonly pdfService: PdfService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async getReportSections(
@@ -83,13 +84,23 @@ export class SurgeryRequestReportService {
     dto: ReorderReportSectionsDto,
     _userId: string,
   ): Promise<ReportSection[]> {
-    const updates = dto.ids.map((sectionId, index) =>
-      this.reportSectionRepository.update(
-        { id: sectionId, surgery_request_id: id },
-        { order: index },
-      ),
+    if (dto.ids.length === 0) return this.getReportSections(id, _userId);
+
+    // Batch update via VALUES: 1 round-trip ao banco em vez de N
+    const rows = dto.ids
+      .map((_, index) => `($${index * 2 + 1}::uuid, $${index * 2 + 2}::int)`)
+      .join(', ');
+    const params = dto.ids.flatMap((sectionId, index) => [sectionId, index]);
+    const surgeryRequestParam = `$${params.length + 1}`;
+
+    await this.dataSource.query(
+      `UPDATE report_section rs
+       SET "order" = v.new_order
+       FROM (VALUES ${rows}) AS v(id, new_order)
+       WHERE rs.id = v.id AND rs.surgery_request_id = ${surgeryRequestParam}`,
+      [...params, id],
     );
-    await Promise.all(updates);
+
     return this.getReportSections(id, _userId);
   }
 

@@ -10,8 +10,17 @@ export interface CidResponse {
   description: string;
 }
 
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const TTL_MS = 5 * 60 * 1000; // 5 minutos
+
 @Injectable()
 export class CidService {
+  private readonly cache = new Map<string, CacheEntry<any>>();
+
   constructor(
     @InjectRepository(Cid)
     private readonly cidRepository: Repository<Cid>,
@@ -19,9 +28,12 @@ export class CidService {
 
   async findAll(query: FindManyCidDto) {
     const { search, skip = 0, take = 50 } = query;
+    const cacheKey = `cid:${search ?? ''}:${skip}:${take}`;
+
+    const hit = this.cache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
 
     const where: any[] = [];
-
     if (search && search.length >= 2) {
       where.push({ code: ILike(`%${search}%`) });
       where.push({ description: ILike(`%${search}%`) });
@@ -34,7 +46,7 @@ export class CidService {
       order: { code: 'ASC' },
     });
 
-    return {
+    const result = {
       total,
       records: records.map((item) => ({
         id: item.id,
@@ -42,5 +54,8 @@ export class CidService {
         description: item.description,
       })),
     };
+
+    this.cache.set(cacheKey, { value: result, expiresAt: Date.now() + TTL_MS });
+    return result;
   }
 }
