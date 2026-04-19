@@ -61,7 +61,7 @@ export class User {
   })
   status: UserStatus;
 
-  @Column({ type: 'varchar', length: 100, unique: true })
+  @Column({ type: 'varchar', length: 160, unique: true })
   email: string;
 
   @Exclude()

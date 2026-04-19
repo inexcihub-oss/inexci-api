@@ -152,4 +152,10 @@ export class UserRepository extends BaseRepository<User> {
   findOneByPhone(phone: string): Promise<User | null> {
     return this.findOne({ phone });
   }
+
+  async findOneWithDeleted(
+    where: FindOptionsWhere<User>,
+  ): Promise<User | null> {
+    return await this.repository.findOne({ where, withDeleted: true });
+  }
 }

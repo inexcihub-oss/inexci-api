@@ -59,14 +59,20 @@ import { RagModule } from './shared/rag/rag.module';
     ]),
     BullModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        redis: {
-          host: config.get<string>('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-          enableOfflineQueue: true,
-          retryStrategy: (times: number) => Math.min(times * 200, 5000),
-        },
-      }),
+      useFactory: (config: ConfigService) => {
+        const password = config.get<string>('REDIS_PASSWORD');
+        const username = config.get<string>('REDIS_USERNAME');
+        return {
+          redis: {
+            host: config.get<string>('REDIS_HOST', 'localhost'),
+            port: config.get<number>('REDIS_PORT', 6379),
+            ...(username && { username }),
+            ...(password && { password }),
+            enableOfflineQueue: true,
+            retryStrategy: (times: number) => Math.min(times * 200, 5000),
+          },
+        };
+      },
     }),
     AuthModule,
     DatabaseModule,
