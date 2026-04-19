@@ -37,7 +37,8 @@ export type MailTemplateName =
   | 'stale-critical'
   | 'action-admin-alert'
   | 'welcome-patient'
-  | 'welcome-doctor';
+  | 'welcome-doctor'
+  | 'invite-collaborator';
 
 export const MAIL_TEMPLATES: MailTemplateName[] = [
   'surgery-request-sent',
@@ -55,4 +56,5 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'action-admin-alert',
   'welcome-patient',
   'welcome-doctor',
+  'invite-collaborator',
 ];

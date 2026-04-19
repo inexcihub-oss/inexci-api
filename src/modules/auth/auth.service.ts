@@ -324,7 +324,13 @@ export class AuthService {
 
     const password = await bcrypt.hash(data.password, 10);
 
-    await this.userRepository.update(user.id, { password: password });
+    // Atualiza senha e ativa conta caso ainda esteja pendente (primeiro acesso)
+    const updatePayload: Partial<User> = { password };
+    if (user.status === UserStatus.PENDING) {
+      updatePayload.status = UserStatus.ACTIVE;
+    }
+
+    await this.userRepository.update(user.id, updatePayload);
 
     // Invalidate all recovery codes for this user after successful password change
     await this.recoveryCodeRepository.deleteMany({ user_id: user.id });

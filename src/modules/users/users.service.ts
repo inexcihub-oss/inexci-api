@@ -28,10 +28,11 @@ import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
+import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { generateTemporaryPassword } from 'src/shared/utils';
+import { generateValidationCode } from 'src/shared/utils';
 
 @Injectable()
 export class UsersService {
@@ -41,6 +42,7 @@ export class UsersService {
     private readonly mailService: MailService,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly recoveryCodeRepository: RecoveryCodeRepository,
     private readonly storageService: StorageService,
     @InjectRepository(SubscriptionPlan)
     private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
@@ -363,7 +365,7 @@ export class UsersService {
     const emailFound = await this.userRepository.findOne({ email: data.email });
     if (emailFound) throw new BadRequestException('Email em uso');
 
-    const password = generateTemporaryPassword();
+    const placeholderPw = generateValidationCode(16);
 
     const newUser = await this.userRepository.create({
       email: data.email,
@@ -371,24 +373,37 @@ export class UsersService {
       phone: data.phone,
       role: data.role || UserRole.COLLABORATOR,
       status: UserStatus.PENDING,
-      password: await bcrypt.hash(password, 10),
+      password: await bcrypt.hash(placeholderPw, 10),
       account_id: user.account_id,
       admin_id: userId,
     });
 
-    // Envia email de boas-vindas
-    void this.mailService.sendRaw(
+    // Gera token de convite (recovery code) válido por 72 horas
+    await this.recoveryCodeRepository.deleteMany({
+      user_id: newUser.id,
+      used: false,
+    });
+    const inviteToken = generateValidationCode(6);
+    await this.recoveryCodeRepository.create({
+      user_id: newUser.id,
+      used: false,
+      code: inviteToken,
+      expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000),
+    });
+
+    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
+    const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
+
+    void this.mailService.send(
+      'invite-collaborator',
       newUser.email,
-      'Bem-vindo a Inexci!',
-      `
-        <p>Olá, <strong>${newUser.name}</strong></p>
-        <p>Você foi convidado a fazer parte da Inexci. <a href='${this.configService.get<string>('DASHBOARD_URL')}'>Clique aqui</a> para acessar a plataforma utilizando os dados abaixo:</p>
-        <p><strong>E-mail: </strong>${newUser.email}</p>
-        <p><strong>Senha: </strong>${password}</p>
-        <br />
-        <br />
-        <p>Não consegue clicar no link? Utilize o link abaixo:<br /> ${this.configService.get<string>('DASHBOARD_URL')}</p>
-      `,
+      'Você foi convidado para a Inexci!',
+      {
+        collaboratorName: newUser.name,
+        inviterName: user.name,
+        email: newUser.email,
+        setupLink,
+      },
     );
 
     return newUser;
@@ -607,7 +622,9 @@ export class UsersService {
       }
     }
 
-    const password = generateTemporaryPassword();
+    // Gera uma senha aleatória apenas para satisfazer o schema — o colaborador
+    // nunca saberá esta senha; ela será substituída ao definir a senha pelo link.
+    const placeholderPassword = generateValidationCode(16);
 
     let newUser: Awaited<ReturnType<typeof this.userRepository.create>>;
     try {
@@ -617,7 +634,7 @@ export class UsersService {
         phone: data.phone,
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
-        password: await bcrypt.hash(password, 10),
+        password: await bcrypt.hash(placeholderPassword, 10),
         account_id: admin.account_id,
         admin_id: adminId,
       });
@@ -644,18 +661,33 @@ export class UsersService {
       });
     }
 
-    // Envia email de boas-vindas
-    void this.mailService.sendRaw(
+    // Gera token de convite (recovery code) válido por 72 horas
+    await this.recoveryCodeRepository.deleteMany({
+      user_id: newUser.id,
+      used: false,
+    });
+    const inviteToken = generateValidationCode(6);
+    await this.recoveryCodeRepository.create({
+      user_id: newUser.id,
+      used: false,
+      code: inviteToken,
+      expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000), // 72 horas
+    });
+
+    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
+    const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
+
+    // Envia e-mail de convite usando template Handlebars
+    void this.mailService.send(
+      'invite-collaborator',
       newUser.email,
-      'Bem-vindo a Inexci!',
-      `
-        <p>Olá, <strong>${newUser.name}</strong></p>
-        <p>Você foi convidado por ${admin.name} a fazer parte da Inexci. <a href='${this.configService.get<string>('DASHBOARD_URL')}'>Clique aqui</a> para acessar a plataforma utilizando os dados abaixo:</p>
-        <p><strong>E-mail: </strong>${newUser.email}</p>
-        <p><strong>Senha: </strong>${password}</p>
-        <br />
-        <p>Não consegue clicar no link? Utilize o link abaixo:<br /> ${this.configService.get<string>('DASHBOARD_URL')}</p>
-      `,
+      'Você foi convidado para a Inexci!',
+      {
+        collaboratorName: newUser.name,
+        inviterName: admin.name,
+        email: newUser.email,
+        setupLink,
+      },
     );
 
     // Envia WhatsApp de boas-vindas ao médico recém-criado (assíncrono)

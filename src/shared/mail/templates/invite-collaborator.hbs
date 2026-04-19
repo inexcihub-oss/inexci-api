@@ -1,0 +1,32 @@
+{{#> _layout title="Você foi convidado para a Inexci!" preferencesUrl=preferencesUrl}}
+  <p>Olá, <strong>{{collaboratorName}}</strong>!</p>
+
+  <p>
+    <strong>{{inviterName}}</strong> convidou você para fazer parte da plataforma
+    <strong>Inexci</strong> — o sistema inteligente de gestão cirúrgica.
+  </p>
+
+  <div class='info-box'>
+    <p><strong>E-mail de acesso:</strong> {{email}}</p>
+    <p><strong>Link válido por:</strong> 72 horas</p>
+  </div>
+
+  <p>Para ativar sua conta, clique no botão abaixo e crie sua senha de acesso:</p>
+
+  <p style="text-align: center; margin: 28px 0;">
+    <a class='btn' href='{{setupLink}}'>Criar minha senha</a>
+  </p>
+
+  <p>Com o Inexci, você poderá:</p>
+  <ul style='color: #374151; line-height: 1.8;'>
+    <li>Acompanhar e gerenciar solicitações cirúrgicas</li>
+    <li>Receber notificações de atualizações em tempo real</li>
+    <li>Colaborar com médicos e equipes de forma eficiente</li>
+    <li>Acessar documentos e relatórios centralizados</li>
+  </ul>
+
+  <p style='font-size: 13px; color: #6b7280; margin-top: 24px;'>
+    Não consegue clicar no botão? Copie e cole o link abaixo no seu navegador:<br />
+    <a href='{{setupLink}}' style='word-break: break-all; font-size: 13px;'>{{setupLink}}</a>
+  </p>
+{{/_layout}}
