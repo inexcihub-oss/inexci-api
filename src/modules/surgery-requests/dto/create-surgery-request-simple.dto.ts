@@ -10,7 +10,12 @@ import {
 import { SurgeryRequestPriority } from 'src/database/entities';
 
 export class RequiredDocumentDto {
+  @IsString()
+  @IsNotEmpty()
   type: string;
+
+  @IsString()
+  @IsNotEmpty()
   name: string;
 }
 
