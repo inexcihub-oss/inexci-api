@@ -1,5 +1,5 @@
 import * as bcrypt from 'bcryptjs';
-import { FindOptionsWhere, Not, In } from 'typeorm';
+import { FindOptionsWhere, Not, In, QueryFailedError } from 'typeorm';
 import {
   BadRequestException,
   Logger,
@@ -574,10 +574,21 @@ export class UsersService {
       throw new ForbiddenException('Apenas admins podem criar colaboradores');
 
     // Verifica email duplicado
-    const emailFound = await this.userRepository.findOne({ email: data.email });
-    if (emailFound) throw new BadRequestException('Email já está em uso');
+    const emailFound = await this.userRepository.findOneWithDeleted({
+      email: data.email,
+    });
+    if (emailFound) {
+      if (!emailFound.deleted_at) {
+        throw new BadRequestException('Email já está em uso');
+      }
+      // Usuário soft-deletado com email original (deletado antes da anonimização automática)
+      // Anonimiza agora para liberar a constraint
+      await this.userRepository.update(emailFound.id, {
+        email: `deleted_${emailFound.email}_${emailFound.id}`,
+      });
+    }
 
-    // Verifica telefone duplicado
+    // Verifica telefone duplicado entre usuários ativos
     if (data.phone) {
       const phoneFound = await this.userRepository.findOne({
         phone: data.phone,
@@ -598,16 +609,30 @@ export class UsersService {
 
     const password = generateTemporaryPassword();
 
-    const newUser = await this.userRepository.create({
-      email: data.email,
-      name: data.name,
-      phone: data.phone,
-      role: UserRole.COLLABORATOR,
-      status: UserStatus.PENDING,
-      password: await bcrypt.hash(password, 10),
-      account_id: admin.account_id,
-      admin_id: adminId,
-    });
+    let newUser: Awaited<ReturnType<typeof this.userRepository.create>>;
+    try {
+      newUser = await this.userRepository.create({
+        email: data.email,
+        name: data.name,
+        phone: data.phone,
+        role: UserRole.COLLABORATOR,
+        status: UserStatus.PENDING,
+        password: await bcrypt.hash(password, 10),
+        account_id: admin.account_id,
+        admin_id: adminId,
+      });
+    } catch (err) {
+      if (err instanceof QueryFailedError) {
+        const msg = (err as any).detail ?? err.message;
+        if (msg.includes('email')) {
+          throw new BadRequestException('Email já está em uso');
+        }
+        if (msg.includes('phone')) {
+          throw new BadRequestException('Telefone já está em uso');
+        }
+      }
+      throw err;
+    }
 
     // Se é médico, criar doctor_profile
     if (isDoctor && data.crm && data.crm_state) {
@@ -771,6 +796,12 @@ export class UsersService {
     if (collaborator.admin_id !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
+    // Anonimiza email e telefone antes do soft-delete para liberar as constraints únicas,
+    // preservando o valor original como histórico no próprio campo.
+    await this.userRepository.update(collaboratorId, {
+      email: `deleted_${collaborator.email}_${collaboratorId}`,
+      phone: null,
+    });
     await this.userRepository.delete(collaboratorId);
     return { message: 'Colaborador desativado com sucesso' };
   }

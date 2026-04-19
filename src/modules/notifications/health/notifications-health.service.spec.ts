@@ -19,6 +19,8 @@ describe('NotificationsHealthService', () => {
               const config: Record<string, any> = {
                 REDIS_HOST: 'localhost',
                 REDIS_PORT: 6379,
+                REDIS_USERNAME: undefined,
+                REDIS_PASSWORD: undefined,
                 MAIL_HOST: 'smtp.example.com',
                 MAIL_PORT: 587,
                 TWILIO_ACCOUNT_SID: 'AC_test',

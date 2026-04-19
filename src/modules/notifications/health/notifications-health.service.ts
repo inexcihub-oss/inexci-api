@@ -21,10 +21,17 @@ export class NotificationsHealthService extends HealthIndicator {
   async checkRedis(): Promise<HealthIndicatorResult> {
     const host = this.config.get<string>('REDIS_HOST', 'localhost');
     const port = this.config.get<number>('REDIS_PORT', 6379);
+    const password = this.config.get<string>('REDIS_PASSWORD');
+    const username = this.config.get<string>('REDIS_USERNAME');
 
     try {
       await this.checkTcpConnection(host, port, 3000);
-      return this.getStatus('redis', true, { host, port });
+      return this.getStatus('redis', true, {
+        host,
+        port,
+        auth: !!password,
+        username: username ?? undefined,
+      });
     } catch (error) {
       this.logger.warn(`Redis health check failed: ${error}`);
       throw new HealthCheckError(
