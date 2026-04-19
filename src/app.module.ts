@@ -71,14 +71,20 @@ import { RagModule } from './shared/rag/rag.module';
           ...(password && { password }),
           enableOfflineQueue: true,
           retryStrategy: (times: number) => Math.min(times * 200, 5000),
+        };
+
+        // Bull exige enableReadyCheck: false e maxRetriesPerRequest: null
+        // para as conexões subscriber e bclient (ver bull#1873).
+        const workerRedisOptions: RedisOptions = {
+          ...redisOptions,
+          enableReadyCheck: false,
           maxRetriesPerRequest: null,
         };
 
-        // Bull cria 3 conexões por fila (client + subscriber + bclient).
         // Compartilhando client e subscriber, reduzimos de 3×N para N+2 conexões,
         // evitando "ERR max number of clients reached" em planos com limite baixo.
         const sharedClient = new IORedis(redisOptions);
-        const sharedSubscriber = new IORedis(redisOptions);
+        const sharedSubscriber = new IORedis(workerRedisOptions);
 
         return {
           createClient: (type: 'client' | 'subscriber' | 'bclient') => {
@@ -89,7 +95,7 @@ import { RagModule } from './shared/rag/rag.module';
                 return sharedSubscriber;
               case 'bclient':
                 // bclient precisa de conexão dedicada (operações de bloqueio)
-                return new IORedis(redisOptions);
+                return new IORedis(workerRedisOptions);
               default:
                 throw new Error(`Tipo de conexão Redis inesperado: ${type}`);
             }
