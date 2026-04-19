@@ -2,6 +2,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
+import IORedis, { RedisOptions } from 'ioredis';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
@@ -62,14 +63,36 @@ import { RagModule } from './shared/rag/rag.module';
       useFactory: (config: ConfigService) => {
         const password = config.get<string>('REDIS_PASSWORD');
         const username = config.get<string>('REDIS_USERNAME');
+
+        const redisOptions: RedisOptions = {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: config.get<number>('REDIS_PORT', 6379),
+          ...(username && { username }),
+          ...(password && { password }),
+          enableOfflineQueue: true,
+          retryStrategy: (times: number) => Math.min(times * 200, 5000),
+          maxRetriesPerRequest: null,
+        };
+
+        // Bull cria 3 conexões por fila (client + subscriber + bclient).
+        // Compartilhando client e subscriber, reduzimos de 3×N para N+2 conexões,
+        // evitando "ERR max number of clients reached" em planos com limite baixo.
+        const sharedClient = new IORedis(redisOptions);
+        const sharedSubscriber = new IORedis(redisOptions);
+
         return {
-          redis: {
-            host: config.get<string>('REDIS_HOST', 'localhost'),
-            port: config.get<number>('REDIS_PORT', 6379),
-            ...(username && { username }),
-            ...(password && { password }),
-            enableOfflineQueue: true,
-            retryStrategy: (times: number) => Math.min(times * 200, 5000),
+          createClient: (type: 'client' | 'subscriber' | 'bclient') => {
+            switch (type) {
+              case 'client':
+                return sharedClient;
+              case 'subscriber':
+                return sharedSubscriber;
+              case 'bclient':
+                // bclient precisa de conexão dedicada (operações de bloqueio)
+                return new IORedis(redisOptions);
+              default:
+                throw new Error(`Tipo de conexão Redis inesperado: ${type}`);
+            }
           },
         };
       },
