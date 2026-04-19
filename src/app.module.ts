@@ -64,8 +64,6 @@ import { RagModule } from './shared/rag/rag.module';
           host: config.get<string>('REDIS_HOST', 'localhost'),
           port: config.get<number>('REDIS_PORT', 6379),
           enableOfflineQueue: true,
-          lazyConnect: true,
-          maxRetriesPerRequest: null,
           retryStrategy: (times: number) => Math.min(times * 200, 5000),
         },
       }),
