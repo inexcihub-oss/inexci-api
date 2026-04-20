@@ -63,13 +63,8 @@ import { RagModule } from './shared/rag/rag.module';
       useFactory: (config: ConfigService) => {
         const password = config.get<string>('REDIS_PASSWORD');
         const username = config.get<string>('REDIS_USERNAME');
-
         const tls = config.get<string>('REDIS_TLS') === 'true';
 
-        // Bull exige maxRetriesPerRequest: null em TODAS as conexões (client,
-        // subscriber e bclient) ao usar Upstash/Redis gerenciado, caso contrário
-        // o ioredis lança "Reached the max retries per request limit (which is 20)"
-        // quando a operação queue.add() aguarda resposta do servidor.
         const redisOptions: RedisOptions = {
           host: config.get<string>('REDIS_HOST', 'localhost'),
           port: config.get<number>('REDIS_PORT', 6379),
@@ -77,15 +72,21 @@ import { RagModule } from './shared/rag/rag.module';
           ...(password && { password }),
           ...(tls && { tls: {} }),
           enableOfflineQueue: true,
+          retryStrategy: (times: number) => Math.min(times * 200, 5000),
+        };
+
+        // Bull exige enableReadyCheck: false e maxRetriesPerRequest: null
+        // para as conexões subscriber e bclient (ver bull#1873).
+        const workerRedisOptions: RedisOptions = {
+          ...redisOptions,
           enableReadyCheck: false,
           maxRetriesPerRequest: null,
-          retryStrategy: (times: number) => Math.min(times * 200, 5000),
         };
 
         // Compartilhando client e subscriber, reduzimos de 3×N para N+2 conexões,
         // evitando "ERR max number of clients reached" em planos com limite baixo.
         const sharedClient = new IORedis(redisOptions);
-        const sharedSubscriber = new IORedis(redisOptions);
+        const sharedSubscriber = new IORedis(workerRedisOptions);
 
         return {
           createClient: (type: 'client' | 'subscriber' | 'bclient') => {
@@ -96,7 +97,7 @@ import { RagModule } from './shared/rag/rag.module';
                 return sharedSubscriber;
               case 'bclient':
                 // bclient precisa de conexão dedicada (operações de bloqueio)
-                return new IORedis(redisOptions);
+                return new IORedis(workerRedisOptions);
               default:
                 throw new Error(`Tipo de conexão Redis inesperado: ${type}`);
             }
