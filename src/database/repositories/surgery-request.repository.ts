@@ -292,6 +292,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('surgery_request')
       .leftJoin('surgery_request.created_by', 'created_by')
       .leftJoin('surgery_request.manager', 'manager')
+      .leftJoin('surgery_request.doctor', 'doctor')
       .leftJoin('surgery_request.patient', 'patient')
       .leftJoin('surgery_request.health_plan', 'health_plan')
       .leftJoin('surgery_request.hospital', 'hospital')
@@ -316,6 +317,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'created_by.name',
         'manager.id',
         'manager.name',
+        'doctor.id',
+        'doctor.name',
         'patient.id',
         'patient.name',
         'health_plan.id',
@@ -330,6 +333,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
       .addGroupBy('manager.id')
+      .addGroupBy('doctor.id')
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
       .addGroupBy('hospital.id')
