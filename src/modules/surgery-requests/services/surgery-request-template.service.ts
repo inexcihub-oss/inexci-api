@@ -7,7 +7,7 @@ export class SurgeryRequestTemplateService {
   private readonly logger = new Logger(SurgeryRequestTemplateService.name);
   constructor(private readonly dataSource: DataSource) {}
 
-  createTemplate(
+  async createTemplate(
     dto: { name: string; template_data: object },
     userId: string,
   ): Promise<any> {
@@ -17,7 +17,11 @@ export class SurgeryRequestTemplateService {
       name: dto.name,
       template_data: dto.template_data,
     });
-    return templateRepo.save(template);
+    const saved = await templateRepo.save(template);
+    return templateRepo.findOne({
+      where: { id: saved.id },
+      relations: ['doctor'],
+    });
   }
 
   getTemplates(userId: string): Promise<any[]> {

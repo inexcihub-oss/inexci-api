@@ -101,16 +101,18 @@ export class SurgeryRequestMutationService {
         const healthPlan = await this.resolveHealthPlan(
           data.health_plan,
           doctorId,
-          { findOne: (w) => healthPlanRepo.findOne({ where: w }), save: (d) => healthPlanRepo.save(d) },
+          {
+            findOne: (w) => healthPlanRepo.findOne({ where: w }),
+            save: (d) => healthPlanRepo.save(d),
+          },
         );
 
         let hospital = null;
         if (data.hospital?.name) {
-          hospital = await this.resolveHospital(
-            data.hospital,
-            doctorId,
-            { findOne: (w) => hospitalRepo.findOne({ where: w }), save: (d) => hospitalRepo.save(d) },
-          );
+          hospital = await this.resolveHospital(data.hospital, doctorId, {
+            findOne: (w) => hospitalRepo.findOne({ where: w }),
+            save: (d) => hospitalRepo.save(d),
+          });
         }
 
         let managerId: string | null = null;
@@ -149,6 +151,7 @@ export class SurgeryRequestMutationService {
           deadline: data.deadline || null,
           procedure_id:
             !data.is_indication && data.procedure_id ? data.procedure_id : null,
+          last_status_changed_at: new Date(),
         });
 
         await chatRepo.save({
@@ -217,6 +220,7 @@ export class SurgeryRequestMutationService {
           required_documents: data.required_documents?.length
             ? data.required_documents
             : null,
+          last_status_changed_at: new Date(),
         });
 
         await chatRepo.save({
@@ -255,7 +259,10 @@ export class SurgeryRequestMutationService {
         this.logger.log(
           `[WhatsApp] enviando boas-vindas para ${patient.phone}`,
         );
-        void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+        void this.whatsappService.sendPatientWelcome(
+          patient.phone,
+          patient.name,
+        );
       } else {
         this.logger.warn(
           `[WhatsApp] paciente sem telefone cadastrado — mensagem não enviada`,
@@ -279,7 +286,11 @@ export class SurgeryRequestMutationService {
     if (data.hospital === null) {
       hospitalId = null;
     } else if (data.hospital?.name) {
-      const hospital = await this.resolveHospital(data.hospital, doctorId, this.hospitalRepository);
+      const hospital = await this.resolveHospital(
+        data.hospital,
+        doctorId,
+        this.hospitalRepository,
+      );
       hospitalId = hospital.id;
     }
 
@@ -287,7 +298,11 @@ export class SurgeryRequestMutationService {
     if (data.health_plan === null) {
       healthPlanId = null;
     } else if (data.health_plan?.name) {
-      const healthPlan = await this.resolveHealthPlan(data.health_plan, doctorId, this.healthPlanRepository);
+      const healthPlan = await this.resolveHealthPlan(
+        data.health_plan,
+        doctorId,
+        this.healthPlanRepository,
+      );
       healthPlanId = healthPlan.id;
     }
 
@@ -335,26 +350,43 @@ export class SurgeryRequestMutationService {
     return this.surgeryRequestRepository.findOneSimple({ id });
   }
 
-  private async findWithAccess(id: string, userId: string): Promise<SurgeryRequest> {
+  private async findWithAccess(
+    id: string,
+    userId: string,
+  ): Promise<SurgeryRequest> {
     let where: FindOptionsWhere<SurgeryRequest> = { id };
-    const doctorIds = await this.accessControlService.getAccessibleDoctorIds(userId);
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
     if (doctorIds.length > 0) {
       where = { ...where, doctor_id: In(doctorIds) };
     }
-    const surgeryRequest = await this.surgeryRequestRepository.findOneSimple(where);
-    if (!surgeryRequest) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    const surgeryRequest =
+      await this.surgeryRequestRepository.findOneSimple(where);
+    if (!surgeryRequest)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     return surgeryRequest;
   }
 
   private async resolveHealthPlan(
     data: { name: string; email?: string; phone?: string },
     doctorId: string,
-    repo: { findOne: (w: any) => Promise<HealthPlan | null>; save?: (d: any) => Promise<HealthPlan>; create?: (d: any) => Promise<HealthPlan> },
+    repo: {
+      findOne: (w: any) => Promise<HealthPlan | null>;
+      save?: (d: any) => Promise<HealthPlan>;
+      create?: (d: any) => Promise<HealthPlan>;
+    },
   ): Promise<HealthPlan> {
     let entity = await repo.findOne({ name: data.name });
     if (!entity) {
-      const payload = { name: data.name, email: data.email, phone: data.phone, doctor_id: doctorId };
-      entity = repo.save ? await repo.save(payload) : await (repo as any).create(payload);
+      const payload = {
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        doctor_id: doctorId,
+      };
+      entity = repo.save
+        ? await repo.save(payload)
+        : await (repo as any).create(payload);
     }
     return entity;
   }
@@ -362,12 +394,22 @@ export class SurgeryRequestMutationService {
   private async resolveHospital(
     data: { name: string; email?: string },
     doctorId: string,
-    repo: { findOne: (w: any) => Promise<Hospital | null>; save?: (d: any) => Promise<Hospital>; create?: (d: any) => Promise<Hospital> },
+    repo: {
+      findOne: (w: any) => Promise<Hospital | null>;
+      save?: (d: any) => Promise<Hospital>;
+      create?: (d: any) => Promise<Hospital>;
+    },
   ): Promise<Hospital> {
     let entity = await repo.findOne({ name: data.name });
     if (!entity) {
-      const payload = { name: data.name, email: data.email, doctor_id: doctorId };
-      entity = repo.save ? await repo.save(payload) : await (repo as any).create(payload);
+      const payload = {
+        name: data.name,
+        email: data.email,
+        doctor_id: doctorId,
+      };
+      entity = repo.save
+        ? await repo.save(payload)
+        : await (repo as any).create(payload);
     }
     return entity;
   }

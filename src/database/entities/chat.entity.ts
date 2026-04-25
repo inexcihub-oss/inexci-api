@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   OneToMany,
   JoinColumn,
@@ -24,6 +25,9 @@ export class Chat {
 
   @CreateDateColumn()
   created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 
   // Relations
   @ManyToOne(() => SurgeryRequest, (request) => request.chats)

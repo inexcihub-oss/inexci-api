@@ -548,7 +548,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('sr.created_by', 'created_by')
       .where('sr.status NOT IN (:...terminalStatuses)', { terminalStatuses })
       .andWhere(
-        `sr.last_status_changed_at IS NOT NULL AND sr.last_status_changed_at <= NOW() - INTERVAL '1 day' * :minDays`,
+        `COALESCE(sr.last_status_changed_at, sr.created_at) <= NOW() - INTERVAL '1 day' * :minDays`,
         { minDays },
       )
       .andWhere('sr.deleted_at IS NULL')

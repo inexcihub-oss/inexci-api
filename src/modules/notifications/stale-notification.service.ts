@@ -75,7 +75,7 @@ export class StaleNotificationService {
   }
 
   private calculateStaleDays(request: SurgeryRequest): number {
-    const lastChanged = request.last_status_changed_at;
+    const lastChanged = request.last_status_changed_at ?? request.created_at;
     if (!lastChanged) return 0;
     const now = new Date();
     const diffMs = now.getTime() - new Date(lastChanged).getTime();

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CronService } from './cron.service';
+import { CronController } from './cron.controller';
 import { MailModule } from '../mail/mail.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
@@ -16,6 +17,7 @@ import { User } from 'src/database/entities/user.entity';
     WhatsappModule,
     NotificationsModule,
   ],
+  controllers: [CronController],
   providers: [
     CronService,
     StaleNotificationService,
