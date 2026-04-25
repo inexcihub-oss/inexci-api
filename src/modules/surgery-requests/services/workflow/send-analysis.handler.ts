@@ -137,13 +137,36 @@ export class SendAnalysisHandler {
     const hospitalName = request.hospital?.name ?? '';
 
     if (dto.method === SendMethod.EMAIL && dto.to) {
-      await this.mailService.sendSurgeryRequestSent(dto.to, {
-        patientName,
-        requestId: request.protocol ?? id,
-        hospitalName,
-        healthPlanName,
-        doctorName,
-      });
+      let pdfAttachment:
+        | { filename: string; content: Buffer; contentType: string }
+        | undefined;
+      try {
+        const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
+          request,
+          userId,
+        );
+        pdfAttachment = {
+          filename: `solicitacao-${request.protocol ?? id}.pdf`,
+          content: Buffer.from(pdf, 'base64'),
+          contentType: 'application/pdf',
+        };
+      } catch (err) {
+        this.logger.warn(
+          `[sendRequest] Não foi possível gerar PDF para anexar ao e-mail da solicitação ${id}: ${err?.message}`,
+        );
+      }
+
+      await this.mailService.sendSurgeryRequestSent(
+        dto.to,
+        {
+          patientName,
+          requestId: request.protocol ?? id,
+          hospitalName,
+          healthPlanName,
+          doctorName,
+        },
+        pdfAttachment ? [pdfAttachment] : undefined,
+      );
       return { sent: true, method: SendMethod.EMAIL };
     }
 

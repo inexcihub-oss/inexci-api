@@ -11,10 +11,15 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { Contestation } from 'src/database/entities/contestation.entity';
+import {
+  SurgeryRequestActivity,
+  ActivityType,
+} from 'src/database/entities/surgery-request-activity.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { ContestationRepository } from 'src/database/repositories/contestation.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
+import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -32,6 +37,7 @@ export class AuthorizationHandler {
   constructor(
     private readonly dataSource: DataSource,
     private readonly mailService: MailService,
+    private readonly storageService: StorageService,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly contestationRepository: ContestationRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
@@ -149,7 +155,37 @@ export class AuthorizationHandler {
       `/solicitacoes/${id}`,
     );
 
+    // ── Registrar atividade de contestação ────────────────────────────────
+    const activityRepo = this.dataSource.getRepository(SurgeryRequestActivity);
+    await activityRepo.save({
+      surgery_request_id: id,
+      user_id: userId,
+      type: ActivityType.SYSTEM,
+      content: 'Autorização contestada.',
+    });
+
     if (dto.method === SendMethod.EMAIL && dto.to) {
+      let pdfAttachment:
+        | { filename: string; content: string; contentType: string }
+        | undefined;
+      try {
+        const pdfBuffer =
+          await this.pdfAssemblyService.generateContestAuthorizationPdf(
+            request,
+            id,
+            userId,
+          );
+        pdfAttachment = {
+          filename: `contestacao-${request.protocol ?? id}.pdf`,
+          content: pdfBuffer.toString('base64'),
+          contentType: 'application/pdf',
+        };
+      } catch (err) {
+        this.logger.warn(
+          `[contestAuthorization] Não foi possível gerar PDF para anexar ao e-mail da contestação ${id}: ${err?.message}`,
+        );
+      }
+
       await this.mailService.sendSurgeryContested(
         dto.to,
         dto.subject ?? 'Contestação de Autorização — Inexci',
@@ -159,6 +195,7 @@ export class AuthorizationHandler {
           reason: dto.reason,
           message: dto.message,
         },
+        pdfAttachment ? [pdfAttachment] : undefined,
       );
       return { sent: true, method: SendMethod.EMAIL };
     }
@@ -175,10 +212,45 @@ export class AuthorizationHandler {
     );
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    return this.pdfAssemblyService.generateContestAuthorizationPdf(
-      request,
-      id,
-      userId,
-    );
+
+    const buffer =
+      await this.pdfAssemblyService.generateContestAuthorizationPdf(
+        request,
+        id,
+        userId,
+      );
+
+    // ── Salvar PDF no storage e registrar atividade ───────────────────────
+    try {
+      const timestamp = Date.now();
+      const filename = `contestacao-${id}-${timestamp}.pdf`;
+      const mockFile = {
+        originalname: filename,
+        mimetype: 'application/pdf',
+        buffer,
+      };
+      const storagePath = await this.storageService.create(mockFile, 'pdfs');
+
+      const activityRepo = this.dataSource.getRepository(
+        SurgeryRequestActivity,
+      );
+      await activityRepo.save({
+        surgery_request_id: id,
+        user_id: null,
+        type: ActivityType.PDF_GENERATED,
+        content: JSON.stringify({
+          description: 'PDF de contestação de autorização gerado',
+          pdf_path: storagePath,
+        }),
+      });
+
+      this.logger.log(`[contestPDF] PDF de contestação salvo: ${storagePath}`);
+    } catch (err: any) {
+      this.logger.warn(
+        `[contestPDF] Não foi possível salvar atividade do PDF de contestação: ${err?.message}`,
+      );
+    }
+
+    return buffer;
   }
 }

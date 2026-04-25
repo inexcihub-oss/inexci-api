@@ -196,7 +196,11 @@ export class PdfGenerationProcessor {
         patientBirthDate:
           pd.birthDate ||
           (patient?.birth_date
-            ? formatDateBR(patient.birth_date.toISOString())
+            ? formatDateBR(
+                patient.birth_date instanceof Date
+                  ? patient.birth_date.toISOString()
+                  : String(patient.birth_date),
+              )
             : undefined),
         patientRg: pd.rg || undefined,
         patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,

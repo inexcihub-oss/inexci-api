@@ -69,7 +69,14 @@ export class MailProcessor implements OnModuleInit {
 
   @Process('send-mail')
   async handleSendMail(job: Job<MailJobData>) {
-    const { template, html: rawHtml, to, subject, context } = job.data;
+    const {
+      template,
+      html: rawHtml,
+      to,
+      subject,
+      context,
+      attachments,
+    } = job.data;
 
     const sendLog = this.sendLogRepository.create({
       channel: NotificationChannel.EMAIL,
@@ -82,13 +89,31 @@ export class MailProcessor implements OnModuleInit {
     });
 
     try {
-      const html = rawHtml ?? await this.renderTemplate(template, context ?? {});
+      const html =
+        rawHtml ?? (await this.renderTemplate(template, context ?? {}));
 
       await this.transporter.sendMail({
         from: `"${this.mail.from.name}" <${this.mail.from.address}>`,
         to,
         subject,
         html,
+        attachments: attachments?.map((a) => {
+          let content: Buffer | string;
+          if (Buffer.isBuffer(a.content)) {
+            content = a.content;
+          } else if (typeof a.content === 'string') {
+            content = Buffer.from(a.content, 'base64');
+          } else {
+            // Bull serializa Buffer como { type: 'Buffer', data: [...] } via JSON/Redis
+            const raw = a.content as any;
+            content = Buffer.from(raw.data ?? raw);
+          }
+          return {
+            filename: a.filename,
+            content,
+            contentType: a.contentType ?? 'application/pdf',
+          };
+        }),
       });
 
       sendLog.status = NotificationSendStatus.SENT;

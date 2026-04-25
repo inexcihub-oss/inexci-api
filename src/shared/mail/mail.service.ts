@@ -3,6 +3,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bull';
 import { MailTemplateName } from 'src/config/mail.config';
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType?: string;
+}
+
 export interface MailJobData {
   template?: MailTemplateName;
   /** HTML bruto — usado quando não há template Handlebars disponível */
@@ -10,6 +16,7 @@ export interface MailJobData {
   to: string;
   subject: string;
   context?: Record<string, any>;
+  attachments?: MailAttachment[];
 }
 
 @Injectable()
@@ -26,8 +33,9 @@ export class MailService {
     to: string,
     subject: string,
     context: Record<string, any>,
+    attachments?: MailAttachment[],
   ): Promise<void> {
-    await this.enqueue({ template, to, subject, context });
+    await this.enqueue({ template, to, subject, context, attachments });
   }
 
   /**
@@ -67,12 +75,14 @@ export class MailService {
       healthPlanName: string;
       doctorName: string;
     },
+    attachments?: MailAttachment[],
   ) {
     return this.send(
       'surgery-request-sent',
       to,
       'Solicitação Cirúrgica Enviada',
       context,
+      attachments,
     );
   }
 
@@ -102,8 +112,9 @@ export class MailService {
       reason: string;
       message?: string;
     },
+    attachments?: MailAttachment[],
   ) {
-    return this.send('surgery-contested', to, subject, context);
+    return this.send('surgery-contested', to, subject, context, attachments);
   }
 
   /**
