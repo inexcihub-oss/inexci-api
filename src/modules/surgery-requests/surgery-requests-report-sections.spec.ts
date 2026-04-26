@@ -60,6 +60,7 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
       mockStorageService as any,
       mockPdfService as any,
       mockDataSource,
+      { findByDoctorProfileId: jest.fn().mockResolvedValue(null) } as any,
     );
   });
 

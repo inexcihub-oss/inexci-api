@@ -179,6 +179,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoin('surgery_request.doctor', 'doctor')
       .addSelect(['doctor.id', 'doctor.name', 'doctor.avatar_url'])
       .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
+      .leftJoinAndSelect('doctor_profile.header', 'doctor_profile_header')
       .leftJoinAndSelect('surgery_request.patient', 'patient')
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')

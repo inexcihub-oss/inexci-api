@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
+import { DoctorHeader } from './doctor-header.entity';
 
 /**
  * Perfil profissional do médico.
@@ -54,4 +55,7 @@ export class DoctorProfile {
   @OneToOne(() => User, (user) => user.doctor_profile)
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  @OneToOne(() => DoctorHeader, (h) => h.doctor_profile, { cascade: true, eager: false })
+  header: DoctorHeader | null;
 }

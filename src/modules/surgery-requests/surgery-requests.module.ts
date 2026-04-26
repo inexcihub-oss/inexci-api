@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DoctorHeader } from 'src/database/entities/doctor-header.entity';
+import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
 import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
@@ -53,6 +55,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       Patient,
       Hospital,
       HealthPlan,
+      DoctorHeader,
     ]),
     UsersModule,
     ChatsModule,
@@ -83,6 +86,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     SurgeryRequestBillingService,
     DoctorResolutionService,
     StorageService,
+    DoctorHeaderRepository,
   ],
   exports: [
     SurgeryRequestsService,

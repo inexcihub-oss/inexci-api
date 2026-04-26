@@ -141,21 +141,48 @@
         font-size: 10px;
         color: #9ca3af;
       }
+
+      /* ── Cabeçalho Customizado ────────────────────────── */
+      .custom-header {
+        position: relative;
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      .custom-header--right { flex-direction: row-reverse; }
+      .custom-header-logo { max-height: 80px; max-width: 200px; object-fit: contain; flex-shrink: 0; position: relative; z-index: 1; }
+      .custom-header-content { font-size: 11px; line-height: 1.4; color: #111; text-align: center; }
+      .custom-header-content p { margin: 0 0 4px 0; }
+      .custom-header-content--overlay { position: absolute; left: 0; right: 0; text-align: center; pointer-events: none; }
     </style>
   </head>
   <body>
-    <div class='page-header'>
-      <div class='brand'>
-        Inexci
-        <span>Sistema de Gestão Cirúrgica</span>
+    {{#if customHeader}}
+      <div class='custom-header custom-header--{{customHeader.logoPosition}}'>
+        {{#if customHeader.logoUrl}}
+          <img class='custom-header-logo' src='{{customHeader.logoUrl}}' alt='Logo' />
+        {{/if}}
+        {{#if customHeader.contentHtml}}
+          {{#if customHeader.logoUrl}}
+            <div class='custom-header-content custom-header-content--overlay'>{{{customHeader.contentHtml}}}</div>
+          {{else}}
+            <div class='custom-header-content' style='flex:1'>{{{customHeader.contentHtml}}}</div>
+          {{/if}}
+        {{/if}}
       </div>
-      <div class='header-meta'>
-        {{#if protocol}}<div class='protocol'>Protocolo:
-            {{protocol}}</div>{{/if}}
-        <div>Data de emissão: {{createdAt}}</div>
-        {{#if sentAt}}<div>Enviada em: {{sentAt}}</div>{{/if}}
+    {{else}}
+      <div class='page-header'>
+          Inexci
+          <span>Sistema de Gestão Cirúrgica</span>
+        </div>
+        <div class='header-meta'>
+          {{#if protocol}}<div class='protocol'>Protocolo:
+              {{protocol}}</div>{{/if}}
+          <div>Data de emissão: {{createdAt}}</div>
+          {{#if sentAt}}<div>Enviada em: {{sentAt}}</div>{{/if}}
+        </div>
       </div>
-    </div>
+    {{/if}}
 
     <div class='status-badge'>{{status}}</div>
 

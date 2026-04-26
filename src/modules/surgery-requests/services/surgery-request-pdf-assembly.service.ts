@@ -5,9 +5,11 @@ import {
   PdfService,
   SurgeryRequestLaudoPdfData,
   ContestAuthorizationPdfData,
+  CustomHeaderData,
 } from 'src/shared/pdf/pdf.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
 import {
   formatPhone,
@@ -27,6 +29,7 @@ export class SurgeryRequestPdfAssemblyService {
     private readonly pdfService: PdfService,
     private readonly userRepository: UserRepository,
     private readonly storageService: StorageService,
+    private readonly doctorHeaderRepository: DoctorHeaderRepository,
   ) {}
 
   /**
@@ -46,7 +49,7 @@ export class SurgeryRequestPdfAssemblyService {
   }
 
   /**
-   * Carrega dados do médico (profile, CRM, assinatura) necessários para PDFs.
+   * Carrega dados do médico (profile, CRM, assinatura, cabeçalho) necessários para PDFs.
    */
   async loadDoctorData(userId: string) {
     const doctor = await this.userRepository.findOneWithProfile({ id: userId });
@@ -59,7 +62,31 @@ export class SurgeryRequestPdfAssemblyService {
 
     const doctorSignatureUrl = await this.resolveDoctorSignatureUrl(profile);
 
-    return { doctor, profile, doctorCrm, doctorSignatureUrl };
+    let customHeader: CustomHeaderData | null = null;
+    if (profile?.id) {
+      const header = await this.doctorHeaderRepository.findByDoctorProfileId(profile.id);
+      if (header) {
+        let logoUrl: string | null = null;
+        if (header.logo_url) {
+          if (header.logo_url.startsWith('http')) {
+            logoUrl = header.logo_url;
+          } else {
+            try {
+              logoUrl = await this.storageService.getSignedUrl(header.logo_url);
+            } catch {
+              logoUrl = null;
+            }
+          }
+        }
+        customHeader = {
+          logoUrl,
+          logoPosition: header.logo_position,
+          contentHtml: header.content_html,
+        };
+      }
+    }
+
+    return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
   }
 
   /**
@@ -69,7 +96,7 @@ export class SurgeryRequestPdfAssemblyService {
     request: any,
     userId: string,
   ): Promise<{ pdf: string; method: SendMethod.DOWNLOAD }> {
-    const { doctor, profile, doctorCrm, doctorSignatureUrl } =
+    const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.loadDoctorData(userId);
 
     const doctorEmail = doctor?.email ?? '';
@@ -189,6 +216,7 @@ export class SurgeryRequestPdfAssemblyService {
       hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
       hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
       doctorSignatureUrl: doctorSignatureUrl || undefined,
+      customHeader: customHeader || undefined,
     };
 
     const summaryBuffer =
@@ -272,7 +300,7 @@ export class SurgeryRequestPdfAssemblyService {
           : null,
     }));
 
-    const { doctor, profile, doctorCrm, doctorSignatureUrl } =
+    const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.loadDoctorData(userId);
 
     const pdfData: ContestAuthorizationPdfData = {
@@ -294,6 +322,7 @@ export class SurgeryRequestPdfAssemblyService {
       doctorCrm,
       doctorSpecialty: profile?.specialty ?? undefined,
       doctorSignatureUrl,
+      customHeader: customHeader || undefined,
     };
 
     return this.pdfService.generateContestAuthorizationPdf(pdfData);

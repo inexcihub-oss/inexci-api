@@ -211,15 +211,74 @@
         color: #111111;
         line-height: 1.4;
       }
+
+      /* ── Cabeçalho Customizado ────────────────────────── */
+      .custom-header {
+        position: relative;
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      .custom-header--right {
+        flex-direction: row-reverse;
+      }
+      .custom-header-logo {
+        max-height: 80px;
+        max-width: 200px;
+        object-fit: contain;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 1;
+      }
+      .custom-header-content {
+        font-size: 11px;
+        line-height: 1.4;
+        color: #111;
+        text-align: center;
+      }
+      .custom-header-content p {
+        margin: 0 0 4px 0;
+      }
+      .custom-header-content--overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        text-align: center;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
 
     <!-- ── Header ────────────────────────────────────────── -->
-    <div class='page-header'>
-      <h1 class='report-title'>LAUDO MÉDICO</h1>
-      <span class='report-date'>Data: {{today}}</span>
-    </div>
+    {{#if customHeader}}
+      <div class='custom-header custom-header--{{customHeader.logoPosition}}'>
+        {{#if customHeader.logoUrl}}
+          <img
+            class='custom-header-logo'
+            src='{{customHeader.logoUrl}}'
+            alt='Logo'
+          />
+        {{/if}}
+        {{#if customHeader.contentHtml}}
+          {{#if customHeader.logoUrl}}
+            <div
+              class='custom-header-content custom-header-content--overlay'
+            >{{{customHeader.contentHtml}}}</div>
+          {{else}}
+            <div
+              class='custom-header-content'
+              style='flex:1'
+            >{{{customHeader.contentHtml}}}</div>
+          {{/if}}
+        {{/if}}
+      </div>
+    {{else}}
+      <div class='page-header'>
+        <h1 class='report-title'>LAUDO MÉDICO</h1>
+        <span class='report-date'>Data: {{today}}</span>
+      </div>
+    {{/if}}
 
     <!-- ── Dados do Paciente ──────────────────────────────── -->
     <div class='section'>

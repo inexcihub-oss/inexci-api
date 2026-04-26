@@ -10,6 +10,7 @@
  *  │   • documents/      → documentos da solicitação cirúrgica      │
  *  │   • post-surgical/  → laudos e docs pós-cirúrgicos             │ *  │   • report/         → imagens anexadas ao laudo PDF             │ *  │   • signatures/     → assinatura digital do médico             │
  *  │   • stamps/         → carimbo do médico                        │
+ *  │   • headers/        → logo do cabeçalho customizado do médico  │
  *  └────────────────────────────────────────────────────────────────┘
  *
  * Regra: use STORAGE_BUCKET para o nome do bucket e STORAGE_FOLDERS
@@ -47,4 +48,7 @@ export const STORAGE_FOLDERS = {
 
   /** Carimbo do médico (usado no PDF) */
   STAMPS: 'stamps',
+
+  /** Logo do cabeçalho customizado do médico */
+  HEADERS: 'headers',
 } as const;

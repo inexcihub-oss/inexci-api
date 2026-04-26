@@ -8,7 +8,9 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import {
   PdfService,
   SurgeryRequestLaudoPdfData,
+  CustomHeaderData,
 } from 'src/shared/pdf/pdf.service';
+import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { CreateReportSectionDto } from '../dto/create-report-section.dto';
 import { UpdateReportSectionDto } from '../dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from '../dto/reorder-report-sections.dto';
@@ -26,12 +28,10 @@ export class SurgeryRequestReportService {
     private readonly storageService: StorageService,
     private readonly pdfService: PdfService,
     private readonly dataSource: DataSource,
+    private readonly doctorHeaderRepository: DoctorHeaderRepository,
   ) {}
 
-  getReportSections(
-    id: string,
-    _userId: string,
-  ): Promise<ReportSection[]> {
+  getReportSections(id: string, _userId: string): Promise<ReportSection[]> {
     return this.reportSectionRepository.find({
       where: { surgery_request_id: id },
       order: { order: 'ASC' },
@@ -197,7 +197,34 @@ export class SurgeryRequestReportService {
       }
     }
 
-    // ── Seções dinâmicas do laudo ──────────────────────────────────────────
+    // ── Cabeçalho customizado do médico ──────────────────────────────────────────────
+    let customHeader: CustomHeaderData | null = null;
+    if (profile?.id) {
+      const header = await this.doctorHeaderRepository.findByDoctorProfileId(
+        profile.id,
+      );
+      if (header) {
+        let logoUrl: string | null = null;
+        if (header.logo_url) {
+          if (header.logo_url.startsWith('http')) {
+            logoUrl = header.logo_url;
+          } else {
+            try {
+              logoUrl = await this.storageService.getSignedUrl(header.logo_url);
+            } catch {
+              logoUrl = null;
+            }
+          }
+        }
+        customHeader = {
+          logoUrl,
+          logoPosition: header.logo_position,
+          contentHtml: header.content_html,
+        };
+      }
+    }
+
+    // ── Seções dinâmicas do laudo ──────────────────────────────────────────────────
     const reportSections = await this.reportSectionRepository.find({
       where: { surgery_request_id: id },
       order: { order: 'ASC' },
@@ -302,6 +329,7 @@ export class SurgeryRequestReportService {
       hasDoctorContact: !!(doctor?.email || doctor?.phone),
       hasDoctorInfo: !!(profile?.specialty || crmText),
       doctorSignatureUrl,
+      customHeader: customHeader || undefined,
     };
 
     return this.pdfService.generateSurgeryRequestLaudoPdf(pdfData);

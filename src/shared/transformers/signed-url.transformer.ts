@@ -43,22 +43,56 @@ export async function transformDoctorSignatureUrl(
     doctor?.doctor_profile?.signature_url || doctor?.signature_url;
 
   if (!rawSignature) {
+    // Mesmo sem assinatura, resolve o logo do cabeçalho se houver
+    return resolveHeaderLogoUrl(doctor, storageService);
+  }
+
+  let transformed: any;
+  if (rawSignature.startsWith('http')) {
+    // Já é uma URL HTTP — apenas garante que está no campo top-level
+    transformed = { ...doctor, signature_url: rawSignature };
+  } else {
+    try {
+      transformed = {
+        ...doctor,
+        signature_url: await storageService.getSignedUrl(rawSignature),
+      };
+    } catch {
+      logger.warn(
+        `Falha ao gerar signed URL para assinatura do médico ${doctor.id}`,
+      );
+      transformed = doctor;
+    }
+  }
+
+  return resolveHeaderLogoUrl(transformed, storageService);
+}
+
+/**
+ * Resolve a URL assinada do logo do cabeçalho customizado do médico,
+ * quando houver um path bruto armazenado.
+ */
+async function resolveHeaderLogoUrl(
+  doctor: any,
+  storageService: StorageService,
+): Promise<any> {
+  const header = doctor?.doctor_profile?.header;
+  if (!header?.logo_url || header.logo_url.startsWith('http')) {
     return doctor;
   }
 
-  if (rawSignature.startsWith('http')) {
-    // Já é uma URL HTTP — apenas garante que está no campo top-level
-    return { ...doctor, signature_url: rawSignature };
-  }
-
   try {
+    const signedLogoUrl = await storageService.getSignedUrl(header.logo_url);
     return {
       ...doctor,
-      signature_url: await storageService.getSignedUrl(rawSignature),
+      doctor_profile: {
+        ...doctor.doctor_profile,
+        header: { ...header, logo_url: signedLogoUrl },
+      },
     };
   } catch {
     logger.warn(
-      `Falha ao gerar signed URL para assinatura do médico ${doctor.id}`,
+      `Falha ao gerar signed URL para logo do cabeçalho do médico ${doctor.id}`,
     );
     return doctor;
   }

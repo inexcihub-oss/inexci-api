@@ -7,6 +7,12 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as http from 'http';
 
+export interface CustomHeaderData {
+  logoUrl?: string | null;
+  logoPosition: 'left' | 'right';
+  contentHtml?: string | null;
+}
+
 export interface SurgeryRequestPdfData {
   id: string;
   protocol?: string;
@@ -75,6 +81,8 @@ export interface SurgeryRequestPdfData {
     receivedValue?: string;
     receivedAt?: string;
   };
+
+  customHeader?: CustomHeaderData | null;
 }
 
 export interface InvoicePdfData {
@@ -120,6 +128,8 @@ export interface MedicalReportPdfData {
   doctorCrmState?: string;
   doctorSpecialty?: string;
   doctorSignatureUrl?: string;
+
+  customHeader?: CustomHeaderData | null;
 }
 
 export interface ContestAuthorizationPdfData {
@@ -155,6 +165,8 @@ export interface ContestAuthorizationPdfData {
   doctorCrm?: string;
   doctorSpecialty?: string;
   doctorSignatureUrl?: string;
+
+  customHeader?: CustomHeaderData | null;
 }
 
 /**
@@ -204,6 +216,8 @@ export interface SurgeryRequestLaudoPdfData {
   hasDoctorContact?: boolean;
   hasDoctorInfo?: boolean;
   doctorSignatureUrl?: string;
+
+  customHeader?: CustomHeaderData | null;
 }
 
 @Injectable()
@@ -240,10 +254,18 @@ export class PdfService {
       signatureUri = dataUri ?? data.doctorSignatureUrl;
     }
 
+    // Resolver logo do cabeçalho customizado
+    let customHeader = data.customHeader ?? null;
+    if (customHeader?.logoUrl) {
+      const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
+      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+    }
+
     const templateData = {
       ...data,
       examImages: resolvedImages.length ? resolvedImages : undefined,
       doctorSignatureUrl: signatureUri,
+      customHeader: customHeader || undefined,
     };
 
     const html = await this.renderTemplate('medical-report', templateData);
@@ -453,10 +475,18 @@ export class PdfService {
       signatureUri = dataUri ?? data.doctorSignatureUrl;
     }
 
+    // Resolver logo do cabeçalho customizado
+    let customHeader = data.customHeader ?? null;
+    if (customHeader?.logoUrl) {
+      const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
+      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+    }
+
     const templateData = {
       ...data,
       examImages: resolvedImages.length ? resolvedImages : undefined,
       doctorSignatureUrl: signatureUri,
+      customHeader: customHeader || undefined,
     };
 
     const html = await this.renderTemplate('surgery-request-laudo', templateData);
@@ -472,7 +502,14 @@ export class PdfService {
   async generateSurgeryRequestSummary(
     data: SurgeryRequestPdfData,
   ): Promise<Buffer> {
-    const html = await this.renderTemplate('surgery-request', data);
+    let customHeader = data.customHeader ?? null;
+    if (customHeader?.logoUrl) {
+      const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
+      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+    }
+
+    const templateData = { ...data, customHeader: customHeader || undefined };
+    const html = await this.renderTemplate('surgery-request', templateData);
     return this.htmlToPdf(html);
   }
 
@@ -506,10 +543,18 @@ export class PdfService {
       signatureUri = dataUri ?? data.doctorSignatureUrl;
     }
 
+    // Resolver logo do cabeçalho customizado
+    let customHeader = data.customHeader ?? null;
+    if (customHeader?.logoUrl) {
+      const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
+      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+    }
+
     const templateData = {
       ...data,
       attachments: resolvedAttachments.length ? resolvedAttachments : undefined,
       doctorSignatureUrl: signatureUri,
+      customHeader: customHeader || undefined,
     };
 
     const html = await this.renderTemplate('contest-authorization', templateData);

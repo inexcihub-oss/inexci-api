@@ -1,4 +1,5 @@
 import * as bcrypt from 'bcryptjs';
+import * as sanitizeHtml from 'sanitize-html';
 import { FindOptionsWhere, Not, In, QueryFailedError } from 'typeorm';
 import {
   BadRequestException,
@@ -17,9 +18,11 @@ import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
 import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
 import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
+import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
 
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
+import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -48,6 +51,7 @@ export class UsersService {
     private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
     private readonly whatsappService: WhatsappService,
     private readonly configService: ConfigService,
+    private readonly doctorHeaderRepository: DoctorHeaderRepository,
   ) {}
 
   /**
@@ -936,5 +940,55 @@ export class UsersService {
       is_doctor: !!collaborator.doctor_profile,
       doctor_accesses: accesses,
     };
+  }
+
+  // ============ CABEÇALHO DE DOCUMENTOS ============
+
+  private sanitizeHeaderHtml(html: string): string {
+    return sanitizeHtml(html, {
+      allowedTags: ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'span'],
+      allowedAttributes: {
+        '*': ['style'],
+      },
+      allowedStyles: {
+        '*': {
+          'text-align': [/^(left|right|center|justify)$/],
+          'font-weight': [/^(normal|bold|[1-9]00)$/],
+          color: [/^#[0-9a-fA-F]{3,6}$/, /^rgb\(\d+,\s*\d+,\s*\d+\)$/],
+        },
+      },
+    });
+  }
+
+  async getMyHeader(userId: string) {
+    const profile = await this.doctorProfileRepository.findByUserId(userId);
+    if (!profile) return null;
+    return this.doctorHeaderRepository.findByDoctorProfileId(profile.id);
+  }
+
+  async upsertMyHeader(userId: string, dto: UpsertDoctorHeaderDto) {
+    const profile = await this.doctorProfileRepository.findByUserId(userId);
+    if (!profile) throw new ForbiddenException('Apenas médicos podem configurar cabeçalho');
+
+    const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
+      logo_position: dto.logo_position ?? 'left',
+    };
+
+    if (dto.logo_url !== undefined) {
+      data.logo_url = dto.logo_url;
+    }
+
+    if (dto.content_html !== undefined) {
+      data.content_html = dto.content_html ? this.sanitizeHeaderHtml(dto.content_html) : null;
+    }
+
+    return this.doctorHeaderRepository.upsert(profile.id, data);
+  }
+
+  async deleteMyHeader(userId: string) {
+    const profile = await this.doctorProfileRepository.findByUserId(userId);
+    if (!profile) throw new ForbiddenException('Apenas médicos podem remover cabeçalho');
+    await this.doctorHeaderRepository.removeByDoctorProfileId(profile.id);
+    return { message: 'Cabeçalho removido com sucesso' };
   }
 }

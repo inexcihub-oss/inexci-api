@@ -5,6 +5,7 @@
 // Importar todas as entidades primeiro
 import { User, UserRole, UserStatus } from './user.entity';
 import { DoctorProfile } from './doctor-profile.entity';
+import { DoctorHeader } from './doctor-header.entity';
 import {
   UserDoctorAccess,
   UserDoctorAccessStatus,
@@ -60,6 +61,7 @@ import { Tuss } from './tuss.entity';
 // USUÁRIOS E ACESSO
 export { User, UserRole, UserStatus };
 export { DoctorProfile };
+export { DoctorHeader };
 export { UserDoctorAccess, UserDoctorAccessStatus };
 
 // ENTIDADES DE NEGÓCIO (não fazem login)
@@ -118,6 +120,7 @@ export { Tuss };
 export const ENTITIES = [
   User,
   DoctorProfile,
+  DoctorHeader,
   UserDoctorAccess,
   Patient,
   Hospital,

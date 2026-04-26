@@ -16,6 +16,7 @@ import { ContestationRepository } from 'src/database/repositories/contestation.r
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
+import { StorageService } from 'src/shared/storage/storage.service';
 
 import {
   SurgeryRequest,
@@ -137,7 +138,12 @@ describe('SurgeryRequestWorkflowService', () => {
         const mockManager = createMockManager();
         return cb(mockManager);
       }),
-    };
+      getRepository: jest.fn().mockReturnValue({
+        save: jest.fn().mockResolvedValue({}),
+        findOne: jest.fn().mockResolvedValue(null),
+        find: jest.fn().mockResolvedValue([]),
+      }),
+    } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -170,6 +176,7 @@ describe('SurgeryRequestWorkflowService', () => {
           useValue: pdfAssemblyService,
         },
         { provide: SurgeryRequestBillingService, useValue: billingService },
+        { provide: StorageService, useValue: { getSignedUrl: jest.fn(), delete: jest.fn() } },
       ],
     }).compile();
 
@@ -241,6 +248,7 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(mailService.sendSurgeryRequestSent).toHaveBeenCalledWith(
         'test@test.com',
         expect.objectContaining({ patientName: 'Paciente Test' }),
+        undefined,
       );
       expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });
     });

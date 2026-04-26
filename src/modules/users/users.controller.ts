@@ -6,6 +6,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
 import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
+import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
 import { UsersService } from './users.service';
 import {
   Body,
@@ -124,6 +125,29 @@ export class UsersController {
       data,
       user.userId,
     );
+  }
+
+  // ============ CABEÇALHO DE DOCUMENTOS ============
+
+  @Get('me/header')
+  @ApiOperation({ summary: 'Obter cabeçalho personalizado do médico autenticado' })
+  async getMyHeader(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getMyHeader(user.userId);
+  }
+
+  @Put('me/header')
+  @ApiOperation({ summary: 'Criar/atualizar cabeçalho personalizado' })
+  async upsertMyHeader(
+    @Body() dto: UpsertDoctorHeaderDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.upsertMyHeader(user.userId, dto);
+  }
+
+  @Delete('me/header')
+  @ApiOperation({ summary: 'Remover cabeçalho personalizado' })
+  async deleteMyHeader(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.deleteMyHeader(user.userId);
   }
 
   // ============ COLABORADORES ============
