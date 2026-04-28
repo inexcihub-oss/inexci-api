@@ -49,6 +49,7 @@ describe('AuthService', () => {
 
   const mockMailService = {
     sendRaw: jest.fn(),
+    sendPasswordRecovery: jest.fn(),
   };
 
   const mockJwtService = {
@@ -335,10 +336,9 @@ describe('AuthService', () => {
       expect(expiresAt).toBeGreaterThanOrEqual(beforeCall + 15 * 60 * 1000 - 100);
       expect(expiresAt).toBeLessThanOrEqual(afterCall + 15 * 60 * 1000 + 100);
 
-      expect(mockMailService.sendRaw).toHaveBeenCalledWith(
+      expect(mockMailService.sendPasswordRecovery).toHaveBeenCalledWith(
         'test@example.com',
-        'Inexci - Recuperação de senha',
-        expect.stringContaining('123456'),
+        expect.objectContaining({ validationCode: '123456' }),
       );
     });
   });

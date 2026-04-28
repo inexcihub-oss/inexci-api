@@ -1,19 +1,28 @@
 {{#> _layout title="Bem-vindo ao Inexci!" preferencesUrl=preferencesUrl}}
   <p>Olá, <strong>{{patientName}}</strong>!</p>
-  <p>Você foi cadastrado na plataforma <strong>Inexci</strong> para acompanhar sua solicitação cirúrgica.</p>
+  <p>
+    Você foi cadastrado na plataforma <strong>Inexci</strong> para acompanhar
+    sua solicitação cirúrgica.
+  </p>
 
   <div class='info-box'>
     <p><strong>Médico responsável:</strong> {{doctorName}}</p>
-    {{#if hospitalName}}
-      <p><strong>Hospital:</strong> {{hospitalName}}</p>
-    {{/if}}
+    {{#if hospitalName}}<p><strong>Hospital:</strong> {{hospitalName}}</p>{{/if}}
   </div>
 
-  <p>Através da plataforma, você poderá acompanhar o andamento da sua solicitação e receber atualizações em tempo real.</p>
+  <p>
+    Através da plataforma, você poderá acompanhar o andamento da sua solicitação
+    e receber atualizações em tempo real.
+  </p>
 
   {{#if dashboardUrl}}
-    <p><a class='btn' href='{{dashboardUrl}}'>Acessar Plataforma</a></p>
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{dashboardUrl}}'>Acessar Plataforma</a>
+    </p>
   {{/if}}
 
-  <p style='font-size: 13px; color: #6b7280;'>Se você não reconhece este cadastro, por favor entre em contato conosco em <a href='mailto:suporte@inexci.com.br'>suporte@inexci.com.br</a>.</p>
+  <p style='font-size: 13px; color: #6b7280; margin-top: 20px;'>
+    Se você não reconhece este cadastro, entre em contato com nossa equipe pelo e-mail
+    <a href='mailto:suporte@inexci.com.br'>suporte@inexci.com.br</a>.
+  </p>
 {{/_layout}}

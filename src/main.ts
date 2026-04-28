@@ -2,6 +2,7 @@ import * as dayjs from 'dayjs';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import {
   ClassSerializerInterceptor,
   Logger,
@@ -27,6 +28,8 @@ async function bootstrap() {
   });
 
   app.use(cookieParser());
+
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Configurar JSON para não escapar caracteres Unicode
   app.getHttpAdapter().getInstance().set('json escape', false);

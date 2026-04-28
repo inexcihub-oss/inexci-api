@@ -43,6 +43,8 @@ describe('StaleNotificationService', () => {
 
   const mockMailService = {
     sendRaw: jest.fn().mockResolvedValue(undefined),
+    sendStaleReminder: jest.fn().mockResolvedValue(undefined),
+    sendStaleCritical: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockWhatsappService = {
@@ -296,7 +298,7 @@ describe('StaleNotificationService', () => {
 
       await service.checkAndNotifyStaleRequests();
 
-      expect(mockMailService.sendRaw).toHaveBeenCalled();
+      expect(mockMailService.sendStaleReminder).toHaveBeenCalled();
     });
   });
 });

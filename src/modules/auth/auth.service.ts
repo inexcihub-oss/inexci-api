@@ -268,16 +268,10 @@ export class AuthService {
       expires_at: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
     });
 
-    void this.mailService.sendRaw(
-      user.email,
-      'Inexci - Recuperação de senha',
-      `
-      <p>Olá, <strong>${user.name}</strong></p>
-      <p>Você solicitou a recuperação de senha. Para continuar, utilize o código abaixo:</p>
-      <p><strong>${validationCode}</strong></p>
-      <p>Se você não solicitou a recuperação de senha, por favor, ignore este e-mail.</p>
-      `,
-    );
+    void this.mailService.sendPasswordRecovery(user.email, {
+      userName: user.name,
+      validationCode,
+    });
 
     return { message: 'E-mail enviado com sucesso' };
   }

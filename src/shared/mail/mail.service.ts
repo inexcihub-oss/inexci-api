@@ -254,10 +254,10 @@ export class MailService {
     to: string,
     context: {
       patientName: string;
-      requestId: string;
+      requestId?: string;
       currentStatus: string;
       staleDays: number;
-      lastMovedAt: string;
+      lastMovedAt?: string;
       dashboardUrl?: string;
       preferencesUrl?: string;
     },
@@ -277,10 +277,10 @@ export class MailService {
     to: string,
     context: {
       patientName: string;
-      requestId: string;
+      requestId?: string;
       currentStatus: string;
       staleDays: number;
-      lastMovedAt: string;
+      lastMovedAt?: string;
       dashboardUrl?: string;
       preferencesUrl?: string;
     },
@@ -351,5 +351,30 @@ export class MailService {
       'Bem-vindo ao Inexci, Dr(a)!',
       context,
     );
+  }
+
+  /**
+   * Recuperação de senha — código de verificação.
+   */
+  sendPasswordRecovery(to: string, context: { userName: string; validationCode: string }) {
+    return this.send('password-recovery', to, 'Inexci — Recuperação de Senha', context);
+  }
+
+  /**
+   * Notificação genérica (in-app com e-mail).
+   */
+  sendGenericNotification(
+    to: string,
+    subject: string,
+    context: {
+      userName?: string;
+      title?: string;
+      message: string;
+      link?: string;
+      linkText?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send('generic-notification', to, subject, context);
   }
 }

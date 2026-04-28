@@ -1,130 +1,23 @@
-<html lang='pt-BR'>
-  <head>
-    <meta charset='UTF-8' />
-    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
-    <title>Mudança de Status — Solicitação Cirúrgica</title>
-    <style>
-      body {
-        font-family: 'Inter', Arial, sans-serif;
-        background: #f5f5f5;
-        margin: 0;
-        padding: 0;
-      }
-      .container {
-        max-width: 600px;
-        margin: 40px auto;
-        background: #fff;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      }
-      .header {
-        background: #0f766e;
-        padding: 32px 40px;
-      }
-      .header h1 {
-        color: #fff;
-        margin: 0;
-        font-size: 22px;
-      }
-      .body {
-        padding: 32px 40px;
-        color: #374151;
-      }
-      .body p {
-        line-height: 1.6;
-        margin: 0 0 16px;
-      }
-      .status-change {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        margin: 24px 0;
-        padding: 20px;
-        background: #f0fdfa;
-        border-radius: 8px;
-        text-align: center;
-      }
-      .status-badge {
-        display: inline-block;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 14px;
-      }
-      .status-old {
-        background: #e5e7eb;
-        color: #6b7280;
-      }
-      .status-new {
-        background: #0f766e;
-        color: #fff;
-      }
-      .arrow {
-        font-size: 20px;
-        color: #9ca3af;
-      }
-      .info-box {
-        background: #f0fdfa;
-        border-left: 4px solid #0f766e;
-        border-radius: 4px;
-        padding: 16px 20px;
-        margin: 24px 0;
-      }
-      .info-box p {
-        margin: 4px 0;
-        font-size: 14px;
-      }
-      .info-box strong {
-        color: #0f766e;
-      }
-      .btn {
-        display: inline-block;
-        background: #0f766e;
-        color: #fff;
-        text-decoration: none;
-        padding: 12px 24px;
-        border-radius: 6px;
-        font-weight: bold;
-        margin-top: 16px;
-      }
-      .footer {
-        background: #f9fafb;
-        padding: 20px 40px;
-        text-align: center;
-        font-size: 12px;
-        color: #9ca3af;
-        border-top: 1px solid #e5e7eb;
-      }
-    </style>
-  </head>
-  <body>
-    <div class='container'>
-      <div class='header'>
-        <h1>Status da Solicitação Atualizado</h1>
-      </div>
-      <div class='body'>
-        <p>Olá!</p>
-        <p>O status de uma solicitação cirúrgica em que você está envolvido foi
-          atualizado.</p>
-        <div class='status-change'>
-          <span class='status-badge status-old'>{{oldStatus}}</span>
-          <span class='arrow'>→</span>
-          <span class='status-badge status-new'>{{newStatus}}</span>
-        </div>
-        <div class='info-box'>
-          <p><strong>Paciente:</strong> {{patientName}}</p>
-          <p><strong>Alterado por:</strong> {{changedBy}}</p>
-          <p><strong>Data da alteração:</strong> {{changedAt}}</p>
-        </div>
-        {{#if dashboardUrl}}
-          <p><a class='btn' href='{{dashboardUrl}}'>Ver Solicitação</a></p>
-        {{/if}}
-      </div>
-      <div class='footer'>
-        Inexci — Sistema de Gestão Cirúrgica &bull; noreply@inexci.com.br
-      </div>
-    </div>
-  </body>
-</html>
+{{#> _layout title="Status da Solicitação Atualizado"}}
+  <p>O status de uma solicitação cirúrgica foi atualizado.</p>
+
+  <table class='status-table'>
+    <tr>
+      <td class='td-first'><span class='status-badge status-old'>{{oldStatus}}</span></td>
+      <td><span class='status-arrow'>→</span></td>
+      <td class='td-last'><span class='status-badge status-new'>{{newStatus}}</span></td>
+    </tr>
+  </table>
+
+  <div class='info-box'>
+    <p><strong>Paciente:</strong> {{patientName}}</p>
+    <p><strong>Alterado por:</strong> {{changedBy}}</p>
+    <p><strong>Data:</strong> {{changedAt}}</p>
+  </div>
+
+  {{#if dashboardUrl}}
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{dashboardUrl}}'>Ver Solicitação</a>
+    </p>
+  {{/if}}
+{{/_layout}}

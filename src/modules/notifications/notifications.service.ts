@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { MessageResponse } from 'src/shared/types/api-responses';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
@@ -11,6 +11,7 @@ import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { MailService } from 'src/shared/mail/mail.service';
 import { getStatusLabel } from 'src/shared/utils';
+import { NotificationsGateway } from './notifications.gateway';
 
 @Injectable()
 export class NotificationsService {
@@ -22,6 +23,7 @@ export class NotificationsService {
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly mailService: MailService,
+    @Optional() private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
   // ============ Settings ============
@@ -107,6 +109,16 @@ export class NotificationsService {
       metadata: data.metadata,
     });
 
+    this.notificationsGateway?.emitToUser(notification.user_id, {
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      link: notification.link,
+      metadata: notification.metadata,
+      created_at: notification.created_at,
+    });
+
     // Verifica preferências do usuário e envia e-mail se habilitado
     await this.sendEmailIfEnabled(data.user_id, notification);
 
@@ -127,6 +139,18 @@ export class NotificationsService {
     }));
 
     const created = await this.notificationRepository.createBulk(notifications);
+
+    created.forEach((notification) => {
+      this.notificationsGateway?.emitToUser(notification.user_id, {
+        id: notification.id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        link: notification.link,
+        metadata: notification.metadata,
+        created_at: notification.created_at,
+      });
+    });
 
     await Promise.all(
       userIds.map((userId) =>
@@ -158,14 +182,16 @@ export class NotificationsService {
       const user = await this.userRepository.findOne({ id: userId });
       if (!user?.email) return;
 
-      await this.mailService.sendRaw(
+      await this.mailService.sendGenericNotification(
         user.email,
         notification.title,
-        `
-          <p>Olá, <strong>${user.name}</strong></p>
-          <p>${notification.message}</p>
-          ${notification.link ? `<p><a href="${notification.link}">Clique aqui para mais detalhes</a></p>` : ''}
-        `,
+        {
+          userName: user.name,
+          title: notification.title,
+          message: notification.message,
+          link: notification.link,
+          linkText: 'Ver detalhes',
+        },
       );
     } catch (error) {
       this.logger.error('Erro ao enviar e-mail de notificacao', error);

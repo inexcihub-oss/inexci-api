@@ -174,9 +174,16 @@ export class MailProcessor implements OnModuleInit {
       throw new Error(`Template de e-mail não encontrado: ${templateName}`);
     }
 
+    const enrichedContext = {
+      logoUrl: this.mail.appUrl
+        ? `${this.mail.appUrl}/brand/logo-dark.png`
+        : null,
+      ...context,
+    };
+
     const source = await fs.promises.readFile(templatePath, 'utf-8');
     const compiled = Handlebars.compile(source);
-    return compiled(context);
+    return compiled(enrichedContext);
   }
 
   @OnQueueFailed()

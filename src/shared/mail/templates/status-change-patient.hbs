@@ -2,14 +2,16 @@
   <p>Olá, <strong>{{patientName}}</strong>!</p>
   <p>O status da sua solicitação cirúrgica foi atualizado.</p>
 
-  <div class='status-change'>
-    <span class='status-badge status-old'>{{oldStatus}}</span>
-    <span class='arrow'>→</span>
-    <span class='status-badge status-new'>{{newStatus}}</span>
-  </div>
+  <table class='status-table'>
+    <tr>
+      <td class='td-first'><span class='status-badge status-old'>{{oldStatus}}</span></td>
+      <td><span class='status-arrow'>→</span></td>
+      <td class='td-last'><span class='status-badge status-new'>{{newStatus}}</span></td>
+    </tr>
+  </table>
 
   <div class='info-box'>
-    <p><strong>Solicitação:</strong> {{requestId}}</p>
+    <p><strong>Protocolo:</strong> #{{requestId}}</p>
     <p><strong>Data da alteração:</strong> {{changedAt}}</p>
   </div>
 

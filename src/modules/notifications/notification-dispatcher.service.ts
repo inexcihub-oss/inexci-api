@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
+import { NotificationsGateway } from './notifications.gateway';
 
 export interface DispatchNotificationDto {
   userId: string;
@@ -15,9 +16,7 @@ export interface DispatchNotificationDto {
   metadata?: Record<string, any>;
   /** Sobrescreve preferências — força envio de e-mail */
   forceEmail?: boolean;
-  /** Dados para e-mail (se não informado, usa sendRaw com title+message) */
   emailSubject?: string;
-  emailHtml?: string;
   /** Dados para WhatsApp template */
   whatsappContentSid?: string;
   whatsappVariables?: Record<string, string>;
@@ -33,6 +32,7 @@ export class NotificationDispatcherService {
     private readonly userRepository: UserRepository,
     private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
+    @Optional() private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
   async dispatch(dto: DispatchNotificationDto): Promise<void> {
@@ -45,13 +45,22 @@ export class NotificationDispatcherService {
       const typeEnabled = this.isTypeEnabled(settings, dto.type);
 
       if (settings?.push_notifications !== false && typeEnabled) {
-        await this.notificationRepository.create({
+        const notification = await this.notificationRepository.create({
           user_id: userId,
           type: dto.type,
           title: dto.title,
           message: dto.message,
           link: dto.link,
           metadata: dto.metadata,
+        });
+        this.notificationsGateway?.emitToUser(userId, {
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          link: notification.link,
+          metadata: notification.metadata,
+          created_at: notification.created_at,
         });
         inAppCreated = true;
       }
@@ -72,19 +81,17 @@ export class NotificationDispatcherService {
       if (shouldEmail) {
         const user = await this.userRepository.findOne({ id: userId });
         if (user?.email) {
-          if (dto.emailHtml) {
-            await this.mailService.sendRaw(
-              user.email,
-              dto.emailSubject ?? dto.title,
-              dto.emailHtml,
-            );
-          } else {
-            await this.mailService.sendRaw(
-              user.email,
-              dto.title,
-              `<p>${dto.message}</p>${dto.link ? `<p><a href="${dto.link}">Ver detalhes</a></p>` : ''}`,
-            );
-          }
+          await this.mailService.sendGenericNotification(
+            user.email,
+            dto.emailSubject ?? dto.title,
+            {
+              userName: user.name,
+              title: dto.title,
+              message: dto.message,
+              link: dto.link,
+              linkText: 'Ver detalhes',
+            },
+          );
         }
       }
     } catch (err: any) {

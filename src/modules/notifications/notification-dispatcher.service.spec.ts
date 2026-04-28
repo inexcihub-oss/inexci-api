@@ -21,6 +21,7 @@ describe('NotificationDispatcherService', () => {
   };
   const mockMailService = {
     sendRaw: jest.fn().mockResolvedValue(undefined),
+    sendGenericNotification: jest.fn().mockResolvedValue(undefined),
   };
   const mockWhatsappService = {
     sendTemplate: jest.fn().mockResolvedValue(undefined),
@@ -84,7 +85,7 @@ describe('NotificationDispatcherService', () => {
     });
 
     expect(mockNotificationRepository.create).toHaveBeenCalled();
-    expect(mockMailService.sendRaw).toHaveBeenCalled();
+    expect(mockMailService.sendGenericNotification).toHaveBeenCalled();
     expect(mockWhatsappService.sendTemplate).toHaveBeenCalled();
   });
 
@@ -104,7 +105,7 @@ describe('NotificationDispatcherService', () => {
     });
 
     expect(mockNotificationRepository.create).toHaveBeenCalled();
-    expect(mockMailService.sendRaw).not.toHaveBeenCalled();
+    expect(mockMailService.sendGenericNotification).not.toHaveBeenCalled();
   });
 
   it('respeita opt-out de WhatsApp (inclui whatsapp_notifications) (6.6.1)', async () => {
@@ -128,7 +129,7 @@ describe('NotificationDispatcherService', () => {
   });
 
   it('falha em e-mail não bloqueia WhatsApp (6.6.1)', async () => {
-    mockMailService.sendRaw.mockRejectedValueOnce(new Error('SMTP down'));
+    mockMailService.sendGenericNotification.mockRejectedValueOnce(new Error('SMTP down'));
 
     await service.dispatch({
       userId: 'user-1',
@@ -154,7 +155,7 @@ describe('NotificationDispatcherService', () => {
       message: 'Msg',
     });
 
-    expect(mockMailService.sendRaw).toHaveBeenCalled();
+    expect(mockMailService.sendGenericNotification).toHaveBeenCalled();
   });
 
   it('não envia WhatsApp se whatsappContentSid não fornecido', async () => {

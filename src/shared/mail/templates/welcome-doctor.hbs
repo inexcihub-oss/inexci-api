@@ -3,21 +3,21 @@
   <p>Sua conta na plataforma <strong>Inexci</strong> foi criada com sucesso.</p>
 
   <div class='info-box'>
-    {{#if hospitalName}}
-      <p><strong>Hospital vinculado:</strong> {{hospitalName}}</p>
-    {{/if}}
+    {{#if hospitalName}}<p><strong>Hospital vinculado:</strong> {{hospitalName}}</p>{{/if}}
     <p><strong>E-mail de acesso:</strong> {{email}}</p>
   </div>
 
   <p>Com o Inexci, você poderá:</p>
-  <ul style='color: #374151; line-height: 1.8;'>
+  <ul>
     <li>Criar e acompanhar solicitações cirúrgicas</li>
     <li>Receber notificações de status em tempo real</li>
     <li>Gerenciar documentos e pendências</li>
-    <li>Acompanhar o faturamento</li>
+    <li>Acompanhar o faturamento completo</li>
   </ul>
 
   {{#if dashboardUrl}}
-    <p><a class='btn' href='{{dashboardUrl}}'>Acessar o Painel</a></p>
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{dashboardUrl}}'>Acessar o Painel</a>
+    </p>
   {{/if}}
 {{/_layout}}

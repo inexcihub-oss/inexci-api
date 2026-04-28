@@ -1,0 +1,10 @@
+{{#> _layout title="{{title}}" preferencesUrl=preferencesUrl}}
+  <p>Olá{{#if userName}}, <strong>{{userName}}</strong>{{/if}}!</p>
+  <p>{{message}}</p>
+
+  {{#if link}}
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{link}}'>{{#if linkText}}{{linkText}}{{else}}Ver detalhes{{/if}}</a>
+    </p>
+  {{/if}}
+{{/_layout}}

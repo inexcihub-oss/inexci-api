@@ -1,18 +1,26 @@
-{{#> _layout title="⚠️ ALERTA CRÍTICO — Solicitação Parada" preferencesUrl=preferencesUrl}}
+{{#> _layout title="⚠️ Alerta — Solicitação Parada" preferencesUrl=preferencesUrl}}
   <div class='alert-critical'>
-    <p><strong>⚠️ Atenção!</strong> A solicitação abaixo está parada há <strong>{{staleDays}} dias</strong>.</p>
+    <p style='margin: 0 !important;'>
+      <strong>⚠️ Atenção!</strong>
+      A solicitação abaixo está parada há <strong>{{staleDays}} dias</strong>.
+    </p>
   </div>
 
   <div class='info-box'>
     <p><strong>Paciente:</strong> {{patientName}}</p>
-    <p><strong>Protocolo:</strong> {{requestId}}</p>
+    {{#if requestId}}<p><strong>Protocolo:</strong> #{{requestId}}</p>{{/if}}
     <p><strong>Status atual:</strong> {{currentStatus}}</p>
-    <p><strong>Última movimentação:</strong> {{lastMovedAt}}</p>
+    {{#if lastMovedAt}}<p><strong>Última movimentação:</strong> {{lastMovedAt}}</p>{{/if}}
   </div>
 
-  <p>Esta solicitação ultrapassou o prazo esperado de resolução. É necessária ação imediata para evitar prejuízos ao paciente.</p>
+  <p>
+    Esta solicitação ultrapassou o prazo esperado de resolução.
+    É necessária <strong>ação imediata</strong> para evitar prejuízos ao paciente.
+  </p>
 
   {{#if dashboardUrl}}
-    <p><a class='btn' href='{{dashboardUrl}}'>Abrir Solicitação</a></p>
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{dashboardUrl}}'>Abrir Solicitação</a>
+    </p>
   {{/if}}
 {{/_layout}}

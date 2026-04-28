@@ -16,6 +16,7 @@ export const mailConfig = registerAs('mail', () => ({
     name: process.env.MAIL_FROM_NAME || 'Inexci',
     address: process.env.MAIL_FROM_ADDRESS || 'noreply@inexci.com.br',
   },
+  appUrl: process.env.DASHBOARD_URL || '',
 }));
 
 /**
@@ -38,7 +39,9 @@ export type MailTemplateName =
   | 'action-admin-alert'
   | 'welcome-patient'
   | 'welcome-doctor'
-  | 'invite-collaborator';
+  | 'invite-collaborator'
+  | 'password-recovery'
+  | 'generic-notification';
 
 export const MAIL_TEMPLATES: MailTemplateName[] = [
   'surgery-request-sent',
@@ -57,4 +60,6 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'welcome-patient',
   'welcome-doctor',
   'invite-collaborator',
+  'password-recovery',
+  'generic-notification',
 ];

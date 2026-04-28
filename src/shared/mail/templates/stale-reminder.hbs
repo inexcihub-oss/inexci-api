@@ -1,17 +1,25 @@
 {{#> _layout title="Solicitação Parada — Atenção Necessária" preferencesUrl=preferencesUrl}}
   <p>Olá!</p>
-  <p>A seguinte solicitação cirúrgica está <strong>parada há {{staleDays}} dias</strong> sem movimentação:</p>
+  <p>
+    A seguinte solicitação cirúrgica está
+    <strong>parada há {{staleDays}} dias</strong> sem movimentação:
+  </p>
 
   <div class='info-box'>
     <p><strong>Paciente:</strong> {{patientName}}</p>
-    <p><strong>Protocolo:</strong> {{requestId}}</p>
+    {{#if requestId}}<p><strong>Protocolo:</strong> #{{requestId}}</p>{{/if}}
     <p><strong>Status atual:</strong> {{currentStatus}}</p>
-    <p><strong>Última movimentação:</strong> {{lastMovedAt}}</p>
+    {{#if lastMovedAt}}<p><strong>Última movimentação:</strong> {{lastMovedAt}}</p>{{/if}}
   </div>
 
-  <p>Por favor, verifique se há alguma pendência ou ação necessária para dar andamento ao processo.</p>
+  <p>
+    Por favor, verifique se há alguma pendência ou ação necessária para dar
+    andamento ao processo.
+  </p>
 
   {{#if dashboardUrl}}
-    <p><a class='btn' href='{{dashboardUrl}}'>Ver Solicitação</a></p>
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{dashboardUrl}}'>Ver Solicitação</a>
+    </p>
   {{/if}}
 {{/_layout}}

@@ -195,17 +195,21 @@ export class StaleNotificationService {
         try {
           const user = await this.userRepository.findOne({ id: uid });
           if (!user?.email) return;
-          const subject =
-            context.severity === 'critical'
-              ? '⚠️ Solicitação Parada — Ação Imediata Necessária'
-              : 'Solicitação Parada — Lembrete';
-          await this.mailService.sendRaw(
-            user.email,
-            subject,
-            `<p>Olá, <strong>${user.name}</strong></p>
-             <p>A solicitação do paciente <strong>${context.patientName}</strong> está há <strong>${context.staleDays} dias</strong> no status "${context.currentStatus}".</p>
-             <p><a href="${context.dashboardUrl}">Clique aqui para ver a solicitação</a></p>`,
-          );
+          if (context.severity === 'critical') {
+            await this.mailService.sendStaleCritical(user.email, {
+              patientName: context.patientName,
+              currentStatus: context.currentStatus,
+              staleDays: context.staleDays,
+              dashboardUrl: context.dashboardUrl,
+            });
+          } else {
+            await this.mailService.sendStaleReminder(user.email, {
+              patientName: context.patientName,
+              currentStatus: context.currentStatus,
+              staleDays: context.staleDays,
+              dashboardUrl: context.dashboardUrl,
+            });
+          }
         } catch (err: any) {
           this.logger.warn(
             `Falha ao enviar e-mail stale para ${uid}: ${err?.message}`,

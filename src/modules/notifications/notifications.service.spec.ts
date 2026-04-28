@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsService } from './notifications.service';
+import { NotificationsGateway } from './notifications.gateway';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -37,6 +38,7 @@ describe('NotificationsService', () => {
     findDistinctActivityUserIds: jest.Mock;
     findOneWithRelations: jest.Mock;
   };
+  let mockGateway: { emitToUser: jest.Mock };
 
   const adminUser = {
     id: 'admin-1',
@@ -108,6 +110,7 @@ describe('NotificationsService', () => {
         .fn()
         .mockResolvedValue({ patient: { name: 'Paciente Teste' } }),
     };
+    mockGateway = { emitToUser: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -126,6 +129,7 @@ describe('NotificationsService', () => {
           useValue: mockSurgeryRequestRepository,
         },
         { provide: MailService, useValue: mockMailService },
+        { provide: NotificationsGateway, useValue: mockGateway },
       ],
     }).compile();
 
@@ -134,6 +138,70 @@ describe('NotificationsService', () => {
 
   it('deve estar definido', () => {
     expect(service).toBeDefined();
+  });
+
+  // ─── WebSocket: emitToUser ────────────────────────────────────────────────
+  describe('createNotification', () => {
+    it('chama gateway.emitToUser após persistir notificação', async () => {
+      const notification = {
+        id: 'notif-ws-1',
+        user_id: 'user-ws-1',
+        type: NotificationType.INFO,
+        title: 'Teste',
+        message: 'Mensagem',
+        link: null,
+        metadata: null,
+        created_at: new Date(),
+      };
+      mockNotificationRepository.create.mockResolvedValue(notification);
+      mockSettingsRepository.findByUserId.mockResolvedValue(null);
+
+      await service.createNotification({
+        user_id: 'user-ws-1',
+        type: NotificationType.INFO,
+        title: 'Teste',
+        message: 'Mensagem',
+      });
+
+      expect(mockGateway.emitToUser).toHaveBeenCalledWith('user-ws-1', {
+        id: notification.id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        link: notification.link,
+        metadata: notification.metadata,
+        created_at: notification.created_at,
+      });
+    });
+  });
+
+  describe('createNotificationForUsers', () => {
+    it('chama gateway.emitToUser para cada usuário', async () => {
+      const userIds = ['user-a', 'user-b'];
+      mockNotificationRepository.createBulk.mockResolvedValue(
+        userIds.map((uid, i) => ({
+          id: `notif-${i}`,
+          user_id: uid,
+          type: NotificationType.INFO,
+          title: 'Bulk',
+          message: 'msg',
+          link: null,
+          metadata: null,
+          created_at: new Date(),
+        })),
+      );
+      mockSettingsRepository.findByUserId.mockResolvedValue(null);
+
+      await service.createNotificationForUsers(userIds, {
+        type: NotificationType.INFO,
+        title: 'Bulk',
+        message: 'msg',
+      });
+
+      expect(mockGateway.emitToUser).toHaveBeenCalledTimes(2);
+      expect(mockGateway.emitToUser).toHaveBeenCalledWith('user-a', expect.objectContaining({ id: 'notif-0', title: 'Bulk' }));
+      expect(mockGateway.emitToUser).toHaveBeenCalledWith('user-b', expect.objectContaining({ id: 'notif-1', title: 'Bulk' }));
+    });
   });
 
   // ─── PRD: Notificações — 6.1 AdminNotification ───────────────────────────
