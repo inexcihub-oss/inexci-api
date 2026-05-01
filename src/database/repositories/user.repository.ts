@@ -36,6 +36,8 @@ export class UserRepository extends BaseRepository<User> {
         gender: true,
         birth_date: true,
         avatar_url: true,
+        email_verified: true,
+        email_verified_at: true,
         password: selectPassword,
         account_id: true,
         subscription_plan_id: true,

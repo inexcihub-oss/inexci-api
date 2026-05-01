@@ -75,12 +75,21 @@ export class AuthService {
     if (user && password) {
       let isValid = await bcrypt.compare(password, user.password);
 
-      if (isValid) return user;
-      else
+      if (!isValid) {
         throw new HttpException(
           HttpMessages.loginFailed,
           HttpStatus.BAD_REQUEST,
         );
+      }
+
+      if (!user.email_verified) {
+        throw new HttpException(
+          'Confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      return user;
     } else {
       throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
     }
@@ -475,6 +484,17 @@ export class AuthService {
     }
 
     if (verification.used) {
+      // Se o token já foi usado, verifica se o usuário de fato está verificado.
+      // Isso cobre o caso do StrictMode do React (chamada dupla) ou clique duplo.
+      const userCheck = await this.userRepository.findOne({
+        id: verification.user_id,
+      });
+      if (userCheck?.email_verified) {
+        return {
+          message: 'E-mail confirmado com sucesso',
+          email: userCheck.email,
+        };
+      }
       throw new BadRequestException(
         'Este link de confirmação já foi utilizado',
       );

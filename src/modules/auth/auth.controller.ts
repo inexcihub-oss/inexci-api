@@ -57,9 +57,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.authService.register(req);
-    this.setRefreshCookie(res, result.refresh_token);
-    // Não enviar refresh_token no body — está no cookie httpOnly
-    const { refresh_token, ...body } = result;
+    // Não inicia sessão — o usuário precisa confirmar o e-mail antes de logar.
+    const { refresh_token: _rt, access_token: _at, ...body } = result;
     return body;
   }
 
