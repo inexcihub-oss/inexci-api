@@ -6,11 +6,13 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   ManyToOne,
+  ManyToMany,
   OneToMany,
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
+import { OpmeItem } from './opme-item.entity';
 
 /**
  * Fornecedor de OPME - Entidade de negócio (não faz login)
@@ -64,6 +66,20 @@ export class Supplier {
   @Column({ type: 'char', length: 2, nullable: true })
   state: string;
 
+  // ============ COMERCIAL ============
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  website: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  category: string;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  payment_terms: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  delivery_time: string;
+
   // ============ OBSERVAÇÕES ============
 
   @Column({ type: 'text', nullable: true })
@@ -96,4 +112,7 @@ export class Supplier {
 
   @OneToMany(() => SurgeryRequestQuotation, (quotation) => quotation.supplier)
   quotations: SurgeryRequestQuotation[];
+
+  @ManyToMany(() => OpmeItem, (opmeItem) => opmeItem.suppliers)
+  opme_items: OpmeItem[];
 }

@@ -13,4 +13,15 @@ export class OpmeItemRepository extends BaseRepository<OpmeItem> {
   ) {
     super(repository);
   }
+
+  findByIdWithSuppliers(id: string): Promise<OpmeItem | null> {
+    return this.repository.findOne({
+      where: { id },
+      relations: ['suppliers'],
+    });
+  }
+
+  saveWithSuppliers(opmeItem: OpmeItem): Promise<OpmeItem> {
+    return this.repository.save(opmeItem);
+  }
 }

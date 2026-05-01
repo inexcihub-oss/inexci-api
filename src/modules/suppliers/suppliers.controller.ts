@@ -35,6 +35,12 @@ export class SuppliersController {
     return this.suppliersService.findAll(query, user.userId);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Buscar fornecedor por ID' })
+  findOne(@Param('id') id: string) {
+    return this.suppliersService.findById(id);
+  }
+
   @Post()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Criar fornecedor' })

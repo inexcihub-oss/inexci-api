@@ -34,6 +34,12 @@ export class SuppliersService {
     return { total, records };
   }
 
+  async findById(id: string): Promise<Supplier> {
+    const supplier = await this.supplierRepository.findByIdWithQuotations(id);
+    if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
+    return supplier;
+  }
+
   async update(id: string, data: UpdateSupplierDto): Promise<Supplier> {
     const supplier = await this.supplierRepository.findOne({ id });
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');

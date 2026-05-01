@@ -28,4 +28,12 @@ export class SupplierRepository extends BaseRepository<Supplier> {
       order: { name: 'ASC' },
     });
   }
+
+  findByIdWithQuotations(id: string): Promise<Supplier | null> {
+    return this.repository.findOne({
+      where: { id },
+      relations: ['quotations', 'quotations.surgery_request', 'quotations.surgery_request.patient'],
+      order: { quotations: { created_at: 'DESC' } },
+    });
+  }
 }

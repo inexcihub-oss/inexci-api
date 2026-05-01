@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 export class CreateOpmeDto {
   @IsString()
@@ -8,11 +15,17 @@ export class CreateOpmeDto {
 
   @IsOptional()
   @IsString()
-  distributor?: string;
+  brand?: string;
 
   @IsOptional()
-  @IsString()
-  brand?: string;
+  @IsArray()
+  @IsUUID('4', { each: true })
+  supplier_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  supplier_names?: string[];
 
   @Type(() => Number)
   @IsNumber()

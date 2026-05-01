@@ -5,9 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  ManyToMany,
   JoinColumn,
+  JoinTable,
 } from 'typeorm';
 import { SurgeryRequest } from './surgery-request.entity';
+import { Supplier } from './supplier.entity';
 
 @Entity('opme_item')
 export class OpmeItem {
@@ -22,9 +25,6 @@ export class OpmeItem {
 
   @Column({ type: 'varchar', length: 75, nullable: true })
   brand: string;
-
-  @Column({ type: 'varchar', length: 75, nullable: true })
-  distributor: string;
 
   @Column({ type: 'int' })
   quantity: number;
@@ -42,4 +42,12 @@ export class OpmeItem {
   @ManyToOne(() => SurgeryRequest, (request) => request.opme_items)
   @JoinColumn({ name: 'surgery_request_id' })
   surgery_request: SurgeryRequest;
+
+  @ManyToMany(() => Supplier, (supplier) => supplier.opme_items, { eager: false })
+  @JoinTable({
+    name: 'opme_item_supplier',
+    joinColumn: { name: 'opme_item_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'supplier_id', referencedColumnName: 'id' },
+  })
+  suppliers: Supplier[];
 }

@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 export class UpdateOpmeDto {
   @IsNotEmpty()
@@ -14,8 +21,14 @@ export class UpdateOpmeDto {
   brand?: string;
 
   @IsOptional()
-  @IsString()
-  distributor?: string;
+  @IsArray()
+  @IsUUID('4', { each: true })
+  supplier_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  supplier_names?: string[];
 
   @IsOptional()
   @IsNumber()
