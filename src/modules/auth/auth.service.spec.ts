@@ -1,11 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { AuthService } from './auth.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { EmailVerificationRepository } from 'src/database/repositories/email-verification.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
@@ -47,9 +53,17 @@ describe('AuthService', () => {
     create: jest.fn(),
   };
 
+  const mockEmailVerificationRepository = {
+    findOne: jest.fn(),
+    create: jest.fn(),
+    updateByWhere: jest.fn(),
+    deleteMany: jest.fn(),
+  };
+
   const mockMailService = {
     sendRaw: jest.fn(),
     sendPasswordRecovery: jest.fn(),
+    sendEmailVerification: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockJwtService = {
@@ -76,12 +90,28 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         { provide: UserRepository, useValue: mockUserRepository },
-        { provide: RecoveryCodeRepository, useValue: mockRecoveryCodeRepository },
-        { provide: DoctorProfileRepository, useValue: mockDoctorProfileRepository },
+        {
+          provide: RecoveryCodeRepository,
+          useValue: mockRecoveryCodeRepository,
+        },
+        {
+          provide: EmailVerificationRepository,
+          useValue: mockEmailVerificationRepository,
+        },
+        {
+          provide: DoctorProfileRepository,
+          useValue: mockDoctorProfileRepository,
+        },
         { provide: MailService, useValue: mockMailService },
         { provide: JwtService, useValue: mockJwtService },
-        { provide: getRepositoryToken(SubscriptionPlan), useValue: mockSubscriptionPlanRepo },
-        { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepo },
+        {
+          provide: getRepositoryToken(SubscriptionPlan),
+          useValue: mockSubscriptionPlanRepo,
+        },
+        {
+          provide: getRepositoryToken(RefreshToken),
+          useValue: mockRefreshTokenRepo,
+        },
         { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
@@ -104,7 +134,10 @@ describe('AuthService', () => {
       mockUserRepository.findOne.mockResolvedValue(mockUser);
       (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
 
-      const result = await service.validateUser('test@example.com', 'correct-password');
+      const result = await service.validateUser(
+        'test@example.com',
+        'correct-password',
+      );
       expect(result).toEqual(mockUser);
       expect(mockUserRepository.findOne).toHaveBeenCalledWith(
         { email: 'test@example.com', status: UserStatus.ACTIVE },
@@ -155,7 +188,9 @@ describe('AuthService', () => {
           email: 'existing@example.com',
           password: '123456',
         } as any),
-      ).rejects.toThrow('Este e-mail já está cadastrado. Faça login ou recupere sua senha.');
+      ).rejects.toThrow(
+        'Este e-mail já está cadastrado. Faça login ou recupere sua senha.',
+      );
     });
 
     it('should throw when email belongs to a pending invite', async () => {
@@ -281,10 +316,12 @@ describe('AuthService', () => {
       };
 
       // validateUser calls findOne with status + selectPassword
-      mockUserRepository.findOne.mockImplementation((where, selectPassword?) => {
-        if (selectPassword) return Promise.resolve(mockUser); // validateUser call
-        return Promise.resolve({ ...mockUser, account_id: 'user-1' }); // fullUser call
-      });
+      mockUserRepository.findOne.mockImplementation(
+        (where, selectPassword?) => {
+          if (selectPassword) return Promise.resolve(mockUser); // validateUser call
+          return Promise.resolve({ ...mockUser, account_id: 'user-1' }); // fullUser call
+        },
+      );
 
       mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
 
@@ -312,13 +349,18 @@ describe('AuthService', () => {
     });
 
     it('should create a recovery code with 15min expiry and send email', async () => {
-      const mockUser = { id: 'user-1', email: 'test@example.com', name: 'Test' };
+      const mockUser = {
+        id: 'user-1',
+        email: 'test@example.com',
+        name: 'Test',
+      };
       mockUserRepository.findOne.mockResolvedValue(mockUser);
       mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
       mockRecoveryCodeRepository.create.mockResolvedValue({});
 
       const beforeCall = Date.now();
-      const result = await service.sendRecoveryPasswordEmail('test@example.com');
+      const result =
+        await service.sendRecoveryPasswordEmail('test@example.com');
       const afterCall = Date.now();
 
       expect(result).toEqual({ message: 'E-mail enviado com sucesso' });
@@ -333,7 +375,9 @@ describe('AuthService', () => {
       expect(createCall.code).toBe('123456');
       // Verify expiry is ~15 minutes from now
       const expiresAt = createCall.expires_at.getTime();
-      expect(expiresAt).toBeGreaterThanOrEqual(beforeCall + 15 * 60 * 1000 - 100);
+      expect(expiresAt).toBeGreaterThanOrEqual(
+        beforeCall + 15 * 60 * 1000 - 100,
+      );
       expect(expiresAt).toBeLessThanOrEqual(afterCall + 15 * 60 * 1000 + 100);
 
       expect(mockMailService.sendPasswordRecovery).toHaveBeenCalledWith(
@@ -350,11 +394,17 @@ describe('AuthService', () => {
       mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
 
       await expect(
-        service.validateRecoveryPasswordCode({ code: 'bad-code', email: 'test@example.com' }),
+        service.validateRecoveryPasswordCode({
+          code: 'bad-code',
+          email: 'test@example.com',
+        }),
       ).rejects.toThrow(NotFoundException);
 
       await expect(
-        service.validateRecoveryPasswordCode({ code: 'bad-code', email: 'test@example.com' }),
+        service.validateRecoveryPasswordCode({
+          code: 'bad-code',
+          email: 'test@example.com',
+        }),
       ).rejects.toThrow('Código inválido');
     });
 
@@ -367,7 +417,10 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.validateRecoveryPasswordCode({ code: '123456', email: 'test@example.com' }),
+        service.validateRecoveryPasswordCode({
+          code: '123456',
+          email: 'test@example.com',
+        }),
       ).rejects.toThrow(BadRequestException);
 
       mockRecoveryCodeRepository.findOne.mockResolvedValue({
@@ -378,7 +431,10 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.validateRecoveryPasswordCode({ code: '123456', email: 'test@example.com' }),
+        service.validateRecoveryPasswordCode({
+          code: '123456',
+          email: 'test@example.com',
+        }),
       ).rejects.toThrow('Código expirado');
     });
 
@@ -391,7 +447,10 @@ describe('AuthService', () => {
       });
       mockRecoveryCodeRepository.updateByWhere.mockResolvedValue({});
 
-      const result = await service.validateRecoveryPasswordCode({ code: '123456', email: 'test@example.com' });
+      const result = await service.validateRecoveryPasswordCode({
+        code: '123456',
+        email: 'test@example.com',
+      });
 
       expect(result).toEqual({ message: 'Código validado com sucesso' });
       expect(mockRecoveryCodeRepository.updateByWhere).toHaveBeenCalledWith(
@@ -408,28 +467,46 @@ describe('AuthService', () => {
       mockUserRepository.findOne.mockResolvedValue(null);
 
       await expect(
-        service.changePassword({ email: 'nobody@example.com', password: 'new' } as any),
+        service.changePassword({
+          email: 'nobody@example.com',
+          password: 'new',
+        } as any),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException when no validated recovery code exists', async () => {
-      mockUserRepository.findOne.mockResolvedValue({ id: 'user-1', email: 'test@example.com' });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      });
       mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
 
       await expect(
-        service.changePassword({ email: 'test@example.com', password: 'new' } as any),
+        service.changePassword({
+          email: 'test@example.com',
+          password: 'new',
+        } as any),
       ).rejects.toThrow(BadRequestException);
 
-      mockUserRepository.findOne.mockResolvedValue({ id: 'user-1', email: 'test@example.com' });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      });
       mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
 
       await expect(
-        service.changePassword({ email: 'test@example.com', password: 'new' } as any),
+        service.changePassword({
+          email: 'test@example.com',
+          password: 'new',
+        } as any),
       ).rejects.toThrow('Nenhum código de recuperação validado encontrado');
     });
 
     it('should hash the new password, save it, and delete recovery codes', async () => {
-      mockUserRepository.findOne.mockResolvedValue({ id: 'user-1', email: 'test@example.com' });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      });
       mockRecoveryCodeRepository.findOne.mockResolvedValue({
         id: 'code-1',
         user_id: 'user-1',
@@ -458,6 +535,197 @@ describe('AuthService', () => {
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
         user_id: 'user-1',
       });
+    });
+  });
+
+  // ─── verifyEmail ─────────────────────────────────────────────────
+
+  describe('verifyEmail', () => {
+    it('should throw BadRequestException when token is empty', async () => {
+      await expect(service.verifyEmail('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException when token does not exist', async () => {
+      mockEmailVerificationRepository.findOne.mockResolvedValue(null);
+      await expect(service.verifyEmail('invalid-token')).rejects.toThrow(
+        'Token de verificação inválido',
+      );
+    });
+
+    it('should throw BadRequestException when token was already used', async () => {
+      mockEmailVerificationRepository.findOne.mockResolvedValue({
+        id: 'ev-1',
+        user_id: 'user-1',
+        token: 'used-token',
+        used: true,
+        expires_at: new Date(Date.now() + 60_000),
+      });
+      await expect(service.verifyEmail('used-token')).rejects.toThrow(
+        'Este link de confirmação já foi utilizado',
+      );
+    });
+
+    it('should throw BadRequestException when token is expired', async () => {
+      mockEmailVerificationRepository.findOne.mockResolvedValue({
+        id: 'ev-1',
+        user_id: 'user-1',
+        token: 'expired-token',
+        used: false,
+        expires_at: new Date(Date.now() - 60_000), // 1 min atrás
+      });
+      await expect(service.verifyEmail('expired-token')).rejects.toThrow(
+        'O link de confirmação expirou',
+      );
+    });
+
+    it('should confirm email and return message + email on valid token', async () => {
+      const now = Date.now();
+      mockEmailVerificationRepository.findOne.mockResolvedValue({
+        id: 'ev-1',
+        user_id: 'user-1',
+        token: 'valid-token',
+        used: false,
+        expires_at: new Date(now + 60 * 60 * 1000),
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        email_verified: false,
+      });
+      mockEmailVerificationRepository.updateByWhere.mockResolvedValue({});
+      mockUserRepository.update.mockResolvedValue({});
+
+      const result = await service.verifyEmail('valid-token');
+
+      expect(result).toEqual({
+        message: 'E-mail confirmado com sucesso',
+        email: 'test@example.com',
+      });
+      expect(
+        mockEmailVerificationRepository.updateByWhere,
+      ).toHaveBeenCalledWith(
+        { id: 'ev-1' },
+        expect.objectContaining({ used: true }),
+      );
+      expect(mockUserRepository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ email_verified: true }),
+      );
+    });
+
+    it('should not update user when email is already verified', async () => {
+      mockEmailVerificationRepository.findOne.mockResolvedValue({
+        id: 'ev-1',
+        user_id: 'user-1',
+        token: 'valid-token',
+        used: false,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        email_verified: true,
+      });
+      mockEmailVerificationRepository.updateByWhere.mockResolvedValue({});
+
+      await service.verifyEmail('valid-token');
+
+      expect(mockUserRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── resendEmailVerification ──────────────────────────────────────
+
+  describe('resendEmailVerification', () => {
+    it('should throw NotFoundException when user does not exist', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      await expect(
+        service.resendEmailVerification('unknown-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException when email is already verified', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        name: 'Test',
+        email_verified: true,
+      });
+      await expect(service.resendEmailVerification('user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.resendEmailVerification('user-1')).rejects.toThrow(
+        'Este e-mail já está confirmado',
+      );
+    });
+
+    it('should dispatch email verification and return message', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        name: 'Test User',
+        email_verified: false,
+      });
+      mockEmailVerificationRepository.deleteMany.mockResolvedValue(undefined);
+      mockEmailVerificationRepository.create.mockResolvedValue({});
+      mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
+
+      const result = await service.resendEmailVerification('user-1');
+
+      expect(result).toEqual({ message: 'E-mail de confirmação enviado' });
+      expect(mockMailService.sendEmailVerification).toHaveBeenCalledWith(
+        'test@example.com',
+        expect.objectContaining({
+          userName: 'Test User',
+          email: 'test@example.com',
+          verificationUrl: expect.stringContaining('/confirmar-email?token='),
+        }),
+      );
+    });
+  });
+
+  // ─── register — dispatchEmailVerification ────────────────────────
+
+  describe('register — dispatchEmailVerification', () => {
+    it('should call dispatchEmailVerification after successful registration', async () => {
+      const mockPlan = { id: 'plan-1', name: 'Básico', is_active: true };
+      mockUserRepository.findOne.mockResolvedValue(null);
+      mockSubscriptionPlanRepo.findOne.mockResolvedValue(mockPlan);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-pw');
+
+      const createdUser = {
+        id: 'mock-uuid-1234',
+        name: 'Novo Usuário',
+        email: 'novo@example.com',
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: null,
+        cpf: null,
+        account_id: 'mock-uuid-1234',
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+      mockUserRepository.create.mockResolvedValue(createdUser);
+      mockEmailVerificationRepository.deleteMany.mockResolvedValue(undefined);
+      mockEmailVerificationRepository.create.mockResolvedValue({});
+      mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
+
+      await service.register({
+        name: 'Novo Usuário',
+        email: 'novo@example.com',
+        password: '123456',
+        is_doctor: false,
+      } as any);
+
+      // dispatchEmailVerification é chamado via `void` — aguarda um tick
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockMailService.sendEmailVerification).toHaveBeenCalledWith(
+        'novo@example.com',
+        expect.objectContaining({ email: 'novo@example.com' }),
+      );
     });
   });
 });

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bull';
-import { ConfigService } from '@nestjs/config';
 import { WhatsappService } from './whatsapp.service';
+import { WHATSAPP_TEMPLATES } from './whatsapp-templates.constants';
 
 describe('WhatsappService', () => {
   let service: WhatsappService;
@@ -18,15 +18,6 @@ describe('WhatsappService', () => {
         {
           provide: getQueueToken('whatsapp-messages'),
           useValue: mockQueue,
-        },
-        {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn((key: string) => {
-              if (key === 'DASHBOARD_URL') return 'http://localhost:3000';
-              return undefined;
-            }),
-          },
         },
       ],
     }).compile();
@@ -119,64 +110,41 @@ describe('WhatsappService', () => {
 
   // ─── PRD: Comunicação WhatsApp — US-003 ──────────────────────────────────
   describe('sendPatientWelcome', () => {
-    it('deve enviar mensagem de boas-vindas ao paciente com nome correto', async () => {
+    it('deve enfileirar template de boas-vindas ao paciente com nome correto', async () => {
       await service.sendPatientWelcome('+5511988887777', 'João Silva');
 
       expect(mockQueue.add).toHaveBeenCalledTimes(1);
       const [, jobData] = mockQueue.add.mock.calls[0];
       expect(jobData.to).toBe('+5511988887777');
-      expect(jobData.body).toContain('João Silva');
-      expect(jobData.body).toContain('Inexci');
-      expect(jobData.body).toContain('WhatsApp');
+      expect(jobData.contentSid).toBe(WHATSAPP_TEMPLATES.WELCOME_PATIENT);
+      expect(jobData.variables['1']).toBe('João Silva');
     });
 
-    it('deve incluir saudação com nome e informação sobre canal oficial', async () => {
+    it('não deve usar mensagem freeform (body deve ser undefined)', async () => {
       await service.sendPatientWelcome('+5511988887777', 'Maria');
 
       const [, jobData] = mockQueue.add.mock.calls[0];
-      expect(jobData.body).toContain('Olá, Maria');
-      expect(jobData.body).toContain('canal oficial');
+      expect(jobData.body).toBeUndefined();
     });
   });
 
   // ─── PRD: Comunicação WhatsApp — US-004 ──────────────────────────────────
-  describe('sendDoctorWelcome', () => {
-    it('deve enviar mensagem de boas-vindas ao médico com nome, email e link', async () => {
-      await service.sendDoctorWelcome(
-        '+5511977776666',
-        'Dr. Carlos',
-        'carlos@email.com',
-      );
+  describe('sendUserWelcome', () => {
+    it('deve enfileirar template de boas-vindas ao usuário com nome correto', async () => {
+      await service.sendUserWelcome('+5511977776666', 'Dr. Carlos');
 
       expect(mockQueue.add).toHaveBeenCalledTimes(1);
       const [, jobData] = mockQueue.add.mock.calls[0];
       expect(jobData.to).toBe('+5511977776666');
-      expect(jobData.body).toContain('Dr. Carlos');
-      expect(jobData.body).toContain('carlos@email.com');
-      expect(jobData.body).toContain('Inexci');
+      expect(jobData.contentSid).toBe(WHATSAPP_TEMPLATES.WELCOME_USER);
+      expect(jobData.variables['1']).toBe('Dr. Carlos');
     });
 
-    it('deve incluir link do dashboard para acesso', async () => {
-      await service.sendDoctorWelcome(
-        '+5511977776666',
-        'Dra. Ana',
-        'ana@email.com',
-      );
+    it('não deve usar mensagem freeform (body deve ser undefined)', async () => {
+      await service.sendUserWelcome('+5511977776666', 'Dra. Ana');
 
       const [, jobData] = mockQueue.add.mock.calls[0];
-      // Deve conter URL do dashboard (padrão ou env)
-      expect(jobData.body).toMatch(/https?:\/\//);
-    });
-
-    it('deve informar login (email) ao médico', async () => {
-      await service.sendDoctorWelcome(
-        '+5511977776666',
-        'Dr. Pedro',
-        'pedro@inexci.com',
-      );
-
-      const [, jobData] = mockQueue.add.mock.calls[0];
-      expect(jobData.body).toContain('pedro@inexci.com');
+      expect(jobData.body).toBeUndefined();
     });
   });
 });

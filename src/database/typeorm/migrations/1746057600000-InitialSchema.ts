@@ -1,17 +1,19 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * Migration consolidada — schema completo do sistema InExci.
+ * Migration única consolidada — schema completo do sistema InExci.
  *
- * Consolida todas as migrations anteriores:
- * - ConsolidatedSchema (1740182400000)
- * - AddAiTables (1745000000000)
- * - CreateCidAndTussTables (1745000100000)
- * - AddRequiredDocumentsToSurgeryRequest (1745000200000)
- * - AddPerformanceIndexes (1745000300000)
+ * Consolida TODAS as migrations anteriores:
+ * - FullConsolidatedSchema         (1745000400000)
+ * - IncreaseUserEmailLength        (1745025600000)
+ * - FixMissingFields               (1745100000000)
+ * - CreateDoctorHeader             (1745200000000)
+ * - AddSupplierCommercialFields    (1745300000000)
+ * - AddOpmeItemSupplierJunction    (1745400000000)
+ * - AddEmailVerification           (1745500000000)
  */
-export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
-  name = 'FullConsolidatedSchema1745000400000';
+export class InitialSchema1746057600000 implements MigrationInterface {
+  name = 'InitialSchema1746057600000';
 
   // Roda fora de transação para permitir CREATE EXTENSION (pgvector)
   transaction = false;
@@ -84,6 +86,13 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
       END $$;
     `);
 
+    await queryRunner.query(`
+      DO $$ BEGIN
+        CREATE TYPE "public"."doctor_header_logo_position_enum" AS ENUM('left', 'right');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `);
+
     // ------------------------------------------------------------------ //
     // Tabela: subscription_plan
     // ------------------------------------------------------------------ //
@@ -102,12 +111,14 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
 
     // ------------------------------------------------------------------ //
     // Tabela: user
+    // email: varchar(160) — já incorpora IncreaseUserEmailLength
+    // email_verified / email_verified_at — já incorpora AddEmailVerification
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "user" (
         "id"                   UUID NOT NULL DEFAULT uuid_generate_v4(),
         "name"                 character varying(100) NOT NULL,
-        "email"                character varying(100) NOT NULL,
+        "email"                character varying(160) NOT NULL,
         "password"             character varying(60) NOT NULL,
         "phone"                character varying(15),
         "cpf"                  character varying(14),
@@ -125,6 +136,8 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         "address_complement"   varchar(100),
         "city"                 varchar(100),
         "state"                varchar(2),
+        "email_verified"       boolean NOT NULL DEFAULT false,
+        "email_verified_at"    timestamp NULL,
         "deleted_at"           TIMESTAMP,
         "created_at"           TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"           TIMESTAMP NOT NULL DEFAULT now(),
@@ -188,6 +201,27 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
+    // Tabela: doctor_header — incorpora CreateDoctorHeader
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(`
+      CREATE TABLE "doctor_header" (
+        "id"                UUID NOT NULL DEFAULT gen_random_uuid(),
+        "doctor_profile_id" UUID NOT NULL,
+        "logo_url"          VARCHAR(500),
+        "logo_position"     "public"."doctor_header_logo_position_enum" NOT NULL DEFAULT 'left',
+        "content_html"      TEXT,
+        "created_at"        TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at"        TIMESTAMP NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_doctor_header" PRIMARY KEY ("id"),
+        CONSTRAINT "UQ_doctor_header_profile" UNIQUE ("doctor_profile_id"),
+        CONSTRAINT "FK_doctor_header_profile"
+          FOREIGN KEY ("doctor_profile_id")
+          REFERENCES "doctor_profile"("id")
+          ON DELETE CASCADE
+      );
+    `);
+
+    // ------------------------------------------------------------------ //
     // Tabela: user_doctor_access
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
@@ -200,7 +234,6 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         "created_at"      TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"      TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_user_doctor_access" PRIMARY KEY ("id"),
-        CONSTRAINT "UQ_user_doctor_access" UNIQUE ("user_id", "doctor_user_id"),
         CONSTRAINT "FK_uda_user"
           FOREIGN KEY ("user_id") REFERENCES "user"("id")
           ON DELETE CASCADE ON UPDATE CASCADE,
@@ -232,6 +265,7 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         "neighborhood"   character varying(100),
         "city"           character varying(100),
         "state"          character(2),
+        "notes"          text,
         "active"         boolean NOT NULL DEFAULT true,
         "doctor_id"      UUID NOT NULL,
         "deleted_at"     TIMESTAMP,
@@ -276,6 +310,8 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
 
     // ------------------------------------------------------------------ //
     // Tabela: supplier
+    // website/category/payment_terms/delivery_time — incorpora AddSupplierCommercialFields
+    // distributor removido — incorpora AddOpmeItemSupplierJunction
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "supplier" (
@@ -293,6 +329,10 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         "neighborhood"   character varying(100),
         "city"           character varying(100),
         "state"          character(2),
+        "website"        varchar(200),
+        "category"       varchar(50),
+        "payment_terms"  varchar(50),
+        "delivery_time"  varchar(100),
         "notes"          text,
         "active"         boolean NOT NULL DEFAULT true,
         "doctor_id"      UUID NOT NULL,
@@ -358,7 +398,7 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabelas: cid e tuss (criadas antes de surgery_request para FKs)
+    // Tabelas: cid e tuss
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "cid" (
@@ -504,6 +544,7 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
 
     // ------------------------------------------------------------------ //
     // Tabela: opme_item
+    // distributor removido — incorpora AddOpmeItemSupplierJunction
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "opme_item" (
@@ -511,7 +552,6 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         "surgery_request_id"  UUID NOT NULL,
         "name"                character varying NOT NULL,
         "brand"               character varying,
-        "distributor"         character varying,
         "quantity"            integer NOT NULL DEFAULT 1,
         "authorized_quantity" integer,
         "created_at"          TIMESTAMP NOT NULL DEFAULT now(),
@@ -520,6 +560,25 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         CONSTRAINT "FK_opme_surgery_request"
           FOREIGN KEY ("surgery_request_id") REFERENCES "surgery_request"("id")
           ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+
+    // ------------------------------------------------------------------ //
+    // Tabela: opme_item_supplier — incorpora AddOpmeItemSupplierJunction
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(`
+      CREATE TABLE "opme_item_supplier" (
+        "opme_item_id" uuid NOT NULL,
+        "supplier_id"  uuid NOT NULL,
+        PRIMARY KEY ("opme_item_id", "supplier_id"),
+        CONSTRAINT "fk_opme_item_supplier_opme_item"
+          FOREIGN KEY ("opme_item_id")
+          REFERENCES "opme_item"("id")
+          ON DELETE CASCADE,
+        CONSTRAINT "fk_opme_item_supplier_supplier"
+          FOREIGN KEY ("supplier_id")
+          REFERENCES "supplier"("id")
+          ON DELETE CASCADE
       );
     `);
 
@@ -677,6 +736,7 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
 
     // ------------------------------------------------------------------ //
     // Tabela: surgery_request_template
+    // usage_count — incorpora FixMissingFields
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "surgery_request_template" (
@@ -684,6 +744,7 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
         "doctor_id"     UUID NOT NULL,
         "name"          character varying(100) NOT NULL,
         "template_data" jsonb NOT NULL,
+        "usage_count"   integer NOT NULL DEFAULT 0,
         "created_at"    TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at"    TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_surgery_request_template" PRIMARY KEY ("id"),
@@ -846,6 +907,27 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
+    // Tabela: email_verification — incorpora AddEmailVerification
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(`
+      CREATE TABLE "email_verification" (
+        "id"         uuid NOT NULL DEFAULT uuid_generate_v4(),
+        "user_id"    uuid NOT NULL,
+        "token"      varchar(128) NOT NULL,
+        "used"       boolean NOT NULL DEFAULT false,
+        "expires_at" timestamp NOT NULL,
+        "used_at"    timestamp NULL,
+        "created_at" timestamp NOT NULL DEFAULT now(),
+        "updated_at" timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT "pk_email_verification" PRIMARY KEY ("id"),
+        CONSTRAINT "fk_email_verification_user"
+          FOREIGN KEY ("user_id")
+          REFERENCES "user"("id")
+          ON DELETE CASCADE
+      );
+    `);
+
+    // ------------------------------------------------------------------ //
     // Tabela: whatsapp_message_log
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
@@ -972,10 +1054,8 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Índices — base
+    // Índices — tabela user
     // ------------------------------------------------------------------ //
-
-    // user
     await queryRunner.query(
       `CREATE INDEX "idx_user_account_id" ON "user" ("account_id")`,
     );
@@ -986,95 +1066,37 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
       `CREATE INDEX "idx_user_deleted_at" ON "user" ("deleted_at")`,
     );
 
-    // refresh_token
+    // ------------------------------------------------------------------ //
+    // Índices — refresh_token
+    // ------------------------------------------------------------------ //
     await queryRunner.query(
-      `CREATE UNIQUE INDEX "UQ_refresh_token_token"    ON "refresh_token" ("token")`,
+      `CREATE UNIQUE INDEX "UQ_refresh_token_token" ON "refresh_token" ("token")`,
     );
     await queryRunner.query(
-      `CREATE INDEX "idx_refresh_token_user_id"        ON "refresh_token" ("user_id")`,
+      `CREATE INDEX "idx_refresh_token_user_id"    ON "refresh_token" ("user_id")`,
     );
     await queryRunner.query(
-      `CREATE INDEX "idx_refresh_token_revoked"        ON "refresh_token" ("revoked")`,
-    );
-
-    // user_doctor_access
-    await queryRunner.query(
-      `CREATE INDEX "idx_uda_user_id_status"           ON "user_doctor_access" ("user_id", "status")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_uda_doctor_user_id_status"    ON "user_doctor_access" ("doctor_user_id", "status")`,
-    );
-
-    // surgery_request
-    await queryRunner.query(
-      `CREATE INDEX "idx_sr_doctor_id"                 ON "surgery_request" ("doctor_id")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_sr_doctor_id_status"          ON "surgery_request" ("doctor_id", "status")`,
-    );
-
-    // patient
-    await queryRunner.query(
-      `CREATE INDEX "idx_patient_doctor_id"            ON "patient" ("doctor_id")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_patient_deleted_at"           ON "patient" ("deleted_at")`,
-    );
-
-    // hospital / health_plan / supplier
-    await queryRunner.query(
-      `CREATE INDEX "idx_hospital_doctor_id"           ON "hospital" ("doctor_id")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_hospital_deleted_at"          ON "hospital" ("deleted_at")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_health_plan_doctor_id"        ON "health_plan" ("doctor_id")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_health_plan_deleted_at"       ON "health_plan" ("deleted_at")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_supplier_doctor_id"           ON "supplier" ("doctor_id")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_supplier_deleted_at"          ON "supplier" ("deleted_at")`,
-    );
-
-    // surgery_request_activity
-    await queryRunner.query(
-      `CREATE INDEX "IDX_activity_surgery_request_id" ON "surgery_request_activity" ("surgery_request_id")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_activity_created_at"         ON "surgery_request_activity" ("created_at" DESC)`,
-    );
-
-    // stale_notification_log
-    await queryRunner.query(
-      `CREATE INDEX "IDX_stale_log_request_days"      ON "stale_notification_log" ("surgery_request_id", "stale_days")`,
-    );
-
-    // notification_send_log
-    await queryRunner.query(
-      `CREATE INDEX "IDX_send_log_channel_status"     ON "notification_send_log" ("channel", "status")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_send_log_created_at"         ON "notification_send_log" ("created_at")`,
-    );
-
-    // whatsapp_conversation
-    await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_conversation_phone  ON whatsapp_conversation(phone)`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_conversation_active ON whatsapp_conversation(active, last_message_at)`,
+      `CREATE INDEX "idx_refresh_token_revoked"    ON "refresh_token" ("revoked")`,
     );
 
     // ------------------------------------------------------------------ //
-    // Índices — performance (AddPerformanceIndexes)
+    // Índices — user_doctor_access
     // ------------------------------------------------------------------ //
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_surgery_request_doctor_id      ON surgery_request(doctor_id)`,
+      `CREATE INDEX "idx_uda_user_id_status"        ON "user_doctor_access" ("user_id", "status")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_uda_doctor_user_id_status" ON "user_doctor_access" ("doctor_user_id", "status")`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — surgery_request
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_sr_doctor_id"                 ON "surgery_request" ("doctor_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "idx_sr_doctor_id_status"          ON "surgery_request" ("doctor_id", "status")`,
     );
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS idx_surgery_request_status         ON surgery_request(status)`,
@@ -1088,125 +1110,217 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS idx_surgery_request_hospital_id    ON surgery_request(hospital_id)`,
     );
+
+    // ------------------------------------------------------------------ //
+    // Índices — patient
+    // ------------------------------------------------------------------ //
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_activity_surgery_request_id    ON surgery_request_activity(surgery_request_id)`,
+      `CREATE INDEX "idx_patient_doctor_id"  ON "patient" ("doctor_id")`,
     );
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_chat_surgery_request_id        ON chat(surgery_request_id)`,
+      `CREATE INDEX "idx_patient_deleted_at" ON "patient" ("deleted_at")`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — hospital / health_plan / supplier
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX "idx_hospital_doctor_id"    ON "hospital"    ("doctor_id")`,
     );
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_document_surgery_request_id    ON document(surgery_request_id)`,
+      `CREATE INDEX "idx_hospital_deleted_at"   ON "hospital"    ("deleted_at")`,
     );
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS idx_quotation_surgery_request_id   ON surgery_request_quotation(surgery_request_id)`,
+      `CREATE INDEX "idx_health_plan_doctor_id" ON "health_plan" ("doctor_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_health_plan_deleted_at" ON "health_plan" ("deleted_at")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_supplier_doctor_id"    ON "supplier"    ("doctor_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_supplier_deleted_at"   ON "supplier"    ("deleted_at")`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — surgery_request_activity
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_activity_surgery_request_id" ON "surgery_request_activity" ("surgery_request_id")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_activity_created_at"         ON "surgery_request_activity" ("created_at" DESC)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_activity_surgery_request_id   ON surgery_request_activity(surgery_request_id)`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — chat / document / quotation
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_chat_surgery_request_id      ON chat(surgery_request_id)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_document_surgery_request_id  ON document(surgery_request_id)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_quotation_surgery_request_id ON surgery_request_quotation(surgery_request_id)`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — stale_notification_log
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX "IDX_stale_log_request_days" ON "stale_notification_log" ("surgery_request_id", "stale_days")`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — notification_send_log
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX "IDX_send_log_channel_status" ON "notification_send_log" ("channel", "status")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_send_log_created_at"     ON "notification_send_log" ("created_at")`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — whatsapp_conversation
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_conversation_phone  ON whatsapp_conversation(phone)`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_conversation_active ON whatsapp_conversation(active, last_message_at)`,
+    );
+
+    // ------------------------------------------------------------------ //
+    // Índices — email_verification
+    // ------------------------------------------------------------------ //
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "ux_email_verification_token" ON "email_verification" ("token")`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "ix_email_verification_user_id"      ON "email_verification" ("user_id")`,
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "notification_send_log"        CASCADE`,
+      `DROP TABLE IF EXISTS "email_verification"          CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "stale_notification_log"       CASCADE`,
+      `DROP TABLE IF EXISTS "notification_send_log"       CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "report_section"               CASCADE`,
+      `DROP TABLE IF EXISTS "stale_notification_log"      CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "whatsapp_message_log"         CASCADE`,
+      `DROP TABLE IF EXISTS "report_section"              CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "whatsapp_conversation"        CASCADE`,
+      `DROP TABLE IF EXISTS "whatsapp_message_log"        CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "ai_knowledge_chunk"           CASCADE`,
+      `DROP TABLE IF EXISTS "whatsapp_conversation"       CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "recovery_code"                CASCADE`,
+      `DROP TABLE IF EXISTS "ai_knowledge_chunk"          CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "default_document_clinic"      CASCADE`,
+      `DROP TABLE IF EXISTS "recovery_code"               CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "user_notification_settings"   CASCADE`,
+      `DROP TABLE IF EXISTS "default_document_clinic"     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "notification"                 CASCADE`,
+      `DROP TABLE IF EXISTS "user_notification_settings"  CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "chat_message"                 CASCADE`,
+      `DROP TABLE IF EXISTS "notification"                CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "chat"                         CASCADE`,
+      `DROP TABLE IF EXISTS "chat_message"                CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_activity"     CASCADE`,
+      `DROP TABLE IF EXISTS "chat"                        CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_template"     CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_activity"    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_billing"      CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_template"    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_analysis"     CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_billing"     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "status_update"                CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_analysis"    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "document"                     CASCADE`,
+      `DROP TABLE IF EXISTS "status_update"               CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "contestation"                 CASCADE`,
+      `DROP TABLE IF EXISTS "document"                    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_quotation"    CASCADE`,
+      `DROP TABLE IF EXISTS "contestation"                CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "opme_item"                    CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_quotation"   CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request_tuss_item"    CASCADE`,
+      `DROP TABLE IF EXISTS "opme_item_supplier"          CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "surgery_request"              CASCADE`,
+      `DROP TABLE IF EXISTS "opme_item"                   CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "patient"                      CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request_tuss_item"   CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "procedure"                    CASCADE`,
+      `DROP TABLE IF EXISTS "surgery_request"             CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "supplier"                     CASCADE`,
+      `DROP TABLE IF EXISTS "patient"                     CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "health_plan"                  CASCADE`,
+      `DROP TABLE IF EXISTS "procedure"                   CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "hospital"                     CASCADE`,
+      `DROP TABLE IF EXISTS "supplier"                    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "tuss"                         CASCADE`,
+      `DROP TABLE IF EXISTS "health_plan"                 CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "cid"                          CASCADE`,
+      `DROP TABLE IF EXISTS "hospital"                    CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "user_doctor_access"           CASCADE`,
+      `DROP TABLE IF EXISTS "doctor_header"               CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "doctor_profile"               CASCADE`,
+      `DROP TABLE IF EXISTS "tuss"                        CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "refresh_token"                CASCADE`,
+      `DROP TABLE IF EXISTS "cid"                         CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "user"                         CASCADE`,
+      `DROP TABLE IF EXISTS "user_doctor_access"          CASCADE`,
     );
     await queryRunner.query(
-      `DROP TABLE IF EXISTS "subscription_plan"            CASCADE`,
+      `DROP TABLE IF EXISTS "doctor_profile"              CASCADE`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "refresh_token"               CASCADE`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "user"                        CASCADE`,
+    );
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "subscription_plan"           CASCADE`,
     );
     await queryRunner.query(`DROP FUNCTION  IF EXISTS generate_protocol`);
     await queryRunner.query(`DROP EXTENSION IF EXISTS vector`);
@@ -1223,5 +1337,8 @@ export class FullConsolidatedSchema1745000400000 implements MigrationInterface {
     );
     await queryRunner.query(`DROP TYPE IF EXISTS "user_status_enum"`);
     await queryRunner.query(`DROP TYPE IF EXISTS "user_role_enum"`);
+    await queryRunner.query(
+      `DROP TYPE IF EXISTS "public"."doctor_header_logo_position_enum"`,
+    );
   }
 }

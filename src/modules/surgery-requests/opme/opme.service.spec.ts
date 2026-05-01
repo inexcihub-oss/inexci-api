@@ -26,6 +26,7 @@ describe('OpmeService', () => {
   const mockTypeOrmRepository = {
     create: jest.fn(),
     save: jest.fn(),
+    remove: jest.fn(),
   };
 
   const fakeSurgeryRequest = {
@@ -258,17 +259,22 @@ describe('OpmeService', () => {
 
   describe('delete', () => {
     it('deve deletar item OPME com sucesso', async () => {
-      mockOpmeItemRepository.findOne.mockResolvedValue({ id: 'opme-1', surgery_request_id: 'sr-1' });
-      mockOpmeItemRepository.delete.mockResolvedValue(undefined);
+      const opmeItem = { id: 'opme-1', surgery_request_id: 'sr-1', suppliers: [] };
+      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(opmeItem);
+      mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
+      mockTypeOrmRepository.remove.mockResolvedValue(undefined);
 
       const result = await service.delete('opme-1', 'user-1');
 
-      expect(mockOpmeItemRepository.delete).toHaveBeenCalledWith('opme-1');
+      expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
+        expect.objectContaining({ suppliers: [] }),
+      );
+      expect(mockTypeOrmRepository.remove).toHaveBeenCalledWith(opmeItem);
       expect(result).toEqual({ message: 'OPME removido com sucesso' });
     });
 
     it('deve lançar NotFoundException se item não encontrado', async () => {
-      mockOpmeItemRepository.findOne.mockResolvedValue(null);
+      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(null);
 
       await expect(service.delete('nonexistent', 'user-1')).rejects.toThrow(
         NotFoundException,

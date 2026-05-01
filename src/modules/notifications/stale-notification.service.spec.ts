@@ -16,10 +16,9 @@ import { UserRole } from 'src/database/entities/user.entity';
 jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
     STATUS_CHANGE_PATIENT: 'mock-status-sid',
-    STALE_REMINDER: 'mock-stale-reminder-sid',
-    STALE_CRITICAL: 'mock-stale-critical-sid',
+    STALE_STATUS_MESSAGE: 'mock-stale-sid',
     WELCOME_PATIENT: 'mock-welcome-patient-sid',
-    WELCOME_DOCTOR: 'mock-welcome-doctor-sid',
+    WELCOME_USER: 'mock-welcome-user-sid',
   },
 }));
 
@@ -64,6 +63,7 @@ describe('StaleNotificationService', () => {
     lastChanged.setDate(lastChanged.getDate() - daysAgo);
     return {
       id: `req-${daysAgo}`,
+      protocol: `SC-${String(daysAgo).padStart(6, '0')}`,
       doctor_id: 'doctor-1',
       created_by_id: 'creator-1',
       status,

@@ -1,26 +1,20 @@
 /**
  * contentSid dos templates WhatsApp pré-aprovados pela Meta via Twilio Content API.
- * Cada valor deve ser definido via variável de ambiente — os templates precisam ser
- * criados no painel do Twilio e aprovados pela Meta antes de serem usados em produção.
- *
  * Envio freeform (sendMessage) só funciona dentro da janela de 24h de uma conversa
  * iniciada pelo usuário. Mensagens proativas DEVEM usar sendTemplate() com contentSid.
  */
 export const WHATSAPP_TEMPLATES = {
-  /** Notificação de mudança de status ao paciente. Variáveis: {"1": patientName, "2": newStatus, "3": hospitalName} */
-  STATUS_CHANGE_PATIENT: process.env.TWILIO_TEMPLATE_STATUS_CHANGE_PATIENT ?? '',
+  /** Boas-vindas ao paciente recém-cadastrado. Variáveis: {"1": patientName} */
+  WELCOME_PATIENT: 'HX700d7a2e6b784cc7ff5b488784ae122d',
 
-  /** Lembrete de solicitação parada (3-7 dias). Variáveis: {"1": userName, "2": patientName, "3": staleDays, "4": currentStatus} */
-  STALE_REMINDER: process.env.TWILIO_TEMPLATE_STALE_REMINDER ?? '',
+  /** Boas-vindas ao usuário (médico/colaborador) recém-cadastrado. Variáveis: {"1": userName} */
+  WELCOME_USER: 'HXa43748f75eaf95629286ddd036798997',
 
-  /** Alerta crítico de solicitação parada (15-30 dias). Variáveis: {"1": userName, "2": patientName, "3": staleDays} */
-  STALE_CRITICAL: process.env.TWILIO_TEMPLATE_STALE_CRITICAL ?? '',
+  /** Notificação de solicitação parada para gestor/médico. Variáveis: {"1": userName, "2": requestNumber, "3": status, "4": staleDays, "5": pendencyMessage} */
+  STALE_STATUS_MESSAGE: 'HX4db9fc096503b6c7cee02d36735c5317',
 
-  /** Boas-vindas ao paciente recém-cadastrado. Variáveis: {"1": patientName, "2": doctorName} */
-  WELCOME_PATIENT: process.env.TWILIO_TEMPLATE_WELCOME_PATIENT ?? '',
-
-  /** Boas-vindas ao médico recém-cadastrado. Variáveis: {"1": doctorName} */
-  WELCOME_DOCTOR: process.env.TWILIO_TEMPLATE_WELCOME_DOCTOR ?? '',
+  /** Notificação de mudança de status ao paciente. Variáveis: {"1": patientName, "2": newStatus, "3": statusDescription} */
+  STATUS_CHANGE_PATIENT: 'HXa075ce51eb3486868752c2abd23498ae',
 } as const;
 
 export type WhatsappTemplateName = keyof typeof WHATSAPP_TEMPLATES;

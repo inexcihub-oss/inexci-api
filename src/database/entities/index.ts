@@ -40,6 +40,7 @@ import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { RefreshToken } from './refresh-token.entity';
+import { EmailVerification } from './email-verification.entity';
 import { SubscriptionPlan } from './subscription-plan.entity';
 import {
   WhatsappMessageLog,
@@ -103,6 +104,7 @@ export { SubscriptionPlan };
 // AUTENTICAÇÃO
 export { RecoveryCode };
 export { RefreshToken };
+export { EmailVerification };
 
 // OBSERVABILIDADE
 export { NotificationSendLog, NotificationChannel, NotificationSendStatus };
@@ -145,6 +147,7 @@ export const ENTITIES = [
   UserNotificationSettings,
   RecoveryCode,
   RefreshToken,
+  EmailVerification,
   SubscriptionPlan,
   WhatsappMessageLog,
   ReportSection,

@@ -82,7 +82,7 @@ export class SchedulingHandler {
       request.patient?.name ?? 'Paciente',
       request.protocol ?? id,
       'Data de cirurgia confirmada',
-      `/solicitacoes/${id}`,
+      `/solicitacao/${id}`,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(

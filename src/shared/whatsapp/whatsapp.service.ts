@@ -1,7 +1,7 @@
 import { InjectQueue } from '@nestjs/bull';
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bull';
+import { WHATSAPP_TEMPLATES } from './whatsapp-templates.constants';
 
 export interface WhatsappJobData {
   to: string;
@@ -20,12 +20,11 @@ export class WhatsappService {
   constructor(
     @InjectQueue('whatsapp-messages')
     private readonly whatsappQueue: Queue,
-    private readonly configService: ConfigService,
   ) {}
 
   /**
-   * Enfileira uma mensagem WhatsApp para envio assíncrono via Bull queue.
-   * Falhas não propagam exceção para não bloquear o fluxo principal.
+   * Enfileira uma mensagem WhatsApp freeform para envio assíncrono via Bull queue.
+   * Só funciona dentro da janela de 24h de uma conversa iniciada pelo usuário.
    */
   async sendMessage(to: string, body: string): Promise<void> {
     try {
@@ -77,34 +76,17 @@ export class WhatsappService {
     }
   }
 
-  /**
-   * Envia mensagem de boas-vindas ao paciente recém-cadastrado.
-   */
+  /** Envia boas-vindas ao paciente recém-cadastrado via template aprovado pela Meta. */
   sendPatientWelcome(to: string, patientName: string): Promise<void> {
-    const body =
-      `Olá, ${patientName}! 👋\n\n` +
-      `Você foi cadastrado na plataforma *Inexci*. ` +
-      `O WhatsApp será o canal oficial de comunicação para acompanhamento dos seus procedimentos cirúrgicos.\n\n` +
-      `Em caso de dúvidas, entre em contato com seu médico responsável.`;
-    return this.sendMessage(to, body);
+    return this.sendTemplate(to, WHATSAPP_TEMPLATES.WELCOME_PATIENT, {
+      '1': patientName,
+    });
   }
 
-  /**
-   * Envia mensagem de boas-vindas ao médico recém-cadastrado.
-   */
-  sendDoctorWelcome(
-    to: string,
-    doctorName: string,
-    email: string,
-  ): Promise<void> {
-    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
-    const body =
-      `Olá, Dr(a). ${doctorName}! 👨‍⚕️\n\n` +
-      `Sua conta na plataforma *Inexci* foi criada com sucesso. ` +
-      `Acesse a plataforma pelo link abaixo para começar a gerenciar suas solicitações cirúrgicas:\n\n` +
-      `🔗 ${dashboardUrl}\n\n` +
-      `Seu login é: *${email}*\n\n` +
-      `Qualquer dúvida, nossa equipe de suporte está à disposição.`;
-    return this.sendMessage(to, body);
+  /** Envia boas-vindas ao usuário (médico/colaborador) recém-cadastrado via template aprovado pela Meta. */
+  sendUserWelcome(to: string, userName: string): Promise<void> {
+    return this.sendTemplate(to, WHATSAPP_TEMPLATES.WELCOME_USER, {
+      '1': userName,
+    });
   }
 }

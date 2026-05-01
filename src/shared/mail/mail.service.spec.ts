@@ -84,6 +84,53 @@ describe('MailService', () => {
     });
   });
 
+  // ─── sendEmailVerification ───────────────────────────────────────────────
+  describe('sendEmailVerification', () => {
+    const verificationContext = {
+      userName: 'Dr. Ana Lima',
+      email: 'ana@example.com',
+      verificationUrl: 'https://app.inexci.com.br/confirmar-email?token=abc123',
+    };
+
+    it('deve enfileirar e-mail de verificação com template correto', async () => {
+      await service.sendEmailVerification(
+        'ana@example.com',
+        verificationContext,
+      );
+
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'send-mail',
+        expect.objectContaining({
+          template: 'email-verification',
+          to: 'ana@example.com',
+          subject: 'Inexci — Confirme seu e-mail',
+          context: verificationContext,
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('deve incluir a URL de verificação no contexto', async () => {
+      await service.sendEmailVerification(
+        'ana@example.com',
+        verificationContext,
+      );
+
+      const jobData = mockQueue.add.mock.calls[0][1];
+      expect(jobData.context.verificationUrl).toBe(
+        'https://app.inexci.com.br/confirmar-email?token=abc123',
+      );
+    });
+
+    it('não deve propagar exceção se a fila falhar', async () => {
+      mockQueue.add.mockRejectedValue(new Error('Redis offline'));
+
+      await expect(
+        service.sendEmailVerification('ana@example.com', verificationContext),
+      ).resolves.toBeUndefined();
+    });
+  });
+
   // ─── Testes gerais do send ───────────────────────────────────────────────
   describe('send', () => {
     it('deve enfileirar email com configuração de retry', async () => {

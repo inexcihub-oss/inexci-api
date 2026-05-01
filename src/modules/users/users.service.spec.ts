@@ -63,7 +63,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
   };
   const mockSubscriptionPlanRepo = { findOne: jest.fn() };
   const mockWhatsappService = {
-    sendDoctorWelcome: jest.fn(),
+    sendUserWelcome: jest.fn(),
     sendPatientWelcome: jest.fn(),
   };
   const mockConfigService = {
@@ -359,10 +359,38 @@ describe('UsersService — Colaboradores e Permissões', () => {
         }),
       );
 
-      expect(mockWhatsappService.sendDoctorWelcome).toHaveBeenCalledWith(
+      expect(mockWhatsappService.sendUserWelcome).toHaveBeenCalledWith(
         '+5511999999999',
         'Dr. João',
-        'joao@email.com',
+      );
+    });
+
+    it('deve enviar WhatsApp para colaborador não-médico com telefone', async () => {
+      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+
+      mockUserRepository.create.mockResolvedValue({
+        id: 'new-2',
+        name: 'Ana',
+        email: 'ana@email.com',
+        phone: '+5511988888888',
+        role: UserRole.COLLABORATOR,
+      });
+
+      mockWhatsappService.sendUserWelcome.mockClear();
+
+      await service.createCollaborator(
+        {
+          name: 'Ana',
+          email: 'ana@email.com',
+          phone: '+5511988888888',
+        },
+        'admin-1',
+      );
+
+      expect(mockWhatsappService.sendUserWelcome).toHaveBeenCalledWith(
+        '+5511988888888',
+        'Ana',
       );
     });
   });

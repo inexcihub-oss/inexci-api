@@ -104,6 +104,12 @@ export class User {
   @Column({ type: 'varchar', length: 255, nullable: true })
   avatar_url: string;
 
+  @Column({ type: 'boolean', default: false })
+  email_verified: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  email_verified_at: Date;
+
   @Column({ name: 'account_id' })
   account_id: string;
 

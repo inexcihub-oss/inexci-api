@@ -107,7 +107,7 @@ export class AuthorizationHandler {
       request.patient?.name ?? 'Paciente',
       request.protocol ?? id,
       'Autorização aceita',
-      `/solicitacoes/${id}`,
+      `/solicitacao/${id}`,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(
@@ -152,7 +152,7 @@ export class AuthorizationHandler {
       patientName,
       requestId,
       'Autorização contestada',
-      `/solicitacoes/${id}`,
+      `/solicitacao/${id}`,
     );
 
     // ── Registrar atividade de contestação ────────────────────────────────

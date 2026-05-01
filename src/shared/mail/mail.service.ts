@@ -361,6 +361,25 @@ export class MailService {
   }
 
   /**
+   * Confirmação de e-mail após cadastro.
+   */
+  sendEmailVerification(
+    to: string,
+    context: {
+      userName: string;
+      email: string;
+      verificationUrl: string;
+    },
+  ) {
+    return this.send(
+      'email-verification',
+      to,
+      'Inexci — Confirme seu e-mail',
+      context,
+    );
+  }
+
+  /**
    * Notificação genérica (in-app com e-mail).
    */
   sendGenericNotification(

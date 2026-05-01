@@ -36,7 +36,6 @@ export class PatientsController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Criar paciente' })
   create(
     @Body() data: CreatePatientDto,

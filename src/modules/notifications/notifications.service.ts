@@ -228,7 +228,7 @@ export class NotificationsService {
       type: NotificationType.STATUS_UPDATE,
       title: 'Status Atualizado',
       message: `A solicitação cirúrgica foi atualizada para: ${newStatus}`,
-      link: `/solicitacoes/${surgeryRequestId}`,
+      link: `/solicitacao/${surgeryRequestId}`,
       metadata: { surgeryRequestId, newStatus },
     });
   }
@@ -243,7 +243,7 @@ export class NotificationsService {
       type: NotificationType.PENDENCY,
       title: 'Nova Pendência',
       message: `Uma nova pendência foi criada: ${pendencyType}`,
-      link: `/solicitacoes/${surgeryRequestId}`,
+      link: `/solicitacao/${surgeryRequestId}`,
       metadata: { surgeryRequestId, pendencyType },
     });
   }
@@ -303,7 +303,7 @@ export class NotificationsService {
         type: NotificationType.STATUS_UPDATE,
         title: 'Status da Solicitação Atualizado',
         message: `Status alterado de "${oldLabel}" para "${newLabel}"`,
-        link: `/solicitacoes/${surgeryRequestId}`,
+        link: `/solicitacao/${surgeryRequestId}`,
         metadata: { surgeryRequestId, oldStatus, newStatus },
       });
 
@@ -335,7 +335,7 @@ export class NotificationsService {
               newStatus: newLabel,
               changedBy: actor.name ?? 'Usuário',
               changedAt,
-              dashboardUrl: `/solicitacoes/${surgeryRequestId}`,
+              dashboardUrl: `/solicitacao/${surgeryRequestId}`,
             });
           } catch (emailErr: any) {
             this.logger.warn(

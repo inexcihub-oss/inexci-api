@@ -184,6 +184,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('surgery_request.hospital', 'hospital')
       .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
       .leftJoinAndSelect('surgery_request.opme_items', 'opme_items')
+      .leftJoinAndSelect('opme_items.suppliers', 'opme_item_suppliers')
       .leftJoinAndSelect('surgery_request.procedure', 'procedure')
       .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
       .leftJoinAndSelect('surgery_request.cid', 'cid')
@@ -261,6 +262,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('sr.contestations', 'contestations')
       .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
       .leftJoinAndSelect('sr.opme_items', 'opme_items')
+      .leftJoinAndSelect('opme_items.suppliers', 'opme_items_suppliers')
       .leftJoinAndSelect('sr.documents', 'documents')
       .where(where)
       .getOne();
@@ -280,6 +282,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('sr.billing', 'billing')
       .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
       .leftJoinAndSelect('sr.opme_items', 'opme_items')
+      .leftJoinAndSelect('opme_items.suppliers', 'opme_items_billing_suppliers')
       .where(where)
       .getOne();
   }

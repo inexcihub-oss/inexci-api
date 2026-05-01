@@ -178,4 +178,22 @@ export class AuthController {
   async health() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }
+
+  @Public()
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Post('verifyEmail')
+  @ApiOperation({ summary: 'Confirmar e-mail via token' })
+  @ApiResponse({ status: 200, description: 'E-mail confirmado' })
+  async verifyEmail(@Body('token') token: string) {
+    return await this.authService.verifyEmail(token);
+  }
+
+  @Throttle({ default: { ttl: 3600000, limit: 5 } })
+  @Post('resendEmailVerification')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reenviar e-mail de confirmação' })
+  @ApiResponse({ status: 200, description: 'E-mail reenviado' })
+  async resendEmailVerification(@CurrentUser() user: AuthenticatedUser) {
+    return await this.authService.resendEmailVerification(user.userId);
+  }
 }

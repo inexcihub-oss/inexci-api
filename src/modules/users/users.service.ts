@@ -694,13 +694,8 @@ export class UsersService {
       },
     );
 
-    // Envia WhatsApp de boas-vindas ao médico recém-criado (assíncrono)
-    if (isDoctor && newUser.phone) {
-      void this.whatsappService.sendDoctorWelcome(
-        newUser.phone,
-        newUser.name,
-        newUser.email,
-      );
+    if (newUser.phone) {
+      void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
 
     return newUser;

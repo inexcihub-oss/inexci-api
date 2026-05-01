@@ -9,7 +9,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserRole } from 'src/database/entities/user.entity';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
-import { getStatusLabel } from 'src/shared/utils';
+import { getStatusLabel, getStalePendencyMessage } from 'src/shared/utils';
 
 export interface StaleTier {
   days: number;
@@ -114,7 +114,7 @@ export class StaleNotificationService {
       type: NotificationType.SYSTEM,
       title,
       message,
-      link: `/solicitacoes/${request.id}`,
+      link: `/solicitacao/${request.id}`,
       metadata: {
         surgeryRequestId: request.id,
         staleDays,
@@ -129,16 +129,17 @@ export class StaleNotificationService {
       currentStatus: statusLabel,
       staleDays,
       severity: tier.severity,
-      dashboardUrl: `/solicitacoes/${request.id}`,
+      dashboardUrl: `/solicitacao/${request.id}`,
     });
 
     // WhatsApp for admin (if tier requires)
     if (tier.notifyWhatsApp) {
       await this.sendStaleWhatsApp(recipientIds, {
+        requestProtocol: request.protocol ?? request.id,
         patientName,
         staleDays,
         currentStatus: statusLabel,
-        severity: tier.severity,
+        pendencyMessage: getStalePendencyMessage(request.status),
       });
     }
   }
@@ -222,42 +223,30 @@ export class StaleNotificationService {
   private async sendStaleWhatsApp(
     recipientIds: string[],
     context: {
+      requestProtocol: string;
       patientName: string;
       staleDays: number;
       currentStatus: string;
-      severity: string;
+      pendencyMessage: string;
     },
   ): Promise<void> {
-    const templateSid =
-      context.severity === 'critical'
-        ? WHATSAPP_TEMPLATES.STALE_CRITICAL
-        : WHATSAPP_TEMPLATES.STALE_REMINDER;
-
-    if (!templateSid) {
-      this.logger.warn('Template WhatsApp de stale não configurado — pulando');
-      return;
-    }
-
     await Promise.all(
       recipientIds.map(async (uid) => {
         try {
           const user = await this.userRepository.findOne({ id: uid });
           if (!user?.phone) return;
 
-          if (context.severity === 'critical') {
-            await this.whatsappService.sendTemplate(user.phone, templateSid, {
+          await this.whatsappService.sendTemplate(
+            user.phone,
+            WHATSAPP_TEMPLATES.STALE_STATUS_MESSAGE,
+            {
               '1': user.name ?? 'Usuário',
-              '2': context.patientName,
-              '3': String(context.staleDays),
-            });
-          } else {
-            await this.whatsappService.sendTemplate(user.phone, templateSid, {
-              '1': user.name ?? 'Usuário',
-              '2': context.patientName,
-              '3': String(context.staleDays),
-              '4': context.currentStatus,
-            });
-          }
+              '2': context.requestProtocol,
+              '3': context.currentStatus,
+              '4': `${context.staleDays} ${context.staleDays === 1 ? 'dia' : 'dias'}`,
+              '5': context.pendencyMessage,
+            },
+          );
         } catch (err: any) {
           this.logger.warn(
             `Falha ao enviar WhatsApp stale para ${uid}: ${err?.message}`,

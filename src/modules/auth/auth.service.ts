@@ -18,6 +18,7 @@ import { HttpMessages } from 'src/common';
 import { MailService } from 'src/shared/mail/mail.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { EmailVerificationRepository } from 'src/database/repositories/email-verification.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -35,6 +36,7 @@ export class AuthService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
+    private readonly emailVerificationRepository: EmailVerificationRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
@@ -44,6 +46,9 @@ export class AuthService {
     private readonly refreshTokenRepo: Repository<RefreshToken>,
     private readonly configService: ConfigService,
   ) {}
+
+  /** Email verification token expiry: 24 hours */
+  private readonly EMAIL_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
   /** Refresh token expiry: 7 days */
   private readonly REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -129,7 +134,7 @@ export class AuthService {
       password: hashedPassword,
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
-      phone: null,
+      phone: data.phone ? data.phone.replace(/\D/g, '') : null,
       account_id: userId, // self-referência — mesmo ID
       subscription_plan_id: selectedPlan?.id || null,
     } as Partial<User>);
@@ -145,6 +150,9 @@ export class AuthService {
       });
     }
 
+    // Envia e-mail de confirmação (não bloqueia caso falhe)
+    void this.dispatchEmailVerification(user.id, user.name, user.email);
+
     // Retorna dados do usuário e tokens
     const refreshToken = await this.createRefreshToken(user.id);
 
@@ -159,6 +167,7 @@ export class AuthService {
         status: user.status,
         account_id: user.account_id,
         is_doctor: !!doctorProfile,
+        email_verified: user.email_verified ?? false,
         doctor_profile: doctorProfile
           ? {
               id: doctorProfile.id,
@@ -201,6 +210,7 @@ export class AuthService {
           status: result.status,
           account_id: fullUser?.account_id,
           is_doctor: !!doctorProfile,
+          email_verified: fullUser?.email_verified ?? false,
           doctor_profile: doctorProfile
             ? {
                 id: doctorProfile.id,
@@ -235,6 +245,7 @@ export class AuthService {
       account_id: user.account_id,
       avatar_url: user.avatar_url ?? null,
       is_doctor: !!doctorProfile,
+      email_verified: user.email_verified ?? false,
       doctor_profile: doctorProfile
         ? {
             id: doctorProfile.id,
@@ -405,5 +416,121 @@ export class AuthService {
       { user_id: userId, revoked: false },
       { revoked: true },
     );
+  }
+
+  /**
+   * Cria token de verificação, persiste e envia e-mail de confirmação.
+   * Falhas no envio são apenas logadas — não interrompem o fluxo do chamador.
+   */
+  private async dispatchEmailVerification(
+    userId: string,
+    userName: string,
+    email: string,
+  ): Promise<void> {
+    try {
+      // Invalida tokens anteriores ainda não usados deste usuário
+      await this.emailVerificationRepository.deleteMany({
+        user_id: userId,
+        used: false,
+      });
+
+      const token = uuidv4();
+      await this.emailVerificationRepository.create({
+        user_id: userId,
+        token,
+        used: false,
+        expires_at: new Date(Date.now() + this.EMAIL_VERIFICATION_EXPIRY_MS),
+      });
+
+      const dashboardUrl =
+        this.configService.get<string>('DASHBOARD_URL') || '';
+      const verificationUrl = `${dashboardUrl}/confirmar-email?token=${token}`;
+
+      await this.mailService.sendEmailVerification(email, {
+        userName,
+        email,
+        verificationUrl,
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao enviar e-mail de verificação para userId=${userId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Confirma o e-mail de um usuário a partir do token enviado por e-mail.
+   */
+  async verifyEmail(token: string) {
+    if (!token) {
+      throw new BadRequestException('Token de verificação inválido');
+    }
+
+    const verification = await this.emailVerificationRepository.findOne({
+      token,
+    });
+
+    if (!verification) {
+      throw new BadRequestException('Token de verificação inválido');
+    }
+
+    if (verification.used) {
+      throw new BadRequestException(
+        'Este link de confirmação já foi utilizado',
+      );
+    }
+
+    if (
+      verification.expires_at &&
+      new Date() > new Date(verification.expires_at)
+    ) {
+      throw new BadRequestException(
+        'O link de confirmação expirou. Solicite um novo e-mail.',
+      );
+    }
+
+    const user = await this.userRepository.findOne({
+      id: verification.user_id,
+    });
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const now = new Date();
+    await this.emailVerificationRepository.updateByWhere(
+      { id: verification.id },
+      { used: true, used_at: now },
+    );
+
+    if (!user.email_verified) {
+      await this.userRepository.update(user.id, {
+        email_verified: true,
+        email_verified_at: now,
+      });
+    }
+
+    return {
+      message: 'E-mail confirmado com sucesso',
+      email: user.email,
+    };
+  }
+
+  /**
+   * Reenvia o e-mail de confirmação para o usuário autenticado.
+   */
+  async resendEmailVerification(userId: string) {
+    const user = await this.userRepository.findOne({ id: userId });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    if (user.email_verified) {
+      throw new BadRequestException('Este e-mail já está confirmado');
+    }
+
+    await this.dispatchEmailVerification(user.id, user.name, user.email);
+
+    return { message: 'E-mail de confirmação enviado' };
   }
 }

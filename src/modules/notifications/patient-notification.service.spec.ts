@@ -7,10 +7,9 @@ import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.enti
 jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
     STATUS_CHANGE_PATIENT: 'mock-status-sid',
-    STALE_REMINDER: 'mock-stale-reminder-sid',
-    STALE_CRITICAL: 'mock-stale-critical-sid',
+    STALE_STATUS_MESSAGE: 'mock-stale-sid',
     WELCOME_PATIENT: 'mock-welcome-patient-sid',
-    WELCOME_DOCTOR: 'mock-welcome-doctor-sid',
+    WELCOME_USER: 'mock-welcome-user-sid',
   },
 }));
 

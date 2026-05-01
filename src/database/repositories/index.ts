@@ -13,6 +13,7 @@ export { HealthPlanRepository } from './health-plan.repository';
 export { OpmeItemRepository } from './opme-item.repository';
 export { ProcedureRepository } from './procedure.repository';
 export { RecoveryCodeRepository } from './recovery-code.repository';
+export { EmailVerificationRepository } from './email-verification.repository';
 export { StatusUpdateRepository } from './status-update.repository';
 export { SurgeryRequestTussItemRepository } from './surgery-request-tuss-item.repository';
 export { SurgeryRequestQuotationRepository } from './surgery-request-quotation.repository';

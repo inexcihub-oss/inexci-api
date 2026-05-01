@@ -73,7 +73,7 @@ export class ExecutionHandler {
       request.patient?.name ?? 'Paciente',
       request.protocol ?? id,
       'Cirurgia marcada como realizada',
-      `/solicitacoes/${id}`,
+      `/solicitacao/${id}`,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(

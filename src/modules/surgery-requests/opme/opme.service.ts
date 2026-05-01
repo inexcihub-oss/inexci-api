@@ -72,7 +72,7 @@ export class OpmeService {
   }
 
   async delete(id: string, userId: string): Promise<MessageResponse> {
-    const opmeItem = await this.opmeItemRepository.findOne({ id });
+    const opmeItem = await this.opmeItemRepository.findByIdWithSuppliers(id);
     if (!opmeItem)
       throw new NotFoundException(ERROR_MESSAGES.OPME_ITEM_NOT_FOUND);
 
@@ -81,7 +81,10 @@ export class OpmeService {
       userId,
     );
 
-    await this.opmeItemRepository.delete(id);
+    // Limpa a junction table opme_item_supplier antes de remover
+    opmeItem.suppliers = [];
+    await this.opmeItemRepository.saveWithSuppliers(opmeItem);
+    await this.opmeItemRepository.getRepository().remove(opmeItem);
 
     return { message: 'OPME removido com sucesso' };
   }

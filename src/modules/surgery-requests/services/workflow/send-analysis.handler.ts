@@ -113,7 +113,7 @@ export class SendAnalysisHandler {
       request.patient?.name ?? 'Paciente',
       request.protocol ?? id,
       'Solicitação enviada para análise',
-      `/solicitacoes/${id}`,
+      `/solicitacao/${id}`,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(
@@ -243,7 +243,7 @@ export class SendAnalysisHandler {
       request.patient?.name ?? 'Paciente',
       request.protocol ?? id,
       'Análise iniciada',
-      `/solicitacoes/${id}`,
+      `/solicitacao/${id}`,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(

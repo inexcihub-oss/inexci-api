@@ -66,7 +66,6 @@ export class WhatsappProcessor {
 
     this.twilioWhatsappFrom = this.configService.get<string>(
       'TWILIO_WHATSAPP_FROM',
-      'whatsapp:+14155238886',
     );
   }
 

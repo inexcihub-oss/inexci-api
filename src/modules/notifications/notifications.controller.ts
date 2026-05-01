@@ -13,6 +13,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
 import {
@@ -20,6 +21,7 @@ import {
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
 
+@SkipThrottle()
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}

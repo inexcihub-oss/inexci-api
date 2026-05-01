@@ -2,6 +2,8 @@ import * as bcrypt from 'bcryptjs';
 import { faker } from '@faker-js/faker';
 import { Logger } from '@nestjs/common';
 import { SeedDataSource } from '../typeorm/seed-data-source';
+import * as cidJsonData from '../../utils/cid.json';
+import * as tussJsonData from '../../utils/tuss.json';
 
 const logger = new Logger('Seed');
 
@@ -102,6 +104,24 @@ async function main() {
   logger.log('⏳ Este processo pode levar alguns minutos...\n');
 
   const dataSource = await SeedDataSource.initialize();
+
+  // ========================================
+  // VERIFICAÇÃO DE IDEMPOTÊNCIA
+  // ========================================
+  const existing = await dataSource.query(
+    `SELECT id FROM "user" WHERE email = 'medico@inexci.com' LIMIT 1`,
+  );
+  if (existing.length > 0) {
+    logger.warn(
+      '⚠️  Seed já foi executado anteriormente. Dados encontrados no banco. Abortando para evitar duplicatas.',
+    );
+    logger.warn(
+      '   Se deseja recriar os dados, rode as migrations de reset antes.',
+    );
+    await dataSource.destroy();
+    process.exit(0);
+  }
+
   const hashedPassword = await bcrypt.hash('123456', 10);
 
   // ========================================
@@ -1017,13 +1037,21 @@ async function main() {
       [r[0].id],
     );
     // OPME items
-    await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity) VALUES ($1,'Prótese total de joelho cimentada - tamanho 4','Stryker Triathlon','Stryker do Brasil',1)`,
+    const opme3a = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity) VALUES ($1,'Prótese total de joelho cimentada - tamanho 4','Stryker Triathlon',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity) VALUES ($1,'Dreno de Hemovac 10mm','Portex','BioMed Implantes',2)`,
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opme3a[0].id, supplierIds[1]],
+    );
+    const opme3b = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity) VALUES ($1,'Dreno de Hemovac 10mm','Portex',2) RETURNING id`,
       [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opme3b[0].id, supplierIds[0]],
     );
     // Cotação
     await dataSource.query(
@@ -1121,13 +1149,21 @@ async function main() {
       `INSERT INTO status_update (surgery_request_id, prev_status, new_status) VALUES ($1,4,5)`,
       [r[0].id],
     );
-    await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity, authorized_quantity) VALUES ($1,'Enxerto de veia safena (set)','Biomet','Stryker do Brasil',1,1)`,
+    const opme5a = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Enxerto de veia safena (set)','Biomet',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity, authorized_quantity) VALUES ($1,'Oxigenador de membrana','Sorin Group','BioMed Implantes',1,1)`,
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opme5a[0].id, supplierIds[1]],
+    );
+    const opme5b = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Oxigenador de membrana','Sorin Group',1,1) RETURNING id`,
       [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opme5b[0].id, supplierIds[0]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
@@ -1322,13 +1358,21 @@ async function main() {
       `INSERT INTO status_update (surgery_request_id, prev_status, new_status) VALUES ($1,2,3)`,
       [r[0].id],
     );
-    await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity) VALUES ($1,'Cage intersomático TLIF PEEK','Medtronic','Synthes Johnson & Johnson',1)`,
+    const opme10a = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity) VALUES ($1,'Cage intersomático TLIF PEEK','Medtronic',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity) VALUES ($1,'Parafusos pediculares (kit 4)','Synthes','Synthes Johnson & Johnson',1)`,
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opme10a[0].id, supplierIds[2]],
+    );
+    const opme10b = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity) VALUES ($1,'Parafusos pediculares (kit 4)','Synthes',1) RETURNING id`,
       [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opme10b[0].id, supplierIds[2]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
@@ -1402,17 +1446,29 @@ async function main() {
         `INSERT INTO status_update (surgery_request_id, prev_status, new_status) VALUES ($1,$2,$3)`,
         [r[0].id, p, n],
       );
-    await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Triathlon - tamanho 5','Stryker','Zimmer Biomet Brasil',1,1)`,
+    const opmeC1a = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Triathlon - tamanho 5','Stryker',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity, authorized_quantity) VALUES ($1,'Polia tibial ultracongruente','Stryker','Zimmer Biomet Brasil',1,1)`,
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC1a[0].id, supplierIds[3]],
+    );
+    const opmeC1b = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Polia tibial ultracongruente','Stryker',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity, authorized_quantity) VALUES ($1,'Cimento ósseo com antibiótico 40g','Palacos','DePuy Synthes',2,2)`,
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC1b[0].id, supplierIds[3]],
+    );
+    const opmeC1c = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Cimento ósseo com antibiótico 40g','Palacos',2,2) RETURNING id`,
       [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC1c[0].id, supplierIds[4]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
@@ -1466,13 +1522,21 @@ async function main() {
         `INSERT INTO status_update (surgery_request_id, prev_status, new_status) VALUES ($1,$2,$3)`,
         [r[0].id, p, n],
       );
-    await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity) VALUES ($1,'Prótese total de quadril cimentada - haste 12','DePuy Corail','DePuy Synthes',1)`,
+    const opmeC2a = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity) VALUES ($1,'Prótese total de quadril cimentada - haste 12','DePuy Corail',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity) VALUES ($1,'Cimento ósseo Palacos R 40g','Heraeus','DePuy Synthes',3)`,
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC2a[0].id, supplierIds[4]],
+    );
+    const opmeC2b = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity) VALUES ($1,'Cimento ósseo Palacos R 40g','Heraeus',3) RETURNING id`,
       [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC2b[0].id, supplierIds[4]],
     );
   }
 
@@ -1533,9 +1597,13 @@ async function main() {
         `INSERT INTO status_update (surgery_request_id, prev_status, new_status) VALUES ($1,$2,$3)`,
         [r[0].id, p, n],
       );
-    await dataSource.query(
-      `INSERT INTO opme_item (surgery_request_id, name, brand, distributor, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Persona - tamanho C','Zimmer Biomet','Zimmer Biomet Brasil',1,0)`,
+    const opmeC4a = await dataSource.query(
+      `INSERT INTO opme_item (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Persona - tamanho C','Zimmer Biomet',1,0) RETURNING id`,
       [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_supplier (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC4a[0].id, supplierIds[3]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes, contested_received_value, contested_received_at, contested_receipt_notes)
@@ -1559,107 +1627,114 @@ async function main() {
   logger.log(`  ✅ ${srIds1.length} solicitações criadas para conta 1\n`);
 
   // ========================================
-  // 15. CID (Códigos de Diagnóstico)
+  // 15. CID (Códigos de Diagnóstico) — via cid.json completo
   // ========================================
-  logger.log('🏷️ Criando códigos CID...');
+  logger.log('🏷️ Inserindo tabela CID completa a partir de cid.json...');
 
-  const cidsData = [
-    {
-      code: 'K80.2',
-      description: 'Calculose da vesícula biliar sem colecistite',
-    },
-    {
-      code: 'K40.9',
-      description:
-        'Hérnia inguinal unilateral ou não especificada, sem obstrução ou gangrena',
-    },
-    {
-      code: 'K42.9',
-      description: 'Hérnia umbilical sem obstrução ou gangrena',
-    },
-    {
-      code: 'K35.8',
-      description: 'Apendicite aguda, outra e a não especificada',
-    },
-    { code: 'M17.0', description: 'Gonartrose primária bilateral' },
-    {
-      code: 'M23.2',
-      description: 'Transtorno de menisco devido a ruptura ou lesão antiga',
-    },
-    {
-      code: 'M51.1',
-      description:
-        'Transtornos de discos lombares e de outros discos intervertebrais com radiculopatia',
-    },
-    { code: 'M16.1', description: 'Coxartrose primária unilateral' },
-    { code: 'N20.1', description: 'Calculose do ureter' },
-    { code: 'J34.2', description: 'Desvio do septo nasal' },
-    { code: 'E04.1', description: 'Bócio não-tóxico uninodular' },
-    {
-      code: 'C50.9',
-      description: 'Neoplasia maligna da mama, não especificada',
-    },
-    { code: 'I25.1', description: 'Doença aterosclerótica do coração' },
-    { code: 'K29.7', description: 'Gastrite não especificada' },
-    { code: 'K63.5', description: 'Pólipo do cólon' },
-    { code: 'N80.0', description: 'Endometriose do útero' },
-    { code: 'N40', description: 'Hiperplasia da próstata' },
-    { code: 'H25.9', description: 'Catarata senil não especificada' },
-    { code: 'J34.3', description: 'Hipertrofia dos cornetos nasais' },
-    { code: 'M43.1', description: 'Espondilolistese' },
-    { code: 'S72.0', description: 'Fratura do colo do fêmur' },
-  ];
-
-  const cidIds: string[] = [];
-  for (const c of cidsData) {
-    const r = await dataSource.query(
-      `INSERT INTO cid (code, description) VALUES ($1, $2) RETURNING id`,
-      [c.code, c.description],
+  {
+    interface CidItem {
+      codigo: string;
+      descricao: string;
+    }
+    const cidRows = (cidJsonData as { rows: CidItem[] }).rows;
+    const batchSize = 500;
+    let cidInserted = 0;
+    for (let i = 0; i < cidRows.length; i += batchSize) {
+      const batch = cidRows.slice(i, i + batchSize);
+      const values = batch
+        .map(
+          (item) =>
+            `('${item.codigo.replace(/'/g, "''")}', '${item.descricao.replace(/'/g, "''")}')`,
+        )
+        .join(',\n');
+      await dataSource.query(`
+        INSERT INTO "cid" ("code", "description")
+        VALUES ${values}
+        ON CONFLICT ("code") DO NOTHING;
+      `);
+      cidInserted += batch.length;
+    }
+    logger.log(
+      `  ✅ ${cidInserted} registros CID inseridos (ON CONFLICT DO NOTHING)\n`,
     );
-    cidIds.push(r[0].id);
   }
-  logger.log(`  ✅ ${cidIds.length} códigos CID criados\n`);
 
-  // ========================================
-  // 15b. TUSS (Códigos de Procedimento)
-  // ========================================
-  logger.log('🏷️ Criando códigos TUSS...');
-
-  const tussData = [
-    { code: '31005497', procedure: 'Colecistectomia videolaparoscópica' },
-    { code: '31007260', procedure: 'Herniorrafia inguinal bilateral' },
-    { code: '31007171', procedure: 'Herniorrafia umbilical' },
-    { code: '31005314', procedure: 'Apendicectomia laparoscópica' },
-    { code: '30727014', procedure: 'Artroplastia total do joelho' },
-    { code: '30727073', procedure: 'Artroscopia de joelho com meniscectomia' },
-    { code: '30806011', procedure: 'Discectomia por via posterior' },
-    { code: '30727022', procedure: 'Artroplastia total do quadril' },
-    { code: '31102018', procedure: 'Nefrolitotripsia percutânea' },
-    { code: '30501012', procedure: 'Septoplastia' },
-    { code: '30201039', procedure: 'Tireoidectomia total' },
-    { code: '30401034', procedure: 'Mastectomia radical modificada' },
-    { code: '30904010', procedure: 'Revascularização miocárdica com CEC' },
-    { code: '40202011', procedure: 'Endoscopia digestiva alta com biópsia' },
-    { code: '40202046', procedure: 'Colonoscopia com polipectomia' },
-    { code: '31301010', procedure: 'Histerectomia total laparoscópica' },
-    { code: '31101038', procedure: 'Prostatectomia radical laparoscópica' },
-    {
-      code: '30301017',
-      procedure: 'Facectomia com implante de lente intraocular',
-    },
-    { code: '30501020', procedure: 'Rinoplastia funcional' },
-    { code: '30806038', procedure: 'Artrodese de coluna lombar' },
+  // Buscar IDs dos CIDs usados nos vínculos de solicitação
+  const cidCodesList = [
+    'K80.2',
+    'K42.9',
+    'M17.0',
+    'M23.2',
+    'M51.1',
+    'N20.1',
+    'J34.2',
+    'I25.1',
+    'K29.7',
+    'K63.5',
+    'M43.1',
+    'S72.0',
   ];
+  const cidRows = await dataSource.query(
+    `SELECT id, code FROM cid WHERE code = ANY($1)`,
+    [cidCodesList],
+  );
+  const cidByCode: Record<string, string> = {};
+  for (const row of cidRows) cidByCode[row.code] = row.id;
 
-  const tussIds: string[] = [];
-  for (const t of tussData) {
-    const r = await dataSource.query(
-      `INSERT INTO tuss (code, procedure) VALUES ($1, $2) RETURNING id`,
-      [t.code, t.procedure],
+  // ========================================
+  // 15b. TUSS (Códigos de Procedimento) — via tuss.json completo
+  // ========================================
+  logger.log('🏷️ Inserindo tabela TUSS completa a partir de tuss.json...');
+
+  {
+    interface TussItem {
+      codigo: number;
+      procedimento: string;
+    }
+    const tussRows = (tussJsonData as { rows: TussItem[] }).rows;
+    const batchSize = 500;
+    let tussInserted = 0;
+    for (let i = 0; i < tussRows.length; i += batchSize) {
+      const batch = tussRows.slice(i, i + batchSize);
+      const values = batch
+        .map(
+          (item) =>
+            `('${item.codigo.toString()}', '${item.procedimento.replace(/'/g, "''")}')`,
+        )
+        .join(',\n');
+      await dataSource.query(`
+        INSERT INTO "tuss" ("code", "procedure")
+        VALUES ${values}
+        ON CONFLICT ("code") DO NOTHING;
+      `);
+      tussInserted += batch.length;
+    }
+    logger.log(
+      `  ✅ ${tussInserted} registros TUSS inseridos (ON CONFLICT DO NOTHING)\n`,
     );
-    tussIds.push(r[0].id);
   }
-  logger.log(`  ✅ ${tussIds.length} códigos TUSS criados\n`);
+
+  // Buscar IDs dos TUSS usados nos vínculos de solicitação
+  const tussCodesList = [
+    '31005497',
+    '31007171',
+    '30727014',
+    '30727073',
+    '30806011',
+    '30727022',
+    '31102018',
+    '30501012',
+    '30904010',
+    '40202011',
+    '40202046',
+    '30806038',
+  ];
+  const tussRows = await dataSource.query(
+    `SELECT id, code FROM tuss WHERE code = ANY($1)`,
+    [tussCodesList],
+  );
+  const tussByCode: Record<string, string> = {};
+  for (const row of tussRows) tussByCode[row.code] = row.id;
 
   // ========================================
   // 15c. Vincular CID e TUSS nas solicitações cirúrgicas
@@ -1669,79 +1744,79 @@ async function main() {
   // Conta 2: SR1 (colecistectomia) → CID K80.2, TUSS colecistectomia
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[0], tussIds[0], srIds2[0]],
+    [cidByCode['K80.2'], tussByCode['31005497'], srIds2[0]],
   );
   // SR2 (hérnia umbilical) → CID K42.9
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[2], tussIds[2], srIds2[1]],
+    [cidByCode['K42.9'], tussByCode['31007171'], srIds2[1]],
   );
   // SR3 (ATJ) → CID M17.0
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[4], tussIds[4], srIds2[2]],
+    [cidByCode['M17.0'], tussByCode['30727014'], srIds2[2]],
   );
   // SR4 (colecistectomia) → CID K80.2
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[0], tussIds[0], srIds2[3]],
+    [cidByCode['K80.2'], tussByCode['31005497'], srIds2[3]],
   );
   // SR5 (revascularização) → CID I25.1
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[12], tussIds[12], srIds2[4]],
+    [cidByCode['I25.1'], tussByCode['30904010'], srIds2[4]],
   );
   // SR6 (nefrolitotripsia) → CID N20.1
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[8], tussIds[8], srIds2[5]],
+    [cidByCode['N20.1'], tussByCode['31102018'], srIds2[5]],
   );
   // SR7 (endoscopia) → CID K29.7
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[13], tussIds[13], srIds2[6]],
+    [cidByCode['K29.7'], tussByCode['40202011'], srIds2[6]],
   );
   // SR8 (septoplastia) → CID J34.2
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[9], tussIds[9], srIds2[7]],
+    [cidByCode['J34.2'], tussByCode['30501012'], srIds2[7]],
   );
   // SR9 (colonoscopia) → CID K63.5
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[14], tussIds[14], srIds2[8]],
+    [cidByCode['K63.5'], tussByCode['40202046'], srIds2[8]],
   );
   // SR10 (discectomia) → CID M51.1
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[6], tussIds[6], srIds2[9]],
+    [cidByCode['M51.1'], tussByCode['30806011'], srIds2[9]],
   );
   // SR11 (artrodese) → CID M43.1
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[19], tussIds[19], srIds2[10]],
+    [cidByCode['M43.1'], tussByCode['30806038'], srIds2[10]],
   );
 
   // Conta 1
   // SR C1-1 (ATJ) → CID M17.0
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[4], tussIds[4], srIds1[0]],
+    [cidByCode['M17.0'], tussByCode['30727014'], srIds1[0]],
   );
   // SR C1-2 (ATQ) → CID S72.0
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[20], tussIds[7], srIds1[1]],
+    [cidByCode['S72.0'], tussByCode['30727022'], srIds1[1]],
   );
   // SR C1-3 (artroscopia) → CID M23.2
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[5], tussIds[5], srIds1[2]],
+    [cidByCode['M23.2'], tussByCode['30727073'], srIds1[2]],
   );
   // SR C1-4 (ATJ) → CID M17.0
   await dataSource.query(
     `UPDATE surgery_request SET cid_id = $1, tuss_id = $2 WHERE id = $3`,
-    [cidIds[4], tussIds[4], srIds1[3]],
+    [cidByCode['M17.0'], tussByCode['30727014'], srIds1[3]],
   );
 
   logger.log('  ✅ CID/TUSS vinculados às solicitações\n');
@@ -1807,13 +1882,11 @@ async function main() {
           {
             name: 'Prótese total de joelho cimentada',
             brand: 'Stryker Triathlon',
-            distributor: 'Zimmer Biomet Brasil',
             quantity: 1,
           },
           {
             name: 'Cimento ósseo com antibiótico 40g',
             brand: 'Palacos',
-            distributor: 'DePuy Synthes',
             quantity: 2,
           },
         ],
@@ -1862,7 +1935,6 @@ async function main() {
           {
             name: 'Oxigenador de membrana',
             brand: 'Sorin Group',
-            distributor: 'BioMed Implantes',
             quantity: 1,
           },
         ],
@@ -1894,13 +1966,11 @@ async function main() {
           {
             name: 'Cage intersomático TLIF PEEK',
             brand: 'Medtronic',
-            distributor: 'Synthes Johnson & Johnson',
             quantity: 1,
           },
           {
             name: 'Parafusos pediculares (kit 4)',
             brand: 'Synthes',
-            distributor: 'Synthes Johnson & Johnson',
             quantity: 1,
           },
         ],
@@ -2291,7 +2361,9 @@ async function main() {
   logger.log('📊 Dados criados:');
   logger.log('  • 3 planos de assinatura');
   logger.log('  • 20 procedimentos cirúrgicos');
-  logger.log('  • 21 códigos CID + 20 códigos TUSS');
+  logger.log(
+    '  • Tabela CID completa (cid.json) + Tabela TUSS completa (tuss.json)',
+  );
   logger.log('  • 2 contas independentes (tenant isolation)');
   logger.log('  • 7 usuários');
   logger.log('  • 5 hospitais (3 RJ, 2 SP) com endereços reais');
