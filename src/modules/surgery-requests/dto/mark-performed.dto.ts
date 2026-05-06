@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsOptional } from 'class-validator';
+import { IsDateString } from 'class-validator';
 
 /**
  * POST /surgery-requests/:id/mark-performed
@@ -7,8 +7,4 @@ import { IsBoolean, IsDateString, IsOptional } from 'class-validator';
 export class MarkPerformedDto {
   @IsDateString()
   surgery_performed_at: string;
-
-  @IsOptional()
-  @IsBoolean()
-  notify_patient?: boolean;
 }

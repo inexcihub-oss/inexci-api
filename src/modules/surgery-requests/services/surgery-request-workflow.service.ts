@@ -58,11 +58,7 @@ export class SurgeryRequestWorkflowService {
 
   // ── Autorização ────────────────────────────────────────────────────────────
 
-  acceptAuthorization(
-    id: string,
-    dto: AcceptAuthorizationDto,
-    userId: string,
-  ) {
+  acceptAuthorization(id: string, dto: AcceptAuthorizationDto, userId: string) {
     return this.authorizationHandler.acceptAuthorization(id, dto, userId);
   }
 
@@ -74,10 +70,7 @@ export class SurgeryRequestWorkflowService {
     return this.authorizationHandler.contestAuthorization(id, dto, userId);
   }
 
-  generateContestAuthorizationPdf(
-    id: string,
-    userId: string,
-  ): Promise<Buffer> {
+  generateContestAuthorizationPdf(id: string, userId: string): Promise<Buffer> {
     return this.authorizationHandler.generateContestAuthorizationPdf(
       id,
       userId,
@@ -90,11 +83,7 @@ export class SurgeryRequestWorkflowService {
     return this.schedulingHandler.confirmDate(id, dto, userId);
   }
 
-  updateDateOptions(
-    id: string,
-    dto: UpdateDateOptionsDto,
-    userId: string,
-  ) {
+  updateDateOptions(id: string, dto: UpdateDateOptionsDto, userId: string) {
     return this.schedulingHandler.updateDateOptions(id, dto, userId);
   }
 
@@ -108,11 +97,7 @@ export class SurgeryRequestWorkflowService {
     return this.executionHandler.markPerformed(id, dto, userId);
   }
 
-  closeSurgeryRequest(
-    id: string,
-    dto: CloseSurgeryRequestDto,
-    userId: string,
-  ) {
+  closeSurgeryRequest(id: string, dto: CloseSurgeryRequestDto, userId: string) {
     return this.executionHandler.closeSurgeryRequest(id, dto, userId);
   }
 
@@ -138,7 +123,11 @@ export class SurgeryRequestWorkflowService {
 
   notify(
     id: string,
-    dto: { template: string; to?: string },
+    dto: {
+      template: string;
+      to?: string;
+      channels?: { email?: boolean; whatsapp?: boolean };
+    },
     userId: string,
   ) {
     return this.notificationService.notify(id, dto, userId);

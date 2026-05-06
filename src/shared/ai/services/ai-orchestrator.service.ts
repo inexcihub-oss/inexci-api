@@ -44,7 +44,10 @@ export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
   private readonly userCache = new SimpleCache<any>();
   private readonly doctorIdsCache = new SimpleCache<string[]>();
-  private readonly rateLimitCounts = new Map<string, { count: number; resetAt: number }>();
+  private readonly rateLimitCounts = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
 
   constructor(
     @InjectQueue('ai-messages') private readonly aiQueue: Queue,
@@ -78,7 +81,9 @@ export class AiOrchestratorService {
     mediaUrl: string | null;
   }): Promise<void> {
     const phone = data.from.replace('whatsapp:', '');
-    this.logger.log(`Processando mensagem de ${phone}: "${data.body.slice(0, 50)}"`);
+    this.logger.log(
+      `Processando mensagem de ${phone}: "${data.body.slice(0, 50)}"`,
+    );
 
     if (!this.checkRateLimit(phone)) {
       this.logger.warn(`Rate limit excedido para ${phone}`);
@@ -91,7 +96,8 @@ export class AiOrchestratorService {
 
     try {
       const cachedUser = this.userCache.get(phone);
-      const user = cachedUser ?? await this.userRepository.findOneByPhone(phone);
+      const user =
+        cachedUser ?? (await this.userRepository.findOneByPhone(phone));
       if (user && !cachedUser) this.userCache.set(phone, user, 10 * 60 * 1000); // 10 min
 
       const userId = user?.id || null;
@@ -103,13 +109,13 @@ export class AiOrchestratorService {
 
       const cachedDoctorIds = this.doctorIdsCache.get(userId);
       const accessibleDoctorIds =
-        cachedDoctorIds ?? await this.accessControlService.getAccessibleDoctorIds(userId);
-      if (!cachedDoctorIds) this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
+        cachedDoctorIds ??
+        (await this.accessControlService.getAccessibleDoctorIds(userId));
+      if (!cachedDoctorIds)
+        this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
 
-      const conversation = await this.conversationService.getOrCreateConversation(
-        phone,
-        userId,
-      );
+      const conversation =
+        await this.conversationService.getOrCreateConversation(phone, userId);
 
       await this.conversationService.appendMessage(
         conversation.id,
@@ -121,10 +127,8 @@ export class AiOrchestratorService {
       const ragResults = await this.ragService.search(data.body, 3, 0.65);
       const ragContext = await this.ragService.formatContext(ragResults);
 
-      const updatedConv = await this.conversationService.getOrCreateConversation(
-        phone,
-        userId,
-      );
+      const updatedConv =
+        await this.conversationService.getOrCreateConversation(phone, userId);
       const messages = this.conversationService.buildMessagesForOpenAI(
         updatedConv,
         ragContext,
@@ -132,7 +136,10 @@ export class AiOrchestratorService {
 
       const tools = this.toolRegistry.getToolDefinitions();
 
-      const completion = await this.openaiService.chatCompletion({ messages, tools });
+      const completion = await this.openaiService.chatCompletion({
+        messages,
+        tools,
+      });
       let responseMessage = completion.choices[0].message;
 
       const toolContext: ToolContext = {
@@ -160,7 +167,10 @@ export class AiOrchestratorService {
           });
         }
 
-        const followUp = await this.openaiService.chatCompletion({ messages, tools });
+        const followUp = await this.openaiService.chatCompletion({
+          messages,
+          tools,
+        });
         responseMessage = followUp.choices[0].message;
       }
 
@@ -182,7 +192,9 @@ export class AiOrchestratorService {
 
       await this.whatsappService.sendMessage(phone, finalText);
 
-      this.logger.log(`Resposta enviada para ${phone} (${finalText.length} chars)`);
+      this.logger.log(
+        `Resposta enviada para ${phone} (${finalText.length} chars)`,
+      );
     } catch (error: any) {
       this.logger.error(
         `Erro ao processar mensagem de ${phone}: ${error.message}`,
@@ -208,7 +220,10 @@ export class AiOrchestratorService {
     return entry.count <= maxPerHour;
   }
 
-  private async handleUnknownUser(phone: string, message: string): Promise<void> {
+  private async handleUnknownUser(
+    phone: string,
+    message: string,
+  ): Promise<void> {
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       {

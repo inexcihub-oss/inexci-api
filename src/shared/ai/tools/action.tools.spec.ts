@@ -44,11 +44,17 @@ describe('ActionTools', () => {
 
   describe('advance_surgery_request', () => {
     it('deve mostrar preview sem confirm', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({ ...mockRequest, status: 1 });
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        ...mockRequest,
+        status: 1,
+      });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
 
       const tool = getTool('advance_surgery_request');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Pendente');
       expect(result).toContain('Enviada');
@@ -56,7 +62,10 @@ describe('ActionTools', () => {
     });
 
     it('deve avançar de Pendente para Enviada com confirm=true', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({ ...mockRequest, status: 1 });
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        ...mockRequest,
+        status: 1,
+      });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
       mockWorkflowService.sendRequest.mockResolvedValue(undefined);
 
@@ -74,7 +83,10 @@ describe('ActionTools', () => {
     });
 
     it('deve bloquear se houver pendências', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({ ...mockRequest, status: 1 });
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        ...mockRequest,
+        status: 1,
+      });
       mockPendencyValidator.canAdvance.mockResolvedValue(false);
 
       const tool = getTool('advance_surgery_request');
@@ -93,7 +105,10 @@ describe('ActionTools', () => {
       });
 
       const tool = getTool('advance_surgery_request');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('permissão');
     });
@@ -123,7 +138,11 @@ describe('ActionTools', () => {
         baseContext,
       );
 
-      expect(mockMutationService.setHasOpme).toHaveBeenCalledWith('req-1', true, 'user-1');
+      expect(mockMutationService.setHasOpme).toHaveBeenCalledWith(
+        'req-1',
+        true,
+        'user-1',
+      );
       expect(mockActivityRepo.create).toHaveBeenCalled();
       expect(result).toContain('✅');
     });
@@ -149,13 +168,19 @@ describe('ActionTools', () => {
 
       const tool = getTool('close_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', reason: 'Paciente desistiu', confirm: true },
+        {
+          surgery_request_id: 'req-1',
+          reason: 'Paciente desistiu',
+          confirm: true,
+        },
         baseContext,
       );
 
       expect(mockWorkflowService.closeSurgeryRequest).toHaveBeenCalled();
       expect(mockActivityRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ content: expect.stringContaining('Paciente desistiu') }),
+        expect.objectContaining({
+          content: expect.stringContaining('Paciente desistiu'),
+        }),
       );
       expect(result).toContain('✅');
     });
@@ -210,7 +235,10 @@ describe('ActionTools', () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
 
       const tool = getTool('update_surgery_request_data');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Nenhuma alteração');
     });

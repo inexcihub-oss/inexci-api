@@ -5,9 +5,7 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 
-function makeRequest(
-  overrides: Partial<SurgeryRequest> = {},
-): SurgeryRequest {
+function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
   return {
     id: 'test-id',
     status: SurgeryRequestStatus.PENDING,
@@ -36,7 +34,10 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('should block when status is not PENDING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.SENT);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.SENT,
+      );
       expect(pendencies).toContain(
         'A solicitação precisa estar com status Pendente para ser enviada.',
       );
@@ -44,19 +45,28 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('should block when patient_id is missing', () => {
       const req = makeRequest({ patient_id: null });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.SENT);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.SENT,
+      );
       expect(pendencies).toContain('Paciente não informado.');
     });
 
     it('should block when hospital_id is missing', () => {
       const req = makeRequest({ hospital_id: null });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.SENT);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.SENT,
+      );
       expect(pendencies).toContain('Hospital não informado.');
     });
 
     it('should block when tuss_items is empty', () => {
       const req = makeRequest({ tuss_items: [] as any });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.SENT);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.SENT,
+      );
       expect(pendencies).toContain('Nenhum procedimento TUSS informado.');
     });
 
@@ -66,7 +76,10 @@ describe('SurgeryRequestStateMachine', () => {
         hospital_id: null,
         tuss_items: [] as any,
       });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.SENT);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.SENT,
+      );
       expect(pendencies).toHaveLength(3);
     });
   });
@@ -76,12 +89,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('SENT → IN_ANALYSIS', () => {
     it('should allow transition from SENT', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SENT });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(
+        true,
+      );
     });
 
     it('should block from wrong status', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.PENDING });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(
+        false,
+      );
     });
   });
 
@@ -90,12 +107,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('IN_ANALYSIS → IN_SCHEDULING', () => {
     it('should allow transition from IN_ANALYSIS', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(
+        true,
+      );
     });
 
     it('should block from wrong status', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SENT });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(
+        false,
+      );
     });
   });
 
@@ -104,7 +125,9 @@ describe('SurgeryRequestStateMachine', () => {
   describe('IN_SCHEDULING → SCHEDULED', () => {
     it('should allow transition from IN_SCHEDULING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.SCHEDULED)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.SCHEDULED)).toBe(
+        true,
+      );
     });
   });
 
@@ -113,7 +136,9 @@ describe('SurgeryRequestStateMachine', () => {
   describe('SCHEDULED → PERFORMED', () => {
     it('should allow transition from SCHEDULED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SCHEDULED });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.PERFORMED)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.PERFORMED)).toBe(
+        true,
+      );
     });
   });
 
@@ -136,7 +161,10 @@ describe('SurgeryRequestStateMachine', () => {
         status: SurgeryRequestStatus.PERFORMED,
         billing: { invoice_sent_at: new Date() } as any,
       });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.INVOICED);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.INVOICED,
+      );
       expect(pendencies).toContain('Valor da fatura não informado.');
     });
 
@@ -145,7 +173,10 @@ describe('SurgeryRequestStateMachine', () => {
         status: SurgeryRequestStatus.PERFORMED,
         billing: { invoice_value: 1000 } as any,
       });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.INVOICED);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.INVOICED,
+      );
       expect(pendencies).toContain('Data de envio da fatura não informada.');
     });
 
@@ -154,7 +185,9 @@ describe('SurgeryRequestStateMachine', () => {
         status: SurgeryRequestStatus.SCHEDULED,
         billing: { invoice_value: 1000, invoice_sent_at: new Date() } as any,
       });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.INVOICED)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.INVOICED)).toBe(
+        false,
+      );
     });
   });
 
@@ -169,7 +202,9 @@ describe('SurgeryRequestStateMachine', () => {
           received_at: new Date(),
         } as any,
       });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(
+        true,
+      );
     });
 
     it('should block without received_value', () => {
@@ -177,7 +212,10 @@ describe('SurgeryRequestStateMachine', () => {
         status: SurgeryRequestStatus.INVOICED,
         billing: { received_at: new Date() } as any,
       });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.FINALIZED);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.FINALIZED,
+      );
       expect(pendencies).toContain('Valor recebido não informado.');
     });
 
@@ -186,7 +224,10 @@ describe('SurgeryRequestStateMachine', () => {
         status: SurgeryRequestStatus.INVOICED,
         billing: { received_value: 900 } as any,
       });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.FINALIZED);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.FINALIZED,
+      );
       expect(pendencies).toContain('Data de recebimento não informada.');
     });
   });
@@ -211,13 +252,19 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('should block closing from FINALIZED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.FINALIZED });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.CLOSED);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.CLOSED,
+      );
       expect(pendencies[0]).toContain('Finalizada');
     });
 
     it('should block closing from CLOSED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.CLOSED });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.CLOSED);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.CLOSED,
+      );
       expect(pendencies[0]).toContain('Encerrada');
     });
   });

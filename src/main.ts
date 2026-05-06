@@ -3,19 +3,13 @@ import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import {
-  ClassSerializerInterceptor,
-  Logger,
-  ValidationPipe,
-} from '@nestjs/common';
+import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 
 dayjs.extend(customParse);
-
-const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   // NOTA: As migrations NÃO são executadas automaticamente.

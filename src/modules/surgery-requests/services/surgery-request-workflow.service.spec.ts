@@ -176,7 +176,10 @@ describe('SurgeryRequestWorkflowService', () => {
           useValue: pdfAssemblyService,
         },
         { provide: SurgeryRequestBillingService, useValue: billingService },
-        { provide: StorageService, useValue: { getSignedUrl: jest.fn(), delete: jest.fn() } },
+        {
+          provide: StorageService,
+          useValue: { getSignedUrl: jest.fn(), delete: jest.fn() },
+        },
       ],
     }).compile();
 

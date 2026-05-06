@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Post,
-  Body,
-  Headers,
-  HttpCode,
-  Req,
-} from '@nestjs/common';
+import { Controller, Post, Body, Headers, HttpCode, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { Public } from '../../shared/decorator/is-public.decorator';
 import { WebhookService } from './webhook.service';

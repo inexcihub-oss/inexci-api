@@ -8,12 +8,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiBearerAuth,
-  ApiQuery,
-} from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Roles } from 'src/shared/decorators/roles.decorator';
 import { UserRole } from 'src/database/entities/user.entity';
 import {

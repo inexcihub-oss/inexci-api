@@ -10,8 +10,6 @@ import {
   PendencyConfig,
 } from 'src/config/pendencies.config';
 
-const PREDOC_FOLDER_PREFIX = 'documents/';
-
 export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
 }
@@ -113,10 +111,6 @@ export class PendencyValidatorService {
     const docs = request.documents ?? [];
     const procedures = request.tuss_items ?? [];
     const opmeItems = request.opme_items ?? [];
-    const hasDoc = (k: string) => docs.some((d) => d.key === k);
-    /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
-    const hasPreDoc = (k: string) =>
-      docs.some((d) => d.key === k && d.uri?.startsWith(PREDOC_FOLDER_PREFIX));
 
     switch (key) {
       case 'patient_data':
@@ -228,12 +222,6 @@ export class PendencyValidatorService {
     const docs = request.documents ?? [];
     const procedures = request.tuss_items ?? [];
     const opmeItems = request.opme_items ?? [];
-
-    /** Verifica se existe um documento pelo campo `key` (campo correto no backend) */
-    const hasDoc = (key: string) => docs.some((d) => d.key === key);
-    /** Somente documentos na pasta documents/ (pré-cirúrgicos) */
-    const hasPreDoc = (k: string) =>
-      docs.some((d) => d.key === k && d.uri?.startsWith(PREDOC_FOLDER_PREFIX));
 
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────
@@ -435,7 +423,9 @@ export class PendencyValidatorService {
 
   async getBatchSummary(
     rawIds: string,
-  ): Promise<Record<string, { pending: number; total: number; canAdvance: boolean }>> {
+  ): Promise<
+    Record<string, { pending: number; total: number; canAdvance: boolean }>
+  > {
     const ids = rawIds
       .split(',')
       .map((id) => id.trim())
@@ -445,7 +435,12 @@ export class PendencyValidatorService {
       ids.map(async (id) => {
         try {
           const result = await this.getSummary(id);
-          return { id, pending: result.pending, total: result.total, canAdvance: result.canAdvance };
+          return {
+            id,
+            pending: result.pending,
+            total: result.total,
+            canAdvance: result.canAdvance,
+          };
         } catch {
           return { id, pending: 0, total: 0, canAdvance: true };
         }
@@ -457,7 +452,10 @@ export class PendencyValidatorService {
         acc[id] = summary;
         return acc;
       },
-      {} as Record<string, { pending: number; total: number; canAdvance: boolean }>,
+      {} as Record<
+        string,
+        { pending: number; total: number; canAdvance: boolean }
+      >,
     );
   }
 

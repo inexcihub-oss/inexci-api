@@ -64,13 +64,11 @@ describe('NotificationsService', () => {
 
   beforeEach(async () => {
     mockNotificationRepository = {
-      create: jest
-        .fn()
-        .mockResolvedValue({
-          id: 'notif-1',
-          user_id: 'user-1',
-          type: NotificationType.INFO,
-        }),
+      create: jest.fn().mockResolvedValue({
+        id: 'notif-1',
+        user_id: 'user-1',
+        type: NotificationType.INFO,
+      }),
       createBulk: jest
         .fn()
         .mockImplementation((items) =>
@@ -199,8 +197,14 @@ describe('NotificationsService', () => {
       });
 
       expect(mockGateway.emitToUser).toHaveBeenCalledTimes(2);
-      expect(mockGateway.emitToUser).toHaveBeenCalledWith('user-a', expect.objectContaining({ id: 'notif-0', title: 'Bulk' }));
-      expect(mockGateway.emitToUser).toHaveBeenCalledWith('user-b', expect.objectContaining({ id: 'notif-1', title: 'Bulk' }));
+      expect(mockGateway.emitToUser).toHaveBeenCalledWith(
+        'user-a',
+        expect.objectContaining({ id: 'notif-0', title: 'Bulk' }),
+      );
+      expect(mockGateway.emitToUser).toHaveBeenCalledWith(
+        'user-b',
+        expect.objectContaining({ id: 'notif-1', title: 'Bulk' }),
+      );
     });
   });
 

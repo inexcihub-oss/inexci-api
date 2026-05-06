@@ -32,7 +32,6 @@ import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-r
 import { ReportsModule } from './modules/reports/reports.module';
 import { CidModule } from './modules/surgery-requests/cid/cid.module';
 import { HealthPlansModule } from './modules/health-plans/health-plans.module';
-import { CronService } from './shared/cron/cron.service';
 import { CronModule } from './shared/cron/cron.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { NotificationsHealthModule } from './modules/notifications/health/notifications-health.module';

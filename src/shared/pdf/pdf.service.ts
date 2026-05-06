@@ -258,7 +258,10 @@ export class PdfService {
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
-      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+      customHeader = {
+        ...customHeader,
+        logoUrl: dataUri ?? customHeader.logoUrl,
+      };
     }
 
     const templateData = {
@@ -479,7 +482,10 @@ export class PdfService {
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
-      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+      customHeader = {
+        ...customHeader,
+        logoUrl: dataUri ?? customHeader.logoUrl,
+      };
     }
 
     const templateData = {
@@ -489,7 +495,10 @@ export class PdfService {
       customHeader: customHeader || undefined,
     };
 
-    const html = await this.renderTemplate('surgery-request-laudo', templateData);
+    const html = await this.renderTemplate(
+      'surgery-request-laudo',
+      templateData,
+    );
     return this.htmlToPdf(html, {
       format: 'A4',
       margin: { top: '32px', right: '32px', bottom: '32px', left: '32px' },
@@ -505,7 +514,10 @@ export class PdfService {
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
-      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+      customHeader = {
+        ...customHeader,
+        logoUrl: dataUri ?? customHeader.logoUrl,
+      };
     }
 
     const templateData = { ...data, customHeader: customHeader || undefined };
@@ -547,7 +559,10 @@ export class PdfService {
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
-      customHeader = { ...customHeader, logoUrl: dataUri ?? customHeader.logoUrl };
+      customHeader = {
+        ...customHeader,
+        logoUrl: dataUri ?? customHeader.logoUrl,
+      };
     }
 
     const templateData = {
@@ -557,7 +572,10 @@ export class PdfService {
       customHeader: customHeader || undefined,
     };
 
-    const html = await this.renderTemplate('contest-authorization', templateData);
+    const html = await this.renderTemplate(
+      'contest-authorization',
+      templateData,
+    );
     return this.htmlToPdf(html, {
       format: 'A4',
       margin: { top: '12mm', right: '12mm', bottom: '16mm', left: '12mm' },

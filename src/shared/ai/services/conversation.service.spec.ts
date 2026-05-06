@@ -51,7 +51,10 @@ describe('ConversationService', () => {
     } as unknown as WhatsappConversation;
     mockConversationRepo.create.mockResolvedValue(created);
 
-    const result = await service.getOrCreateConversation('+5511999999999', 'user-1');
+    const result = await service.getOrCreateConversation(
+      '+5511999999999',
+      'user-1',
+    );
 
     expect(mockConversationRepo.create).toHaveBeenCalledTimes(1);
     expect(result.id).toBe('conv-1');
@@ -68,7 +71,10 @@ describe('ConversationService', () => {
     } as unknown as WhatsappConversation;
     mockConversationRepo.findActiveByPhone.mockResolvedValue(existing);
 
-    const result = await service.getOrCreateConversation('+5511999999999', 'user-1');
+    const result = await service.getOrCreateConversation(
+      '+5511999999999',
+      'user-1',
+    );
 
     expect(mockConversationRepo.create).not.toHaveBeenCalled();
     expect(result.id).toBe('conv-existing');
@@ -83,13 +89,23 @@ describe('ConversationService', () => {
       active: true,
     } as unknown as WhatsappConversation;
     mockConversationRepo.findActiveByPhone.mockResolvedValue(expired);
-    mockConversationRepo.deactivateOldConversations.mockResolvedValue(undefined);
-    const newConv = { id: 'conv-new', messages_history: [] } as unknown as WhatsappConversation;
+    mockConversationRepo.deactivateOldConversations.mockResolvedValue(
+      undefined,
+    );
+    const newConv = {
+      id: 'conv-new',
+      messages_history: [],
+    } as unknown as WhatsappConversation;
     mockConversationRepo.create.mockResolvedValue(newConv);
 
-    const result = await service.getOrCreateConversation('+5511999999999', 'user-1');
+    const result = await service.getOrCreateConversation(
+      '+5511999999999',
+      'user-1',
+    );
 
-    expect(mockConversationRepo.deactivateOldConversations).toHaveBeenCalledTimes(1);
+    expect(
+      mockConversationRepo.deactivateOldConversations,
+    ).toHaveBeenCalledTimes(1);
     expect(mockConversationRepo.create).toHaveBeenCalledTimes(1);
     expect(result.id).toBe('conv-new');
   });
@@ -108,7 +124,11 @@ describe('ConversationService', () => {
     const messages = service.buildMessagesForOpenAI(conv);
 
     expect(messages[0].role).toBe('system');
-    expect(messages.some((m) => m.role === 'user' && m.content === 'Olá')).toBe(true);
-    expect(messages.some((m) => m.role === 'assistant' && m.content === 'Oi!')).toBe(true);
+    expect(messages.some((m) => m.role === 'user' && m.content === 'Olá')).toBe(
+      true,
+    );
+    expect(
+      messages.some((m) => m.role === 'assistant' && m.content === 'Oi!'),
+    ).toBe(true);
   });
 });

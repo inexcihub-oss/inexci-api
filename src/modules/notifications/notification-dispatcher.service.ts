@@ -39,7 +39,6 @@ export class NotificationDispatcherService {
     const { userId } = dto;
 
     // 1. Criar registro in-app
-    let inAppCreated = false;
     try {
       const settings = await this.getSettings(userId);
       const typeEnabled = this.isTypeEnabled(settings, dto.type);
@@ -62,7 +61,6 @@ export class NotificationDispatcherService {
           metadata: notification.metadata,
           created_at: notification.created_at,
         });
-        inAppCreated = true;
       }
     } catch (err: any) {
       this.logger.warn(

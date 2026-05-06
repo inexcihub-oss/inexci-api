@@ -61,7 +61,7 @@ export class UploadService {
       }
 
       // Gerar URL assinada (1h) para acesso ao bucket privado
-      const { data: signedData, error: signedError } =
+      const { data: signedData, error: _signedError } =
         await this.supabase.storage
           .from(this.bucket)
           .createSignedUrl(data.path, 3600);

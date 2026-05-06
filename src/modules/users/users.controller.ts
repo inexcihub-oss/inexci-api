@@ -130,7 +130,9 @@ export class UsersController {
   // ============ CABEÇALHO DE DOCUMENTOS ============
 
   @Get('me/header')
-  @ApiOperation({ summary: 'Obter cabeçalho personalizado do médico autenticado' })
+  @ApiOperation({
+    summary: 'Obter cabeçalho personalizado do médico autenticado',
+  })
   async getMyHeader(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.getMyHeader(user.userId);
   }

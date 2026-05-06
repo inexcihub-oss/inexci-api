@@ -47,7 +47,8 @@ export function buildSurgeryRequestTools(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Você precisa estar cadastrado para consultar solicitações.';
+      if (!context.userId)
+        return 'Você precisa estar cadastrado para consultar solicitações.';
 
       const { identifier } = args as { identifier: string };
       let request = null;
@@ -127,7 +128,8 @@ export function buildSurgeryRequestTools(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Você precisa estar cadastrado para consultar solicitações.';
+      if (!context.userId)
+        return 'Você precisa estar cadastrado para consultar solicitações.';
 
       const STATUS_MAP: Record<string, number> = {
         pendente: 1,
@@ -142,7 +144,9 @@ export function buildSurgeryRequestTools(
       };
 
       const limit = Math.min((args.limit as number) || 5, 10);
-      const statusNum = args.status ? STATUS_MAP[String(args.status).toLowerCase()] : undefined;
+      const statusNum = args.status
+        ? STATUS_MAP[String(args.status).toLowerCase()]
+        : undefined;
 
       if (!context.accessibleDoctorIds.length) {
         return 'Nenhum médico acessível encontrado.';
@@ -173,7 +177,8 @@ export function buildSurgeryRequestTools(
       type: 'function',
       function: {
         name: 'get_documents',
-        description: 'Lista os documentos anexados a uma solicitação cirúrgica.',
+        description:
+          'Lista os documentos anexados a uma solicitação cirúrgica.',
         parameters: {
           type: 'object',
           properties: {
@@ -241,7 +246,8 @@ export function buildSurgeryRequestTools(
       }
 
       const items = (request as any).opme_items || [];
-      if (!items.length) return 'Nenhum item OPME cadastrado para essa solicitação.';
+      if (!items.length)
+        return 'Nenhum item OPME cadastrado para essa solicitação.';
 
       const lines = items.map(
         (i: any) =>
@@ -251,5 +257,10 @@ export function buildSurgeryRequestTools(
     },
   };
 
-  return [getSurgeryRequestStatus, listSurgeryRequests, getDocuments, getOpmeItems];
+  return [
+    getSurgeryRequestStatus,
+    listSurgeryRequests,
+    getDocuments,
+    getOpmeItems,
+  ];
 }

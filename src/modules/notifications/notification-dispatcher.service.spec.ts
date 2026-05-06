@@ -129,7 +129,9 @@ describe('NotificationDispatcherService', () => {
   });
 
   it('falha em e-mail não bloqueia WhatsApp (6.6.1)', async () => {
-    mockMailService.sendGenericNotification.mockRejectedValueOnce(new Error('SMTP down'));
+    mockMailService.sendGenericNotification.mockRejectedValueOnce(
+      new Error('SMTP down'),
+    );
 
     await service.dispatch({
       userId: 'user-1',

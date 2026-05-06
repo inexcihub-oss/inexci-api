@@ -9,7 +9,9 @@ describe('AccessControlService', () => {
   let service: AccessControlService;
   let userRepository: jest.Mocked<Partial<UserRepository>>;
   let doctorProfileRepository: jest.Mocked<Partial<DoctorProfileRepository>>;
-  let userDoctorAccessRepository: jest.Mocked<Partial<UserDoctorAccessRepository>>;
+  let userDoctorAccessRepository: jest.Mocked<
+    Partial<UserDoctorAccessRepository>
+  >;
 
   beforeEach(async () => {
     userRepository = {
@@ -29,7 +31,10 @@ describe('AccessControlService', () => {
         AccessControlService,
         { provide: UserRepository, useValue: userRepository },
         { provide: DoctorProfileRepository, useValue: doctorProfileRepository },
-        { provide: UserDoctorAccessRepository, useValue: userDoctorAccessRepository },
+        {
+          provide: UserDoctorAccessRepository,
+          useValue: userDoctorAccessRepository,
+        },
       ],
     }).compile();
 
@@ -45,7 +50,9 @@ describe('AccessControlService', () => {
       const result = await service.getAccessibleDoctorIds('unknown-id');
 
       expect(result).toEqual([]);
-      expect(userRepository.findOneWithProfile).toHaveBeenCalledWith({ id: 'unknown-id' });
+      expect(userRepository.findOneWithProfile).toHaveBeenCalledWith({
+        id: 'unknown-id',
+      });
     });
 
     it('should return all doctor IDs for ADMIN user', async () => {
@@ -64,7 +71,9 @@ describe('AccessControlService', () => {
       const result = await service.getAccessibleDoctorIds('admin-id');
 
       expect(result).toEqual(['doc-1', 'doc-2', 'doc-3']);
-      expect(userRepository.findDoctorsByAccountId).toHaveBeenCalledWith('account-1');
+      expect(userRepository.findDoctorsByAccountId).toHaveBeenCalledWith(
+        'account-1',
+      );
     });
 
     it('should include own user ID when user has doctor_profile', async () => {
@@ -145,7 +154,9 @@ describe('AccessControlService', () => {
       const result = await service.getAvailableDoctorsForCreation('admin-id');
 
       expect(result).toEqual(doctors);
-      expect(userRepository.findDoctorsByAccountId).toHaveBeenCalledWith('account-1');
+      expect(userRepository.findDoctorsByAccountId).toHaveBeenCalledWith(
+        'account-1',
+      );
     });
 
     it('should include self for non-admin doctor', async () => {

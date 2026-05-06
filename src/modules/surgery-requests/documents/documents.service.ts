@@ -51,7 +51,8 @@ export class DocumentsService {
     const document = await this.documentRepository.findOneSimple({
       id: data.id,
     });
-    if (!document) throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
+    if (!document)
+      throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
 
     return await executeInTransaction(
       this.dataSource,

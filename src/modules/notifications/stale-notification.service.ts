@@ -97,7 +97,7 @@ export class StaleNotificationService {
   ): Promise<void> {
     const patientName = request.patient?.name ?? 'Paciente';
     const statusLabel = getStatusLabel(request.status);
-    const createdById = request.created_by_id;
+    const _createdById = request.created_by_id;
 
     // Get recipients
     const recipientIds = await this.getStaleRecipients(request, tier);

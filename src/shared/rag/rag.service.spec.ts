@@ -33,8 +33,20 @@ describe('RagService', () => {
     mockEmbeddingService.generate.mockResolvedValue(embedding);
     mockEmbeddingService.toSqlVector.mockReturnValue('[0.1,...]');
     mockDataSource.query.mockResolvedValue([
-      { id: '1', title: 'FAQ 1', content: 'Resposta 1', category: 'faq', score: 0.85 },
-      { id: '2', title: 'FAQ 2', content: 'Resposta 2', category: 'faq', score: 0.72 },
+      {
+        id: '1',
+        title: 'FAQ 1',
+        content: 'Resposta 1',
+        category: 'faq',
+        score: 0.85,
+      },
+      {
+        id: '2',
+        title: 'FAQ 2',
+        content: 'Resposta 2',
+        category: 'faq',
+        score: 0.72,
+      },
     ]);
 
     const results = await service.search('Como funciona?');
@@ -63,8 +75,20 @@ describe('RagService', () => {
 
   it('deve formatar contexto corretamente', async () => {
     const results = [
-      { id: '1', title: 'T1', content: 'Conteúdo A', category: 'faq', score: 0.9 },
-      { id: '2', title: 'T2', content: 'Conteúdo B', category: 'workflow', score: 0.8 },
+      {
+        id: '1',
+        title: 'T1',
+        content: 'Conteúdo A',
+        category: 'faq',
+        score: 0.9,
+      },
+      {
+        id: '2',
+        title: 'T2',
+        content: 'Conteúdo B',
+        category: 'workflow',
+        score: 0.8,
+      },
     ];
 
     const context = await service.formatContext(results);

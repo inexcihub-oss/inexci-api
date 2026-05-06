@@ -185,27 +185,6 @@ export class MailService {
     return this.send('payment-contested', to, subject, context);
   }
 
-  /**
-   * Notificação de atualização de status ao paciente.
-   */
-  sendStatusUpdate(
-    to: string,
-    context: {
-      patientName: string;
-      requestId: string;
-      oldStatus: string;
-      newStatus: string;
-      changedAt: string;
-    },
-  ) {
-    return this.send(
-      'status-update',
-      to,
-      'Atualização de Status da Solicitação',
-      context,
-    );
-  }
-
   sendStatusChangeStakeholder(
     to: string,
     context: {
@@ -356,8 +335,16 @@ export class MailService {
   /**
    * Recuperação de senha — código de verificação.
    */
-  sendPasswordRecovery(to: string, context: { userName: string; validationCode: string }) {
-    return this.send('password-recovery', to, 'Inexci — Recuperação de Senha', context);
+  sendPasswordRecovery(
+    to: string,
+    context: { userName: string; validationCode: string },
+  ) {
+    return this.send(
+      'password-recovery',
+      to,
+      'Inexci — Recuperação de Senha',
+      context,
+    );
   }
 
   /**

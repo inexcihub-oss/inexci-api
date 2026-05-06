@@ -22,7 +22,11 @@ export class ToolExecutorService {
         this.logger.log(
           `Executando tool: ${fn.name} args=${JSON.stringify(args)}`,
         );
-        const output = await this.toolRegistry.executeTool(fn.name, args, context);
+        const output = await this.toolRegistry.executeTool(
+          fn.name,
+          args,
+          context,
+        );
         results.push({ toolCallId: call.id, output });
       } catch (error: any) {
         this.logger.error(`Erro na tool ${fn.name}: ${error.message}`);

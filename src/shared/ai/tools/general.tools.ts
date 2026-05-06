@@ -7,9 +7,7 @@ function maskCpf(cpf: string): string {
   return `***.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
 }
 
-export function buildGeneralTools(
-  patientRepo: PatientRepository,
-): AiTool[] {
+export function buildGeneralTools(patientRepo: PatientRepository): AiTool[] {
   const getPatientInfo: AiTool = {
     name: 'get_patient_info',
     definition: {

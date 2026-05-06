@@ -26,7 +26,9 @@ describe('NotificationsGateway', () => {
 
     gateway = module.get<NotificationsGateway>(NotificationsGateway);
     // Simula o servidor Socket.IO
-    (gateway as any).server = { to: jest.fn().mockReturnValue({ emit: jest.fn() }) };
+    (gateway as any).server = {
+      to: jest.fn().mockReturnValue({ emit: jest.fn() }),
+    };
   });
 
   it('deve estar definido', () => {
@@ -56,7 +58,9 @@ describe('NotificationsGateway', () => {
 
     it('desconecta cliente com token inválido', async () => {
       const client = makeSocket('bad-token');
-      jwtService.verify.mockImplementation(() => { throw new Error('invalid'); });
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('invalid');
+      });
 
       await gateway.handleConnection(client);
 

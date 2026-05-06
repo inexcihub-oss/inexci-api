@@ -69,11 +69,11 @@ describe('WhatsappService', () => {
   // ─── PRD: Comunicação WhatsApp — INC-04 (templates pré-aprovados) ────────
   describe('sendTemplate', () => {
     it('deve enfileirar job com contentSid e variables', async () => {
-      await service.sendTemplate(
-        '+5511999999999',
-        'HXabc123',
-        { '1': 'João', '2': 'Em Análise', '3': 'Hospital Geral' },
-      );
+      await service.sendTemplate('+5511999999999', 'HXabc123', {
+        '1': 'João',
+        '2': 'Em Análise',
+        '3': 'Hospital Geral',
+      });
 
       expect(mockQueue.add).toHaveBeenCalledWith(
         'send-whatsapp',

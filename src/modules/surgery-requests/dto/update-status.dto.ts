@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsNumber, Min, Max, IsInt, IsOptional, IsBoolean } from 'class-validator';
+import {
+  IsNumber,
+  Min,
+  Max,
+  IsInt,
+  IsOptional,
+  IsBoolean,
+} from 'class-validator';
 
 export class UpdateStatusDto {
   @Type(() => Number)

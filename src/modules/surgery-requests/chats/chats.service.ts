@@ -3,7 +3,6 @@ import { ChatRepository } from 'src/database/repositories/chat.repository';
 import { FindOptionsWhere, In } from 'typeorm';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { CreateChatDto } from './dto/create-chat.dto';
-import { UserRole } from 'src/database/entities/user.entity';
 import { ChatMessageRepository } from 'src/database/repositories/chat-message.repository';
 import { Chat } from 'src/database/entities/chat.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';

@@ -134,7 +134,7 @@ async function main() {
     VALUES ('Básico', 'Plano básico com 1 CRM permitido', 1, true)
     RETURNING id
   `);
-  const basicPlanId = basicPlan[0].id;
+  const _basicPlanId = basicPlan[0].id;
 
   const professionalPlan = await dataSource.query(`
     INSERT INTO subscription_plan (name, description, max_doctors, is_active)

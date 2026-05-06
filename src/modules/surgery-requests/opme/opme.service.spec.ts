@@ -55,7 +55,12 @@ describe('OpmeService', () => {
 
   describe('create', () => {
     it('deve criar item OPME sem fornecedores', async () => {
-      const savedEntity = { id: 'opme-1', name: 'Parafuso', quantity: 2, suppliers: [] };
+      const savedEntity = {
+        id: 'opme-1',
+        name: 'Parafuso',
+        quantity: 2,
+        suppliers: [],
+      };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
@@ -64,27 +69,46 @@ describe('OpmeService', () => {
         'user-1',
       );
 
-      expect(mockAccessValidator.validateAndFetch).toHaveBeenCalledWith('sr-1', 'user-1');
+      expect(mockAccessValidator.validateAndFetch).toHaveBeenCalledWith(
+        'sr-1',
+        'user-1',
+      );
       expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Parafuso', quantity: 2, suppliers: [] }),
+        expect.objectContaining({
+          name: 'Parafuso',
+          quantity: 2,
+          suppliers: [],
+        }),
       );
       expect(result).toEqual(savedEntity);
     });
 
     it('deve vincular fornecedores existentes pelo ID', async () => {
       const supplierA = { id: 'sup-1', name: 'Fornecedor A' };
-      const savedEntity = { id: 'opme-1', name: 'Placa', quantity: 1, suppliers: [supplierA] };
+      const savedEntity = {
+        id: 'opme-1',
+        name: 'Placa',
+        quantity: 1,
+        suppliers: [supplierA],
+      };
 
       mockSupplierRepository.findOne.mockResolvedValue(supplierA);
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
       await service.create(
-        { name: 'Placa', quantity: 1, surgery_request_id: 'sr-1', supplier_ids: ['sup-1'] },
+        {
+          name: 'Placa',
+          quantity: 1,
+          surgery_request_id: 'sr-1',
+          supplier_ids: ['sup-1'],
+        },
         'user-1',
       );
 
-      expect(mockSupplierRepository.findOne).toHaveBeenCalledWith({ id: 'sup-1' });
+      expect(mockSupplierRepository.findOne).toHaveBeenCalledWith({
+        id: 'sup-1',
+      });
       expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ suppliers: [supplierA] }),
       );
@@ -93,12 +117,22 @@ describe('OpmeService', () => {
     it('deve criar novos fornecedores pelo nome e vinculá-los', async () => {
       const createdSupplier = { id: 'sup-new', name: 'Novo Fornecedor' };
       mockSupplierRepository.create.mockResolvedValue(createdSupplier);
-      const savedEntity = { id: 'opme-1', name: 'Placa', quantity: 1, suppliers: [createdSupplier] };
+      const savedEntity = {
+        id: 'opme-1',
+        name: 'Placa',
+        quantity: 1,
+        suppliers: [createdSupplier],
+      };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
       await service.create(
-        { name: 'Placa', quantity: 1, surgery_request_id: 'sr-1', supplier_names: ['Novo Fornecedor'] },
+        {
+          name: 'Placa',
+          quantity: 1,
+          surgery_request_id: 'sr-1',
+          supplier_names: ['Novo Fornecedor'],
+        },
         'user-1',
       );
 
@@ -119,7 +153,12 @@ describe('OpmeService', () => {
       mockSupplierRepository.findOne.mockResolvedValue(existingSupplier);
       mockSupplierRepository.create.mockResolvedValue(newSupplier);
 
-      const savedEntity = { id: 'opme-1', name: 'Implante', quantity: 1, suppliers: [existingSupplier, newSupplier] };
+      const savedEntity = {
+        id: 'opme-1',
+        name: 'Implante',
+        quantity: 1,
+        suppliers: [existingSupplier, newSupplier],
+      };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
@@ -140,12 +179,22 @@ describe('OpmeService', () => {
     });
 
     it('deve ignorar nomes de fornecedor vazios', async () => {
-      const savedEntity = { id: 'opme-1', name: 'Placa', quantity: 1, suppliers: [] };
+      const savedEntity = {
+        id: 'opme-1',
+        name: 'Placa',
+        quantity: 1,
+        suppliers: [],
+      };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
       await service.create(
-        { name: 'Placa', quantity: 1, surgery_request_id: 'sr-1', supplier_names: ['', '  ', ''] },
+        {
+          name: 'Placa',
+          quantity: 1,
+          surgery_request_id: 'sr-1',
+          supplier_names: ['', '  ', ''],
+        },
         'user-1',
       );
 
@@ -154,12 +203,22 @@ describe('OpmeService', () => {
 
     it('deve ignorar IDs de fornecedor que não existem', async () => {
       mockSupplierRepository.findOne.mockResolvedValue(null);
-      const savedEntity = { id: 'opme-1', name: 'Placa', quantity: 1, suppliers: [] };
+      const savedEntity = {
+        id: 'opme-1',
+        name: 'Placa',
+        quantity: 1,
+        suppliers: [],
+      };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
       await service.create(
-        { name: 'Placa', quantity: 1, surgery_request_id: 'sr-1', supplier_ids: ['nonexistent'] },
+        {
+          name: 'Placa',
+          quantity: 1,
+          surgery_request_id: 'sr-1',
+          supplier_ids: ['nonexistent'],
+        },
         'user-1',
       );
 
@@ -182,7 +241,9 @@ describe('OpmeService', () => {
     };
 
     beforeEach(() => {
-      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue({ ...existingOpme });
+      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue({
+        ...existingOpme,
+      });
     });
 
     it('deve lançar NotFoundException se item não encontrado', async () => {
@@ -212,10 +273,7 @@ describe('OpmeService', () => {
       mockSupplierRepository.findOne.mockResolvedValue(supplierA);
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
 
-      await service.update(
-        { id: 'opme-1', supplier_ids: ['sup-1'] },
-        'user-1',
-      );
+      await service.update({ id: 'opme-1', supplier_ids: ['sup-1'] }, 'user-1');
 
       expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
         expect.objectContaining({ suppliers: [supplierA] }),
@@ -244,13 +302,17 @@ describe('OpmeService', () => {
         ...existingOpme,
         suppliers: [{ id: 'sup-1', name: 'Existente' }],
       };
-      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(opmeWithSuppliers);
+      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(
+        opmeWithSuppliers,
+      );
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
 
       await service.update({ id: 'opme-1', name: 'Novo nome' }, 'user-1');
 
       expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
-        expect.objectContaining({ suppliers: [{ id: 'sup-1', name: 'Existente' }] }),
+        expect.objectContaining({
+          suppliers: [{ id: 'sup-1', name: 'Existente' }],
+        }),
       );
     });
   });
@@ -259,7 +321,11 @@ describe('OpmeService', () => {
 
   describe('delete', () => {
     it('deve deletar item OPME com sucesso', async () => {
-      const opmeItem = { id: 'opme-1', surgery_request_id: 'sr-1', suppliers: [] };
+      const opmeItem = {
+        id: 'opme-1',
+        surgery_request_id: 'sr-1',
+        suppliers: [],
+      };
       mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(opmeItem);
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
       mockTypeOrmRepository.remove.mockResolvedValue(undefined);

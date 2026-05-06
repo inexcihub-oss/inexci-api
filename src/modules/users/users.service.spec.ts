@@ -40,7 +40,10 @@ describe('UsersService — Colaboradores e Permissões', () => {
     total: jest.fn(),
     findMany: jest.fn(),
   };
-  const mockMailService = { sendRaw: jest.fn(), send: jest.fn().mockResolvedValue(undefined) };
+  const mockMailService = {
+    sendRaw: jest.fn(),
+    send: jest.fn().mockResolvedValue(undefined),
+  };
   const mockUserDoctorAccessRepository = {
     findActiveByUserId: jest.fn(),
     findActiveByDoctorUserId: jest.fn(),
@@ -566,9 +569,18 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve retornar o cabeçalho do médico', async () => {
-      mockDoctorProfileRepository.findByUserId.mockResolvedValue({ id: 'profile-1' });
-      const header = { id: 'header-1', logo_url: null, logo_position: 'left', content_html: '<p>Texto</p>' };
-      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(header);
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      const header = {
+        id: 'header-1',
+        logo_url: null,
+        logo_position: 'left',
+        content_html: '<p>Texto</p>',
+      };
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(
+        header,
+      );
       const result = await service.getMyHeader('user-1');
       expect(result).toEqual(header);
     });
@@ -578,14 +590,23 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve lançar ForbiddenException se usuário não é médico', async () => {
       mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
       await expect(
-        service.upsertMyHeader('user-1', { logo_position: 'left', content_html: '<p>Texto</p>' }),
+        service.upsertMyHeader('user-1', {
+          logo_position: 'left',
+          content_html: '<p>Texto</p>',
+        }),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('deve sanitizar HTML antes de persistir', async () => {
-      mockDoctorProfileRepository.findByUserId.mockResolvedValue({ id: 'profile-1' });
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
       const maliciousHtml = '<p>Texto</p><script>alert("xss")</script>';
-      const savedHeader = { id: 'header-1', logo_position: 'left', content_html: '<p>Texto</p>' };
+      const savedHeader = {
+        id: 'header-1',
+        logo_position: 'left',
+        content_html: '<p>Texto</p>',
+      };
       mockDoctorHeaderRepository.upsert.mockResolvedValue(savedHeader);
 
       await service.upsertMyHeader('user-1', { content_html: maliciousHtml });
@@ -595,8 +616,14 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve chamar upsert com os dados corretos', async () => {
-      mockDoctorProfileRepository.findByUserId.mockResolvedValue({ id: 'profile-1' });
-      const header = { id: 'header-1', logo_position: 'right', content_html: '<p>Clínica</p>' };
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      const header = {
+        id: 'header-1',
+        logo_position: 'right',
+        content_html: '<p>Clínica</p>',
+      };
       mockDoctorHeaderRepository.upsert.mockResolvedValue(header);
 
       const result = await service.upsertMyHeader('user-1', {
@@ -604,7 +631,10 @@ describe('UsersService — Colaboradores e Permissões', () => {
         content_html: '<p>Clínica</p>',
       });
 
-      expect(mockDoctorHeaderRepository.upsert).toHaveBeenCalledWith('profile-1', expect.objectContaining({ logo_position: 'right' }));
+      expect(mockDoctorHeaderRepository.upsert).toHaveBeenCalledWith(
+        'profile-1',
+        expect.objectContaining({ logo_position: 'right' }),
+      );
       expect(result).toEqual(header);
     });
   });
@@ -612,15 +642,23 @@ describe('UsersService — Colaboradores e Permissões', () => {
   describe('deleteMyHeader', () => {
     it('deve lançar ForbiddenException se usuário não é médico', async () => {
       mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
-      await expect(service.deleteMyHeader('user-1')).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteMyHeader('user-1')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('deve chamar removeByDoctorProfileId', async () => {
-      mockDoctorProfileRepository.findByUserId.mockResolvedValue({ id: 'profile-1' });
-      mockDoctorHeaderRepository.removeByDoctorProfileId.mockResolvedValue(undefined);
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.removeByDoctorProfileId.mockResolvedValue(
+        undefined,
+      );
 
       const result = await service.deleteMyHeader('user-1');
-      expect(mockDoctorHeaderRepository.removeByDoctorProfileId).toHaveBeenCalledWith('profile-1');
+      expect(
+        mockDoctorHeaderRepository.removeByDoctorProfileId,
+      ).toHaveBeenCalledWith('profile-1');
       expect(result).toEqual({ message: 'Cabeçalho removido com sucesso' });
     });
   });

@@ -15,7 +15,7 @@ jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
 
 describe('SurgeryRequestNotificationService', () => {
   let service: SurgeryRequestNotificationService;
-  let mockMailService: { sendStatusUpdate: jest.Mock };
+  let mockMailService: { sendStatusChangePatient: jest.Mock };
   let mockWhatsappService: { sendTemplate: jest.Mock };
   let mockNotificationsService: { notifyAdminsOfAction: jest.Mock };
   let mockRepository: { findOneWithRelations: jest.Mock };
@@ -33,7 +33,7 @@ describe('SurgeryRequestNotificationService', () => {
 
   beforeEach(async () => {
     mockMailService = {
-      sendStatusUpdate: jest.fn().mockResolvedValue(undefined),
+      sendStatusChangePatient: jest.fn().mockResolvedValue(undefined),
     };
     mockWhatsappService = {
       sendTemplate: jest.fn().mockResolvedValue(undefined),

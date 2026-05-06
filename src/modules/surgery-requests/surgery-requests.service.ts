@@ -230,7 +230,15 @@ export class SurgeryRequestsService {
     return this.workflowService.closeSurgeryRequest(id, dto, userId);
   }
 
-  notify(id: string, dto: { template: string; to?: string }, userId: string) {
+  notify(
+    id: string,
+    dto: {
+      template: string;
+      to?: string;
+      channels?: { email?: boolean; whatsapp?: boolean };
+    },
+    userId: string,
+  ) {
     return this.workflowService.notify(id, dto, userId);
   }
 

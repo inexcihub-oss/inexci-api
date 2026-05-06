@@ -6,7 +6,6 @@ import {
   In,
   MoreThanOrEqual,
   LessThanOrEqual,
-  And,
 } from 'typeorm';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import {
@@ -90,17 +89,17 @@ export class ReportsService {
         }),
       ]);
 
-    let [
-      totalInvoiced,
-      totalByHealthPlan,
-      totalByStatus,
-      totalByHospital,
-    ]: any = await Promise.all([
-      this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
-      this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
-      this.surgeryRequestRepository.totalByStatus(doctorIds, filters),
-      this.surgeryRequestRepository.totalByHospital(doctorIds, filters),
-    ]);
+    const [totalInvoiced, rawHealthPlan, rawStatus, rawHospital]: any[] =
+      await Promise.all([
+        this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
+        this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
+        this.surgeryRequestRepository.totalByStatus(doctorIds, filters),
+        this.surgeryRequestRepository.totalByHospital(doctorIds, filters),
+      ]);
+
+    let totalByHealthPlan = rawHealthPlan;
+    let totalByStatus = rawStatus;
+    let totalByHospital = rawHospital;
 
     totalByHealthPlan = totalByHealthPlan.map((item) => {
       item.total = parseInt(item.total);

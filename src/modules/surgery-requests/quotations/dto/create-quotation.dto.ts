@@ -1,5 +1,5 @@
-import { Transform, Type } from 'class-transformer';
-import { Allow, IsNumber, IsString, IsNotEmpty } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { Allow, IsString, IsNotEmpty } from 'class-validator';
 import { stripObjectPhoneMask } from 'src/shared/pipes/phone-mask.pipe';
 
 export class CreateQuotationDto {

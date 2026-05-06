@@ -31,9 +31,7 @@ export class ProcedureRepository extends BaseRepository<Procedure> {
     });
   }
 
-  async findOne(
-    where: FindOptionsWhere<Procedure>,
-  ): Promise<Procedure | null> {
+  async findOne(where: FindOptionsWhere<Procedure>): Promise<Procedure | null> {
     return await this.repository.findOne({
       where,
       select: {

@@ -63,7 +63,8 @@ export function buildActionTools(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Você precisa estar cadastrado para executar esta ação.';
+      if (!context.userId)
+        return 'Você precisa estar cadastrado para executar esta ação.';
 
       const request = await surgeryRequestRepo.findOneSimple({
         id: args.surgery_request_id as string,
@@ -74,8 +75,11 @@ export function buildActionTools(
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 
-      const canAdvance = await pendencyValidator.canAdvance(args.surgery_request_id as string);
-      const currentLabel = STATUS_LABELS[request.status] || String(request.status);
+      const canAdvance = await pendencyValidator.canAdvance(
+        args.surgery_request_id as string,
+      );
+      const currentLabel =
+        STATUS_LABELS[request.status] || String(request.status);
       const nextStatus = NEXT_STATUS[request.status];
       const nextLabel = nextStatus ? STATUS_LABELS[nextStatus] : null;
 
@@ -95,13 +99,25 @@ export function buildActionTools(
         // Avança conforme o status atual
         switch (request.status) {
           case 1:
-            await workflowService.sendRequest(args.surgery_request_id as string, {} as any, context.userId);
+            await workflowService.sendRequest(
+              args.surgery_request_id as string,
+              {} as any,
+              context.userId,
+            );
             break;
           case 2:
-            await workflowService.startAnalysis(args.surgery_request_id as string, {} as any, context.userId);
+            await workflowService.startAnalysis(
+              args.surgery_request_id as string,
+              {} as any,
+              context.userId,
+            );
             break;
           case 3:
-            await workflowService.acceptAuthorization(args.surgery_request_id as string, {} as any, context.userId);
+            await workflowService.acceptAuthorization(
+              args.surgery_request_id as string,
+              {} as any,
+              context.userId,
+            );
             break;
           default:
             return `Avanço automático para o status ${nextLabel} não suportado via WhatsApp. Acesse a plataforma web.`;
@@ -185,7 +201,8 @@ export function buildActionTools(
       type: 'function',
       function: {
         name: 'close_surgery_request',
-        description: 'Encerra (cancela) uma solicitação cirúrgica. Requer confirmação explícita.',
+        description:
+          'Encerra (cancela) uma solicitação cirúrgica. Requer confirmação explícita.',
         parameters: {
           type: 'object',
           properties: {
@@ -273,7 +290,8 @@ export function buildActionTools(
             },
             confirm: {
               type: 'boolean',
-              description: 'Se true, aplica as alterações. Se false/omitido, apenas mostra o preview.',
+              description:
+                'Se true, aplica as alterações. Se false/omitido, apenas mostra o preview.',
             },
           },
           required: ['surgery_request_id'],
@@ -292,7 +310,10 @@ export function buildActionTools(
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 
-      if (args.priority !== undefined && ![1, 2, 3, 4].includes(args.priority as number)) {
+      if (
+        args.priority !== undefined &&
+        ![1, 2, 3, 4].includes(args.priority as number)
+      ) {
         return 'Prioridade inválida. Use 1=Baixa, 2=Média, 3=Alta, 4=Urgente.';
       }
 
@@ -310,7 +331,7 @@ export function buildActionTools(
       }
 
       if (!args.confirm) {
-        return `Você deseja atualizar a solicitação *${request.protocol}* com:\n${changes.map(c => `• ${c}`).join('\n')}\n\nConfirme com "sim".`;
+        return `Você deseja atualizar a solicitação *${request.protocol}* com:\n${changes.map((c) => `• ${c}`).join('\n')}\n\nConfirme com "sim".`;
       }
 
       await mutationService.updateBasic(
@@ -329,9 +350,14 @@ export function buildActionTools(
         content: `[WhatsApp IA] Dados atualizados: ${changes.join(', ')}.`,
       });
 
-      return `✅ Solicitação *${request.protocol}* atualizada:\n${changes.map(c => `• ${c}`).join('\n')}`;
+      return `✅ Solicitação *${request.protocol}* atualizada:\n${changes.map((c) => `• ${c}`).join('\n')}`;
     },
   };
 
-  return [advanceSurgeryRequest, setHasOpme, closeSurgeryRequest, updateSurgeryRequestData];
+  return [
+    advanceSurgeryRequest,
+    setHasOpme,
+    closeSurgeryRequest,
+    updateSurgeryRequestData,
+  ];
 }

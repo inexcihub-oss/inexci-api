@@ -11,10 +11,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { UserRole } from 'src/database/entities/user.entity';
-import {
-  UserDoctorAccess,
-  UserDoctorAccessStatus,
-} from 'src/database/entities/user-doctor-access.entity';
+import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 
 @Injectable()
 export class UserDoctorAccessService {

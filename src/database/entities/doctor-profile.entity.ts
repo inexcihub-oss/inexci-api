@@ -56,6 +56,9 @@ export class DoctorProfile {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @OneToOne(() => DoctorHeader, (h) => h.doctor_profile, { cascade: true, eager: false })
+  @OneToOne(() => DoctorHeader, (h) => h.doctor_profile, {
+    cascade: true,
+    eager: false,
+  })
   header: DoctorHeader | null;
 }

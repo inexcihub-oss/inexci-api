@@ -8,7 +8,6 @@ import { ConfigService } from '@nestjs/config';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuid } from 'uuid';
 import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
-import { STORAGE_FOLDERS } from '../../config/storage.config';
 
 @Injectable()
 export class StorageService {

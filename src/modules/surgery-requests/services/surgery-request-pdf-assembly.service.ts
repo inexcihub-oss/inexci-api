@@ -35,9 +35,7 @@ export class SurgeryRequestPdfAssemblyService {
   /**
    * Resolve a URL da assinatura do médico (signed URL se for path do storage).
    */
-  async resolveDoctorSignatureUrl(
-    profile: any,
-  ): Promise<string | undefined> {
+  async resolveDoctorSignatureUrl(profile: any): Promise<string | undefined> {
     if (!profile?.signature_url) return undefined;
     const raw: string = profile.signature_url;
     if (raw.startsWith('http')) return raw;
@@ -64,7 +62,9 @@ export class SurgeryRequestPdfAssemblyService {
 
     let customHeader: CustomHeaderData | null = null;
     if (profile?.id) {
-      const header = await this.doctorHeaderRepository.findByDoctorProfileId(profile.id);
+      const header = await this.doctorHeaderRepository.findByDoctorProfileId(
+        profile.id,
+      );
       if (header) {
         let logoUrl: string | null = null;
         if (header.logo_url) {
@@ -131,7 +131,9 @@ export class SurgeryRequestPdfAssemblyService {
 
     // ── Imagens dos exames ─────────────────────────────────────────────────
     const allDocs = request.documents ?? [];
-    const examDocs = allDocs.filter((d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES);
+    const examDocs = allDocs.filter(
+      (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
+    );
     const examImages: string[] = (
       await Promise.all(
         examDocs.map(async (doc: any) => {
@@ -163,8 +165,7 @@ export class SurgeryRequestPdfAssemblyService {
     }));
 
     // ── Fabricantes e Fornecedores ───────────────────────────────────────
-    const unique = (arr: string[]) =>
-      Array.from(new Set(arr.filter(Boolean)));
+    const unique = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
     const fabricantes = unique(
       opmeItemsRaw.map((i: any) => i.brand).filter(Boolean),
     );
@@ -183,6 +184,11 @@ export class SurgeryRequestPdfAssemblyService {
       .filter(Boolean)
       .join(' – ');
 
+    // ── Seções dinâmicas do laudo ─────────────────────────────────────────
+    const reportSections = ((request.report_sections ?? []) as any[]).sort(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0),
+    );
+
     const laudoData: SurgeryRequestLaudoPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),
       patientName: pd.name || patient?.name || undefined,
@@ -191,16 +197,25 @@ export class SurgeryRequestPdfAssemblyService {
         (patient?.birth_date ? formatDateBR(patient.birth_date) : undefined),
       patientRg: pd.rg || patient?.rg || undefined,
       patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
-      patientPhone:
-        formatPhone(pd.phone || patient?.phone || '') || undefined,
+      patientPhone: formatPhone(pd.phone || patient?.phone || '') || undefined,
       patientAddress: pd.address || patient?.address || undefined,
       patientZipCode:
         formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
         undefined,
       patientHealthPlan:
         pd.healthPlan || request.health_plan?.name || undefined,
-      historyAndDiagnosis: reportData.historyAndDiagnosis || undefined,
-      conduct: reportData.conduct || undefined,
+      historyAndDiagnosis: reportSections.length
+        ? undefined
+        : reportData.historyAndDiagnosis || undefined,
+      conduct: reportSections.length
+        ? undefined
+        : reportData.conduct || undefined,
+      sections: reportSections.length
+        ? reportSections.map((s: any) => ({
+            title: s.title,
+            description: s.description,
+          }))
+        : undefined,
       examImages: examImages.length ? examImages : undefined,
       procedures: procedures.length ? procedures : undefined,
       opmeItems: opmeItems.length ? opmeItems : undefined,

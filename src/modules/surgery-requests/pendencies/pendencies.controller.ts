@@ -1,10 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiBearerAuth,
-  ApiQuery,
-} from '@nestjs/swagger';
+import { ApiOperation } from '@nestjs/swagger';
 import { PendencyValidatorService } from './pendency-validator.service';
 
 @Controller('surgery-requests/pendencies')
@@ -20,7 +15,9 @@ export class PendenciesController {
   @Get('batch-summary')
   getBatchSummary(
     @Query('ids') ids: string,
-  ): Promise<Record<string, { pending: number; total: number; canAdvance: boolean }>> {
+  ): Promise<
+    Record<string, { pending: number; total: number; canAdvance: boolean }>
+  > {
     return this.pendencyValidatorService.getBatchSummary(ids);
   }
 

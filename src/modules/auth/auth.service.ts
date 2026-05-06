@@ -11,7 +11,6 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
-import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { HttpMessages } from 'src/common';
@@ -73,7 +72,7 @@ export class AuthService {
     );
 
     if (user && password) {
-      let isValid = await bcrypt.compare(password, user.password);
+      const isValid = await bcrypt.compare(password, user.password);
 
       if (!isValid) {
         throw new HttpException(

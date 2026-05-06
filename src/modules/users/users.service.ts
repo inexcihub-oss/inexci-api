@@ -32,7 +32,7 @@ import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
-import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
+
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { generateValidationCode } from 'src/shared/utils';
@@ -64,7 +64,7 @@ export class UsersService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    let where: FindOptionsWhere<User> = {};
+    const where: FindOptionsWhere<User> = {};
 
     // Admin pode ver todos da conta
     if (user.role === UserRole.ADMIN) {
@@ -562,7 +562,7 @@ export class UsersService {
     if (!plan) return false;
 
     // Contar médicos existentes na conta (users com doctor_profile)
-    let doctorCount = await this.userRepository.countDoctorsByAccountId(
+    const doctorCount = await this.userRepository.countDoctorsByAccountId(
       admin.account_id,
     );
 
@@ -941,7 +941,21 @@ export class UsersService {
 
   private sanitizeHeaderHtml(html: string): string {
     return sanitizeHtml(html, {
-      allowedTags: ['p', 'br', 'strong', 'em', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'span'],
+      allowedTags: [
+        'p',
+        'br',
+        'strong',
+        'em',
+        'u',
+        'ul',
+        'ol',
+        'li',
+        'h1',
+        'h2',
+        'h3',
+        'h4',
+        'span',
+      ],
       allowedAttributes: {
         '*': ['style'],
       },
@@ -963,7 +977,8 @@ export class UsersService {
 
   async upsertMyHeader(userId: string, dto: UpsertDoctorHeaderDto) {
     const profile = await this.doctorProfileRepository.findByUserId(userId);
-    if (!profile) throw new ForbiddenException('Apenas médicos podem configurar cabeçalho');
+    if (!profile)
+      throw new ForbiddenException('Apenas médicos podem configurar cabeçalho');
 
     const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
       logo_position: dto.logo_position ?? 'left',
@@ -974,7 +989,9 @@ export class UsersService {
     }
 
     if (dto.content_html !== undefined) {
-      data.content_html = dto.content_html ? this.sanitizeHeaderHtml(dto.content_html) : null;
+      data.content_html = dto.content_html
+        ? this.sanitizeHeaderHtml(dto.content_html)
+        : null;
     }
 
     return this.doctorHeaderRepository.upsert(profile.id, data);
@@ -982,7 +999,8 @@ export class UsersService {
 
   async deleteMyHeader(userId: string) {
     const profile = await this.doctorProfileRepository.findByUserId(userId);
-    if (!profile) throw new ForbiddenException('Apenas médicos podem remover cabeçalho');
+    if (!profile)
+      throw new ForbiddenException('Apenas médicos podem remover cabeçalho');
     await this.doctorHeaderRepository.removeByDoctorProfileId(profile.id);
     return { message: 'Cabeçalho removido com sucesso' };
   }

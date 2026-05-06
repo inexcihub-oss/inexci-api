@@ -42,7 +42,11 @@ export class ToolRegistryService {
         this.pendencyValidator,
         this.activityRepo,
       ),
-      ...buildNotificationTools(this.surgeryRequestRepo, this.notificationService, this.activityRepo),
+      ...buildNotificationTools(
+        this.surgeryRequestRepo,
+        this.notificationService,
+        this.activityRepo,
+      ),
     ];
 
     for (const tool of allTools) {

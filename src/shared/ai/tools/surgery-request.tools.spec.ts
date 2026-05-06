@@ -68,7 +68,10 @@ describe('SurgeryRequestTools', () => {
 
     it('deve retornar erro se userId for null', async () => {
       const tool = getTool('get_surgery_request_status');
-      const result = await tool.execute({ identifier: 'SC-0001' }, { ...baseContext, userId: null });
+      const result = await tool.execute(
+        { identifier: 'SC-0001' },
+        { ...baseContext, userId: null },
+      );
       expect(result).toContain('cadastrado');
     });
   });
@@ -115,11 +118,16 @@ describe('SurgeryRequestTools', () => {
     it('deve listar documentos', async () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
         doctor_id: 'doctor-1',
-        documents: [{ name: 'Laudo.pdf', folder: 'laudos', created_at: '2025-01-01' }],
+        documents: [
+          { name: 'Laudo.pdf', folder: 'laudos', created_at: '2025-01-01' },
+        ],
       });
 
       const tool = getTool('get_documents');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Laudo.pdf');
     });
@@ -131,7 +139,10 @@ describe('SurgeryRequestTools', () => {
       });
 
       const tool = getTool('get_documents');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Nenhum documento');
     });
@@ -141,11 +152,16 @@ describe('SurgeryRequestTools', () => {
     it('deve listar itens OPME', async () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
         doctor_id: 'doctor-1',
-        opme_items: [{ name: 'Prótese de quadril', quantity: 1, supplier: 'MedCorp' }],
+        opme_items: [
+          { name: 'Prótese de quadril', quantity: 1, supplier: 'MedCorp' },
+        ],
       });
 
       const tool = getTool('get_opme_items');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Prótese de quadril');
       expect(result).toContain('MedCorp');
@@ -158,7 +174,10 @@ describe('SurgeryRequestTools', () => {
       });
 
       const tool = getTool('get_opme_items');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Nenhum item OPME');
     });

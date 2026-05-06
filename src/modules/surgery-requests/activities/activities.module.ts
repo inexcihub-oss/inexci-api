@@ -12,10 +12,7 @@ import { StorageService } from 'src/shared/storage/storage.service';
     TypeOrmModule.forFeature([SurgeryRequestActivity, SurgeryRequest, User]),
   ],
   controllers: [ActivitiesController],
-  providers: [
-    ActivitiesService,
-    StorageService,
-  ],
+  providers: [ActivitiesService, StorageService],
   exports: [ActivitiesService],
 })
 export class ActivitiesModule {}

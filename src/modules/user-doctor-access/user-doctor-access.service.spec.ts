@@ -111,9 +111,9 @@ describe('UserDoctorAccessService', () => {
       const admin = makeAdmin();
       const accesses = [{ id: '1' }, { id: '2' }];
       (userRepository.findOne as jest.Mock).mockResolvedValueOnce(admin);
-      (userDoctorAccessRepository.findByAccountId as jest.Mock).mockResolvedValueOnce(
-        accesses,
-      );
+      (
+        userDoctorAccessRepository.findByAccountId as jest.Mock
+      ).mockResolvedValueOnce(accesses);
 
       const result = await service.getAccessList(ADMIN_ID);
 
@@ -135,9 +135,9 @@ describe('UserDoctorAccessService', () => {
       (userRepository.findOne as jest.Mock)
         .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(user);
-      (userDoctorAccessRepository.findAllByUserId as jest.Mock).mockResolvedValueOnce(
-        accesses,
-      );
+      (
+        userDoctorAccessRepository.findAllByUserId as jest.Mock
+      ).mockResolvedValueOnce(accesses);
 
       const result = await service.getAccessForUser(USER_ID, ADMIN_ID);
 
@@ -155,9 +155,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(foreignUser);
 
-      await expect(
-        service.getAccessForUser(USER_ID, ADMIN_ID),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('throws NotFoundException when the target user does not exist', async () => {
@@ -167,9 +167,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(null);
 
-      await expect(
-        service.getAccessForUser(USER_ID, ADMIN_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -189,9 +189,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(user) // validateUserInAccount(userId)
         .mockResolvedValueOnce(doctorUser); // validateUserInAccount(doctorId inside validateDoctorUser)
 
-      (doctorProfileRepository.existsByUserId as jest.Mock).mockResolvedValueOnce(
-        true,
-      );
+      (
+        doctorProfileRepository.existsByUserId as jest.Mock
+      ).mockResolvedValueOnce(true);
 
       (userDoctorAccessRepository.findAllByUserId as jest.Mock)
         .mockResolvedValueOnce([existingAccess]) // existing accesses inside transaction
@@ -222,9 +222,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(nonDoctor);
 
-      (doctorProfileRepository.existsByUserId as jest.Mock).mockResolvedValueOnce(
-        false,
-      );
+      (
+        doctorProfileRepository.existsByUserId as jest.Mock
+      ).mockResolvedValueOnce(false);
 
       await expect(
         service.setAccess(USER_ID, [DOCTOR_ID], ADMIN_ID),
@@ -242,9 +242,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(doctorUser);
 
-      (doctorProfileRepository.existsByUserId as jest.Mock).mockResolvedValueOnce(
-        true,
-      );
+      (
+        doctorProfileRepository.existsByUserId as jest.Mock
+      ).mockResolvedValueOnce(true);
 
       (userDoctorAccessRepository.findAllByUserId as jest.Mock)
         .mockResolvedValueOnce([existingAccess])
@@ -270,9 +270,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(doctorUser);
 
-      (doctorProfileRepository.existsByUserId as jest.Mock).mockResolvedValueOnce(
-        true,
-      );
+      (
+        doctorProfileRepository.existsByUserId as jest.Mock
+      ).mockResolvedValueOnce(true);
       (userDoctorAccessRepository.upsert as jest.Mock).mockResolvedValueOnce(
         created,
       );
@@ -300,9 +300,9 @@ describe('UserDoctorAccessService', () => {
         .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(user);
 
-      (userDoctorAccessRepository.deactivate as jest.Mock).mockResolvedValueOnce(
-        undefined,
-      );
+      (
+        userDoctorAccessRepository.deactivate as jest.Mock
+      ).mockResolvedValueOnce(undefined);
 
       const result = await service.deactivateAccess(
         USER_ID,

@@ -36,7 +36,8 @@ export class SurgeryRequestAccessValidator {
         : { id: surgeryRequestId };
 
     const request = await this.surgeryRequestRepository.findOneSimple(where);
-    if (!request) throw new NotFoundException('Solicitação cirúrgica não encontrada');
+    if (!request)
+      throw new NotFoundException('Solicitação cirúrgica não encontrada');
 
     return request;
   }

@@ -317,6 +317,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'surgery_request.deadline',
         'surgery_request.protocol',
         'surgery_request.priority',
+        'surgery_request.surgery_date',
         'created_by.id',
         'created_by.name',
         'manager.id',
@@ -396,6 +397,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       'analysis',
       'billing',
       'contestations',
+      'report_sections',
     ]);
   }
 

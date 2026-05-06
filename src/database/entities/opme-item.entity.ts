@@ -43,7 +43,9 @@ export class OpmeItem {
   @JoinColumn({ name: 'surgery_request_id' })
   surgery_request: SurgeryRequest;
 
-  @ManyToMany(() => Supplier, (supplier) => supplier.opme_items, { eager: false })
+  @ManyToMany(() => Supplier, (supplier) => supplier.opme_items, {
+    eager: false,
+  })
   @JoinTable({
     name: 'opme_item_supplier',
     joinColumn: { name: 'opme_item_id', referencedColumnName: 'id' },

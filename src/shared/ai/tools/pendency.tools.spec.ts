@@ -12,7 +12,10 @@ const baseContext: ToolContext = {
 };
 
 describe('PendencyTools', () => {
-  const tools = buildPendencyTools(mockPendencyValidator as any, mockSurgeryRequestRepo as any);
+  const tools = buildPendencyTools(
+    mockPendencyValidator as any,
+    mockSurgeryRequestRepo as any,
+  );
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());
@@ -29,13 +32,20 @@ describe('PendencyTools', () => {
         statusLabel: 'Pendente',
         canAdvance: false,
         pendencies: [
-          { name: 'Paciente não vinculado', isComplete: false, isOptional: false },
+          {
+            name: 'Paciente não vinculado',
+            isComplete: false,
+            isOptional: false,
+          },
           { name: 'CID informado', isComplete: true, isOptional: false },
         ],
       });
 
       const tool = getTool('get_pendencies');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('Paciente não vinculado');
       expect(result).toContain('CID informado');
@@ -55,7 +65,10 @@ describe('PendencyTools', () => {
       });
 
       const tool = getTool('get_pendencies');
-      const result = await tool.execute({ surgery_request_id: 'req-1' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-1' },
+        baseContext,
+      );
 
       expect(result).toContain('não tem pendências');
     });
@@ -67,7 +80,10 @@ describe('PendencyTools', () => {
       });
 
       const tool = getTool('get_pendencies');
-      const result = await tool.execute({ surgery_request_id: 'req-2' }, baseContext);
+      const result = await tool.execute(
+        { surgery_request_id: 'req-2' },
+        baseContext,
+      );
 
       expect(result).toContain('permissão');
     });

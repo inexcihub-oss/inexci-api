@@ -17,7 +17,9 @@ export class DoctorHeaderRepository extends BaseRepository<DoctorHeader> {
 
   async upsert(
     doctorProfileId: string,
-    data: Partial<Pick<DoctorHeader, 'logo_url' | 'logo_position' | 'content_html'>>,
+    data: Partial<
+      Pick<DoctorHeader, 'logo_url' | 'logo_position' | 'content_html'>
+    >,
   ): Promise<DoctorHeader> {
     const existing = await this.findByDoctorProfileId(doctorProfileId);
     if (existing) {

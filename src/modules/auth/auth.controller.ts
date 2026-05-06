@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Res, Req } from '@nestjs/common';
-import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
 import {
   ApiTags,
@@ -52,10 +52,7 @@ export class AuthController {
   @Post('register')
   @ApiOperation({ summary: 'Registrar novo usuário' })
   @ApiResponse({ status: 201, description: 'Usuário registrado com sucesso' })
-  async register(
-    @Body() req: RegisterDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async register(@Body() req: RegisterDto) {
     const result = await this.authService.register(req);
     // Não inicia sessão — o usuário precisa confirmar o e-mail antes de logar.
     const { refresh_token: _rt, access_token: _at, ...body } = result;

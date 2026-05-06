@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { MessageResponse } from 'src/shared/types/api-responses';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
@@ -274,6 +274,7 @@ export class NotificationsService {
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     actorId: string,
+    managerId?: string,
   ): Promise<void> {
     try {
       const actor = await this.userRepository.findOne({ id: actorId });
@@ -291,7 +292,13 @@ export class NotificationsService {
         .map((u) => u.id);
 
       const stakeholderIds = [
-        ...new Set([doctorId, createdById, ...adminIds, ...activityUserIds]),
+        ...new Set([
+          doctorId,
+          createdById,
+          ...(managerId ? [managerId] : []),
+          ...adminIds,
+          ...activityUserIds,
+        ]),
       ].filter((id) => id && id !== actorId);
 
       if (!stakeholderIds.length) return;

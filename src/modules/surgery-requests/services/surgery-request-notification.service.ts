@@ -5,17 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import {
-  SurgeryRequest,
-  SurgeryRequestStatus,
-} from 'src/database/entities/surgery-request.entity';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { PatientNotificationService } from 'src/modules/notifications/patient-notification.service';
-import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
-import { getStatusLabel } from 'src/shared/utils';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 @Injectable()
@@ -62,8 +57,12 @@ export class SurgeryRequestNotificationService {
    */
   async notify(
     id: string,
-    dto: { template: string; to?: string },
-    userId: string,
+    dto: {
+      template: string;
+      to?: string;
+      channels?: { email?: boolean; whatsapp?: boolean };
+    },
+    _userId: string,
   ) {
     const request = await this.surgeryRequestRepository.findOneWithRelations(
       { id },
@@ -78,6 +77,18 @@ export class SurgeryRequestNotificationService {
     );
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+    // Template especial: notificação ao paciente com canais selecionados pelo usuário
+    if (dto.template === 'status-change-patient') {
+      await this.patientNotificationService.notifyPatientStatusChange({
+        request,
+        oldStatus: request.status,
+        newStatus: request.status,
+        notifyPatient: true,
+        channels: dto.channels,
+      });
+      return { notified: true, template: dto.template, channels: dto.channels };
+    }
 
     const allowed = this.STATUS_TEMPLATE_MAP[request.status] ?? [];
     if (!allowed.includes(dto.template)) {
@@ -193,7 +204,12 @@ export class SurgeryRequestNotificationService {
    * Notifica todos os envolvidos na solicitação sobre uma mudança de status.
    */
   async notifyStakeholdersOfStatusChange(
-    request: { id: string; doctor_id: string; created_by_id: string },
+    request: {
+      id: string;
+      doctor_id: string;
+      created_by_id: string;
+      manager_id?: string;
+    },
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     actorId: string,
@@ -205,6 +221,7 @@ export class SurgeryRequestNotificationService {
       oldStatus,
       newStatus,
       actorId,
+      request.manager_id,
     );
   }
 

@@ -39,7 +39,9 @@ export class ActivitiesService {
             }
           } catch {
             // conteúdo não é JSON — usa o texto bruto
-            this.logger.warn(`Atividade ${a.id}: conteúdo não é JSON válido, usando texto bruto`);
+            this.logger.warn(
+              `Atividade ${a.id}: conteúdo não é JSON válido, usando texto bruto`,
+            );
           }
         }
 

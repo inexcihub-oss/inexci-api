@@ -47,7 +47,9 @@ export function buildPendencyTools(
         return `✅ A solicitação não tem pendências. Pode avançar para a próxima etapa.`;
       }
 
-      const pending = result.pendencies.filter((p) => !p.isComplete && !p.isOptional);
+      const pending = result.pendencies.filter(
+        (p) => !p.isComplete && !p.isOptional,
+      );
       const completed = result.pendencies.filter((p) => p.isComplete);
 
       const lines: string[] = [

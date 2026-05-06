@@ -8,18 +8,9 @@ import {
   SurgeryRequestActivity,
 } from 'src/database/entities/surgery-request-activity.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
-import { User } from 'src/database/entities/user.entity';
-import { ReportSection } from 'src/database/entities/report-section.entity';
-import { PdfService, SurgeryRequestLaudoPdfData } from './pdf.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { PdfGenerationJobData } from './pdf-generation.service';
-import {
-  formatPhone,
-  formatCpf,
-  formatCep,
-  formatDateBR,
-} from 'src/shared/utils';
-import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
+import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
 
 @Injectable()
 @Processor('pdf-generation')
@@ -27,14 +18,10 @@ export class PdfGenerationProcessor {
   private readonly logger = new Logger(PdfGenerationProcessor.name);
 
   constructor(
-    private readonly pdfService: PdfService,
+    private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
     private readonly storageService: StorageService,
     @InjectRepository(SurgeryRequest)
     private readonly surgeryRequestRepo: Repository<SurgeryRequest>,
-    @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
-    @InjectRepository(ReportSection)
-    private readonly reportSectionRepo: Repository<ReportSection>,
     @InjectRepository(SurgeryRequestActivity)
     private readonly activityRepo: Repository<SurgeryRequestActivity>,
   ) {}
@@ -47,7 +34,7 @@ export class PdfGenerationProcessor {
     );
 
     try {
-      // ── Carregar solicitação com relações necessárias ─────────────────────
+      // ── Carregar solicitação com todas as relações necessárias ─────────────
       const request = await this.surgeryRequestRepo.findOne({
         where: { id: surgeryRequestId },
         relations: [
@@ -69,212 +56,13 @@ export class PdfGenerationProcessor {
         return;
       }
 
-      // ── Carregar médico com perfil ────────────────────────────────────────
-      const doctorUserId = request.created_by_id || userId;
-      const doctor = await this.userRepo.findOne({
-        where: { id: doctorUserId },
-        relations: ['doctor_profile'],
-      });
-      const profile = doctor?.doctor_profile;
-
-      // ── Assinatura do médico ──────────────────────────────────────────────
-      let doctorSignatureUrl: string | undefined;
-      if (profile?.signature_url) {
-        const rawSig: string = profile.signature_url;
-        if (rawSig.startsWith('http')) {
-          doctorSignatureUrl = rawSig;
-        } else {
-          try {
-            doctorSignatureUrl = await this.storageService.getSignedUrl(rawSig);
-          } catch {
-            // sem assinatura
-          }
-        }
-      }
-
-      // ── CRM formatado ─────────────────────────────────────────────────────
-      let doctorCrm: string | undefined;
-      if (profile?.crm) {
-        doctorCrm = `CRM ${profile.crm}${profile.crm_state ? `/${profile.crm_state}` : ''}`;
-      }
-
-      // ── Dados do laudo (medical_report JSON) ──────────────────────────────
-      let reportData: {
-        patientData?: {
-          name?: string;
-          birthDate?: string;
-          rg?: string;
-          cpf?: string;
-          phone?: string;
-          address?: string;
-          zipCode?: string;
-          healthPlan?: string;
-        };
-        historyAndDiagnosis?: string;
-        conduct?: string;
-      } = {};
-      try {
-        if (request.medical_report) {
-          reportData = JSON.parse(request.medical_report as unknown as string);
-        }
-      } catch {
-        // fallback vazio
-      }
-
-      const pd = reportData.patientData ?? {};
-      const patient = request.patient;
-
-      // ── Imagens dos exames (documentos com key report_images) ─────────────
-      const allDocs = request.documents ?? [];
-      const examDocs = allDocs.filter(
-        (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
+      // ── Gerar PDF (mesclado com documentos anexos) via serviço compartilhado
+      const doctorUserId = (request as any).created_by_id || userId;
+      const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
+        request,
+        doctorUserId,
       );
-      const examImages: string[] = (
-        await Promise.all(
-          examDocs.map(async (doc: any) => {
-            const raw: string = doc.uri;
-            if (!raw) return null;
-            if (raw.startsWith('http')) return raw;
-            try {
-              return await this.storageService.getSignedUrl(raw);
-            } catch {
-              return null;
-            }
-          }),
-        )
-      ).filter((u): u is string => !!u);
-
-      // ── Procedimentos (TUSS) ──────────────────────────────────────────────
-      const tussItems = request.tuss_items ?? [];
-      const procedures = tussItems.map((item: any) => ({
-        name: item.name,
-        tussCode: item.tuss_code,
-        quantity: item.quantity ?? 1,
-      }));
-
-      // ── Materiais (OPME) ──────────────────────────────────────────────────
-      const opmeItemsRaw = request.opme_items ?? [];
-      const opmeItems = opmeItemsRaw.map((item: any) => ({
-        name: item.name,
-        quantity: item.quantity ?? 1,
-      }));
-
-      // ── Fabricantes e Fornecedores ────────────────────────────────────────
-      const unique = (arr: string[]) =>
-        Array.from(new Set(arr.filter(Boolean)));
-      const fabricantes = unique(
-        opmeItemsRaw.map((i: any) => i.brand).filter(Boolean),
-      );
-      const fornecedores = unique(
-        opmeItemsRaw.map((i: any) => i.distributor).filter(Boolean),
-      );
-      const fabricantesText =
-        fabricantes.length > 0 ? fabricantes.join(', ') : '';
-      const fornecedoresText =
-        fornecedores.length > 0 ? fornecedores.join(', ') : '';
-      const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
-
-      // ── Hospital (local) ──────────────────────────────────────────────────
-      const hospital = request.hospital;
-      const localText = [hospital?.name, hospital?.address]
-        .filter(Boolean)
-        .join(' – ');
-
-      const doctorEmail = doctor?.email ?? '';
-      const doctorPhoneRaw = doctor?.phone ?? '';
-      const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
-
-      // ── Seções dinâmicas do laudo ──────────────────────────────────────
-      const reportSections = (request.report_sections ?? []).sort(
-        (a: any, b: any) => (a.order ?? 0) - (b.order ?? 0),
-      );
-
-      // ── Dados do laudo ────────────────────────────────────────────────────
-      const laudoData: SurgeryRequestLaudoPdfData = {
-        today: new Date().toLocaleDateString('pt-BR'),
-        patientName: pd.name || patient?.name || undefined,
-        patientBirthDate:
-          pd.birthDate ||
-          (patient?.birth_date
-            ? formatDateBR(
-                patient.birth_date instanceof Date
-                  ? patient.birth_date.toISOString()
-                  : String(patient.birth_date),
-              )
-            : undefined),
-        patientRg: pd.rg || undefined,
-        patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
-        patientPhone:
-          formatPhone(pd.phone || patient?.phone || '') || undefined,
-        patientAddress: pd.address || patient?.address || undefined,
-        patientZipCode:
-          formatCep(pd.zipCode || patient?.zip_code || '') || undefined,
-        patientHealthPlan:
-          pd.healthPlan || request.health_plan?.name || undefined,
-        historyAndDiagnosis: reportSections.length
-          ? undefined
-          : reportData.historyAndDiagnosis || undefined,
-        conduct: reportSections.length
-          ? undefined
-          : reportData.conduct || undefined,
-        sections: reportSections.length
-          ? reportSections.map((s: any) => ({
-              title: s.title,
-              description: s.description,
-            }))
-          : undefined,
-        examImages: examImages.length ? examImages : undefined,
-        procedures: procedures.length ? procedures : undefined,
-        opmeItems: opmeItems.length ? opmeItems : undefined,
-        fabricantesText: fabricantesText || undefined,
-        fornecedoresText: fornecedoresText || undefined,
-        hasSeparator,
-        localText: localText || undefined,
-        doctorName: doctor?.name ?? 'Médico',
-        doctorEmail: doctorEmail || undefined,
-        doctorPhone: doctorPhoneFormatted || undefined,
-        doctorSpecialty: profile?.specialty || undefined,
-        doctorCrm: doctorCrm || undefined,
-        hasDoctorContact: !!(doctorEmail || doctorPhoneFormatted),
-        hasDoctorInfo: !!(doctor?.name || profile?.specialty || doctorCrm),
-        doctorSignatureUrl: doctorSignatureUrl || undefined,
-      };
-
-      // ── Gerar PDF do laudo ────────────────────────────────────────────────
-      const summaryBuffer =
-        await this.pdfService.generateSurgeryRequestLaudoPdf(laudoData);
-
-      // ── Mesclar com documentos da aba Informações Gerais ──────────────────
-      const infoDocs = allDocs.filter(
-        (d: any) =>
-          d.uri &&
-          String(d.uri).startsWith('documents/') &&
-          d.key !== DOCUMENT_KEYS.REPORT_IMAGES,
-      );
-
-      const docBuffers: Buffer[] = [];
-      for (const doc of infoDocs) {
-        try {
-          const signedUrl = await this.storageService.getSignedUrl(doc.uri);
-          const buf = await this.pdfService.fetchBuffer(signedUrl);
-          if (buf) docBuffers.push(buf);
-        } catch (err: any) {
-          this.logger.warn(
-            `[PDF] Não foi possível buscar documento "${doc.uri}": ${err?.message}`,
-          );
-        }
-      }
-
-      let finalBuffer = summaryBuffer;
-      if (docBuffers.length > 0) {
-        this.logger.log(
-          `[PDF] Mesclando com ${docBuffers.length} documento(s) anexo(s)`,
-        );
-        finalBuffer = await this.pdfService.mergePdfs([
-          summaryBuffer,
-          ...docBuffers,
-        ]);
-      }
+      const finalBuffer = Buffer.from(pdf, 'base64');
 
       // ── Fazer upload para Supabase Storage ────────────────────────────────
       const timestamp = Date.now();
@@ -287,16 +75,14 @@ export class PdfGenerationProcessor {
       const storagePath = await this.storageService.create(mockFile, 'pdfs');
 
       // ── Registrar atividade PDF_GENERATED ─────────────────────────────────
-      const activityContent = JSON.stringify({
-        description: 'PDF da solicitação gerado automaticamente',
-        pdf_path: storagePath,
-      });
-
       await this.activityRepo.save({
         surgery_request_id: surgeryRequestId,
         user_id: null,
         type: ActivityType.PDF_GENERATED,
-        content: activityContent,
+        content: JSON.stringify({
+          description: 'PDF da solicitação gerado automaticamente',
+          pdf_path: storagePath,
+        }),
       });
 
       this.logger.log(
@@ -307,7 +93,6 @@ export class PdfGenerationProcessor {
         `[PDF] Falha ao gerar PDF para solicitação ${surgeryRequestId}: ${err?.message}`,
         err?.stack,
       );
-      // Relança o erro para que o Bull registre a falha do job
       throw err;
     }
   }

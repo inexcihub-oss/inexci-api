@@ -31,7 +31,9 @@ export class DocumentsController {
   @Post()
   @ApiOperation({ summary: 'Enviar documento' })
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
   create(
     @Body() data: CreateDocumentDto,
     @CurrentUser() user: AuthenticatedUser,

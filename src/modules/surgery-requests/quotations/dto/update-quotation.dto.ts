@@ -1,12 +1,6 @@
 import * as dayjs from 'dayjs';
-import { Transform, Type } from 'class-transformer';
-import {
-  IsDate,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsDate, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class UpdateQuotationDto {
   @IsString()

@@ -25,7 +25,8 @@ export class IngestionService {
 
       await this.knowledgeRepo.create({
         category: data.category,
-        title: chunks.length > 1 ? `${data.title} (parte ${index + 1})` : data.title,
+        title:
+          chunks.length > 1 ? `${data.title} (parte ${index + 1})` : data.title,
         content: chunk,
         metadata: data.metadata ? JSON.stringify(data.metadata) : null,
         embedding: vectorStr,
@@ -53,7 +54,11 @@ export class IngestionService {
 
   async replaceCategory(
     category: string,
-    items: Array<{ title: string; content: string; metadata?: Record<string, any> }>,
+    items: Array<{
+      title: string;
+      content: string;
+      metadata?: Record<string, any>;
+    }>,
   ): Promise<void> {
     await this.knowledgeRepo.deactivateByCategory(category);
     for (const item of items) {

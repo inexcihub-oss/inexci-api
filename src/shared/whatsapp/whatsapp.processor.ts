@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { Job } from 'bull';
-import Twilio = require('twilio');
+import * as Twilio from 'twilio';
 import {
   WhatsappMessageLog,
   WhatsappMessageStatus,

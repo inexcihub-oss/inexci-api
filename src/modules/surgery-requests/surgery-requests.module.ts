@@ -23,7 +23,6 @@ import { SurgeryRequestReportService } from './services/surgery-request-report.s
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
 import { SurgeryRequestNotificationService } from './services/surgery-request-notification.service';
-import { SurgeryRequestPdfAssemblyService } from './services/surgery-request-pdf-assembly.service';
 import { SurgeryRequestBillingService } from './services/surgery-request-billing.service';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { SurgeryRequestsController } from './surgery-requests.controller';
@@ -82,7 +81,6 @@ import { NotificationsModule } from '../notifications/notifications.module';
     SurgeryRequestReportService,
     SurgeryRequestTemplateService,
     SurgeryRequestNotificationService,
-    SurgeryRequestPdfAssemblyService,
     SurgeryRequestBillingService,
     DoctorResolutionService,
     StorageService,

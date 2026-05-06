@@ -26,9 +26,7 @@ export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
     return this.repository.find({ where, skip, take });
   }
 
-  total(
-    where: FindOptionsWhere<T> | FindOptionsWhere<T>[],
-  ): Promise<number> {
+  total(where: FindOptionsWhere<T> | FindOptionsWhere<T>[]): Promise<number> {
     return this.repository.count({ where });
   }
 

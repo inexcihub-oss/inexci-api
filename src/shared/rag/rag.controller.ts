@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Post,
-  Body,
-  Get,
-  Query,
-} from '@nestjs/common';
+import { Controller, Post, Body, Get, Query } from '@nestjs/common';
 import { IngestionService } from './ingestion.service';
 import { RagService } from './rag.service';
 import { Roles } from '../decorators/roles.decorator';
@@ -44,7 +38,11 @@ export class RagController {
 
   @Post('ingest/replace')
   async replaceCategory(
-    @Body() dto: { category: string; items: Array<{ title: string; content: string }> },
+    @Body()
+    dto: {
+      category: string;
+      items: Array<{ title: string; content: string }>;
+    },
   ) {
     await this.ingestionService.replaceCategory(dto.category, dto.items);
     return { message: `Category "${dto.category}" replaced` };
@@ -58,10 +56,13 @@ export class RagController {
 
   @Post('seed')
   async seedKnowledgeBase() {
-    await this.ingestionService.replaceCategory('faq', FAQ_SEED.map(f => ({
-      title: f.question,
-      content: `Pergunta: ${f.question}\nResposta: ${f.answer}`,
-    })));
+    await this.ingestionService.replaceCategory(
+      'faq',
+      FAQ_SEED.map((f) => ({
+        title: f.question,
+        content: `Pergunta: ${f.question}\nResposta: ${f.answer}`,
+      })),
+    );
     await this.ingestionService.replaceCategory('workflow', WORKFLOW_SEED);
     await this.ingestionService.replaceCategory('glossary', GLOSSARY_SEED);
     return { message: 'Base de conhecimento inicial carregada com sucesso.' };

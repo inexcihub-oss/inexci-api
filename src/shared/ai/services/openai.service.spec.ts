@@ -74,11 +74,9 @@ describe('OpenaiService', () => {
   it('deve fazer retry em caso de erro 500', async () => {
     const error = new Error('Internal Server Error');
     (error as any).status = 500;
-    mockCreate
-      .mockRejectedValueOnce(error)
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: 'OK após retry' } }],
-      });
+    mockCreate.mockRejectedValueOnce(error).mockResolvedValueOnce({
+      choices: [{ message: { content: 'OK após retry' } }],
+    });
 
     const result = await service.chatCompletion({
       messages: [{ role: 'user', content: 'Teste retry' }],
@@ -94,7 +92,9 @@ describe('OpenaiService', () => {
     mockCreate.mockRejectedValue(error);
 
     await expect(
-      service.chatCompletion({ messages: [{ role: 'user', content: 'Teste' }] }),
+      service.chatCompletion({
+        messages: [{ role: 'user', content: 'Teste' }],
+      }),
     ).rejects.toThrow('Bad Request');
 
     expect(mockCreate).toHaveBeenCalledTimes(1);

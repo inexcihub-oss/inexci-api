@@ -28,12 +28,7 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
     MailModule,
   ],
   controllers: [UsersController],
-  providers: [
-    UsersService,
-    JwtService,
-    StorageService,
-    DoctorHeaderRepository,
-  ],
+  providers: [UsersService, JwtService, StorageService, DoctorHeaderRepository],
   exports: [UsersService],
 })
 export class UsersModule {}

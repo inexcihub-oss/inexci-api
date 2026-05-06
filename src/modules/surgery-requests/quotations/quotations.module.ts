@@ -8,10 +8,6 @@ import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-reque
 @Module({
   imports: [ChatsModule],
   controllers: [QuotationsController],
-  providers: [
-    QuotationsService,
-    SurgeryRequestAccessValidator,
-    JwtService,
-  ],
+  providers: [QuotationsService, SurgeryRequestAccessValidator, JwtService],
 })
 export class QuotationsModule {}

@@ -22,9 +22,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     });
   }
 
-  findActiveByDoctorUserId(
-    doctorUserId: string,
-  ): Promise<UserDoctorAccess[]> {
+  findActiveByDoctorUserId(doctorUserId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
       where: {
         doctor_user_id: doctorUserId,

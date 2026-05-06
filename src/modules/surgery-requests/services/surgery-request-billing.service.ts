@@ -49,7 +49,8 @@ export class SurgeryRequestBillingService {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
     );
-    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     if (request.status !== SurgeryRequestStatus.PERFORMED) {
       throw new BadRequestException(
         'A solicitação precisa estar Realizada para ser faturada.',
@@ -114,7 +115,8 @@ export class SurgeryRequestBillingService {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
     );
-    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     if (request.status !== SurgeryRequestStatus.INVOICED) {
       throw new BadRequestException(
         'A solicitação precisa estar Faturada para confirmar recebimento.',
@@ -164,7 +166,8 @@ export class SurgeryRequestBillingService {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
     );
-    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     if (request.status !== SurgeryRequestStatus.FINALIZED) {
       throw new BadRequestException(
         'A solicitação precisa estar Finalizada para contestar pagamento.',
@@ -199,11 +202,12 @@ export class SurgeryRequestBillingService {
     });
   }
 
-  async updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
+  async updateReceipt(id: string, dto: UpdateReceiptDto, _userId: string) {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
     );
-    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     if (request.status !== SurgeryRequestStatus.FINALIZED) {
       throw new BadRequestException('A solicitação precisa estar Finalizada.');
     }

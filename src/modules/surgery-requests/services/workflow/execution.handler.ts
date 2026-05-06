@@ -61,13 +61,6 @@ export class ExecutionHandler {
       { logger: this.logger, operationName: 'markPerformed' },
     );
 
-    await this.notificationService.notifyPatientIfRequested(
-      request,
-      request.status,
-      SurgeryRequestStatus.PERFORMED,
-      dto.notify_patient,
-    );
-
     await this.notificationService.notifyAdminsOfWorkflowAction(
       userId,
       request.patient?.name ?? 'Paciente',

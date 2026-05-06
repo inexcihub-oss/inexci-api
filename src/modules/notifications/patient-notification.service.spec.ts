@@ -16,7 +16,7 @@ jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
 describe('PatientNotificationService', () => {
   let service: PatientNotificationService;
   const mockMailService = {
-    sendStatusUpdate: jest.fn().mockResolvedValue(undefined),
+    sendStatusChangePatient: jest.fn().mockResolvedValue(undefined),
   };
   const mockWhatsappService = {
     sendTemplate: jest.fn().mockResolvedValue(undefined),
@@ -62,7 +62,7 @@ describe('PatientNotificationService', () => {
       notifyPatient: true,
     });
 
-    expect(mockMailService.sendStatusUpdate).toHaveBeenCalledWith(
+    expect(mockMailService.sendStatusChangePatient).toHaveBeenCalledWith(
       'joao@test.com',
       expect.objectContaining({ patientName: 'João Silva' }),
     );
@@ -81,7 +81,7 @@ describe('PatientNotificationService', () => {
       notifyPatient: false,
     });
 
-    expect(mockMailService.sendStatusUpdate).not.toHaveBeenCalled();
+    expect(mockMailService.sendStatusChangePatient).not.toHaveBeenCalled();
     expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 
@@ -98,7 +98,7 @@ describe('PatientNotificationService', () => {
       notifyPatient: true,
     });
 
-    expect(mockMailService.sendStatusUpdate).not.toHaveBeenCalled();
+    expect(mockMailService.sendStatusChangePatient).not.toHaveBeenCalled();
     expect(mockWhatsappService.sendTemplate).toHaveBeenCalled();
   });
 
@@ -115,7 +115,7 @@ describe('PatientNotificationService', () => {
       notifyPatient: true,
     });
 
-    expect(mockMailService.sendStatusUpdate).toHaveBeenCalled();
+    expect(mockMailService.sendStatusChangePatient).toHaveBeenCalled();
     expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 
@@ -134,7 +134,7 @@ describe('PatientNotificationService', () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(mockMailService.sendStatusUpdate).not.toHaveBeenCalled();
+    expect(mockMailService.sendStatusChangePatient).not.toHaveBeenCalled();
     expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe('PatientNotificationService', () => {
   });
 
   it('falha no e-mail não impede envio de WhatsApp (6.4.1)', async () => {
-    mockMailService.sendStatusUpdate.mockRejectedValueOnce(
+    mockMailService.sendStatusChangePatient.mockRejectedValueOnce(
       new Error('SMTP down'),
     );
 

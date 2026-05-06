@@ -31,7 +31,6 @@ export type MailTemplateName =
   | 'invoice-sent'
   | 'payment-received'
   | 'payment-contested'
-  | 'status-update'
   | 'status-change-stakeholder'
   | 'status-change-patient'
   | 'stale-reminder'
@@ -52,7 +51,6 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'invoice-sent',
   'payment-received',
   'payment-contested',
-  'status-update',
   'status-change-stakeholder',
   'status-change-patient',
   'stale-reminder',

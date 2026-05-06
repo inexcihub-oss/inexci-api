@@ -3,16 +3,13 @@ import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
+import { NotificationsService } from 'src/modules/notifications/notifications.service';
+import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
@@ -48,6 +45,7 @@ export class SurgeryRequestMutationService {
     private readonly accessControlService: AccessControlService,
     private readonly doctorResolutionService: DoctorResolutionService,
     private readonly whatsappService: WhatsappService,
+    private readonly notificationsService: NotificationsService,
     private readonly userRepository: UserRepository,
     private readonly patientRepository: PatientRepository,
     private readonly hospitalRepository: HospitalRepository,
@@ -176,14 +174,6 @@ export class SurgeryRequestMutationService {
       { logger: this.logger, operationName: 'create' },
     );
 
-    // Envia boas-vindas WhatsApp ao paciente (assíncrono — não bloqueia o fluxo)
-    if (result.patient?.phone) {
-      void this.whatsappService.sendPatientWelcome(
-        result.patient.phone,
-        result.patient.name,
-      );
-    }
-
     this.logger.log(
       `[create] Solicitação ${result.request.id} criada com sucesso`,
     );
@@ -244,35 +234,6 @@ export class SurgeryRequestMutationService {
       },
       { logger: this.logger, operationName: 'createSurgeryRequest' },
     );
-
-    this.logger.log(
-      `[WhatsApp] createSurgeryRequest chamado — patient_id: ${data.patient_id}`,
-    );
-    if (data.patient_id) {
-      const patient = await this.patientRepository.findOne({
-        id: data.patient_id,
-      });
-      this.logger.log(
-        `[WhatsApp] paciente encontrado: ${patient?.name} | phone: ${patient?.phone}`,
-      );
-      if (patient?.phone) {
-        this.logger.log(
-          `[WhatsApp] enviando boas-vindas para ${patient.phone}`,
-        );
-        void this.whatsappService.sendPatientWelcome(
-          patient.phone,
-          patient.name,
-        );
-      } else {
-        this.logger.warn(
-          `[WhatsApp] paciente sem telefone cadastrado — mensagem não enviada`,
-        );
-      }
-    } else {
-      this.logger.warn(
-        `[WhatsApp] patient_id não informado — mensagem não enviada`,
-      );
-    }
 
     return newRequest;
   }
@@ -337,6 +298,29 @@ export class SurgeryRequestMutationService {
     if (data.manager_id !== undefined) updateData.manager_id = data.manager_id;
 
     await this.surgeryRequestRepository.update(data.id, updateData);
+
+    // Notificar o gestor quando ele é alocado (ou alterado) na solicitação
+    if (
+      data.manager_id &&
+      data.manager_id !== surgeryRequest.manager_id &&
+      data.manager_id !== userId
+    ) {
+      try {
+        await this.notificationsService.createNotification({
+          user_id: data.manager_id,
+          type: NotificationType.ACTION_BY_USER,
+          title: 'Você foi alocado a uma solicitação cirúrgica',
+          message: `Você foi designado como gestor de uma solicitação cirúrgica.`,
+          link: `/solicitacao/${data.id}`,
+          metadata: { surgeryRequestId: data.id },
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `Falha ao notificar gestor ${data.manager_id} sobre alocação: ${err?.message}`,
+        );
+      }
+    }
+
     return this.surgeryRequestRepository.findOneSimple({ id: data.id });
   }
 
@@ -344,7 +328,7 @@ export class SurgeryRequestMutationService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    const surgeryRequest = await this.findWithAccess(id, userId);
+    const _surgeryRequest = await this.findWithAccess(id, userId);
 
     await this.surgeryRequestRepository.update(id, { has_opme: hasOpme });
     return this.surgeryRequestRepository.findOneSimple({ id });

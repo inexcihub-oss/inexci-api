@@ -43,12 +43,12 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.9",
     "@nestjs/platform-socket.io": "^10.3.9",
-    "@nestjs/websockets": "^10.3.9",
     "@nestjs/schedule": "^5.0.1",
     "@nestjs/swagger": "^7.4.2",
     "@nestjs/terminus": "^11.1.1",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^10.0.2",
+    "@nestjs/websockets": "^10.3.9",
     "@supabase/supabase-js": "^2.94.1",
     "@tboerc/maskfy": "1.0.0",
     "@types/bcryptjs": "^2.4.6",
@@ -109,7 +109,8 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typeorm-ts-node-commonjs": "^0.3.20",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.59.2"
   },
   "jest": {
     "moduleFileExtensions": [

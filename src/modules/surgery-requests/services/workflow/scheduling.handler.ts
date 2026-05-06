@@ -96,7 +96,7 @@ export class SchedulingHandler {
   async updateDateOptions(
     id: string,
     dto: UpdateDateOptionsDto,
-    userId: string,
+    _userId: string,
   ) {
     const request = await this.surgeryRequestRepository.findOneSimple({ id });
     if (!request)
@@ -112,7 +112,7 @@ export class SchedulingHandler {
     });
   }
 
-  async reschedule(id: string, dto: RescheduleDto, userId: string) {
+  async reschedule(id: string, dto: RescheduleDto, _userId: string) {
     const request = await this.surgeryRequestRepository.findOneSimple({ id });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
