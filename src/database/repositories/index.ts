@@ -25,3 +25,5 @@ export { ContestationRepository } from './contestation.repository';
 export { WhatsappConversationRepository } from './whatsapp-conversation.repository';
 export { AiKnowledgeChunkRepository } from './ai-knowledge-chunk.repository';
 export { AiTokenUsageLogRepository } from './ai-token-usage-log.repository';
+export { AiPiiRedactionLogRepository } from './ai-pii-redaction-log.repository';
+export { ConsentLogRepository } from './consent-log.repository';

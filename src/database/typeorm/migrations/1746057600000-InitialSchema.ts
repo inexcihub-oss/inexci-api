@@ -24,15 +24,22 @@ export class InitialSchema1746057600000 implements MigrationInterface {
     // ------------------------------------------------------------------ //
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
 
-    // Tentar instalar a extensão vector (pgvector).
+    // Pgvector é obrigatório. Falha cedo e clara se a imagem do Postgres
+    // não trouxer a extensão (pgvector/pgvector:pg16 é a recomendada).
     const vectorResult = await queryRunner
       .query(`SELECT 1 FROM pg_available_extensions WHERE name = 'vector';`)
       .catch(() => []);
     const hasVector = vectorResult && vectorResult.length > 0;
 
-    if (hasVector) {
-      await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS vector;`);
+    if (!hasVector) {
+      throw new Error(
+        'Extensão "pgvector" indisponível neste Postgres. Use a imagem ' +
+          '`pgvector/pgvector:pg16` ou instale a extensão antes de rodar ' +
+          'as migrations. Sem pgvector o RAG não pode ser inicializado.',
+      );
     }
+
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS vector;`);
 
     // ------------------------------------------------------------------ //
     // Enums
@@ -977,42 +984,10 @@ export class InitialSchema1746057600000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: ai_knowledge_chunk
+    // Tabela ai_knowledge_chunk — criada em migration dedicada
+    // (CreateAiKnowledgeChunkVector1763200000000) para isolar o uso de
+    // `vector(1536)` do schema base.
     // ------------------------------------------------------------------ //
-    if (hasVector) {
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
-          id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-          category VARCHAR(50) NOT NULL,
-          title TEXT NOT NULL,
-          content TEXT NOT NULL,
-          metadata TEXT,
-          embedding vector(1536),
-          active BOOLEAN DEFAULT true,
-          created_at TIMESTAMPTZ DEFAULT now(),
-          updated_at TIMESTAMPTZ DEFAULT now()
-        );
-      `);
-      await queryRunner.query(`
-        CREATE INDEX IF NOT EXISTS idx_knowledge_embedding
-        ON ai_knowledge_chunk
-        USING ivfflat (embedding vector_cosine_ops)
-        WITH (lists = 100);
-      `);
-    } else {
-      await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
-          id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-          category VARCHAR(50) NOT NULL,
-          title TEXT NOT NULL,
-          content TEXT NOT NULL,
-          metadata TEXT,
-          active BOOLEAN DEFAULT true,
-          created_at TIMESTAMPTZ DEFAULT now(),
-          updated_at TIMESTAMPTZ DEFAULT now()
-        );
-      `);
-    }
 
     // ------------------------------------------------------------------ //
     // Tabela: whatsapp_conversation
@@ -1189,9 +1164,6 @@ export class InitialSchema1746057600000 implements MigrationInterface {
     );
     await queryRunner.query(
       `DROP TABLE IF EXISTS "whatsapp_conversation"       CASCADE`,
-    );
-    await queryRunner.query(
-      `DROP TABLE IF EXISTS "ai_knowledge_chunk"          CASCADE`,
     );
     await queryRunner.query(
       `DROP TABLE IF EXISTS "recovery_code"               CASCADE`,

@@ -7,12 +7,21 @@ export class OpenaiService {
   private readonly logger = new Logger(OpenaiService.name);
   private readonly client: OpenAI;
   private readonly requestTimeoutMs: number;
+  private readonly defaultMaxTokens: number;
 
   constructor(private readonly configService: ConfigService) {
     this.requestTimeoutMs = this.configService.get<number>(
       'OPENAI_REQUEST_TIMEOUT_MS',
       25000,
     );
+
+    const rawMax = this.configService.get<string | number>(
+      'AI_RESPONSE_MAX_TOKENS',
+      450,
+    );
+    const parsed = typeof rawMax === 'string' ? parseInt(rawMax, 10) : rawMax;
+    this.defaultMaxTokens =
+      Number.isFinite(parsed) && parsed > 0 ? parsed : 450;
 
     this.client = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY', ''),
@@ -53,7 +62,7 @@ export class OpenaiService {
           tools: params.tools?.length ? params.tools : undefined,
           tool_choice: params.tools?.length ? 'auto' : undefined,
           temperature: params.temperature ?? 0.3,
-          max_tokens: params.maxTokens ?? 2048,
+          max_tokens: params.maxTokens ?? this.defaultMaxTokens,
         },
         { timeout: effectiveTimeoutMs },
       );

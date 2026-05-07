@@ -1,6 +1,7 @@
 import { buildWhatsappFlowTools } from './whatsapp-flow.tools';
 import { ToolContext } from './tool.interface';
 import { SendMethod } from '../../constants/send-method';
+import { PiiVaultService } from '../services/pii-vault.service';
 
 const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
@@ -1036,6 +1037,40 @@ describe('WhatsappFlowTools', () => {
       expect(result).toContain('Documento anexado com sucesso');
 
       fetchMock.mockRestore();
+    });
+  });
+
+  describe('list_sc_creation_catalog (PII)', () => {
+    it('com vault ativo, tokeniza nomes de pacientes/hospitais/convênios antes de retornar à IA', async () => {
+      mockPatientRepo.findMany = jest.fn().mockResolvedValue([
+        { id: 'pat-1', name: 'Maria do Carmo' },
+        { id: 'pat-2', name: 'José Pereira' },
+      ]);
+      (mockHospitalRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      (mockHealthPlanRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      mockUserRepo.findMany.mockResolvedValue([]);
+      mockProcedureRepo.findMany.mockResolvedValue([]);
+      (mockSurgeryRequestsService as any).getTemplates = jest
+        .fn()
+        .mockResolvedValue([]);
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+
+      const tool = getTool('list_sc_creation_catalog');
+      const result = await tool.execute(
+        { category: 'patients', limit: 5 },
+        { ...baseContext, piiVault },
+      );
+
+      expect(result).not.toContain('Maria do Carmo');
+      expect(result).not.toContain('José Pereira');
+      expect(result).toContain('{{patient_name_1}}');
+      expect(result).toContain('{{patient_name_2}}');
+
+      const detok = piiVault.detokenize('conv-1', result);
+      expect(detok).toContain('Maria do Carmo');
+      expect(detok).toContain('José Pereira');
     });
   });
 });

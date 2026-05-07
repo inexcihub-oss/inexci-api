@@ -5,8 +5,14 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
 import { ConversationService } from './conversation.service';
+import {
+  ConversationContextService,
+  ContextStrategy,
+} from './conversation-context.service';
 import { ToolRegistryService } from './tool-registry.service';
 import { ToolExecutorService } from './tool-executor.service';
+import { PiiVaultService } from './pii-vault.service';
+import { AiRedisService } from './ai-redis.service';
 import { RagService } from '../../rag/rag.service';
 import { WhatsappService } from '../../whatsapp/whatsapp.service';
 import { UserRepository } from '../../../database/repositories/user.repository';
@@ -17,6 +23,11 @@ import { SYSTEM_PROMPT } from '../prompts/system-prompt';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { AiTokenUsageLogRepository } from '../../../database/repositories/ai-token-usage-log.repository';
+import { AiPiiRedactionLogRepository } from '../../../database/repositories/ai-pii-redaction-log.repository';
+import {
+  CURRENT_CONSENT_VERSIONS,
+  isConsentVersionValid,
+} from '../../../config/consent.config';
 import { TranscriptionService } from '../transcription/transcription.service';
 import {
   InboundWhatsappMedia,
@@ -29,6 +40,9 @@ const MAX_TOOL_ITERATIONS = 5;
 const MAX_RESPONSE_LENGTH = 1000;
 const WHATSAPP_TARGET_LENGTH = 700;
 const CLEAR_CONTEXT_CONFIRMATION_TTL_MS = 10 * 60 * 1000;
+const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const AI_CONSENT_PORTAL_PATH = '/configuracoes/privacidade';
+const AI_CONSENT_DEFAULT_PORTAL_URL = `https://app.inexci.com${AI_CONSENT_PORTAL_PATH}`;
 
 const CLEAR_CONTEXT_EXACT_COMMANDS = new Set<string>([
   'limpar contexto',
@@ -65,7 +79,65 @@ interface CompletionUsageSnapshot {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  model?: string;
+  latencyMs?: number;
+  /** Breakdown por bloco do contexto montado (apenas no estágio inicial). */
+  contextBreakdown?: {
+    system_tokens: number;
+    summary_tokens: number;
+    memory_tokens: number;
+    rag_tokens: number;
+    recent_tokens: number;
+    total_tokens: number;
+  };
+  /** Estratégia aplicada (`history_only` vs `hybrid`). */
+  contextStrategy?: ContextStrategy;
 }
+
+const SC_CREATE_TOOL = 'create_surgery_request_from_whatsapp';
+
+/**
+ * Slots obrigatórios por intent que cobrem mutações sensíveis do fluxo.
+ * Definidos por config; o orchestrator bloqueia a tool de criação quando
+ * algum slot ainda não foi confirmado em `conversation_memory.filled_slots`.
+ */
+const REQUIRED_SLOTS_BY_INTENT: Record<string, string[]> = {
+  create: [
+    'patient.id',
+    'surgery_request.hospital',
+    'surgery_request.health_plan',
+    'tuss_items',
+  ],
+  update: ['surgery_request.id'],
+  advance: ['surgery_request.id'],
+};
+
+/**
+ * Mapeamento entre slots e mensagens curtas de cobrança ao usuário.
+ * Cada item do `pending_actions` adicionado pelo orchestrator vira UMA pergunta
+ * por vez (a primeira que aparecer faltando), evitando "rajadas" de perguntas.
+ */
+const SLOT_PROMPTS: Record<string, string> = {
+  'patient.id':
+    'Antes de criar a solicitação, qual paciente devo usar? Pode me passar o nome ou o CPF (já cadastrado).',
+  'surgery_request.hospital': 'Qual hospital vamos indicar nesta solicitação?',
+  'surgery_request.health_plan': 'Qual convênio vamos usar nesta solicitação?',
+  tuss_items:
+    'Quais procedimentos (códigos TUSS ou nomes) devem entrar nessa solicitação? Pode listar pelo menos um.',
+  'surgery_request.id':
+    'Sobre qual solicitação estamos falando? Pode me dizer o protocolo (SC-XXXX) ou o nome do paciente.',
+};
+
+// Custo por 1K tokens (centavos de USD) — preços OpenAI vigentes (pode virar env var/seed)
+const MODEL_COST_PER_1K: Record<string, { input: number; output: number }> = {
+  'gpt-4o': { input: 0.25, output: 1.0 },
+  'gpt-4o-2024-08-06': { input: 0.25, output: 1.0 },
+  'gpt-4o-2024-11-20': { input: 0.25, output: 1.0 },
+  'gpt-4o-mini': { input: 0.015, output: 0.06 },
+  'gpt-4o-mini-2024-07-18': { input: 0.015, output: 0.06 },
+  'gpt-4-turbo': { input: 1.0, output: 3.0 },
+  'gpt-3.5-turbo': { input: 0.05, output: 0.15 },
+};
 
 interface PendingClearContextConfirmation {
   conversationId: string;
@@ -119,6 +191,10 @@ class SimpleCache<T> {
   set(key: string, value: T, ttlMs: number): void {
     this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
+
+  delete(key: string): void {
+    this.store.delete(key);
+  }
 }
 
 @Injectable()
@@ -134,6 +210,9 @@ export class AiOrchestratorService {
     string,
     { count: number; resetAt: number }
   >();
+  // Memória curta dos telefones já avisados sobre falta de consentimento de IA,
+  // para não floodá-los a cada nova mensagem (T0.15 — item 4.3 do PLANO-LGPD).
+  private readonly aiConsentNoticesSent = new Map<string, number>();
 
   constructor(
     @InjectQueue('ai-messages') private readonly aiQueue: Queue,
@@ -151,7 +230,393 @@ export class AiOrchestratorService {
     private readonly configService: ConfigService,
     private readonly transcriptionService: TranscriptionService,
     private readonly whatsappMediaService: WhatsappMediaService,
+    private readonly piiVault: PiiVaultService,
+    private readonly piiRedactionLogRepo: AiPiiRedactionLogRepository,
+    private readonly aiRedis: AiRedisService,
+    private readonly contextService?: ConversationContextService,
   ) {}
+
+  private getResponseMaxTokens(): number {
+    const value = this.configService.get<number>('AI_RESPONSE_MAX_TOKENS', 450);
+    return Math.max(60, Math.floor(Number(value) || 450));
+  }
+
+  private isHybridContextEnabled(): boolean {
+    if (!this.contextService) return false;
+    const strategy = (
+      this.configService.get<string>('AI_CONTEXT_STRATEGY') || 'history_only'
+    ).toLowerCase();
+    return strategy === 'hybrid';
+  }
+
+  /**
+   * Slot-filling: se o LLM estiver tentando criar uma SC com algum slot
+   * obrigatório ainda ausente, intercepta a chamada e devolve a próxima
+   * pergunta determinística ao usuário (uma por vez). Slots já confirmados
+   * em `conversation_memory.filled_slots` não são re-perguntados.
+   */
+  private evaluateSlotFilling(
+    toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
+    conversation: { conversationMemory?: any },
+    args: Record<string, any>,
+  ): { missingSlot: string; prompt: string } | null {
+    if (!toolCalls?.length) return null;
+    const createCall = toolCalls.find(
+      (call) => call.function?.name === SC_CREATE_TOOL,
+    );
+    if (!createCall) return null;
+
+    const required = REQUIRED_SLOTS_BY_INTENT.create;
+    const memory = conversation.conversationMemory || {};
+    const filled: Record<string, unknown> = memory.filled_slots || {};
+
+    const argsHasPath = (path: string): boolean => {
+      const parts = path.split('.');
+      let current: any = args;
+      for (const p of parts) {
+        if (current == null) return false;
+        if (Array.isArray(current)) return current.length > 0;
+        current = current[p];
+      }
+      if (current == null) return false;
+      if (Array.isArray(current)) return current.length > 0;
+      if (typeof current === 'string') return current.trim().length > 0;
+      return Boolean(current);
+    };
+
+    for (const slot of required) {
+      const provided = argsHasPath(slot) || Boolean(filled[slot]);
+      if (!provided) {
+        return {
+          missingSlot: slot,
+          prompt:
+            SLOT_PROMPTS[slot] ||
+            'Antes de prosseguir, preciso de mais um dado para criar a solicitação. Pode me ajudar?',
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private async persistFilledSlots(
+    conversationId: string,
+    args: Record<string, any>,
+  ): Promise<void> {
+    if (!this.contextService) return;
+    try {
+      const conv = await this.conversationService[
+        'conversationRepo'
+      ]?.findOne?.({
+        id: conversationId,
+      });
+      if (!conv) return;
+      const memory = conv.conversationMemory || {};
+      const filled = { ...(memory.filled_slots || {}) };
+      // Persiste apenas hashes/ids — nunca conteúdo livre.
+      if (args?.patient?.id) filled['patient.id'] = String(args.patient.id);
+      if (args?.surgery_request?.hospital)
+        filled['surgery_request.hospital'] = '✓';
+      if (args?.surgery_request?.health_plan)
+        filled['surgery_request.health_plan'] = '✓';
+      if (Array.isArray(args?.tuss_items) && args.tuss_items.length)
+        filled['tuss_items'] = `count:${args.tuss_items.length}`;
+
+      const repo = this.conversationService['conversationRepo'];
+      if (repo?.update) {
+        await repo.update(conversationId, {
+          conversationMemory: { ...memory, filled_slots: filled },
+        });
+      }
+    } catch (err) {
+      this.logger.debug(
+        `[SLOT_FILLING] persist_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Mascaramento de telefones para logs (LGPD — T0/T25).
+   */
+  private maskPhone(phone: string): string {
+    if (!phone || phone.length < 6) return '***';
+    return `${phone.slice(0, 5)}****${phone.slice(-2)}`;
+  }
+
+  /**
+   * Verifica se o usuário já aceitou o termo de uso de IA na versão MAJOR vigente.
+   * (T0.15 — base de bloqueio do orchestrator quando consentimento ausente.)
+   */
+  private hasValidAiConsent(
+    user: Pick<User, 'ai_consent_version'> | null | undefined,
+  ): boolean {
+    if (!user) return false;
+    return isConsentVersionValid(
+      user.ai_consent_version,
+      CURRENT_CONSENT_VERSIONS.ai,
+    );
+  }
+
+  /** Texto-padrão de redirecionamento à web (item 4.3 do PLANO-LGPD-CONFORMIDADE). */
+  private buildAiConsentMissingMessage(): string {
+    const portalUrl =
+      this.configService.get<string>('AI_CONSENT_PORTAL_URL') ||
+      AI_CONSENT_DEFAULT_PORTAL_URL;
+    return [
+      'Olá! Para conversar de forma assistida sobre suas solicitações cirúrgicas e pacientes pelo WhatsApp, é preciso ativar o assistente de Inteligência Artificial na plataforma web.',
+      '',
+      `Acesse ${portalUrl} para ativar — leva menos de 1 minuto.`,
+      '',
+      'Mesmo sem ativar a IA, você continua:',
+      '• Recebendo os avisos automáticos sobre suas SCs (status, agendamento, faturamento);',
+      '• Podendo me perguntar dúvidas gerais sobre como usar a Inexci (eu respondo a partir da nossa base de ajuda, sem trafegar dados de pacientes ou solicitações).',
+    ].join('\n');
+  }
+
+  /**
+   * Detecta se o pré-processamento tokenizou alguma PII na entrada do usuário.
+   * Comparamos o texto bruto com a versão pseudonimizada — qualquer placeholder
+   * `{{tipo_n}}` indica que houve substituição.
+   */
+  private inputContainsPii(rawInput: string, processedInput: string): boolean {
+    if (!processedInput) return false;
+    if (rawInput === processedInput) return false;
+    return /\{\{[a-z_]+_\d+\}\}/i.test(processedInput);
+  }
+
+  /**
+   * Modo limitado RAG-only para usuários SEM consent de IA.
+   *
+   * Permite que o usuário tire dúvidas gerais sobre a Inexci (suporte / FAQ)
+   * via WhatsApp sem trafegar dados de pacientes ou solicitações pelo LLM
+   * externo. Comportamento:
+   *
+   *  1. Pré-processa a mensagem; se identificar PII, recusa (envia notice).
+   *  2. Faz busca na base RAG. Sem hits relevantes → recusa.
+   *  3. Chama o LLM **sem tools, sem histórico**, com system prompt restritivo.
+   *  4. Filtro defensivo de PII residual (mesmo que do código existente).
+   *
+   * Retorna `true` se respondeu, `false` se o caller deve seguir com a notice.
+   */
+  private async tryAnswerLimitedFaq(
+    phone: string,
+    rawInput: string,
+    messageSid: string,
+  ): Promise<boolean> {
+    const text = (rawInput || '').trim();
+    if (!text) return false;
+    // Mensagens muito curtas raramente são perguntas reais — evita ruído.
+    if (text.length < 8) return false;
+
+    const sessionId = `faq:${phone}`;
+    this.piiVault.startSession(sessionId);
+    try {
+      const processed = this.preprocessUserInput(sessionId, text);
+      if (this.inputContainsPii(text, processed)) {
+        this.logger.log(
+          `[AI_LIMITED_FAQ] sid=${messageSid} phone=${this.maskPhone(phone)} skipped=pii_detected`,
+        );
+        return false;
+      }
+
+      let ragResults: any[] = [];
+      try {
+        ragResults = (await this.ragService.search(processed, 3, 0.7)) ?? [];
+      } catch (err) {
+        this.logger.warn(
+          `[AI_LIMITED_FAQ] sid=${messageSid} rag_error=${err instanceof Error ? err.message : String(err)}`,
+        );
+        return false;
+      }
+      if (!ragResults.length) {
+        this.logger.log(
+          `[AI_LIMITED_FAQ] sid=${messageSid} phone=${this.maskPhone(phone)} skipped=no_rag_hits`,
+        );
+        return false;
+      }
+
+      const ragContext = await this.ragService.formatContext(ragResults);
+
+      const systemPrompt = [
+        'Você é o assistente de suporte da Inexci no WhatsApp.',
+        'Responda APENAS com base no CONTEXTO abaixo, que vem da nossa base oficial de ajuda.',
+        'Se a pergunta NÃO puder ser respondida pelo contexto, peça ao usuário para acessar a plataforma web e ativar o assistente de IA, sem inventar.',
+        'Nunca solicite ou invente dados pessoais ou clínicos. Se o usuário enviar nome de paciente, CPF, telefone, e-mail, número de SC ou qualquer dado sensível, recuse cordialmente e peça para usar a plataforma web.',
+        'Não fale como um humano da Inexci; fale como assistente automatizado.',
+        'Resposta em português, curta (máx. 800 caracteres), tom cordial.',
+      ].join(' ');
+
+      const messages: OpenAI.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'system',
+          content: `CONTEXTO DA BASE DE CONHECIMENTO:\n${ragContext}`,
+        },
+        { role: 'user', content: processed },
+      ];
+
+      await this.assertNoResidualPii(messages, {
+        conversationId: sessionId,
+        messageSid,
+      });
+
+      const t0 = Date.now();
+      const completion = await this.openaiService.chatCompletion({
+        messages,
+        temperature: 0.2,
+        timeoutMs: 20000,
+      });
+
+      const answer = completion?.choices?.[0]?.message?.content?.trim();
+      if (!answer) {
+        this.logger.warn(
+          `[AI_LIMITED_FAQ] sid=${messageSid} empty_completion latency=${Date.now() - t0}ms`,
+        );
+        return false;
+      }
+
+      await this.whatsappService.sendMessage(phone, answer);
+      this.logger.log(
+        `[AI_LIMITED_FAQ] sid=${messageSid} phone=${this.maskPhone(phone)} answered=true latency=${Date.now() - t0}ms`,
+      );
+      return true;
+    } finally {
+      // Sessão temporária — limpa para não inflar a memória do vault.
+      this.piiVault.endSession(sessionId);
+    }
+  }
+
+  /** Evita floodar o mesmo telefone com a mensagem de consentimento ausente. */
+  private hasRecentlyNoticedAiConsent(phone: string): boolean {
+    const sentAt = this.aiConsentNoticesSent.get(phone);
+    if (!sentAt) return false;
+    if (Date.now() - sentAt > AI_CONSENT_NOTICE_COOLDOWN_MS) {
+      this.aiConsentNoticesSent.delete(phone);
+      return false;
+    }
+    return true;
+  }
+
+  private markAiConsentNoticeSent(phone: string): void {
+    this.aiConsentNoticesSent.set(phone, Date.now());
+  }
+
+  /**
+   * Invalida o cache do usuário e o cooldown da mensagem de consentimento.
+   * Usado pelo `ConsentService` quando o usuário concede/revoga consentimento
+   * via web — assim a próxima mensagem do WhatsApp já reflete o novo estado.
+   *
+   * Sem invocação explícita, o cache TTL (10 min) garante que a próxima sessão
+   * eventualmente recarregue o usuário do banco. Aceitável como fallback.
+   */
+  invalidateUserCacheByPhone(phone: string | null | undefined): void {
+    if (!phone) return;
+    const { canonicalPhone, lookupCandidates } =
+      this.normalizeInboundPhone(phone);
+    const candidates = new Set<string>([canonicalPhone, ...lookupCandidates]);
+    for (const candidate of candidates) {
+      this.userCache.delete(candidate);
+      this.aiConsentNoticesSent.delete(candidate);
+    }
+  }
+
+  /**
+   * Pré-processador de input do usuário (T0.5):
+   * substitui CPF/telefone/email por placeholders ANTES de o texto entrar no
+   * histórico ou ir para a OpenAI. Blocos muito longos viram `payload_blob`.
+   */
+  private preprocessUserInput(
+    conversationId: string,
+    rawInput: string,
+  ): string {
+    if (!rawInput) return '';
+    let out = rawInput;
+
+    out = out.replace(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, (match) =>
+      this.piiVault.tokenize(conversationId, match, 'cpf'),
+    );
+
+    out = out.replace(/(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g, (match) =>
+      this.piiVault.tokenize(conversationId, match, 'phone'),
+    );
+
+    out = out.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, (match) =>
+      this.piiVault.tokenize(conversationId, match, 'email'),
+    );
+
+    if (out.length > 1500) {
+      out = this.piiVault.tokenize(conversationId, out, 'payload_blob');
+    }
+
+    return out;
+  }
+
+  /**
+   * Métrica de uso do vault por sessão (T0.11). Emite um único log estruturado
+   * que pode ser raspado por agregadores (Datadog/CloudWatch) ou substituído
+   * por contador Prometheus em iteração futura.
+   */
+  private logPiiVaultUsage(messageSid: string, conversationId: string): void {
+    try {
+      const counts = this.piiVault.categoryCounts(conversationId);
+      const nonZero = Object.entries(counts).filter(([, n]) => n > 0);
+      if (!nonZero.length) return;
+      const breakdown = nonZero.map(([cat, n]) => `${cat}=${n}`).join(',');
+      const total = nonZero.reduce((acc, [, n]) => acc + n, 0);
+      this.logger.log(
+        `[AI_PII_USAGE] sid=${messageSid} total=${total} ${breakdown}`,
+      );
+    } catch (err: any) {
+      this.logger.debug(
+        `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
+      );
+    }
+  }
+
+  /**
+   * Filtro defensivo (T0.7): varre as mensagens que serão enviadas à OpenAI
+   * em busca de PII residual não tokenizada. Em caso de detecção, registra o
+   * incidente em `ai_pii_redaction_log` e lança um erro com `code='PII_RESIDUAL'`
+   * para abortar a chamada.
+   */
+  private async assertNoResidualPii(
+    messages: OpenAI.ChatCompletionMessageParam[],
+    context: { conversationId: string; messageSid: string; toolName?: string },
+  ): Promise<void> {
+    for (const message of messages) {
+      const content = message.content;
+      if (typeof content !== 'string' || !content) continue;
+      const findings = this.piiVault.detectResidualPii(content);
+      if (!findings.length) continue;
+
+      const first = findings[0];
+      try {
+        await this.piiRedactionLogRepo.create({
+          conversationId: context.conversationId,
+          messageSid: context.messageSid,
+          category: first.category,
+          valueHash: this.piiVault.hashValue(first.sample),
+          blocked: true,
+          toolName: context.toolName ?? null,
+          occurrences: findings.length,
+        });
+      } catch (logErr: any) {
+        this.logger.warn(
+          `Falha ao registrar pii_redaction_log: ${logErr?.message || 'erro desconhecido'}`,
+        );
+      }
+
+      this.logger.error(
+        `[AI_PII_BLOCK] sid=${context.messageSid} category=${first.category} occurrences=${findings.length}`,
+      );
+      const err: any = new Error(
+        'PII residual detectada antes da chamada à IA externa.',
+      );
+      err.code = 'PII_RESIDUAL';
+      err.category = first.category;
+      throw err;
+    }
+  }
 
   async enqueueInboundMessage(data: {
     from: string;
@@ -194,18 +659,21 @@ export class AiOrchestratorService {
       data.from,
     );
     const phone = canonicalPhone;
+    const maskedPhone = this.maskPhone(phone);
     this.logger.log(
-      `Processando mensagem de ${phone}: "${data.body.slice(0, 50)}"`,
+      `Processando mensagem de ${maskedPhone} (${(data.body || '').length} chars de texto)`,
     );
 
-    if (!this.checkRateLimit(phone)) {
-      this.logger.warn(`Rate limit excedido para ${phone}`);
+    if (!(await this.checkRateLimitAsync(phone))) {
+      this.logger.warn(`Rate limit excedido para ${maskedPhone}`);
       await this.whatsappService.sendMessage(
         phone,
         '⚠️ Você enviou muitas mensagens. Por favor, aguarde alguns minutos antes de tentar novamente.',
       );
       return;
     }
+
+    let activeConversationId: string | null = null;
 
     try {
       this.ensureWithinTimeout(processStartedAt, processTimeoutMs);
@@ -230,6 +698,39 @@ export class AiOrchestratorService {
         return;
       }
 
+      // T0.15 + ajuste 2026-05-07 — Bloqueio por ausência de consentimento de IA.
+      // Antes de bloquear, tentamos responder dúvidas gerais sobre a Inexci via
+      // RAG (base de conhecimento estática, sem dados de pacientes/SC). Só
+      // enviamos a notice se a tentativa não couber nesse modo limitado.
+      if (!this.hasValidAiConsent(user)) {
+        const handled = await this.tryAnswerLimitedFaq(
+          phone,
+          data.body || '',
+          data.messageSid,
+        );
+        if (handled) {
+          this.logger.log(
+            `[AI_CONSENT_BLOCK] sid=${data.messageSid} user=${userId} phone=${maskedPhone} mode=limited_faq`,
+          );
+          return;
+        }
+        if (!this.hasRecentlyNoticedAiConsent(phone)) {
+          await this.whatsappService.sendMessage(
+            phone,
+            this.buildAiConsentMissingMessage(),
+          );
+          this.markAiConsentNoticeSent(phone);
+          this.logger.log(
+            `[AI_CONSENT_BLOCK] sid=${data.messageSid} user=${userId} phone=${maskedPhone} notice_sent=true`,
+          );
+        } else {
+          this.logger.debug(
+            `[AI_CONSENT_BLOCK] sid=${data.messageSid} user=${userId} phone=${maskedPhone} notice_suppressed=true`,
+          );
+        }
+        return;
+      }
+
       const cachedDoctorIds = this.doctorIdsCache.get(userId);
       const accessibleDoctorIds =
         cachedDoctorIds ??
@@ -237,8 +738,17 @@ export class AiOrchestratorService {
       if (!cachedDoctorIds)
         this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
 
+      const accountId = user?.account_id || null;
       const conversation =
-        await this.conversationService.getOrCreateConversation(phone, userId);
+        await this.conversationService.getOrCreateConversation(
+          phone,
+          userId,
+          accountId,
+        );
+      activeConversationId = conversation.id;
+
+      // Inicia sessão do PII Vault para esta mensagem (T0.6)
+      this.piiVault.startSession(conversation.id);
 
       const normalizedInput = this.normalizeIntentText(data.body);
 
@@ -294,7 +804,7 @@ export class AiOrchestratorService {
         );
       }
 
-      const userInputForAi = this.buildUserInputForAi({
+      const userInputRaw = this.buildUserInputForAi({
         textInput: data.body,
         transcriptionText: transcriptionContext?.text || null,
       });
@@ -308,7 +818,7 @@ export class AiOrchestratorService {
         return;
       }
 
-      if (!userInputForAi) {
+      if (!userInputRaw) {
         await this.whatsappService.sendMessage(
           phone,
           '⚠️ Não consegui identificar texto na sua mensagem. Se preferir, envie novamente em texto ou um áudio mais curto.',
@@ -316,11 +826,19 @@ export class AiOrchestratorService {
         return;
       }
 
+      // T0.5 — pré-processador de input: tokeniza CPF/telefone/email/blocos longos.
+      const userInputForAi = this.preprocessUserInput(
+        conversation.id,
+        userInputRaw,
+      );
+
       const userSource = this.resolveInboundSource(
         data.body,
         transcriptionContext,
       );
 
+      // Histórico armazena a versão TOKENIZADA — evita re-vazar PII em
+      // `buildMessagesForOpenAI` em turnos futuros.
       await this.conversationService.appendMessage(
         conversation.id,
         'user',
@@ -352,30 +870,72 @@ export class AiOrchestratorService {
         },
       );
 
-      // RAG
+      // RAG opera sobre a versão tokenizada (a base é pública, sem PII).
       const ragResults = await this.ragService.search(userInputForAi, 3, 0.65);
       const ragContext = await this.ragService.formatContext(ragResults);
 
       const updatedConv =
-        await this.conversationService.getOrCreateConversation(phone, userId);
-      const messages = this.conversationService.buildMessagesForOpenAI(
-        updatedConv,
-        ragContext,
-      );
+        await this.conversationService.getOrCreateConversation(
+          phone,
+          userId,
+          accountId,
+        );
+
+      // Fase 4 do plano de redução de tokens — quando flag `hybrid` ligada e
+      // o serviço de contexto disponível, monta system + summary + memory +
+      // RAG + janela curta com orçamento de tokens. Caso contrário, mantém o
+      // caminho legado (history_only) para garantir rollback rápido.
+      let messages: OpenAI.ChatCompletionMessageParam[];
+      let contextBreakdown:
+        | CompletionUsageSnapshot['contextBreakdown']
+        | undefined;
+      let contextStrategy: ContextStrategy = 'history_only';
+
+      if (this.isHybridContextEnabled() && this.contextService) {
+        const built = await this.contextService.buildContext({
+          conversation: updatedConv,
+          ragContext: ragContext || null,
+        });
+        messages = built.messages;
+        contextBreakdown = built.breakdown;
+        contextStrategy = built.strategy;
+      } else {
+        const recentMessages =
+          await this.conversationService.loadRecentMessages(updatedConv.id);
+        messages = this.conversationService.buildMessagesForOpenAI(
+          updatedConv,
+          ragContext,
+          recentMessages,
+        );
+        contextStrategy = 'history_only';
+      }
 
       const tools = this.toolRegistry.getToolDefinitions();
 
       this.ensureWithinTimeout(processStartedAt, processTimeoutMs);
+      // T0.7 — filtro defensivo antes da primeira chamada à IA.
+      await this.assertNoResidualPii(messages, {
+        conversationId: conversation.id,
+        messageSid: data.messageSid,
+      });
+      const t0Initial = Date.now();
       const completion = await this.openaiService.chatCompletion({
         messages,
         tools,
         temperature: 0.2,
+        maxTokens: this.getResponseMaxTokens(),
         timeoutMs: this.getRemainingTimeoutMs(
           processStartedAt,
           processTimeoutMs,
         ),
       });
-      this.captureUsageSnapshot(usageSnapshots, 'initial', completion);
+      this.captureUsageSnapshot(
+        usageSnapshots,
+        'initial',
+        completion,
+        Date.now() - t0Initial,
+        { breakdown: contextBreakdown, strategy: contextStrategy },
+      );
       let responseMessage = completion.choices[0].message;
 
       const toolContext: ToolContext = {
@@ -384,12 +944,45 @@ export class AiOrchestratorService {
         accessibleDoctorIds,
         conversationId: conversation.id,
         inboundMedia: data.media || [],
+        piiVault: this.piiVault,
       };
 
       let iterations = MAX_TOOL_ITERATIONS;
       let followUpIndex = 0;
+      let slotPromptOverride: string | null = null;
       while (responseMessage.tool_calls?.length && iterations > 0) {
         iterations--;
+
+        // Slot-filling: intercepta criação de SC com slot faltante.
+        if (this.isHybridContextEnabled() && this.contextService) {
+          const createCall = responseMessage.tool_calls.find(
+            (call) => call.function?.name === SC_CREATE_TOOL,
+          );
+          if (createCall) {
+            let parsedArgs: Record<string, any> = {};
+            try {
+              parsedArgs = createCall.function?.arguments
+                ? JSON.parse(createCall.function.arguments)
+                : {};
+            } catch {
+              parsedArgs = {};
+            }
+            const slotCheck = this.evaluateSlotFilling(
+              responseMessage.tool_calls,
+              updatedConv,
+              parsedArgs,
+            );
+            if (slotCheck) {
+              slotPromptOverride = slotCheck.prompt;
+              this.logger.log(
+                `[SLOT_FILLING] sid=${data.messageSid} conv=${conversation.id} blocked=${SC_CREATE_TOOL} missing=${slotCheck.missingSlot}`,
+              );
+              break;
+            }
+            // Slots ok — registra como filled antes de executar.
+            await this.persistFilledSlots(conversation.id, parsedArgs);
+          }
+        }
 
         const toolResults = await this.toolExecutor.executeMany(
           responseMessage.tool_calls,
@@ -438,10 +1031,18 @@ export class AiOrchestratorService {
           });
         }
 
+        // T0.7 — filtro defensivo antes de cada follow-up.
+        await this.assertNoResidualPii(messages, {
+          conversationId: conversation.id,
+          messageSid: data.messageSid,
+        });
+
+        const t0Followup = Date.now();
         const followUp = await this.openaiService.chatCompletion({
           messages,
           tools,
           temperature: 0.2,
+          maxTokens: this.getResponseMaxTokens(),
           timeoutMs: this.getRemainingTimeoutMs(
             processStartedAt,
             processTimeoutMs,
@@ -452,11 +1053,13 @@ export class AiOrchestratorService {
           usageSnapshots,
           `followup_${followUpIndex}`,
           followUp,
+          Date.now() - t0Followup,
         );
         responseMessage = followUp.choices[0].message;
       }
 
       let finalText =
+        slotPromptOverride ||
         responseMessage.content ||
         'Desculpe, não consegui processar sua solicitação.';
 
@@ -472,6 +1075,7 @@ export class AiOrchestratorService {
           usageSnapshots,
           'rewrite',
           rewriteResult.completion,
+          rewriteResult.latencyMs,
         );
       }
 
@@ -483,31 +1087,67 @@ export class AiOrchestratorService {
           '...\n\n_Acesse a plataforma para ver a resposta completa._';
       }
 
+      // Histórico mantém versão TOKENIZADA (assistente continua reusando placeholders).
       await this.conversationService.appendMessage(
         conversation.id,
         'assistant',
         finalText,
       );
 
-      await this.whatsappService.sendMessage(phone, finalText);
-      await this.trySendInteractiveConfirmationTemplate(phone, finalText);
+      // T0.6 — detokeniza somente para envio externo (WhatsApp).
+      const detokenizedText = this.piiVault.detokenize(
+        conversation.id,
+        finalText,
+      );
+
+      await this.whatsappService.sendMessage(phone, detokenizedText);
+      await this.trySendInteractiveConfirmationTemplate(phone, detokenizedText);
 
       await this.persistUsageSummary(
         phone,
         data.messageSid,
         conversation.id,
         userId,
+        accountId,
         usageSnapshots,
       );
 
       this.logUsageSummary(phone, data.messageSid, usageSnapshots);
 
+      // Atualização incremental de summary/memory em background — nunca bloqueia
+      // a resposta ao usuário. Falhas são contadas via `summary_failures` no
+      // próprio serviço (após 3 falhas consecutivas, a estratégia híbrida é
+      // automaticamente desativada para essa conversa).
+      if (this.isHybridContextEnabled() && this.contextService) {
+        const ctxService = this.contextService;
+        const convId = conversation.id;
+        Promise.resolve()
+          .then(async () => {
+            const conv = await this.conversationService.getOrCreateConversation(
+              phone,
+              userId,
+              accountId,
+            );
+            if (await ctxService.shouldRefreshSummary(conv)) {
+              await ctxService.updateSummaryAndMemory(convId);
+            }
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `[CONTEXT_SUMMARY] background_failed conv=${convId} err=${err?.message || err}`,
+            );
+          });
+      }
+
+      // T0.11 — métrica/contador de PII por categoria nesta sessão.
+      this.logPiiVaultUsage(data.messageSid, conversation.id);
+
       this.logger.log(
-        `Resposta enviada para ${phone} (${finalText.length} chars)`,
+        `Resposta enviada para ${maskedPhone} (${detokenizedText.length} chars)`,
       );
     } catch (error: any) {
       this.logger.error(
-        `Erro ao processar mensagem de ${phone}: ${error.message}`,
+        `Erro ao processar mensagem de ${maskedPhone}: ${error.message}`,
         error.stack,
       );
       const isTimeout =
@@ -515,17 +1155,39 @@ export class AiOrchestratorService {
         error?.code === 'ETIMEDOUT' ||
         error?.code === 'ECONNABORTED' ||
         error?.name === 'AbortError';
+      const isPiiBlock = error?.code === 'PII_RESIDUAL';
 
-      await this.whatsappService.sendMessage(
-        phone,
-        isTimeout
-          ? '⚠️ A solicitação demorou mais do que o esperado (1 min e 30 s) e foi cancelada. Tente novamente.'
-          : '⚠️ Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em alguns minutos ou acesse a plataforma web.',
-      );
+      let userFacingMessage =
+        '⚠️ Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em alguns minutos ou acesse a plataforma web.';
+      if (isTimeout) {
+        userFacingMessage =
+          '⚠️ A solicitação demorou mais do que o esperado (1 min e 30 s) e foi cancelada. Tente novamente.';
+      } else if (isPiiBlock) {
+        userFacingMessage =
+          '⚠️ Detectei um dado sensível na sua mensagem que não pude processar com segurança. Pode reenviar omitindo CPF/telefone/e-mail ou usar a plataforma web?';
+      }
+
+      await this.whatsappService.sendMessage(phone, userFacingMessage);
+    } finally {
+      // Encerra sessão do vault (ainda que ocorra erro): evita acúmulo de bindings em memória.
+      if (activeConversationId) {
+        this.piiVault.endSession(activeConversationId);
+      }
     }
   }
 
-  private checkRateLimit(phone: string, maxPerHour = 30): boolean {
+  // T32: Rate limit via Redis com fallback in-memory
+  private async checkRateLimitAsync(
+    phone: string,
+    maxPerHour = 30,
+  ): Promise<boolean> {
+    if (this.aiRedis.isAvailable) {
+      return this.aiRedis.checkRateLimit(phone, maxPerHour, 3600);
+    }
+    return this.checkRateLimitInMemory(phone, maxPerHour);
+  }
+
+  private checkRateLimitInMemory(phone: string, maxPerHour = 30): boolean {
     const now = Date.now();
     const entry = this.rateLimitCounts.get(phone);
 
@@ -592,7 +1254,12 @@ export class AiOrchestratorService {
     userInput: string,
     processStartedAt?: number,
     processTimeoutMs?: number,
-  ): Promise<{ text: string; completion: OpenAI.ChatCompletion | null }> {
+  ): Promise<{
+    text: string;
+    completion: OpenAI.ChatCompletion | null;
+    latencyMs: number;
+  }> {
+    const t0 = Date.now();
     try {
       const completion = await this.openaiService.chatCompletion({
         temperature: 0.1,
@@ -620,9 +1287,10 @@ export class AiOrchestratorService {
           rawText ||
           'Desculpe, não consegui formatar a resposta agora.',
         completion,
+        latencyMs: Date.now() - t0,
       };
     } catch {
-      return { text: rawText, completion: null };
+      return { text: rawText, completion: null, latencyMs: Date.now() - t0 };
     }
   }
 
@@ -650,6 +1318,11 @@ export class AiOrchestratorService {
     snapshots: CompletionUsageSnapshot[],
     stage: string,
     completion: OpenAI.ChatCompletion | null | undefined,
+    latencyMs?: number,
+    extra?: {
+      breakdown?: CompletionUsageSnapshot['contextBreakdown'];
+      strategy?: ContextStrategy;
+    },
   ): void {
     if (!completion?.usage) return;
 
@@ -658,6 +1331,10 @@ export class AiOrchestratorService {
       promptTokens: completion.usage.prompt_tokens || 0,
       completionTokens: completion.usage.completion_tokens || 0,
       totalTokens: completion.usage.total_tokens || 0,
+      model: completion.model,
+      latencyMs,
+      ...(extra?.breakdown ? { contextBreakdown: extra.breakdown } : {}),
+      ...(extra?.strategy ? { contextStrategy: extra.strategy } : {}),
     });
   }
 
@@ -685,8 +1362,15 @@ export class AiOrchestratorService {
       )
       .join(' | ');
 
+    const initial = snapshots.find((s) => s.stage === 'initial');
+    const ctxBreakdown = initial?.contextBreakdown;
+    const strategy = initial?.contextStrategy ?? 'history_only';
+    const ctxLog = ctxBreakdown
+      ? ` strategy=${strategy} ctx_system=${ctxBreakdown.system_tokens} ctx_summary=${ctxBreakdown.summary_tokens} ctx_memory=${ctxBreakdown.memory_tokens} ctx_rag=${ctxBreakdown.rag_tokens} ctx_recent=${ctxBreakdown.recent_tokens}`
+      : ` strategy=${strategy}`;
+
     this.logger.log(
-      `[AI_TOKEN_USAGE] sid=${messageSid} phone=${phone} total_prompt=${totals.prompt} total_completion=${totals.completion} total=${totals.total} breakdown=${breakdown}`,
+      `[AI_TOKEN_USAGE] sid=${messageSid} phone=${this.maskPhone(phone)} total_prompt=${totals.prompt} total_completion=${totals.completion} total=${totals.total} breakdown=${breakdown}${ctxLog}`,
     );
   }
 
@@ -695,6 +1379,7 @@ export class AiOrchestratorService {
     messageSid: string,
     conversationId: string,
     userId: string,
+    accountId: string | null,
     snapshots: CompletionUsageSnapshot[],
   ): Promise<void> {
     if (!snapshots.length) return;
@@ -704,10 +1389,15 @@ export class AiOrchestratorService {
         acc.prompt += item.promptTokens;
         acc.completion += item.completionTokens;
         acc.total += item.totalTokens;
+        acc.latency += item.latencyMs || 0;
         return acc;
       },
-      { prompt: 0, completion: 0, total: 0 },
+      { prompt: 0, completion: 0, total: 0, latency: 0 },
     );
+
+    const model = snapshots[0]?.model ?? null;
+
+    const costCents = this.estimateCostCents(snapshots);
 
     try {
       await this.aiTokenUsageLogRepo.create({
@@ -715,10 +1405,14 @@ export class AiOrchestratorService {
         phone,
         conversationId,
         userId,
+        accountId,
         promptTokens: totals.prompt,
         completionTokens: totals.completion,
         totalTokens: totals.total,
         callsCount: snapshots.length,
+        model,
+        latencyMs: totals.latency || null,
+        costEstimateCents: costCents,
         breakdown: snapshots,
       });
     } catch (error: any) {
@@ -726,6 +1420,22 @@ export class AiOrchestratorService {
         `Falha ao persistir AI_TOKEN_USAGE sid=${messageSid}: ${error?.message || 'erro desconhecido'}`,
       );
     }
+  }
+
+  private estimateCostCents(
+    snapshots: CompletionUsageSnapshot[],
+  ): number | null {
+    let total = 0;
+    let hasPricing = false;
+    for (const s of snapshots) {
+      const pricing = s.model ? MODEL_COST_PER_1K[s.model] : undefined;
+      if (!pricing) continue;
+      hasPricing = true;
+      total +=
+        (s.promptTokens / 1000) * pricing.input +
+        (s.completionTokens / 1000) * pricing.output;
+    }
+    return hasPricing ? Math.round(total) : null;
   }
 
   private normalizeWhatsappText(text: string): string {
@@ -1047,7 +1757,7 @@ export class AiOrchestratorService {
       return true;
     } catch (error: any) {
       this.logger.warn(
-        `Falha ao enfileirar template interativo de confirmação para ${phone}: ${error?.message || 'erro desconhecido'}`,
+        `Falha ao enfileirar template interativo de confirmação para ${this.maskPhone(phone)}: ${error?.message || 'erro desconhecido'}`,
       );
       return false;
     }

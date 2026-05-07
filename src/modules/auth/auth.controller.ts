@@ -12,6 +12,7 @@ import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthService } from './auth.service';
 import { Public } from 'src/shared/decorator/is-public.decorator';
+import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decorator';
 import { validationCodeDto } from './dto/validation-code.dto';
 import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
@@ -22,6 +23,7 @@ import {
 
 @ApiTags('Autenticação')
 @Controller('auth')
+@SkipConsentCheck()
 export class AuthController {
   /** Cookie httpOnly para refresh token */
   private readonly REFRESH_COOKIE = 'refresh_token';

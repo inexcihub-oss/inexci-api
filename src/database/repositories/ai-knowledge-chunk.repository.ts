@@ -16,7 +16,7 @@ export class AiKnowledgeChunkRepository extends BaseRepository<AiKnowledgeChunk>
   findByCategory(category: string): Promise<AiKnowledgeChunk[]> {
     return this.repository.find({
       where: { category, active: true },
-      order: { created_at: 'ASC' },
+      order: { createdAt: 'ASC' },
     });
   }
 

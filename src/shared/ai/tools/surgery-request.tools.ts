@@ -4,6 +4,7 @@ import { SurgeryRequestRepository } from '../../../database/repositories/surgery
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
 import { In } from 'typeorm';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
+import { tokenizePii } from '../pii/tool-pii-helpers';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -144,7 +145,44 @@ export function buildSurgeryRequestTools(
       const status = STATUS_LABELS[request.status] || String(request.status);
       const priority =
         PRIORITY_LABELS[request.priority as any] || String(request.priority);
-      const protocol = normalizeProtocolDisplay(request.protocol);
+      const TOOL = 'get_surgery_request_status';
+      const protocolToken = tokenizePii(
+        context,
+        TOOL,
+        'protocol',
+        normalizeProtocolDisplay(request.protocol),
+      );
+      const patientToken = tokenizePii(
+        context,
+        TOOL,
+        'patient_name',
+        (request as any).patient?.name || request.patient_id,
+      );
+      const hospitalToken = (request as any).hospital?.name
+        ? tokenizePii(
+            context,
+            TOOL,
+            'hospital_name',
+            (request as any).hospital.name,
+          )
+        : 'Não definido';
+      const healthPlanToken = (request as any).health_plan?.name
+        ? tokenizePii(
+            context,
+            TOOL,
+            'health_plan_name',
+            (request as any).health_plan.name,
+          )
+        : 'Não definido';
+      const surgeryDateRaw = request.surgery_date || request.date_call;
+      const surgeryDateToken = surgeryDateRaw
+        ? tokenizePii(
+            context,
+            TOOL,
+            'date',
+            new Date(surgeryDateRaw).toLocaleDateString('pt-BR'),
+          )
+        : 'Não agendada';
 
       let pendencyLines: string[] = [];
       if (pendencyValidator && request.id) {
@@ -180,13 +218,13 @@ export function buildSurgeryRequestTools(
       }
 
       return [
-        `📋 *Solicitação ${protocol}*`,
+        `📋 *Solicitação ${protocolToken}*`,
         `Status: ${status}`,
         `Prioridade: ${priority}`,
-        `Paciente: ${(request as any).patient?.name || request.patient_id}`,
-        `Hospital: ${(request as any).hospital?.name || request.hospital_id || 'Não definido'}`,
-        `Convênio: ${(request as any).health_plan?.name || request.health_plan_id || 'Não definido'}`,
-        `Data da cirurgia: ${request.surgery_date ? new Date(request.surgery_date).toLocaleDateString('pt-BR') : request.date_call ? new Date(request.date_call).toLocaleDateString('pt-BR') : 'Não agendada'}`,
+        `Paciente: ${patientToken}`,
+        `Hospital: ${hospitalToken}`,
+        `Convênio: ${healthPlanToken}`,
+        `Data da cirurgia: ${surgeryDateToken}`,
         ...pendencyLines,
       ].join('\n');
     },
@@ -253,10 +291,19 @@ export function buildSurgeryRequestTools(
           : 'Nenhuma solicitação encontrada.';
       }
 
-      const lines = requests.map(
-        (r: any) =>
-          `• ${normalizeProtocolDisplay(r.protocol)} — ${r.patient?.name || 'Paciente'} — ${STATUS_LABELS[r.status] || r.status}`,
-      );
+      const TOOL = 'list_surgery_requests';
+      const lines = requests.map((r: any) => {
+        const protocolToken = tokenizePii(
+          context,
+          TOOL,
+          'protocol',
+          normalizeProtocolDisplay(r.protocol),
+        );
+        const patientToken = r.patient?.name
+          ? tokenizePii(context, TOOL, 'patient_name', r.patient.name)
+          : 'Paciente';
+        return `• ${protocolToken} — ${patientToken} — ${STATUS_LABELS[r.status] || r.status}`;
+      });
       return `📋 *Suas solicitações:*\n${lines.join('\n')}`;
     },
   };

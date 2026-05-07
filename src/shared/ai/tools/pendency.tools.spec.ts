@@ -1,5 +1,6 @@
 import { buildPendencyTools } from './pendency.tools';
 import { ToolContext } from './tool.interface';
+import { PiiVaultService } from '../services/pii-vault.service';
 
 const mockPendencyValidator = { validateForStatus: jest.fn() };
 const mockSurgeryRequestRepo = {
@@ -169,6 +170,40 @@ describe('PendencyTools', () => {
       );
       expect(result).toContain('Para avançar, faça:');
       expect(result).toContain('Telefone');
+    });
+
+    it('com vault ativo, tokeniza o protocolo retornado para a IA', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-vault-1',
+        protocol: 'SC-664980',
+        status: 1,
+        doctor_id: 'doctor-1',
+      });
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'patient_data',
+            name: 'Dados do Paciente',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [{ label: 'Telefone', done: false }],
+          },
+        ],
+      });
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgery_request_id: 'req-vault-1' },
+        { ...baseContext, piiVault },
+      );
+
+      expect(result).not.toContain('SC-664980');
+      expect(result).toContain('{{protocol_1}}');
+      expect(piiVault.detokenize('conv-1', result)).toContain('SC-664980');
     });
 
     it('deve tentar localizar por nome do paciente quando não achar por id/protocolo', async () => {

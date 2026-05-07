@@ -1,5 +1,6 @@
 import { buildSurgeryRequestTools } from './surgery-request.tools';
 import { ToolContext } from './tool.interface';
+import { PiiVaultService } from '../services/pii-vault.service';
 
 const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
@@ -184,6 +185,38 @@ describe('SurgeryRequestTools', () => {
         { ...baseContext, userId: null },
       );
       expect(result).toContain('cadastrado');
+    });
+
+    it('com vault ativo, retorna placeholders em vez de nomes reais', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        status: 1,
+        priority: 2,
+        doctor_id: 'doctor-1',
+        patient_id: 'pat-1',
+        patient: { name: 'João Silva' },
+        hospital: { name: 'Hospital Santa Maria' },
+        health_plan: { name: 'Unimed' },
+      });
+      mockSurgeryRequestRepo.findOne.mockResolvedValue(null);
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+      const tool = getTool('get_surgery_request_status');
+      const result = await tool.execute(
+        { identifier: 'SC-0042' },
+        { ...baseContext, piiVault },
+      );
+
+      expect(result).not.toContain('João Silva');
+      expect(result).not.toContain('Hospital Santa Maria');
+      expect(result).not.toContain('Unimed');
+      expect(result).toContain('{{patient_name_1}}');
+      expect(result).toContain('{{hospital_name_1}}');
+      expect(result).toContain('{{health_plan_name_1}}');
+
+      expect(piiVault.detokenize('conv-1', result)).toContain('João Silva');
     });
   });
 

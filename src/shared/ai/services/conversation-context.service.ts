@@ -1,0 +1,490 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
+import { OpenaiService } from './openai.service';
+import { PiiVaultService } from './pii-vault.service';
+import { WhatsappConversationRepository } from '../../../database/repositories/whatsapp-conversation.repository';
+import { WhatsappConversationMessageRepository } from '../../../database/repositories/whatsapp-conversation-message.repository';
+import {
+  WhatsappConversation,
+  ConversationMemory,
+} from '../../../database/entities/whatsapp-conversation.entity';
+import { SYSTEM_PROMPT } from '../prompts/system-prompt';
+
+const SUMMARY_FAILURE_LIMIT = 3;
+
+export type ContextStrategy = 'history_only' | 'hybrid';
+
+export interface ContextBlockBreakdown {
+  system_tokens: number;
+  summary_tokens: number;
+  memory_tokens: number;
+  recent_tokens: number;
+  rag_tokens: number;
+  total_tokens: number;
+}
+
+export interface BuildContextResult {
+  messages: OpenAI.ChatCompletionMessageParam[];
+  breakdown: ContextBlockBreakdown;
+  strategy: ContextStrategy;
+  recentCount: number;
+}
+
+export interface BuildContextOptions {
+  conversation: WhatsappConversation;
+  ragContext?: string | null;
+  systemPromptBase?: string;
+  /** Override do número de mensagens recentes (default = AI_MAX_RECENT_MESSAGES). */
+  recentLimit?: number;
+}
+
+/**
+ * Estima tokens via heurística simples (text.length / 4). Suficiente para
+ * decisões de orçamento; não tenta ser exata como tiktoken.
+ */
+export function estimateTokens(text: string | null | undefined): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+@Injectable()
+export class ConversationContextService {
+  private readonly logger = new Logger(ConversationContextService.name);
+
+  constructor(
+    private readonly openaiService: OpenaiService,
+    private readonly conversationRepo: WhatsappConversationRepository,
+    private readonly messageRepo: WhatsappConversationMessageRepository,
+    private readonly piiVault: PiiVaultService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  private getStrategy(): ContextStrategy {
+    const raw = (
+      this.configService.get<string>('AI_CONTEXT_STRATEGY') || 'history_only'
+    )
+      .trim()
+      .toLowerCase();
+    return raw === 'hybrid' ? 'hybrid' : 'history_only';
+  }
+
+  private getMaxRecent(): number {
+    const value = this.configService.get<number>('AI_MAX_RECENT_MESSAGES', 10);
+    return Math.max(1, Math.floor(Number(value) || 10));
+  }
+
+  private getTokenBudget(): number {
+    const value = this.configService.get<number>(
+      'AI_CONTEXT_TOKEN_BUDGET',
+      2200,
+    );
+    return Math.max(500, Math.floor(Number(value) || 2200));
+  }
+
+  private isSummaryEnabled(): boolean {
+    const raw = this.configService.get<string>('AI_SUMMARY_ENABLED', 'true');
+    return String(raw).toLowerCase() !== 'false';
+  }
+
+  private isMemoryEnabled(): boolean {
+    const raw = this.configService.get<string>('AI_MEMORY_ENABLED', 'true');
+    return String(raw).toLowerCase() !== 'false';
+  }
+
+  private getSummaryTriggerEvery(): number {
+    const value = this.configService.get<number>(
+      'AI_SUMMARY_TRIGGER_EVERY_MESSAGES',
+      5,
+    );
+    return Math.max(2, Math.floor(Number(value) || 5));
+  }
+
+  private getSummaryMaxTokens(): number {
+    const value = this.configService.get<number>('AI_SUMMARY_MAX_TOKENS', 450);
+    return Math.max(100, Math.floor(Number(value) || 450));
+  }
+
+  /**
+   * Monta a lista final de mensagens para o LLM respeitando o orçamento.
+   *
+   * Estratégia `history_only` (default): comportamento legado — system + RAG +
+   * janela curta de mensagens recentes.
+   *
+   * Estratégia `hybrid`: system + summary + memory + RAG + janela curta, com
+   * `enforceTokenBudget` cortando na ordem rag → recent older → summary.
+   */
+  async buildContext(
+    options: BuildContextOptions,
+  ): Promise<BuildContextResult> {
+    const { conversation, ragContext } = options;
+    const configuredStrategy = this.getStrategy();
+    // Fase 7.2 do plano: rollback automático para `history_only` quando o
+    // sumarizador acumulou >= SUMMARY_FAILURE_LIMIT falhas neste conversation_id.
+    const failures = conversation.conversationMemory?.summary_failures ?? 0;
+    const strategy: ContextStrategy =
+      configuredStrategy === 'hybrid' && failures >= SUMMARY_FAILURE_LIMIT
+        ? 'history_only'
+        : configuredStrategy;
+    if (
+      configuredStrategy === 'hybrid' &&
+      strategy === 'history_only' &&
+      failures >= SUMMARY_FAILURE_LIMIT
+    ) {
+      this.logger.warn(
+        `[CONTEXT_SUMMARY] conv=${conversation.id} fallback_to_history_only failures=${failures}`,
+      );
+    }
+    const maxRecent = options.recentLimit ?? this.getMaxRecent();
+    const budget = this.getTokenBudget();
+    const systemBase = options.systemPromptBase ?? SYSTEM_PROMPT;
+
+    const recentRows = await this.messageRepo.findRecentByConversation(
+      conversation.id,
+      maxRecent,
+    );
+    const recent = this.trimRecentMessages(
+      recentRows.map((r) => ({ role: r.role, content: r.content })),
+      maxRecent,
+    );
+
+    const messages: OpenAI.ChatCompletionMessageParam[] = [];
+    const breakdown: ContextBlockBreakdown = {
+      system_tokens: 0,
+      summary_tokens: 0,
+      memory_tokens: 0,
+      recent_tokens: 0,
+      rag_tokens: 0,
+      total_tokens: 0,
+    };
+
+    messages.push({ role: 'system', content: systemBase });
+    breakdown.system_tokens = estimateTokens(systemBase);
+
+    if (conversation.userId) {
+      const userBlock = `USUÁRIO ATUAL: ID=${conversation.userId}, Telefone=${conversation.phone}`;
+      messages.push({ role: 'system', content: userBlock });
+      breakdown.system_tokens += estimateTokens(userBlock);
+    }
+
+    let summaryText: string | null = null;
+    let memoryText: string | null = null;
+
+    if (strategy === 'hybrid') {
+      if (this.isSummaryEnabled() && conversation.conversationSummary) {
+        summaryText = `RESUMO DA CONVERSA (use apenas como contexto, não repita literalmente):\n${conversation.conversationSummary}`;
+      }
+      if (
+        this.isMemoryEnabled() &&
+        conversation.conversationMemory &&
+        Object.keys(conversation.conversationMemory).length > 0
+      ) {
+        const memJson = JSON.stringify(conversation.conversationMemory);
+        memoryText = `MEMÓRIA ESTRUTURADA DA CONVERSA (slots/fatos confirmados):\n${memJson}`;
+      }
+    }
+
+    let ragBlock: string | null = ragContext
+      ? `CONTEXTO RELEVANTE DA BASE DE CONHECIMENTO:\n${ragContext}`
+      : null;
+
+    const trimmedRecent = [...recent];
+
+    const computeUsage = () => {
+      let used = breakdown.system_tokens;
+      const summaryTokens = summaryText ? estimateTokens(summaryText) : 0;
+      const memoryTokens = memoryText ? estimateTokens(memoryText) : 0;
+      const ragTokens = ragBlock ? estimateTokens(ragBlock) : 0;
+      const recentTokens = trimmedRecent.reduce(
+        (acc, m) => acc + estimateTokens(m.content),
+        0,
+      );
+      used += summaryTokens + memoryTokens + ragTokens + recentTokens;
+      return { used, summaryTokens, memoryTokens, ragTokens, recentTokens };
+    };
+
+    let usage = computeUsage();
+
+    // Ordem de corte (3.4 do plano): rag → recent older → summary.
+    // Memória estruturada e system prompt nunca são cortados.
+    while (usage.used > budget && ragBlock) {
+      ragBlock = null;
+      usage = computeUsage();
+    }
+    while (usage.used > budget && trimmedRecent.length > 1) {
+      trimmedRecent.shift();
+      usage = computeUsage();
+    }
+    while (usage.used > budget && summaryText) {
+      summaryText = null;
+      usage = computeUsage();
+    }
+
+    if (summaryText) {
+      messages.push({ role: 'system', content: summaryText });
+      breakdown.summary_tokens = usage.summaryTokens;
+    }
+    if (memoryText) {
+      messages.push({ role: 'system', content: memoryText });
+      breakdown.memory_tokens = usage.memoryTokens;
+    }
+    if (ragBlock) {
+      messages.push({ role: 'system', content: ragBlock });
+      breakdown.rag_tokens = usage.ragTokens;
+    }
+    for (const msg of trimmedRecent) {
+      messages.push({ role: msg.role as any, content: msg.content });
+    }
+    breakdown.recent_tokens = usage.recentTokens;
+    breakdown.total_tokens =
+      breakdown.system_tokens +
+      breakdown.summary_tokens +
+      breakdown.memory_tokens +
+      breakdown.rag_tokens +
+      breakdown.recent_tokens;
+
+    return {
+      messages,
+      breakdown,
+      strategy,
+      recentCount: trimmedRecent.length,
+    };
+  }
+
+  /**
+   * Decide se vale a pena rodar `updateSummaryAndMemory` agora.
+   * Gatilhos (qualquer um disparar):
+   *   - mensagens novas desde o último summary >= AI_SUMMARY_TRIGGER_EVERY_MESSAGES;
+   *   - janela recente acumulou > 1200 tokens;
+   *   - mudança de intent (memory.intent != intent novo).
+   */
+  async shouldRefreshSummary(
+    conversation: WhatsappConversation,
+    newIntentHint?: string,
+  ): Promise<boolean> {
+    if (!this.isSummaryEnabled()) return false;
+    if (this.getStrategy() !== 'hybrid') return false;
+
+    const failures = conversation.conversationMemory?.summary_failures ?? 0;
+    if (failures >= SUMMARY_FAILURE_LIMIT) return false;
+
+    const trigger = this.getSummaryTriggerEvery();
+    const since = conversation.summaryUpdatedAt
+      ? await this.messageRepo.findRecentByConversation(conversation.id, 100)
+      : await this.messageRepo.findRecentByConversation(conversation.id, 100);
+    const newMessages = conversation.summaryUpdatedAt
+      ? since.filter(
+          (m) => m.createdAt > (conversation.summaryUpdatedAt as Date),
+        )
+      : since;
+
+    if (newMessages.length >= trigger) return true;
+
+    const recentTokens = newMessages.reduce(
+      (acc, m) => acc + estimateTokens(m.content),
+      0,
+    );
+    if (recentTokens > 1200) return true;
+
+    if (
+      newIntentHint &&
+      conversation.conversationMemory?.intent &&
+      newIntentHint !== conversation.conversationMemory.intent
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Gera/atualiza summary + memory para a conversa. Usa modelo barato e prompt
+   * compacto. Em caso de falha, incrementa contador `summary_failures` da
+   * memória; ao atingir `SUMMARY_FAILURE_LIMIT`, o orchestrator cai para
+   * `history_only` automaticamente (lido por shouldRefreshSummary/buildContext).
+   */
+  async updateSummaryAndMemory(conversationId: string): Promise<void> {
+    const conv = await this.conversationRepo.findOne({ id: conversationId });
+    if (!conv) return;
+
+    const recent = await this.messageRepo.findRecentByConversation(
+      conversationId,
+      40,
+    );
+    if (!recent.length) return;
+
+    const previousSummary = conv.conversationSummary || '';
+    const previousMemory = conv.conversationMemory || {};
+
+    const newMessagesSinceLast = conv.summaryUpdatedAt
+      ? recent.filter((m) => m.createdAt > (conv.summaryUpdatedAt as Date))
+      : recent;
+
+    if (!newMessagesSinceLast.length) return;
+
+    const transcript = newMessagesSinceLast
+      .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+      .join('\n');
+
+    const prompt = [
+      'Você é um sumarizador interno. Sua tarefa é manter o resumo + memória da conversa atualizados, sem inventar dados.',
+      'Receba: (1) resumo anterior, (2) memória estruturada, (3) últimas mensagens.',
+      'Atualize sem perder fatos confirmados, removendo redundâncias e mantendo incertezas como perguntas em aberto.',
+      'Se houver tokens no formato {{categoria_n}} (PII pseudonimizada), preserve-os EXATAMENTE como estão. Não tente substituir, decifrar ou inventar valores reais.',
+      'Saída em JSON estrito com chaves "summary" (string) e "memory" (objeto). Sem texto fora do JSON.',
+    ].join(' ');
+
+    const userPayload = JSON.stringify({
+      previous_summary: previousSummary,
+      previous_memory: previousMemory,
+      new_messages: transcript,
+    });
+
+    try {
+      const completion = await this.openaiService.chatCompletion({
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: userPayload },
+        ],
+        temperature: 0.1,
+        maxTokens: this.getSummaryMaxTokens(),
+        timeoutMs: 20000,
+      });
+
+      const raw = completion.choices?.[0]?.message?.content?.trim() || '';
+      const parsed = this.safeParseSummary(raw);
+      if (!parsed) {
+        await this.recordSummaryFailure(conv);
+        this.logger.warn(
+          `[CONTEXT_SUMMARY] conv=${conversationId} parse_failed raw_len=${raw.length}`,
+        );
+        return;
+      }
+
+      // Bloqueia resíduos de PII estruturada não tokenizada (defesa em
+      // profundidade). Tokens {{cat_n}} permanecem.
+      const residual = this.piiVault.detectResidualPii(parsed.summary || '');
+      if (residual.length) {
+        await this.recordSummaryFailure(conv);
+        this.logger.warn(
+          `[CONTEXT_SUMMARY] conv=${conversationId} residual_pii=${residual
+            .map((r) => r.category)
+            .join(',')}`,
+        );
+        return;
+      }
+
+      const newMemory: ConversationMemory = {
+        ...(parsed.memory || {}),
+        last_updated_at: new Date().toISOString(),
+        summary_failures: 0,
+      };
+
+      await this.conversationRepo.update(conversationId, {
+        conversationSummary: parsed.summary || null,
+        conversationMemory: newMemory,
+        summaryUpdatedAt: new Date(),
+      });
+
+      this.logger.debug(
+        `[CONTEXT_SUMMARY] conv=${conversationId} updated summary_len=${(parsed.summary || '').length}`,
+      );
+    } catch (error) {
+      await this.recordSummaryFailure(conv);
+      this.logger.warn(
+        `[CONTEXT_SUMMARY] conv=${conversationId} error=${
+          (error as Error).message
+        }`,
+      );
+    }
+  }
+
+  /** Limita janela recente. Sempre preserva par user→assistant mais recente. */
+  trimRecentMessages<T extends { role: string; content: string }>(
+    messages: T[],
+    max: number,
+  ): T[] {
+    if (messages.length <= max) return messages;
+    return messages.slice(-max);
+  }
+
+  /**
+   * Aplica orçamento de tokens manualmente sobre blocos pré-formatados.
+   * Útil para chamadas externas (testes ou integração customizada).
+   */
+  enforceTokenBudget(
+    blocks: {
+      kind: 'system' | 'summary' | 'memory' | 'rag' | 'recent';
+      content: string;
+    }[],
+    budget: number,
+  ): {
+    blocks: typeof blocks;
+    droppedKinds: Array<'rag' | 'recent' | 'summary'>;
+  } {
+    const droppedKinds: Array<'rag' | 'recent' | 'summary'> = [];
+    const totalTokens = (b: typeof blocks) =>
+      b.reduce((acc, item) => acc + estimateTokens(item.content), 0);
+    const current = [...blocks];
+    let tokens = totalTokens(current);
+
+    while (tokens > budget) {
+      const ragIndex = current.findIndex((b) => b.kind === 'rag');
+      if (ragIndex >= 0) {
+        current.splice(ragIndex, 1);
+        droppedKinds.push('rag');
+        tokens = totalTokens(current);
+        continue;
+      }
+      const recentIndex = current.findIndex((b) => b.kind === 'recent');
+      if (recentIndex >= 0) {
+        current.splice(recentIndex, 1);
+        droppedKinds.push('recent');
+        tokens = totalTokens(current);
+        continue;
+      }
+      const summaryIndex = current.findIndex((b) => b.kind === 'summary');
+      if (summaryIndex >= 0) {
+        current.splice(summaryIndex, 1);
+        droppedKinds.push('summary');
+        tokens = totalTokens(current);
+        continue;
+      }
+      break;
+    }
+
+    return { blocks: current, droppedKinds };
+  }
+
+  private safeParseSummary(
+    raw: string,
+  ): { summary: string; memory: ConversationMemory } | null {
+    if (!raw) return null;
+    let candidate = raw.trim();
+    // Remove fences ```json ... ```
+    if (candidate.startsWith('```')) {
+      candidate = candidate
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/```$/, '');
+    }
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed?.summary !== 'string') return null;
+      const memory =
+        parsed.memory && typeof parsed.memory === 'object' ? parsed.memory : {};
+      return { summary: parsed.summary, memory };
+    } catch {
+      return null;
+    }
+  }
+
+  private async recordSummaryFailure(
+    conversation: WhatsappConversation,
+  ): Promise<void> {
+    const memory = conversation.conversationMemory || {};
+    const failures = (memory.summary_failures ?? 0) + 1;
+    await this.conversationRepo.update(conversation.id, {
+      conversationMemory: { ...memory, summary_failures: failures },
+    });
+  }
+}

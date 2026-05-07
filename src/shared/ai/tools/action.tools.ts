@@ -8,6 +8,7 @@ import { PendencyValidatorService } from '../../../modules/surgery-requests/pend
 import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestPriority } from '../../../database/entities/surgery-request.entity';
 import { PatientRepository } from '../../../database/repositories/patient.repository';
+import { detokenizeArg } from '../pii/tool-pii-helpers';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -601,14 +602,16 @@ export function buildActionTools(
       const changes: string[] = [];
 
       if (args.name !== undefined) {
-        const v = String(args.name).trim();
+        const v = String(detokenizeArg(context, args.name) ?? '').trim();
         if (!v) return 'Parâmetro inválido: `name` não pode ser vazio.';
         updates.name = v;
         changes.push(`Nome: ${v}`);
       }
 
       if (args.birth_date !== undefined) {
-        const raw = String(args.birth_date).trim();
+        const raw = String(
+          detokenizeArg(context, args.birth_date) ?? '',
+        ).trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
           return 'Parâmetro inválido: `birth_date` deve estar em YYYY-MM-DD.';
         }
@@ -617,28 +620,28 @@ export function buildActionTools(
       }
 
       if (args.cpf !== undefined) {
-        const v = String(args.cpf).trim();
+        const v = String(detokenizeArg(context, args.cpf) ?? '').trim();
         if (!v) return 'Parâmetro inválido: `cpf` não pode ser vazio.';
         updates.cpf = v;
         changes.push(`CPF: ${v}`);
       }
 
       if (args.phone !== undefined) {
-        const v = String(args.phone).trim();
+        const v = String(detokenizeArg(context, args.phone) ?? '').trim();
         if (!v) return 'Parâmetro inválido: `phone` não pode ser vazio.';
         updates.phone = v;
         changes.push(`Telefone: ${v}`);
       }
 
       if (args.address !== undefined) {
-        const v = String(args.address).trim();
+        const v = String(detokenizeArg(context, args.address) ?? '').trim();
         if (!v) return 'Parâmetro inválido: `address` não pode ser vazio.';
         updates.address = v;
         changes.push(`Endereço: ${v}`);
       }
 
       if (args.zip_code !== undefined) {
-        const v = String(args.zip_code).trim();
+        const v = String(detokenizeArg(context, args.zip_code) ?? '').trim();
         if (!v) return 'Parâmetro inválido: `zip_code` não pode ser vazio.';
         updates.zip_code = v;
         changes.push(`CEP: ${v}`);

@@ -125,6 +125,26 @@ export class User {
   @Column({ name: 'admin_id', nullable: true })
   admin_id: string;
 
+  // ============ CONSENTIMENTOS LGPD ============
+  // Versionamento MAJOR.MINOR; bump de MAJOR exige novo aceite (ver consent.config).
+  @Column({ type: 'timestamptz', nullable: true })
+  ai_consent_at: Date | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  ai_consent_version: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  privacy_policy_consent_at: Date | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  privacy_policy_consent_version: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  terms_of_use_consent_at: Date | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  terms_of_use_consent_version: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -1,7 +1,8 @@
 {
   "metadata": {
     "project": "Inexci",
-    "generated_at": "2026-05-06",
+    "generated_at": "2026-05-07",
+    "revision": 2,
     "purpose": "Base estruturada para RAG com pré-processamento de FAQs duplicados, enriquecimento com repositórios Inexci e expansão para operação via IA no WhatsApp",
     "sources": [
       "docs/faq-1.txt",
@@ -116,8 +117,8 @@
       {
         "id": "faq_006",
         "question": "Precisa instalar software para usar a Inexci?",
-        "answer": "Não. O sistema é em nuvem e acessado via navegador com autenticação, respeitando permissões por usuário e perfil.",
-        "tags": ["saas", "acesso", "nuvem"]
+        "answer": "Não. O sistema é SaaS e acessado de duas formas: (1) plataforma web no navegador, com autenticação JWT e permissões por usuário e perfil; (2) WhatsApp, via assistente de IA vinculado ao número cadastrado do usuário. Todas as ações respeitam o mesmo controle de acesso por médico e tenant.",
+        "tags": ["saas", "acesso", "nuvem", "whatsapp"]
       },
       {
         "id": "faq_007",
@@ -140,13 +141,13 @@
       {
         "id": "faq_010",
         "question": "Quais ações já podem ser feitas pela IA no WhatsApp hoje?",
-        "answer": "Hoje a IA no WhatsApp cria nova solicitação (com confirmação explícita), consulta status, lista solicitações, lista documentos e OPME, verifica pendências, avança parte do fluxo (1→2, 2→3, 3→4), define OPME, altera prioridade, encerra solicitação e envia notificação manual.",
+        "answer": "A IA no WhatsApp cobre o ciclo da solicitação cirúrgica de ponta a ponta, sempre com confirmação explícita em ações críticas. Consulta: status por protocolo/UUID/paciente, listagem com filtro por status, documentos anexados, itens OPME, pendências por status, dados do paciente e catálogos para criação (pacientes, procedimentos, convênios, hospitais, médicos, modelos). Criação: nova solicitação cirúrgica e cadastro de registros auxiliares (paciente, hospital, convênio, procedimento, modelo). Mutação no fluxo: avanço de status (1→2, 2→3, 3→4), definir/atualizar hospital, adicionar item TUSS, adicionar item OPME (com fabricantes e fornecedores), definir presença de OPME, atualizar dados clínicos e administrativos, alterar prioridade, encerrar solicitação. Agendamento e execução: definir até 3 opções de data, confirmar data, reagendar, marcar como realizada. Financeiro: faturar (protocolo/valor/datas), confirmar recebimento, atualizar recebimento, contestar autorização (email/download/document), contestar pagamento. Laudo: listar, criar, editar, excluir e reordenar seções. Mídia: anexar documento a partir de imagem/PDF recebido no WhatsApp. Notificação: envio manual a convênio/hospital.",
         "tags": ["whatsapp", "ia", "capabilities"]
       },
       {
         "id": "faq_011",
         "question": "Quais ações ainda não estão completas no WhatsApp para cobrir todo o fluxo?",
-        "answer": "Para fluxo fim a fim via IA ainda faltam ferramentas para: aceitar/contestar autorização com parâmetros completos, confirmar/reagendar data, marcar realizada, faturar, confirmar recebimento, contestar pagamento, gerenciar seções de laudo e fluxo completo de anexos com mídia recebida no WhatsApp.",
+        "answer": "O ciclo principal já é coberto. As frentes em evolução são: (1) UX 100% guiada com botões/menus em vez de interpretação livre; (2) observabilidade detalhada da transcrição de áudio (CPU/memória/throughput do STT self-host e estimativa de custo por minuto quando usar provedor pago); (3) confirmação opcional ao usuário do texto transcrito de áudio; (4) avanço explícito de status entre etapas mais avançadas (4→5, 5→6, 6→7, 7→8) por comando direto, hoje feito de forma indireta pelas ações de confirmação de data, marcar realizada, faturar e confirmar recebimento.",
         "tags": ["whatsapp", "roadmap", "gap"]
       },
       {
@@ -158,7 +159,7 @@
       {
         "id": "faq_013",
         "question": "Existe limite de mensagens no WhatsApp?",
-        "answer": "Sim. Há controle de taxa por telefone para evitar abuso. Quando o limite é excedido, o sistema retorna mensagem orientando a aguardar.",
+        "answer": "Sim. Existe controle de taxa por número de telefone para evitar abuso e proteger custo de IA. Quando o limite é atingido, o assistente responde com uma mensagem orientando o usuário a aguardar antes de tentar de novo. O valor exato do limite é definido por configuração e pode variar por ambiente; consulte sua administração se precisar do número atual em vigor.",
         "tags": ["whatsapp", "rate-limit"]
       },
       {
@@ -182,7 +183,7 @@
       {
         "id": "faq_017",
         "question": "Como funciona OPME no processo?",
-        "answer": "A solicitação deve indicar se possui OPME. Se possuir, deve haver itens OPME cadastrados; se não possuir, a marcação resolve a pendência correspondente.",
+        "answer": "Cada solicitação tem um indicador de OPME que é tri-estado: (1) não informado: a pendência fica aberta e bloqueia o avanço; (2) sim: é obrigatório cadastrar pelo menos um item OPME, com nome, quantidade e a lista de fabricantes (mínimo 3) e fornecedores (mínimo 3); (3) não: a marcação explícita de ausência resolve a pendência, mesmo sem itens cadastrados. No WhatsApp, é possível marcar a presença/ausência de OPME e adicionar itens, sempre com confirmação explícita.",
         "tags": ["opme", "workflow", "pendencies"]
       },
       {
@@ -244,79 +245,164 @@
       {
         "id": "wf_003",
         "title": "Transições atualmente suportadas no WhatsApp IA",
-        "content": "No assistente atual, o avanço automático suportado é 1→2, 2→3 e 3→4. Além disso, já é possível criar uma nova solicitação via WhatsApp com confirmação explícita.",
-        "source": "inexci-api/src/shared/ai/tools/whatsapp-flow.tools.ts"
+        "content": "Avanço direto de status: 1→2, 2→3 e 3→4 via comando explícito. As demais transições são acionadas por ações específicas: 4→5 ao confirmar data; 5→6 ao marcar como realizada; 6→7 ao faturar; 7→8 ao confirmar recebimento. Para qualquer status, é possível encerrar (→9) com motivo. Contestações de autorização e de pagamento são registradas com método de envio (email, download ou document) e não fazem parte da escada principal de status. Toda mutação requer confirmação explícita do usuário.",
+        "source": "inexci-api/src/shared/ai/tools/whatsapp-flow.tools.ts, action.tools.ts"
       }
     ],
     "pendencies": [
       {
         "status": "Pendente",
         "blocking_items": [
-          "Dados do paciente",
-          "Hospital",
-          "Procedimentos (TUSS)",
-          "Itens OPME (ou marcação de ausência)",
-          "Laudo médico"
-        ]
+          "Dados do Paciente (responsável: colaborador)",
+          "Hospital (responsável: colaborador)",
+          "Procedimentos TUSS (responsável: colaborador)",
+          "Itens OPME — cadastrar itens ou marcar ausência explícita (responsável: colaborador)",
+          "Laudo Médico (responsável: médico)"
+        ],
+        "non_blocking_items": [],
+        "source": "inexci-api/src/config/pendencies.config.ts"
+      },
+      {
+        "status": "Enviada",
+        "blocking_items": [],
+        "non_blocking_items": [],
+        "note": "Sem pendências de status; aguardando recebimento pelo convênio."
+      },
+      {
+        "status": "Em Análise",
+        "blocking_items": [],
+        "non_blocking_items": [],
+        "note": "Sem pendências de status; aguardando retorno do convênio."
       },
       {
         "status": "Em Agendamento",
         "blocking_items": [
-          "Definir datas disponíveis",
-          "Paciente confirmar data"
-        ]
+          "Definir datas disponíveis (responsável: colaborador)",
+          "Paciente confirmar data (responsável: paciente)"
+        ],
+        "non_blocking_items": [],
+        "source": "inexci-api/src/config/pendencies.config.ts"
+      },
+      {
+        "status": "Agendada",
+        "blocking_items": [],
+        "non_blocking_items": [
+          "Aviso: data da cirurgia já passou (responsável: colaborador)"
+        ],
+        "source": "inexci-api/src/config/pendencies.config.ts"
+      },
+      {
+        "status": "Realizada",
+        "blocking_items": [],
+        "non_blocking_items": [],
+        "note": "Documentos pós-cirúrgicos são pré-requisito do endpoint de marcação como realizada, não pendência de status."
       },
       {
         "status": "Faturada",
-        "blocking_items": ["Confirmar recebimento (valor e data)"]
+        "blocking_items": [
+          "Confirmar recebimento — valor e data (responsável: colaborador)"
+        ],
+        "non_blocking_items": [],
+        "source": "inexci-api/src/config/pendencies.config.ts"
+      },
+      {
+        "status": "Finalizada",
+        "blocking_items": [],
+        "non_blocking_items": [],
+        "note": "Estado terminal de sucesso."
+      },
+      {
+        "status": "Encerrada",
+        "blocking_items": [],
+        "non_blocking_items": [],
+        "note": "Estado terminal por cancelamento/desistência."
       }
     ],
     "glossary": [
       {
         "term": "TISS",
-        "definition": "Padrão obrigatório de Troca de Informação em Saúde Suplementar entre agentes do setor, estabelecido pela ANS para interoperabilidade e padronização de dados assistenciais/administrativos.",
+        "definition": "Troca de Informação em Saúde Suplementar. Padrão obrigatório, estabelecido pela ANS, para troca eletrônica de dados assistenciais e administrativos entre operadoras de planos de saúde, prestadores e demais agentes do setor.",
         "source": "ANS"
       },
       {
         "term": "TUSS",
-        "definition": "Terminologia Unificada da Saúde Suplementar, componente de representação de conceitos em saúde do padrão TISS. Padroniza códigos e descrições para uso no ecossistema de saúde suplementar.",
+        "definition": "Terminologia Unificada da Saúde Suplementar. Componente de representação de conceitos em saúde do padrão TISS, padroniza códigos e descrições de procedimentos, exames e itens assistenciais usados no ecossistema de saúde suplementar.",
         "source": "ANS"
       },
       {
         "term": "CID",
-        "definition": "Classificação Internacional de Doenças (ICD/CID), publicada pela OMS, usada para classificar diagnósticos e permitir padronização estatística e assistencial.",
+        "definition": "Classificação Internacional de Doenças (no inglês, ICD — International Classification of Diseases). Publicada pela Organização Mundial da Saúde (OMS), classifica diagnósticos para fins estatísticos e assistenciais. Exemplo: CID K80.2 — colelitíase sem colecistite.",
         "source": "OMS"
       },
       {
         "term": "OPME",
-        "definition": "No fluxo da Inexci, pode ser pendência obrigatória conforme indicação do caso.",
-        "source": "domínio setorial + repositório"
+        "definition": "Conjunto de materiais cirúrgicos especiais utilizados em procedimentos (ex.: próteses ortopédicas, parafusos, placas, stents, marcapassos, materiais para artroscopia). Quando o procedimento exige OPME, a Inexci requer o cadastro de itens com nome, quantidade, fabricantes (mínimo 3) e fornecedores (mínimo 3) para fins de cotação. O indicador `has_opme` é tri-estado: não informado, sim ou não.",
+        "source": "domínio setorial + inexci-api/src/database/entities/surgery-request.entity.ts"
       },
       {
         "term": "Protocolo SC-XXXX",
-        "definition": "Identificador único da solicitação cirúrgica na plataforma.",
+        "definition": "Identificador único da solicitação cirúrgica na Inexci. Formato `SC-` seguido de identificador alfanumérico (ex.: SC-0042). É o que o usuário usa para referenciar a solicitação no WhatsApp e na plataforma web.",
         "source": "repositório"
+      },
+      {
+        "term": "Pendência bloqueante",
+        "definition": "Item obrigatório de uma etapa do fluxo cirúrgico que, enquanto não for resolvido, impede a transição para o próximo status. Ex.: hospital ainda não selecionado em uma solicitação Pendente.",
+        "source": "inexci-api/src/config/pendencies.config.ts"
+      },
+      {
+        "term": "Pendência não bloqueante",
+        "definition": "Aviso operacional que não impede transição de status, mas sinaliza condição que merece atenção. Ex.: data da cirurgia já passou em uma solicitação Agendada.",
+        "source": "inexci-api/src/config/pendencies.config.ts"
+      },
+      {
+        "term": "Contestação",
+        "definition": "Registro formal de discordância em duas frentes: (1) contestação de autorização — quando o convênio nega ou exige revisão da solicitação; (2) contestação de pagamento — quando há divergência sobre valor, prazo ou recebimento. Ambas podem ser registradas via WhatsApp com método de envio email, download ou document.",
+        "source": "inexci-api/src/shared/ai/tools/whatsapp-flow.tools.ts"
       }
     ],
     "assistant_capabilities": [
-      "Consultar status da solicitação por protocolo/UUID/nome do paciente",
-      "Listar solicitações com filtro de status",
-      "Listar documentos anexados",
-      "Consultar itens OPME",
-      "Consultar pendências e elegibilidade para avanço",
-      "Avançar status parcial (1→2, 2→3, 3→4) com confirmação",
-      "Definir presença de OPME",
-      "Atualizar prioridade",
-      "Encerrar solicitação (com confirmação explícita)",
-      "Enviar notificação manual"
+      "Consultar status da solicitação por protocolo, UUID ou nome do paciente",
+      "Listar solicitações com filtro por status",
+      "Listar documentos anexados a uma solicitação",
+      "Consultar itens OPME de uma solicitação",
+      "Consultar pendências por status e elegibilidade para avanço",
+      "Consultar dados básicos do paciente",
+      "Listar catálogos para criação da SC: pacientes, procedimentos, convênios, hospitais, médicos e modelos",
+      "Criar nova solicitação cirúrgica (com confirmação explícita)",
+      "Criar registro auxiliar (paciente, hospital, convênio, procedimento ou modelo) para uso em SCs futuras",
+      "Avançar status no início do fluxo (1→2, 2→3, 3→4) com confirmação",
+      "Definir/atualizar hospital da solicitação (com criação automática se não existir)",
+      "Adicionar item TUSS (código + nome + quantidade)",
+      "Adicionar item OPME (com pelo menos 3 fabricantes e 3 fornecedores)",
+      "Marcar presença ou ausência de OPME (tri-estado)",
+      "Atualizar dados clínicos (diagnóstico, laudo, histórico, descrição cirúrgica, CID, TUSS)",
+      "Atualizar dados administrativos (registro/tipo/protocolo do convênio, prioridade, CPF/telefone/data de nascimento do paciente)",
+      "Alterar prioridade da solicitação (Baixa, Média, Alta, Urgente)",
+      "Encerrar solicitação com motivo (com confirmação explícita)",
+      "Definir até 3 opções de data para a cirurgia",
+      "Confirmar uma das opções de data (índice 0, 1 ou 2)",
+      "Reagendar cirurgia para nova data",
+      "Marcar cirurgia como realizada (com data de realização)",
+      "Faturar solicitação (protocolo, valor, data de envio, prazo de pagamento opcional)",
+      "Confirmar recebimento financeiro (valor + data + observações)",
+      "Atualizar dados do recebimento",
+      "Contestar autorização com método email, download ou document",
+      "Contestar pagamento com destinatário, assunto e mensagem",
+      "Gerenciar seções do laudo (listar, criar, editar, excluir, reordenar)",
+      "Anexar documento a partir de mídia recebida no WhatsApp",
+      "Enviar notificação manual ao convênio/hospital sobre a solicitação"
     ],
     "assistant_limitations": [
-      "Ações críticas exigem confirmação explícita",
-      "Nem todas as transições de status são suportadas via WhatsApp",
-      "Dados só podem ser consultados/alterados dentro do escopo de permissão do usuário",
-      "Quando houver pendências bloqueantes, o avanço de status é barrado",
-      "Usuários não cadastrados recebem apenas respostas institucionais",
-      "Há limite de mensagens por telefone para evitar abuso"
+      "Ações críticas (mutações, encerramento, financeiro, contestações) exigem confirmação explícita do usuário",
+      "Avanço direto de status só está exposto para 1→2, 2→3 e 3→4; demais transições são acionadas indiretamente pelas ações específicas (confirmar data, marcar realizada, faturar, confirmar recebimento)",
+      "Dados só podem ser consultados ou alterados dentro do escopo de permissão do usuário (controle de acesso por médico via `user_doctor_access` e tenant via `account_id`)",
+      "Quando há pendência bloqueante no status atual, o avanço fica barrado até resolução",
+      "Usuários não cadastrados recebem apenas respostas institucionais sobre a plataforma e orientação para cadastro web; nenhuma operação sobre dados é executada",
+      "Há limite de mensagens por número de telefone para proteger custo e evitar abuso; valor exato é configurável por ambiente",
+      "A IA pode demorar para responder mensagens com áudio porque o pipeline inclui transcrição (faster-whisper self-host como provedor primário; OpenAI Whisper como fallback opcional)",
+      "A resposta no WhatsApp é truncada quando excede o limite do canal; nesse caso, a IA resume e orienta o usuário a abrir a plataforma web",
+      "Para adicionar OPME via WhatsApp, é obrigatório informar pelo menos 3 fabricantes e 3 fornecedores",
+      "Para criar paciente ou convênio via WhatsApp, é obrigatório informar telefone e email do registro"
     ],
     "whatsapp_intents_examples": [
       {
@@ -376,34 +462,36 @@
     "whatsapp_full_flow_gap_analysis": {
       "goal": "Executar o ciclo completo da solicitação via IA no WhatsApp com segurança e rastreabilidade",
       "already_supported": [
-        "Consulta de status/listagem",
-        "Pendências e elegibilidade de avanço",
-        "Ajuste OPME e prioridade",
-        "Avanço parcial do fluxo",
-        "Encerramento com confirmação",
-        "Notificação manual"
+        "Consulta de status, listagem com filtro, documentos, OPME, pendências e dados do paciente",
+        "Listagem de catálogos para criação (pacientes, procedimentos, convênios, hospitais, médicos, modelos)",
+        "Criação de nova solicitação cirúrgica e de registros auxiliares com confirmação explícita",
+        "Avanço direto de status 1→2, 2→3, 3→4",
+        "Definição e troca de hospital, adição de item TUSS, adição de item OPME (mín. 3 fabricantes e 3 fornecedores)",
+        "Marcação tri-estado de presença/ausência de OPME",
+        "Atualização de dados clínicos e administrativos da SC",
+        "Alteração de prioridade e encerramento com motivo",
+        "Definição de até 3 opções de data, confirmação de data, reagendamento e marcação como realizada",
+        "Faturamento (protocolo/valor/datas), confirmação e atualização de recebimento",
+        "Contestação de autorização (email/download/document) e contestação de pagamento",
+        "Gerenciamento de seções de laudo (listar, criar, editar, excluir, reordenar)",
+        "Anexo de documento a partir de mídia recebida no WhatsApp",
+        "Envio de notificação manual ao convênio/hospital",
+        "Transcrição de áudio (faster-whisper self-host como provedor primário; OpenAI Whisper como fallback opcional)"
       ],
-      "missing_tools_for_full_flow": [
-        "accept_authorization_full (date_options completas + notify_patient)",
-        "contest_authorization_full (reason/method/to/subject/message/attachments)",
-        "confirm_date",
-        "update_date_options",
-        "reschedule",
-        "mark_performed",
-        "invoice_request",
-        "confirm_receipt",
-        "contest_payment",
-        "update_receipt",
-        "manage_report_sections",
-        "upload_document_from_whatsapp_media"
+      "open_items": [
+        "UX 100% guiada com botões/menus no WhatsApp (em vez de interpretação livre da IA)",
+        "Confirmação opcional ao usuário do texto transcrito de áudio antes de seguir o fluxo",
+        "Avanço direto explícito por comando para 4→5, 5→6, 6→7 e 7→8 (hoje só ocorre indiretamente via ações específicas)",
+        "Observabilidade detalhada do STT self-host (CPU, memória, fila, throughput)",
+        "Estimativa de custo por minuto transcrito quando usar provedor pago",
+        "Pseudonimização de PII recuperada via RAG antes de enviar ao LLM externo (Fase 0 do plano principal de IA)"
       ],
-      "critical_observation": "O webhook recebe mediaUrl, mas o pipeline atual de IA não processa anexos de mídia para virar documento da solicitação. Isso é chave para fluxo fim a fim no WhatsApp.",
-      "recommended_implementation_order": [
-        "1) confirm_date, update_date_options, reschedule",
-        "2) mark_performed, invoice_request, confirm_receipt",
-        "3) contest_authorization_full, contest_payment, update_receipt",
-        "4) upload_document_from_whatsapp_media + vínculo automático da solicitação",
-        "5) gestão de seções de laudo via comandos assistidos"
+      "critical_observation": "O ciclo de mutação ponta a ponta foi implementado em `inexci-api/src/shared/ai/tools/whatsapp-flow.tools.ts`. O foco da próxima onda é UX guiada, observabilidade do STT e pseudonimização de PII no pipeline RAG → LLM.",
+      "recommended_next_actions": [
+        "1) Concluir Fase 0 do plano principal (pseudonimização de PII)",
+        "2) Avaliar UX guiada com botões/menus para reduzir variabilidade da IA",
+        "3) Adicionar métricas de infraestrutura do STT self-host",
+        "4) Permitir confirmação opcional de transcrição antes de executar ações"
       ]
     }
   },
@@ -446,10 +534,36 @@
       },
       {
         "category": "whatsapp-gap",
-        "items_source": "categories.whatsapp_full_flow_gap_analysis.missing_tools_for_full_flow",
+        "items_source": "categories.whatsapp_full_flow_gap_analysis.open_items",
         "mapping": {
-          "title": "Tool faltante para fluxo completo",
+          "title": "Item aberto para fluxo completo",
           "content": "{item}"
+        }
+      },
+      {
+        "category": "pendencies",
+        "items_source": "categories.pendencies",
+        "mapping": {
+          "title": "Pendências para status: {status}",
+          "content": "Pendências bloqueantes: {blocking_items}\nPendências não bloqueantes: {non_blocking_items}\nObs.: {note}",
+          "metadata": "{ source }"
+        }
+      },
+      {
+        "category": "assistant-limitations",
+        "items_source": "categories.assistant_limitations",
+        "mapping": {
+          "title": "Limitação do assistente",
+          "content": "{item}"
+        }
+      },
+      {
+        "category": "whatsapp-intents",
+        "items_source": "categories.whatsapp_intents_examples",
+        "mapping": {
+          "title": "Intent: {intent}",
+          "content": "Exemplos: {examples}",
+          "metadata": "{ intent }"
         }
       }
     ]

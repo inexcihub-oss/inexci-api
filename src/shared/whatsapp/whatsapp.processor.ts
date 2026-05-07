@@ -6,13 +6,11 @@ import { Repository } from 'typeorm';
 import { Job } from 'bull';
 import * as Twilio from 'twilio';
 import {
-  WhatsappMessageLog,
-  WhatsappMessageStatus,
-} from 'src/database/entities/whatsapp-message-log.entity';
-import {
   NotificationSendLog,
   NotificationChannel,
   NotificationSendStatus,
+  NotificationDirection,
+  NotificationSendType,
 } from 'src/database/entities/notification-send-log.entity';
 import { WhatsappJobData } from './whatsapp.service';
 
@@ -25,29 +23,18 @@ export class WhatsappProcessor {
 
   /**
    * Normaliza um número de telefone para o formato E.164 exigido pelo Twilio.
-   * Exemplos de entrada aceitos:
-   *   "(21) 98765-4321"  → "+5521987654321"
-   *   "21987654321"      → "+5521987654321"
-   *   "+5521987654321"   → "+5521987654321"
-   *   "5521987654321"    → "+5521987654321"
    */
   private normalizeToE164(phone: string): string {
-    // Remove prefixo whatsapp: caso exista
     const clean = phone.replace(/^whatsapp:/i, '');
-    // Mantém apenas dígitos
     const digits = clean.replace(/\D/g, '');
 
-    // Já tem código do país completo (55 + DDD + número = 13 dígitos)
     if (digits.startsWith('55') && digits.length >= 12) {
       return `+${digits}`;
     }
-    // Assume Brasil (+55) — DDD + 9 dígitos (celular) ou 8 dígitos (fixo)
     return `+55${digits}`;
   }
 
   constructor(
-    @InjectRepository(WhatsappMessageLog)
-    private readonly logRepository: Repository<WhatsappMessageLog>,
     @InjectRepository(NotificationSendLog)
     private readonly sendLogRepository: Repository<NotificationSendLog>,
     private readonly configService: ConfigService,
@@ -74,11 +61,9 @@ export class WhatsappProcessor {
     const { to, body, contentSid, variables } = job.data;
     const from = this.twilioWhatsappFrom;
 
-    // TO: normaliza o número do paciente (pode estar em vários formatos, ex: "(31) 98908-5791")
     const toNormalized = this.normalizeToE164(to);
     const toFormatted = `whatsapp:${toNormalized}`;
 
-    // FROM: usa o número Twilio diretamente — já está em formato E.164 correto no env var
     const fromNormalized = from.startsWith('whatsapp:')
       ? from
       : `whatsapp:${from}`;
@@ -88,78 +73,66 @@ export class WhatsappProcessor {
       ? `[template:${contentSid}] vars=${JSON.stringify(variables ?? {})}`
       : (body ?? '');
 
-    const log = this.logRepository.create({
-      to: toNormalized,
-      body: logBody,
-      status: WhatsappMessageStatus.SENT,
-      sentAt: null,
-      errorMessage: null,
-    });
+    let status = NotificationSendStatus.SENT;
+    let errorMessage: string | null = null;
+    let sentAt: Date | null = null;
+    let messageSid: string | null = null;
 
     try {
       if (!this.twilioClient) {
         this.logger.log(
           `[DEV] WhatsApp (sem Twilio) → ${toFormatted}: ${logBody}`,
         );
-        log.status = WhatsappMessageStatus.SENT;
-        log.sentAt = new Date();
+        sentAt = new Date();
       } else if (isTemplate) {
         this.logger.log(
           `Enviando template WhatsApp: from=${fromNormalized} to=${toFormatted} contentSid=${contentSid}`,
         );
-        await this.twilioClient.messages.create({
+        const result = await this.twilioClient.messages.create({
           from: fromNormalized,
           to: toFormatted,
           contentSid,
           contentVariables: JSON.stringify(variables ?? {}),
         } as any);
-        log.status = WhatsappMessageStatus.SENT;
-        log.sentAt = new Date();
+        sentAt = new Date();
+        messageSid = result?.sid ?? null;
         this.logger.log(`Template WhatsApp enviado com sucesso para: ${to}`);
       } else {
         this.logger.log(
           `Enviando WhatsApp: from=${fromNormalized} to=${toFormatted}`,
         );
-        await this.twilioClient.messages.create({
+        const result = await this.twilioClient.messages.create({
           from: fromNormalized,
           to: toFormatted,
           body,
         });
-        log.status = WhatsappMessageStatus.SENT;
-        log.sentAt = new Date();
+        sentAt = new Date();
+        messageSid = result?.sid ?? null;
         this.logger.log(`Mensagem WhatsApp enviada com sucesso para: ${to}`);
       }
     } catch (error: any) {
-      log.status = WhatsappMessageStatus.FAILED;
-      log.errorMessage = error?.message ?? String(error);
+      status = NotificationSendStatus.FAILED;
+      errorMessage = error?.message ?? String(error);
       this.logger.warn(
-        `Falha ao enviar mensagem WhatsApp para ${to}: ${log.errorMessage}`,
+        `Falha ao enviar mensagem WhatsApp para ${to}: ${errorMessage}`,
       );
-      // Não relança o erro — deixa o Bull marcar como failed para o retry automático
-      // mas evita quebrar o fluxo principal
     } finally {
-      try {
-        await this.logRepository.save(log);
-      } catch (logErr: any) {
-        this.logger.error(
-          `Falha ao salvar log de WhatsApp: ${logErr?.message}`,
-        );
-      }
-
-      // Salvar no notification_send_log unificado
       try {
         const sendLog = this.sendLogRepository.create({
           channel: NotificationChannel.WHATSAPP,
-          status:
-            log.status === WhatsappMessageStatus.SENT
-              ? NotificationSendStatus.SENT
-              : NotificationSendStatus.FAILED,
+          status,
           to: toNormalized,
+          body: logBody,
           template: isTemplate ? contentSid : null,
-          error_message: log.errorMessage,
+          error_message: errorMessage,
           job_id: String(job.id),
           attempts: job.attemptsMade + 1,
-          sent_at: log.sentAt,
+          sent_at: sentAt,
+          messageSid,
+          direction: NotificationDirection.OUTBOUND,
+          notificationType: isTemplate
+            ? NotificationSendType.TEMPLATE
+            : NotificationSendType.FREEFORM,
         });
         await this.sendLogRepository.save(sendLog);
       } catch (logErr: any) {

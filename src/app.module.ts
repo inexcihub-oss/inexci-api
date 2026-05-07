@@ -10,6 +10,7 @@ import { BullAdapter } from '@bull-board/api/bullAdapter';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
 import { CustomThrottlerGuard } from './shared/guards/custom-throttler.guard';
+import { ConsentsGuard } from './shared/guards/consents.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { DatabaseModule } from './database/typeorm/database.module';
@@ -43,6 +44,9 @@ import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { AiModule } from './shared/ai/ai.module';
 import { RagModule } from './shared/rag/rag.module';
+import { PrivacyModule } from './modules/privacy/privacy.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -131,6 +135,8 @@ import { RagModule } from './shared/rag/rag.module';
     WebhookModule,
     AiModule,
     RagModule,
+    PrivacyModule,
+    AdminModule,
     BullBoardModule.forRoot({
       route: '/admin/queues',
       adapter: ExpressAdapter,
@@ -147,6 +153,7 @@ import { RagModule } from './shared/rag/rag.module';
       name: 'ai-messages',
       adapter: BullAdapter,
     }),
+    EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     CronModule,
   ],
@@ -163,6 +170,10 @@ import { RagModule } from './shared/rag/rag.module';
     {
       provide: APP_GUARD,
       useClass: CustomThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ConsentsGuard,
     },
   ],
   exports: [],

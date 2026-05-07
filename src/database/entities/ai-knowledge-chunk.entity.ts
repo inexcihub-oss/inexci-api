@@ -4,9 +4,11 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('ai_knowledge_chunk')
+@Index('idx_knowledge_category_active', ['category', 'active'])
 export class AiKnowledgeChunk {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -20,19 +22,21 @@ export class AiKnowledgeChunk {
   @Column({ type: 'text' })
   content: string;
 
-  @Column({ type: 'text', nullable: true })
-  metadata: string | null;
+  @Column({ type: 'jsonb', nullable: true })
+  metadata: Record<string, any> | null;
 
-  // Armazenado como text em TypeORM; coluna vector(1536) criada via migration raw SQL
-  @Column({ type: 'text', nullable: true })
+  // Coluna vector(1536) é criada/gerenciada via migration (RAG bootstrap valida pgvector).
+  // Mantida como text + select: false para evitar carga acidental nos finds genéricos;
+  // escrita real é feita via dataSource.query raw (cast ::vector).
+  @Column({ type: 'text', nullable: true, select: false })
   embedding: string | null;
 
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
-  created_at: Date;
+  createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
-  updated_at: Date;
+  updatedAt: Date;
 }

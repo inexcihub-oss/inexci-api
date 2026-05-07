@@ -11,6 +11,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { MailModule } from 'src/shared/mail/mail.module';
+import { PrivacyModule } from '../privacy/privacy.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { MailModule } from 'src/shared/mail/mail.module';
     ]),
     PassportModule,
     MailModule,
+    PrivacyModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({

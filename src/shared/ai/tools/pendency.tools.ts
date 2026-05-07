@@ -3,6 +3,7 @@ import { AiTool, ToolContext } from './tool.interface';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { In } from 'typeorm';
+import { tokenizePii } from '../pii/tool-pii-helpers';
 
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -175,9 +176,15 @@ export function buildPendencyTools(
       }
 
       const result = await pendencyValidator.validateForStatus(request.id);
+      const protocolToken = tokenizePii(
+        context,
+        'get_pendencies',
+        'protocol',
+        normalizeProtocolDisplay(request.protocol),
+      );
 
       if (!result.pendencies.length) {
-        return `A solicitação ${normalizeProtocolDisplay(request.protocol)} não tem pendências no status atual. Ela pode avançar para a próxima etapa.`;
+        return `A solicitação ${protocolToken} não tem pendências no status atual. Ela pode avançar para a próxima etapa.`;
       }
 
       const pending = result.pendencies.filter(
@@ -185,7 +192,7 @@ export function buildPendencyTools(
       );
 
       if (!pending.length) {
-        return `A solicitação ${normalizeProtocolDisplay(request.protocol)} não possui pendências bloqueantes no status ${result.statusLabel}. Pode avançar para a próxima etapa.`;
+        return `A solicitação ${protocolToken} não possui pendências bloqueantes no status ${result.statusLabel}. Pode avançar para a próxima etapa.`;
       }
 
       const pendingLines = pending.flatMap((p) => {
@@ -209,7 +216,7 @@ export function buildPendencyTools(
       });
 
       const lines: string[] = [
-        `Solicitação ${normalizeProtocolDisplay(request.protocol)} — ${result.statusLabel}`,
+        `Solicitação ${protocolToken} — ${result.statusLabel}`,
         `Status atual: ${result.statusLabel}`,
         'Para avançar, faça:',
         ...pendingLines,

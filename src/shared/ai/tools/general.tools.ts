@@ -1,11 +1,7 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { PatientRepository } from '../../../database/repositories/patient.repository';
-
-function maskCpf(cpf: string): string {
-  if (!cpf || cpf.length < 11) return '***.***.***-**';
-  return `***.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
-}
+import { tokenizePii } from '../pii/tool-pii-helpers';
 
 export function buildGeneralTools(patientRepo: PatientRepository): AiTool[] {
   const getPatientInfo: AiTool = {
@@ -48,12 +44,39 @@ export function buildGeneralTools(patientRepo: PatientRepository): AiTool[] {
         return `Paciente "${patient_name_or_id}" não encontrado.`;
       }
 
-      return [
-        `👤 *Paciente: ${patient.name}*`,
-        `CPF: ${maskCpf((patient as any).cpf || '')}`,
-        `Telefone: ${(patient as any).phone || 'Não informado'}`,
-        `Email: ${(patient as any).email || 'Não informado'}`,
-      ].join('\n');
+      const TOOL = 'get_patient_info';
+      const nameToken = tokenizePii(
+        context,
+        TOOL,
+        'patient_name',
+        patient.name,
+      );
+      const cpfToken = (patient as any).cpf
+        ? tokenizePii(context, TOOL, 'cpf', (patient as any).cpf)
+        : 'Não informado';
+      const phoneToken = (patient as any).phone
+        ? tokenizePii(context, TOOL, 'phone', (patient as any).phone)
+        : 'Não informado';
+      const emailToken = (patient as any).email
+        ? tokenizePii(context, TOOL, 'email', (patient as any).email)
+        : 'Não informado';
+      const birthToken = (patient as any).birth_date
+        ? tokenizePii(
+            context,
+            TOOL,
+            'birth_date',
+            new Date((patient as any).birth_date).toLocaleDateString('pt-BR'),
+          )
+        : null;
+
+      const lines = [
+        `👤 *Paciente: ${nameToken}*`,
+        `CPF: ${cpfToken}`,
+        `Telefone: ${phoneToken}`,
+        `Email: ${emailToken}`,
+      ];
+      if (birthToken) lines.push(`Nascimento: ${birthToken}`);
+      return lines.join('\n');
     },
   };
 

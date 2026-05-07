@@ -44,17 +44,29 @@ import { SubscriptionPlan } from './subscription-plan.entity';
 import {
   WhatsappMessageLog,
   WhatsappMessageStatus,
+  WhatsappMessageDirection,
+  WhatsappMessageType,
 } from './whatsapp-message-log.entity';
 import { ReportSection } from './report-section.entity';
 import {
   NotificationSendLog,
   NotificationChannel,
   NotificationSendStatus,
+  NotificationDirection,
+  NotificationSendType,
 } from './notification-send-log.entity';
 import { StaleNotificationLog } from './stale-notification-log.entity';
 import { WhatsappConversation } from './whatsapp-conversation.entity';
+import { WhatsappConversationMessage } from './whatsapp-conversation-message.entity';
 import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
+import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
+import {
+  ConsentLog,
+  ConsentType,
+  ConsentAction,
+  ConsentChannel,
+} from './consent-log.entity';
 import { Cid } from './cid.entity';
 import { Tuss } from './tuss.entity';
 
@@ -95,7 +107,12 @@ export { Chat };
 export { ChatMessage };
 export { Notification, NotificationType };
 export { UserNotificationSettings };
-export { WhatsappMessageLog, WhatsappMessageStatus };
+export {
+  WhatsappMessageLog,
+  WhatsappMessageStatus,
+  WhatsappMessageDirection,
+  WhatsappMessageType,
+};
 export { ReportSection };
 
 // PLANOS DE ASSINATURA
@@ -106,13 +123,24 @@ export { RecoveryCode };
 export { RefreshToken };
 
 // OBSERVABILIDADE
-export { NotificationSendLog, NotificationChannel, NotificationSendStatus };
+export {
+  NotificationSendLog,
+  NotificationChannel,
+  NotificationSendStatus,
+  NotificationDirection,
+  NotificationSendType,
+};
 export { StaleNotificationLog };
 
 // IA / WHATSAPP CONVERSAÇÃO
 export { WhatsappConversation };
+export { WhatsappConversationMessage };
 export { AiKnowledgeChunk };
 export { AiTokenUsageLog };
+export { AiPiiRedactionLog };
+
+// CONSENTIMENTOS LGPD
+export { ConsentLog, ConsentType, ConsentAction, ConsentChannel };
 
 // DADOS DE REFERÊNCIA (CID/TUSS)
 export { Cid };
@@ -153,8 +181,11 @@ export const ENTITIES = [
   NotificationSendLog,
   StaleNotificationLog,
   WhatsappConversation,
+  WhatsappConversationMessage,
   AiKnowledgeChunk,
   AiTokenUsageLog,
+  AiPiiRedactionLog,
+  ConsentLog,
   Cid,
   Tuss,
 ];

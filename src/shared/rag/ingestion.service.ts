@@ -28,7 +28,7 @@ export class IngestionService {
         title:
           chunks.length > 1 ? `${data.title} (parte ${index + 1})` : data.title,
         content: chunk,
-        metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+        metadata: data.metadata ?? null,
         embedding: vectorStr,
         active: true,
       });

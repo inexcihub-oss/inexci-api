@@ -8,6 +8,38 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
+/**
+ * Memória estruturada da conversa, persistida em `conversation_memory`.
+ * Mantém slots, fatos confirmados e perguntas em aberto sem precisar
+ * reenviar histórico completo ao LLM. Schema flexível para evoluir sem
+ * migration.
+ */
+export interface ConversationMemory {
+  intent?: string;
+  patient?: {
+    id?: string;
+    name?: string;
+    phone?: string;
+  };
+  surgery_request?: {
+    id?: string;
+    status?: string;
+    hospital?: string;
+    health_plan?: string;
+    doctor_id?: string;
+  };
+  required_slots?: Record<string, string[]>;
+  filled_slots?: Record<string, unknown>;
+  confirmed_facts?: string[];
+  open_questions?: string[];
+  pending_actions?: string[];
+  last_user_goal?: string;
+  last_updated_at?: string;
+  /** Contagem de falhas consecutivas em updateSummaryAndMemory. */
+  summary_failures?: number;
+  [key: string]: unknown;
+}
+
 export interface ConversationMessage {
   role: 'user' | 'assistant' | 'tool';
   content: string;
@@ -43,24 +75,43 @@ export class WhatsappConversation {
   phone: string;
 
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
-  user_id: string | null;
+  userId: string | null;
 
-  @Column({ type: 'jsonb', default: [] })
-  messages_history: ConversationMessage[];
+  @Column({ name: 'messages_history', type: 'jsonb', default: [] })
+  messagesHistory: ConversationMessage[];
 
   @Column({ name: 'started_at', type: 'timestamptz' })
-  started_at: Date;
+  startedAt: Date;
 
   @Column({ name: 'last_message_at', type: 'timestamptz' })
-  last_message_at: Date;
+  lastMessageAt: Date;
+
+  @Column({ name: 'account_id', type: 'uuid', nullable: true })
+  accountId: string | null;
+
+  @Column({ name: 'conversation_summary', type: 'text', nullable: true })
+  conversationSummary: string | null;
+
+  @Column({
+    name: 'conversation_memory',
+    type: 'jsonb',
+    default: () => "'{}'::jsonb",
+  })
+  conversationMemory: ConversationMemory;
+
+  @Column({ name: 'summary_updated_at', type: 'timestamptz', nullable: true })
+  summaryUpdatedAt: Date | null;
+
+  @Column({ name: 'summary_version', type: 'int', default: 1 })
+  summaryVersion: number;
 
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
-  created_at: Date;
+  createdAt: Date;
 
-  @ManyToOne(() => User, { nullable: true })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 }

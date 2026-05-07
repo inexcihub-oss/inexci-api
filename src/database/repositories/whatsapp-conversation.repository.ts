@@ -13,10 +13,15 @@ export class WhatsappConversationRepository extends BaseRepository<WhatsappConve
     super(repository);
   }
 
-  findActiveByPhone(phone: string): Promise<WhatsappConversation | null> {
+  findActiveByPhone(
+    phone: string,
+    accountId?: string,
+  ): Promise<WhatsappConversation | null> {
+    const where: any = { phone, active: true };
+    if (accountId) where.accountId = accountId;
     return this.repository.findOne({
-      where: { phone, active: true },
-      order: { last_message_at: 'DESC' },
+      where,
+      order: { lastMessageAt: 'DESC' },
     });
   }
 

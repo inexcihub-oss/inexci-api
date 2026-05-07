@@ -27,6 +27,7 @@ import { validationCodeDto } from './dto/validation-code.dto';
 import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 import { generateValidationCode } from 'src/shared/utils';
+import { ConsentService } from '../privacy/consent.service';
 
 @Injectable()
 export class AuthService {
@@ -42,6 +43,7 @@ export class AuthService {
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
     private readonly configService: ConfigService,
+    private readonly consentService: ConsentService,
   ) {}
 
   /** Email verification token expiry: 24 hours */
@@ -205,6 +207,13 @@ export class AuthService {
 
       const refreshToken = await this.createRefreshToken(result.id);
 
+      let pendingConsents: string[] = [];
+      try {
+        pendingConsents = await this.consentService.getPending(result.id);
+      } catch {
+        // Não bloqueia login se a verificação de consentimento falhar
+      }
+
       return {
         user: {
           id: result.id.toString(),
@@ -234,6 +243,7 @@ export class AuthService {
         },
         access_token: this.jwtService.sign({ userId: result.id }),
         refresh_token: refreshToken,
+        pending_consents: pendingConsents,
       };
     }
   }

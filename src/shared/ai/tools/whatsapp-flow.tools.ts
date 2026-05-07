@@ -22,6 +22,8 @@ import { In } from 'typeorm';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { TussService } from '../../../modules/tuss/tuss.service';
 import { SupplierRepository } from '../../../database/repositories/supplier.repository';
+import { tokenizePii, detokenizeArg } from '../pii/tool-pii-helpers';
+import { PiiCategory } from '../services/pii-vault.service';
 
 function asNonEmptyString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -1174,19 +1176,21 @@ export function buildWhatsappFlowTools(
       try {
         switch (operation) {
           case 'create': {
-            const title = asNonEmptyString(args.title);
+            const title = asNonEmptyString(detokenizeArg(context, args.title));
             if (!title) {
               return 'Parâmetro inválido: `title` é obrigatório para create.';
             }
+
+            const detokenizedDescription =
+              args.description == null
+                ? undefined
+                : (detokenizeArg(context, args.description) ?? undefined);
 
             const section = await surgeryRequestsService.createReportSection(
               auth.request.id,
               {
                 title,
-                description:
-                  args.description == null
-                    ? undefined
-                    : String(args.description),
+                description: detokenizedDescription,
               },
               context.userId as string,
             );
@@ -1214,8 +1218,14 @@ export function buildWhatsappFlowTools(
               auth.request.id,
               sectionId,
               {
-                title: args.title,
-                description: args.description,
+                title:
+                  args.title == null
+                    ? undefined
+                    : (detokenizeArg(context, args.title) ?? undefined),
+                description:
+                  args.description == null
+                    ? undefined
+                    : (detokenizeArg(context, args.description) ?? undefined),
               },
               context.userId as string,
             );
@@ -1316,14 +1326,26 @@ export function buildWhatsappFlowTools(
       if (!hospitalRepo) return 'Ferramenta indisponível no momento.';
 
       const hospitalId = asNonEmptyString(args.hospital_id);
-      const hospitalName = asNonEmptyString(args.hospital_name);
+      const hospitalName = asNonEmptyString(
+        detokenizeArg(context, args.hospital_name),
+      );
 
       if (!hospitalId && !hospitalName) {
         return 'Parâmetro inválido: informe `hospital_id` ou `hospital_name`.';
       }
 
+      const protocolToken = tokenizePii(
+        context,
+        'set_hospital',
+        'protocol',
+        auth.request.protocol,
+      );
+
       if (!args.confirm) {
-        return `A solicitação ${auth.request.protocol} terá o hospital atualizado para ${hospitalName || hospitalId}. Confirme com "sim" para executar.`;
+        const previewName = hospitalName
+          ? tokenizePii(context, 'set_hospital', 'hospital_name', hospitalName)
+          : hospitalId;
+        return `A solicitação ${protocolToken} terá o hospital atualizado para ${previewName}. Confirme com "sim" para executar.`;
       }
 
       let selectedHospital = null as any;
@@ -1339,7 +1361,9 @@ export function buildWhatsappFlowTools(
         if (!selectedHospital) {
           selectedHospital = await hospitalRepo.create({
             name: hospitalName,
-            email: asNonEmptyString(args.hospital_email) || undefined,
+            email:
+              asNonEmptyString(detokenizeArg(context, args.hospital_email)) ||
+              undefined,
             doctor_id: auth.request.doctor_id,
             active: true,
           } as any);
@@ -1361,7 +1385,13 @@ export function buildWhatsappFlowTools(
         content: `[WhatsApp IA] Hospital definido para ${selectedHospital.name}.`,
       });
 
-      return `Hospital atualizado com sucesso para ${selectedHospital.name} na solicitação ${auth.request.protocol}.`;
+      const successName = tokenizePii(
+        context,
+        'set_hospital',
+        'hospital_name',
+        selectedHospital.name,
+      );
+      return `Hospital atualizado com sucesso para ${successName} na solicitação ${protocolToken}.`;
     },
   };
 
@@ -1588,6 +1618,13 @@ export function buildWhatsappFlowTools(
       const payload: Record<string, any> = {};
       const changes: string[] = [];
 
+      const SENSITIVE_CLINICAL_FIELDS = new Set([
+        'diagnosis',
+        'medical_report',
+        'patient_history',
+        'surgery_description',
+      ]);
+
       for (const key of [
         'diagnosis',
         'medical_report',
@@ -1597,7 +1634,9 @@ export function buildWhatsappFlowTools(
         'tuss_id',
       ]) {
         if (args[key] !== undefined) {
-          payload[key] = args[key];
+          payload[key] = SENSITIVE_CLINICAL_FIELDS.has(key)
+            ? detokenizeArg(context, args[key])
+            : args[key];
           changes.push(key);
         }
       }
@@ -1607,7 +1646,13 @@ export function buildWhatsappFlowTools(
       }
 
       if (!args.confirm) {
-        return `A solicitação ${auth.request.protocol} terá atualização clínica nos campos: ${changes.join(', ')}. Confirme com "sim" para executar.`;
+        const protocolToken = tokenizePii(
+          context,
+          'update_request_clinical_data',
+          'protocol',
+          auth.request.protocol,
+        );
+        return `A solicitação ${protocolToken} terá atualização clínica nos campos: ${changes.join(', ')}. Confirme com "sim" para executar.`;
       }
 
       await surgeryRequestRepo.update(auth.request.id, payload as any);
@@ -1619,7 +1664,13 @@ export function buildWhatsappFlowTools(
         content: `[WhatsApp IA] Dados clínicos atualizados: ${changes.join(', ')}.`,
       });
 
-      return `Dados clínicos atualizados com sucesso na solicitação ${auth.request.protocol}.`;
+      const protocolTokenSuccess = tokenizePii(
+        context,
+        'update_request_clinical_data',
+        'protocol',
+        auth.request.protocol,
+      );
+      return `Dados clínicos atualizados com sucesso na solicitação ${protocolTokenSuccess}.`;
     },
   };
 
@@ -1674,7 +1725,8 @@ export function buildWhatsappFlowTools(
       const patientPayload: Record<string, any> = {};
       const patientChanges: string[] = [];
 
-      const cpf = normalizeCpf(args.patient_cpf);
+      const cpfDetokenized = detokenizeArg(context, args.patient_cpf);
+      const cpf = normalizeCpf(cpfDetokenized);
       if (args.patient_cpf !== undefined) {
         if (!cpf)
           return 'Parâmetro inválido: `patient_cpf` deve conter 11 dígitos.';
@@ -1682,7 +1734,8 @@ export function buildWhatsappFlowTools(
         patientChanges.push('cpf');
       }
 
-      const phone = normalizePhone(args.patient_phone);
+      const phoneDetokenized = detokenizeArg(context, args.patient_phone);
+      const phone = normalizePhone(phoneDetokenized);
       if (args.patient_phone !== undefined) {
         if (!phone)
           return 'Parâmetro inválido: `patient_phone` está em formato inválido.';
@@ -1691,7 +1744,8 @@ export function buildWhatsappFlowTools(
       }
 
       if (args.patient_birth_date !== undefined) {
-        const birthDate = asValidDateString(args.patient_birth_date);
+        const birthRaw = detokenizeArg(context, args.patient_birth_date);
+        const birthDate = asValidDateString(birthRaw);
         if (!birthDate) {
           return 'Parâmetro inválido: `patient_birth_date` deve ser uma data válida (YYYY-MM-DD).';
         }
@@ -1703,8 +1757,15 @@ export function buildWhatsappFlowTools(
         return 'Nenhuma alteração administrativa informada.';
       }
 
+      const protocolToken = tokenizePii(
+        context,
+        'update_request_admin_data',
+        'protocol',
+        auth.request.protocol,
+      );
+
       if (!args.confirm) {
-        return `A solicitação ${auth.request.protocol} terá atualização administrativa. Campos da solicitação: ${requestChanges.join(', ') || 'nenhum'}. Campos do paciente: ${patientChanges.join(', ') || 'nenhum'}. Confirme com "sim" para executar.`;
+        return `A solicitação ${protocolToken} terá atualização administrativa. Campos da solicitação: ${requestChanges.join(', ') || 'nenhum'}. Campos do paciente: ${patientChanges.join(', ') || 'nenhum'}. Confirme com "sim" para executar.`;
       }
 
       if (requestChanges.length) {
@@ -1725,7 +1786,7 @@ export function buildWhatsappFlowTools(
         content: `[WhatsApp IA] Dados administrativos atualizados. Solicitação: ${requestChanges.join(', ') || 'nenhum'}. Paciente: ${patientChanges.join(', ') || 'nenhum'}.`,
       });
 
-      return `Dados administrativos atualizados com sucesso na solicitação ${auth.request.protocol}.`;
+      return `Dados administrativos atualizados com sucesso na solicitação ${protocolToken}.`;
     },
   };
 
@@ -1923,22 +1984,40 @@ export function buildWhatsappFlowTools(
         templates: { label: 'Modelos', items: (templates as any[]) || [] },
       };
 
+      const CATEGORY_TO_PII: Record<string, PiiCategory | null> = {
+        patients: 'patient_name',
+        hospitals: 'hospital_name',
+        health_plans: 'health_plan_name',
+        doctors: 'doctor_name',
+        procedures: null,
+        templates: null,
+      };
+
       const formatItems = (
         categoryKey: string,
         label: string,
         items: any[],
       ): string => {
         if (!items.length) return `• ${label}: nenhum cadastrado`;
+        const piiCategory = CATEGORY_TO_PII[categoryKey] ?? null;
         const lines = items.slice(0, limit).map((item) => {
-          const name = item.name || item.title || 'Sem nome';
+          const rawName = item.name || item.title || 'Sem nome';
           if (categoryKey === 'procedures') {
             const tussCode = asNonEmptyString(item.tuss_code);
             return tussCode
-              ? `  - ${name} (Código TUSS: ${tussCode})`
-              : `  - ${name}`;
+              ? `  - ${rawName} (Código TUSS: ${tussCode})`
+              : `  - ${rawName}`;
           }
 
-          return `  - ${name} (id: ${item.id})`;
+          const displayName = piiCategory
+            ? tokenizePii(
+                context,
+                'list_sc_creation_catalog',
+                piiCategory,
+                rawName,
+              )
+            : rawName;
+          return `  - ${displayName} (id: ${item.id})`;
         });
         return [`• ${label} (${items.length}):`, ...lines].join('\n');
       };
