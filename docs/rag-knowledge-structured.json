@@ -1,0 +1,457 @@
+{
+  "metadata": {
+    "project": "Inexci",
+    "generated_at": "2026-05-06",
+    "purpose": "Base estruturada para RAG com pré-processamento de FAQs duplicados, enriquecimento com repositórios Inexci e expansão para operação via IA no WhatsApp",
+    "sources": [
+      "docs/faq-1.txt",
+      "docs/faq-2.txt",
+      "inexci-api/src/shared/rag/knowledge-base.seed.ts",
+      "inexci-api/src/shared/ai/services/ai-orchestrator.service.ts",
+      "inexci-api/src/shared/ai/services/tool-registry.service.ts",
+      "inexci-api/src/shared/ai/tools/*.ts",
+      "inexci-api/src/modules/**/*.controller.ts",
+      "inexci-api/src/config/pendencies.config.ts",
+      "inexci-api/src/database/entities/surgery-request.entity.ts",
+      "inexci-frontend/services/*.ts"
+    ],
+    "external_sources": [
+      {
+        "name": "ANS - TISS",
+        "url": "https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss",
+        "note": "Define o padrão obrigatório de troca eletrônica na saúde suplementar"
+      },
+      {
+        "name": "ANS - TISS Tabelas Relacionadas",
+        "url": "https://www.gov.br/ans/pt-br/assuntos/prestadores/padrao-para-troca-de-informacao-de-saude-suplementar-2013-tiss/padrao-tiss-tabelas-relacionadas",
+        "note": "Traz compatibilizações envolvendo TUSS"
+      },
+      {
+        "name": "CID (visão geral OMS/ICD)",
+        "url": "https://pt.wikipedia.org/wiki/Classifica%C3%A7%C3%A3o_Internacional_de_Doen%C3%A7as",
+        "note": "Referência complementar para descrição conceitual da CID"
+      }
+    ]
+  },
+  "preprocessing": {
+    "normalization_rules": [
+      "Lowercase para comparação semântica de perguntas",
+      "Remoção de pontuação duplicada e espaços extras",
+      "Normalização de acentos para matching de intenção",
+      "Unificação de termos equivalentes: 'plataforma SaaS' ~ 'sistema em nuvem'",
+      "Consolidação de perguntas com mesma intenção em uma FAQ canônica",
+      "Preferência por resposta operacional (menos marketing) quando houver conflito de tom",
+      "Respostas normativas priorizam fonte regulatória (ANS/OMS) quando disponível"
+    ],
+    "duplicate_groups": [
+      {
+        "canonical_question": "O que é a Inexci e para quem ela é indicada?",
+        "merged_from": ["faq-1: Q1, Q2, Q25", "faq-2: Q1"],
+        "strategy": "Mesclar definição + público-alvo + proposta de valor em uma resposta objetiva"
+      },
+      {
+        "canonical_question": "Como a plataforma acelera a autorização e reduz gargalos?",
+        "merged_from": ["faq-1: Q4, Q7", "faq-2: Q2"],
+        "strategy": "Preservar explicação de automação, alertas e rastreio por etapa"
+      },
+      {
+        "canonical_question": "O paciente consegue acompanhar o processo?",
+        "merged_from": ["faq-1: Q8, Q9", "faq-2: Q3"],
+        "strategy": "Unificar experiência do paciente: notificações, envio de documentos e suporte"
+      },
+      {
+        "canonical_question": "Precisa instalar software para usar a Inexci?",
+        "merged_from": ["faq-1: Q13", "faq-2: Q4"],
+        "strategy": "Manter mensagem única: SaaS, acesso remoto, multiplataforma"
+      },
+      {
+        "canonical_question": "A Inexci substitui a secretária/equipe?",
+        "merged_from": ["faq-1: Q15, Q22", "faq-2: Q5"],
+        "strategy": "Reforçar que automatiza tarefas burocráticas, sem substituir o atendimento humano"
+      },
+      {
+        "canonical_question": "A plataforma integra com hospitais, convênios e outros sistemas?",
+        "merged_from": ["faq-1: Q18, Q20", "faq-2: Q6"],
+        "strategy": "Unificar conceito de hub central + potencial de integração"
+      },
+      {
+        "canonical_question": "A plataforma oferece indicadores e dashboards?",
+        "merged_from": ["faq-1: Q16, Q17", "faq-2: Q8"],
+        "strategy": "Manter foco em métricas operacionais e tomada de decisão"
+      }
+    ]
+  },
+  "categories": {
+    "faq": [
+      {
+        "id": "faq_001",
+        "question": "O que é a Inexci e para quem ela é indicada?",
+        "answer": "A Inexci é uma plataforma SaaS para gestão de solicitações cirúrgicas. Centraliza dados, documentos, comunicação e rastreabilidade do fluxo de autorização, com foco em médicos, secretárias, colaboradores e gestão de clínicas.",
+        "tags": ["produto", "publico-alvo", "visao-geral"]
+      },
+      {
+        "id": "faq_002",
+        "question": "Qual problema a Inexci resolve?",
+        "answer": "Reduz a fragmentação de informação e o retrabalho de controles manuais (planilhas, e-mails e mensagens soltas), aumentando previsibilidade, governança e velocidade do processo cirúrgico.",
+        "tags": ["dor", "operacao", "eficiencia"]
+      },
+      {
+        "id": "faq_003",
+        "question": "Quais são os status oficiais da solicitação cirúrgica?",
+        "answer": "Os status oficiais são: 1 Pendente, 2 Enviada, 3 Em Análise, 4 Em Agendamento, 5 Agendada, 6 Realizada, 7 Faturada, 8 Finalizada e 9 Encerrada.",
+        "tags": ["workflow", "status"]
+      },
+      {
+        "id": "faq_004",
+        "question": "Como a plataforma acelera autorização e reduz gargalos?",
+        "answer": "A cada mudança de status, o sistema cria tarefas, monitora pendências e dispara alertas. Isso reduz filas ocultas e ajuda a equipe a atuar antes de o processo travar.",
+        "tags": ["automacao", "gargalos", "autorizacao"]
+      },
+      {
+        "id": "faq_005",
+        "question": "O paciente consegue acompanhar o processo?",
+        "answer": "Sim. O paciente pode receber atualizações, confirmar informações e participar de etapas específicas do fluxo, conforme configuração da clínica e do status da solicitação.",
+        "tags": ["paciente", "experiencia", "comunicacao"]
+      },
+      {
+        "id": "faq_006",
+        "question": "Precisa instalar software para usar a Inexci?",
+        "answer": "Não. O sistema é em nuvem e acessado via navegador com autenticação, respeitando permissões por usuário e perfil.",
+        "tags": ["saas", "acesso", "nuvem"]
+      },
+      {
+        "id": "faq_007",
+        "question": "A Inexci substitui secretária ou equipe?",
+        "answer": "Não. A plataforma automatiza tarefas burocráticas e libera tempo da equipe para atividades de maior valor e atendimento.",
+        "tags": ["equipe", "produtividade", "automacao"]
+      },
+      {
+        "id": "faq_008",
+        "question": "A plataforma possui rastreabilidade e auditoria?",
+        "answer": "Sim. O fluxo registra status, atividades, documentos e interações, com histórico útil para auditoria e governança operacional.",
+        "tags": ["rastreabilidade", "auditoria", "conformidade"]
+      },
+      {
+        "id": "faq_009",
+        "question": "A plataforma oferece dashboard e relatórios?",
+        "answer": "Sim. Existem endpoints e telas de dashboard para visão geral, evolução temporal, tempo médio de conclusão e notificações pendentes.",
+        "tags": ["dashboard", "relatorios", "indicadores"]
+      },
+      {
+        "id": "faq_010",
+        "question": "Quais ações já podem ser feitas pela IA no WhatsApp hoje?",
+        "answer": "Hoje a IA no WhatsApp cria nova solicitação (com confirmação explícita), consulta status, lista solicitações, lista documentos e OPME, verifica pendências, avança parte do fluxo (1→2, 2→3, 3→4), define OPME, altera prioridade, encerra solicitação e envia notificação manual.",
+        "tags": ["whatsapp", "ia", "capabilities"]
+      },
+      {
+        "id": "faq_011",
+        "question": "Quais ações ainda não estão completas no WhatsApp para cobrir todo o fluxo?",
+        "answer": "Para fluxo fim a fim via IA ainda faltam ferramentas para: aceitar/contestar autorização com parâmetros completos, confirmar/reagendar data, marcar realizada, faturar, confirmar recebimento, contestar pagamento, gerenciar seções de laudo e fluxo completo de anexos com mídia recebida no WhatsApp.",
+        "tags": ["whatsapp", "roadmap", "gap"]
+      },
+      {
+        "id": "faq_012",
+        "question": "Se o usuário não for cadastrado, a IA pode executar ações?",
+        "answer": "Não. Usuários não cadastrados recebem apenas respostas gerais sobre a plataforma e orientação para cadastro web.",
+        "tags": ["seguranca", "acesso", "whatsapp"]
+      },
+      {
+        "id": "faq_013",
+        "question": "Existe limite de mensagens no WhatsApp?",
+        "answer": "Sim. Há controle de taxa por telefone para evitar abuso. Quando o limite é excedido, o sistema retorna mensagem orientando a aguardar.",
+        "tags": ["whatsapp", "rate-limit"]
+      },
+      {
+        "id": "faq_014",
+        "question": "A IA pede confirmação antes de ações críticas?",
+        "answer": "Sim. Ações de impacto operacional, como avanço de status, encerramento e mudanças críticas, exigem confirmação explícita.",
+        "tags": ["seguranca", "confirmacao", "whatsapp"]
+      },
+      {
+        "id": "faq_015",
+        "question": "Qual o limite de tamanho da resposta no WhatsApp?",
+        "answer": "As respostas são limitadas para caber no canal. Quando excede o limite, a IA resume e orienta o usuário a acessar a plataforma web para detalhe completo.",
+        "tags": ["whatsapp", "ux"]
+      },
+      {
+        "id": "faq_016",
+        "question": "Como consultar pendências de uma solicitação?",
+        "answer": "Pelo WhatsApp, o assistente pode retornar pendências por status, itens concluídos, itens pendentes e se já é possível avançar para a próxima etapa.",
+        "tags": ["pendencies", "whatsapp"]
+      },
+      {
+        "id": "faq_017",
+        "question": "Como funciona OPME no processo?",
+        "answer": "A solicitação deve indicar se possui OPME. Se possuir, deve haver itens OPME cadastrados; se não possuir, a marcação resolve a pendência correspondente.",
+        "tags": ["opme", "workflow", "pendencies"]
+      },
+      {
+        "id": "faq_018",
+        "question": "A Inexci tem busca de códigos TUSS e CID?",
+        "answer": "Sim. O backend expõe busca de códigos TUSS e CID para apoiar preenchimento técnico da solicitação.",
+        "tags": ["tuss", "cid", "catalogo"]
+      },
+      {
+        "id": "faq_019",
+        "question": "É possível gerar PDFs no fluxo?",
+        "answer": "Sim. Há geração de PDF da solicitação, do laudo e de contestação de autorização na API/web.",
+        "tags": ["pdf", "documentos", "laudo"]
+      },
+      {
+        "id": "faq_020",
+        "question": "A plataforma suporta notificações por quais canais?",
+        "answer": "A configuração inclui preferências de notificação por e-mail, SMS, push e WhatsApp, além de eventos como mudança de status e pendências.",
+        "tags": ["notificacoes", "canais"]
+      },
+      {
+        "id": "faq_021",
+        "question": "Como funciona autenticação e segurança de sessão?",
+        "answer": "A API usa autenticação com tokens e refresh token em cookie httpOnly, com renovação de sessão e revogação em logout/troca de senha.",
+        "tags": ["auth", "seguranca"]
+      },
+      {
+        "id": "faq_022",
+        "question": "A IA consegue acessar dados de qualquer médico?",
+        "answer": "Não. A IA respeita o escopo de acesso do usuário autenticado e só opera sobre médicos e solicitações permitidos pelo controle de acesso.",
+        "tags": ["seguranca", "permissoes", "multiusuario"]
+      },
+      {
+        "id": "faq_023",
+        "question": "Como a IA recebe mensagens do WhatsApp?",
+        "answer": "A entrada é via webhook da Twilio. O backend valida assinatura do webhook, enfileira a mensagem e processa com orquestrador de IA + RAG.",
+        "tags": ["whatsapp", "twilio", "arquitetura"]
+      },
+      {
+        "id": "faq_024",
+        "question": "A Inexci é adequada para clínica em crescimento?",
+        "answer": "Sim. O modelo SaaS com automação, padronização e visibilidade operacional favorece escala sem aumento proporcional de carga manual.",
+        "tags": ["escalabilidade", "crescimento"]
+      }
+    ],
+    "workflow": [
+      {
+        "id": "wf_001",
+        "title": "Status oficiais da solicitação cirúrgica",
+        "content": "1=Pendente, 2=Enviada, 3=Em Análise, 4=Em Agendamento, 5=Agendada, 6=Realizada, 7=Faturada, 8=Finalizada, 9=Encerrada.",
+        "source": "inexci-api/src/database/entities/surgery-request.entity.ts"
+      },
+      {
+        "id": "wf_002",
+        "title": "Transições disponíveis na API web",
+        "content": "A API cobre envio, início de análise, aceite/contestação de autorização, confirmação e reagendamento de data, marcação de cirurgia realizada, faturamento, confirmação de recebimento, contestação de pagamento e encerramento.",
+        "source": "inexci-api/src/modules/surgery-requests/surgery-requests.controller.ts"
+      },
+      {
+        "id": "wf_003",
+        "title": "Transições atualmente suportadas no WhatsApp IA",
+        "content": "No assistente atual, o avanço automático suportado é 1→2, 2→3 e 3→4. Além disso, já é possível criar uma nova solicitação via WhatsApp com confirmação explícita.",
+        "source": "inexci-api/src/shared/ai/tools/whatsapp-flow.tools.ts"
+      }
+    ],
+    "pendencies": [
+      {
+        "status": "Pendente",
+        "blocking_items": [
+          "Dados do paciente",
+          "Hospital",
+          "Procedimentos (TUSS)",
+          "Itens OPME (ou marcação de ausência)",
+          "Laudo médico"
+        ]
+      },
+      {
+        "status": "Em Agendamento",
+        "blocking_items": [
+          "Definir datas disponíveis",
+          "Paciente confirmar data"
+        ]
+      },
+      {
+        "status": "Faturada",
+        "blocking_items": ["Confirmar recebimento (valor e data)"]
+      }
+    ],
+    "glossary": [
+      {
+        "term": "TISS",
+        "definition": "Padrão obrigatório de Troca de Informação em Saúde Suplementar entre agentes do setor, estabelecido pela ANS para interoperabilidade e padronização de dados assistenciais/administrativos.",
+        "source": "ANS"
+      },
+      {
+        "term": "TUSS",
+        "definition": "Terminologia Unificada da Saúde Suplementar, componente de representação de conceitos em saúde do padrão TISS. Padroniza códigos e descrições para uso no ecossistema de saúde suplementar.",
+        "source": "ANS"
+      },
+      {
+        "term": "CID",
+        "definition": "Classificação Internacional de Doenças (ICD/CID), publicada pela OMS, usada para classificar diagnósticos e permitir padronização estatística e assistencial.",
+        "source": "OMS"
+      },
+      {
+        "term": "OPME",
+        "definition": "No fluxo da Inexci, pode ser pendência obrigatória conforme indicação do caso.",
+        "source": "domínio setorial + repositório"
+      },
+      {
+        "term": "Protocolo SC-XXXX",
+        "definition": "Identificador único da solicitação cirúrgica na plataforma.",
+        "source": "repositório"
+      }
+    ],
+    "assistant_capabilities": [
+      "Consultar status da solicitação por protocolo/UUID/nome do paciente",
+      "Listar solicitações com filtro de status",
+      "Listar documentos anexados",
+      "Consultar itens OPME",
+      "Consultar pendências e elegibilidade para avanço",
+      "Avançar status parcial (1→2, 2→3, 3→4) com confirmação",
+      "Definir presença de OPME",
+      "Atualizar prioridade",
+      "Encerrar solicitação (com confirmação explícita)",
+      "Enviar notificação manual"
+    ],
+    "assistant_limitations": [
+      "Ações críticas exigem confirmação explícita",
+      "Nem todas as transições de status são suportadas via WhatsApp",
+      "Dados só podem ser consultados/alterados dentro do escopo de permissão do usuário",
+      "Quando houver pendências bloqueantes, o avanço de status é barrado",
+      "Usuários não cadastrados recebem apenas respostas institucionais",
+      "Há limite de mensagens por telefone para evitar abuso"
+    ],
+    "whatsapp_intents_examples": [
+      {
+        "intent": "consulta_status",
+        "examples": [
+          "qual o status da SC-0042?",
+          "me mostra a cirurgia da Maria Souza"
+        ]
+      },
+      {
+        "intent": "listar_solicitacoes",
+        "examples": ["liste minhas solicitações", "solicitações em análise"]
+      },
+      {
+        "intent": "pendencias",
+        "examples": [
+          "quais pendências da SC-0042?",
+          "essa solicitação pode avançar?"
+        ]
+      },
+      {
+        "intent": "acao_critica_com_confirmacao",
+        "examples": [
+          "avançar solicitação SC-0042",
+          "encerrar solicitação SC-0042 motivo paciente desistiu"
+        ]
+      },
+      {
+        "intent": "ajuste_opme",
+        "examples": ["marcar SC-0042 com OPME", "remover OPME da SC-0042"]
+      },
+      {
+        "intent": "prioridade",
+        "examples": [
+          "alterar prioridade da SC-0042 para urgente",
+          "deixar SC-0042 como média"
+        ]
+      }
+    ],
+    "faq_candidates_from_repository": [
+      "Como confirmar data da cirurgia e reagendar?",
+      "Como contestar autorização e gerar PDF de contestação?",
+      "Como marcar cirurgia como realizada e depois faturar?",
+      "Como confirmar recebimento e contestar pagamento?",
+      "Como enviar notificação manual por canal?",
+      "Como anexar documentos e excluir documento incorreto?",
+      "Como funciona o chat interno da solicitação?",
+      "Como configurar notificações (email, SMS, push, WhatsApp)?",
+      "Como criar e manter templates de solicitação?",
+      "Como criar e ordenar seções de laudo?",
+      "Como funciona recuperação de senha e validação de e-mail?",
+      "Como funciona o acesso de colaboradores aos médicos?",
+      "Como listar médicos, colaboradores e alternar status de colaborador?",
+      "Como buscar códigos TUSS e CID no sistema?",
+      "Como interpretar pendências bloqueantes por status?"
+    ],
+    "whatsapp_full_flow_gap_analysis": {
+      "goal": "Executar o ciclo completo da solicitação via IA no WhatsApp com segurança e rastreabilidade",
+      "already_supported": [
+        "Consulta de status/listagem",
+        "Pendências e elegibilidade de avanço",
+        "Ajuste OPME e prioridade",
+        "Avanço parcial do fluxo",
+        "Encerramento com confirmação",
+        "Notificação manual"
+      ],
+      "missing_tools_for_full_flow": [
+        "accept_authorization_full (date_options completas + notify_patient)",
+        "contest_authorization_full (reason/method/to/subject/message/attachments)",
+        "confirm_date",
+        "update_date_options",
+        "reschedule",
+        "mark_performed",
+        "invoice_request",
+        "confirm_receipt",
+        "contest_payment",
+        "update_receipt",
+        "manage_report_sections",
+        "upload_document_from_whatsapp_media"
+      ],
+      "critical_observation": "O webhook recebe mediaUrl, mas o pipeline atual de IA não processa anexos de mídia para virar documento da solicitação. Isso é chave para fluxo fim a fim no WhatsApp.",
+      "recommended_implementation_order": [
+        "1) confirm_date, update_date_options, reschedule",
+        "2) mark_performed, invoice_request, confirm_receipt",
+        "3) contest_authorization_full, contest_payment, update_receipt",
+        "4) upload_document_from_whatsapp_media + vínculo automático da solicitação",
+        "5) gestão de seções de laudo via comandos assistidos"
+      ]
+    }
+  },
+  "ingestion_ready": {
+    "replace_payloads": [
+      {
+        "category": "faq",
+        "items_source": "categories.faq",
+        "mapping": {
+          "title": "question",
+          "content": "Pergunta: {question}\\nResposta: {answer}",
+          "metadata": "{ tags }"
+        }
+      },
+      {
+        "category": "workflow",
+        "items_source": "categories.workflow",
+        "mapping": {
+          "title": "title",
+          "content": "content",
+          "metadata": "{ source }"
+        }
+      },
+      {
+        "category": "glossary",
+        "items_source": "categories.glossary",
+        "mapping": {
+          "title": "term",
+          "content": "{term}: {definition}",
+          "metadata": "{ source }"
+        }
+      },
+      {
+        "category": "whatsapp-capabilities",
+        "items_source": "categories.assistant_capabilities",
+        "mapping": {
+          "title": "Capacidade WhatsApp IA",
+          "content": "{item}"
+        }
+      },
+      {
+        "category": "whatsapp-gap",
+        "items_source": "categories.whatsapp_full_flow_gap_analysis.missing_tools_for_full_flow",
+        "mapping": {
+          "title": "Tool faltante para fluxo completo",
+          "content": "{item}"
+        }
+      }
+    ]
+  }
+}

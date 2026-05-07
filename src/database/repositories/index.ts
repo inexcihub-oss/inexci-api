@@ -13,7 +13,6 @@ export { HealthPlanRepository } from './health-plan.repository';
 export { OpmeItemRepository } from './opme-item.repository';
 export { ProcedureRepository } from './procedure.repository';
 export { RecoveryCodeRepository } from './recovery-code.repository';
-export { EmailVerificationRepository } from './email-verification.repository';
 export { StatusUpdateRepository } from './status-update.repository';
 export { SurgeryRequestTussItemRepository } from './surgery-request-tuss-item.repository';
 export { SurgeryRequestQuotationRepository } from './surgery-request-quotation.repository';
@@ -25,3 +24,4 @@ export { SurgeryRequestAnalysisRepository } from './surgery-request-analysis.rep
 export { ContestationRepository } from './contestation.repository';
 export { WhatsappConversationRepository } from './whatsapp-conversation.repository';
 export { AiKnowledgeChunkRepository } from './ai-knowledge-chunk.repository';
+export { AiTokenUsageLogRepository } from './ai-token-usage-log.repository';

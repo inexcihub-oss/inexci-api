@@ -70,6 +70,18 @@ export class ConversationService {
     });
   }
 
+  async resetConversationHistory(conversationId: string): Promise<void> {
+    const conv = await this.conversationRepo.findOne({ id: conversationId });
+    if (!conv) return;
+
+    const now = new Date();
+    await this.conversationRepo.update(conversationId, {
+      messages_history: [],
+      started_at: now,
+      last_message_at: now,
+    });
+  }
+
   buildMessagesForOpenAI(
     conversation: WhatsappConversation,
     ragContext?: string,

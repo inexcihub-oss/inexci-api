@@ -5,6 +5,10 @@ export interface ToolContext {
   phone: string;
   accessibleDoctorIds: string[];
   conversationId: string;
+  inboundMedia?: Array<{
+    url: string;
+    contentType?: string | null;
+  }>;
 }
 
 export interface AiTool {

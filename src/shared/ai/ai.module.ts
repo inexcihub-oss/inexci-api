@@ -10,6 +10,8 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { AccessControlModule } from '../services/access-control.module';
 import { SurgeryRequestsModule } from '../../modules/surgery-requests/surgery-requests.module';
 import { PendenciesModule } from '../../modules/surgery-requests/pendencies/pendencies.module';
+import { TussModule } from '../../modules/tuss/tuss.module';
+import { StorageModule } from '../storage/storage.module';
 import { AiOrchestratorService } from './services/ai-orchestrator.service';
 import { OpenaiService } from './services/openai.service';
 import { ConversationService } from './services/conversation.service';
@@ -27,6 +29,8 @@ import { AiMessageProcessor } from './ai-message.processor';
     AccessControlModule,
     forwardRef(() => SurgeryRequestsModule),
     PendenciesModule,
+    TussModule,
+    StorageModule,
   ],
   providers: [
     WhatsappConversationRepository,

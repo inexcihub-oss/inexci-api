@@ -11,7 +11,6 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
-import { EmailVerificationRepository } from 'src/database/repositories/email-verification.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
@@ -53,13 +52,6 @@ describe('AuthService', () => {
     create: jest.fn(),
   };
 
-  const mockEmailVerificationRepository = {
-    findOne: jest.fn(),
-    create: jest.fn(),
-    updateByWhere: jest.fn(),
-    deleteMany: jest.fn(),
-  };
-
   const mockMailService = {
     sendRaw: jest.fn(),
     sendPasswordRecovery: jest.fn(),
@@ -93,10 +85,6 @@ describe('AuthService', () => {
         {
           provide: RecoveryCodeRepository,
           useValue: mockRecoveryCodeRepository,
-        },
-        {
-          provide: EmailVerificationRepository,
-          useValue: mockEmailVerificationRepository,
         },
         {
           provide: DoctorProfileRepository,
@@ -668,8 +656,7 @@ describe('AuthService', () => {
         name: 'Test User',
         email_verified: false,
       });
-      mockEmailVerificationRepository.deleteMany.mockResolvedValue(undefined);
-      mockEmailVerificationRepository.create.mockResolvedValue({});
+      mockUserRepository.update.mockResolvedValue({});
       mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
 
       const result = await service.resendEmailVerification('user-1');
@@ -708,8 +695,7 @@ describe('AuthService', () => {
         updated_at: new Date(),
       };
       mockUserRepository.create.mockResolvedValue(createdUser);
-      mockEmailVerificationRepository.deleteMany.mockResolvedValue(undefined);
-      mockEmailVerificationRepository.create.mockResolvedValue({});
+      mockUserRepository.update.mockResolvedValue({});
       mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
 
       await service.register({

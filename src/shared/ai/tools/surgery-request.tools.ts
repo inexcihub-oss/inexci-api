@@ -2,6 +2,8 @@ import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
+import { In } from 'typeorm';
+import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -22,8 +24,74 @@ const PRIORITY_LABELS: Record<number, string> = {
   4: 'Urgente',
 };
 
+function sanitizeIdentifier(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().replace(/[\s.,;:!?]+$/g, '');
+}
+
+function normalizeProtocolDisplay(protocol: unknown): string {
+  const value = String(protocol || '').trim();
+  if (!value) return 'SC-N/D';
+  return value.toUpperCase().startsWith('SC-')
+    ? value.toUpperCase()
+    : `SC-${value}`;
+}
+
+function buildProtocolCandidates(identifier: string): string[] {
+  const cleaned = identifier.trim();
+  if (!cleaned) return [];
+
+  const upper = cleaned.toUpperCase();
+  const candidates = new Set<string>([upper]);
+
+  if (upper.startsWith('SC-')) {
+    const withoutPrefix = upper.slice(3).trim();
+    if (withoutPrefix) candidates.add(withoutPrefix);
+  } else {
+    candidates.add(`SC-${upper}`);
+  }
+
+  return Array.from(candidates);
+}
+
+async function resolveRequestByIdentifier(
+  surgeryRequestRepo: SurgeryRequestRepository,
+  identifierRaw: string,
+  context: ToolContext,
+): Promise<any | null> {
+  const identifier = sanitizeIdentifier(identifierRaw);
+  if (!identifier) return null;
+
+  let request = null;
+
+  const protocolCandidates = buildProtocolCandidates(identifier);
+  for (const candidate of protocolCandidates) {
+    request = await surgeryRequestRepo.findOneSimple({ protocol: candidate });
+    if (request) break;
+  }
+
+  if (!request && identifier.match(/^[0-9a-f-]{36}$/i)) {
+    request = await surgeryRequestRepo.findOneSimple({ id: identifier });
+  }
+
+  if (!request) {
+    const all = await surgeryRequestRepo.findMany(
+      { doctor_id: In(context.accessibleDoctorIds) as any },
+      0,
+      50,
+    );
+    const found = all.find((r: any) =>
+      r.patient?.name?.toLowerCase().includes(identifier.toLowerCase()),
+    );
+    if (found) request = found;
+  }
+
+  return request;
+}
+
 export function buildSurgeryRequestTools(
   surgeryRequestRepo: SurgeryRequestRepository,
+  pendencyValidator?: PendencyValidatorService,
 ): AiTool[] {
   const getSurgeryRequestStatus: AiTool = {
     name: 'get_surgery_request_status',
@@ -51,31 +119,18 @@ export function buildSurgeryRequestTools(
         return 'Você precisa estar cadastrado para consultar solicitações.';
 
       const { identifier } = args as { identifier: string };
-      let request = null;
+      const resolvedRequest = await resolveRequestByIdentifier(
+        surgeryRequestRepo,
+        identifier,
+        context,
+      );
 
-      // Tenta por protocolo
-      if (identifier.toUpperCase().startsWith('SC-')) {
-        request = await surgeryRequestRepo.findOneSimple({
-          protocol: identifier.toUpperCase(),
+      let request = resolvedRequest;
+      if (resolvedRequest?.id) {
+        const fullRequest = await surgeryRequestRepo.findOne({
+          id: resolvedRequest.id,
         });
-      }
-
-      // Tenta por ID (UUID)
-      if (!request && identifier.match(/^[0-9a-f-]{36}$/i)) {
-        request = await surgeryRequestRepo.findOneSimple({ id: identifier });
-      }
-
-      // Tenta por nome do paciente via findMany
-      if (!request) {
-        const all = await surgeryRequestRepo.findMany(
-          { doctor_id: context.accessibleDoctorIds[0] as any },
-          0,
-          50,
-        );
-        const found = all.find((r: any) =>
-          r.patient?.name?.toLowerCase().includes(identifier.toLowerCase()),
-        );
-        if (found) request = found;
+        if (fullRequest) request = fullRequest as any;
       }
 
       if (!request) {
@@ -89,15 +144,50 @@ export function buildSurgeryRequestTools(
       const status = STATUS_LABELS[request.status] || String(request.status);
       const priority =
         PRIORITY_LABELS[request.priority as any] || String(request.priority);
+      const protocol = normalizeProtocolDisplay(request.protocol);
+
+      let pendencyLines: string[] = [];
+      if (pendencyValidator && request.id) {
+        try {
+          const validation = await pendencyValidator.validateForStatus(
+            request.id,
+          );
+          const blockingPending = validation.pendencies.filter(
+            (p) => !p.isComplete && !p.isOptional,
+          );
+
+          if (!blockingPending.length) {
+            pendencyLines = [
+              'Próximo passo: sem bloqueios para avançar de etapa.',
+            ];
+          } else {
+            const actions = blockingPending.flatMap((p) => {
+              const undone = (p.checkItems || []).filter((item) => !item.done);
+              if (!undone.length) return [`• ${p.name}`];
+              return [
+                `• ${p.name}`,
+                ...undone.map((item) => `  - ${item.label}`),
+              ];
+            });
+
+            pendencyLines = ['Para avançar de etapa, faça:', ...actions];
+          }
+        } catch {
+          pendencyLines = [
+            'Próximo passo: consulte as pendências para avançar a etapa.',
+          ];
+        }
+      }
 
       return [
-        `📋 *Solicitação ${request.protocol}*`,
+        `📋 *Solicitação ${protocol}*`,
         `Status: ${status}`,
         `Prioridade: ${priority}`,
         `Paciente: ${(request as any).patient?.name || request.patient_id}`,
         `Hospital: ${(request as any).hospital?.name || request.hospital_id || 'Não definido'}`,
         `Convênio: ${(request as any).health_plan?.name || request.health_plan_id || 'Não definido'}`,
-        `Data da cirurgia: ${request.date_call ? new Date(request.date_call).toLocaleDateString('pt-BR') : 'Não agendada'}`,
+        `Data da cirurgia: ${request.surgery_date ? new Date(request.surgery_date).toLocaleDateString('pt-BR') : request.date_call ? new Date(request.date_call).toLocaleDateString('pt-BR') : 'Não agendada'}`,
+        ...pendencyLines,
       ].join('\n');
     },
   };
@@ -165,7 +255,7 @@ export function buildSurgeryRequestTools(
 
       const lines = requests.map(
         (r: any) =>
-          `• ${r.protocol} — ${r.patient?.name || 'Paciente'} — ${STATUS_LABELS[r.status] || r.status}`,
+          `• ${normalizeProtocolDisplay(r.protocol)} — ${r.patient?.name || 'Paciente'} — ${STATUS_LABELS[r.status] || r.status}`,
       );
       return `📋 *Suas solicitações:*\n${lines.join('\n')}`;
     },
@@ -194,9 +284,21 @@ export function buildSurgeryRequestTools(
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const request = await surgeryRequestRepo.findOne({
-        id: args.surgery_request_id as string,
-      });
+      const rawIdentifier = String(args.surgery_request_id || '');
+      const byId = sanitizeIdentifier(rawIdentifier);
+
+      let request = await surgeryRequestRepo.findOne({ id: byId });
+      if (!request) {
+        for (const candidate of buildProtocolCandidates(byId)) {
+          const byProtocol = await surgeryRequestRepo.findOneSimple({
+            protocol: candidate,
+          });
+          if (byProtocol?.id) {
+            request = await surgeryRequestRepo.findOne({ id: byProtocol.id });
+            if (request) break;
+          }
+        }
+      }
 
       if (!request) return 'Solicitação não encontrada.';
       if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
@@ -236,9 +338,21 @@ export function buildSurgeryRequestTools(
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const request = await surgeryRequestRepo.findOne({
-        id: args.surgery_request_id as string,
-      });
+      const rawIdentifier = String(args.surgery_request_id || '');
+      const byId = sanitizeIdentifier(rawIdentifier);
+
+      let request = await surgeryRequestRepo.findOne({ id: byId });
+      if (!request) {
+        for (const candidate of buildProtocolCandidates(byId)) {
+          const byProtocol = await surgeryRequestRepo.findOneSimple({
+            protocol: candidate,
+          });
+          if (byProtocol?.id) {
+            request = await surgeryRequestRepo.findOne({ id: byProtocol.id });
+            if (request) break;
+          }
+        }
+      }
 
       if (!request) return 'Solicitação não encontrada.';
       if (!context.accessibleDoctorIds.includes(request.doctor_id)) {

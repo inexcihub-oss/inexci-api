@@ -208,7 +208,6 @@ export class SurgeryRequestNotificationService {
       id: string;
       doctor_id: string;
       created_by_id: string;
-      manager_id?: string;
     },
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
@@ -221,7 +220,6 @@ export class SurgeryRequestNotificationService {
       oldStatus,
       newStatus,
       actorId,
-      request.manager_id,
     );
   }
 

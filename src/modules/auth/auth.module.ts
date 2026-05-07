@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/database/entities/user.entity';
 import { RecoveryCode } from 'src/database/entities/recovery-code.entity';
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
-import { EmailVerification } from 'src/database/entities/email-verification.entity';
 import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -20,7 +19,6 @@ import { MailModule } from 'src/shared/mail/mail.module';
       User,
       RecoveryCode,
       RefreshToken,
-      EmailVerification,
       SubscriptionPlan,
     ]),
     PassportModule,

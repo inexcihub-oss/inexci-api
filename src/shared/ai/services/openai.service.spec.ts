@@ -28,6 +28,7 @@ describe('OpenaiService', () => {
         OPENAI_API_KEY: 'test-key',
         OPENAI_MODEL: 'gpt-4o',
         OPENAI_EMBEDDING_MODEL: 'text-embedding-3-small',
+        OPENAI_REQUEST_TIMEOUT_MS: 25000,
       };
       return map[key] ?? def;
     }),
@@ -56,6 +57,10 @@ describe('OpenaiService', () => {
     });
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ timeout: 25000 }),
+    );
     expect(result).toEqual(mockResponse);
   });
 
@@ -98,5 +103,37 @@ describe('OpenaiService', () => {
     ).rejects.toThrow('Bad Request');
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('deve fazer retry em caso de timeout', async () => {
+    const timeoutError: any = new Error('Request timed out');
+    timeoutError.code = 'ETIMEDOUT';
+
+    mockCreate.mockRejectedValueOnce(timeoutError).mockResolvedValueOnce({
+      choices: [{ message: { content: 'OK após timeout' } }],
+    });
+
+    const result = await service.chatCompletion({
+      messages: [{ role: 'user', content: 'Teste timeout' }],
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result.choices[0].message.content).toBe('OK após timeout');
+  });
+
+  it('deve respeitar timeout customizado por chamada', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [{ message: { content: 'Resposta com timeout customizado' } }],
+    });
+
+    await service.chatCompletion({
+      messages: [{ role: 'user', content: 'Teste timeout customizado' }],
+      timeoutMs: 90000,
+    });
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ timeout: 90000 }),
+    );
   });
 });

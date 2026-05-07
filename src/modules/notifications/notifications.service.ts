@@ -12,6 +12,7 @@ import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.enti
 import { MailService } from 'src/shared/mail/mail.service';
 import { getStatusLabel } from 'src/shared/utils';
 import { NotificationsGateway } from './notifications.gateway';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class NotificationsService {
@@ -24,6 +25,7 @@ export class NotificationsService {
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly mailService: MailService,
     @Optional() private readonly notificationsGateway: NotificationsGateway,
+    @Optional() private readonly accessControlService?: AccessControlService,
   ) {}
 
   // ============ Settings ============
@@ -274,7 +276,6 @@ export class NotificationsService {
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     actorId: string,
-    managerId?: string,
   ): Promise<void> {
     try {
       const actor = await this.userRepository.findOne({ id: actorId });
@@ -287,18 +288,33 @@ export class NotificationsService {
         ),
       ]);
 
-      const adminIds = allUsersInAccount
-        .filter((u) => u.role === UserRole.ADMIN)
-        .map((u) => u.id);
+      let accessibleUserIds: string[] = [];
+
+      if (this.accessControlService) {
+        const checks = await Promise.all(
+          allUsersInAccount.map(async (u) => {
+            try {
+              const doctorIds =
+                await this.accessControlService!.getAccessibleDoctorIds(u.id);
+              return { userId: u.id, canAccess: doctorIds.includes(doctorId) };
+            } catch {
+              return { userId: u.id, canAccess: false };
+            }
+          }),
+        );
+
+        accessibleUserIds = checks
+          .filter((c) => c.canAccess)
+          .map((c) => c.userId);
+      } else {
+        const adminIds = allUsersInAccount
+          .filter((u) => u.role === UserRole.ADMIN)
+          .map((u) => u.id);
+        accessibleUserIds = [...new Set([doctorId, createdById, ...adminIds])];
+      }
 
       const stakeholderIds = [
-        ...new Set([
-          doctorId,
-          createdById,
-          ...(managerId ? [managerId] : []),
-          ...adminIds,
-          ...activityUserIds,
-        ]),
+        ...new Set([...accessibleUserIds, ...activityUserIds]),
       ].filter((id) => id && id !== actorId);
 
       if (!stakeholderIds.length) return;

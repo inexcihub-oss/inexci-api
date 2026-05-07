@@ -76,7 +76,4 @@ export class UpdateSurgeryRequestDto {
   @IsOptional()
   @IsNumber()
   priority?: number;
-
-  @IsOptional()
-  deadline?: Date;
 }

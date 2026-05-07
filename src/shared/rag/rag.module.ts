@@ -5,18 +5,18 @@ import { AiKnowledgeChunkRepository } from '../../database/repositories/ai-knowl
 import { RagService } from './rag.service';
 import { EmbeddingService } from './embedding.service';
 import { IngestionService } from './ingestion.service';
-import { RagController } from './rag.controller';
 import { OpenaiService } from '../ai/services/openai.service';
+import { RagBootstrapService } from './rag-bootstrap.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([AiKnowledgeChunk])],
-  controllers: [RagController],
   providers: [
     AiKnowledgeChunkRepository,
     OpenaiService,
     EmbeddingService,
     IngestionService,
     RagService,
+    RagBootstrapService,
   ],
   exports: [RagService, EmbeddingService, IngestionService],
 })

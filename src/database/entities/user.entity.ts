@@ -110,6 +110,12 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   email_verified_at: Date;
 
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  email_verification_token: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  email_verification_expires_at: Date;
+
   @Column({ name: 'account_id' })
   account_id: string;
 

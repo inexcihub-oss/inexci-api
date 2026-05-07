@@ -113,34 +113,37 @@ export class InitialSchema1746057600000 implements MigrationInterface {
     // Tabela: user
     // email: varchar(160) — já incorpora IncreaseUserEmailLength
     // email_verified / email_verified_at — já incorpora AddEmailVerification
+    // email_verification_token / email_verification_expires_at — token inline (sem tabela separada)
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
       CREATE TABLE "user" (
-        "id"                   UUID NOT NULL DEFAULT uuid_generate_v4(),
-        "name"                 character varying(100) NOT NULL,
-        "email"                character varying(160) NOT NULL,
-        "password"             character varying(60) NOT NULL,
-        "phone"                character varying(15),
-        "cpf"                  character varying(14),
-        "gender"               character(1),
-        "birth_date"           DATE,
-        "avatar_url"           character varying(255),
-        "role"                 "user_role_enum" NOT NULL DEFAULT 'collaborator',
-        "status"               "user_status_enum" NOT NULL DEFAULT 'pending',
-        "account_id"           UUID NOT NULL,
-        "admin_id"             UUID,
-        "subscription_plan_id" UUID,
-        "cep"                  varchar(9),
-        "address"              varchar(200),
-        "address_number"       varchar(10),
-        "address_complement"   varchar(100),
-        "city"                 varchar(100),
-        "state"                varchar(2),
-        "email_verified"       boolean NOT NULL DEFAULT false,
-        "email_verified_at"    timestamp NULL,
-        "deleted_at"           TIMESTAMP,
-        "created_at"           TIMESTAMP NOT NULL DEFAULT now(),
-        "updated_at"           TIMESTAMP NOT NULL DEFAULT now(),
+        "id"                              UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "name"                            character varying(100) NOT NULL,
+        "email"                           character varying(160) NOT NULL,
+        "password"                        character varying(60) NOT NULL,
+        "phone"                           character varying(15),
+        "cpf"                             character varying(14),
+        "gender"                          character(1),
+        "birth_date"                      DATE,
+        "avatar_url"                      character varying(255),
+        "role"                            "user_role_enum" NOT NULL DEFAULT 'collaborator',
+        "status"                          "user_status_enum" NOT NULL DEFAULT 'pending',
+        "account_id"                      UUID NOT NULL,
+        "admin_id"                        UUID,
+        "subscription_plan_id"            UUID,
+        "cep"                             varchar(9),
+        "address"                         varchar(200),
+        "address_number"                  varchar(10),
+        "address_complement"              varchar(100),
+        "city"                            varchar(100),
+        "state"                           varchar(2),
+        "email_verified"                  boolean NOT NULL DEFAULT false,
+        "email_verified_at"               timestamp NULL,
+        "email_verification_token"        varchar(128) NULL,
+        "email_verification_expires_at"   timestamp NULL,
+        "deleted_at"                      TIMESTAMP,
+        "created_at"                      TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at"                      TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "UQ_user_email" UNIQUE ("email"),
         CONSTRAINT "PK_user"      PRIMARY KEY ("id")
       );
@@ -454,7 +457,6 @@ export class InitialSchema1746057600000 implements MigrationInterface {
         "id"                       UUID NOT NULL DEFAULT uuid_generate_v4(),
         "doctor_id"                UUID NOT NULL,
         "created_by_id"            UUID NOT NULL,
-        "manager_id"               UUID,
         "patient_id"               UUID NOT NULL,
         "hospital_id"              UUID,
         "health_plan_id"           UUID,
@@ -464,7 +466,6 @@ export class InitialSchema1746057600000 implements MigrationInterface {
         "status"                   integer NOT NULL DEFAULT 1,
         "protocol"                 character varying(75) DEFAULT generate_protocol(),
         "priority"                 integer NOT NULL DEFAULT 2,
-        "deadline"                 TIMESTAMP,
         "has_opme"                 boolean,
         "is_indication"            boolean NOT NULL DEFAULT false,
         "indication_name"          character varying(100),
@@ -497,9 +498,6 @@ export class InitialSchema1746057600000 implements MigrationInterface {
           ON DELETE CASCADE ON UPDATE CASCADE,
         CONSTRAINT "FK_surgery_request_created_by"
           FOREIGN KEY ("created_by_id") REFERENCES "user"("id")
-          ON DELETE SET NULL ON UPDATE CASCADE,
-        CONSTRAINT "FK_surgery_request_manager"
-          FOREIGN KEY ("manager_id") REFERENCES "user"("id")
           ON DELETE SET NULL ON UPDATE CASCADE,
         CONSTRAINT "FK_surgery_request_patient"
           FOREIGN KEY ("patient_id") REFERENCES "patient"("id")
@@ -907,27 +905,6 @@ export class InitialSchema1746057600000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------ //
-    // Tabela: email_verification — incorpora AddEmailVerification
-    // ------------------------------------------------------------------ //
-    await queryRunner.query(`
-      CREATE TABLE "email_verification" (
-        "id"         uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "user_id"    uuid NOT NULL,
-        "token"      varchar(128) NOT NULL,
-        "used"       boolean NOT NULL DEFAULT false,
-        "expires_at" timestamp NOT NULL,
-        "used_at"    timestamp NULL,
-        "created_at" timestamp NOT NULL DEFAULT now(),
-        "updated_at" timestamp NOT NULL DEFAULT now(),
-        CONSTRAINT "pk_email_verification" PRIMARY KEY ("id"),
-        CONSTRAINT "fk_email_verification_user"
-          FOREIGN KEY ("user_id")
-          REFERENCES "user"("id")
-          ON DELETE CASCADE
-      );
-    `);
-
-    // ------------------------------------------------------------------ //
     // Tabela: whatsapp_message_log
     // ------------------------------------------------------------------ //
     await queryRunner.query(`
@@ -1195,22 +1172,9 @@ export class InitialSchema1746057600000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS idx_conversation_active ON whatsapp_conversation(active, last_message_at)`,
     );
-
-    // ------------------------------------------------------------------ //
-    // Índices — email_verification
-    // ------------------------------------------------------------------ //
-    await queryRunner.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS "ux_email_verification_token" ON "email_verification" ("token")`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "ix_email_verification_user_id"      ON "email_verification" ("user_id")`,
-    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP TABLE IF EXISTS "email_verification"          CASCADE`,
-    );
     await queryRunner.query(
       `DROP TABLE IF EXISTS "notification_send_log"       CASCADE`,
     );

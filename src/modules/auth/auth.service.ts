@@ -17,7 +17,6 @@ import { HttpMessages } from 'src/common';
 import { MailService } from 'src/shared/mail/mail.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
-import { EmailVerificationRepository } from 'src/database/repositories/email-verification.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -35,7 +34,6 @@ export class AuthService {
   constructor(
     private readonly userRepository: UserRepository,
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
-    private readonly emailVerificationRepository: EmailVerificationRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
@@ -436,18 +434,14 @@ export class AuthService {
     email: string,
   ): Promise<void> {
     try {
-      // Invalida tokens anteriores ainda não usados deste usuário
-      await this.emailVerificationRepository.deleteMany({
-        user_id: userId,
-        used: false,
-      });
-
       const token = uuidv4();
-      await this.emailVerificationRepository.create({
-        user_id: userId,
-        token,
-        used: false,
-        expires_at: new Date(Date.now() + this.EMAIL_VERIFICATION_EXPIRY_MS),
+      const expiresAt = new Date(
+        Date.now() + this.EMAIL_VERIFICATION_EXPIRY_MS,
+      );
+
+      await this.userRepository.update(userId, {
+        email_verification_token: token,
+        email_verification_expires_at: expiresAt,
       });
 
       const dashboardUrl =
@@ -474,59 +468,40 @@ export class AuthService {
       throw new BadRequestException('Token de verificação inválido');
     }
 
-    const verification = await this.emailVerificationRepository.findOne({
-      token,
+    const user = await this.userRepository.findOne({
+      email_verification_token: token,
     });
 
-    if (!verification) {
+    if (!user) {
+      // Token não encontrado — pode já ter sido consumido ou nunca existiu.
+      // Verifica se algum usuário verificado possui esse token nulo (clique duplo)
       throw new BadRequestException('Token de verificação inválido');
     }
 
-    if (verification.used) {
-      // Se o token já foi usado, verifica se o usuário de fato está verificado.
-      // Isso cobre o caso do StrictMode do React (chamada dupla) ou clique duplo.
-      const userCheck = await this.userRepository.findOne({
-        id: verification.user_id,
-      });
-      if (userCheck?.email_verified) {
-        return {
-          message: 'E-mail confirmado com sucesso',
-          email: userCheck.email,
-        };
-      }
-      throw new BadRequestException(
-        'Este link de confirmação já foi utilizado',
-      );
+    // Se o usuário já está verificado mas o token ainda está na coluna (clique duplo / StrictMode)
+    if (user.email_verified) {
+      return {
+        message: 'E-mail confirmado com sucesso',
+        email: user.email,
+      };
     }
 
     if (
-      verification.expires_at &&
-      new Date() > new Date(verification.expires_at)
+      user.email_verification_expires_at &&
+      new Date() > new Date(user.email_verification_expires_at)
     ) {
       throw new BadRequestException(
         'O link de confirmação expirou. Solicite um novo e-mail.',
       );
     }
 
-    const user = await this.userRepository.findOne({
-      id: verification.user_id,
-    });
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado');
-    }
-
     const now = new Date();
-    await this.emailVerificationRepository.updateByWhere(
-      { id: verification.id },
-      { used: true, used_at: now },
-    );
-
-    if (!user.email_verified) {
-      await this.userRepository.update(user.id, {
-        email_verified: true,
-        email_verified_at: now,
-      });
-    }
+    await this.userRepository.update(user.id, {
+      email_verified: true,
+      email_verified_at: now,
+      email_verification_token: null,
+      email_verification_expires_at: null,
+    });
 
     return {
       message: 'E-mail confirmado com sucesso',

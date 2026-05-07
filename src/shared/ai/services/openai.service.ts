@@ -6,10 +6,17 @@ import OpenAI from 'openai';
 export class OpenaiService {
   private readonly logger = new Logger(OpenaiService.name);
   private readonly client: OpenAI;
+  private readonly requestTimeoutMs: number;
 
   constructor(private readonly configService: ConfigService) {
+    this.requestTimeoutMs = this.configService.get<number>(
+      'OPENAI_REQUEST_TIMEOUT_MS',
+      25000,
+    );
+
     this.client = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY', ''),
+      timeout: this.requestTimeoutMs,
     });
   }
 
@@ -18,6 +25,7 @@ export class OpenaiService {
     tools?: OpenAI.ChatCompletionTool[];
     temperature?: number;
     maxTokens?: number;
+    timeoutMs?: number;
   }): Promise<OpenAI.ChatCompletion> {
     return this.chatCompletionWithRetry(params);
   }
@@ -28,23 +36,41 @@ export class OpenaiService {
       tools?: OpenAI.ChatCompletionTool[];
       temperature?: number;
       maxTokens?: number;
+      timeoutMs?: number;
     },
     retries = 1,
   ): Promise<OpenAI.ChatCompletion> {
+    const effectiveTimeoutMs =
+      typeof params.timeoutMs === 'number' && Number.isFinite(params.timeoutMs)
+        ? Math.max(1, Math.floor(params.timeoutMs))
+        : this.requestTimeoutMs;
+
     try {
-      return await this.client.chat.completions.create({
-        model: this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
-        messages: params.messages,
-        tools: params.tools?.length ? params.tools : undefined,
-        tool_choice: params.tools?.length ? 'auto' : undefined,
-        temperature: params.temperature ?? 0.3,
-        max_tokens: params.maxTokens ?? 2048,
-      });
+      return await this.client.chat.completions.create(
+        {
+          model: this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
+          messages: params.messages,
+          tools: params.tools?.length ? params.tools : undefined,
+          tool_choice: params.tools?.length ? 'auto' : undefined,
+          temperature: params.temperature ?? 0.3,
+          max_tokens: params.maxTokens ?? 2048,
+        },
+        { timeout: effectiveTimeoutMs },
+      );
     } catch (error: any) {
       const isRetryable =
         error?.status === 500 ||
         error?.status === 503 ||
-        error?.code === 'ETIMEDOUT';
+        error?.code === 'ETIMEDOUT' ||
+        error?.code === 'ECONNABORTED' ||
+        error?.name === 'AbortError';
+
+      if (error?.code === 'ETIMEDOUT' || error?.code === 'ECONNABORTED') {
+        this.logger.warn(
+          `Timeout na chamada OpenAI após ${effectiveTimeoutMs}ms`,
+        );
+      }
+
       if (retries > 0 && isRetryable) {
         this.logger.warn(`OpenAI erro ${error?.status}, tentando novamente...`);
         await new Promise((r) => setTimeout(r, 3000));
@@ -55,13 +81,16 @@ export class OpenaiService {
   }
 
   async createEmbedding(text: string): Promise<number[]> {
-    const response = await this.client.embeddings.create({
-      model: this.configService.get<string>(
-        'OPENAI_EMBEDDING_MODEL',
-        'text-embedding-3-small',
-      ),
-      input: text,
-    });
+    const response = await this.client.embeddings.create(
+      {
+        model: this.configService.get<string>(
+          'OPENAI_EMBEDDING_MODEL',
+          'text-embedding-3-small',
+        ),
+        input: text,
+      },
+      { timeout: this.requestTimeoutMs },
+    );
     return response.data[0].embedding;
   }
 }

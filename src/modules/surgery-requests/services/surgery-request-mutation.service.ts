@@ -1,5 +1,3 @@
-import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
 import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -8,8 +6,6 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
-import { NotificationsService } from 'src/modules/notifications/notifications.service';
-import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
@@ -25,7 +21,6 @@ import { Hospital } from 'src/database/entities/hospital.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { Chat } from 'src/database/entities/chat.entity';
 import { StatusUpdate } from 'src/database/entities/status-update.entity';
-import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import {
   SurgeryRequestActivity,
   ActivityType,
@@ -45,7 +40,6 @@ export class SurgeryRequestMutationService {
     private readonly accessControlService: AccessControlService,
     private readonly doctorResolutionService: DoctorResolutionService,
     private readonly whatsappService: WhatsappService,
-    private readonly notificationsService: NotificationsService,
     private readonly userRepository: UserRepository,
     private readonly patientRepository: PatientRepository,
     private readonly hospitalRepository: HospitalRepository,
@@ -82,7 +76,6 @@ export class SurgeryRequestMutationService {
         const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
         const chatRepo = manager.getRepository(Chat);
         const statusUpdateRepo = manager.getRepository(StatusUpdate);
-        const userRepo = manager.getRepository(User);
 
         let patient = await patientRepo.findOne({
           where: { email: data.patient.email, doctor_id: doctorId },
@@ -113,32 +106,9 @@ export class SurgeryRequestMutationService {
           });
         }
 
-        let managerId: string | null = null;
-        if (data.collaborator) {
-          let collaborator = await userRepo.findOne({
-            where: { email: data.collaborator.email },
-          });
-          if (!collaborator) {
-            const tempPassword = crypto.randomBytes(16).toString('hex');
-            const hashedPassword = await bcrypt.hash(tempPassword, 10);
-            collaborator = await userRepo.save(
-              userRepo.create({
-                role: UserRole.COLLABORATOR,
-                status: UserStatus.PENDING,
-                name: data.collaborator.name,
-                email: data.collaborator.email,
-                phone: data.collaborator.phone,
-                password: hashedPassword,
-              }),
-            );
-          }
-          managerId = collaborator.id;
-        }
-
         const newRequest = await surgeryRequestRepo.save({
           doctor_id: doctorId,
           created_by_id: userId,
-          manager_id: managerId,
           patient_id: patient.id,
           hospital_id: hospital?.id || null,
           status: SurgeryRequestStatus.PENDING,
@@ -146,7 +116,6 @@ export class SurgeryRequestMutationService {
           indication_name: data.indication_name,
           health_plan_id: healthPlan.id,
           priority: data.priority || SurgeryRequestPriority.MEDIUM,
-          deadline: data.deadline || null,
           procedure_id:
             !data.is_indication && data.procedure_id ? data.procedure_id : null,
           last_status_changed_at: new Date(),
@@ -199,7 +168,6 @@ export class SurgeryRequestMutationService {
         const request = await surgeryRequestRepo.save({
           doctor_id: doctorId,
           created_by_id: userId,
-          manager_id: data.manager_id,
           patient_id: data.patient_id,
           hospital_id: data.hospital_id || null,
           status: SurgeryRequestStatus.PENDING,
@@ -289,37 +257,12 @@ export class SurgeryRequestMutationService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    const surgeryRequest = await this.findWithAccess(data.id, userId);
+    await this.findWithAccess(data.id, userId);
 
     const updateData: Partial<SurgeryRequest> = {};
     if (data.priority !== undefined) updateData.priority = data.priority;
-    if (data.deadline !== undefined)
-      updateData.deadline = data.deadline ? new Date(data.deadline) : null;
-    if (data.manager_id !== undefined) updateData.manager_id = data.manager_id;
 
     await this.surgeryRequestRepository.update(data.id, updateData);
-
-    // Notificar o gestor quando ele é alocado (ou alterado) na solicitação
-    if (
-      data.manager_id &&
-      data.manager_id !== surgeryRequest.manager_id &&
-      data.manager_id !== userId
-    ) {
-      try {
-        await this.notificationsService.createNotification({
-          user_id: data.manager_id,
-          type: NotificationType.ACTION_BY_USER,
-          title: 'Você foi alocado a uma solicitação cirúrgica',
-          message: `Você foi designado como gestor de uma solicitação cirúrgica.`,
-          link: `/solicitacao/${data.id}`,
-          metadata: { surgeryRequestId: data.id },
-        });
-      } catch (err: any) {
-        this.logger.warn(
-          `Falha ao notificar gestor ${data.manager_id} sobre alocação: ${err?.message}`,
-        );
-      }
-    }
 
     return this.surgeryRequestRepository.findOneSimple({ id: data.id });
   }

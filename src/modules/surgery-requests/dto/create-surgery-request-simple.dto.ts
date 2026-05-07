@@ -28,10 +28,6 @@ export class CreateSurgeryRequestSimpleDto {
   @IsNotEmpty()
   patient_id: string;
 
-  @IsString()
-  @IsNotEmpty()
-  manager_id: string;
-
   @IsOptional()
   @IsString()
   doctor_id?: string;

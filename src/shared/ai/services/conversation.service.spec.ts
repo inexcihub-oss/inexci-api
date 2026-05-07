@@ -131,4 +131,21 @@ describe('ConversationService', () => {
       messages.some((m) => m.role === 'assistant' && m.content === 'Oi!'),
     ).toBe(true);
   });
+
+  it('deve limpar histórico da conversa', async () => {
+    mockConversationRepo.findOne.mockResolvedValue({
+      id: 'conv-1',
+      messages_history: [{ role: 'user', content: 'Olá', timestamp: '' }],
+    } as unknown as WhatsappConversation);
+
+    await service.resetConversationHistory('conv-1');
+
+    expect(mockConversationRepo.update).toHaveBeenCalledTimes(1);
+    expect(mockConversationRepo.update).toHaveBeenCalledWith(
+      'conv-1',
+      expect.objectContaining({
+        messages_history: [],
+      }),
+    );
+  });
 });

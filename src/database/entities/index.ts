@@ -40,7 +40,6 @@ import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { RefreshToken } from './refresh-token.entity';
-import { EmailVerification } from './email-verification.entity';
 import { SubscriptionPlan } from './subscription-plan.entity';
 import {
   WhatsappMessageLog,
@@ -55,6 +54,7 @@ import {
 import { StaleNotificationLog } from './stale-notification-log.entity';
 import { WhatsappConversation } from './whatsapp-conversation.entity';
 import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
+import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { Cid } from './cid.entity';
 import { Tuss } from './tuss.entity';
 
@@ -104,7 +104,6 @@ export { SubscriptionPlan };
 // AUTENTICAÇÃO
 export { RecoveryCode };
 export { RefreshToken };
-export { EmailVerification };
 
 // OBSERVABILIDADE
 export { NotificationSendLog, NotificationChannel, NotificationSendStatus };
@@ -113,6 +112,7 @@ export { StaleNotificationLog };
 // IA / WHATSAPP CONVERSAÇÃO
 export { WhatsappConversation };
 export { AiKnowledgeChunk };
+export { AiTokenUsageLog };
 
 // DADOS DE REFERÊNCIA (CID/TUSS)
 export { Cid };
@@ -147,7 +147,6 @@ export const ENTITIES = [
   UserNotificationSettings,
   RecoveryCode,
   RefreshToken,
-  EmailVerification,
   SubscriptionPlan,
   WhatsappMessageLog,
   ReportSection,
@@ -155,6 +154,7 @@ export const ENTITIES = [
   StaleNotificationLog,
   WhatsappConversation,
   AiKnowledgeChunk,
+  AiTokenUsageLog,
   Cid,
   Tuss,
 ];

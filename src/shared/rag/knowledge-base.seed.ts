@@ -7,7 +7,7 @@ export const FAQ_SEED = [
   {
     question: 'Como submeto uma solicitação cirúrgica?',
     answer:
-      'Para submeter uma solicitação, acesse a plataforma web, clique em "Nova Solicitação" e preencha os dados do paciente, procedimento (com código TUSS/TISS), hospital e convênio. Após revisar, clique em "Enviar". O status mudará de Pendente para Enviada.',
+      'Você pode submeter de duas formas: (1) pela plataforma web, em "Nova Solicitação"; ou (2) pelo WhatsApp com a IA, informando paciente, procedimento, prioridade, hospital e convênio. A IA mostra um resumo e pede confirmação antes de criar. A solicitação nasce com status Pendente e depois pode ser enviada para Enviada.',
   },
   {
     question: 'Quais são os status de uma solicitação cirúrgica?',

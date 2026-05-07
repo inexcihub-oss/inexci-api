@@ -66,9 +66,6 @@ export class SurgeryRequest {
   @Column({ name: 'created_by_id' })
   created_by_id: string; // Quem criou (médico ou colaborador)
 
-  @Column({ name: 'manager_id', nullable: true })
-  manager_id: string; // Gestor/colaborador que vai gerenciar a solicitação
-
   @Column({ name: 'patient_id' })
   patient_id: string;
 
@@ -103,9 +100,6 @@ export class SurgeryRequest {
     default: SurgeryRequestPriority.MEDIUM,
   })
   priority: SurgeryRequestPriority; // 1=Baixa, 2=Média, 3=Alta, 4=Urgente
-
-  @Column({ type: 'timestamp', nullable: true })
-  deadline: Date;
 
   // ============ OPME ============
 
@@ -217,10 +211,6 @@ export class SurgeryRequest {
   @ManyToOne(() => User, { nullable: false })
   @JoinColumn({ name: 'created_by_id' })
   created_by: User;
-
-  @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: 'manager_id' })
-  manager: User;
 
   @ManyToOne(() => Patient, (patient) => patient.surgery_requests)
   @JoinColumn({ name: 'patient_id' })

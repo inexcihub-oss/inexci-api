@@ -53,6 +53,59 @@ describe('SurgeryRequestTools', () => {
       expect(result).toContain('Não encontrei');
     });
 
+    it('deve buscar por protocolo mesmo com pontuação no final', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-664980',
+        status: 3,
+        priority: 2,
+        doctor_id: 'doctor-1',
+        patient_id: 'pat-1',
+        hospital_id: null,
+        health_plan_id: null,
+        date_call: null,
+        patient: { name: 'Carlos' },
+      });
+
+      const tool = getTool('get_surgery_request_status');
+      const result = await tool.execute(
+        { identifier: 'SC-664980?' },
+        baseContext,
+      );
+
+      expect(mockSurgeryRequestRepo.findOneSimple).toHaveBeenCalledWith({
+        protocol: 'SC-664980',
+      });
+      expect(result).toContain('SC-664980');
+    });
+
+    it('deve buscar por protocolo numérico sem prefixo SC', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(
+        async (where: any) => {
+          if (where?.protocol === '664980') {
+            return {
+              id: 'req-1',
+              protocol: '664980',
+              status: 3,
+              priority: 2,
+              doctor_id: 'doctor-1',
+              patient_id: 'pat-1',
+              hospital_id: null,
+              health_plan_id: null,
+              date_call: null,
+              patient: { name: 'Carlos' },
+            };
+          }
+          return null;
+        },
+      );
+
+      const tool = getTool('get_surgery_request_status');
+      const result = await tool.execute({ identifier: '664980' }, baseContext);
+
+      expect(result).toContain('Solicitação SC-664980');
+    });
+
     it('deve negar acesso se doctor_id não acessível', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-2',
@@ -64,6 +117,64 @@ describe('SurgeryRequestTools', () => {
       const result = await tool.execute({ identifier: 'SC-0001' }, baseContext);
 
       expect(result).toContain('permissão');
+    });
+
+    it('deve retornar nomes e ações de pendências quando dados completos existirem', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-99',
+        protocol: 'SC-664980',
+        doctor_id: 'doctor-1',
+      });
+
+      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+        id: 'req-99',
+        protocol: 'SC-664980',
+        status: 2,
+        priority: 1,
+        doctor_id: 'doctor-1',
+        surgery_date: new Date('2026-06-15T00:00:00.000Z'),
+        patient_id: 'pat-1',
+        hospital_id: 'hos-1',
+        health_plan_id: 'hp-1',
+        patient: { name: 'Carlos Mendonça' },
+        hospital: { name: 'Hospital Santa Helena' },
+        health_plan: { name: 'Unimed' },
+      });
+
+      const pendencyValidatorMock = {
+        validateForStatus: jest.fn().mockResolvedValue({
+          pendencies: [
+            {
+              name: 'Dados do Paciente',
+              isComplete: false,
+              isOptional: false,
+              checkItems: [
+                { label: 'Telefone', done: false },
+                { label: 'CPF', done: true },
+              ],
+            },
+          ],
+        }),
+      };
+
+      const toolsWithPendency = buildSurgeryRequestTools(
+        mockSurgeryRequestRepo as any,
+        pendencyValidatorMock as any,
+      );
+      const tool = toolsWithPendency.find(
+        (t) => t.name === 'get_surgery_request_status',
+      )!;
+      const result = await tool.execute(
+        { identifier: 'SC-664980' },
+        baseContext,
+      );
+
+      expect(result).toContain('Carlos Mendonça');
+      expect(result).toContain('Hospital Santa Helena');
+      expect(result).toContain('Unimed');
+      expect(result).toContain('Para avançar de etapa, faça:');
+      expect(result).toContain('Dados do Paciente');
+      expect(result).toContain('Telefone');
     });
 
     it('deve retornar erro se userId for null', async () => {
@@ -79,7 +190,7 @@ describe('SurgeryRequestTools', () => {
   describe('list_surgery_requests', () => {
     it('deve listar solicitações formatadas', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([
-        { protocol: 'SC-0001', status: 1, patient: { name: 'Maria' } },
+        { protocol: '0001', status: 1, patient: { name: 'Maria' } },
         { protocol: 'SC-0002', status: 3, patient: { name: 'José' } },
       ]);
 
@@ -145,6 +256,29 @@ describe('SurgeryRequestTools', () => {
       );
 
       expect(result).toContain('Nenhum documento');
+    });
+
+    it('deve aceitar protocolo SC-XXXX em vez de UUID', async () => {
+      mockSurgeryRequestRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          doctor_id: 'doctor-1',
+          documents: [
+            { name: 'Guia.pdf', folder: 'guias', created_at: '2025-01-01' },
+          ],
+        });
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({ id: 'req-42' });
+
+      const tool = getTool('get_documents');
+      const result = await tool.execute(
+        { surgery_request_id: 'SC-664980' },
+        baseContext,
+      );
+
+      expect(mockSurgeryRequestRepo.findOneSimple).toHaveBeenCalledWith({
+        protocol: 'SC-664980',
+      });
+      expect(result).toContain('Guia.pdf');
     });
   });
 

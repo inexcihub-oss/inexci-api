@@ -1,11 +1,9 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsDate,
   IsEmail,
   IsEnum,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   ValidateIf,
@@ -15,23 +13,6 @@ import { stripObjectPhoneMask } from 'src/shared/pipes/phone-mask.pipe';
 import { SurgeryRequestPriority } from 'src/database/entities/surgery-request.entity';
 
 export class PatientInputDto {
-  @IsString()
-  @IsNotEmpty()
-  name: string;
-
-  @IsEmail()
-  email: string;
-
-  @IsOptional()
-  @IsString()
-  phone?: string;
-}
-
-export class CollaboratorInputDto {
-  @IsOptional()
-  @IsNumber()
-  status?: number;
-
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -87,12 +68,6 @@ export class CreateSurgeryRequestDto {
   @Transform(({ value }) => stripObjectPhoneMask(value))
   patient: PatientInputDto;
 
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => CollaboratorInputDto)
-  @Transform(({ value }) => stripObjectPhoneMask(value))
-  collaborator?: CollaboratorInputDto;
-
   @ValidateNested()
   @Type(() => HealthPlanInputDto)
   @Transform(({ value }) => stripObjectPhoneMask(value))
@@ -107,9 +82,4 @@ export class CreateSurgeryRequestDto {
   @IsOptional()
   @IsEnum(SurgeryRequestPriority)
   priority?: SurgeryRequestPriority;
-
-  @IsOptional()
-  @IsDate()
-  @Type(() => Date)
-  deadline?: Date;
 }

@@ -2,7 +2,10 @@ import { buildPendencyTools } from './pendency.tools';
 import { ToolContext } from './tool.interface';
 
 const mockPendencyValidator = { validateForStatus: jest.fn() };
-const mockSurgeryRequestRepo = { findOneSimple: jest.fn() };
+const mockSurgeryRequestRepo = {
+  findOneSimple: jest.fn(),
+  findMany: jest.fn(),
+};
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -33,11 +36,22 @@ describe('PendencyTools', () => {
         canAdvance: false,
         pendencies: [
           {
+            key: 'patient_data',
             name: 'Paciente não vinculado',
             isComplete: false,
             isOptional: false,
+            checkItems: [
+              { label: 'Nome do paciente', done: false },
+              { label: 'CPF', done: true },
+            ],
           },
-          { name: 'CID informado', isComplete: true, isOptional: false },
+          {
+            key: 'tuss_procedures',
+            name: 'CID informado',
+            isComplete: true,
+            isOptional: false,
+            checkItems: [],
+          },
         ],
       });
 
@@ -47,8 +61,11 @@ describe('PendencyTools', () => {
         baseContext,
       );
 
+      expect(result).toContain('Para avançar, faça:');
       expect(result).toContain('Paciente não vinculado');
-      expect(result).toContain('CID informado');
+      expect(result).toContain('Nome do paciente');
+      expect(result).toContain('Ação recomendada agora');
+      expect(result).toContain('Parâmetros mínimos');
     });
 
     it('deve retornar mensagem positiva se sem pendências', async () => {
@@ -86,6 +103,97 @@ describe('PendencyTools', () => {
       );
 
       expect(result).toContain('permissão');
+    });
+
+    it('deve resolver pendências por protocolo SC-XXXX', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
+        if (where?.id === 'SC-664980') {
+          throw new Error('não deveria consultar SC como UUID');
+        }
+        if (where?.protocol === 'SC-664980') {
+          return {
+            id: 'req-77',
+            protocol: 'SC-664980',
+            doctor_id: 'doctor-1',
+          };
+        }
+        return null;
+      });
+
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Enviada',
+        canAdvance: true,
+        pendencies: [],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgery_request_id: 'SC-664980' },
+        baseContext,
+      );
+
+      expect(mockPendencyValidator.validateForStatus).toHaveBeenCalledWith(
+        'req-77',
+      );
+      expect(result).toContain('SC-664980');
+    });
+
+    it('deve aceitar identifier como alias de surgery_request_id', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-8',
+        protocol: 'SC-217923',
+        doctor_id: 'doctor-1',
+      });
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'patient_data',
+            name: 'Dados do Paciente',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [{ label: 'Telefone', done: false }],
+          },
+        ],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { identifier: 'SC-217923' },
+        baseContext,
+      );
+
+      expect(mockPendencyValidator.validateForStatus).toHaveBeenCalledWith(
+        'req-8',
+      );
+      expect(result).toContain('Para avançar, faça:');
+      expect(result).toContain('Telefone');
+    });
+
+    it('deve tentar localizar por nome do paciente quando não achar por id/protocolo', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(null);
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([
+        {
+          id: 'req-10',
+          protocol: 'SC-999001',
+          doctor_id: 'doctor-1',
+          patient: { name: 'Eduardo Luiz Teixeira' },
+        },
+      ]);
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Enviada',
+        canAdvance: true,
+        pendencies: [],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgery_request_id: 'Eduardo Luiz Teixeira' },
+        baseContext,
+      );
+
+      expect(result).toContain('SC-999001');
     });
   });
 });

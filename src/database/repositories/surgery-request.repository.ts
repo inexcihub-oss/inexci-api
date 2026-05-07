@@ -174,8 +174,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('surgery_request')
       .leftJoin('surgery_request.created_by', 'created_by')
       .addSelect(['created_by.id', 'created_by.name', 'created_by.avatar_url'])
-      .leftJoin('surgery_request.manager', 'manager')
-      .addSelect(['manager.id', 'manager.name', 'manager.avatar_url'])
       .leftJoin('surgery_request.doctor', 'doctor')
       .addSelect(['doctor.id', 'doctor.name', 'doctor.avatar_url'])
       .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
@@ -295,7 +293,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgery_request')
       .leftJoin('surgery_request.created_by', 'created_by')
-      .leftJoin('surgery_request.manager', 'manager')
       .leftJoin('surgery_request.doctor', 'doctor')
       .leftJoin('surgery_request.patient', 'patient')
       .leftJoin('surgery_request.health_plan', 'health_plan')
@@ -314,14 +311,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'surgery_request.created_at',
         'surgery_request.is_indication',
         'surgery_request.indication_name',
-        'surgery_request.deadline',
         'surgery_request.protocol',
         'surgery_request.priority',
         'surgery_request.surgery_date',
         'created_by.id',
         'created_by.name',
-        'manager.id',
-        'manager.name',
         'doctor.id',
         'doctor.name',
         'patient.id',
@@ -337,7 +331,6 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       ])
       .groupBy('surgery_request.id')
       .addGroupBy('created_by.id')
-      .addGroupBy('manager.id')
       .addGroupBy('doctor.id')
       .addGroupBy('patient.id')
       .addGroupBy('health_plan.id')
