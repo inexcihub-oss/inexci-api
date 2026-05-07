@@ -17,6 +17,13 @@ import { SYSTEM_PROMPT } from '../prompts/system-prompt';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { AiTokenUsageLogRepository } from '../../../database/repositories/ai-token-usage-log.repository';
+import { TranscriptionService } from '../transcription/transcription.service';
+import {
+  InboundWhatsappMedia,
+  WhatsappMediaService,
+  WhatsappMediaValidationError,
+} from '../../whatsapp/whatsapp-media.service';
+import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
 
 const MAX_TOOL_ITERATIONS = 5;
 const MAX_RESPONSE_LENGTH = 1000;
@@ -142,6 +149,8 @@ export class AiOrchestratorService {
     private readonly surgeryRequestRepo: SurgeryRequestRepository,
     private readonly aiTokenUsageLogRepo: AiTokenUsageLogRepository,
     private readonly configService: ConfigService,
+    private readonly transcriptionService: TranscriptionService,
+    private readonly whatsappMediaService: WhatsappMediaService,
   ) {}
 
   async enqueueInboundMessage(data: {
@@ -149,7 +158,12 @@ export class AiOrchestratorService {
     body: string;
     messageSid: string;
     mediaUrl: string | null;
-    media?: Array<{ url: string; contentType: string | null }>;
+    media?: Array<{
+      url: string;
+      contentType: string | null;
+      category: 'audio' | 'other';
+      durationSeconds: number | null;
+    }>;
   }): Promise<void> {
     await this.aiQueue.add('process-message', data, {
       attempts: 2,
@@ -163,7 +177,12 @@ export class AiOrchestratorService {
     body: string;
     messageSid: string;
     mediaUrl: string | null;
-    media?: Array<{ url: string; contentType: string | null }>;
+    media?: Array<{
+      url: string;
+      contentType: string | null;
+      category: 'audio' | 'other';
+      durationSeconds: number | null;
+    }>;
   }): Promise<void> {
     const processTimeoutMs = this.configService.get<number>(
       'AI_PROCESS_TIMEOUT_MS',
@@ -265,14 +284,76 @@ export class AiOrchestratorService {
         return;
       }
 
+      const audioProcessing = await this.processInboundAudioIfNeeded(data);
+      const transcriptionContext = audioProcessing.transcription;
+
+      if (audioProcessing.hasAudio) {
+        await this.whatsappService.sendMessage(
+          phone,
+          '🎧 Recebi seu áudio. Estou analisando e já te respondo.',
+        );
+      }
+
+      const userInputForAi = this.buildUserInputForAi({
+        textInput: data.body,
+        transcriptionText: transcriptionContext?.text || null,
+      });
+
+      const hasTypedText = Boolean((data.body || '').trim());
+      if (audioProcessing.failed && !hasTypedText) {
+        await this.whatsappService.sendMessage(
+          phone,
+          '⚠️ Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
+        );
+        return;
+      }
+
+      if (!userInputForAi) {
+        await this.whatsappService.sendMessage(
+          phone,
+          '⚠️ Não consegui identificar texto na sua mensagem. Se preferir, envie novamente em texto ou um áudio mais curto.',
+        );
+        return;
+      }
+
+      const userSource = this.resolveInboundSource(
+        data.body,
+        transcriptionContext,
+      );
+
       await this.conversationService.appendMessage(
         conversation.id,
         'user',
-        data.body,
+        userInputForAi,
+        undefined,
+        {
+          source: userSource,
+          transcription: transcriptionContext
+            ? {
+                text: transcriptionContext.text,
+                provider: transcriptionContext.provider,
+                language: transcriptionContext.language,
+                confidence: transcriptionContext.confidence,
+                durationSeconds: transcriptionContext.durationSeconds,
+                latencyMs: transcriptionContext.latencyMs,
+                fallbackUsed: transcriptionContext.fallbackUsed,
+              }
+            : undefined,
+          inboundMedia: (data.media || []).map((item) => ({
+            url: item.url,
+            contentType: item.contentType,
+            category: item.category,
+            durationSeconds: item.durationSeconds,
+            sizeBytes:
+              transcriptionContext?.downloadedMedia?.url === item.url
+                ? transcriptionContext.downloadedMedia.sizeBytes
+                : undefined,
+          })),
+        },
       );
 
       // RAG
-      const ragResults = await this.ragService.search(data.body, 3, 0.65);
+      const ragResults = await this.ragService.search(userInputForAi, 3, 0.65);
       const ragContext = await this.ragService.formatContext(ragResults);
 
       const updatedConv =
@@ -382,7 +463,7 @@ export class AiOrchestratorService {
       if (this.needsQualityRewrite(finalText)) {
         const rewriteResult = await this.rewriteForWhatsappQuality(
           finalText,
-          data.body,
+          userInputForAi,
           processStartedAt,
           processTimeoutMs,
         );
@@ -409,6 +490,7 @@ export class AiOrchestratorService {
       );
 
       await this.whatsappService.sendMessage(phone, finalText);
+      await this.trySendInteractiveConfirmationTemplate(phone, finalText);
 
       await this.persistUsageSummary(
         phone,
@@ -715,13 +797,13 @@ export class AiOrchestratorService {
 
   private isListLine(line: string): boolean {
     if (!line) return false;
-    return /^(?:•\s+|\d{1,2}[\)\.-]\s+)/.test(line);
+    return /^(?:•\s+|\d{1,2}[).-]\s+)/.test(line);
   }
 
   private extractListLineContent(line: string): string {
     return line
       .replace(/^•\s+/, '')
-      .replace(/^\d{1,2}[\)\.-]\s+/, '')
+      .replace(/^\d{1,2}[).-]\s+/, '')
       .trim();
   }
 
@@ -789,6 +871,113 @@ export class AiOrchestratorService {
       .trim();
   }
 
+  private isAudioEnabled(): boolean {
+    const raw = this.configService.get<string>('AI_AUDIO_ENABLED', 'true');
+    const normalized = raw.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1';
+  }
+
+  private async processInboundAudioIfNeeded(data: {
+    media?: Array<{
+      url: string;
+      contentType: string | null;
+      category: 'audio' | 'other';
+      durationSeconds: number | null;
+    }>;
+    messageSid: string;
+  }): Promise<{
+    hasAudio: boolean;
+    failed: boolean;
+    transcription:
+      | (Awaited<ReturnType<TranscriptionService['transcribe']>> & {
+          downloadedMedia: { url: string; sizeBytes: number };
+        })
+      | null;
+  }> {
+    if (!this.isAudioEnabled()) {
+      return { hasAudio: false, failed: false, transcription: null };
+    }
+
+    const mediaList = data.media || [];
+    const audioMedia = mediaList.find((item) => {
+      if (item.category === 'audio') return true;
+      return this.whatsappMediaService.isAudioMime(item.contentType);
+    });
+
+    if (!audioMedia) {
+      return { hasAudio: false, failed: false, transcription: null };
+    }
+
+    try {
+      const downloaded = await this.whatsappMediaService.downloadInboundAudio(
+        audioMedia as InboundWhatsappMedia,
+      );
+
+      const transcription = await this.transcriptionService.transcribe({
+        audioBuffer: downloaded.buffer,
+        mimeType: downloaded.mimeType,
+        durationSeconds: downloaded.durationSeconds || null,
+        fileName: downloaded.fileName,
+        language: 'pt',
+      });
+
+      this.logger.log(
+        `[AI_STT] status=success sid=${data.messageSid} provider=${transcription.provider} bytes=${downloaded.sizeBytes} latency_ms=${transcription.latencyMs} fallback=${Boolean(transcription.fallbackUsed)}`,
+      );
+
+      return {
+        hasAudio: true,
+        failed: false,
+        transcription: {
+          ...transcription,
+          downloadedMedia: {
+            url: audioMedia.url,
+            sizeBytes: downloaded.sizeBytes,
+          },
+        },
+      };
+    } catch (error) {
+      const code =
+        error instanceof WhatsappMediaValidationError ? error.code : 'UNKNOWN';
+
+      this.logger.warn(
+        `[AI_STT] status=failure sid=${data.messageSid} code=${code} message=${error instanceof Error ? error.message : String(error)}`,
+      );
+
+      return { hasAudio: true, failed: true, transcription: null };
+    }
+  }
+
+  private buildUserInputForAi(input: {
+    textInput: string;
+    transcriptionText: string | null;
+  }): string {
+    const rawText = (input.textInput || '').trim();
+    const transcriptionText = (input.transcriptionText || '').trim();
+
+    if (rawText && transcriptionText) {
+      return `${rawText}\n\nTranscrição do áudio: ${transcriptionText}`;
+    }
+
+    if (rawText) return rawText;
+    if (transcriptionText) return transcriptionText;
+    return '';
+  }
+
+  private resolveInboundSource(
+    textInput: string,
+    transcriptionContext: {
+      text: string;
+    } | null,
+  ): 'text' | 'audio' | 'text+audio' {
+    const hasText = Boolean((textInput || '').trim());
+    const hasAudio = Boolean(transcriptionContext?.text?.trim());
+
+    if (hasText && hasAudio) return 'text+audio';
+    if (hasAudio) return 'audio';
+    return 'text';
+  }
+
   private isClearContextCommand(normalizedInput: string): boolean {
     if (!normalizedInput) return false;
     if (CLEAR_CONTEXT_EXACT_COMMANDS.has(normalizedInput)) return true;
@@ -838,6 +1027,42 @@ export class AiOrchestratorService {
       normalizedInput === 'deixa assim' ||
       normalizedInput === 'nao limpar' ||
       normalizedInput === 'não limpar'
+    );
+  }
+
+  private async trySendInteractiveConfirmationTemplate(
+    phone: string,
+    finalText: string,
+  ): Promise<boolean> {
+    if (!this.isConfirmationPrompt(finalText)) return false;
+
+    const contentSid = WHATSAPP_TEMPLATES.AI_ACTION_CONFIRMATION;
+
+    if (!contentSid) return false;
+
+    try {
+      await this.whatsappService.sendTemplate(phone, contentSid, {
+        '1': finalText,
+      });
+      return true;
+    } catch (error: any) {
+      this.logger.warn(
+        `Falha ao enfileirar template interativo de confirmação para ${phone}: ${error?.message || 'erro desconhecido'}`,
+      );
+      return false;
+    }
+  }
+
+  private isConfirmationPrompt(text: string): boolean {
+    const normalized = this.normalizeIntentText(text || '');
+    if (!normalized) return false;
+
+    return (
+      normalized.includes('confirme com "sim" para executar') ||
+      normalized.includes('responda "sim" para confirmar') ||
+      normalized.includes('responda sim para confirmar') ||
+      normalized.includes('deseja que eu execute essa acao agora') ||
+      normalized.includes('deseja confirmar')
     );
   }
 

@@ -44,6 +44,7 @@ export class ConversationService {
     role: ConversationMessage['role'],
     content: string,
     toolName?: string,
+    metadata?: ConversationMessage['metadata'],
   ): Promise<void> {
     const conv = await this.conversationRepo.findOne({ id: conversationId });
     if (!conv) return;
@@ -58,6 +59,7 @@ export class ConversationService {
       content,
       timestamp: new Date().toISOString(),
       ...(toolName ? { tool_name: toolName } : {}),
+      ...(metadata ? { metadata } : {}),
     };
 
     const history = [...(conv.messages_history || []), message];

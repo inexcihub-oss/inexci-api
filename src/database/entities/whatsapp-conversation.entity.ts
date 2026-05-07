@@ -13,6 +13,25 @@ export interface ConversationMessage {
   content: string;
   timestamp: string;
   tool_name?: string;
+  metadata?: {
+    source?: 'text' | 'audio' | 'text+audio';
+    transcription?: {
+      text: string;
+      provider: 'faster_whisper' | 'openai';
+      language?: string | null;
+      confidence?: number | null;
+      durationSeconds?: number | null;
+      latencyMs?: number;
+      fallbackUsed?: boolean;
+    };
+    inboundMedia?: Array<{
+      url: string;
+      contentType: string | null;
+      category?: 'audio' | 'other';
+      durationSeconds?: number | null;
+      sizeBytes?: number;
+    }>;
+  };
 }
 
 @Entity('whatsapp_conversation')

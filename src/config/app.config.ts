@@ -46,6 +46,30 @@ export const envValidationSchema = Joi.object({
   TWILIO_AUTH_TOKEN: Joi.string().allow('').default(''),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
 
+  // ── IA WhatsApp (Áudio/STT) ─────────────────────────
+  AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),
+  AI_AUDIO_DOWNLOAD_TIMEOUT_MS: Joi.number().default(15000),
+  AI_AUDIO_MAX_BYTES: Joi.number().default(15 * 1024 * 1024),
+  AI_AUDIO_MAX_DURATION_SECONDS: Joi.number().default(300),
+  AI_AUDIO_ALLOWED_MIME: Joi.string()
+    .allow('')
+    .default('audio/ogg,audio/mpeg,audio/mp4,audio/webm,audio/wav,audio/x-wav'),
+  AI_AUDIO_DEBUG_PERSIST: Joi.string().allow('').default('false'),
+  AI_AUDIO_DEBUG_DIR: Joi.string().allow('').default('/tmp/inexci-audio-debug'),
+  AI_AUDIO_DEBUG_RETENTION_HOURS: Joi.number().default(24),
+  AI_TRANSCRIPTION_PROVIDER: Joi.string()
+    .valid('faster_whisper', 'openai')
+    .default('faster_whisper'),
+  AI_TRANSCRIPTION_TIMEOUT_MS: Joi.number().default(30000),
+  AI_STT_FASTER_WHISPER_URL: Joi.string()
+    .uri()
+    .default('http://stt-service:8000'),
+  AI_STT_ENABLE_FALLBACK: Joi.string().allow('').default('false'),
+  AI_STT_OPENAI_MODEL: Joi.string().allow('').default('whisper-1'),
+  AI_STT_OPENAI_URL: Joi.string()
+    .uri()
+    .default('https://api.openai.com/v1/audio/transcriptions'),
+
   // ── Puppeteer ────────────────────────────────────────
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),
 }).options({ allowUnknown: true });

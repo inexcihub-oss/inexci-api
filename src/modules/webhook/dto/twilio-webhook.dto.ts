@@ -8,6 +8,14 @@ export class TwilioWebhookDto {
   @IsString()
   Body: string;
 
+  @IsOptional()
+  @IsString()
+  ButtonText?: string;
+
+  @IsOptional()
+  @IsString()
+  ButtonPayload?: string;
+
   @IsString()
   MessageSid: string;
 
@@ -25,11 +33,19 @@ export class TwilioWebhookDto {
 
   @IsOptional()
   @IsString()
+  MediaDuration0?: string;
+
+  @IsOptional()
+  @IsString()
   MediaUrl1?: string;
 
   @IsOptional()
   @IsString()
   MediaContentType1?: string;
+
+  @IsOptional()
+  @IsString()
+  MediaDuration1?: string;
 
   @IsOptional()
   @IsString()
@@ -41,6 +57,10 @@ export class TwilioWebhookDto {
 
   @IsOptional()
   @IsString()
+  MediaDuration2?: string;
+
+  @IsOptional()
+  @IsString()
   MediaUrl3?: string;
 
   @IsOptional()
@@ -49,11 +69,19 @@ export class TwilioWebhookDto {
 
   @IsOptional()
   @IsString()
+  MediaDuration3?: string;
+
+  @IsOptional()
+  @IsString()
   MediaUrl4?: string;
 
   @IsOptional()
   @IsString()
   MediaContentType4?: string;
+
+  @IsOptional()
+  @IsString()
+  MediaDuration4?: string;
 
   @IsOptional()
   @IsString()

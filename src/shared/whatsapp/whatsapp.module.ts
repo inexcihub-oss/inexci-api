@@ -5,6 +5,7 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappProcessor } from './whatsapp.processor';
 import { WhatsappMessageLog } from 'src/database/entities/whatsapp-message-log.entity';
 import { NotificationSendLog } from 'src/database/entities/notification-send-log.entity';
+import { WhatsappMediaService } from './whatsapp-media.service';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { NotificationSendLog } from 'src/database/entities/notification-send-log
     }),
     TypeOrmModule.forFeature([WhatsappMessageLog, NotificationSendLog]),
   ],
-  providers: [WhatsappService, WhatsappProcessor],
-  exports: [WhatsappService],
+  providers: [WhatsappService, WhatsappProcessor, WhatsappMediaService],
+  exports: [WhatsappService, WhatsappMediaService],
 })
 export class WhatsappModule {}

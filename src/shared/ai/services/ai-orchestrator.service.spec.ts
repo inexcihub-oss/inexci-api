@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiOrchestratorService } from './ai-orchestrator.service';
+import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
 
 describe('AiOrchestratorService (tool-calls integration)', () => {
   const queueMock = { add: jest.fn() };
@@ -13,15 +14,24 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   const toolRegistryMock = { getToolDefinitions: jest.fn() };
   const toolExecutorMock = { executeMany: jest.fn() };
   const ragServiceMock = { search: jest.fn(), formatContext: jest.fn() };
-  const whatsappServiceMock = { sendMessage: jest.fn() };
+  const whatsappServiceMock = {
+    sendMessage: jest.fn(),
+    sendTemplate: jest.fn(),
+  };
   const userRepositoryMock = { findOneByPhone: jest.fn() };
   const accessControlMock = { getAccessibleDoctorIds: jest.fn() };
   const pendencyValidatorMock = { validateForStatus: jest.fn() };
   const surgeryRequestRepoMock = { findOneSimple: jest.fn() };
   const aiTokenUsageLogRepoMock = { create: jest.fn() };
+  const transcriptionServiceMock = { transcribe: jest.fn() };
+  const whatsappMediaServiceMock = {
+    isAudioMime: jest.fn(),
+    downloadInboundAudio: jest.fn(),
+  };
   const configServiceMock = {
     get: jest.fn((key: string, defaultValue?: any) => {
       if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
+      if (key === 'AI_AUDIO_ENABLED') return 'true';
       return defaultValue;
     }),
   };
@@ -30,6 +40,16 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    configServiceMock.get.mockImplementation(
+      (key: string, defaultValue?: any) => {
+        if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
+        if (key === 'AI_AUDIO_ENABLED') return 'true';
+        return defaultValue;
+      },
+    );
+
+    (WHATSAPP_TEMPLATES as any).AI_ACTION_CONFIRMATION = '';
 
     service = new AiOrchestratorService(
       queueMock as any,
@@ -45,6 +65,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       surgeryRequestRepoMock as any,
       aiTokenUsageLogRepoMock as any,
       configServiceMock as any,
+      transcriptionServiceMock as any,
+      whatsappMediaServiceMock as any,
     );
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({ id: 'user-1' });
@@ -80,6 +102,25 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       doctor_id: 'doctor-1',
     });
     aiTokenUsageLogRepoMock.create.mockResolvedValue(undefined);
+    whatsappMediaServiceMock.isAudioMime.mockImplementation(
+      (mime: string | null) => Boolean(mime?.startsWith('audio/')),
+    );
+    whatsappMediaServiceMock.downloadInboundAudio.mockResolvedValue({
+      buffer: Buffer.from('audio-bytes'),
+      mimeType: 'audio/ogg',
+      sizeBytes: 1024,
+      durationSeconds: 18,
+      fileName: 'audio.ogg',
+    });
+    transcriptionServiceMock.transcribe.mockResolvedValue({
+      text: 'texto transcrito',
+      provider: 'faster_whisper',
+      latencyMs: 120,
+      language: 'pt-BR',
+      confidence: 0.89,
+      durationSeconds: 18,
+      fallbackUsed: false,
+    });
   });
 
   it('deve manter loop de tool_calls e responder com follow-up', async () => {
@@ -117,6 +158,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       '+5511999999999',
       'Resposta final',
     );
+    expect(whatsappServiceMock.sendTemplate).not.toHaveBeenCalled();
   });
 
   it('deve manter resposta atual quando não houver tool_calls', async () => {
@@ -135,6 +177,118 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
       '+5511888888888',
       'Resposta direta',
+    );
+    expect(whatsappServiceMock.sendTemplate).not.toHaveBeenCalled();
+  });
+
+  it('deve enviar template interativo quando resposta exigir confirmação de ação', async () => {
+    (WHATSAPP_TEMPLATES as any).AI_ACTION_CONFIRMATION =
+      'HX_CONFIRM_INTERACTIVE';
+
+    openaiServiceMock.chatCompletion.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content:
+              'A solicitação SC-0042 será encerrada. Confirme com "sim" para executar.',
+            tool_calls: null,
+          },
+        },
+      ],
+    });
+
+    await service.processMessage({
+      from: 'whatsapp:+5511888888888',
+      body: 'encerrar solicitação sc-0042',
+      messageSid: 'SM-CONFIRM',
+      mediaUrl: null,
+    });
+
+    expect(whatsappServiceMock.sendTemplate).toHaveBeenCalledWith(
+      '+5511888888888',
+      'HX_CONFIRM_INTERACTIVE',
+      {
+        '1': 'A solicitação SC-0042 será encerrada. Confirme com "sim" para executar.',
+      },
+    );
+    expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+      '+5511888888888',
+      'A solicitação SC-0042 será encerrada. Confirme com "sim" para executar.',
+    );
+  });
+
+  it('deve transcrever áudio antes da busca RAG quando não houver texto', async () => {
+    openaiServiceMock.chatCompletion.mockResolvedValue({
+      choices: [
+        { message: { content: 'Recebi seu áudio.', tool_calls: null } },
+      ],
+    });
+
+    await service.processMessage({
+      from: 'whatsapp:+5511888888888',
+      body: '',
+      messageSid: 'SM-AUDIO',
+      mediaUrl: 'https://api.twilio.com/media/audio-1',
+      media: [
+        {
+          url: 'https://api.twilio.com/media/audio-1',
+          contentType: 'audio/ogg',
+          category: 'audio',
+          durationSeconds: 18,
+        },
+      ],
+    });
+
+    expect(whatsappMediaServiceMock.downloadInboundAudio).toHaveBeenCalled();
+    expect(transcriptionServiceMock.transcribe).toHaveBeenCalled();
+    expect(ragServiceMock.search).toHaveBeenCalledWith(
+      'texto transcrito',
+      3,
+      0.65,
+    );
+    expect(conversationServiceMock.appendMessage).toHaveBeenCalledWith(
+      'conv-1',
+      'user',
+      'texto transcrito',
+      undefined,
+      expect.objectContaining({
+        source: 'audio',
+        transcription: expect.objectContaining({
+          provider: 'faster_whisper',
+          text: 'texto transcrito',
+        }),
+      }),
+    );
+    expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+      '+5511888888888',
+      '🎧 Recebi seu áudio. Estou analisando e já te respondo.',
+    );
+  });
+
+  it('deve enviar mensagem amigável quando falhar a análise do áudio sem texto', async () => {
+    whatsappMediaServiceMock.downloadInboundAudio.mockRejectedValueOnce(
+      new Error('erro no download'),
+    );
+
+    await service.processMessage({
+      from: 'whatsapp:+5511888888888',
+      body: '',
+      messageSid: 'SM-AUDIO-FAIL',
+      mediaUrl: 'https://api.twilio.com/media/audio-2',
+      media: [
+        {
+          url: 'https://api.twilio.com/media/audio-2',
+          contentType: 'audio/ogg',
+          category: 'audio',
+          durationSeconds: 15,
+        },
+      ],
+    });
+
+    expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
+    expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+      '+5511888888888',
+      '⚠️ Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
     );
   });
 

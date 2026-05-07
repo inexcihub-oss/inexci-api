@@ -19,6 +19,9 @@ import { ConversationCleanupService } from './services/conversation-cleanup.serv
 import { ToolRegistryService } from './services/tool-registry.service';
 import { ToolExecutorService } from './services/tool-executor.service';
 import { AiMessageProcessor } from './ai-message.processor';
+import { TranscriptionService } from './transcription/transcription.service';
+import { FasterWhisperProvider } from './transcription/providers/faster-whisper.provider';
+import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.provider';
 
 @Module({
   imports: [
@@ -40,6 +43,9 @@ import { AiMessageProcessor } from './ai-message.processor';
     ConversationCleanupService,
     ToolRegistryService,
     ToolExecutorService,
+    TranscriptionService,
+    FasterWhisperProvider,
+    OpenaiWhisperProvider,
     AiOrchestratorService,
     AiMessageProcessor,
   ],

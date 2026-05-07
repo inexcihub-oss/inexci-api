@@ -8,6 +8,12 @@ interface InboundMessageJob {
   body: string;
   messageSid: string;
   mediaUrl: string | null;
+  media?: Array<{
+    url: string;
+    contentType: string | null;
+    category: 'audio' | 'other';
+    durationSeconds: number | null;
+  }>;
 }
 
 @Injectable()

@@ -21,6 +21,55 @@ export class WebhookController {
     private readonly aiOrchestrator: AiOrchestratorService,
   ) {}
 
+  private mapInteractiveButtonPayloadToBody(
+    payload: string,
+    buttonText: string,
+    fallbackBody: string,
+  ): string {
+    const normalizedPayload = (payload || '').trim().toLowerCase();
+    const normalizedButtonText = (buttonText || '').trim().toLowerCase();
+
+    const confirmTokens = new Set([
+      'sim',
+      'confirmar',
+      'confirm',
+      'yes',
+      'ai_confirm_yes',
+      'confirm_yes',
+    ]);
+
+    const cancelTokens = new Set([
+      'nao',
+      'não',
+      'cancelar',
+      'cancel',
+      'no',
+      'ai_confirm_no',
+      'confirm_no',
+      'ai_cancel',
+    ]);
+
+    if (
+      confirmTokens.has(normalizedPayload) ||
+      confirmTokens.has(normalizedButtonText)
+    ) {
+      return 'sim';
+    }
+
+    if (
+      cancelTokens.has(normalizedPayload) ||
+      cancelTokens.has(normalizedButtonText)
+    ) {
+      return 'não';
+    }
+
+    if (buttonText?.trim()) {
+      return buttonText;
+    }
+
+    return fallbackBody;
+  }
+
   @Post('twilio')
   @Public()
   @HttpCode(200)
@@ -47,7 +96,16 @@ export class WebhookController {
     );
 
     const from = typeof body?.From === 'string' ? body.From : '';
-    const messageBody = typeof body?.Body === 'string' ? body.Body : '';
+    const fallbackBody = typeof body?.Body === 'string' ? body.Body : '';
+    const buttonPayload =
+      typeof body?.ButtonPayload === 'string' ? body.ButtonPayload : '';
+    const buttonText =
+      typeof body?.ButtonText === 'string' ? body.ButtonText : '';
+    const messageBody = this.mapInteractiveButtonPayloadToBody(
+      buttonPayload,
+      buttonText,
+      fallbackBody,
+    );
     const messageSid =
       typeof body?.MessageSid === 'string'
         ? body.MessageSid
@@ -66,18 +124,35 @@ export class WebhookController {
       .map((_, index) => {
         const url = body?.[`MediaUrl${index}`];
         const contentType = body?.[`MediaContentType${index}`];
+        const durationRaw = body?.[`MediaDuration${index}`];
+        const durationCandidate = Number(durationRaw);
+        const durationSeconds = Number.isFinite(durationCandidate)
+          ? durationCandidate
+          : null;
         if (typeof url !== 'string' || !url.trim()) return null;
+        const normalizedContentType =
+          typeof contentType === 'string' && contentType.trim().length
+            ? contentType
+            : null;
         return {
           url,
-          contentType:
-            typeof contentType === 'string' && contentType.trim().length
-              ? contentType
-              : null,
+          contentType: normalizedContentType,
+          category: normalizedContentType?.toLowerCase().startsWith('audio/')
+            ? ('audio' as const)
+            : ('other' as const),
+          durationSeconds,
         };
       })
-      .filter((item): item is { url: string; contentType: string | null } => {
-        return item !== null;
-      });
+      .filter(
+        (
+          item,
+        ): item is {
+          url: string;
+          contentType: string | null;
+          category: 'audio' | 'other';
+          durationSeconds: number | null;
+        } => item !== null,
+      );
 
     if (!from || !messageSid) {
       this.logger.warn(

@@ -15,6 +15,9 @@ export const WHATSAPP_TEMPLATES = {
 
   /** Notificação de mudança de status ao paciente. Variáveis: {"1": patientName, "2": newStatus, "3": statusDescription} */
   STATUS_CHANGE_PATIENT: 'HXa075ce51eb3486868752c2abd23498ae',
+
+  /** Template interativo da IA para confirmação de ações sensíveis. Variáveis: {"1": texto da confirmação}. Deixe vazio até aprovação na Meta/Twilio. */
+  AI_ACTION_CONFIRMATION: '',
 } as const;
 
 export type WhatsappTemplateName = keyof typeof WHATSAPP_TEMPLATES;
