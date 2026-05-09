@@ -13,51 +13,56 @@ import { User } from './user.entity';
 import { Document } from './document.entity';
 
 /**
- * Tipos de contestação
+ * Tipos de contestação armazenados como enum no banco
  */
-export type ContestationType = 'authorization' | 'payment';
+export enum ContestationTypeEnum {
+  AUTHORIZATION = 'authorization',
+  PAYMENT = 'payment',
+}
 
 /**
  * Contestação — registrada quando o usuário contesta uma autorização parcial/recusada
  * ou quando há divergência no valor recebido de pagamento.
  */
-@Entity('contestation')
+@Entity('contestations')
 export class Contestation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'surgery_request_id' })
-  surgery_request_id: string;
+  @Column({ name: 'surgery_request_id', type: 'uuid' })
+  surgeryRequestId: string;
 
-  @Column({ name: 'created_by_id' })
-  created_by_id: string;
+  @Column({ name: 'created_by_id', type: 'uuid' })
+  createdById: string;
 
-  /** 'authorization' | 'payment' */
-  @Column({ type: 'varchar', length: 50 })
-  type: ContestationType;
+  @Column({
+    type: 'enum',
+    enum: ContestationTypeEnum,
+  })
+  type: ContestationTypeEnum;
 
   @Column({ type: 'text' })
   reason: string;
 
   /** null = contestação ainda ativa */
-  @Column({ type: 'timestamp', nullable: true })
-  resolved_at: Date;
+  @Column({ name: 'resolved_at', type: 'timestamp', nullable: true })
+  resolvedAt: Date | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // ============ RELAÇÕES ============
 
   @ManyToOne(() => SurgeryRequest, (request) => request.contestations)
   @JoinColumn({ name: 'surgery_request_id' })
-  surgery_request: SurgeryRequest;
+  surgeryRequest: SurgeryRequest;
 
   @ManyToOne(() => User, { nullable: false })
   @JoinColumn({ name: 'created_by_id' })
-  created_by: User;
+  createdBy: User;
 
   @OneToMany(() => Document, (doc) => doc.contestation)
   documents: Document[];

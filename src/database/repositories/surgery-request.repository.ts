@@ -20,7 +20,6 @@ import {
   SurgeryRequestActivity,
   ActivityType,
 } from '../entities/surgery-request-activity.entity';
-import { StatusUpdate } from '../entities/status-update.entity';
 import { BaseRepository } from './base.repository';
 import { getStatusLabel } from 'src/shared/utils';
 
@@ -47,26 +46,26 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const qb = this.repository
       .createQueryBuilder('sr')
       .leftJoin('sr.hospital', 'h')
-      .select('sr.hospital_id', 'hospital_id')
+      .select('sr.hospitalId', 'hospitalId')
       .addSelect("COALESCE(h.name, 'Sem Hospital')", 'hospital_name')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
-      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+      .where('sr.doctorId IN (:...doctorIds)', { doctorIds });
     if (filters?.hospitalId)
-      qb.andWhere('sr.hospital_id = :hospitalId', {
+      qb.andWhere('sr.hospitalId = :hospitalId', {
         hospitalId: filters.hospitalId,
       });
     if (filters?.healthPlanId)
-      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+      qb.andWhere('sr.healthPlanId = :healthPlanId', {
         healthPlanId: filters.healthPlanId,
       });
     if (filters?.startDate)
-      qb.andWhere('sr.created_at >= :startDate', {
+      qb.andWhere('sr.createdAt >= :startDate', {
         startDate: filters.startDate,
       });
     if (filters?.endDate)
-      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+      qb.andWhere('sr.createdAt <= :endDate', { endDate: filters.endDate });
     return qb
-      .groupBy('sr.hospital_id')
+      .groupBy('sr.hospitalId')
       .addGroupBy('h.name')
       .orderBy('COUNT(*)', 'DESC')
       .getRawMany();
@@ -85,21 +84,21 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('sr')
       .select('sr.status', 'status')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
-      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+      .where('sr.doctorId IN (:...doctorIds)', { doctorIds });
     if (filters?.hospitalId)
-      qb.andWhere('sr.hospital_id = :hospitalId', {
+      qb.andWhere('sr.hospitalId = :hospitalId', {
         hospitalId: filters.hospitalId,
       });
     if (filters?.healthPlanId)
-      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+      qb.andWhere('sr.healthPlanId = :healthPlanId', {
         healthPlanId: filters.healthPlanId,
       });
     if (filters?.startDate)
-      qb.andWhere('sr.created_at >= :startDate', {
+      qb.andWhere('sr.createdAt >= :startDate', {
         startDate: filters.startDate,
       });
     if (filters?.endDate)
-      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+      qb.andWhere('sr.createdAt <= :endDate', { endDate: filters.endDate });
     return qb.groupBy('sr.status').orderBy('COUNT(*)', 'DESC').getRawMany();
   }
 
@@ -114,27 +113,27 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   ) {
     const qb = this.repository
       .createQueryBuilder('sr')
-      .leftJoin('sr.health_plan', 'hp')
-      .select('sr.health_plan_id', 'health_plan_id')
+      .leftJoin('sr.healthPlan', 'hp')
+      .select('sr.healthPlanId', 'healthPlanId')
       .addSelect("COALESCE(hp.name, 'Sem Convênio')", 'health_plan_name')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
-      .where('sr.doctor_id IN (:...doctorIds)', { doctorIds });
+      .where('sr.doctorId IN (:...doctorIds)', { doctorIds });
     if (filters?.hospitalId)
-      qb.andWhere('sr.hospital_id = :hospitalId', {
+      qb.andWhere('sr.hospitalId = :hospitalId', {
         hospitalId: filters.hospitalId,
       });
     if (filters?.healthPlanId)
-      qb.andWhere('sr.health_plan_id = :healthPlanId', {
+      qb.andWhere('sr.healthPlanId = :healthPlanId', {
         healthPlanId: filters.healthPlanId,
       });
     if (filters?.startDate)
-      qb.andWhere('sr.created_at >= :startDate', {
+      qb.andWhere('sr.createdAt >= :startDate', {
         startDate: filters.startDate,
       });
     if (filters?.endDate)
-      qb.andWhere('sr.created_at <= :endDate', { endDate: filters.endDate });
+      qb.andWhere('sr.createdAt <= :endDate', { endDate: filters.endDate });
     return qb
-      .groupBy('sr.health_plan_id')
+      .groupBy('sr.healthPlanId')
       .addGroupBy('hp.name')
       .orderBy('COUNT(*)', 'DESC')
       .getRawMany();
@@ -144,11 +143,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const qb = this.repository
       .createQueryBuilder('sr')
       .leftJoin('sr.billing', 'srb')
-      .select('COALESCE(SUM(srb.invoice_value), 0)', 'invoiced_value')
-      .addSelect('COALESCE(SUM(srb.received_value), 0)', 'received_value');
+      .select('COALESCE(SUM(srb.invoiceValue), 0)', 'invoiced_value')
+      .addSelect('COALESCE(SUM(srb.receivedValue), 0)', 'receivedValue');
 
     if (filter.doctorIds?.length) {
-      qb.andWhere('sr.doctor_id IN (:...doctorIds)', {
+      qb.andWhere('sr.doctorId IN (:...doctorIds)', {
         doctorIds: filter.doctorIds,
       });
     }
@@ -158,7 +157,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return {
       _sum: {
         invoiced_value: result?.invoiced_value || null,
-        received_value: result?.received_value || null,
+        receivedValue: result?.receivedValue || null,
       },
     };
   }
@@ -171,37 +170,36 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
     const queryBuilder = this.repository
-      .createQueryBuilder('surgery_request')
-      .leftJoin('surgery_request.created_by', 'created_by')
-      .addSelect(['created_by.id', 'created_by.name', 'created_by.avatar_url'])
-      .leftJoin('surgery_request.doctor', 'doctor')
-      .addSelect(['doctor.id', 'doctor.name', 'doctor.avatar_url'])
-      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
-      .leftJoinAndSelect('doctor_profile.header', 'doctor_profile_header')
-      .leftJoinAndSelect('surgery_request.patient', 'patient')
-      .leftJoinAndSelect('surgery_request.hospital', 'hospital')
-      .leftJoinAndSelect('surgery_request.health_plan', 'health_plan')
-      .leftJoinAndSelect('surgery_request.opme_items', 'opme_items')
-      .leftJoinAndSelect('opme_items.suppliers', 'opme_item_suppliers')
-      .leftJoinAndSelect('surgery_request.procedure', 'procedure')
-      .leftJoinAndSelect('surgery_request.tuss_items', 'tuss_items')
-      .leftJoinAndSelect('surgery_request.cid', 'cid')
-      .leftJoinAndSelect('surgery_request.documents', 'documents')
+      .createQueryBuilder('surgeryRequest')
+      .leftJoin('surgeryRequest.createdBy', 'createdBy')
+      .addSelect(['createdBy.id', 'createdBy.name', 'createdBy.avatarUrl'])
+      .leftJoin('surgeryRequest.doctor', 'doctor')
+      .addSelect(['doctor.id', 'doctor.name', 'doctor.avatarUrl'])
+      .leftJoinAndSelect('doctor.doctorProfile', 'doctorProfile')
+      .leftJoinAndSelect('doctorProfile.header', 'doctor_profile_header')
+      .leftJoinAndSelect('surgeryRequest.patient', 'patient')
+      .leftJoinAndSelect('surgeryRequest.hospital', 'hospital')
+      .leftJoinAndSelect('surgeryRequest.healthPlan', 'healthPlan')
+      .leftJoinAndSelect('surgeryRequest.opmeItems', 'opmeItems')
+      .leftJoinAndSelect('opmeItems.suppliers', 'opme_item_suppliers')
+      .leftJoinAndSelect('surgeryRequest.procedure', 'procedure')
+      .leftJoinAndSelect('surgeryRequest.tussItems', 'tussItems')
+      .leftJoinAndSelect('surgeryRequest.documents', 'documents')
       .leftJoin('documents.creator', 'documents_creator')
       .addSelect(['documents_creator.id', 'documents_creator.name'])
-      .leftJoinAndSelect('surgery_request.quotations', 'quotations')
+      .leftJoinAndSelect('surgeryRequest.quotations', 'quotations')
       .leftJoinAndSelect('quotations.supplier', 'quotations_supplier')
-      .leftJoinAndSelect('surgery_request.status_updates', 'status_updates')
-      .leftJoinAndSelect('surgery_request.chats', 'chats')
+      .leftJoinAndSelect('surgeryRequest.activities', 'activities')
+      .leftJoinAndSelect('surgeryRequest.chats', 'chats')
       .leftJoin('chats.user', 'chats_user')
-      .addSelect(['chats_user.id', 'chats_user.name', 'chats_user.avatar_url'])
+      .addSelect(['chats_user.id', 'chats_user.name', 'chats_user.avatarUrl'])
       .leftJoinAndSelect('chats.messages', 'messages')
-      .leftJoinAndSelect('surgery_request.analysis', 'analysis')
-      .leftJoinAndSelect('surgery_request.billing', 'billing')
-      .leftJoinAndSelect('surgery_request.contestations', 'contestations')
+      .leftJoinAndSelect('surgeryRequest.analysis', 'analysis')
+      .leftJoinAndSelect('surgeryRequest.billing', 'billing')
+      .leftJoinAndSelect('surgeryRequest.contestations', 'contestations')
       .where(where)
-      .orderBy('status_updates.created_at', 'DESC')
-      .addOrderBy('messages.created_at', 'ASC');
+      .orderBy('activities.createdAt', 'DESC')
+      .addOrderBy('messages.createdAt', 'ASC');
 
     const entity = await queryBuilder.getOne();
 
@@ -236,8 +234,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('sr')
       .leftJoinAndSelect('sr.patient', 'patient')
       .leftJoinAndSelect('sr.doctor', 'doctor')
-      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
-      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('doctor.doctorProfile', 'doctorProfile')
+      .leftJoinAndSelect('sr.healthPlan', 'healthPlan')
       .leftJoinAndSelect('sr.hospital', 'hospital')
       .leftJoinAndSelect('sr.procedure', 'procedure')
       .where(where)
@@ -252,15 +250,15 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('sr')
       .leftJoinAndSelect('sr.patient', 'patient')
       .leftJoinAndSelect('sr.doctor', 'doctor')
-      .leftJoinAndSelect('doctor.doctor_profile', 'doctor_profile')
-      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('doctor.doctorProfile', 'doctorProfile')
+      .leftJoinAndSelect('sr.healthPlan', 'healthPlan')
       .leftJoinAndSelect('sr.hospital', 'hospital')
       .leftJoinAndSelect('sr.procedure', 'procedure')
       .leftJoinAndSelect('sr.analysis', 'analysis')
       .leftJoinAndSelect('sr.contestations', 'contestations')
-      .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
-      .leftJoinAndSelect('sr.opme_items', 'opme_items')
-      .leftJoinAndSelect('opme_items.suppliers', 'opme_items_suppliers')
+      .leftJoinAndSelect('sr.tussItems', 'tussItems')
+      .leftJoinAndSelect('sr.opmeItems', 'opmeItems')
+      .leftJoinAndSelect('opmeItems.suppliers', 'opme_items_suppliers')
       .leftJoinAndSelect('sr.documents', 'documents')
       .where(where)
       .getOne();
@@ -274,13 +272,13 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('sr')
       .leftJoinAndSelect('sr.patient', 'patient')
       .leftJoinAndSelect('sr.doctor', 'doctor')
-      .leftJoinAndSelect('sr.health_plan', 'health_plan')
+      .leftJoinAndSelect('sr.healthPlan', 'healthPlan')
       .leftJoinAndSelect('sr.hospital', 'hospital')
       .leftJoinAndSelect('sr.procedure', 'procedure')
       .leftJoinAndSelect('sr.billing', 'billing')
-      .leftJoinAndSelect('sr.tuss_items', 'tuss_items')
-      .leftJoinAndSelect('sr.opme_items', 'opme_items')
-      .leftJoinAndSelect('opme_items.suppliers', 'opme_items_billing_suppliers')
+      .leftJoinAndSelect('sr.tussItems', 'tussItems')
+      .leftJoinAndSelect('sr.opmeItems', 'opmeItems')
+      .leftJoinAndSelect('opmeItems.suppliers', 'opme_items_billing_suppliers')
       .where(where)
       .getOne();
   }
@@ -289,39 +287,47 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     where: FindOptionsWhere<SurgeryRequest>,
     skip: number,
     take: number,
-  ): Promise<any[]> {
+  ): Promise<
+    Array<
+      SurgeryRequest & {
+        pendenciesCount: number;
+        completedCount: number;
+        totalPendencies: number;
+      }
+    >
+  > {
     const queryBuilder = this.repository
-      .createQueryBuilder('surgery_request')
-      .leftJoin('surgery_request.created_by', 'created_by')
-      .leftJoin('surgery_request.doctor', 'doctor')
-      .leftJoin('surgery_request.patient', 'patient')
-      .leftJoin('surgery_request.health_plan', 'health_plan')
-      .leftJoin('surgery_request.hospital', 'hospital')
-      .leftJoin('surgery_request.procedure', 'procedure')
-      .leftJoin('surgery_request.documents', 'documents')
+      .createQueryBuilder('surgeryRequest')
+      .leftJoin('surgeryRequest.createdBy', 'createdBy')
+      .leftJoin('surgeryRequest.doctor', 'doctor')
+      .leftJoin('surgeryRequest.patient', 'patient')
+      .leftJoin('surgeryRequest.healthPlan', 'healthPlan')
+      .leftJoin('surgeryRequest.hospital', 'hospital')
+      .leftJoin('surgeryRequest.procedure', 'procedure')
+      .leftJoin('surgeryRequest.documents', 'documents')
       .where(where)
-      .orderBy('surgery_request.created_at', 'DESC')
+      .orderBy('surgeryRequest.createdAt', 'DESC')
       .skip(skip)
       .take(take)
       .select([
-        'surgery_request.id',
-        'surgery_request.status',
-        'surgery_request.health_plan_id',
-        'surgery_request.hospital_id',
-        'surgery_request.created_at',
-        'surgery_request.is_indication',
-        'surgery_request.indication_name',
-        'surgery_request.protocol',
-        'surgery_request.priority',
-        'surgery_request.surgery_date',
-        'created_by.id',
-        'created_by.name',
+        'surgeryRequest.id',
+        'surgeryRequest.status',
+        'surgeryRequest.healthPlanId',
+        'surgeryRequest.hospitalId',
+        'surgeryRequest.createdAt',
+        'surgeryRequest.isIndication',
+        'surgeryRequest.indicationName',
+        'surgeryRequest.protocol',
+        'surgeryRequest.priority',
+        'surgeryRequest.surgeryDate',
+        'createdBy.id',
+        'createdBy.name',
         'doctor.id',
         'doctor.name',
         'patient.id',
         'patient.name',
-        'health_plan.id',
-        'health_plan.name',
+        'healthPlan.id',
+        'healthPlan.name',
         'hospital.id',
         'hospital.name',
         'procedure.id',
@@ -329,18 +335,18 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'documents.id',
         'documents.type',
       ])
-      .groupBy('surgery_request.id')
-      .addGroupBy('created_by.id')
+      .groupBy('surgeryRequest.id')
+      .addGroupBy('createdBy.id')
       .addGroupBy('doctor.id')
       .addGroupBy('patient.id')
-      .addGroupBy('health_plan.id')
+      .addGroupBy('healthPlan.id')
       .addGroupBy('hospital.id')
       .addGroupBy('procedure.id')
       .addGroupBy('documents.id');
 
     const results = await queryBuilder.getRawAndEntities();
 
-    return results.entities.map((entity: any) => {
+    return results.entities.map((entity) => {
       const pendencies = this.calculatePendencies(entity);
 
       return {
@@ -380,17 +386,17 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
     return this.findOneWithRelations(where, [
-      'created_by',
+      'createdBy',
       'patient',
       'hospital',
-      'health_plan',
-      'tuss_items',
-      'opme_items',
+      'healthPlan',
+      'tussItems',
+      'opmeItems',
       'documents',
       'analysis',
       'billing',
       'contestations',
-      'report_sections',
+      'reportSections',
     ]);
   }
 
@@ -400,14 +406,49 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const results = await this.dataSource
       .getRepository(SurgeryRequestActivity)
       .createQueryBuilder('a')
-      .select('DISTINCT a.user_id', 'user_id')
-      .where('a.surgery_request_id = :surgeryRequestId', { surgeryRequestId })
-      .andWhere('a.user_id IS NOT NULL')
+      .select('DISTINCT a.userId', 'userId')
+      .where('a.surgeryRequestId = :surgeryRequestId', { surgeryRequestId })
+      .andWhere('a.userId IS NOT NULL')
       .getRawMany();
-    return results.map((r) => r.user_id);
+    return results.map((r) => r.userId);
   }
 
-  /** Registra mudança de status em status_updates e em activities (deve ser chamado dentro de uma transação) */
+  /**
+   * Recupera o número do status anterior a partir do conteúdo da última activity
+   * do tipo STATUS_CHANGE (formato: "Status alterado de \"X\" para \"Y\"").
+   */
+  async findPreviousStatus(
+    surgeryRequestId: string,
+  ): Promise<SurgeryRequestStatus | null> {
+    const last = await this.dataSource
+      .getRepository(SurgeryRequestActivity)
+      .createQueryBuilder('a')
+      .where('a.surgeryRequestId = :surgeryRequestId', { surgeryRequestId })
+      .andWhere('a.type = :type', { type: ActivityType.STATUS_CHANGE })
+      .orderBy('a.createdAt', 'DESC')
+      .getOne();
+
+    if (!last) return null;
+
+    const match = last.content.match(/de\s+"([^"]+)"\s+para\s+"([^"]+)"/i);
+    if (!match) return null;
+
+    const prevLabel = match[1];
+    const STATUSES: SurgeryRequestStatus[] = [
+      SurgeryRequestStatus.PENDING,
+      SurgeryRequestStatus.SENT,
+      SurgeryRequestStatus.IN_ANALYSIS,
+      SurgeryRequestStatus.IN_SCHEDULING,
+      SurgeryRequestStatus.SCHEDULED,
+      SurgeryRequestStatus.PERFORMED,
+      SurgeryRequestStatus.INVOICED,
+      SurgeryRequestStatus.FINALIZED,
+      SurgeryRequestStatus.CLOSED,
+    ];
+    return STATUSES.find((s) => getStatusLabel(s) === prevLabel) ?? null;
+  }
+
+  /** Registra mudança de status em activities (deve ser chamado dentro de uma transação) */
   async recordStatusChange(
     manager: EntityManager,
     surgeryRequestId: string,
@@ -419,22 +460,15 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
     const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
     await surgeryRequestRepo.update(surgeryRequestId, {
-      last_status_changed_at: now,
-    });
-
-    const statusUpdateRepo = manager.getRepository(StatusUpdate);
-    await statusUpdateRepo.save({
-      surgery_request_id: surgeryRequestId,
-      prev_status: prevStatus,
-      new_status: newStatus,
+      lastStatusChangedAt: now,
     });
 
     const activityRepo = manager.getRepository(SurgeryRequestActivity);
     const prevLabel = getStatusLabel(prevStatus);
     const newLabel = getStatusLabel(newStatus);
     await activityRepo.save({
-      surgery_request_id: surgeryRequestId,
-      user_id: userId,
+      surgeryRequestId,
+      userId,
       type: ActivityType.STATUS_CHANGE,
       content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
     });
@@ -444,53 +478,53 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     where: FindOptionsWhere<SurgeryRequest>,
     startDate: Date,
     endDate: Date,
-  ): Promise<any[]> {
+  ): Promise<Array<{ date: string; count: string; invoiced_value: string }>> {
     const queryBuilder = this.repository
-      .createQueryBuilder('surgery_request')
-      .leftJoin('surgery_request.billing', 'billing')
-      .select('DATE(surgery_request.created_at)', 'date')
+      .createQueryBuilder('surgeryRequest')
+      .leftJoin('surgeryRequest.billing', 'billing')
+      .select('DATE(surgeryRequest.createdAt)', 'date')
       .addSelect('COUNT(*)', 'count')
-      .addSelect('SUM(billing.invoice_value)', 'invoiced_value')
+      .addSelect('SUM(billing.invoiceValue)', 'invoiced_value')
       .where(where)
-      .andWhere('surgery_request.created_at BETWEEN :startDate AND :endDate', {
+      .andWhere('surgeryRequest.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
         endDate,
       })
-      .groupBy('DATE(surgery_request.created_at)')
-      .orderBy('DATE(surgery_request.created_at)', 'ASC');
+      .groupBy('DATE(surgeryRequest.createdAt)')
+      .orderBy('DATE(surgeryRequest.createdAt)', 'ASC');
 
     return await queryBuilder.getRawMany();
   }
 
   async getMonthlyEvolution(
     where: FindOptionsWhere<SurgeryRequest>,
-    months: number = 6,
-  ): Promise<any[]> {
+    months = 6,
+  ): Promise<Array<{ month_key: string; month_label: string; count: string }>> {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
 
     const queryBuilder = this.repository
-      .createQueryBuilder('surgery_request')
-      .select("TO_CHAR(surgery_request.created_at, 'YYYY-MM')", 'month_key')
-      .addSelect("TO_CHAR(surgery_request.created_at, 'Mon/YY')", 'month_label')
+      .createQueryBuilder('surgeryRequest')
+      .select("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')", 'month_key')
+      .addSelect("TO_CHAR(surgeryRequest.createdAt, 'Mon/YY')", 'month_label')
       .addSelect('COUNT(*)', 'count')
       .where(where)
-      .andWhere('surgery_request.created_at >= :startDate', { startDate })
-      .groupBy("TO_CHAR(surgery_request.created_at, 'YYYY-MM')")
-      .addGroupBy("TO_CHAR(surgery_request.created_at, 'Mon/YY')")
-      .orderBy("TO_CHAR(surgery_request.created_at, 'YYYY-MM')", 'ASC');
+      .andWhere('surgeryRequest.createdAt >= :startDate', { startDate })
+      .groupBy("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')")
+      .addGroupBy("TO_CHAR(surgeryRequest.createdAt, 'Mon/YY')")
+      .orderBy("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')", 'ASC');
 
     return await queryBuilder.getRawMany();
   }
 
   async getAverageCompletionTime(
     where: FindOptionsWhere<SurgeryRequest>,
-  ): Promise<any> {
-    // Calcula a média de dias entre created_at e updated_at para solicitações finalizadas (status 9)
+  ): Promise<{ average_days: number }> {
+    // Calcula a média de dias entre createdAt e updatedAt para solicitações finalizadas (status 9)
     const result = await this.repository
-      .createQueryBuilder('surgery_request')
+      .createQueryBuilder('surgeryRequest')
       .select(
-        'AVG(EXTRACT(DAY FROM (surgery_request.updated_at - surgery_request.created_at)))',
+        'AVG(EXTRACT(DAY FROM (surgeryRequest.updatedAt - surgeryRequest.createdAt)))',
         'average_days',
       )
       .where({ ...where, status: SurgeryRequestStatus.CLOSED })
@@ -508,7 +542,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   // O método calculatePendencies abaixo é simplificado para uso em listagens
   // ============================================================
 
-  calculatePendencies(surgeryRequest: any): {
+  calculatePendencies(surgeryRequest: SurgeryRequest): {
     pendingCount: number;
     completedCount: number;
     totalCount: number;
@@ -521,9 +555,9 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
     const checks = [
       !!(patient?.name && patient?.email),
-      !!surgeryRequest.health_plan_id,
+      !!surgeryRequest.healthPlanId,
       !!procedure,
-      documents.some((d: any) => d.type === DOCUMENT_KEYS.DOCTOR_REQUEST),
+      documents.some((d) => d.type === DOCUMENT_KEYS.DOCTOR_REQUEST),
     ];
 
     const completedCount = checks.filter(Boolean).length;
@@ -548,13 +582,12 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return this.repository
       .createQueryBuilder('sr')
       .leftJoinAndSelect('sr.patient', 'patient')
-      .leftJoinAndSelect('sr.created_by', 'created_by')
+      .leftJoinAndSelect('sr.createdBy', 'createdBy')
       .where('sr.status NOT IN (:...terminalStatuses)', { terminalStatuses })
       .andWhere(
-        `COALESCE(sr.last_status_changed_at, sr.created_at) <= NOW() - INTERVAL '1 day' * :minDays`,
+        `COALESCE(sr.lastStatusChangedAt, sr.createdAt) <= NOW() - INTERVAL '1 day' * :minDays`,
         { minDays },
       )
-      .andWhere('sr.deleted_at IS NULL')
       .getMany();
   }
 }

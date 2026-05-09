@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('ai_knowledge_chunk')
+@Entity('ai_knowledge_chunks')
 @Index('idx_knowledge_category_active', ['category', 'active'])
 export class AiKnowledgeChunk {
   @PrimaryGeneratedColumn('uuid')
@@ -23,7 +23,7 @@ export class AiKnowledgeChunk {
   content: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, any> | null;
+  metadata: Record<string, unknown> | null;
 
   // Coluna vector(1536) é criada/gerenciada via migration (RAG bootstrap valida pgvector).
   // Mantida como text + select: false para evitar carga acidental nos finds genéricos;

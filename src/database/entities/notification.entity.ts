@@ -10,8 +10,8 @@ import {
 import { User } from './user.entity';
 
 export enum NotificationType {
-  NEW_SURGERY_REQUEST = 'new_surgery_request',
-  STATUS_UPDATE = 'status_update',
+  NEW_SURGERY_REQUEST = 'newSurgeryRequest',
+  STATUS_UPDATE = 'statusUpdate',
   PENDENCY = 'pendency',
   EXPIRING_DOCUMENT = 'expiring_document',
   ACTION_BY_USER = 'action_by_user',
@@ -19,13 +19,13 @@ export enum NotificationType {
   INFO = 'info',
 }
 
-@Entity('notification')
+@Entity('notifications')
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'user_id' })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId: string;
 
   @Column({
     type: 'enum',
@@ -44,16 +44,16 @@ export class Notification {
   read: boolean;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  link: string;
+  link: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown> | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // Relations
   @ManyToOne(() => User, { onDelete: 'CASCADE' })

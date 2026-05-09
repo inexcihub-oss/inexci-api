@@ -38,14 +38,14 @@ export class PdfGenerationProcessor {
       const request = await this.surgeryRequestRepo.findOne({
         where: { id: surgeryRequestId },
         relations: [
-          'created_by',
+          'createdBy',
           'patient',
           'hospital',
-          'health_plan',
-          'tuss_items',
-          'opme_items',
+          'healthPlan',
+          'tussItems',
+          'opmeItems',
           'documents',
-          'report_sections',
+          'reportSections',
         ],
       });
 
@@ -57,7 +57,7 @@ export class PdfGenerationProcessor {
       }
 
       // ── Gerar PDF (mesclado com documentos anexos) via serviço compartilhado
-      const doctorUserId = (request as any).created_by_id || userId;
+      const doctorUserId = (request as any).createdById || userId;
       const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
         request,
         doctorUserId,
@@ -76,8 +76,8 @@ export class PdfGenerationProcessor {
 
       // ── Registrar atividade PDF_GENERATED ─────────────────────────────────
       await this.activityRepo.save({
-        surgery_request_id: surgeryRequestId,
-        user_id: null,
+        surgeryRequestId: surgeryRequestId,
+        userId: null,
         type: ActivityType.PDF_GENERATED,
         content: JSON.stringify({
           description: 'PDF da solicitação gerado automaticamente',

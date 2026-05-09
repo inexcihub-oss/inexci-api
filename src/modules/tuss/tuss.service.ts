@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
-import { Tuss } from 'src/database/entities/tuss.entity';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export interface TussResponse {
   id: string;
-  tuss_code: string;
+  tussCode: string;
   name: string;
   active: boolean;
+}
+
+interface TussJsonRow {
+  codigo: number | string;
+  procedimento: string;
 }
 
 interface CacheEntry<T> {
@@ -15,48 +19,58 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-const TTL_MS = 5 * 60 * 1000; // 5 minutos
+const TTL_MS = 60 * 60 * 1000; // 1 hora (dados estáticos)
 
 @Injectable()
 export class TussService {
   private readonly cache = new Map<string, CacheEntry<TussResponse[]>>();
+  private allRecords: TussResponse[] | null = null;
 
-  constructor(
-    @InjectRepository(Tuss)
-    private readonly tussRepository: Repository<Tuss>,
-  ) {}
+  private loadAll(): TussResponse[] {
+    if (this.allRecords) return this.allRecords;
 
-  async search(search?: string, limit: number = 50): Promise<TussResponse[]> {
+    const filePath = path.join(process.cwd(), 'src', 'utils', 'tuss.json');
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const json: { rows: TussJsonRow[] } = JSON.parse(raw);
+
+    this.allRecords = json.rows.map((row) => {
+      const code = String(row.codigo);
+      return {
+        id: code,
+        tussCode: this.formatTussCode(code),
+        name: row.procedimento,
+        active: true,
+      };
+    });
+
+    return this.allRecords;
+  }
+
+  search(search?: string, limit: number = 50): TussResponse[] {
     const cacheKey = `tuss:${search ?? ''}:${limit}`;
     const hit = this.cache.get(cacheKey);
     if (hit && hit.expiresAt > Date.now()) return hit.value;
 
-    const where: any[] = [];
+    const all = this.loadAll();
+
+    let filtered = all;
     if (search && search.length >= 2) {
-      where.push({ code: ILike(`%${search}%`) });
-      where.push({ procedure: ILike(`%${search}%`) });
+      const lower = search.toLowerCase();
+      filtered = all.filter(
+        (item) =>
+          item.tussCode.toLowerCase().includes(lower) ||
+          item.name.toLowerCase().includes(lower) ||
+          item.id.includes(search),
+      );
     }
 
-    const records = await this.tussRepository.find({
-      where: where.length > 0 ? where : undefined,
-      take: limit,
-      order: { code: 'ASC' },
-    });
-
-    const result = records.map((item) => ({
-      id: item.id,
-      tuss_code: this.formatTussCode(item.code),
-      name: item.procedure,
-      active: true,
-    }));
-
+    const result = filtered.slice(0, limit);
     this.cache.set(cacheKey, { value: result, expiresAt: Date.now() + TTL_MS });
     return result;
   }
 
   private formatTussCode(codigo: string): string {
     const str = codigo.padStart(10, '0');
-    // Formato: XX.XX.XX.XXX-X
     return `${str.slice(0, 2)}.${str.slice(2, 4)}.${str.slice(4, 6)}.${str.slice(6, 9)}-${str.slice(9)}`;
   }
 }

@@ -52,16 +52,16 @@ export class HospitalInputDto {
 export class CreateSurgeryRequestDto {
   @IsBoolean()
   @Transform(({ value }) => value === 'true' || value === true)
-  is_indication: boolean;
+  isIndication: boolean;
 
-  @ValidateIf((o) => o.is_indication)
+  @ValidateIf((o) => o.isIndication)
   @IsString()
   @IsNotEmpty()
-  indication_name: string;
+  indicationName: string;
 
   @IsOptional()
   @IsString()
-  procedure_id?: string;
+  procedureId?: string;
 
   @ValidateNested()
   @Type(() => PatientInputDto)
@@ -71,7 +71,7 @@ export class CreateSurgeryRequestDto {
   @ValidateNested()
   @Type(() => HealthPlanInputDto)
   @Transform(({ value }) => stripObjectPhoneMask(value))
-  health_plan: HealthPlanInputDto;
+  healthPlan: HealthPlanInputDto;
 
   @IsOptional()
   @ValidateNested()

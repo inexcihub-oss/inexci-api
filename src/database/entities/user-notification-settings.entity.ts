@@ -4,7 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
@@ -14,46 +14,46 @@ export class UserNotificationSettings {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'user_id' })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid', unique: true })
+  userId: string;
 
-  // Canais de notificação
-  @Column({ type: 'boolean', default: true })
-  email_notifications: boolean;
+  // Canais de notificação para usuários do sistema:
+  //  - Push: in-app + WebSocket
+  //  - WhatsApp: enviado pelo workflow para mudanças de status críticas
+  // E-mail não é usado para notificações de status; o único e-mail
+  // enviado é o resumo semanal (controlado por `weeklyReport`).
+  @Column({ name: 'push_notifications', type: 'boolean', default: true })
+  pushNotifications: boolean;
 
-  @Column({ type: 'boolean', default: false })
-  sms_notifications: boolean;
-
-  @Column({ type: 'boolean', default: true })
-  push_notifications: boolean;
-
-  @Column({ type: 'boolean', default: true })
-  whatsapp_notifications: boolean;
+  @Column({ name: 'whatsapp_notifications', type: 'boolean', default: true })
+  whatsappNotifications: boolean;
 
   // Tipos de notificação
-  @Column({ type: 'boolean', default: true })
-  new_surgery_request: boolean;
+  @Column({ name: 'new_surgery_request', type: 'boolean', default: true })
+  newSurgeryRequest: boolean;
 
-  @Column({ type: 'boolean', default: true })
-  status_update: boolean;
+  @Column({ name: 'status_update', type: 'boolean', default: true })
+  statusUpdate: boolean;
 
   @Column({ type: 'boolean', default: true })
   pendencies: boolean;
 
-  @Column({ type: 'boolean', default: true })
-  expiring_documents: boolean;
+  @Column({ name: 'expiring_documents', type: 'boolean', default: true })
+  expiringDocuments: boolean;
 
-  @Column({ type: 'boolean', default: false })
-  weekly_report: boolean;
+  @Column({ name: 'weekly_report', type: 'boolean', default: false })
+  weeklyReport: boolean;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @OneToOne(() => User, (user) => user.notificationSettings, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'user_id' })
   user: User;
 }

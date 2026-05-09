@@ -4,7 +4,7 @@ import { STORAGE_FOLDERS } from 'src/config/storage.config';
 export class CreateDocumentDto {
   @IsString()
   @IsNotEmpty()
-  surgery_request_id: string;
+  surgeryRequestId: string;
 
   @IsString()
   @IsNotEmpty()

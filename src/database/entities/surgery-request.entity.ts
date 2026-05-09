@@ -8,6 +8,7 @@ import {
   OneToMany,
   OneToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Hospital } from './hospital.entity';
@@ -17,16 +18,12 @@ import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { OpmeItem } from './opme-item.entity';
 import { Procedure } from './procedure.entity';
 import { Document } from './document.entity';
-import { Chat } from './chat.entity';
-import { StatusUpdate } from './status-update.entity';
 import { SurgeryRequestAnalysis } from './surgery-request-analysis.entity';
 import { SurgeryRequestBilling } from './surgery-request-billing.entity';
 import { Contestation } from './contestation.entity';
 import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
 import { SurgeryRequestActivity } from './surgery-request-activity.entity';
 import { ReportSection } from './report-section.entity';
-import { Cid } from './cid.entity';
-import { Tuss } from './tuss.entity';
 
 /**
  * Status da solicitação cirúrgica (9 valores — fluxo oficial)
@@ -53,36 +50,68 @@ export enum SurgeryRequestPriority {
   URGENT = 4, // Urgente
 }
 
-@Entity('surgery_request')
+/**
+ * Opção de data para a cirurgia.
+ * Persistida em dateOptions (jsonb).
+ */
+/**
+ * Opções de datas armazenadas em date_options (jsonb).
+ *
+ * Formato atual: array de strings ISO ("2026-03-01"), ordenadas por preferência.
+ * O índice selecionado pelo médico fica em `selected_date_index`.
+ */
+export type SurgeryDateOptions = string[];
+
+/**
+ * Documento requerido pendente de envio.
+ * Persistido em required_documents (jsonb).
+ */
+export interface RequiredDocumentSpec {
+  type: string;
+  name: string;
+}
+
+@Entity('surgery_requests')
+@Index('idx_sr_doctor_status', ['doctorId', 'status'])
+@Index('idx_sr_owner_status', ['ownerId', 'status'])
+@Index('idx_sr_patient_id', ['patientId'])
+@Index('idx_sr_health_plan_id', ['healthPlanId'])
+@Index('idx_sr_hospital_id', ['hospitalId'])
+@Index('idx_sr_status', ['status'])
 export class SurgeryRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   // ============ RELACIONAMENTOS PRINCIPAIS ============
 
-  @Column({ name: 'doctor_id' })
-  doctor_id: string;
+  @Column({ name: 'doctor_id', type: 'uuid' })
+  doctorId: string;
 
-  @Column({ name: 'created_by_id' })
-  created_by_id: string; // Quem criou (médico ou colaborador)
+  /** ID do admin dono da clínica (denormalizado para tenant isolation). */
+  @Column({ name: 'owner_id', type: 'uuid' })
+  ownerId: string;
 
-  @Column({ name: 'patient_id' })
-  patient_id: string;
+  @Column({ name: 'created_by_id', type: 'uuid' })
+  createdById: string;
 
-  @Column({ name: 'hospital_id', nullable: true })
-  hospital_id: string;
+  @Column({ name: 'patient_id', type: 'uuid' })
+  patientId: string;
 
-  @Column({ name: 'health_plan_id', nullable: true })
-  health_plan_id: string;
+  @Column({ name: 'hospital_id', type: 'uuid', nullable: true })
+  hospitalId: string | null;
 
-  @Column({ name: 'procedure_id', nullable: true })
-  procedure_id: string;
+  @Column({ name: 'health_plan_id', type: 'uuid', nullable: true })
+  healthPlanId: string | null;
 
-  @Column({ name: 'cid_id', type: 'uuid', nullable: true })
-  cid_id: string;
+  @Column({ name: 'procedure_id', type: 'uuid', nullable: true })
+  procedureId: string | null;
 
-  @Column({ name: 'tuss_id', type: 'uuid', nullable: true })
-  tuss_id: string;
+  /**
+   * Código CID armazenado diretamente (ex: "A00", "K80.0").
+   * A tabela CID foi removida; os dados vêm de src/utils/cid.json.
+   */
+  @Column({ name: 'cid_code', type: 'varchar', length: 10, nullable: true })
+  cidCode: string | null;
 
   // ============ STATUS E CONTROLE ============
 
@@ -93,13 +122,13 @@ export class SurgeryRequest {
   status: SurgeryRequestStatus;
 
   @Column({ type: 'varchar', length: 75, nullable: true, unique: true })
-  protocol: string;
+  protocol: string | null;
 
   @Column({
     type: 'smallint',
     default: SurgeryRequestPriority.MEDIUM,
   })
-  priority: SurgeryRequestPriority; // 1=Baixa, 2=Média, 3=Alta, 4=Urgente
+  priority: SurgeryRequestPriority;
 
   // ============ OPME ============
 
@@ -109,98 +138,132 @@ export class SurgeryRequest {
    * true = utiliza OPME (itens devem ser cadastrados)
    * false = não utiliza OPME (pendência resolvida sem necessidade de itens)
    */
-  @Column({ type: 'boolean', nullable: true, default: null })
-  has_opme: boolean | null;
+  @Column({ name: 'has_opme', type: 'boolean', nullable: true, default: null })
+  hasOpme: boolean | null;
 
-  @Column({ type: 'jsonb', nullable: true, default: null })
-  required_documents: Array<{ type: string; name: string }> | null;
+  @Column({
+    name: 'required_documents',
+    type: 'jsonb',
+    nullable: true,
+    default: null,
+  })
+  requiredDocuments: RequiredDocumentSpec[] | null;
 
   // ============ INDICAÇÃO ============
 
-  @Column({ type: 'boolean', default: false })
-  is_indication: boolean;
+  @Column({ name: 'is_indication', type: 'boolean', default: false })
+  isIndication: boolean;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  indication_name: string;
+  @Column({
+    name: 'indication_name',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  indicationName: string | null;
 
   // ============ DADOS DO CONVÊNIO ============
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  health_plan_registration: string; // Número da carteirinha
+  @Column({
+    name: 'health_plan_registration',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  healthPlanRegistration: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  health_plan_type: string; // Tipo do plano
+  @Column({
+    name: 'health_plan_type',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  healthPlanType: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  health_plan_protocol: string; // Protocolo do convênio
+  @Column({
+    name: 'health_plan_protocol',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  healthPlanProtocol: string | null;
 
   // ============ DADOS MÉDICOS ============
 
   @Column({ type: 'text', nullable: true })
-  diagnosis: string;
+  diagnosis: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  medical_report: string;
+  @Column({ name: 'medical_report', type: 'text', nullable: true })
+  medicalReport: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  patient_history: string;
+  @Column({ name: 'patient_history', type: 'text', nullable: true })
+  patientHistory: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  surgery_description: string;
+  @Column({ name: 'surgery_description', type: 'text', nullable: true })
+  surgeryDescription: string | null;
 
   // ============ DATAS ============
 
-  @Column({ type: 'jsonb', nullable: true })
-  date_options: any; // Opções de data para o paciente escolher
+  @Column({ name: 'date_options', type: 'jsonb', nullable: true })
+  dateOptions: SurgeryDateOptions | null;
 
-  @Column({ type: 'int', nullable: true })
-  selected_date_index: number; // Índice da data escolhida
+  @Column({ name: 'selected_date_index', type: 'int', nullable: true })
+  selectedDateIndex: number | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  surgery_date: Date; // Data da cirurgia
+  @Column({ name: 'surgery_date', type: 'timestamp', nullable: true })
+  surgeryDate: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  analysis_started_at: Date;
+  @Column({ name: 'analysis_started_at', type: 'timestamp', nullable: true })
+  analysisStartedAt: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  date_call: Date;
+  @Column({ name: 'date_call', type: 'timestamp', nullable: true })
+  dateCall: Date | null;
 
   // ============ PROTOCOLOS ============
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  hospital_protocol: string;
+  @Column({
+    name: 'hospital_protocol',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  hospitalProtocol: string | null;
 
   // ============ ENVIO ============
 
-  @Column({ type: 'timestamp', nullable: true })
-  sent_at: Date; // Quando foi enviada para a operadora
+  @Column({ name: 'sent_at', type: 'timestamp', nullable: true })
+  sentAt: Date | null;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  send_method: string; // 'email' | 'download'
+  @Column({ name: 'send_method', type: 'varchar', length: 20, nullable: true })
+  sendMethod: string | null;
 
   // ============ REALIZAÇÃO ============
 
-  @Column({ type: 'timestamp', nullable: true })
-  surgery_performed_at: Date; // Data/hora real da cirurgia
+  @Column({ name: 'surgery_performed_at', type: 'timestamp', nullable: true })
+  surgeryPerformedAt: Date | null;
 
   // ============ ENCERRAMENTO ============
 
-  @Column({ type: 'text', nullable: true })
-  cancel_reason: string;
+  @Column({ name: 'cancel_reason', type: 'text', nullable: true })
+  cancelReason: string | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  closed_at: Date; // Quando foi encerrada/arquivada
+  @Column({ name: 'closed_at', type: 'timestamp', nullable: true })
+  closedAt: Date | null;
 
-  @Column({ type: 'timestamp', nullable: true })
-  last_status_changed_at: Date;
+  @Column({
+    name: 'last_status_changed_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  lastStatusChangedAt: Date | null;
 
   // ============ TIMESTAMPS ============
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // ============ RELAÇÕES ============
 
@@ -208,84 +271,74 @@ export class SurgeryRequest {
   @JoinColumn({ name: 'doctor_id' })
   doctor: User;
 
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'owner_id' })
+  owner: User;
+
   @ManyToOne(() => User, { nullable: false })
   @JoinColumn({ name: 'created_by_id' })
-  created_by: User;
+  createdBy: User;
 
-  @ManyToOne(() => Patient, (patient) => patient.surgery_requests)
+  @ManyToOne(() => Patient, (patient) => patient.surgeryRequests)
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  @ManyToOne(() => Hospital, (hospital) => hospital.surgery_requests, {
+  @ManyToOne(() => Hospital, (hospital) => hospital.surgeryRequests, {
     nullable: true,
   })
   @JoinColumn({ name: 'hospital_id' })
-  hospital: Hospital;
+  hospital: Hospital | null;
 
-  @ManyToOne(() => HealthPlan, (plan) => plan.surgery_requests, {
+  @ManyToOne(() => HealthPlan, (plan) => plan.surgeryRequests, {
     nullable: true,
   })
   @JoinColumn({ name: 'health_plan_id' })
-  health_plan: HealthPlan;
+  healthPlan: HealthPlan | null;
 
   @OneToMany(
     () => SurgeryRequestQuotation,
-    (quotation) => quotation.surgery_request,
+    (quotation) => quotation.surgeryRequest,
   )
   quotations: SurgeryRequestQuotation[];
 
-  @OneToMany(() => OpmeItem, (item) => item.surgery_request)
-  opme_items: OpmeItem[];
+  @OneToMany(() => OpmeItem, (item) => item.surgeryRequest)
+  opmeItems: OpmeItem[];
 
   @ManyToOne(() => Procedure, { nullable: true })
   @JoinColumn({ name: 'procedure_id' })
-  procedure: Procedure;
+  procedure: Procedure | null;
 
-  @OneToMany(() => Document, (doc) => doc.surgery_request)
+  @OneToMany(() => Document, (doc) => doc.surgeryRequest)
   documents: Document[];
-
-  @OneToMany(() => Chat, (chat) => chat.surgery_request)
-  chats: Chat[];
-
-  @OneToMany(() => StatusUpdate, (update) => update.surgery_request)
-  status_updates: StatusUpdate[];
 
   @OneToOne(
     () => SurgeryRequestAnalysis,
-    (analysis) => analysis.surgery_request,
+    (analysis) => analysis.surgeryRequest,
     {
       nullable: true,
     },
   )
-  analysis: SurgeryRequestAnalysis;
+  analysis: SurgeryRequestAnalysis | null;
 
-  @OneToOne(() => SurgeryRequestBilling, (billing) => billing.surgery_request, {
+  @OneToOne(() => SurgeryRequestBilling, (billing) => billing.surgeryRequest, {
     nullable: true,
   })
-  billing: SurgeryRequestBilling;
+  billing: SurgeryRequestBilling | null;
 
-  @OneToMany(() => Contestation, (contestation) => contestation.surgery_request)
+  @OneToMany(() => Contestation, (contestation) => contestation.surgeryRequest)
   contestations: Contestation[];
 
-  @OneToMany(() => SurgeryRequestTussItem, (item) => item.surgery_request)
-  tuss_items: SurgeryRequestTussItem[];
+  @OneToMany(() => SurgeryRequestTussItem, (item) => item.surgeryRequest)
+  tussItems: SurgeryRequestTussItem[];
 
   @OneToMany(
     () => SurgeryRequestActivity,
-    (activity) => activity.surgery_request,
+    (activity) => activity.surgeryRequest,
   )
   activities: SurgeryRequestActivity[];
 
-  @OneToMany(() => ReportSection, (section) => section.surgery_request, {
+  @OneToMany(() => ReportSection, (section) => section.surgeryRequest, {
     cascade: true,
   })
-  report_sections: ReportSection[];
-
-  @ManyToOne(() => Cid, { nullable: true })
-  @JoinColumn({ name: 'cid_id' })
-  cid: Cid;
-
-  @ManyToOne(() => Tuss, { nullable: true })
-  @JoinColumn({ name: 'tuss_id' })
-  tuss: Tuss;
+  reportSections: ReportSection[];
 }

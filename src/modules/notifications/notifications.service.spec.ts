@@ -6,6 +6,7 @@ import { UserNotificationSettingsRepository } from 'src/database/repositories/us
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { MailService } from 'src/shared/mail/mail.service';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
@@ -28,11 +29,15 @@ describe('NotificationsService', () => {
   };
   let mockUserRepository: {
     findOne: jest.Mock;
-    findByAccountId: jest.Mock;
+    findByOwnerId: jest.Mock;
   };
   let mockMailService: {
     sendRaw: jest.Mock;
+    sendGenericNotification: jest.Mock;
     sendStatusChangeStakeholder: jest.Mock;
+  };
+  let mockWhatsappService: {
+    sendTemplate: jest.Mock;
   };
   let mockSurgeryRequestRepository: {
     findDistinctActivityUserIds: jest.Mock;
@@ -43,21 +48,21 @@ describe('NotificationsService', () => {
   const adminUser = {
     id: 'admin-1',
     role: UserRole.ADMIN,
-    account_id: 'acc-1',
+    ownerId: 'acc-1',
     email: 'admin@test.com',
     name: 'Admin',
   };
   const collaboratorUser = {
     id: 'collab-1',
     role: UserRole.COLLABORATOR,
-    account_id: 'acc-1',
+    ownerId: 'acc-1',
     email: 'collab@test.com',
     name: 'Collab',
   };
   const admin2 = {
     id: 'admin-2',
     role: UserRole.ADMIN,
-    account_id: 'acc-1',
+    ownerId: 'acc-1',
     email: 'admin2@test.com',
     name: 'Admin2',
   };
@@ -66,7 +71,7 @@ describe('NotificationsService', () => {
     mockNotificationRepository = {
       create: jest.fn().mockResolvedValue({
         id: 'notif-1',
-        user_id: 'user-1',
+        userId: 'user-1',
         type: NotificationType.INFO,
       }),
       createBulk: jest
@@ -95,12 +100,16 @@ describe('NotificationsService', () => {
 
     mockUserRepository = {
       findOne: jest.fn(),
-      findByAccountId: jest.fn(),
+      findByOwnerId: jest.fn(),
     };
 
     mockMailService = {
       sendRaw: jest.fn().mockResolvedValue(undefined),
+      sendGenericNotification: jest.fn().mockResolvedValue(undefined),
       sendStatusChangeStakeholder: jest.fn().mockResolvedValue(undefined),
+    };
+    mockWhatsappService = {
+      sendTemplate: jest.fn().mockResolvedValue(undefined),
     };
     mockSurgeryRequestRepository = {
       findDistinctActivityUserIds: jest.fn().mockResolvedValue([]),
@@ -127,6 +136,7 @@ describe('NotificationsService', () => {
           useValue: mockSurgeryRequestRepository,
         },
         { provide: MailService, useValue: mockMailService },
+        { provide: WhatsappService, useValue: mockWhatsappService },
         { provide: NotificationsGateway, useValue: mockGateway },
       ],
     }).compile();
@@ -143,19 +153,19 @@ describe('NotificationsService', () => {
     it('chama gateway.emitToUser após persistir notificação', async () => {
       const notification = {
         id: 'notif-ws-1',
-        user_id: 'user-ws-1',
+        userId: 'user-ws-1',
         type: NotificationType.INFO,
         title: 'Teste',
         message: 'Mensagem',
         link: null,
         metadata: null,
-        created_at: new Date(),
+        createdAt: new Date(),
       };
       mockNotificationRepository.create.mockResolvedValue(notification);
       mockSettingsRepository.findByUserId.mockResolvedValue(null);
 
       await service.createNotification({
-        user_id: 'user-ws-1',
+        userId: 'user-ws-1',
         type: NotificationType.INFO,
         title: 'Teste',
         message: 'Mensagem',
@@ -168,8 +178,103 @@ describe('NotificationsService', () => {
         message: notification.message,
         link: notification.link,
         metadata: notification.metadata,
-        created_at: notification.created_at,
+        createdAt: notification.createdAt,
       });
+    });
+
+    it('não cria registro in-app nem emite via WS quando pushNotifications=false', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: false,
+        emailNotifications: false,
+        statusUpdate: true,
+      });
+
+      const result = await service.createNotification({
+        userId: 'user-1',
+        type: NotificationType.STATUS_UPDATE,
+        title: 'Teste',
+        message: 'msg',
+      });
+
+      expect(mockNotificationRepository.create).not.toHaveBeenCalled();
+      expect(mockGateway.emitToUser).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+    });
+
+    it('não cria notificação se o tipo está desligado nas preferências', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: true,
+        statusUpdate: false,
+      });
+
+      const result = await service.createNotification({
+        userId: 'user-1',
+        type: NotificationType.STATUS_UPDATE,
+        title: 'Teste',
+        message: 'msg',
+      });
+
+      expect(mockNotificationRepository.create).not.toHaveBeenCalled();
+      expect(mockGateway.emitToUser).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+    });
+
+    it('nunca envia e-mail (canal removido para usuários do sistema)', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: true,
+        statusUpdate: true,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'user@test.com',
+        name: 'User',
+      });
+
+      await service.createNotification({
+        userId: 'user-1',
+        type: NotificationType.STATUS_UPDATE,
+        title: 'Atualização',
+        message: 'msg',
+      });
+
+      expect(mockMailService.sendGenericNotification).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolveChannels', () => {
+    it('retorna push e whatsapp true quando o usuário não tem registro de preferências', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue(null);
+      const channels = await service.resolveChannels(
+        'user-1',
+        NotificationType.STATUS_UPDATE,
+      );
+      expect(channels).toEqual({ push: true, whatsapp: true });
+    });
+
+    it('retorna tudo false quando o tipo está desligado', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: true,
+        whatsappNotifications: true,
+        statusUpdate: false,
+      });
+      const channels = await service.resolveChannels(
+        'user-1',
+        NotificationType.STATUS_UPDATE,
+      );
+      expect(channels).toEqual({ push: false, whatsapp: false });
+    });
+
+    it('respeita cada canal individualmente quando o tipo está habilitado', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: false,
+        whatsappNotifications: true,
+        statusUpdate: true,
+      });
+      const channels = await service.resolveChannels(
+        'user-1',
+        NotificationType.STATUS_UPDATE,
+      );
+      expect(channels).toEqual({ push: false, whatsapp: true });
     });
   });
 
@@ -179,13 +284,13 @@ describe('NotificationsService', () => {
       mockNotificationRepository.createBulk.mockResolvedValue(
         userIds.map((uid, i) => ({
           id: `notif-${i}`,
-          user_id: uid,
+          userId: uid,
           type: NotificationType.INFO,
           title: 'Bulk',
           message: 'msg',
           link: null,
           metadata: null,
-          created_at: new Date(),
+          createdAt: new Date(),
         })),
       );
       mockSettingsRepository.findByUserId.mockResolvedValue(null);
@@ -212,7 +317,7 @@ describe('NotificationsService', () => {
   describe('notifyAdminsOfAction', () => {
     it('envia notificação para admins quando ator é colaborador (6.1.1)', async () => {
       mockUserRepository.findOne.mockResolvedValue(collaboratorUser);
-      mockUserRepository.findByAccountId.mockResolvedValue([
+      mockUserRepository.findByOwnerId.mockResolvedValue([
         adminUser,
         collaboratorUser,
       ]);
@@ -227,7 +332,7 @@ describe('NotificationsService', () => {
       expect(mockNotificationRepository.createBulk).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            user_id: 'admin-1',
+            userId: 'admin-1',
             type: NotificationType.ACTION_BY_USER,
           }),
         ]),
@@ -236,7 +341,7 @@ describe('NotificationsService', () => {
 
     it('admin não recebe notificação de si mesmo (6.1.1)', async () => {
       mockUserRepository.findOne.mockResolvedValue(adminUser);
-      mockUserRepository.findByAccountId.mockResolvedValue([
+      mockUserRepository.findByOwnerId.mockResolvedValue([
         adminUser,
         collaboratorUser,
       ]);
@@ -246,15 +351,13 @@ describe('NotificationsService', () => {
       // Deve criar bulk vazio ou não chamar createBulk
       const bulkCall = mockNotificationRepository.createBulk.mock.calls[0];
       if (bulkCall) {
-        expect(
-          bulkCall[0].find((n) => n.user_id === 'admin-1'),
-        ).toBeUndefined();
+        expect(bulkCall[0].find((n) => n.userId === 'admin-1')).toBeUndefined();
       }
     });
 
     it('múltiplos admins — todos recebem (exceto o ator) (6.1.1)', async () => {
       mockUserRepository.findOne.mockResolvedValue(collaboratorUser);
-      mockUserRepository.findByAccountId.mockResolvedValue([
+      mockUserRepository.findByOwnerId.mockResolvedValue([
         adminUser,
         admin2,
         collaboratorUser,
@@ -263,13 +366,13 @@ describe('NotificationsService', () => {
       await service.notifyAdminsOfAction('collab-1', 'Ação', 'Mensagem');
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      expect(items.some((n) => n.user_id === 'admin-1')).toBe(true);
-      expect(items.some((n) => n.user_id === 'admin-2')).toBe(true);
+      expect(items.some((n) => n.userId === 'admin-1')).toBe(true);
+      expect(items.some((n) => n.userId === 'admin-2')).toBe(true);
     });
 
     it('não chama createBulk se não há admins outros que o ator', async () => {
       mockUserRepository.findOne.mockResolvedValue(adminUser);
-      mockUserRepository.findByAccountId.mockResolvedValue([adminUser]); // só o admin ator
+      mockUserRepository.findByOwnerId.mockResolvedValue([adminUser]); // só o admin ator
 
       await service.notifyAdminsOfAction('admin-1', 'Ação', 'Mensagem');
 
@@ -297,14 +400,14 @@ describe('NotificationsService', () => {
     const doctor = {
       id: 'doctor-1',
       role: UserRole.COLLABORATOR,
-      account_id: 'acc-1',
+      ownerId: 'acc-1',
       email: 'doctor@test.com',
       name: 'Dr. Silva',
     };
 
     beforeEach(() => {
       mockUserRepository.findOne.mockResolvedValue(collaboratorUser);
-      mockUserRepository.findByAccountId.mockResolvedValue([
+      mockUserRepository.findByOwnerId.mockResolvedValue([
         adminUser,
         collaboratorUser,
         doctor,
@@ -330,7 +433,7 @@ describe('NotificationsService', () => {
 
       expect(mockNotificationRepository.createBulk).toHaveBeenCalled();
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.user_id);
+      const recipientIds = items.map((n) => n.userId);
       expect(recipientIds).toContain('doctor-1');
       expect(recipientIds).toContain('admin-1');
     });
@@ -346,7 +449,7 @@ describe('NotificationsService', () => {
       );
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.user_id);
+      const recipientIds = items.map((n) => n.userId);
       expect(recipientIds).not.toContain(actorId);
     });
 
@@ -354,14 +457,14 @@ describe('NotificationsService', () => {
       mockSurgeryRequestRepository.findDistinctActivityUserIds.mockResolvedValue(
         ['activity-user-1'],
       );
-      mockUserRepository.findByAccountId.mockResolvedValue([
+      mockUserRepository.findByOwnerId.mockResolvedValue([
         adminUser,
         collaboratorUser,
         doctor,
         {
           id: 'activity-user-1',
           role: UserRole.COLLABORATOR,
-          account_id: 'acc-1',
+          ownerId: 'acc-1',
         },
       ]);
 
@@ -375,11 +478,11 @@ describe('NotificationsService', () => {
       );
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.user_id);
+      const recipientIds = items.map((n) => n.userId);
       expect(recipientIds).toContain('activity-user-1');
     });
 
-    it('não duplica destinatários quando doctor_id === created_by_id (6.2.2)', async () => {
+    it('não duplica destinatários quando doctorId === createdById (6.2.2)', async () => {
       await service.notifyStatusChange(
         surgeryRequestId,
         doctorId,
@@ -390,7 +493,7 @@ describe('NotificationsService', () => {
       );
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.user_id);
+      const recipientIds = items.map((n) => n.userId);
       const doctorOccurrences = recipientIds.filter(
         (id) => id === 'doctor-1',
       ).length;
@@ -428,13 +531,14 @@ describe('NotificationsService', () => {
       ).resolves.toBeUndefined();
     });
 
-    it('envia e-mail de status para stakeholders com e-mail habilitado (6.2.4)', async () => {
+    it('nunca envia e-mail aos stakeholders em mudança de status (6.2.4)', async () => {
       mockSettingsRepository.findByUserId.mockResolvedValue({
-        email_notifications: true,
-        status_update: true,
+        pushNotifications: true,
+        whatsappNotifications: true,
+        statusUpdate: true,
       });
       mockUserRepository.findOne
-        .mockResolvedValueOnce(collaboratorUser) // actor lookup
+        .mockResolvedValueOnce(collaboratorUser)
         .mockResolvedValueOnce({
           id: 'doctor-1',
           email: 'doctor@test.com',
@@ -455,12 +559,34 @@ describe('NotificationsService', () => {
         actorId,
       );
 
-      expect(mockMailService.sendStatusChangeStakeholder).toHaveBeenCalled();
+      expect(
+        mockMailService.sendStatusChangeStakeholder,
+      ).not.toHaveBeenCalled();
+      expect(mockMailService.sendGenericNotification).not.toHaveBeenCalled();
     });
 
-    it('não envia e-mail se stakeholder desativou email_notifications (6.2.4)', async () => {
+    it('envia WhatsApp para stakeholders com whatsappNotifications habilitado e telefone', async () => {
       mockSettingsRepository.findByUserId.mockResolvedValue({
-        email_notifications: false,
+        whatsappNotifications: true,
+        statusUpdate: true,
+      });
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(collaboratorUser) // actor
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          email: 'doctor@test.com',
+          name: 'Dr. Silva',
+          phone: '11988887777',
+        })
+        .mockResolvedValueOnce({
+          id: 'admin-1',
+          email: 'admin@test.com',
+          name: 'Admin',
+          phone: null,
+        });
+      mockSurgeryRequestRepository.findOneWithRelations.mockResolvedValue({
+        protocol: 'SC-000123',
+        patient: { name: 'Paciente Teste' },
       });
 
       await service.notifyStatusChange(
@@ -472,9 +598,58 @@ describe('NotificationsService', () => {
         actorId,
       );
 
-      expect(
-        mockMailService.sendStatusChangeStakeholder,
-      ).not.toHaveBeenCalled();
+      expect(mockWhatsappService.sendTemplate).toHaveBeenCalledTimes(1);
+      const [phone, contentSid, vars] =
+        mockWhatsappService.sendTemplate.mock.calls[0];
+      expect(phone).toBe('11988887777');
+      expect(contentSid).toBe('HXa61aa6d8e8aff00807496f8ce990dcd5');
+      expect(vars).toMatchObject({
+        '1': 'Dr. Silva',
+        '2': 'SC-000123',
+        '3': 'Em Análise',
+        '5': 'Paciente Teste',
+      });
+    });
+
+    it('não envia WhatsApp se stakeholder desativou whatsappNotifications', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        whatsappNotifications: false,
+      });
+
+      await service.notifyStatusChange(
+        surgeryRequestId,
+        doctorId,
+        createdById,
+        oldStatus,
+        newStatus,
+        actorId,
+      );
+
+      expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
+    });
+
+    it('não envia WhatsApp se stakeholder não possui telefone', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        whatsappNotifications: true,
+        statusUpdate: true,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'doctor-1',
+        email: 'doctor@test.com',
+        name: 'Dr. Silva',
+        phone: null,
+      });
+
+      await service.notifyStatusChange(
+        surgeryRequestId,
+        doctorId,
+        createdById,
+        oldStatus,
+        newStatus,
+        actorId,
+      );
+
+      expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
     });
   });
 });

@@ -22,7 +22,7 @@ export class SurgeryRequestReportService {
 
   getReportSections(id: string, _userId: string): Promise<ReportSection[]> {
     return this.reportSectionRepository.find({
-      where: { surgery_request_id: id },
+      where: { surgeryRequestId: id },
       order: { order: 'ASC' },
     });
   }
@@ -33,10 +33,10 @@ export class SurgeryRequestReportService {
     _userId: string,
   ): Promise<ReportSection> {
     const count = await this.reportSectionRepository.count({
-      where: { surgery_request_id: id },
+      where: { surgeryRequestId: id },
     });
     const section = this.reportSectionRepository.create({
-      surgery_request_id: id,
+      surgeryRequestId: id,
       title: dto.title,
       description: dto.description ?? null,
       order: count,
@@ -86,7 +86,7 @@ export class SurgeryRequestReportService {
       `UPDATE report_section rs
        SET "order" = v.new_order
        FROM (VALUES ${rows}) AS v(id, new_order)
-       WHERE rs.id = v.id AND rs.surgery_request_id = ${surgeryRequestParam}`,
+       WHERE rs.id = v.id AND rs.surgeryRequestId = ${surgeryRequestParam}`,
       [...params, id],
     );
 

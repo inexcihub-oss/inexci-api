@@ -10,7 +10,7 @@ const logger = new Logger('Seed');
  *
  * Arquitetura:
  * - role: 'admin' | 'collaborator' (médico = existência de doctor_profile)
- * - account_id: isolamento de tenant (todos da mesma conta compartilham)
+ * - owner_id: isolamento de tenant (todos da mesma conta compartilham)
  * - user_doctor_access: controle binário de acesso médico↔usuário
  * - doctor_id em todas as tabelas → user.id
  */
@@ -79,6 +79,35 @@ function generateCNPJ(): string {
   return cnpj;
 }
 
+/**
+ * Cria uma subscription ATIVA (já saída do trial) para um admin de seed,
+ * com período corrente de 30 dias e quota period vinculado. Usa o gateway
+ * 'asaas' como placeholder. Não cria payment_method nem invoice (seed é
+ * para desenvolvimento — fluxo real exige cadastro de cartão).
+ */
+async function createActiveSubscription(
+  dataSource: { query: (q: string, params?: unknown[]) => Promise<unknown[]> },
+  ownerId: string,
+  planId: string,
+): Promise<void> {
+  const sub = (await dataSource.query(
+    `INSERT INTO subscriptions
+       (owner_id, plan_id, status, current_period_start, current_period_end, gateway_provider)
+     VALUES
+       ($1, $2, 'active', NOW(), NOW() + INTERVAL '30 days', 'asaas')
+     RETURNING id`,
+    [ownerId, planId],
+  )) as Array<{ id: string }>;
+  await dataSource.query(
+    `INSERT INTO subscription_quota_periods
+       (subscription_id, period_start, period_end, surgery_requests_limit, surgery_requests_used)
+     SELECT s.id, s.current_period_start, s.current_period_end, p.surgery_request_quota, 0
+     FROM subscriptions s INNER JOIN subscription_plans p ON p.id = s.plan_id
+     WHERE s.id = $1`,
+    [sub[0].id],
+  );
+}
+
 function generatePhone(): string {
   const ddd = faker.helpers.arrayElement([
     '11',
@@ -107,7 +136,7 @@ async function main() {
   // VERIFICAÇÃO DE IDEMPOTÊNCIA
   // ========================================
   const existing = await dataSource.query(
-    `SELECT id FROM "user" WHERE email = 'medico@inexci.com' LIMIT 1`,
+    `SELECT id FROM "users" WHERE email = 'medico@inexci.com' LIMIT 1`,
   );
   if (existing.length > 0) {
     logger.warn(
@@ -125,28 +154,24 @@ async function main() {
   // ========================================
   // 1. PLANOS DE ASSINATURA
   // ========================================
-  logger.log('📋 Criando planos de assinatura...');
+  // Os planos default já são criados pela migration BillingV2. Aqui apenas
+  // recuperamos o id do plano "Profissional" para vincular as subscriptions
+  // dos admins seedados.
+  logger.log('📋 Verificando planos de assinatura (criados via migration)...');
 
-  const basicPlan = await dataSource.query(`
-    INSERT INTO subscription_plan (name, description, max_doctors, is_active)
-    VALUES ('Básico', 'Plano básico com 1 CRM permitido', 1, true)
-    RETURNING id
-  `);
-  const _basicPlanId = basicPlan[0].id;
-
-  const professionalPlan = await dataSource.query(`
-    INSERT INTO subscription_plan (name, description, max_doctors, is_active)
-    VALUES ('Profissional', 'Plano profissional com até 10 CRMs permitidos', 10, true)
-    RETURNING id
-  `);
-  const professionalPlanId = professionalPlan[0].id;
-
-  await dataSource.query(`
-    INSERT INTO subscription_plan (name, description, max_doctors, is_active)
-    VALUES ('Enterprise', 'Plano enterprise sem limite de CRMs', 999, true)
-  `);
-
-  logger.log('✅ 3 planos de assinatura criados\n');
+  const profPlanRow = await dataSource.query(
+    `SELECT id FROM subscription_plans WHERE slug = 'profissional' LIMIT 1`,
+  );
+  if (!profPlanRow.length) {
+    logger.error(
+      'Plano "profissional" não encontrado. Rode as migrations antes do seed.',
+    );
+    process.exit(1);
+  }
+  const professionalPlanId = profPlanRow[0].id;
+  logger.log(
+    '✅ Planos de assinatura disponíveis (4: free-trial, essencial, profissional, enterprise)\n',
+  );
 
   // ========================================
   // 2. PROCEDIMENTOS (TUSS / cirúrgicos)
@@ -196,15 +221,16 @@ async function main() {
   const adminMedicoId = preGen1[0].id;
 
   await dataSource.query(
-    `INSERT INTO "user" (id, name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, subscription_plan_id, email_verified, email_verified_at)
-     VALUES ($1,'Dr. Carlos Mendonça','medico@inexci.com',$2,'11987654321','${generateCPF()}','M','1972-04-10','admin','active',$1,NULL,$3,true,NOW())`,
-    [adminMedicoId, hashedPassword, professionalPlanId],
+    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ($1,'Dr. Carlos Mendonça','medico@inexci.com',$2,'11987654321','${generateCPF()}','M','1972-04-10','admin','active',$1,NULL,true,NOW(),NOW(),NOW(),NOW())`,
+    [adminMedicoId, hashedPassword],
   );
   await dataSource.query(
-    `INSERT INTO doctor_profile (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
+    `INSERT INTO doctor_profiles (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
      VALUES ($1,'145632','SP','Ortopedia e Traumatologia','Clínica Ortopédica Mendonça','${generateCNPJ()}','Av. Paulista, 1500 - Bela Vista - São Paulo, SP - CEP 01310-100')`,
     [adminMedicoId],
   );
+  await createActiveSubscription(dataSource, adminMedicoId, professionalPlanId);
   logger.log('  ✅ medico@inexci.com criado (admin + médico, Ortopedia)\n');
 
   // ========================================
@@ -217,15 +243,16 @@ async function main() {
   const adminId = preGen2[0].id;
 
   await dataSource.query(
-    `INSERT INTO "user" (id, name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, subscription_plan_id, email_verified, email_verified_at)
-     VALUES ($1,'Dr. Rafael Andrade','admin@inexci.com',$2,'21998765432','${generateCPF()}','M','1968-09-22','admin','active',$1,NULL,$3,true,NOW())`,
-    [adminId, hashedPassword, professionalPlanId],
+    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ($1,'Dr. Rafael Andrade','admin@inexci.com',$2,'21998765432','${generateCPF()}','M','1968-09-22','admin','active',$1,NULL,true,NOW(),NOW(),NOW(),NOW())`,
+    [adminId, hashedPassword],
   );
   await dataSource.query(
-    `INSERT INTO doctor_profile (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
+    `INSERT INTO doctor_profiles (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
      VALUES ($1,'98765','RJ','Cardiologia Intervencionista','Instituto Cardíaco Andrade','${generateCNPJ()}','Rua das Laranjeiras, 300 - Laranjeiras - Rio de Janeiro, RJ - CEP 22240-003')`,
     [adminId],
   );
+  await createActiveSubscription(dataSource, adminId, professionalPlanId);
   logger.log('  ✅ admin@inexci.com criado (admin + médico, Cardiologia)\n');
 
   // ========================================
@@ -235,14 +262,14 @@ async function main() {
 
   // Médica colaboradora — Dra. Fernanda Rocha (neurocirurgiã)
   const collabMedicaResult = await dataSource.query(
-    `INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, email_verified, email_verified_at)
-     VALUES ('Dra. Fernanda Rocha','medica@inexci.com',$1,'21976543210','${generateCPF()}','F','1980-03-15','collaborator','active',$2,$2,true,NOW())
+    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ('Dra. Fernanda Rocha','medica@inexci.com',$1,'21976543210','${generateCPF()}','F','1980-03-15','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
      RETURNING id`,
     [hashedPassword, adminId],
   );
   const collabMedicaId = collabMedicaResult[0].id;
   await dataSource.query(
-    `INSERT INTO doctor_profile (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
+    `INSERT INTO doctor_profiles (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
      VALUES ($1,'55443','RJ','Neurocirurgia','Clínica Neuro Rocha','${generateCNPJ()}','Av. Nossa Senhora de Copacabana, 680 - Copacabana - Rio de Janeiro, RJ')`,
     [collabMedicaId],
   );
@@ -250,8 +277,8 @@ async function main() {
 
   // Assistente 1 — Camila Borges
   const assistente1Result = await dataSource.query(
-    `INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, email_verified, email_verified_at)
-     VALUES ('Camila Borges','assistente1@inexci.com',$1,'21965432109','${generateCPF()}','F','1993-07-28','collaborator','active',$2,$2,true,NOW())
+    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ('Camila Borges','assistente1@inexci.com',$1,'21965432109','${generateCPF()}','F','1993-07-28','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
      RETURNING id`,
     [hashedPassword, adminId],
   );
@@ -260,8 +287,8 @@ async function main() {
 
   // Assistente 2 — Lucas Teixeira
   const assistente2Result = await dataSource.query(
-    `INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, email_verified, email_verified_at)
-     VALUES ('Lucas Teixeira','assistente2@inexci.com',$1,'21954321098','${generateCPF()}','M','1997-11-05','collaborator','active',$2,$2,true,NOW())
+    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ('Lucas Teixeira','assistente2@inexci.com',$1,'21954321098','${generateCPF()}','M','1997-11-05','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
      RETURNING id`,
     [hashedPassword, adminId],
   );
@@ -270,8 +297,8 @@ async function main() {
 
   // Secretária — Juliana Matos (pendente de ativação)
   const secretariaResult = await dataSource.query(
-    `INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, email_verified, email_verified_at)
-     VALUES ('Juliana Matos','secretaria@inexci.com',$1,'21943210987','${generateCPF()}','F','1991-02-14','collaborator','pending',$2,$2,true,NOW())
+    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ('Juliana Matos','secretaria@inexci.com',$1,'21943210987','${generateCPF()}','F','1991-02-14','collaborator','pending',$2,$2,true,NOW(),NOW(),NOW(),NOW())
      RETURNING id`,
     [hashedPassword, adminId],
   );
@@ -287,8 +314,8 @@ async function main() {
   logger.log('👩‍💼 Criando colaboradores da conta 1...');
 
   const assistenteOrtResult = await dataSource.query(
-    `INSERT INTO "user" (name, email, password, phone, cpf, gender, birth_date, role, status, account_id, admin_id, email_verified, email_verified_at)
-     VALUES ('Patricia Souza','assistente.ort@inexci.com',$1,'11976543210','${generateCPF()}','F','1995-06-18','collaborator','active',$2,$2,true,NOW())
+    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ('Patricia Souza','assistente.ort@inexci.com',$1,'11976543210','${generateCPF()}','F','1995-06-18','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
      RETURNING id`,
     [hashedPassword, adminMedicoId],
   );
@@ -522,7 +549,7 @@ async function main() {
   const healthPlanIds: string[] = [];
   for (const hp of healthPlansData) {
     const r = await dataSource.query(
-      `INSERT INTO health_plan (name, ans_code, cnpj, email, phone, authorization_contact, authorization_phone, authorization_email, website, default_payment_days, active, doctor_id)
+      `INSERT INTO health_plans (name, ans_code, cnpj, email, phone, authorization_contact, authorization_phone, authorization_email, website, default_payment_days, active, doctor_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11) RETURNING id`,
       [
         hp.name,
@@ -953,7 +980,7 @@ async function main() {
   // SR 1 — Status PENDING (Pendente) — paciente 0
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
        VALUES ($1,$2,$3,$4,$5,$6,1,2,NULL,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [
         adminId,
@@ -976,7 +1003,7 @@ async function main() {
   // SR 2 — Status SENT (Enviada) — paciente 1
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method)
        VALUES ($1,$2,$3,$4,$5,$6,2,3,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '3 days','email') RETURNING id`,
       [
         adminId,
@@ -1003,7 +1030,7 @@ async function main() {
   // SR 3 — Status IN_ANALYSIS (Em Análise) com analysis record — paciente 2
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method, analysis_started_at)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method, analysis_started_at)
        VALUES ($1,$2,$3,$4,$5,$6,3,2,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '10 days','email',NOW() - INTERVAL '8 days') RETURNING id`,
       [
         adminId,
@@ -1030,7 +1057,7 @@ async function main() {
       [r[0].id],
     );
     await dataSource.query(
-      `INSERT INTO surgery_request_analysis (surgery_request_id, request_number, received_at, quotation_1_number, quotation_1_received_at, notes)
+      `INSERT INTO surgery_requests_analysis (surgery_request_id, request_number, received_at, quotation_1_number, quotation_1_received_at, notes)
        VALUES ($1,'SUL-2024-00847',NOW() - INTERVAL '8 days','COT-SUL-001',NOW() - INTERVAL '5 days','Cotação de OPME pendente de 2ª e 3ª via.')`,
       [r[0].id],
     );
@@ -1053,7 +1080,7 @@ async function main() {
     );
     // Cotação
     await dataSource.query(
-      `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, notes, selected)
+      `INSERT INTO surgery_requests_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, notes, selected)
        VALUES ($1,$2,'COT-BIO-2024-112',18500.00,NOW() - INTERVAL '5 days',NOW() + INTERVAL '25 days','Inclui set de instrumentais sem custo adicional.',false)`,
       [r[0].id, supplierIds[1]],
     );
@@ -1062,7 +1089,7 @@ async function main() {
   // SR 4 — Status IN_SCHEDULING (Em Agendamento) — paciente 3
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
        VALUES ($1,$2,$3,$4,$5,$6,4,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '20 days',NOW() - INTERVAL '17 days','AMIL-20240358',$13) RETURNING id`,
       [
         adminId,
@@ -1113,7 +1140,7 @@ async function main() {
   {
     const surgeryDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, selected_date_index, hospital_protocol)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, selected_date_index, hospital_protocol)
        VALUES ($1,$2,$3,$4,$5,$6,5,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '25 days',NOW() - INTERVAL '22 days','UNIMED-20240612',$13,0,'HCD-2024-8834') RETURNING id`,
       [
         adminId,
@@ -1165,7 +1192,7 @@ async function main() {
       [opme5b[0].id, supplierIds[0]],
     );
     await dataSource.query(
-      `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
+      `INSERT INTO surgery_requests_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
        VALUES ($1,$2,'COT-STR-2024-330',32000.00,NOW() - INTERVAL '18 days',NOW() + INTERVAL '12 days',true)`,
       [r[0].id, supplierIds[1]],
     );
@@ -1174,7 +1201,7 @@ async function main() {
   // SR 6 — Status PERFORMED (Realizada) — paciente 0 (segunda cirurgia)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
        VALUES ($1,$2,$3,$4,$5,$6,6,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '45 days',NOW() - INTERVAL '42 days','UNIMED-20240288',NOW() - INTERVAL '15 days',NOW() - INTERVAL '15 days') RETURNING id`,
       [
         adminId,
@@ -1217,7 +1244,7 @@ async function main() {
   // SR 7 — Status INVOICED (Faturada) — paciente 1
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
        VALUES ($1,$2,$3,$4,$5,$6,7,1,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '60 days',NOW() - INTERVAL '30 days') RETURNING id`,
       [
         adminId,
@@ -1249,7 +1276,7 @@ async function main() {
       );
     }
     await dataSource.query(
-      `INSERT INTO surgery_request_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline)
+      `INSERT INTO surgery_requests_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline)
        VALUES ($1,$2,'FAT-SUL-2024-00334',NOW() - INTERVAL '10 days',1850.00,NOW() + INTERVAL '20 days')`,
       [r[0].id, adminId],
     );
@@ -1258,7 +1285,7 @@ async function main() {
   // SR 8 — Status FINALIZED (Finalizada) — paciente 2
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
        VALUES ($1,$2,$3,$4,$5,$6,8,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '90 days',NOW() - INTERVAL '60 days') RETURNING id`,
       [
         adminId,
@@ -1291,7 +1318,7 @@ async function main() {
       );
     }
     await dataSource.query(
-      `INSERT INTO surgery_request_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes)
+      `INSERT INTO surgery_requests_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes)
        VALUES ($1,$2,'FAT-SUL-2024-00089',NOW() - INTERVAL '50 days',2400.00,NOW() - INTERVAL '20 days',2400.00,NOW() - INTERVAL '22 days','Pagamento recebido integral sem glosa.')`,
       [r[0].id, adminId],
     );
@@ -1300,7 +1327,7 @@ async function main() {
   // SR 9 — Status CLOSED (Encerrada / recusada) — paciente 3
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
        VALUES ($1,$2,$3,$4,$5,$6,9,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '40 days','Convênio negou autorização alegando documentação incompleta. Decisão contestada e aguardando reanálise em nova solicitação.',NOW() - INTERVAL '5 days') RETURNING id`,
       [
         adminId,
@@ -1331,7 +1358,7 @@ async function main() {
   // SR 10 — Dra. Fernanda Rocha (neurocirurgia) — paciente 5
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol)
        VALUES ($1,$2,$3,$4,$5,$6,3,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '12 days',NOW() - INTERVAL '9 days','BRAD-20241122') RETURNING id`,
       [
         collabMedicaId,
@@ -1374,7 +1401,7 @@ async function main() {
       [opme10b[0].id, supplierIds[2]],
     );
     await dataSource.query(
-      `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
+      `INSERT INTO surgery_requests_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
        VALUES ($1,$2,'COT-SYN-2024-778',24500.00,NOW() - INTERVAL '6 days',NOW() + INTERVAL '24 days',false)`,
       [r[0].id, supplierIds[2]],
     );
@@ -1383,7 +1410,7 @@ async function main() {
   // SR 11 — Dra. Fernanda Rocha — paciente 6 — PENDING
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
        VALUES ($1,$2,$3,$4,$5,$6,1,2,NULL,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [
         collabMedicaId,
@@ -1416,7 +1443,7 @@ async function main() {
   {
     const surgDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, hospital_protocol)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, hospital_protocol)
        VALUES ($1,$2,$3,$4,$5,$6,5,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '30 days',NOW() - INTERVAL '27 days','UNIMED-20241087',$13,'HEIN-2024-5531') RETURNING id`,
       [
         adminMedicoId,
@@ -1470,12 +1497,12 @@ async function main() {
       [opmeC1c[0].id, supplierIds[4]],
     );
     await dataSource.query(
-      `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
+      `INSERT INTO surgery_requests_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
        VALUES ($1,$2,'COT-ZIM-2024-221',21500.00,NOW() - INTERVAL '22 days',NOW() + INTERVAL '8 days',true)`,
       [r[0].id, supplierIds[3]],
     );
     await dataSource.query(
-      `INSERT INTO surgery_request_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
+      `INSERT INTO surgery_requests_quotation (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
        VALUES ($1,$2,'COT-DEP-2024-445',23200.00,NOW() - INTERVAL '20 days',NOW() + INTERVAL '10 days',false)`,
       [r[0].id, supplierIds[4]],
     );
@@ -1484,7 +1511,7 @@ async function main() {
   // SR C1-2 — ATQ urgente — IN_SCHEDULING
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
        VALUES ($1,$2,$3,$4,$5,$6,4,4,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '5 days',NOW() - INTERVAL '3 days','PORTO-20240777',$13) RETURNING id`,
       [
         adminMedicoId,
@@ -1547,7 +1574,7 @@ async function main() {
   // SR C1-3 — Artroscopia — PENDING
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
        VALUES ($1,$2,$3,$4,$5,$6,1,2,false,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [
         adminMedicoId,
@@ -1570,7 +1597,7 @@ async function main() {
   // SR C1-4 — FINALIZED com billing e contestação
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_request (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+      `INSERT INTO surgery_requests (doctor_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
        VALUES ($1,$2,$3,$4,$5,$6,8,2,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '120 days',NOW() - INTERVAL '80 days') RETURNING id`,
       [
         adminMedicoId,
@@ -1610,7 +1637,7 @@ async function main() {
       [opmeC4a[0].id, supplierIds[3]],
     );
     await dataSource.query(
-      `INSERT INTO surgery_request_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes, contested_received_value, contested_received_at, contested_receipt_notes)
+      `INSERT INTO surgery_requests_billing (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes, contested_received_value, contested_received_at, contested_receipt_notes)
        VALUES ($1,$2,'FAT-HAP-2024-00221',NOW() - INTERVAL '70 days',19800.00,NOW() - INTERVAL '40 days',15200.00,NOW() - INTERVAL '42 days','Glosa parcial na OPME.',19800.00,NOW() - INTERVAL '35 days','Contestação enviada com nota fiscal e relatório cirúrgico. Aguardando revisão da operadora.')`,
       [r[0].id, adminMedicoId],
     );
@@ -1643,7 +1670,7 @@ async function main() {
   logger.log('📝 Criando templates de solicitação...');
 
   await dataSource.query(
-    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO surgery_requests_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
     [
       adminMedicoId,
       'ATJ Padrão',
@@ -1678,7 +1705,7 @@ async function main() {
     ],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO surgery_requests_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
     [
       adminMedicoId,
       'Artroscopia de Joelho',
@@ -1696,7 +1723,7 @@ async function main() {
     ],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO surgery_requests_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
     [
       adminId,
       'Revascularização Miocárdica',
@@ -1727,7 +1754,7 @@ async function main() {
     ],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO surgery_requests_template (doctor_id, name, template_data, usage_count) VALUES ($1, $2, $3, $4)`,
     [
       collabMedicaId,
       'Discectomia Lombar',
@@ -1771,61 +1798,61 @@ async function main() {
 
   // SR C1-1 — atividades diversas
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
     [srIds1[0], adminMedicoId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Paciente confirmou disponibilidade para cirurgia na data proposta. Exames pré-operatórios em dia.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Paciente confirmou disponibilidade para cirurgia na data proposta. Exames pré-operatórios em dia.')`,
     [srIds1[0], assistenteOrtId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'PDF da solicitação gerado e enviado para o convênio via e-mail.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'PDF da solicitação gerado e enviado para o convênio via e-mail.')`,
     [srIds1[0], adminMedicoId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Enviada para Em Análise')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Enviada para Em Análise')`,
     [srIds1[0], adminMedicoId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Análise para Em Agendamento')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Análise para Em Agendamento')`,
     [srIds1[0], adminMedicoId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Zimmer Biomet selecionada. Valor: R$ 21.500,00.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Zimmer Biomet selecionada. Valor: R$ 21.500,00.')`,
     [srIds1[0], adminMedicoId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Agendamento para Agendada')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Agendamento para Agendada')`,
     [srIds1[0], adminMedicoId],
   );
 
   // SR2 conta 2
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
     [srIds2[1], assistente1Id],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Solicitação enviada por e-mail ao convênio Amil.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Solicitação enviada por e-mail ao convênio Amil.')`,
     [srIds2[1], assistente1Id],
   );
 
   // SR10 — Dra. Fernanda
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'Solicitação criada com OPME. Aguardando cotação.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'Solicitação criada com OPME. Aguardando cotação.')`,
     [srIds2[9], collabMedicaId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Synthes recebida. Valor R$ 24.500,00. Aguardando aprovação do convênio.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Synthes recebida. Valor R$ 24.500,00. Aguardando aprovação do convênio.')`,
     [srIds2[9], collabMedicaId],
   );
 
   // SR C1-4 (finalizada com contestação)
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'pdf_generated', 'PDF da solicitação cirúrgica gerado automaticamente.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'pdf_generated', 'PDF da solicitação cirúrgica gerado automaticamente.')`,
     [srIds1[3], adminMedicoId],
   );
   await dataSource.query(
-    `INSERT INTO surgery_request_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Convênio glosou R$ 4.600,00 referente ao implante. Contestação protocolada.')`,
+    `INSERT INTO surgery_requests_activity (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Convênio glosou R$ 4.600,00 referente ao implante. Contestação protocolada.')`,
     [srIds1[3], adminMedicoId],
   );
 

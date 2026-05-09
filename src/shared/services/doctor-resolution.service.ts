@@ -3,7 +3,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { UserRepository } from 'src/database/repositories/user.repository';
 
 /**
- * Service responsável por resolver o doctor_id para operações de escrita.
+ * Service responsável por resolver o doctorId para operações de escrita.
  *
  * Centraliza a lógica de identificação do médico responsável,
  * eliminando duplicação entre services de criação/atualização.
@@ -18,9 +18,9 @@ export class DoctorResolutionService {
   ) {}
 
   /**
-   * Resolve o doctor_id para operações de escrita.
+   * Resolve o doctorId para operações de escrita.
    * - Se doctorIdFromPayload fornecido: valida acesso e retorna
-   * - Se usuário é médico (tem doctor_profile): retorna user.id
+   * - Se usuário é médico (tem doctorProfile): retorna user.id
    * - Caso contrário: retorna o primeiro médico acessível
    */
   async resolveDoctorId(
@@ -39,7 +39,7 @@ export class DoctorResolutionService {
     }
 
     const user = await this.userRepository.findOneWithProfile({ id: userId });
-    if (user?.doctor_profile) return user.id;
+    if (user?.doctorProfile) return user.id;
 
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);

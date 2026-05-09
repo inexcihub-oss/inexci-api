@@ -11,29 +11,29 @@ export class DoctorHeaderRepository extends BaseRepository<DoctorHeader> {
 
   findByDoctorProfileId(doctorProfileId: string): Promise<DoctorHeader | null> {
     return this.repository.findOne({
-      where: { doctor_profile_id: doctorProfileId },
+      where: { doctorProfileId },
     });
   }
 
   async upsert(
     doctorProfileId: string,
     data: Partial<
-      Pick<DoctorHeader, 'logo_url' | 'logo_position' | 'content_html'>
+      Pick<DoctorHeader, 'logoUrl' | 'logoPosition' | 'contentHtml'>
     >,
   ): Promise<DoctorHeader> {
     const existing = await this.findByDoctorProfileId(doctorProfileId);
     if (existing) {
-      await this.repository.update(existing.id, data as any);
+      await this.repository.update(existing.id, data);
       return (await this.findByDoctorProfileId(doctorProfileId))!;
     }
     const entity = this.repository.create({
-      doctor_profile_id: doctorProfileId,
+      doctorProfileId,
       ...data,
     });
     return this.repository.save(entity);
   }
 
   async removeByDoctorProfileId(doctorProfileId: string): Promise<void> {
-    await this.repository.delete({ doctor_profile_id: doctorProfileId });
+    await this.repository.delete({ doctorProfileId });
   }
 }

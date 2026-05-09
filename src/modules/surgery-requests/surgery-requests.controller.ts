@@ -107,12 +107,12 @@ export class SurgeryRequestsController {
   @ApiOperation({ summary: 'Definir se possui OPME' })
   setHasOpme(
     @Param('id') id: string,
-    @Body() body: { has_opme: boolean },
+    @Body() body: { hasOpme: boolean },
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.setHasOpme(
       id,
-      body.has_opme,
+      body.hasOpme,
       user.userId,
     );
   }
@@ -520,7 +520,7 @@ export class SurgeryRequestsController {
   @Post('templates')
   @ApiOperation({ summary: 'Criar template' })
   createTemplate(
-    @Body() dto: { name: string; template_data: object },
+    @Body() dto: { name: string; templateData: object },
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.createTemplate(dto, user.userId);
@@ -547,7 +547,7 @@ export class SurgeryRequestsController {
   @ApiOperation({ summary: 'Atualizar template' })
   updateTemplate(
     @Param('id') id: string,
-    @Body() dto: { name?: string; template_data?: object },
+    @Body() dto: { name?: string; templateData?: object },
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.updateTemplate(id, dto, user.userId);

@@ -26,6 +26,7 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   get_opme_items: ['protocol'],
   get_pendencies: ['protocol'],
   get_patient_info: ['patient_name', 'cpf', 'phone', 'email', 'birth_date'],
+  create_patient: ['patient_name', 'cpf', 'phone', 'email', 'birth_date'],
   list_sc_creation_catalog: [
     'patient_name',
     'hospital_name',

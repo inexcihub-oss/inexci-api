@@ -12,42 +12,42 @@ import {
 import { SurgeryRequest } from './surgery-request.entity';
 import { Supplier } from './supplier.entity';
 
-@Entity('opme_item')
+@Entity('opmeItems')
 export class OpmeItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'surgery_request_id' })
-  surgery_request_id: string;
+  @Column({ name: 'surgery_request_id', type: 'uuid' })
+  surgeryRequestId: string;
 
   @Column({ type: 'varchar', length: 75 })
   name: string;
 
   @Column({ type: 'varchar', length: 75, nullable: true })
-  brand: string;
+  brand: string | null;
 
   @Column({ type: 'int' })
   quantity: number;
 
-  @Column({ type: 'int', nullable: true })
-  authorized_quantity: number;
+  @Column({ name: 'authorized_quantity', type: 'int', nullable: true })
+  authorizedQuantity: number | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => SurgeryRequest, (request) => request.opme_items)
+  @ManyToOne(() => SurgeryRequest, (request) => request.opmeItems)
   @JoinColumn({ name: 'surgery_request_id' })
-  surgery_request: SurgeryRequest;
+  surgeryRequest: SurgeryRequest;
 
-  @ManyToMany(() => Supplier, (supplier) => supplier.opme_items, {
+  @ManyToMany(() => Supplier, (supplier) => supplier.opmeItems, {
     eager: false,
   })
   @JoinTable({
-    name: 'opme_item_supplier',
+    name: 'opme_item_suppliers',
     joinColumn: { name: 'opme_item_id', referencedColumnName: 'id' },
     inverseJoinColumn: { name: 'supplier_id', referencedColumnName: 'id' },
   })

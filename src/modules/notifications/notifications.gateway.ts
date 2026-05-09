@@ -16,7 +16,7 @@ export interface NotificationPayload {
   message: string;
   link?: string;
   metadata?: Record<string, any>;
-  created_at: Date;
+  createdAt: Date;
 }
 
 @WebSocketGateway({ namespace: '/notifications', cors: { origin: '*' } })

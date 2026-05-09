@@ -40,9 +40,9 @@ export class SurgeryRequestStateMachine {
           );
         }
         // Validações de dados obrigatórios
-        if (!request.patient_id) pendencies.push('Paciente não informado.');
-        if (!request.hospital_id) pendencies.push('Hospital não informado.');
-        const procedures = request.tuss_items ?? [];
+        if (!request.patientId) pendencies.push('Paciente não informado.');
+        if (!request.hospitalId) pendencies.push('Hospital não informado.');
+        const procedures = request.tussItems ?? [];
         if (procedures.length === 0)
           pendencies.push('Nenhum procedimento TUSS informado.');
         break;
@@ -55,7 +55,7 @@ export class SurgeryRequestStateMachine {
             'A solicitação precisa estar com status Enviada para iniciar análise.',
           );
         }
-        // analysis deve ser criada pelo endpoint start-analysis com request_number + received_at
+        // analysis deve ser criada pelo endpoint start-analysis com requestNumber + receivedAt
         // A validação de campos é feita no DTO do endpoint
         break;
       }
@@ -67,7 +67,7 @@ export class SurgeryRequestStateMachine {
             'A solicitação precisa estar Em Análise para aceitar autorização.',
           );
         }
-        // Nota: date_options é fornecido pelo DTO da transição (AcceptAuthorizationDto),
+        // Nota: dateOptions é fornecido pelo DTO da transição (AcceptAuthorizationDto),
         // não precisa ser uma pré-condição no estado atual da solicitação.
         break;
       }
@@ -79,7 +79,7 @@ export class SurgeryRequestStateMachine {
             'A solicitação precisa estar Em Agendamento para confirmar data.',
           );
         }
-        // Nota: selected_date_index e surgery_date são definidos pelo endpoint confirm-date
+        // Nota: selectedDateIndex e surgeryDate são definidos pelo endpoint confirm-date
         break;
       }
 
@@ -90,7 +90,7 @@ export class SurgeryRequestStateMachine {
             'A solicitação precisa estar Agendada para ser marcada como Realizada.',
           );
         }
-        // Nota: surgery_performed_at é definido pelo endpoint mark-performed
+        // Nota: surgeryPerformedAt é definido pelo endpoint mark-performed
         break;
       }
 
@@ -101,10 +101,10 @@ export class SurgeryRequestStateMachine {
             'A solicitação precisa estar Realizada para ser faturada.',
           );
         }
-        if (!request.billing?.invoice_value) {
+        if (!request.billing?.invoiceValue) {
           pendencies.push('Valor da fatura não informado.');
         }
-        if (!request.billing?.invoice_sent_at) {
+        if (!request.billing?.invoiceSentAt) {
           pendencies.push('Data de envio da fatura não informada.');
         }
         break;
@@ -117,10 +117,10 @@ export class SurgeryRequestStateMachine {
             'A solicitação precisa estar Faturada para ser finalizada.',
           );
         }
-        if (!request.billing?.received_value) {
+        if (!request.billing?.receivedValue) {
           pendencies.push('Valor recebido não informado.');
         }
-        if (!request.billing?.received_at) {
+        if (!request.billing?.receivedAt) {
           pendencies.push('Data de recebimento não informada.');
         }
         break;

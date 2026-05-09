@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { ConsentService } from './consent.service';
 
 describe('ConsentService', () => {
@@ -6,239 +6,120 @@ describe('ConsentService', () => {
     findOne: jest.fn(),
     update: jest.fn(),
   };
-  const consentLogRepoMock = {
-    create: jest.fn(),
-    findHistory: jest.fn(),
-  };
-  const eventEmitterMock = {
-    emit: jest.fn(),
-  };
 
   let service: ConsentService;
 
   beforeEach(() => {
     jest.resetAllMocks();
-    service = new ConsentService(
-      userRepoMock as any,
-      consentLogRepoMock as any,
-      eventEmitterMock as any,
-    );
+    service = new ConsentService(userRepoMock as any);
   });
 
   describe('getStatus', () => {
-    it('marca como aceito quando MAJOR coincide', async () => {
+    it('marca como aceito quando os campos *_accepted_at estão preenchidos', async () => {
       userRepoMock.findOne.mockResolvedValue({
         id: 'u1',
-        ai_consent_version: '1.0',
-        ai_consent_at: new Date('2026-05-01'),
-        privacy_policy_consent_version: '1.0',
-        privacy_policy_consent_at: new Date('2026-05-01'),
-        terms_of_use_consent_version: '1.0',
-        terms_of_use_consent_at: new Date('2026-05-01'),
+        privacyPolicyAcceptedAt: new Date('2026-05-01'),
+        termsOfUseAcceptedAt: new Date('2026-05-01'),
+        aiConsentAcceptedAt: new Date('2026-05-01'),
       });
 
       const status = await service.getStatus('u1');
 
-      const ai = status.find((s) => s.type === 'ai')!;
-      expect(ai.isAccepted).toBe(true);
-      expect(ai.isRequired).toBe(false);
-      expect(ai.acceptedVersion).toBe('1.0');
-
-      const policy = status.find((s) => s.type === 'privacy_policy')!;
-      expect(policy.isAccepted).toBe(true);
-      expect(policy.isRequired).toBe(true);
+      expect(status.requiredConsentsAccepted).toBe(true);
+      expect(status.pendingRequired).toEqual([]);
+      expect(status.aiConsentAcceptedAt).toBeInstanceOf(Date);
     });
 
-    it('marca como pendente quando MAJOR difere ou está nulo', async () => {
+    it('lista os obrigatórios pendentes quando timestamps estão nulos', async () => {
       userRepoMock.findOne.mockResolvedValue({
         id: 'u1',
-        ai_consent_version: null,
-        ai_consent_at: null,
-        privacy_policy_consent_version: '0.9',
-        privacy_policy_consent_at: new Date('2024-01-01'),
-        terms_of_use_consent_version: '1.0',
-        terms_of_use_consent_at: new Date('2026-05-01'),
+        privacyPolicyAcceptedAt: null,
+        termsOfUseAcceptedAt: new Date('2026-05-01'),
+        aiConsentAcceptedAt: null,
       });
 
       const status = await service.getStatus('u1');
 
-      expect(status.find((s) => s.type === 'ai')!.isAccepted).toBe(false);
-      expect(status.find((s) => s.type === 'privacy_policy')!.isAccepted).toBe(
-        false,
-      );
-      expect(status.find((s) => s.type === 'terms_of_use')!.isAccepted).toBe(
-        true,
-      );
+      expect(status.requiredConsentsAccepted).toBe(false);
+      expect(status.pendingRequired).toEqual(['privacy_policy']);
+      expect(status.aiConsentAcceptedAt).toBeNull();
     });
 
-    it('lança NotFoundException quando usuário inexistente', async () => {
+    it('lança NotFoundException quando usuário não existe', async () => {
       userRepoMock.findOne.mockResolvedValue(null);
-      await expect(service.getStatus('u-x')).rejects.toBeInstanceOf(
+      await expect(service.getStatus('x')).rejects.toBeInstanceOf(
         NotFoundException,
       );
     });
   });
 
-  describe('getPending', () => {
-    it('retorna apenas obrigatórios não aceitos', async () => {
+  describe('acceptTerms', () => {
+    it('grava timestamps em privacy_policy_accepted_at e terms_of_use_accepted_at', async () => {
       userRepoMock.findOne.mockResolvedValue({
         id: 'u1',
-        ai_consent_version: null,
-        ai_consent_at: null,
-        privacy_policy_consent_version: null,
-        privacy_policy_consent_at: null,
-        terms_of_use_consent_version: '1.0',
-        terms_of_use_consent_at: new Date('2026-05-01'),
+        privacyPolicyAcceptedAt: null,
+        termsOfUseAcceptedAt: null,
+        aiConsentAcceptedAt: null,
       });
 
-      const pending = await service.getPending('u1');
-
-      expect(pending).toEqual(['privacy_policy']);
-    });
-  });
-
-  describe('grant', () => {
-    beforeEach(() => {
-      userRepoMock.findOne
-        .mockResolvedValueOnce({
-          id: 'u1',
-          ai_consent_version: null,
-          ai_consent_at: null,
-          privacy_policy_consent_version: null,
-          privacy_policy_consent_at: null,
-          terms_of_use_consent_version: null,
-          terms_of_use_consent_at: null,
-        })
-        .mockResolvedValueOnce({
-          id: 'u1',
-          ai_consent_version: '1.0',
-          ai_consent_at: new Date(),
-          privacy_policy_consent_version: null,
-          privacy_policy_consent_at: null,
-          terms_of_use_consent_version: null,
-          terms_of_use_consent_at: null,
-        });
-    });
-
-    it('atualiza user e cria registro em consent_log', async () => {
-      const status = await service.grant('u1', 'ai', '1.0', {
-        ip: '1.2.3.4',
-        userAgent: 'jest',
-        channel: 'web',
-      });
+      const result = await service.acceptTerms('u1');
 
       expect(userRepoMock.update).toHaveBeenCalledWith(
         'u1',
         expect.objectContaining({
-          ai_consent_version: '1.0',
-          ai_consent_at: expect.any(Date),
+          privacyPolicyAcceptedAt: expect.any(Date),
+          termsOfUseAcceptedAt: expect.any(Date),
         }),
       );
-      expect(consentLogRepoMock.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          user_id: 'u1',
-          consent_type: 'ai',
-          version: '1.0',
-          action: 'granted',
-          ip_address: '1.2.3.4',
-          user_agent: 'jest',
-          channel: 'web',
-        }),
-      );
-      expect(status.isAccepted).toBe(true);
-    });
-
-    it('rejeita versão com MAJOR incompatível', async () => {
-      await expect(service.grant('u1', 'ai', '2.0')).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-      expect(userRepoMock.update).not.toHaveBeenCalled();
-      expect(consentLogRepoMock.create).not.toHaveBeenCalled();
+      expect(result.requiredConsentsAccepted).toBe(true);
     });
   });
 
-  describe('revoke', () => {
-    it('limpa campos do user e registra "revoked" no log', async () => {
-      userRepoMock.findOne
-        .mockResolvedValueOnce({
-          id: 'u1',
-          ai_consent_version: '1.0',
-          ai_consent_at: new Date(),
-        })
-        .mockResolvedValueOnce({
-          id: 'u1',
-          ai_consent_version: null,
-          ai_consent_at: null,
-        });
+  describe('grantAi / revokeAi', () => {
+    it('grantAi grava ai_consent_accepted_at', async () => {
+      userRepoMock.findOne.mockResolvedValue({
+        id: 'u1',
+        privacyPolicyAcceptedAt: new Date(),
+        termsOfUseAcceptedAt: new Date(),
+        aiConsentAcceptedAt: null,
+      });
 
-      const status = await service.revoke('u1', 'ai', { ip: '5.6.7.8' });
+      const result = await service.grantAi('u1');
 
       expect(userRepoMock.update).toHaveBeenCalledWith('u1', {
-        ai_consent_version: null,
-        ai_consent_at: null,
+        aiConsentAcceptedAt: expect.any(Date),
       });
-      expect(consentLogRepoMock.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          consent_type: 'ai',
-          action: 'revoked',
-          ip_address: '5.6.7.8',
-        }),
-      );
-      expect(status.isAccepted).toBe(false);
+      expect(result.aiConsentAcceptedAt).toBeInstanceOf(Date);
     });
 
-    it('emite evento ai.consent.revoked ao revogar consentimento de IA', async () => {
-      userRepoMock.findOne
-        .mockResolvedValueOnce({
-          id: 'u1',
-          ai_consent_version: '1.0',
-          ai_consent_at: new Date(),
-        })
-        .mockResolvedValueOnce({
-          id: 'u1',
-          ai_consent_version: null,
-          ai_consent_at: null,
-        });
-
-      await service.revoke('u1', 'ai');
-      expect(eventEmitterMock.emit).toHaveBeenCalledWith('ai.consent.revoked', {
-        userId: 'u1',
+    it('revokeAi zera ai_consent_accepted_at', async () => {
+      userRepoMock.findOne.mockResolvedValue({
+        id: 'u1',
+        privacyPolicyAcceptedAt: new Date(),
+        termsOfUseAcceptedAt: new Date(),
+        aiConsentAcceptedAt: new Date(),
       });
-    });
 
-    it('não emite evento ao revogar consentimento não-IA', async () => {
-      userRepoMock.findOne
-        .mockResolvedValueOnce({
-          id: 'u1',
-          privacy_policy_consent_version: '1.0',
-          privacy_policy_consent_at: new Date(),
-        })
-        .mockResolvedValueOnce({
-          id: 'u1',
-          privacy_policy_consent_version: null,
-          privacy_policy_consent_at: null,
-        });
+      const result = await service.revokeAi('u1');
 
-      await service.revoke('u1', 'privacy_policy');
-      expect(eventEmitterMock.emit).not.toHaveBeenCalled();
+      expect(userRepoMock.update).toHaveBeenCalledWith('u1', {
+        aiConsentAcceptedAt: null,
+      });
+      expect(result.aiConsentAcceptedAt).toBeNull();
     });
   });
 
   describe('hasValidAiConsent', () => {
-    it('valida MAJOR igual', async () => {
-      await expect(
-        service.hasValidAiConsent({ ai_consent_version: '1.5' } as any),
-      ).resolves.toBe(true);
+    it('retorna true quando o timestamp existe', () => {
+      expect(
+        service.hasValidAiConsent({ aiConsentAcceptedAt: new Date() } as any),
+      ).toBe(true);
     });
-    it('rejeita null', async () => {
-      await expect(
-        service.hasValidAiConsent({ ai_consent_version: null } as any),
-      ).resolves.toBe(false);
-    });
-    it('rejeita MAJOR diferente', async () => {
-      await expect(
-        service.hasValidAiConsent({ ai_consent_version: '0.9' } as any),
-      ).resolves.toBe(false);
+
+    it('retorna false quando o timestamp é null', () => {
+      expect(
+        service.hasValidAiConsent({ aiConsentAcceptedAt: null } as any),
+      ).toBe(false);
     });
   });
 });

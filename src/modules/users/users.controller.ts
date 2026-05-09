@@ -1,7 +1,5 @@
-import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
 import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
@@ -66,12 +64,6 @@ export class UsersController {
     return await this.usersService.updateProfile(data, user.userId);
   }
 
-  @Get('complete-register/validate-link')
-  @ApiOperation({ summary: 'Validar link de cadastro completo' })
-  async validateCompleteRegisterLink(@CurrentUser() user: AuthenticatedUser) {
-    return await this.usersService.validateCompleteRegisterLink(user.userId);
-  }
-
   @Post()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Criar usuário (admin)' })
@@ -80,25 +72,6 @@ export class UsersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.usersService.create(data, user.userId);
-  }
-
-  @Post('complete-register')
-  @ApiOperation({ summary: 'Completar cadastro' })
-  async completeRegister(
-    @Body() data: CompleteRegisterDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return await this.usersService.completeRegister(data, user.userId);
-  }
-
-  @Put()
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Atualizar usuário (admin)' })
-  async update(
-    @Body() data: UpdateUserDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return await this.usersService.update(data, user.userId);
   }
 
   @Patch(':id')

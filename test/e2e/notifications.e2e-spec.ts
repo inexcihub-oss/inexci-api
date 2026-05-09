@@ -104,23 +104,56 @@ describe('Notifications (e2e)', () => {
   });
 
   describe('/notifications/settings (PUT)', () => {
-    it('should update notification settings', async () => {
+    it('aceita payload em camelCase e devolve 200', async () => {
       const response = await request(app.getHttpServer())
         .put('/notifications/settings')
         .set(getAuthHeader(authToken))
         .send({
-          email_notifications: true,
-          push_notifications: false,
+          pushNotifications: false,
+          whatsappNotifications: true,
+          statusUpdate: true,
+          weeklyReport: false,
         });
 
-      // Pode retornar 200 ou 400/500 dependendo da validação
-      expect([200, 400, 500]).toContain(response.status);
+      expect(response.status).toBe(200);
+      expect(response.body.pushNotifications).toBe(false);
+      expect(response.body.whatsappNotifications).toBe(true);
+    });
+
+    it('rejeita payload em snake_case (formato legado removido)', async () => {
+      const response = await request(app.getHttpServer())
+        .put('/notifications/settings')
+        .set(getAuthHeader(authToken))
+        .send({
+          push_notifications: false,
+          whatsapp_notifications: true,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('rejeita campo de SMS (canal removido)', async () => {
+      const response = await request(app.getHttpServer())
+        .put('/notifications/settings')
+        .set(getAuthHeader(authToken))
+        .send({ smsNotifications: true });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('rejeita campo de e-mail (canal removido para usuários do sistema)', async () => {
+      const response = await request(app.getHttpServer())
+        .put('/notifications/settings')
+        .set(getAuthHeader(authToken))
+        .send({ emailNotifications: true });
+
+      expect(response.status).toBe(400);
     });
 
     it('should fail without authentication', async () => {
       await request(app.getHttpServer())
         .put('/notifications/settings')
-        .send({ email_notifications: true })
+        .send({ pushNotifications: true })
         .expect(401);
     });
   });

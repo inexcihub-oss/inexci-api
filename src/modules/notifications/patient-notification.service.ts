@@ -18,7 +18,7 @@ export interface PatientNotificationContext {
       phone?: string;
     };
     hospital?: { name?: string };
-    created_by?: { name?: string };
+    createdBy?: { name?: string };
   };
   oldStatus: SurgeryRequestStatus;
   newStatus: SurgeryRequestStatus;

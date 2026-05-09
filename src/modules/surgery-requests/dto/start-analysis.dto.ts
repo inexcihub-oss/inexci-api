@@ -9,34 +9,34 @@ export class StartAnalysisDto {
   @IsBoolean()
   notify_patient?: boolean;
   @IsString()
-  request_number: string;
+  requestNumber: string;
 
   @IsDateString()
-  received_at: string;
+  receivedAt: string;
 
   @IsOptional()
   @IsString()
-  quotation_1_number?: string;
+  quotation1Number?: string;
 
   @IsOptional()
   @IsDateString()
-  quotation_1_received_at?: string;
+  quotation1ReceivedAt?: string;
 
   @IsOptional()
   @IsString()
-  quotation_2_number?: string;
+  quotation2Number?: string;
 
   @IsOptional()
   @IsDateString()
-  quotation_2_received_at?: string;
+  quotation2ReceivedAt?: string;
 
   @IsOptional()
   @IsString()
-  quotation_3_number?: string;
+  quotation3Number?: string;
 
   @IsOptional()
   @IsDateString()
-  quotation_3_received_at?: string;
+  quotation3ReceivedAt?: string;
 
   @IsOptional()
   @IsString()

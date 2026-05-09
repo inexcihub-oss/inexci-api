@@ -41,6 +41,7 @@ export type MailTemplateName =
   | 'invite-collaborator'
   | 'password-recovery'
   | 'email-verification'
+  | 'weekly-summary'
   | 'generic-notification';
 
 export const MAIL_TEMPLATES: MailTemplateName[] = [
@@ -61,5 +62,6 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'invite-collaborator',
   'password-recovery',
   'email-verification',
+  'weekly-summary',
   'generic-notification',
 ];

@@ -8,15 +8,18 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 
 /**
- * Hospital - Entidade de negócio (não faz login)
- * Cadastro global compartilhado entre médicos
+ * Hospital — Entidade de negócio (não faz login).
+ * Cadastro pertence à clínica/conta (ownerId): médicos e colaboradores
+ * da mesma clínica compartilham os hospitais cadastrados.
  */
-@Entity('hospital')
+@Entity('hospitals')
+@Index('idx_hospitals_owner_id', ['ownerId'])
 export class Hospital {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -25,70 +28,91 @@ export class Hospital {
   name: string;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
-  cnpj: string;
+  cnpj: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  email: string;
+  email: string | null;
 
   @Column({ type: 'varchar', length: 15, nullable: true })
-  phone: string;
+  phone: string | null;
 
   // ============ CONTATO ============
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  contact_name: string;
+  @Column({
+    name: 'contact_name',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  contactName: string | null;
 
-  @Column({ type: 'varchar', length: 15, nullable: true })
-  contact_phone: string;
+  @Column({
+    name: 'contact_phone',
+    type: 'varchar',
+    length: 15,
+    nullable: true,
+  })
+  contactPhone: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  contact_email: string;
+  @Column({
+    name: 'contact_email',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  contactEmail: string | null;
 
   // ============ ENDEREÇO ============
 
-  @Column({ type: 'varchar', length: 10, nullable: true })
-  zip_code: string;
+  @Column({ name: 'zip_code', type: 'varchar', length: 10, nullable: true })
+  zipCode: string | null;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  address: string;
+  address: string | null;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  address_number: string;
+  @Column({
+    name: 'address_number',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  addressNumber: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  neighborhood: string;
+  neighborhood: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  city: string;
+  city: string | null;
 
   @Column({ type: 'char', length: 2, nullable: true })
-  state: string;
+  state: string | null;
 
   // ============ STATUS ============
 
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
-  // ============ CONTROLE DE PROPRIEDADE ============
+  // ============ ISOLAMENTO POR CLÍNICA ============
 
-  @Column({ name: 'doctor_id' })
-  doctor_id: string; // Hospital pertence a este médico
+  /** ID do admin dono da clínica — todos os usuários da mesma clínica enxergam o mesmo hospital. */
+  @Column({ name: 'owner_id', type: 'uuid' })
+  ownerId: string;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
-  @DeleteDateColumn()
-  deleted_at: Date;
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date | null;
 
   // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'doctor_id' })
-  doctor: User;
+  @JoinColumn({ name: 'owner_id' })
+  owner: User;
 
   @OneToMany(() => SurgeryRequest, (request) => request.hospital)
-  surgery_requests: SurgeryRequest[];
+  surgeryRequests: SurgeryRequest[];
 }

@@ -35,14 +35,14 @@ export class ReportsService {
   ): FindOptionsWhere<SurgeryRequest> {
     if (!filters) return where;
     const w = { ...where };
-    if (filters.hospitalId) w.hospital_id = filters.hospitalId;
-    if (filters.healthPlanId) w.health_plan_id = filters.healthPlanId;
+    if (filters.hospitalId) w.hospitalId = filters.hospitalId;
+    if (filters.healthPlanId) w.healthPlanId = filters.healthPlanId;
     if (filters.startDate && filters.endDate) {
-      w.created_at = Between(filters.startDate, filters.endDate);
+      w.createdAt = Between(filters.startDate, filters.endDate);
     } else if (filters.startDate) {
-      w.created_at = MoreThanOrEqual(filters.startDate);
+      w.createdAt = MoreThanOrEqual(filters.startDate);
     } else if (filters.endDate) {
-      w.created_at = LessThanOrEqual(filters.endDate);
+      w.createdAt = LessThanOrEqual(filters.endDate);
     }
     return w;
   }
@@ -53,7 +53,7 @@ export class ReportsService {
 
     if (doctorIds.length === 0) {
       return {
-        surgery_request: {
+        surgeryRequest: {
           total: 0,
           total_scheduled: 0,
           total_performed: 0,
@@ -68,7 +68,7 @@ export class ReportsService {
     }
 
     const baseWhere: FindOptionsWhere<SurgeryRequest> = {
-      doctor_id: In(doctorIds),
+      doctorId: In(doctorIds),
     };
     const where = this.applyFilters(baseWhere, filters);
 
@@ -117,13 +117,13 @@ export class ReportsService {
     });
 
     return {
-      surgery_request: {
+      surgeryRequest: {
         total: respTotal,
         total_scheduled: respTotalScheduled,
         total_performed: respPerformed,
         total_invoiced_count: respInvoiced,
         total_invoiced_value: totalInvoiced._sum.invoiced_value,
-        total_received_value: totalInvoiced._sum.received_value,
+        total_received_value: totalInvoiced._sum.receivedValue,
         total_by_health_plan: totalByHealthPlan,
         total_by_status: totalByStatus,
         total_by_hospital: totalByHospital,
@@ -138,9 +138,9 @@ export class ReportsService {
     let where: FindOptionsWhere<SurgeryRequest> = {};
 
     if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
+      where = { ...where, doctorId: In(doctorIds) };
     } else {
-      where = { ...where, doctor_id: In(['__none__']) };
+      where = { ...where, doctorId: In(['__none__']) };
     }
 
     where = this.applyFilters(where, filters);
@@ -189,14 +189,14 @@ export class ReportsService {
     const pendingAnalysis = await this.surgeryRequestRepository.total({
       ...where,
       status: SurgeryRequestStatus.IN_ANALYSIS,
-      updated_at: LessThan(fiveDaysAgo),
+      updatedAt: LessThan(fiveDaysAgo),
     });
 
     // Status CLOSED representa o fechamento manual (era inReanalysis no sistema legado)
     const pendingClosed = await this.surgeryRequestRepository.total({
       ...where,
       status: SurgeryRequestStatus.IN_SCHEDULING,
-      updated_at: LessThan(fiveDaysAgo),
+      updatedAt: LessThan(fiveDaysAgo),
     });
 
     return {

@@ -25,6 +25,7 @@ import { SurgeryRequestNotificationService } from '../surgery-request-notificati
 import { SurgeryRequestPdfAssemblyService } from '../surgery-request-pdf-assembly.service';
 import { SendRequestDto } from '../../dto/send-request.dto';
 import { StartAnalysisDto } from '../../dto/start-analysis.dto';
+import { QuotaService } from 'src/modules/billing/services/quota.service';
 
 @Injectable()
 export class SendAnalysisHandler {
@@ -40,6 +41,7 @@ export class SendAnalysisHandler {
     private readonly reportSectionRepository: Repository<ReportSection>,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
+    private readonly quotaService: QuotaService,
   ) {}
 
   /**
@@ -70,13 +72,19 @@ export class SendAnalysisHandler {
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.SENT);
 
     const sectionCount = await this.reportSectionRepository.count({
-      where: { surgery_request_id: id },
+      where: { surgeryRequestId: id },
     });
     if (sectionCount === 0) {
       throw new BadRequestException(
         'É necessário ao menos uma seção no laudo para enviar a solicitação',
       );
     }
+
+    // Consome cota mensal de solicitações cirúrgicas. Bloqueia se a
+    // assinatura estiver suspensa, cancelada ou se o limite do plano
+    // foi atingido. A unidade de cota é o ENVIO (PENDING → SENT) — rascunhos
+    // não consomem.
+    await this.quotaService.consumeSurgeryRequest(request.ownerId);
 
     await executeInTransaction(
       this.dataSource,
@@ -86,8 +94,8 @@ export class SendAnalysisHandler {
           { id },
           {
             status: SurgeryRequestStatus.SENT,
-            sent_at: new Date(),
-            send_method: dto.method,
+            sentAt: new Date(),
+            sendMethod: dto.method,
           },
         );
         await this.surgeryRequestRepository.recordStatusChange(
@@ -131,9 +139,9 @@ export class SendAnalysisHandler {
       );
     }
 
-    const doctorName = request.created_by?.name ?? 'Médico';
+    const doctorName = request.createdBy?.name ?? 'Médico';
     const patientName = request.patient?.name ?? 'Paciente';
-    const healthPlanName = request.health_plan?.name ?? '';
+    const healthPlanName = request.healthPlan?.name ?? '';
     const hospitalName = request.hospital?.name ?? '';
 
     if (dto.method === SendMethod.EMAIL && dto.to) {
@@ -201,20 +209,20 @@ export class SendAnalysisHandler {
         const analysisRepo = manager.getRepository(SurgeryRequestAnalysis);
 
         await analysisRepo.save({
-          surgery_request_id: id,
-          request_number: dto.request_number,
-          received_at: new Date(dto.received_at),
-          quotation_1_number: dto.quotation_1_number,
-          quotation_1_received_at: dto.quotation_1_received_at
-            ? new Date(dto.quotation_1_received_at)
+          surgeryRequestId: id,
+          requestNumber: dto.requestNumber,
+          receivedAt: new Date(dto.receivedAt),
+          quotation1Number: dto.quotation1Number,
+          quotation1ReceivedAt: dto.quotation1ReceivedAt
+            ? new Date(dto.quotation1ReceivedAt)
             : null,
-          quotation_2_number: dto.quotation_2_number,
-          quotation_2_received_at: dto.quotation_2_received_at
-            ? new Date(dto.quotation_2_received_at)
+          quotation2Number: dto.quotation2Number,
+          quotation2ReceivedAt: dto.quotation2ReceivedAt
+            ? new Date(dto.quotation2ReceivedAt)
             : null,
-          quotation_3_number: dto.quotation_3_number,
-          quotation_3_received_at: dto.quotation_3_received_at
-            ? new Date(dto.quotation_3_received_at)
+          quotation3Number: dto.quotation3Number,
+          quotation3ReceivedAt: dto.quotation3ReceivedAt
+            ? new Date(dto.quotation3ReceivedAt)
             : null,
           notes: dto.notes,
         });

@@ -10,8 +10,10 @@ import {
  * Tipo de procedimento cirúrgico (ex: "Artroscopia de Joelho").
  * Relacionado à solicitação cirúrgica como procedimento principal.
  * Não possui código TUSS — os itens TUSS ficam em SurgeryRequestTussItem.
+ *
+ * É um catálogo global compartilhado por todas as clínicas.
  */
-@Entity('procedure')
+@Entity('procedures')
 export class Procedure {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -19,9 +21,9 @@ export class Procedure {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }

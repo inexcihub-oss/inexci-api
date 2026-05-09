@@ -23,9 +23,9 @@ describe('UpdateDoctorProfileDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('deve aceitar somente crm_state', async () => {
+  it('deve aceitar somente crmState', async () => {
     const dto = plainToInstance(UpdateDoctorProfileDto, {
-      crm_state: 'SP',
+      crmState: 'SP',
     });
 
     const errors = await validate(dto);
@@ -53,7 +53,7 @@ describe('UpdateDoctorProfileDto', () => {
   it('deve aceitar todos os campos juntos', async () => {
     const dto = plainToInstance(UpdateDoctorProfileDto, {
       crm: '654321',
-      crm_state: 'RJ',
+      crmState: 'RJ',
       specialty: 'Cardiologia',
       signature_image_url: 'https://storage.example.com/sig.png',
     });
@@ -71,9 +71,9 @@ describe('UpdateDoctorProfileDto', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
-  it('deve falhar se crm_state não for string', async () => {
+  it('deve falhar se crmState não for string', async () => {
     const dto = plainToInstance(UpdateDoctorProfileDto, {
-      crm_state: true,
+      crmState: true,
     });
 
     const errors = await validate(dto);

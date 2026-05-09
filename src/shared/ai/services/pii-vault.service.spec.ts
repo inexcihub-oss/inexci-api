@@ -126,6 +126,59 @@ describe('PiiVaultService', () => {
     });
   });
 
+  describe('maskLiteralPii', () => {
+    it('mascara telefone literal por placeholder genérico', () => {
+      const result = service.maskLiteralPii(
+        'Use o formato 31 99999-9999 para responder.',
+      );
+      expect(result.text).toBe(
+        'Use o formato (DDD) NNNNN-NNNN para responder.',
+      );
+      expect(result.masked).toEqual([{ category: 'phone', count: 1 }]);
+    });
+
+    it('mascara CPF formatado por placeholder genérico', () => {
+      const result = service.maskLiteralPii('CPF do paciente: 123.456.789-00.');
+      expect(result.text).toBe('CPF do paciente: XXX.XXX.XXX-XX.');
+      expect(result.masked).toEqual([{ category: 'cpf', count: 1 }]);
+    });
+
+    it('mascara email literal por exemplo genérico', () => {
+      const result = service.maskLiteralPii(
+        'Cadastre o e-mail joao@example.com agora.',
+      );
+      expect(result.text).toBe('Cadastre o e-mail exemplo@dominio.com agora.');
+      expect(result.masked).toEqual([{ category: 'email', count: 1 }]);
+    });
+
+    it('preserva placeholders válidos do vault', () => {
+      const result = service.maskLiteralPii(
+        'Paciente {{patient_name_1}}, telefone 11 91234-5678 confirmado.',
+      );
+      expect(result.text).toBe(
+        'Paciente {{patient_name_1}}, telefone (DDD) NNNNN-NNNN confirmado.',
+      );
+    });
+
+    it('é idempotente: aplicar duas vezes não corrompe o texto', () => {
+      const once = service.maskLiteralPii(
+        'CPF 123.456.789-00, fone (31) 98908-5791.',
+      ).text;
+      const twice = service.maskLiteralPii(once).text;
+      expect(twice).toBe(once);
+    });
+
+    it('texto sem PII permanece igual', () => {
+      const result = service.maskLiteralPii(
+        'Solicitação criada com sucesso. Acesse a plataforma.',
+      );
+      expect(result.text).toBe(
+        'Solicitação criada com sucesso. Acesse a plataforma.',
+      );
+      expect(result.masked).toEqual([]);
+    });
+  });
+
   describe('startSession / endSession', () => {
     it('endSession remove bindings da sessão', () => {
       service.tokenize(sid, 'João', 'patient_name');
@@ -191,8 +244,7 @@ describe('PiiVaultService', () => {
       service.startSession('nova-sessao');
       service.restoreSession('nova-sessao', persisted);
 
-      const text =
-        '1 - {{protocol_1}} — {{patient_name_1}} — Finalizada';
+      const text = '1 - {{protocol_1}} — {{patient_name_1}} — Finalizada';
       expect(service.detokenize('nova-sessao', text)).toBe(
         '1 - SC-0042 — João Silva — Finalizada',
       );

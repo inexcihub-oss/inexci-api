@@ -9,13 +9,13 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-@Entity('recovery_code')
+@Entity('recoveryCodes')
 export class RecoveryCode {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'user_id' })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId: string;
 
   @Column({ type: 'boolean', default: false })
   used: boolean;
@@ -23,17 +23,17 @@ export class RecoveryCode {
   @Column({ type: 'varchar', length: 6 })
   code: string;
 
-  @Column({ type: 'timestamp', nullable: true })
-  expires_at: Date;
+  @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
+  expiresAt: Date | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => User, (user) => user.recovery_codes)
+  @ManyToOne(() => User, (user) => user.recoveryCodes)
   @JoinColumn({ name: 'user_id' })
   user: User;
 }

@@ -3,27 +3,19 @@ import { IsBoolean, IsOptional } from 'class-validator';
 export class UpdateNotificationSettingsDto {
   @IsOptional()
   @IsBoolean()
-  email_notifications?: boolean;
+  pushNotifications?: boolean;
 
   @IsOptional()
   @IsBoolean()
-  sms_notifications?: boolean;
+  whatsappNotifications?: boolean;
 
   @IsOptional()
   @IsBoolean()
-  push_notifications?: boolean;
+  newSurgeryRequest?: boolean;
 
   @IsOptional()
   @IsBoolean()
-  whatsapp_notifications?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  new_surgery_request?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  status_update?: boolean;
+  statusUpdate?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -31,9 +23,9 @@ export class UpdateNotificationSettingsDto {
 
   @IsOptional()
   @IsBoolean()
-  expiring_documents?: boolean;
+  expiringDocuments?: boolean;
 
   @IsOptional()
   @IsBoolean()
-  weekly_report?: boolean;
+  weeklyReport?: boolean;
 }

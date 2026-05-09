@@ -5,7 +5,7 @@ import { NotificationType } from 'src/database/entities/notification.entity';
 export class CreateNotificationDto {
   @IsString()
   @IsNotEmpty()
-  user_id: string;
+  userId: string;
 
   @IsEnum(NotificationType)
   @IsOptional()

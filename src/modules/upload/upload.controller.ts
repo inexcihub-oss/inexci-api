@@ -9,10 +9,17 @@ import {
   Body,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
 
+@ApiTags('Upload')
+@ApiBearerAuth()
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
@@ -24,6 +31,8 @@ export class UploadController {
    */
   @Post('single')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Upload de um único arquivo' })
+  @ApiConsumes('multipart/form-data')
   async uploadSingle(
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder: string,
@@ -37,15 +46,11 @@ export class UploadController {
   }
 
   /**
-   * Upload de múltiplos arquivos
-   * POST /upload/multiple
-   * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
-   */
-  /**
    * Gera URL assinada para um arquivo existente
    * GET /upload/signed-url?path=avatars/uuid.png
    */
   @Get('signed-url')
+  @ApiOperation({ summary: 'Gerar URL assinada para arquivo armazenado' })
   async getSignedUrl(@Query('path') filePath: string) {
     if (!filePath) {
       throw new BadRequestException('O parâmetro "path" é obrigatório');

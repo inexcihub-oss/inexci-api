@@ -116,7 +116,8 @@ export class PiiVaultService {
       }
       const exists = list.some(
         (b) =>
-          b.category === incoming.category && b.realValue === incoming.realValue,
+          b.category === incoming.category &&
+          b.realValue === incoming.realValue,
       );
       if (exists) continue;
       list.push({
@@ -206,6 +207,103 @@ export class PiiVaultService {
     if (email) findings.push({ category: 'email', sample: email[0] });
 
     return findings;
+  }
+
+  /**
+   * Mascara CPF/telefone/email "literais" no texto por placeholders genéricos
+   * não-PII (`(DDD) NNNNN-NNNN`, `XXX.XXX.XXX-XX`, `exemplo@dominio.com`).
+   *
+   * Usado para sanitizar respostas do assistente ANTES de salvar no histórico
+   * conversacional — sem isso, exemplos de formato gerados pela IA
+   * (ex.: "use o formato 31 99999-9999") são detectados pelo
+   * `assertNoResidualPii` em turnos seguintes e bloqueiam toda a conversa.
+   *
+   * Os placeholders do vault (`{{categoria_n}}`) NÃO são tocados pois as
+   * regexes de PII estruturada não casam com chaves `{{ }}`. Um helper
+   * adicional preserva ranges para garantir robustez.
+   */
+  maskLiteralPii(text: string): {
+    text: string;
+    masked: { category: PiiCategory; count: number }[];
+  } {
+    if (!text) return { text: text ?? '', masked: [] };
+
+    const placeholderRanges: Array<[number, number]> = [];
+    const placeholderRegex = /\{\{[a-z_]+_\d+\}\}/gi;
+    let placeholderMatch: RegExpExecArray | null;
+    while ((placeholderMatch = placeholderRegex.exec(text)) !== null) {
+      placeholderRanges.push([
+        placeholderMatch.index,
+        placeholderMatch.index + placeholderMatch[0].length,
+      ]);
+    }
+
+    const overlapsPlaceholder = (start: number, end: number): boolean =>
+      placeholderRanges.some(
+        ([rangeStart, rangeEnd]) => start < rangeEnd && end > rangeStart,
+      );
+
+    const counters: Record<string, number> = {};
+    const replacements: Array<{
+      start: number;
+      end: number;
+      mask: string;
+      category: PiiCategory;
+    }> = [];
+
+    const collect = (
+      regex: RegExp,
+      category: PiiCategory,
+      mask: string,
+    ): void => {
+      const localRegex = new RegExp(regex.source, regex.flags);
+      let match: RegExpExecArray | null;
+      while ((match = localRegex.exec(text)) !== null) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (overlapsPlaceholder(start, end)) continue;
+        if (replacements.some((r) => start < r.end && end > r.start)) {
+          continue;
+        }
+        replacements.push({ start, end, mask, category });
+        counters[category] = (counters[category] ?? 0) + 1;
+      }
+    };
+
+    collect(
+      /\b(?:\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})\b/g,
+      'cpf',
+      'XXX.XXX.XXX-XX',
+    );
+    collect(
+      /(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g,
+      'phone',
+      '(DDD) NNNNN-NNNN',
+    );
+    collect(/[\w.+-]+@[\w-]+\.[\w.-]+/g, 'email', 'exemplo@dominio.com');
+
+    if (!replacements.length) {
+      return { text, masked: [] };
+    }
+
+    replacements.sort((a, b) => a.start - b.start);
+
+    let output = '';
+    let cursor = 0;
+    for (const replacement of replacements) {
+      if (replacement.start < cursor) continue;
+      output += text.slice(cursor, replacement.start);
+      output += replacement.mask;
+      cursor = replacement.end;
+    }
+    output += text.slice(cursor);
+
+    const masked = Object.entries(counters).map(([category, count]) => ({
+      category: category as PiiCategory,
+      count,
+    }));
+
+    return { text: output, masked };
   }
 
   /**

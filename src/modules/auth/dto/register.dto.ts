@@ -5,6 +5,7 @@ import {
   MinLength,
   IsBoolean,
   IsOptional,
+  Matches,
   ValidateIf,
 } from 'class-validator';
 
@@ -26,27 +27,36 @@ export class RegisterDto {
 
   @IsBoolean()
   @IsOptional()
-  is_doctor?: boolean;
+  isDoctor?: boolean;
 
   @IsString()
-  @ValidateIf((o) => o.is_doctor === true)
+  @ValidateIf((o) => o.isDoctor === true)
   @IsNotEmpty({ message: 'CRM é obrigatório para médicos' })
   crm?: string;
 
   @IsString()
-  @ValidateIf((o) => o.is_doctor === true)
+  @ValidateIf((o) => o.isDoctor === true)
   @IsNotEmpty({ message: 'Estado do CRM é obrigatório para médicos' })
-  crm_state?: string;
+  crmState?: string;
 
   @IsString()
   @IsOptional()
   specialty?: string;
 
   @IsString()
-  @IsOptional()
-  phone?: string;
+  @IsNotEmpty({ message: 'O telefone é obrigatório' })
+  @Matches(/^\D*(?:\d\D*){10,11}$/, {
+    message: 'Informe um telefone válido com DDD (10 ou 11 dígitos)',
+  })
+  phone: string;
 
+  /**
+   * Slug do plano de assinatura escolhido no cadastro. Opcional — quando
+   * omitido, o backend usa o plano marcado como `is_trial_default`.
+   * Em qualquer caso, a assinatura inicial é criada como TRIALING (30 dias)
+   * e não exige cartão.
+   */
   @IsString()
   @IsOptional()
-  subscription_plan_id?: string;
+  planSlug?: string;
 }

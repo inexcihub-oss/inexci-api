@@ -4,9 +4,9 @@ import { IsDate, IsString, IsNotEmpty } from 'class-validator';
 export class CreateComplaintDto {
   @IsString()
   @IsNotEmpty()
-  surgery_request_id: string;
+  surgeryRequestId: string;
   @Type(() => Date)
   @IsDate()
-  date_call: Date;
+  dateCall: Date;
   protocol: string;
 }

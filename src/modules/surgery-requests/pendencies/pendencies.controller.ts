@@ -1,7 +1,9 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PendencyValidatorService } from './pendency-validator.service';
 
+@ApiTags('Pendências')
+@ApiBearerAuth()
 @Controller('surgery-requests/pendencies')
 export class PendenciesController {
   constructor(
@@ -13,6 +15,7 @@ export class PendenciesController {
    * GET /surgery-requests/pendencies/batch-summary?ids=id1,id2,id3
    */
   @Get('batch-summary')
+  @ApiOperation({ summary: 'Resumo de pendências em lote (Kanban)' })
   getBatchSummary(
     @Query('ids') ids: string,
   ): Promise<

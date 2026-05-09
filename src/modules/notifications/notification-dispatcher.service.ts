@@ -2,7 +2,6 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { NotificationsGateway } from './notifications.gateway';
@@ -14,14 +13,22 @@ export interface DispatchNotificationDto {
   message: string;
   link?: string;
   metadata?: Record<string, any>;
-  /** Sobrescreve preferências — força envio de e-mail */
-  forceEmail?: boolean;
-  emailSubject?: string;
-  /** Dados para WhatsApp template */
+  /** Dados para WhatsApp template (opcional) */
   whatsappContentSid?: string;
   whatsappVariables?: Record<string, string>;
 }
 
+/**
+ * Despacha notificações para usuários do sistema respeitando suas preferências.
+ *
+ * Canais suportados:
+ *  - Push (in-app + WebSocket): controlado por `pushNotifications` + tipo
+ *  - WhatsApp: controlado por `whatsappNotifications` + tipo (quando um
+ *    `whatsappContentSid` é fornecido)
+ *
+ * E-mail não é mais um canal de notificação para usuários do sistema. O único
+ * e-mail enviado é o resumo semanal (`WeeklySummaryService`).
+ */
 @Injectable()
 export class NotificationDispatcherService {
   private readonly logger = new Logger(NotificationDispatcherService.name);
@@ -30,22 +37,20 @@ export class NotificationDispatcherService {
     private readonly notificationRepository: NotificationRepository,
     private readonly settingsRepository: UserNotificationSettingsRepository,
     private readonly userRepository: UserRepository,
-    private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
     @Optional() private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
   async dispatch(dto: DispatchNotificationDto): Promise<void> {
     const { userId } = dto;
+    const settings = await this.getSettings(userId);
+    const typeEnabled = this.isTypeEnabled(settings, dto.type);
 
-    // 1. Criar registro in-app
+    // Push (in-app + WS)
     try {
-      const settings = await this.getSettings(userId);
-      const typeEnabled = this.isTypeEnabled(settings, dto.type);
-
-      if (settings?.push_notifications !== false && typeEnabled) {
+      if (settings?.pushNotifications !== false && typeEnabled) {
         const notification = await this.notificationRepository.create({
-          user_id: userId,
+          userId: userId,
           type: dto.type,
           title: dto.title,
           message: dto.message,
@@ -59,7 +64,7 @@ export class NotificationDispatcherService {
           message: notification.message,
           link: notification.link,
           metadata: notification.metadata,
-          created_at: notification.created_at,
+          createdAt: notification.createdAt,
         });
       }
     } catch (err: any) {
@@ -68,49 +73,20 @@ export class NotificationDispatcherService {
       );
     }
 
-    // 2. E-mail (se habilitado)
+    // WhatsApp
     try {
-      const settings = await this.getSettings(userId);
-      const shouldEmail =
-        dto.forceEmail ||
-        (settings?.email_notifications &&
-          this.isTypeEnabled(settings, dto.type));
-
-      if (shouldEmail) {
+      if (
+        dto.whatsappContentSid &&
+        typeEnabled &&
+        settings?.whatsappNotifications !== false
+      ) {
         const user = await this.userRepository.findOne({ id: userId });
-        if (user?.email) {
-          await this.mailService.sendGenericNotification(
-            user.email,
-            dto.emailSubject ?? dto.title,
-            {
-              userName: user.name,
-              title: dto.title,
-              message: dto.message,
-              link: dto.link,
-              linkText: 'Ver detalhes',
-            },
+        if (user?.phone) {
+          await this.whatsappService.sendTemplate(
+            user.phone,
+            dto.whatsappContentSid,
+            dto.whatsappVariables ?? {},
           );
-        }
-      }
-    } catch (err: any) {
-      this.logger.warn(
-        `Falha ao enviar e-mail para ${userId}: ${err?.message}`,
-      );
-    }
-
-    // 3. WhatsApp (se habilitado e template fornecido)
-    try {
-      if (dto.whatsappContentSid) {
-        const settings = await this.getSettings(userId);
-        if (settings?.whatsapp_notifications !== false) {
-          const user = await this.userRepository.findOne({ id: userId });
-          if (user?.phone) {
-            await this.whatsappService.sendTemplate(
-              user.phone,
-              dto.whatsappContentSid,
-              dto.whatsappVariables ?? {},
-            );
-          }
         }
       }
     } catch (err: any) {
@@ -137,13 +113,13 @@ export class NotificationDispatcherService {
     if (!settings) return true;
     switch (type) {
       case NotificationType.NEW_SURGERY_REQUEST:
-        return settings.new_surgery_request !== false;
+        return settings.newSurgeryRequest !== false;
       case NotificationType.STATUS_UPDATE:
-        return settings.status_update !== false;
+        return settings.statusUpdate !== false;
       case NotificationType.PENDENCY:
         return settings.pendencies !== false;
       case NotificationType.EXPIRING_DOCUMENT:
-        return settings.expiring_documents !== false;
+        return settings.expiringDocuments !== false;
       default:
         return true;
     }

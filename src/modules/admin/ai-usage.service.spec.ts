@@ -75,11 +75,11 @@ describe('AiUsageService', () => {
 
     expect(mockQueryBuilder.andWhere).toHaveBeenCalledTimes(2);
     expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-      'log.created_at >= :from',
+      'log.createdAt >= :from',
       { from: '2026-05-01' },
     );
     expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-      'log.created_at <= :to',
+      'log.createdAt <= :to',
       { to: '2026-05-31' },
     );
   });

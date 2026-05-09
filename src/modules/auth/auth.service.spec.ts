@@ -13,11 +13,12 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { MailService } from 'src/shared/mail/mail.service';
-import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { ConfigService } from '@nestjs/config';
 import { ConsentService } from '../privacy/consent.service';
+import { SubscriptionService } from '../billing/services/subscription.service';
 
 // Mock bcryptjs before it's imported by the service
 jest.mock('bcryptjs', () => ({
@@ -59,13 +60,16 @@ describe('AuthService', () => {
     sendEmailVerification: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockWhatsappService = {
+    sendUserWelcome: jest.fn().mockResolvedValue(undefined),
+  };
+
   const mockJwtService = {
     sign: jest.fn().mockReturnValue('mock-jwt-token'),
   };
 
-  const mockSubscriptionPlanRepo = {
-    findOne: jest.fn(),
-    find: jest.fn(),
+  const mockSubscriptionService = {
+    createTrialSubscription: jest.fn().mockResolvedValue({ id: 'sub-1' }),
   };
 
   const mockRefreshTokenRepo = {
@@ -79,9 +83,17 @@ describe('AuthService', () => {
   };
 
   const mockConsentService = {
-    record: jest.fn().mockResolvedValue(undefined),
-    revoke: jest.fn().mockResolvedValue(undefined),
-    hasValidConsent: jest.fn().mockResolvedValue(true),
+    getStatus: jest.fn().mockResolvedValue({
+      privacyPolicyAcceptedAt: new Date(),
+      termsOfUseAcceptedAt: new Date(),
+      aiConsentAcceptedAt: null,
+      requiredConsentsAccepted: true,
+      pendingRequired: [],
+    }),
+    acceptTerms: jest.fn().mockResolvedValue(undefined),
+    grantAi: jest.fn().mockResolvedValue(undefined),
+    revokeAi: jest.fn().mockResolvedValue(undefined),
+    hasValidAiConsent: jest.fn().mockReturnValue(true),
   };
 
   beforeEach(async () => {
@@ -98,17 +110,15 @@ describe('AuthService', () => {
           useValue: mockDoctorProfileRepository,
         },
         { provide: MailService, useValue: mockMailService },
+        { provide: WhatsappService, useValue: mockWhatsappService },
         { provide: JwtService, useValue: mockJwtService },
-        {
-          provide: getRepositoryToken(SubscriptionPlan),
-          useValue: mockSubscriptionPlanRepo,
-        },
         {
           provide: getRepositoryToken(RefreshToken),
           useValue: mockRefreshTokenRepo,
         },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ConsentService, useValue: mockConsentService },
+        { provide: SubscriptionService, useValue: mockSubscriptionService },
       ],
     }).compile();
 
@@ -124,7 +134,7 @@ describe('AuthService', () => {
       email: 'test@example.com',
       password: 'hashed-password',
       status: UserStatus.ACTIVE,
-      email_verified: true,
+      emailVerified: true,
     };
 
     it('should return user when credentials are correct', async () => {
@@ -171,7 +181,7 @@ describe('AuthService', () => {
   // ─── register ───────────────────────────────────────────────────
 
   describe('register', () => {
-    const mockPlan = { id: 'plan-1', name: 'Básico', is_active: true };
+    const mockPlan = { id: 'plan-1', name: 'Básico', isActive: true };
 
     it('should throw when email is already registered (active)', async () => {
       mockUserRepository.findOne.mockResolvedValue({
@@ -209,7 +219,6 @@ describe('AuthService', () => {
 
     it('should create user with doctor profile and return token', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
-      mockSubscriptionPlanRepo.findOne.mockResolvedValue(mockPlan);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
 
       const createdUser = {
@@ -220,19 +229,19 @@ describe('AuthService', () => {
         status: UserStatus.ACTIVE,
         phone: null,
         cpf: null,
-        account_id: 'mock-uuid-1234',
-        created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
+        ownerId: 'mock-uuid-1234',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-01'),
       };
       mockUserRepository.create.mockResolvedValue(createdUser);
 
       const createdProfile = {
         id: 'profile-1',
         crm: '12345',
-        crm_state: 'SP',
+        crmState: 'SP',
         specialty: 'Cardiology',
-        signature_url: null,
-        clinic_name: null,
+        signatureUrl: null,
+        clinicName: null,
       };
       mockDoctorProfileRepository.create.mockResolvedValue(createdProfile);
 
@@ -240,29 +249,28 @@ describe('AuthService', () => {
         name: 'Dr. Test',
         email: 'doctor@example.com',
         password: '123456',
-        is_doctor: true,
+        isDoctor: true,
         crm: '12345',
-        crm_state: 'SP',
+        crmState: 'SP',
         specialty: 'Cardiology',
       } as any);
 
-      expect(result.user.is_doctor).toBe(true);
-      expect(result.user.doctor_profile).toEqual({
+      expect(result.user.isDoctor).toBe(true);
+      expect(result.user.doctorProfile).toEqual({
         id: 'profile-1',
         crm: '12345',
-        crm_state: 'SP',
+        crmState: 'SP',
         specialty: 'Cardiology',
-        signature_url: null,
-        clinic_name: null,
+        signatureUrl: null,
+        clinicName: null,
       });
       expect(result.access_token).toBe('mock-jwt-token');
       expect(result.refresh_token).toBeDefined();
       expect(mockDoctorProfileRepository.create).toHaveBeenCalled();
     });
 
-    it('should create user without doctor profile when is_doctor is false', async () => {
+    it('should create user without doctor profile when isDoctor is false', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
-      mockSubscriptionPlanRepo.findOne.mockResolvedValue(mockPlan);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
 
       const createdUser = {
@@ -273,9 +281,9 @@ describe('AuthService', () => {
         status: UserStatus.ACTIVE,
         phone: null,
         cpf: null,
-        account_id: 'mock-uuid-1234',
-        created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
+        ownerId: 'mock-uuid-1234',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-01'),
       };
       mockUserRepository.create.mockResolvedValue(createdUser);
 
@@ -283,11 +291,11 @@ describe('AuthService', () => {
         name: 'Assistant',
         email: 'assistant@example.com',
         password: '123456',
-        is_doctor: false,
+        isDoctor: false,
       } as any);
 
-      expect(result.user.is_doctor).toBe(false);
-      expect(result.user.doctor_profile).toBeNull();
+      expect(result.user.isDoctor).toBe(false);
+      expect(result.user.doctorProfile).toBeNull();
       expect(mockDoctorProfileRepository.create).not.toHaveBeenCalled();
       expect(result.access_token).toBe('mock-jwt-token');
     });
@@ -307,17 +315,17 @@ describe('AuthService', () => {
         phone: '123',
         cpf: '000',
         status: UserStatus.ACTIVE,
-        email_verified: true,
-        account_id: 'user-1',
-        created_at: new Date('2024-01-01'),
-        updated_at: new Date('2024-01-01'),
+        emailVerified: true,
+        ownerId: 'user-1',
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-01'),
       };
 
       // validateUser calls findOne with status + selectPassword
       mockUserRepository.findOne.mockImplementation(
         (where, selectPassword?) => {
           if (selectPassword) return Promise.resolve(mockUser); // validateUser call
-          return Promise.resolve({ ...mockUser, account_id: 'user-1' }); // fullUser call
+          return Promise.resolve({ ...mockUser, ownerId: 'user-1' }); // fullUser call
         },
       );
 
@@ -331,7 +339,7 @@ describe('AuthService', () => {
       expect(result.user.id).toBe('user-1');
       expect(result.user.email).toBe('test@example.com');
       expect(result.access_token).toBe('mock-jwt-token');
-      expect(result.user.is_doctor).toBe(false);
+      expect(result.user.isDoctor).toBe(false);
     });
   });
 
@@ -363,16 +371,16 @@ describe('AuthService', () => {
 
       expect(result).toEqual({ message: 'E-mail enviado com sucesso' });
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
-        user_id: 'user-1',
+        userId: 'user-1',
         used: false,
       });
 
       const createCall = mockRecoveryCodeRepository.create.mock.calls[0][0];
-      expect(createCall.user_id).toBe('user-1');
+      expect(createCall.userId).toBe('user-1');
       expect(createCall.used).toBe(false);
       expect(createCall.code).toBe('123456');
       // Verify expiry is ~15 minutes from now
-      const expiresAt = createCall.expires_at.getTime();
+      const expiresAt = createCall.expiresAt.getTime();
       expect(expiresAt).toBeGreaterThanOrEqual(
         beforeCall + 15 * 60 * 1000 - 100,
       );
@@ -411,7 +419,7 @@ describe('AuthService', () => {
         id: 'code-1',
         code: '123456',
         used: false,
-        expires_at: new Date(Date.now() - 60 * 1000), // expired 1 minute ago
+        expiresAt: new Date(Date.now() - 60 * 1000), // expired 1 minute ago
       });
 
       await expect(
@@ -425,7 +433,7 @@ describe('AuthService', () => {
         id: 'code-1',
         code: '123456',
         used: false,
-        expires_at: new Date(Date.now() - 60 * 1000),
+        expiresAt: new Date(Date.now() - 60 * 1000),
       });
 
       await expect(
@@ -441,7 +449,7 @@ describe('AuthService', () => {
         id: 'code-1',
         code: '123456',
         used: false,
-        expires_at: new Date(Date.now() + 10 * 60 * 1000), // expires in 10 min
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // expires in 10 min
       });
       mockRecoveryCodeRepository.updateByWhere.mockResolvedValue({});
 
@@ -507,7 +515,7 @@ describe('AuthService', () => {
       });
       mockRecoveryCodeRepository.findOne.mockResolvedValue({
         id: 'code-1',
-        user_id: 'user-1',
+        userId: 'user-1',
         used: true,
       });
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-new-password');
@@ -531,14 +539,14 @@ describe('AuthService', () => {
 
       // Verify recovery codes were cleaned up
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
-        user_id: 'user-1',
+        userId: 'user-1',
       });
     });
   });
 
   // ─── verifyEmail ─────────────────────────────────────────────────
   // O token de verificação é armazenado inline em `user`
-  // (colunas `email_verification_token` / `email_verification_expires_at`),
+  // (colunas `emailVerificationToken` / `emailVerificationExpiresAt`),
   // logo o spec usa `mockUserRepository` em vez de um repositório dedicado.
 
   describe('verifyEmail', () => {
@@ -559,9 +567,9 @@ describe('AuthService', () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
-        email_verified: false,
-        email_verification_token: 'expired-token',
-        email_verification_expires_at: new Date(Date.now() - 60_000),
+        emailVerified: false,
+        emailVerificationToken: 'expired-token',
+        emailVerificationExpiresAt: new Date(Date.now() - 60_000),
       });
       await expect(service.verifyEmail('expired-token')).rejects.toThrow(
         'O link de confirmação expirou',
@@ -573,9 +581,9 @@ describe('AuthService', () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
-        email_verified: false,
-        email_verification_token: 'valid-token',
-        email_verification_expires_at: new Date(now + 60 * 60 * 1000),
+        emailVerified: false,
+        emailVerificationToken: 'valid-token',
+        emailVerificationExpiresAt: new Date(now + 60 * 60 * 1000),
       });
       mockUserRepository.update.mockResolvedValue({});
 
@@ -588,9 +596,9 @@ describe('AuthService', () => {
       expect(mockUserRepository.update).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({
-          email_verified: true,
-          email_verification_token: null,
-          email_verification_expires_at: null,
+          emailVerified: true,
+          emailVerificationToken: null,
+          emailVerificationExpiresAt: null,
         }),
       );
     });
@@ -599,9 +607,9 @@ describe('AuthService', () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
-        email_verified: true,
-        email_verification_token: 'valid-token',
-        email_verification_expires_at: new Date(Date.now() + 60 * 60 * 1000),
+        emailVerified: true,
+        emailVerificationToken: 'valid-token',
+        emailVerificationExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
       });
 
       const result = await service.verifyEmail('valid-token');
@@ -629,7 +637,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'test@example.com',
         name: 'Test',
-        email_verified: true,
+        emailVerified: true,
       });
       await expect(service.resendEmailVerification('user-1')).rejects.toThrow(
         BadRequestException,
@@ -644,7 +652,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'test@example.com',
         name: 'Test User',
-        email_verified: false,
+        emailVerified: false,
       });
       mockUserRepository.update.mockResolvedValue({});
       mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
@@ -667,9 +675,8 @@ describe('AuthService', () => {
 
   describe('register — dispatchEmailVerification', () => {
     it('should call dispatchEmailVerification after successful registration', async () => {
-      const mockPlan = { id: 'plan-1', name: 'Básico', is_active: true };
+      const mockPlan = { id: 'plan-1', name: 'Básico', isActive: true };
       mockUserRepository.findOne.mockResolvedValue(null);
-      mockSubscriptionPlanRepo.findOne.mockResolvedValue(mockPlan);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-pw');
 
       const createdUser = {
@@ -680,9 +687,9 @@ describe('AuthService', () => {
         status: UserStatus.ACTIVE,
         phone: null,
         cpf: null,
-        account_id: 'mock-uuid-1234',
-        created_at: new Date(),
-        updated_at: new Date(),
+        ownerId: 'mock-uuid-1234',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
       mockUserRepository.create.mockResolvedValue(createdUser);
       mockUserRepository.update.mockResolvedValue({});
@@ -692,7 +699,7 @@ describe('AuthService', () => {
         name: 'Novo Usuário',
         email: 'novo@example.com',
         password: '123456',
-        is_doctor: false,
+        isDoctor: false,
       } as any);
 
       // dispatchEmailVerification é chamado via `void` — aguarda um tick
@@ -702,6 +709,78 @@ describe('AuthService', () => {
         'novo@example.com',
         expect.objectContaining({ email: 'novo@example.com' }),
       );
+    });
+  });
+
+  // ─── register — WhatsApp welcome ─────────────────────────────────
+
+  describe('register — WhatsApp welcome', () => {
+    it('envia WhatsApp de boas-vindas quando o usuário tem telefone', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-pw');
+
+      const createdUser = {
+        id: 'mock-uuid-1234',
+        name: 'Novo Usuário',
+        email: 'novo@example.com',
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: '11988887777',
+        cpf: null,
+        ownerId: 'mock-uuid-1234',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockUserRepository.create.mockResolvedValue(createdUser);
+      mockUserRepository.update.mockResolvedValue({});
+      mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
+
+      await service.register({
+        name: 'Novo Usuário',
+        email: 'novo@example.com',
+        password: '123456',
+        phone: '11988887777',
+        isDoctor: false,
+      } as any);
+
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockWhatsappService.sendUserWelcome).toHaveBeenCalledWith(
+        '11988887777',
+        'Novo Usuário',
+      );
+    });
+
+    it('não envia WhatsApp quando o usuário não tem telefone', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-pw');
+
+      const createdUser = {
+        id: 'mock-uuid-1234',
+        name: 'Sem Phone',
+        email: 'sem@example.com',
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: null,
+        cpf: null,
+        ownerId: 'mock-uuid-1234',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockUserRepository.create.mockResolvedValue(createdUser);
+      mockUserRepository.update.mockResolvedValue({});
+      mockConfigService.get.mockReturnValue('https://app.inexci.com.br');
+
+      await service.register({
+        name: 'Sem Phone',
+        email: 'sem@example.com',
+        password: '123456',
+        isDoctor: false,
+      } as any);
+
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockWhatsappService.sendUserWelcome).not.toHaveBeenCalled();
     });
   });
 });

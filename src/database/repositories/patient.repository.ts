@@ -22,9 +22,22 @@ export class PatientRepository extends BaseRepository<Patient> {
     });
   }
 
+  /**
+   * Lista pacientes de um médico específico (paciente é do médico).
+   */
   findByDoctorId(doctorId: string): Promise<Patient[]> {
     return this.repository.find({
-      where: { doctor_id: doctorId },
+      where: { doctorId },
+      order: { name: 'ASC' },
+    });
+  }
+
+  /**
+   * Lista todos os pacientes da clínica (ownerId) — útil para visões de admin.
+   */
+  findByOwnerId(ownerId: string): Promise<Patient[]> {
+    return this.repository.find({
+      where: { ownerId },
       order: { name: 'ASC' },
     });
   }

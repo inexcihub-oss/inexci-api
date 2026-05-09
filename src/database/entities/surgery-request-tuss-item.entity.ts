@@ -14,16 +14,16 @@ import { SurgeryRequest } from './surgery-request.entity';
  * Uma solicitação pode ter múltiplos itens TUSS.
  * Esta entidade é separada de `Procedure`, que representa o tipo de procedimento cirúrgico.
  */
-@Entity('surgery_request_tuss_item')
+@Entity('surgery_request_tuss_items')
 export class SurgeryRequestTussItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'surgery_request_id' })
-  surgery_request_id: string;
+  @Column({ name: 'surgery_request_id', type: 'uuid' })
+  surgeryRequestId: string;
 
-  @Column({ type: 'varchar', length: 50 })
-  tuss_code: string;
+  @Column({ name: 'tuss_code', type: 'varchar', length: 50 })
+  tussCode: string;
 
   @Column({ type: 'varchar', length: 255 })
   name: string;
@@ -31,17 +31,17 @@ export class SurgeryRequestTussItem {
   @Column({ type: 'int', default: 1 })
   quantity: number;
 
-  @Column({ type: 'int', nullable: true })
-  authorized_quantity: number | null;
+  @Column({ name: 'authorized_quantity', type: 'int', nullable: true })
+  authorizedQuantity: number | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => SurgeryRequest, (sr) => sr.tuss_items)
+  @ManyToOne(() => SurgeryRequest, (sr) => sr.tussItems)
   @JoinColumn({ name: 'surgery_request_id' })
-  surgery_request: SurgeryRequest;
+  surgeryRequest: SurgeryRequest;
 }

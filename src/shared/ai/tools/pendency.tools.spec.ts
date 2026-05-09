@@ -30,7 +30,7 @@ describe('PendencyTools', () => {
         id: 'req-1',
         protocol: 'SC-0042',
         status: 1,
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
       });
       mockPendencyValidator.validateForStatus.mockResolvedValue({
         statusLabel: 'Pendente',
@@ -58,7 +58,7 @@ describe('PendencyTools', () => {
 
       const tool = getTool('get_pendencies');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -74,7 +74,7 @@ describe('PendencyTools', () => {
         id: 'req-1',
         protocol: 'SC-0001',
         status: 1,
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
       });
       mockPendencyValidator.validateForStatus.mockResolvedValue({
         statusLabel: 'Pendente',
@@ -84,22 +84,22 @@ describe('PendencyTools', () => {
 
       const tool = getTool('get_pendencies');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
       expect(result).toContain('não tem pendências');
     });
 
-    it('deve negar acesso se doctor_id não acessível', async () => {
+    it('deve negar acesso se doctorId não acessível', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-2',
-        doctor_id: 'other-doctor',
+        doctorId: 'other-doctor',
       });
 
       const tool = getTool('get_pendencies');
       const result = await tool.execute(
-        { surgery_request_id: 'req-2' },
+        { surgeryRequestId: 'req-2' },
         baseContext,
       );
 
@@ -115,7 +115,7 @@ describe('PendencyTools', () => {
           return {
             id: 'req-77',
             protocol: 'SC-664980',
-            doctor_id: 'doctor-1',
+            doctorId: 'doctor-1',
           };
         }
         return null;
@@ -129,7 +129,7 @@ describe('PendencyTools', () => {
 
       const tool = getTool('get_pendencies');
       const result = await tool.execute(
-        { surgery_request_id: 'SC-664980' },
+        { surgeryRequestId: 'SC-664980' },
         baseContext,
       );
 
@@ -139,11 +139,11 @@ describe('PendencyTools', () => {
       expect(result).toContain('SC-664980');
     });
 
-    it('deve aceitar identifier como alias de surgery_request_id', async () => {
+    it('deve aceitar identifier como alias de surgeryRequestId', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-8',
         protocol: 'SC-217923',
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
       });
       mockPendencyValidator.validateForStatus.mockResolvedValue({
         statusLabel: 'Pendente',
@@ -177,7 +177,7 @@ describe('PendencyTools', () => {
         id: 'req-vault-1',
         protocol: 'SC-664980',
         status: 1,
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
       });
       mockPendencyValidator.validateForStatus.mockResolvedValue({
         statusLabel: 'Pendente',
@@ -197,7 +197,7 @@ describe('PendencyTools', () => {
       piiVault.startSession('conv-1');
       const tool = getTool('get_pendencies');
       const result = await tool.execute(
-        { surgery_request_id: 'req-vault-1' },
+        { surgeryRequestId: 'req-vault-1' },
         { ...baseContext, piiVault },
       );
 
@@ -212,7 +212,7 @@ describe('PendencyTools', () => {
         {
           id: 'req-10',
           protocol: 'SC-999001',
-          doctor_id: 'doctor-1',
+          doctorId: 'doctor-1',
           patient: { name: 'Eduardo Luiz Teixeira' },
         },
       ]);
@@ -224,7 +224,7 @@ describe('PendencyTools', () => {
 
       const tool = getTool('get_pendencies');
       const result = await tool.execute(
-        { surgery_request_id: 'Eduardo Luiz Teixeira' },
+        { surgeryRequestId: 'Eduardo Luiz Teixeira' },
         baseContext,
       );
 

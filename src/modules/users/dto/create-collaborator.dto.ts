@@ -25,17 +25,17 @@ export class CreateCollaboratorDto {
 
   @IsBoolean()
   @IsOptional()
-  is_doctor?: boolean;
+  isDoctor?: boolean;
 
   @IsString()
-  @ValidateIf((o) => o.is_doctor === true)
+  @ValidateIf((o) => o.isDoctor === true)
   @IsNotEmpty({ message: 'CRM é obrigatório para médicos' })
   crm?: string;
 
   @IsString()
-  @ValidateIf((o) => o.is_doctor === true)
+  @ValidateIf((o) => o.isDoctor === true)
   @IsNotEmpty({ message: 'Estado do CRM é obrigatório para médicos' })
-  crm_state?: string;
+  crmState?: string;
 
   @IsString()
   @IsOptional()

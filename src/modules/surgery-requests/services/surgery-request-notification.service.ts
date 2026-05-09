@@ -61,17 +61,18 @@ export class SurgeryRequestNotificationService {
       template: string;
       to?: string;
       channels?: { email?: boolean; whatsapp?: boolean };
+      old_status?: number;
     },
     _userId: string,
   ) {
     const request = await this.surgeryRequestRepository.findOneWithRelations(
       { id },
       [
-        'created_by',
+        'createdBy',
         'patient',
         'hospital',
-        'health_plan',
-        'tuss_items',
+        'healthPlan',
+        'tussItems',
         'billing',
       ],
     );
@@ -80,9 +81,14 @@ export class SurgeryRequestNotificationService {
 
     // Template especial: notificação ao paciente com canais selecionados pelo usuário
     if (dto.template === 'status-change-patient') {
+      const previousStatus =
+        (dto.old_status as SurgeryRequestStatus | undefined) ??
+        (await this.surgeryRequestRepository.findPreviousStatus(id)) ??
+        request.status;
+
       await this.patientNotificationService.notifyPatientStatusChange({
         request,
-        oldStatus: request.status,
+        oldStatus: previousStatus,
         newStatus: request.status,
         notifyPatient: true,
         channels: dto.channels,
@@ -97,15 +103,15 @@ export class SurgeryRequestNotificationService {
       );
     }
 
-    const to = dto.to ?? request.created_by?.email;
+    const to = dto.to ?? request.createdBy?.email;
     if (!to) {
       throw new BadRequestException('Destinatário de e-mail não encontrado.');
     }
 
     const patientName = request.patient?.name ?? 'Paciente';
     const requestId = request.protocol ?? id;
-    const doctorName = request.created_by?.name ?? 'Médico';
-    const healthPlanName = request.health_plan?.name ?? '';
+    const doctorName = request.createdBy?.name ?? 'Médico';
+    const healthPlanName = request.healthPlan?.name ?? '';
     const hospitalName = request.hospital?.name ?? '';
 
     switch (dto.template) {
@@ -122,8 +128,8 @@ export class SurgeryRequestNotificationService {
         await this.mailService.sendSurgeryAuthorized(to, {
           patientName,
           requestId,
-          authorizedProcedures: (request.tuss_items ?? [])
-            .filter((p) => p.authorized_quantity)
+          authorizedProcedures: (request.tussItems ?? [])
+            .filter((p) => p.authorizedQuantity)
             .map((p) => p.name),
         });
         break;
@@ -142,8 +148,8 @@ export class SurgeryRequestNotificationService {
         await this.mailService.sendSurgeryScheduled(to, {
           patientName,
           requestId,
-          surgeryDate: request.surgery_date
-            ? new Date(request.surgery_date).toLocaleDateString('pt-BR')
+          surgeryDate: request.surgeryDate
+            ? new Date(request.surgeryDate).toLocaleDateString('pt-BR')
             : '—',
           hospitalName,
         });
@@ -154,10 +160,10 @@ export class SurgeryRequestNotificationService {
         await this.mailService.sendInvoiceSent(to, {
           patientName,
           requestId,
-          invoiceProtocol: request.billing.invoice_protocol,
-          invoiceValue: `R$ ${Number(request.billing.invoice_value).toFixed(2).replace('.', ',')}`,
-          paymentDeadline: request.billing.payment_deadline
-            ? new Date(request.billing.payment_deadline).toLocaleDateString(
+          invoiceProtocol: request.billing.invoiceProtocol,
+          invoiceValue: `R$ ${Number(request.billing.invoiceValue).toFixed(2).replace('.', ',')}`,
+          paymentDeadline: request.billing.paymentDeadline
+            ? new Date(request.billing.paymentDeadline).toLocaleDateString(
                 'pt-BR',
               )
             : undefined,
@@ -169,9 +175,9 @@ export class SurgeryRequestNotificationService {
         await this.mailService.sendPaymentReceived(to, {
           patientName,
           requestId,
-          receivedValue: `R$ ${Number(request.billing.received_value).toFixed(2).replace('.', ',')}`,
-          receivedAt: request.billing.received_at
-            ? new Date(request.billing.received_at).toLocaleDateString('pt-BR')
+          receivedValue: `R$ ${Number(request.billing.receivedValue).toFixed(2).replace('.', ',')}`,
+          receivedAt: request.billing.receivedAt
+            ? new Date(request.billing.receivedAt).toLocaleDateString('pt-BR')
             : '—',
         });
         break;
@@ -184,10 +190,10 @@ export class SurgeryRequestNotificationService {
           {
             patientName,
             requestId,
-            invoiceValue: `R$ ${Number(request.billing.invoice_value).toFixed(2).replace('.', ',')}`,
+            invoiceValue: `R$ ${Number(request.billing.invoiceValue).toFixed(2).replace('.', ',')}`,
             receivedValue: `R$ ${Number(
-              request.billing.contested_received_value ??
-                request.billing.received_value,
+              request.billing.contestedReceivedValue ??
+                request.billing.receivedValue,
             )
               .toFixed(2)
               .replace('.', ',')}`,
@@ -206,8 +212,8 @@ export class SurgeryRequestNotificationService {
   async notifyStakeholdersOfStatusChange(
     request: {
       id: string;
-      doctor_id: string;
-      created_by_id: string;
+      doctorId: string;
+      createdById: string;
     },
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
@@ -215,8 +221,8 @@ export class SurgeryRequestNotificationService {
   ): Promise<void> {
     await this.notificationsService.notifyStatusChange(
       request.id,
-      request.doctor_id,
-      request.created_by_id,
+      request.doctorId,
+      request.createdById,
       oldStatus,
       newStatus,
       actorId,

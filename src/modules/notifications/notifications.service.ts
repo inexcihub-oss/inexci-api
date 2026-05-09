@@ -9,8 +9,9 @@ import { UpdateNotificationSettingsDto } from './dto/update-notification-setting
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserRole } from 'src/database/entities/user.entity';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
-import { MailService } from 'src/shared/mail/mail.service';
-import { getStatusLabel } from 'src/shared/utils';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
+import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
+import { getStatusLabel, getStalePendencyMessage } from 'src/shared/utils';
 import { NotificationsGateway } from './notifications.gateway';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
@@ -23,7 +24,7 @@ export class NotificationsService {
     private readonly settingsRepository: UserNotificationSettingsRepository,
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly mailService: MailService,
+    private readonly whatsappService: WhatsappService,
     @Optional() private readonly notificationsGateway: NotificationsGateway,
     @Optional() private readonly accessControlService?: AccessControlService,
   ) {}
@@ -36,16 +37,14 @@ export class NotificationsService {
     // Se não existir, cria com valores padrão
     if (!settings) {
       settings = await this.settingsRepository.create({
-        user_id: userId,
-        email_notifications: true,
-        sms_notifications: false,
-        push_notifications: true,
-        whatsapp_notifications: true,
-        new_surgery_request: true,
-        status_update: true,
+        userId: userId,
+        pushNotifications: true,
+        whatsappNotifications: true,
+        newSurgeryRequest: true,
+        statusUpdate: true,
         pendencies: true,
-        expiring_documents: true,
-        weekly_report: false,
+        expiringDocuments: true,
+        weeklyReport: false,
       });
     }
 
@@ -101,118 +100,138 @@ export class NotificationsService {
 
   // ============ Create Notifications ============
 
+  /**
+   * Cria notificação in-app + emite via WebSocket (push) para o usuário.
+   *
+   * Política de canais para usuários do sistema (médico/admin/colaborador):
+   *  - Push (in-app + WS): controlado por `pushNotifications` + tipo
+   *  - WhatsApp: enviado pelos services específicos (notifyStatusChange,
+   *    StaleNotificationService) consultando `resolveChannels`
+   *  - E-mail: NUNCA é usado para notificações de status. O único e-mail
+   *    enviado ao usuário é o resumo semanal (WeeklySummaryService).
+   */
   async createNotification(data: CreateNotificationDto) {
+    const type = data.type || NotificationType.INFO;
+    const channels = await this.resolveChannels(data.userId, type);
+
+    if (!channels.push) {
+      return null;
+    }
+
     const notification = await this.notificationRepository.create({
-      user_id: data.user_id,
-      type: data.type || NotificationType.INFO,
+      userId: data.userId,
+      type,
       title: data.title,
       message: data.message,
       link: data.link,
       metadata: data.metadata,
     });
 
-    this.notificationsGateway?.emitToUser(notification.user_id, {
+    this.notificationsGateway?.emitToUser(notification.userId, {
       id: notification.id,
       type: notification.type,
       title: notification.title,
       message: notification.message,
       link: notification.link,
       metadata: notification.metadata,
-      created_at: notification.created_at,
+      createdAt: notification.createdAt,
     });
-
-    // Verifica preferências do usuário e envia e-mail se habilitado
-    await this.sendEmailIfEnabled(data.user_id, notification);
 
     return notification;
   }
 
   async createNotificationForUsers(
     userIds: string[],
-    data: Omit<CreateNotificationDto, 'user_id'>,
+    data: Omit<CreateNotificationDto, 'userId'>,
   ) {
-    const notifications = userIds.map((userId) => ({
-      user_id: userId,
-      type: data.type || NotificationType.INFO,
-      title: data.title,
-      message: data.message,
-      link: data.link,
-      metadata: data.metadata,
-    }));
+    const type = data.type || NotificationType.INFO;
 
-    const created = await this.notificationRepository.createBulk(notifications);
+    const channelsByUser = await Promise.all(
+      userIds.map(async (uid) => ({
+        userId: uid,
+        channels: await this.resolveChannels(uid, type),
+      })),
+    );
+
+    const pushUserIds = channelsByUser
+      .filter((c) => c.channels.push)
+      .map((c) => c.userId);
+
+    if (!pushUserIds.length) return [];
+
+    const created = await this.notificationRepository.createBulk(
+      pushUserIds.map((uid) => ({
+        userId: uid,
+        type,
+        title: data.title,
+        message: data.message,
+        link: data.link,
+        metadata: data.metadata,
+      })),
+    );
 
     created.forEach((notification) => {
-      this.notificationsGateway?.emitToUser(notification.user_id, {
+      this.notificationsGateway?.emitToUser(notification.userId, {
         id: notification.id,
         type: notification.type,
         title: notification.title,
         message: notification.message,
         link: notification.link,
         metadata: notification.metadata,
-        created_at: notification.created_at,
+        createdAt: notification.createdAt,
       });
     });
-
-    await Promise.all(
-      userIds.map((userId) =>
-        this.sendEmailIfEnabled(
-          userId,
-          created.find((n) => n.user_id === userId),
-        ),
-      ),
-    );
 
     return created;
   }
 
   // ============ Notification Helpers ============
 
-  private async sendEmailIfEnabled(userId: string, notification: any) {
-    try {
-      const settings = await this.settingsRepository.findByUserId(userId);
+  /**
+   * Resolve quais canais (push/whatsapp) devem ser usados para um usuário
+   * e tipo de notificação. Centraliza a leitura de preferências.
+   *
+   * Regras:
+   *  - Se o usuário ainda não tem registro em `user_notification_settings`,
+   *    todos os canais são considerados habilitados (default).
+   *  - Se o tipo (`statusUpdate`, `pendencies`, etc.) está desligado,
+   *    nenhum canal é usado.
+   *  - Caso contrário, cada canal individual respeita sua própria flag.
+   *
+   * Nota: e-mail não é mais um canal de notificação para usuários do sistema.
+   * O único e-mail enviado é o resumo semanal, controlado por `weeklyReport`.
+   */
+  async resolveChannels(
+    userId: string,
+    type: NotificationType,
+  ): Promise<{ push: boolean; whatsapp: boolean }> {
+    const settings = await this.settingsRepository.findByUserId(userId);
+    const typeEnabled = this.isNotificationTypeEnabled(settings, type);
 
-      if (!settings?.email_notifications) return;
-
-      // Verifica se o tipo de notificação está habilitado
-      const typeEnabled = this.isNotificationTypeEnabled(
-        settings,
-        notification.type,
-      );
-      if (!typeEnabled) return;
-
-      const user = await this.userRepository.findOne({ id: userId });
-      if (!user?.email) return;
-
-      await this.mailService.sendGenericNotification(
-        user.email,
-        notification.title,
-        {
-          userName: user.name,
-          title: notification.title,
-          message: notification.message,
-          link: notification.link,
-          linkText: 'Ver detalhes',
-        },
-      );
-    } catch (error) {
-      this.logger.error('Erro ao enviar e-mail de notificacao', error);
+    if (!typeEnabled) {
+      return { push: false, whatsapp: false };
     }
+
+    return {
+      push: settings?.pushNotifications !== false,
+      whatsapp: settings?.whatsappNotifications !== false,
+    };
   }
 
   private isNotificationTypeEnabled(
     settings: any,
     type: NotificationType,
   ): boolean {
+    if (!settings) return true;
     switch (type) {
       case NotificationType.NEW_SURGERY_REQUEST:
-        return settings.new_surgery_request;
+        return settings.newSurgeryRequest !== false;
       case NotificationType.STATUS_UPDATE:
-        return settings.status_update;
+        return settings.statusUpdate !== false;
       case NotificationType.PENDENCY:
-        return settings.pendencies;
+        return settings.pendencies !== false;
       case NotificationType.EXPIRING_DOCUMENT:
-        return settings.expiring_documents;
+        return settings.expiringDocuments !== false;
       default:
         return true;
     }
@@ -226,7 +245,7 @@ export class NotificationsService {
     newStatus: string,
   ) {
     return this.createNotification({
-      user_id: userId,
+      userId: userId,
       type: NotificationType.STATUS_UPDATE,
       title: 'Status Atualizado',
       message: `A solicitação cirúrgica foi atualizada para: ${newStatus}`,
@@ -241,7 +260,7 @@ export class NotificationsService {
     pendencyType: string,
   ) {
     return this.createNotification({
-      user_id: userId,
+      userId: userId,
       type: NotificationType.PENDENCY,
       title: 'Nova Pendência',
       message: `Uma nova pendência foi criada: ${pendencyType}`,
@@ -256,7 +275,7 @@ export class NotificationsService {
     daysUntilExpiry: number,
   ) {
     return this.createNotification({
-      user_id: userId,
+      userId: userId,
       type: NotificationType.EXPIRING_DOCUMENT,
       title: 'Documento Expirando',
       message: `O documento "${documentName}" expira em ${daysUntilExpiry} dias`,
@@ -282,7 +301,7 @@ export class NotificationsService {
       if (!actor) return;
 
       const [allUsersInAccount, activityUserIds] = await Promise.all([
-        this.userRepository.findByAccountId(actor.account_id),
+        this.userRepository.findByOwnerId(actor.ownerId),
         this.surgeryRequestRepository.findDistinctActivityUserIds(
           surgeryRequestId,
         ),
@@ -322,6 +341,7 @@ export class NotificationsService {
       const oldLabel = getStatusLabel(oldStatus);
       const newLabel = getStatusLabel(newStatus);
 
+      // Push (in-app + WS) — respeita pushNotifications + tipo
       await this.createNotificationForUsers(stakeholderIds, {
         type: NotificationType.STATUS_UPDATE,
         title: 'Status da Solicitação Atualizado',
@@ -330,39 +350,46 @@ export class NotificationsService {
         metadata: { surgeryRequestId, oldStatus, newStatus },
       });
 
-      // Enviar e-mail com template para stakeholders com e-mail habilitado
-      const changedAt = new Date().toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
       const request = await this.surgeryRequestRepository.findOneWithRelations(
         { id: surgeryRequestId },
         ['patient'],
       );
       const patientName = request?.patient?.name ?? 'Paciente';
+      const requestProtocol = request?.protocol ?? surgeryRequestId;
+      const pendencyMessage = getStalePendencyMessage(newStatus);
 
+      // WhatsApp — respeita whatsappNotifications + tipo. E-mail não é mais
+      // enviado para usuários do sistema em mudanças de status.
       await Promise.all(
         stakeholderIds.map(async (uid) => {
           try {
-            const [settings, user] = await Promise.all([
-              this.settingsRepository.findByUserId(uid),
+            const [channels, user] = await Promise.all([
+              this.resolveChannels(uid, NotificationType.STATUS_UPDATE),
               this.userRepository.findOne({ id: uid }),
             ]);
-            if (!settings?.email_notifications || !user?.email) return;
-            await this.mailService.sendStatusChangeStakeholder(user.email, {
-              patientName,
-              oldStatus: oldLabel,
-              newStatus: newLabel,
-              changedBy: actor.name ?? 'Usuário',
-              changedAt,
-              dashboardUrl: `/solicitacao/${surgeryRequestId}`,
-            });
-          } catch (emailErr: any) {
+
+            if (channels.whatsapp && user?.phone) {
+              try {
+                await this.whatsappService.sendTemplate(
+                  user.phone,
+                  WHATSAPP_TEMPLATES.STATUS_CHANGE_USERS,
+                  {
+                    '1': user.name ?? 'Usuário',
+                    '2': requestProtocol,
+                    '3': newLabel,
+                    '4': pendencyMessage,
+                    '5': patientName,
+                  },
+                );
+              } catch (waErr: any) {
+                this.logger.warn(
+                  `Falha ao enviar WhatsApp de status para ${uid}: ${waErr?.message}`,
+                );
+              }
+            }
+          } catch (notifyErr: any) {
             this.logger.warn(
-              `Falha ao enviar e-mail de status para ${uid}: ${emailErr?.message}`,
+              `Falha ao notificar stakeholder ${uid}: ${notifyErr?.message}`,
             );
           }
         }),
@@ -389,8 +416,8 @@ export class NotificationsService {
       const actor = await this.userRepository.findOne({ id: actorId });
       if (!actor) return;
 
-      const allUsersInAccount = await this.userRepository.findByAccountId(
-        actor.account_id,
+      const allUsersInAccount = await this.userRepository.findByOwnerId(
+        actor.ownerId,
       );
 
       const adminIds = allUsersInAccount

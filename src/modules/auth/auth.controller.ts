@@ -131,14 +131,6 @@ export class AuthController {
   }
 
   @Public()
-  @Get('plans')
-  @ApiOperation({ summary: 'Listar planos de assinatura disponíveis' })
-  @ApiResponse({ status: 200, description: 'Lista de planos' })
-  async getPlans() {
-    return await this.authService.getAvailablePlans();
-  }
-
-  @Public()
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Post('refresh')
   @ApiOperation({ summary: 'Renovar access token via refresh token' })

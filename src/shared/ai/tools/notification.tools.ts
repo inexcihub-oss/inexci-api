@@ -4,6 +4,29 @@ import { SurgeryRequestRepository } from '../../../database/repositories/surgery
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
 import { SurgeryRequestNotificationService } from '../../../modules/surgery-requests/services/surgery-request-notification.service';
 import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
+import { detokenizeArg } from '../pii/tool-pii-helpers';
+
+function sanitizeIdentifier(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().replace(/[\s.,;:!?]+$/g, '');
+}
+
+function buildProtocolCandidates(identifier: string): string[] {
+  const cleaned = identifier.trim();
+  if (!cleaned) return [];
+
+  const upper = cleaned.toUpperCase();
+  const candidates = new Set<string>([upper]);
+
+  if (upper.startsWith('SC-')) {
+    const withoutPrefix = upper.slice(3).trim();
+    if (withoutPrefix) candidates.add(withoutPrefix);
+  } else {
+    candidates.add(`SC-${upper}`);
+  }
+
+  return Array.from(candidates);
+}
 
 export function buildNotificationTools(
   surgeryRequestRepo: SurgeryRequestRepository,
@@ -21,7 +44,7 @@ export function buildNotificationTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
@@ -30,19 +53,34 @@ export function buildNotificationTools(
               description: 'Confirmação do usuário para enviar a notificação',
             },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const request = await surgeryRequestRepo.findOneSimple({
-        id: args.surgery_request_id as string,
-      });
+      const detokenized = detokenizeArg(context, args.surgeryRequestId as any);
+      const identifier = sanitizeIdentifier(
+        detokenized ?? (args.surgeryRequestId as any),
+      );
+      if (!identifier) return 'Parâmetro inválido: informe a solicitação.';
+
+      let request: any | null = null;
+      if (identifier.match(/^[0-9a-f-]{36}$/i)) {
+        request = await surgeryRequestRepo.findOneSimple({ id: identifier });
+      }
+      if (!request) {
+        for (const candidate of buildProtocolCandidates(identifier)) {
+          request = await surgeryRequestRepo.findOneSimple({
+            protocol: candidate,
+          });
+          if (request) break;
+        }
+      }
 
       if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 
@@ -51,14 +89,10 @@ export function buildNotificationTools(
       }
 
       try {
-        await notificationService.notify(
-          args.surgery_request_id as string,
-          {} as any,
-          context.userId,
-        );
+        await notificationService.notify(request.id, {} as any, context.userId);
         await activityRepo.create({
-          surgery_request_id: args.surgery_request_id as string,
-          user_id: context.userId,
+          surgeryRequestId: request.id,
+          userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Notificação de status enviada.`,
         });

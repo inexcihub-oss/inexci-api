@@ -50,7 +50,6 @@ describe('UserAnonymizationService', () => {
       'conv-1',
       expect.objectContaining({
         active: false,
-        messagesHistory: [],
       }),
     );
     expect(mockMsgRepo.getRepository().update).toHaveBeenCalledTimes(2);

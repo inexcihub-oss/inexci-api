@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
+import { InexciLogger } from './shared/logging/inexci-logger.service';
+import { requestContextMiddleware } from './shared/logging/request-context.middleware';
 
 dayjs.extend(customParse);
 
@@ -19,7 +21,15 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, {
     bodyParser: true,
+    bufferLogs: true,
   });
+
+  // Logger custom — JSON em produção, pretty colorido em dev. Honra LOG_LEVEL
+  // e enriquece cada linha com `requestId`/`userId`/`tenantId` do
+  // AsyncLocalStorage populado pelo `requestContextMiddleware`.
+  app.useLogger(new InexciLogger());
+
+  app.use(requestContextMiddleware);
 
   app.use(cookieParser());
 

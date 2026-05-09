@@ -41,15 +41,15 @@ export class UpdateSurgeryRequestDto {
   @IsOptional()
   @Transform(({ value }) => stripObjectPhoneMask(value))
   @Type(() => UpdateSurgeryRequestHealthPlanDto)
-  health_plan?: UpdateSurgeryRequestHealthPlanDto;
+  healthPlan?: UpdateSurgeryRequestHealthPlanDto;
 
   @IsOptional()
   @IsString()
-  health_plan_registration?: string;
+  healthPlanRegistration?: string;
 
   @IsOptional()
   @IsString()
-  health_plan_type?: string;
+  healthPlanType?: string;
 
   @IsOptional()
   @Allow()
@@ -62,11 +62,11 @@ export class UpdateSurgeryRequestDto {
 
   @IsOptional()
   @IsString()
-  medical_report?: string;
+  medicalReport?: string;
 
   @IsOptional()
   @IsString()
-  patient_history?: string;
+  patientHistory?: string;
 
   @IsOptional()
   @Allow()

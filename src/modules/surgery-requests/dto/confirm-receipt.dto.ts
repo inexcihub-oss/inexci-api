@@ -13,12 +13,12 @@ import {
 export class ConfirmReceiptDto {
   @IsNumber()
   @Min(0)
-  received_value: number;
+  receivedValue: number;
 
   @IsDateString()
-  received_at: string;
+  receivedAt: string;
 
   @IsOptional()
   @IsString()
-  receipt_notes?: string;
+  receiptNotes?: string;
 }

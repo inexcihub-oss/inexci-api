@@ -17,9 +17,9 @@ export class SurgeryRequestActivityRepository extends BaseRepository<SurgeryRequ
     surgeryRequestId: string,
   ): Promise<SurgeryRequestActivity[]> {
     return await this.repository.find({
-      where: { surgery_request_id: surgeryRequestId },
+      where: { surgeryRequestId },
       relations: ['user'],
-      order: { created_at: 'ASC' },
+      order: { createdAt: 'ASC' },
     });
   }
 }

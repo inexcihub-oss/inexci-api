@@ -15,10 +15,10 @@ export class WhatsappConversationRepository extends BaseRepository<WhatsappConve
 
   findActiveByPhone(
     phone: string,
-    accountId?: string,
+    ownerId?: string,
   ): Promise<WhatsappConversation | null> {
     const where: any = { phone, active: true };
-    if (accountId) where.accountId = accountId;
+    if (ownerId) where.ownerId = ownerId;
     return this.repository.findOne({
       where,
       order: { lastMessageAt: 'DESC' },
@@ -33,7 +33,7 @@ export class WhatsappConversationRepository extends BaseRepository<WhatsappConve
     const result = await this.repository
       .createQueryBuilder()
       .delete()
-      .where('last_message_at < :date', { date })
+      .where('lastMessageAt < :date', { date })
       .execute();
     return result.affected ?? 0;
   }

@@ -28,9 +28,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       userId: payload.userId,
       role: user?.role,
-      privacy_policy_consent_version:
-        user?.privacy_policy_consent_version ?? null,
-      terms_of_use_consent_version: user?.terms_of_use_consent_version ?? null,
+      privacyPolicyAcceptedAt: user?.privacyPolicyAcceptedAt ?? null,
+      termsOfUseAcceptedAt: user?.termsOfUseAcceptedAt ?? null,
+      aiConsentAcceptedAt: user?.aiConsentAcceptedAt ?? null,
     };
   }
 }

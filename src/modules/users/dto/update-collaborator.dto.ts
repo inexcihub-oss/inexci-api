@@ -24,15 +24,15 @@ export class UpdateCollaboratorDto {
 
   @IsBoolean()
   @IsOptional()
-  is_doctor?: boolean;
+  isDoctor?: boolean;
 
   @IsString()
-  @ValidateIf((o) => o.is_doctor === true)
+  @ValidateIf((o) => o.isDoctor === true)
   crm?: string;
 
   @IsString()
-  @ValidateIf((o) => o.is_doctor === true)
-  crm_state?: string;
+  @ValidateIf((o) => o.isDoctor === true)
+  crmState?: string;
 
   @IsString()
   @IsOptional()
@@ -48,11 +48,11 @@ export class UpdateCollaboratorDto {
 
   @IsString()
   @IsOptional()
-  address_number?: string;
+  addressNumber?: string;
 
   @IsString()
   @IsOptional()
-  address_complement?: string;
+  addressComplement?: string;
 
   @IsString()
   @IsOptional()

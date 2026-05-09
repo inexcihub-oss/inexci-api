@@ -80,7 +80,7 @@ describe('NotificationsGateway', () => {
         type: NotificationType.INFO,
         title: 'Título',
         message: 'Mensagem',
-        created_at: new Date(),
+        createdAt: new Date(),
       };
 
       gateway.emitToUser('user-abc', payload);

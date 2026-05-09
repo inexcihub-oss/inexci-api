@@ -1,4 +1,9 @@
-import { Logger, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Logger,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { MessageResponse } from 'src/shared/types/api-responses';
 import { CreateOpmeDto } from './dto/create-opme.dto';
 import { UpdateOpmeDto } from './dto/update-opme.dto';
@@ -7,6 +12,8 @@ import { SupplierRepository } from 'src/database/repositories/supplier.repositor
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { Supplier } from 'src/database/entities/supplier.entity';
+
+const MIN_OPME_OPTIONS = 3;
 
 @Injectable()
 export class OpmeService {
@@ -18,23 +25,26 @@ export class OpmeService {
   ) {}
 
   async create(data: CreateOpmeDto, userId: string) {
+    this.validateMinManufacturers(data.brand);
+    this.validateMinSuppliers(data.supplier_ids, data.supplier_names);
+
     const surgeryRequest =
       await this.surgeryRequestAccessValidator.validateAndFetch(
-        data.surgery_request_id,
+        data.surgeryRequestId,
         userId,
       );
 
     const suppliers = await this.resolveSuppliers(
       data.supplier_ids,
       data.supplier_names,
-      surgeryRequest.doctor_id,
+      surgeryRequest.ownerId,
     );
 
     const entity = this.opmeItemRepository.getRepository().create({
       name: data.name,
       brand: data.brand,
       quantity: data.quantity,
-      surgery_request_id: data.surgery_request_id,
+      surgeryRequestId: data.surgeryRequestId,
       suppliers,
     });
 
@@ -50,19 +60,25 @@ export class OpmeService {
 
     const surgeryRequest =
       await this.surgeryRequestAccessValidator.validateAndFetch(
-        opmeItem.surgery_request_id,
+        opmeItem.surgeryRequestId,
         userId,
       );
 
     if (data.name !== undefined) opmeItem.name = data.name;
-    if (data.brand !== undefined) opmeItem.brand = data.brand;
+
+    if (data.brand !== undefined) {
+      this.validateMinManufacturers(data.brand);
+      opmeItem.brand = data.brand;
+    }
+
     if (data.quantity !== undefined) opmeItem.quantity = data.quantity;
 
     if (data.supplier_ids !== undefined || data.supplier_names !== undefined) {
+      this.validateMinSuppliers(data.supplier_ids, data.supplier_names);
       opmeItem.suppliers = await this.resolveSuppliers(
         data.supplier_ids,
         data.supplier_names,
-        surgeryRequest.doctor_id,
+        surgeryRequest.ownerId,
       );
     }
 
@@ -77,7 +93,7 @@ export class OpmeService {
       throw new NotFoundException(ERROR_MESSAGES.OPME_ITEM_NOT_FOUND);
 
     await this.surgeryRequestAccessValidator.validateAndFetch(
-      opmeItem.surgery_request_id,
+      opmeItem.surgeryRequestId,
       userId,
     );
 
@@ -89,10 +105,27 @@ export class OpmeService {
     return { message: 'OPME removido com sucesso' };
   }
 
+  private validateMinManufacturers(brand?: string): void {
+    const count = (brand ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean).length;
+    if (count < MIN_OPME_OPTIONS) {
+      throw new BadRequestException(ERROR_MESSAGES.OPME_MIN_MANUFACTURERS);
+    }
+  }
+
+  private validateMinSuppliers(ids: string[] = [], names: string[] = []): void {
+    const filled = ids.length + names.filter((n) => n.trim()).length;
+    if (filled < MIN_OPME_OPTIONS) {
+      throw new BadRequestException(ERROR_MESSAGES.OPME_MIN_SUPPLIERS);
+    }
+  }
+
   private async resolveSuppliers(
     ids: string[] = [],
     names: string[] = [],
-    doctorId: string,
+    ownerId: string,
   ): Promise<Supplier[]> {
     const result: Supplier[] = [];
 
@@ -106,7 +139,7 @@ export class OpmeService {
       if (!trimmed) continue;
       const newSupplier = await this.supplierRepository.create({
         name: trimmed,
-        doctor_id: doctorId,
+        ownerId,
         active: true,
       });
       result.push(newSupplier);

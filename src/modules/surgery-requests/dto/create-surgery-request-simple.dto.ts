@@ -22,23 +22,23 @@ export class RequiredDocumentDto {
 export class CreateSurgeryRequestSimpleDto {
   @IsString()
   @IsNotEmpty()
-  procedure_id: string;
+  procedureId: string;
 
   @IsString()
   @IsNotEmpty()
-  patient_id: string;
+  patientId: string;
 
   @IsOptional()
   @IsString()
-  doctor_id?: string;
+  doctorId?: string;
 
   @IsOptional()
   @IsString()
-  health_plan_id?: string;
+  healthPlanId?: string;
 
   @IsOptional()
   @IsString()
-  hospital_id?: string;
+  hospitalId?: string;
 
   @Type(() => Number)
   @IsNumber()
@@ -48,5 +48,5 @@ export class CreateSurgeryRequestSimpleDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RequiredDocumentDto)
-  required_documents?: RequiredDocumentDto[];
+  requiredDocuments?: RequiredDocumentDto[];
 }

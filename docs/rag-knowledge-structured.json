@@ -201,7 +201,7 @@
       {
         "id": "faq_020",
         "question": "A plataforma suporta notificações por quais canais?",
-        "answer": "A configuração inclui preferências de notificação por e-mail, SMS, push e WhatsApp, além de eventos como mudança de status e pendências.",
+        "answer": "A configuração inclui preferências de notificação por e-mail, push e WhatsApp, além de eventos como mudança de status e pendências.",
         "tags": ["notificacoes", "canais"]
       },
       {
@@ -450,7 +450,7 @@
       "Como enviar notificação manual por canal?",
       "Como anexar documentos e excluir documento incorreto?",
       "Como funciona o chat interno da solicitação?",
-      "Como configurar notificações (email, SMS, push, WhatsApp)?",
+      "Como configurar notificações (email, push, WhatsApp)?",
       "Como criar e manter templates de solicitação?",
       "Como criar e ordenar seções de laudo?",
       "Como funciona recuperação de senha e validação de e-mail?",

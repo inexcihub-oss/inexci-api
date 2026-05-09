@@ -1,7 +1,7 @@
 import {
   BadRequestException,
-  Logger,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
@@ -32,7 +32,7 @@ export class PatientsService {
     }
 
     const where: FindOptionsWhere<Patient> = {
-      doctor_id: In(doctorIds),
+      doctorId: In(doctorIds),
     };
 
     const [total, records] = await Promise.all([
@@ -43,88 +43,99 @@ export class PatientsService {
     return { total, records };
   }
 
+  async findOne(id: string, userId: string): Promise<Patient> {
+    const patient = await this.patientRepository.findOne({ id });
+    if (!patient) throw new NotFoundException('Paciente não encontrado');
+    await this.accessControlService.assertSameOwner(userId, patient.ownerId);
+    return patient;
+  }
+
   async create(data: CreatePatientDto, userId: string): Promise<Patient> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // doctor_id agora é user.id do médico
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
+    const doctorId =
+      await this.accessControlService.resolveDefaultDoctorId(userId);
+
+    if (!doctorId) {
       throw new BadRequestException(
         'Nenhum médico acessível para criar pacientes.',
       );
     }
-    // Priorizar o próprio usuário se ele for médico
-    const doctorId = doctorIds.includes(userId) ? userId : doctorIds[0];
+
+    const ownerId = user.ownerId;
 
     const patient = await this.patientRepository.create({
-      doctor_id: doctorId,
+      doctorId,
+      ownerId,
       name: data.name,
-      phone: data.phone,
+      phone: data.phone.trim(),
       cpf: data.cpf,
       gender: data.gender,
-      birth_date: data.birth_date ? new Date(data.birth_date) : undefined,
-      health_plan_id: data.health_plan_id,
-      health_plan_number: data.health_plan_number,
-      health_plan_type: data.health_plan_type,
-      email: data.email,
-      zip_code: data.zip_code,
+      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
+      healthPlanId: data.healthPlanId,
+      healthPlanNumber: data.healthPlanNumber,
+      healthPlanType: data.healthPlanType,
+      email: data.email.trim(),
+      zipCode: data.zipCode,
       address: data.address,
-      address_number: data.address_number,
-      address_complement: data.address_complement,
+      addressNumber: data.addressNumber,
+      addressComplement: data.addressComplement,
       neighborhood: data.neighborhood,
       city: data.city,
       state: data.state,
-      medical_notes: data.medical_notes,
+      medicalNotes: data.medicalNotes,
       active: true,
     });
 
-    // Notifica o paciente via WhatsApp (assíncrono — não bloqueia o cadastro)
-    if (patient.phone) {
-      void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
-    }
+    void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
 
     return patient;
   }
 
-  async update(id: string, data: UpdatePatientDto): Promise<Patient> {
+  async update(
+    id: string,
+    data: UpdatePatientDto,
+    userId: string,
+  ): Promise<Patient> {
     const patient = await this.patientRepository.findOne({ id });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
+    await this.accessControlService.assertSameOwner(userId, patient.ownerId);
 
     const updateData: Partial<Patient> = {};
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.phone !== undefined) updateData.phone = data.phone;
-    if (data.email !== undefined) updateData.email = data.email;
+    if (data.phone !== undefined) updateData.phone = data.phone.trim();
+    if (data.email !== undefined) updateData.email = data.email.trim();
     if (data.cpf !== undefined) updateData.cpf = data.cpf;
     if (data.gender !== undefined) updateData.gender = data.gender;
-    if (data.birth_date !== undefined)
-      updateData.birth_date = new Date(data.birth_date);
-    if (data.health_plan_id !== undefined)
-      updateData.health_plan_id = data.health_plan_id;
-    if (data.health_plan_number !== undefined)
-      updateData.health_plan_number = data.health_plan_number;
-    if (data.health_plan_type !== undefined)
-      updateData.health_plan_type = data.health_plan_type;
-    if (data.zip_code !== undefined) updateData.zip_code = data.zip_code;
+    if (data.birthDate !== undefined)
+      updateData.birthDate = new Date(data.birthDate);
+    if (data.healthPlanId !== undefined)
+      updateData.healthPlanId = data.healthPlanId;
+    if (data.healthPlanNumber !== undefined)
+      updateData.healthPlanNumber = data.healthPlanNumber;
+    if (data.healthPlanType !== undefined)
+      updateData.healthPlanType = data.healthPlanType;
+    if (data.zipCode !== undefined) updateData.zipCode = data.zipCode;
     if (data.address !== undefined) updateData.address = data.address;
-    if (data.address_number !== undefined)
-      updateData.address_number = data.address_number;
-    if (data.address_complement !== undefined)
-      updateData.address_complement = data.address_complement;
+    if (data.addressNumber !== undefined)
+      updateData.addressNumber = data.addressNumber;
+    if (data.addressComplement !== undefined)
+      updateData.addressComplement = data.addressComplement;
     if (data.neighborhood !== undefined)
       updateData.neighborhood = data.neighborhood;
     if (data.city !== undefined) updateData.city = data.city;
     if (data.state !== undefined) updateData.state = data.state;
-    if (data.medical_notes !== undefined)
-      updateData.medical_notes = data.medical_notes;
+    if (data.medicalNotes !== undefined)
+      updateData.medicalNotes = data.medicalNotes;
 
     return this.patientRepository.update(id, updateData);
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, userId: string): Promise<void> {
     const patient = await this.patientRepository.findOne({ id });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
+    await this.accessControlService.assertSameOwner(userId, patient.ownerId);
     await this.patientRepository.delete(id);
   }
 }

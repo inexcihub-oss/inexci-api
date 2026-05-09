@@ -14,5 +14,5 @@ export class UpdateDateOptionsDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(3)
   @IsDateString({}, { each: true })
-  date_options: string[];
+  dateOptions: string[];
 }

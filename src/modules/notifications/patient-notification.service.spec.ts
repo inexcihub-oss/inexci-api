@@ -31,7 +31,7 @@ describe('PatientNotificationService', () => {
       phone: '+5511999999999',
     },
     hospital: { name: 'Hospital ABC' },
-    created_by: { name: 'Dr. Maria' },
+    createdBy: { name: 'Dr. Maria' },
   };
 
   beforeEach(async () => {

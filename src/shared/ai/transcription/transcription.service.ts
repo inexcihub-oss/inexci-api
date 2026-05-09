@@ -111,7 +111,7 @@ export class TranscriptionService {
     const p95 = this.calculateP95(this.recentLatenciesMs);
 
     this.logger.log(
-      `[AI_STT_METRIC] status=success provider=${result.provider} fallback=${Boolean(result.fallbackUsed)} latency_ms=${result.latencyMs} p95_ms=${p95} success=${this.successCount} failure=${this.failureCount}`,
+      `[AI_STT_METRIC] status=success provider=${result.provider} fallback=${Boolean(result.fallbackUsed)} latencyMs=${result.latencyMs} p95_ms=${p95} success=${this.successCount} failure=${this.failureCount}`,
     );
   }
 

@@ -7,6 +7,7 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
@@ -29,17 +30,19 @@ export enum UserDoctorAccessStatus {
  * - Remoção é sempre soft-delete (status = 'inactive').
  * - Reativação é upsert para 'active'.
  */
-@Entity('user_doctor_access')
-@Unique(['user_id', 'doctor_user_id'])
+@Entity('user_doctor_accesses')
+@Unique(['userId', 'doctorUserId'])
+@Index('idx_uda_user_status', ['userId', 'status'])
+@Index('idx_uda_doctor_status', ['doctorUserId', 'status'])
 export class UserDoctorAccess {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'user_id' })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid' })
+  userId: string;
 
-  @Column({ name: 'doctor_user_id' })
-  doctor_user_id: string;
+  @Column({ name: 'doctor_user_id', type: 'uuid' })
+  doctorUserId: string;
 
   @Column({
     type: 'enum',
@@ -48,31 +51,31 @@ export class UserDoctorAccess {
   })
   status: UserDoctorAccessStatus;
 
-  @Column({ name: 'created_by_id', nullable: true })
-  created_by_id: string;
+  @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
+  createdById: string | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // ============ RELAÇÕES ============
 
   // Usuário que recebe o acesso
-  @ManyToOne(() => User, (user) => user.doctor_accesses, {
+  @ManyToOne(() => User, (user) => user.doctorAccesses, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
   // Médico cujas solicitações podem ser acessadas
-  @ManyToOne(() => User, (user) => user.accessible_by, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, (user) => user.accessibleBy, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_user_id' })
   doctor: User;
 
   // Admin que criou/modificou o vínculo
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'created_by_id' })
-  created_by: User;
+  createdBy: User | null;
 }

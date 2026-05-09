@@ -13,6 +13,13 @@ import {
   NotificationSendType,
 } from 'src/database/entities/notification-send-log.entity';
 import { WhatsappJobData } from './whatsapp.service';
+import {
+  truncateForLog,
+  truncateErrorForLog,
+  maskPhone,
+} from 'src/shared/utils';
+import { requestContextStorage } from 'src/shared/logging/request-context';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 @Processor('whatsapp-messages')
@@ -58,6 +65,13 @@ export class WhatsappProcessor {
 
   @Process('send-whatsapp')
   async handleSendWhatsapp(job: Job<WhatsappJobData>): Promise<void> {
+    const requestId = job.data.requestId || randomUUID();
+    return requestContextStorage.run({ requestId }, () =>
+      this.processSendWhatsapp(job),
+    );
+  }
+
+  private async processSendWhatsapp(job: Job<WhatsappJobData>): Promise<void> {
     const { to, body, contentSid, variables } = job.data;
     const from = this.twilioWhatsappFrom;
 
@@ -78,15 +92,17 @@ export class WhatsappProcessor {
     let sentAt: Date | null = null;
     let messageSid: string | null = null;
 
+    const maskedTo = maskPhone(toNormalized);
+
     try {
       if (!this.twilioClient) {
         this.logger.log(
-          `[DEV] WhatsApp (sem Twilio) → ${toFormatted}: ${logBody}`,
+          `[DEV] WhatsApp (sem Twilio) → ${maskedTo}: ${truncateForLog(logBody, 120)}`,
         );
         sentAt = new Date();
       } else if (isTemplate) {
         this.logger.log(
-          `Enviando template WhatsApp: from=${fromNormalized} to=${toFormatted} contentSid=${contentSid}`,
+          `Enviando template WhatsApp: to=${maskedTo} contentSid=${contentSid}`,
         );
         const result = await this.twilioClient.messages.create({
           from: fromNormalized,
@@ -96,11 +112,11 @@ export class WhatsappProcessor {
         } as any);
         sentAt = new Date();
         messageSid = result?.sid ?? null;
-        this.logger.log(`Template WhatsApp enviado com sucesso para: ${to}`);
-      } else {
         this.logger.log(
-          `Enviando WhatsApp: from=${fromNormalized} to=${toFormatted}`,
+          `Template WhatsApp enviado com sucesso para ${maskedTo}`,
         );
+      } else {
+        this.logger.log(`Enviando WhatsApp: to=${maskedTo}`);
         const result = await this.twilioClient.messages.create({
           from: fromNormalized,
           to: toFormatted,
@@ -108,26 +124,28 @@ export class WhatsappProcessor {
         });
         sentAt = new Date();
         messageSid = result?.sid ?? null;
-        this.logger.log(`Mensagem WhatsApp enviada com sucesso para: ${to}`);
+        this.logger.log(
+          `Mensagem WhatsApp enviada com sucesso para ${maskedTo}`,
+        );
       }
     } catch (error: any) {
       status = NotificationSendStatus.FAILED;
-      errorMessage = error?.message ?? String(error);
+      errorMessage = truncateErrorForLog(error);
       this.logger.warn(
-        `Falha ao enviar mensagem WhatsApp para ${to}: ${errorMessage}`,
+        `Falha ao enviar mensagem WhatsApp para ${maskedTo}: ${errorMessage}`,
       );
     } finally {
       try {
         const sendLog = this.sendLogRepository.create({
           channel: NotificationChannel.WHATSAPP,
           status,
-          to: toNormalized,
-          body: logBody,
+          to: maskedTo,
+          body: truncateForLog(logBody, 500),
           template: isTemplate ? contentSid : null,
-          error_message: errorMessage,
-          job_id: String(job.id),
+          errorMessage: truncateForLog(errorMessage, 500),
+          jobId: String(job.id),
           attempts: job.attemptsMade + 1,
-          sent_at: sentAt,
+          sentAt: sentAt,
           messageSid,
           direction: NotificationDirection.OUTBOUND,
           notificationType: isTemplate
@@ -150,11 +168,11 @@ export class WhatsappProcessor {
       this.logger.error(
         JSON.stringify({
           event: 'whatsapp_dead_letter',
-          to: job.data.to,
+          to: maskPhone(job.data.to),
           contentSid: job.data.contentSid ?? null,
           jobId: job.id,
           attemptsMade: job.attemptsMade,
-          error: error.message,
+          error: truncateForLog(error.message, 200),
         }),
       );
     }

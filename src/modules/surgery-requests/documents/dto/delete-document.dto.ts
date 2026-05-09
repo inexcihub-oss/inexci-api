@@ -11,5 +11,5 @@ export class DeleteDocumentDto {
 
   @IsString()
   @IsNotEmpty()
-  surgery_request_id: string;
+  surgeryRequestId: string;
 }

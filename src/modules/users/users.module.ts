@@ -4,7 +4,6 @@ import { User } from 'src/database/entities/user.entity';
 import { UserDoctorAccess } from 'src/database/entities/user-doctor-access.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { DoctorHeader } from 'src/database/entities/doctor-header.entity';
-import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { JwtService } from '@nestjs/jwt';
@@ -21,7 +20,6 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
       UserDoctorAccess,
       DoctorProfile,
       DoctorHeader,
-      SubscriptionPlan,
     ]),
     StorageModule,
     WhatsappModule,

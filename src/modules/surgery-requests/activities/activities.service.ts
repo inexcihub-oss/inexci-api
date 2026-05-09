@@ -50,12 +50,12 @@ export class ActivitiesService {
           type: a.type,
           content,
           pdf_url,
-          created_at: a.created_at,
+          createdAt: a.createdAt,
           user: a.user
             ? {
                 id: a.user.id,
                 name: a.user.name,
-                avatar_url: a.user.avatar_url,
+                avatarUrl: a.user.avatarUrl,
               }
             : null,
         };
@@ -71,8 +71,8 @@ export class ActivitiesService {
     await this.loadRequest(surgeryRequestId, userId);
 
     const activity = await this.activityRepository.create({
-      surgery_request_id: surgeryRequestId,
-      user_id: userId,
+      surgeryRequestId: surgeryRequestId,
+      userId: userId,
       type: dto.type ?? ActivityType.COMMENT,
       content: dto.content,
     });
@@ -83,9 +83,9 @@ export class ActivitiesService {
       id: activity.id,
       type: activity.type,
       content: activity.content,
-      created_at: activity.created_at,
+      createdAt: activity.createdAt,
       user: user
-        ? { id: user.id, name: user.name, avatar_url: user.avatar_url }
+        ? { id: user.id, name: user.name, avatarUrl: user.avatarUrl }
         : null,
     };
   }

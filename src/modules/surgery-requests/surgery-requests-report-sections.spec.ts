@@ -68,15 +68,15 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
   describe('getReportSections', () => {
     it('deve retornar sections ordenadas por order ASC', async () => {
       const mockSections = [
-        { id: '1', title: 'Histórico', order: 0, surgery_request_id: 'req-1' },
-        { id: '2', title: 'Conduta', order: 1, surgery_request_id: 'req-1' },
+        { id: '1', title: 'Histórico', order: 0, surgeryRequestId: 'req-1' },
+        { id: '2', title: 'Conduta', order: 1, surgeryRequestId: 'req-1' },
       ];
       (mockReportSectionRepo.find as jest.Mock).mockResolvedValue(mockSections);
 
       const result = await service.getReportSections('req-1', 'user-1');
 
       expect(mockReportSectionRepo.find).toHaveBeenCalledWith({
-        where: { surgery_request_id: 'req-1' },
+        where: { surgeryRequestId: 'req-1' },
         order: { order: 'ASC' },
       });
       expect(result).toEqual(mockSections);
@@ -91,7 +91,7 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
         title: 'Diagnóstico',
         description: '<p>Detalhes</p>',
         order: 0,
-        surgery_request_id: 'req-1',
+        surgeryRequestId: 'req-1',
       };
       (mockReportSectionRepo.create as jest.Mock).mockReturnValue(newSection);
       (mockReportSectionRepo.save as jest.Mock).mockResolvedValue(newSection);

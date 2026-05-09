@@ -83,7 +83,7 @@ export class SurgeryRequestsService {
       await this.accessControlService.getAccessibleDoctorIds(userId);
     if (doctorIds.length === 0) return { total: 0, records: [] };
 
-    let where: FindOptionsWhere<SurgeryRequest> = { doctor_id: In(doctorIds) };
+    let where: FindOptionsWhere<SurgeryRequest> = { doctorId: In(doctorIds) };
     if (query.status) where = { ...where, status: In(query.status) };
 
     const [total, records] = await Promise.all([
@@ -160,9 +160,9 @@ export class SurgeryRequestsService {
     return doctors.map((d) => ({
       id: d.id,
       name: d.name,
-      crm: d.doctor_profile?.crm,
-      crm_state: d.doctor_profile?.crm_state,
-      specialty: d.doctor_profile?.specialty,
+      crm: d.doctorProfile?.crm,
+      crmState: d.doctorProfile?.crmState,
+      specialty: d.doctorProfile?.specialty,
     }));
   }
 
@@ -303,7 +303,7 @@ export class SurgeryRequestsService {
   // DELEGAÇÃO → TEMPLATE SERVICE
   // ============================================================
 
-  createTemplate(dto: { name: string; template_data: object }, userId: string) {
+  createTemplate(dto: { name: string; templateData: object }, userId: string) {
     return this.templateService.createTemplate(dto, userId);
   }
 
@@ -317,7 +317,7 @@ export class SurgeryRequestsService {
 
   updateTemplate(
     id: string,
-    dto: { name?: string; template_data?: object },
+    dto: { name?: string; templateData?: object },
     userId: string,
   ) {
     return this.templateService.updateTemplate(id, dto, userId);
@@ -336,20 +336,20 @@ export class SurgeryRequestsService {
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
     if (doctorIds.length === 0) return base;
-    return { ...base, doctor_id: In(doctorIds) };
+    return { ...base, doctorId: In(doctorIds) };
   }
 
   private buildReceipt(billing: SurgeryRequestBilling | null | undefined) {
-    if (billing?.received_value == null) return null;
+    if (billing?.receivedValue == null) return null;
     return {
-      received_value: Number(billing.received_value),
-      received_at: billing.received_at,
-      receipt_notes: billing.receipt_notes ?? null,
-      is_contested: billing.contested_received_value != null,
-      contested_received_value: billing.contested_received_value
-        ? Number(billing.contested_received_value)
+      receivedValue: Number(billing.receivedValue),
+      receivedAt: billing.receivedAt,
+      receiptNotes: billing.receiptNotes ?? null,
+      is_contested: billing.contestedReceivedValue != null,
+      contestedReceivedValue: billing.contestedReceivedValue
+        ? Number(billing.contestedReceivedValue)
         : null,
-      contested_received_at: billing.contested_received_at ?? null,
+      contestedReceivedAt: billing.contestedReceivedAt ?? null,
     };
   }
 }

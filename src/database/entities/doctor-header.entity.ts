@@ -9,34 +9,35 @@ import {
 } from 'typeorm';
 import { DoctorProfile } from './doctor-profile.entity';
 
-@Entity('doctor_header')
+@Entity('doctor_headers')
 export class DoctorHeader {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'doctor_profile_id', unique: true })
-  doctor_profile_id: string;
+  @Column({ name: 'doctor_profile_id', type: 'uuid', unique: true })
+  doctorProfileId: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  logo_url: string | null;
+  @Column({ name: 'logo_url', type: 'varchar', length: 500, nullable: true })
+  logoUrl: string | null;
 
   @Column({
+    name: 'logo_position',
     type: 'enum',
     enum: ['left', 'right'],
     default: 'left',
   })
-  logo_position: 'left' | 'right';
+  logoPosition: 'left' | 'right';
 
-  @Column({ type: 'text', nullable: true })
-  content_html: string | null;
+  @Column({ name: 'content_html', type: 'text', nullable: true })
+  contentHtml: string | null;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   @OneToOne(() => DoctorProfile, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_profile_id' })
-  doctor_profile: DoctorProfile;
+  doctorProfile: DoctorProfile;
 }

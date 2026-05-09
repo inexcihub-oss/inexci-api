@@ -24,4 +24,8 @@ export class WhatsappConversationMessageRepository extends BaseRepository<Whatsa
     });
     return messages.reverse();
   }
+
+  async deleteByConversation(conversationId: string): Promise<void> {
+    await this.repository.delete({ conversationId });
+  }
 }

@@ -19,11 +19,10 @@ describe('LegalDocumentsService', () => {
 
     expect(doc.slug).toBe('privacy-policy');
     expect(doc.type).toBe('privacy_policy');
-    expect(doc.version).toBe('1.0');
     expect(doc.content_md).toBe('# Política');
     expect(readSpy).toHaveBeenCalledTimes(1);
     const calledPath = readSpy.mock.calls[0][0] as string;
-    expect(calledPath).toMatch(/privacy-policy-1\.0\.md$/);
+    expect(calledPath).toMatch(/privacy-policy\.md$/);
   });
 
   it('faz fallback para outros candidatos quando o primeiro não existe', async () => {
@@ -45,9 +44,7 @@ describe('LegalDocumentsService', () => {
   });
 
   it('lança NotFoundException quando nenhum candidato resolve o arquivo', async () => {
-    jest
-      .spyOn(fs, 'readFile')
-      .mockRejectedValue(new Error('ENOENT'));
+    jest.spyOn(fs, 'readFile').mockRejectedValue(new Error('ENOENT'));
 
     await expect(service.getCurrent('ai-disclosure')).rejects.toBeInstanceOf(
       NotFoundException,

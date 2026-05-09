@@ -10,7 +10,7 @@ import {
 import { WhatsappConversation } from './whatsapp-conversation.entity';
 import { encryptedTransformer } from '../../shared/crypto/encryption.util';
 
-@Entity('whatsapp_conversation_message')
+@Entity('whatsapp_conversation_messages')
 @Index('idx_wcm_conversation_created', ['conversationId', 'createdAt'])
 export class WhatsappConversationMessage {
   @PrimaryGeneratedColumn('uuid')
@@ -29,7 +29,7 @@ export class WhatsappConversationMessage {
   toolName: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, any> | null;
+  metadata: Record<string, unknown> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

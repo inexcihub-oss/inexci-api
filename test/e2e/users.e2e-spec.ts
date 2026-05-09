@@ -5,17 +5,9 @@ import {
   cleanDatabase,
   closeTestApp,
   seedTestData,
-  createUserWithRole,
 } from '../helpers/test-setup';
 import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
 import { TestDataFactory } from '../helpers/test-data-factory';
-
-// Constantes de UserStatuses (PRD v3: strings)
-const UserStatuses = {
-  pending: 'pending',
-  active: 'active',
-  inactive: 'inactive',
-} as const;
 
 describe('Users (e2e)', () => {
   let app: INestApplication;
@@ -195,87 +187,6 @@ describe('Users (e2e)', () => {
       await request(app.getHttpServer())
         .post('/users')
         .send(userData)
-        .expect(401);
-    });
-  });
-
-  describe('/users (PUT)', () => {
-    it('should update user name', async () => {
-      const response = await request(app.getHttpServer())
-        .put('/users')
-        .set(getAuthHeader(authToken))
-        .send({
-          id: currentUser.id,
-          name: 'Updated Name',
-        })
-        .expect(200);
-
-      expect(response.body.name).toBe('Updated Name');
-    });
-
-    it('should fail to update non-existent user', async () => {
-      const response = await request(app.getHttpServer())
-        .put('/users')
-        .set(getAuthHeader(authToken))
-        .send({
-          id: 999999,
-          name: 'Updated Name',
-        });
-
-      // Pode retornar 400, 404 (not found) ou 403 (forbidden) dependendo da implementação
-      expect([400, 403, 404, 500]).toContain(response.status);
-    });
-
-    it('should fail without authentication', async () => {
-      await request(app.getHttpServer())
-        .put('/users')
-        .send({ id: 1, name: 'Test' })
-        .expect(401);
-    });
-  });
-
-  describe('/users/complete-register/validate-link (GET)', () => {
-    it('should return user data for pending user', async () => {
-      // Criar um usuário com status pending e fazer login com ele
-      const pendingUser = await createUserWithRole(app, {
-        email: 'pending@test.com',
-        name: 'Test Pending User',
-        role: 'collaborator',
-        status: UserStatuses.pending,
-        password: 'Test@1234',
-        account_id: currentUser.id,
-      });
-
-      // Login com o usuário pending
-      const loginResponse = await request(app.getHttpServer())
-        .post('/auth/login')
-        .send({ email: 'pending@test.com', password: 'Test@1234' });
-
-      // Usuários pending devem poder logar mas terão acesso limitado
-      if (loginResponse.status === 201) {
-        const pendingToken = loginResponse.body.access_token;
-
-        const response = await request(app.getHttpServer())
-          .get('/users/complete-register/validate-link')
-          .set(getAuthHeader(pendingToken));
-
-        // Pode retornar 200 ou 400 dependendo da implementação
-        expect([200, 400]).toContain(response.status);
-      }
-    });
-
-    it('should fail without authentication', async () => {
-      await request(app.getHttpServer())
-        .get('/users/complete-register/validate-link')
-        .expect(401);
-    });
-  });
-
-  describe('/users/complete-register (POST)', () => {
-    it('should fail without authentication', async () => {
-      await request(app.getHttpServer())
-        .post('/users/complete-register')
-        .send({ password: 'NewPassword@123' })
         .expect(401);
     });
   });

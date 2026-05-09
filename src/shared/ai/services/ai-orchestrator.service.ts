@@ -11,10 +11,7 @@ import {
 } from './conversation-context.service';
 import { ToolRegistryService } from './tool-registry.service';
 import { ToolExecutorService } from './tool-executor.service';
-import {
-  PiiVaultService,
-  SerializedPiiBindings,
-} from './pii-vault.service';
+import { PiiVaultService, SerializedPiiBindings } from './pii-vault.service';
 import { AiRedisService } from './ai-redis.service';
 import { RagService } from '../../rag/rag.service';
 import { WhatsappService } from '../../whatsapp/whatsapp.service';
@@ -27,10 +24,8 @@ import { PendencyValidatorService } from '../../../modules/surgery-requests/pend
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { AiTokenUsageLogRepository } from '../../../database/repositories/ai-token-usage-log.repository';
 import { AiPiiRedactionLogRepository } from '../../../database/repositories/ai-pii-redaction-log.repository';
-import {
-  CURRENT_CONSENT_VERSIONS,
-  isConsentVersionValid,
-} from '../../../config/consent.config';
+import { hashPhone } from '../../crypto/phone-hash.util';
+import { maskPhone as maskPhoneUtil } from '../../utils/mask.util';
 import { TranscriptionService } from '../transcription/transcription.service';
 import {
   InboundWhatsappMedia,
@@ -97,7 +92,7 @@ interface CompletionUsageSnapshot {
     memory_tokens: number;
     rag_tokens: number;
     recent_tokens: number;
-    total_tokens: number;
+    totalTokens: number;
   };
   /** Estratégia aplicada (`history_only` vs `hybrid`). */
   contextStrategy?: ContextStrategy;
@@ -108,17 +103,17 @@ const SC_CREATE_TOOL = 'create_surgery_request_from_whatsapp';
 /**
  * Slots obrigatórios por intent que cobrem mutações sensíveis do fluxo.
  * Definidos por config; o orchestrator bloqueia a tool de criação quando
- * algum slot ainda não foi confirmado em `conversation_memory.filled_slots`.
+ * algum slot ainda não foi confirmado em `conversationMemory.filled_slots`.
  */
 const REQUIRED_SLOTS_BY_INTENT: Record<string, string[]> = {
   create: [
     'patient.id',
-    'surgery_request.hospital',
-    'surgery_request.health_plan',
-    'tuss_items',
+    'surgeryRequest.hospital',
+    'surgeryRequest.healthPlan',
+    'tussItems',
   ],
-  update: ['surgery_request.id'],
-  advance: ['surgery_request.id'],
+  update: ['surgeryRequest.id'],
+  advance: ['surgeryRequest.id'],
 };
 
 /**
@@ -129,11 +124,11 @@ const REQUIRED_SLOTS_BY_INTENT: Record<string, string[]> = {
 const SLOT_PROMPTS: Record<string, string> = {
   'patient.id':
     'Antes de criar a solicitação, qual paciente devo usar? Pode me passar o nome ou o CPF (já cadastrado).',
-  'surgery_request.hospital': 'Qual hospital vamos indicar nesta solicitação?',
-  'surgery_request.health_plan': 'Qual convênio vamos usar nesta solicitação?',
-  tuss_items:
+  'surgeryRequest.hospital': 'Qual hospital vamos indicar nesta solicitação?',
+  'surgeryRequest.healthPlan': 'Qual convênio vamos usar nesta solicitação?',
+  tussItems:
     'Quais procedimentos (códigos TUSS ou nomes) devem entrar nessa solicitação? Pode listar pelo menos um.',
-  'surgery_request.id':
+  'surgeryRequest.id':
     'Sobre qual solicitação estamos falando? Pode me dizer o protocolo (SC-XXXX) ou o nome do paciente.',
 };
 
@@ -262,7 +257,7 @@ export class AiOrchestratorService {
    * Slot-filling: se o LLM estiver tentando criar uma SC com algum slot
    * obrigatório ainda ausente, intercepta a chamada e devolve a próxima
    * pergunta determinística ao usuário (uma por vez). Slots já confirmados
-   * em `conversation_memory.filled_slots` não são re-perguntados.
+   * em `conversationMemory.filled_slots` não são re-perguntados.
    */
   private evaluateSlotFilling(
     toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
@@ -324,12 +319,12 @@ export class AiOrchestratorService {
       const filled = { ...(memory.filled_slots || {}) };
       // Persiste apenas hashes/ids — nunca conteúdo livre.
       if (args?.patient?.id) filled['patient.id'] = String(args.patient.id);
-      if (args?.surgery_request?.hospital)
-        filled['surgery_request.hospital'] = '✓';
-      if (args?.surgery_request?.health_plan)
-        filled['surgery_request.health_plan'] = '✓';
-      if (Array.isArray(args?.tuss_items) && args.tuss_items.length)
-        filled['tuss_items'] = `count:${args.tuss_items.length}`;
+      if (args?.surgeryRequest?.hospital)
+        filled['surgeryRequest.hospital'] = '✓';
+      if (args?.surgeryRequest?.healthPlan)
+        filled['surgeryRequest.healthPlan'] = '✓';
+      if (Array.isArray(args?.tussItems) && args.tussItems.length)
+        filled['tussItems'] = `count:${args.tussItems.length}`;
 
       const repo = this.conversationService['conversationRepo'];
       if (repo?.update) {
@@ -361,8 +356,7 @@ export class AiOrchestratorService {
     const key = `${PII_VAULT_REDIS_KEY_PREFIX}${conversationId}`;
     if (this.aiRedis.isAvailable) {
       try {
-        const stored =
-          await this.aiRedis.cacheGet<SerializedPiiBindings>(key);
+        const stored = await this.aiRedis.cacheGet<SerializedPiiBindings>(key);
         if (Array.isArray(stored)) return stored;
       } catch (err: any) {
         this.logger.debug(
@@ -438,11 +432,11 @@ export class AiOrchestratorService {
     email: '[e-mail não disponível]',
     address: '[endereço não disponível]',
     date: 'a data informada',
-    birth_date: 'a data de nascimento',
-    medical_report: '[laudo]',
-    patient_history: '[histórico clínico]',
+    birthDate: 'a data de nascimento',
+    medicalReport: '[laudo]',
+    patientHistory: '[histórico clínico]',
     diagnosis: '[diagnóstico]',
-    surgery_description: '[descrição cirúrgica]',
+    surgeryDescription: '[descrição cirúrgica]',
     payload_blob: '[conteúdo enviado]',
   };
 
@@ -474,7 +468,10 @@ export class AiOrchestratorService {
     const cleaned = text.replace(placeholderRegex, (_match, category) => {
       const key = String(category || '').toLowerCase();
       seen.set(key, (seen.get(key) ?? 0) + 1);
-      return this.RESIDUAL_PLACEHOLDER_FALLBACKS[key] ?? '[informação não disponível]';
+      return (
+        this.RESIDUAL_PLACEHOLDER_FALLBACKS[key] ??
+        '[informação não disponível]'
+      );
     });
 
     if (seen.size) {
@@ -490,25 +487,54 @@ export class AiOrchestratorService {
   }
 
   /**
-   * Mascaramento de telefones para logs (LGPD — T0/T25).
+   * Mascara CPF/telefone/email "literais" produzidos pelo próprio assistente
+   * antes de persistir a mensagem no histórico conversacional.
+   *
+   * Motivo: o LLM costuma escrever exemplos de formato em respostas
+   * orientativas (ex.: "Telefone (formato: DDD + número, ex: 31 99999-9999)").
+   * Esses literais são salvos como conteúdo textual da mensagem `assistant` e,
+   * no turno seguinte, batem na regex de PII estruturada do filtro defensivo
+   * `assertNoResidualPii` — bloqueando toda a conversa indefinidamente com a
+   * notice "Detectei um dado sensível...".
+   *
+   * Placeholders válidos do vault (`{{categoria_n}}`) são preservados pois as
+   * regexes de CPF/telefone/email não casam com chaves duplas.
    */
-  private maskPhone(phone: string): string {
-    if (!phone || phone.length < 6) return '***';
-    return `${phone.slice(0, 5)}****${phone.slice(-2)}`;
+  private sanitizeAssistantOutputForHistory(
+    text: string,
+    conversationId: string,
+    messageSid: string,
+  ): string {
+    if (!text) return text;
+    const result = this.piiVault.maskLiteralPii(text);
+    if (result.masked.length) {
+      const breakdown = result.masked
+        .map((entry) => `${entry.category}=${entry.count}`)
+        .join(',');
+      this.logger.warn(
+        `[AI_ASSISTANT_PII_MASK] sid=${messageSid} conv=${conversationId} ${breakdown}`,
+      );
+    }
+    return result.text;
   }
 
   /**
-   * Verifica se o usuário já aceitou o termo de uso de IA na versão MAJOR vigente.
+   * Mascaramento de telefones para logs (LGPD — T0/T25). Delegado ao helper
+   * compartilhado em `shared/utils/mask.util` para manter o formato único
+   * em todo o backend.
+   */
+  private maskPhone(phone: string): string {
+    return maskPhoneUtil(phone);
+  }
+
+  /**
+   * Verifica se o usuário já aceitou o termo de uso de IA.
    * (T0.15 — base de bloqueio do orchestrator quando consentimento ausente.)
    */
   private hasValidAiConsent(
-    user: Pick<User, 'ai_consent_version'> | null | undefined,
+    user: Pick<User, 'aiConsentAcceptedAt'> | null | undefined,
   ): boolean {
-    if (!user) return false;
-    return isConsentVersionValid(
-      user.ai_consent_version,
-      CURRENT_CONSENT_VERSIONS.ai,
-    );
+    return Boolean(user?.aiConsentAcceptedAt);
   }
 
   /** Texto-padrão de redirecionamento à web (item 4.3 do PLANO-LGPD-CONFORMIDADE). */
@@ -738,12 +764,21 @@ export class AiOrchestratorService {
    * em busca de PII residual não tokenizada. Em caso de detecção, registra o
    * incidente em `ai_pii_redaction_log` e lança um erro com `code='PII_RESIDUAL'`
    * para abortar a chamada.
+   *
+   * Mensagens com role `assistant` (vindas do histórico ou geradas em
+   * follow-ups da própria IA) são ignoradas: o LLM frequentemente inclui
+   * exemplos de formato (ex.: "use o formato 31 99999-9999") que casavam com
+   * a regex de telefone e bloqueavam toda a conversa nos turnos seguintes.
+   * A defesa para esse caminho passa a ser `sanitizeAssistantOutputForHistory`
+   * — chamado antes de persistir respostas do assistant — que mascara
+   * literais por placeholders genéricos não-PII.
    */
   private async assertNoResidualPii(
     messages: OpenAI.ChatCompletionMessageParam[],
     context: { conversationId: string; messageSid: string; toolName?: string },
   ): Promise<void> {
     for (const message of messages) {
+      if (message.role === 'assistant') continue;
       const content = message.content;
       if (typeof content !== 'string' || !content) continue;
       const findings = this.piiVault.detectResidualPii(content);
@@ -898,12 +933,12 @@ export class AiOrchestratorService {
       if (!cachedDoctorIds)
         this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
 
-      const accountId = user?.account_id || null;
+      const ownerId = user?.ownerId || null;
       const conversation =
         await this.conversationService.getOrCreateConversation(
           phone,
           userId,
-          accountId,
+          ownerId,
         );
       activeConversationId = conversation.id;
 
@@ -966,15 +1001,23 @@ export class AiOrchestratorService {
         return;
       }
 
-      const audioProcessing = await this.processInboundAudioIfNeeded(data);
-      const transcriptionContext = audioProcessing.transcription;
+      const hasInboundAudio =
+        this.isAudioEnabled() &&
+        (data.media || []).some(
+          (item) =>
+            item.category === 'audio' ||
+            this.whatsappMediaService.isAudioMime(item.contentType),
+        );
 
-      if (audioProcessing.hasAudio) {
+      if (hasInboundAudio) {
         await this.whatsappService.sendMessage(
           phone,
           '🎧 Recebi seu áudio. Estou analisando e já te respondo.',
         );
       }
+
+      const audioProcessing = await this.processInboundAudioIfNeeded(data);
+      const transcriptionContext = audioProcessing.transcription;
 
       const userInputRaw = this.buildUserInputForAi({
         textInput: data.body,
@@ -1050,7 +1093,7 @@ export class AiOrchestratorService {
         await this.conversationService.getOrCreateConversation(
           phone,
           userId,
-          accountId,
+          ownerId,
         );
 
       const built = await this.contextService.buildContext({
@@ -1235,14 +1278,25 @@ export class AiOrchestratorService {
           '...\n\n_Acesse a plataforma para ver a resposta completa._';
       }
 
-      // Histórico mantém versão TOKENIZADA (assistente continua reusando placeholders).
+      // Histórico mantém versão TOKENIZADA + literais de PII (CPF/telefone/
+      // email que a IA possa ter escrito como exemplo) mascarados por
+      // placeholders genéricos. Sem essa máscara, exemplos do tipo
+      // "use o formato 31 99999-9999" envenenam o histórico e fazem
+      // `assertNoResidualPii` bloquear todos os turnos seguintes.
+      const sanitizedHistoryText = this.sanitizeAssistantOutputForHistory(
+        finalText,
+        conversation.id,
+        data.messageSid,
+      );
+
       await this.conversationService.appendMessage(
         conversation.id,
         'assistant',
-        finalText,
+        sanitizedHistoryText,
       );
 
-      // T0.6 — detokeniza somente para envio externo (WhatsApp).
+      // T0.6 — detokeniza somente para envio externo (WhatsApp). Usa o texto
+      // original (com placeholders), não o sanitizado para histórico.
       const detokenizedText = this.piiVault.detokenize(
         conversation.id,
         finalText,
@@ -1261,7 +1315,7 @@ export class AiOrchestratorService {
         data.messageSid,
         conversation.id,
         userId,
-        accountId,
+        ownerId,
         usageSnapshots,
       );
 
@@ -1277,7 +1331,7 @@ export class AiOrchestratorService {
           const conv = await this.conversationService.getOrCreateConversation(
             phone,
             userId,
-            accountId,
+            ownerId,
           );
           if (await ctxService.shouldRefreshSummary(conv)) {
             await ctxService.updateSummaryAndMemory(convId);
@@ -1567,7 +1621,7 @@ export class AiOrchestratorService {
     messageSid: string,
     conversationId: string,
     userId: string,
-    accountId: string | null,
+    ownerId: string | null,
     snapshots: CompletionUsageSnapshot[],
   ): Promise<void> {
     if (!snapshots.length) return;
@@ -1590,10 +1644,10 @@ export class AiOrchestratorService {
     try {
       await this.aiTokenUsageLogRepo.create({
         messageSid,
-        phone,
+        phoneHash: hashPhone(phone),
         conversationId,
         userId,
-        accountId,
+        ownerId,
         promptTokens: totals.prompt,
         completionTokens: totals.completion,
         totalTokens: totals.total,
@@ -1820,7 +1874,7 @@ export class AiOrchestratorService {
       });
 
       this.logger.log(
-        `[AI_STT] status=success sid=${data.messageSid} provider=${transcription.provider} bytes=${downloaded.sizeBytes} latency_ms=${transcription.latencyMs} fallback=${Boolean(transcription.fallbackUsed)}`,
+        `[AI_STT] status=success sid=${data.messageSid} provider=${transcription.provider} bytes=${downloaded.sizeBytes} latencyMs=${transcription.latencyMs} fallback=${Boolean(transcription.fallbackUsed)}`,
       );
 
       return {
@@ -2054,53 +2108,53 @@ export class AiOrchestratorService {
       case 'patient_data':
         return {
           action: 'update_patient_data',
-          minParams: ['surgery_request_id', 'name|cpf|phone|birth_date'],
+          minParams: ['surgeryRequestId', 'name|cpf|phone|birthDate'],
         };
       case 'hospital_data':
         return {
           action: 'set_hospital',
-          minParams: ['surgery_request_id', 'hospital_name'],
+          minParams: ['surgeryRequestId', 'hospital_name'],
         };
       case 'tuss_procedures':
         return {
           action: 'add_tuss_item',
-          minParams: ['surgery_request_id', 'tuss_code', 'name'],
+          minParams: ['surgeryRequestId', 'tussCode', 'name'],
         };
       case 'opme_items':
         return {
           action: 'set_has_opme ou add_opme_item',
-          minParams: ['surgery_request_id', 'has_opme=true|false'],
+          minParams: ['surgeryRequestId', 'hasOpme=true|false'],
         };
       case 'medical_report':
         return {
           action: 'manage_report_sections',
-          minParams: ['surgery_request_id', 'operation=create', 'title'],
+          minParams: ['surgeryRequestId', 'operation=create', 'title'],
         };
       case 'schedule_dates':
         return {
           action: 'update_date_options',
-          minParams: ['surgery_request_id', 'date_options[]'],
+          minParams: ['surgeryRequestId', 'dateOptions[]'],
         };
       case 'confirm_date':
         return {
           action: 'confirm_date',
-          minParams: ['surgery_request_id', 'selected_date_index'],
+          minParams: ['surgeryRequestId', 'selectedDateIndex'],
         };
       case 'confirm_receipt':
         return {
           action: 'confirm_receipt',
-          minParams: ['surgery_request_id', 'received_value', 'received_at'],
+          minParams: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
         };
       default:
         if (key.startsWith('doc_')) {
           return {
             action: 'attach_document_from_whatsapp',
-            minParams: ['surgery_request_id', 'document_type?', 'confirm=true'],
+            minParams: ['surgeryRequestId', 'document_type?', 'confirm=true'],
           };
         }
         return {
           action: 'get_pendencies',
-          minParams: ['surgery_request_id'],
+          minParams: ['surgeryRequestId'],
         };
     }
   }
@@ -2116,8 +2170,8 @@ export class AiOrchestratorService {
     if (!this.isSuccessfulMutationResult(toolOutput)) return toolOutput;
 
     const requestId =
-      typeof args.surgery_request_id === 'string'
-        ? args.surgery_request_id
+      typeof args.surgeryRequestId === 'string'
+        ? args.surgeryRequestId
         : typeof args.id === 'string'
           ? args.id
           : '';
@@ -2129,7 +2183,7 @@ export class AiOrchestratorService {
         id: requestId,
       });
       if (!request) return toolOutput;
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
         return toolOutput;
       }
 

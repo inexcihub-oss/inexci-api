@@ -13,21 +13,21 @@ import {
  */
 export class InvoiceRequestDto {
   @IsString()
-  invoice_protocol: string;
+  invoiceProtocol: string;
 
   @IsDateString()
-  invoice_sent_at: string;
+  invoiceSentAt: string;
 
   @IsNumber()
   @Min(0)
-  invoice_value: number;
+  invoiceValue: number;
 
   @IsOptional()
   @IsDateString()
-  payment_deadline?: string;
+  paymentDeadline?: string;
 
   /**
-   * Se true, atualiza health_plan.default_payment_days com base no prazo informado
+   * Se true, atualiza healthPlan.defaultPaymentDays com base no prazo informado
    */
   @IsOptional()
   @IsBoolean()

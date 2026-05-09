@@ -15,11 +15,11 @@ export class ProcedureItemDto {
 
   @IsOptional()
   @IsString()
-  procedure_id?: string; // mantido por compatibilidade, não utilizado no save
+  procedureId?: string; // mantido por compatibilidade, não utilizado no save
 
   @IsString()
   @IsNotEmpty()
-  tuss_code: string;
+  tussCode: string;
 
   @IsString()
   @IsNotEmpty()
@@ -33,7 +33,7 @@ export class ProcedureItemDto {
 export class CreateSurgeryRequestProcedureDto {
   @IsString()
   @IsNotEmpty()
-  surgery_request_id: string;
+  surgeryRequestId: string;
 
   @IsArray()
   @ValidateNested({ each: true })

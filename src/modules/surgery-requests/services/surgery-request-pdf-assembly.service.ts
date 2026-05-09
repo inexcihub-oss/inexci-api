@@ -36,8 +36,8 @@ export class SurgeryRequestPdfAssemblyService {
    * Resolve a URL da assinatura do médico (signed URL se for path do storage).
    */
   async resolveDoctorSignatureUrl(profile: any): Promise<string | undefined> {
-    if (!profile?.signature_url) return undefined;
-    const raw: string = profile.signature_url;
+    if (!profile?.signatureUrl) return undefined;
+    const raw: string = profile.signatureUrl;
     if (raw.startsWith('http')) return raw;
     try {
       return await this.storageService.getSignedUrl(raw);
@@ -51,11 +51,11 @@ export class SurgeryRequestPdfAssemblyService {
    */
   async loadDoctorData(userId: string) {
     const doctor = await this.userRepository.findOneWithProfile({ id: userId });
-    const profile = doctor?.doctor_profile;
+    const profile = doctor?.doctorProfile;
 
     let doctorCrm: string | undefined;
     if (profile?.crm) {
-      doctorCrm = `CRM ${profile.crm}${profile.crm_state ? `/${profile.crm_state}` : ''}`;
+      doctorCrm = `CRM ${profile.crm}${profile.crmState ? `/${profile.crmState}` : ''}`;
     }
 
     const doctorSignatureUrl = await this.resolveDoctorSignatureUrl(profile);
@@ -67,12 +67,12 @@ export class SurgeryRequestPdfAssemblyService {
       );
       if (header) {
         let logoUrl: string | null = null;
-        if (header.logo_url) {
-          if (header.logo_url.startsWith('http')) {
-            logoUrl = header.logo_url;
+        if (header.logoUrl) {
+          if (header.logoUrl.startsWith('http')) {
+            logoUrl = header.logoUrl;
           } else {
             try {
-              logoUrl = await this.storageService.getSignedUrl(header.logo_url);
+              logoUrl = await this.storageService.getSignedUrl(header.logoUrl);
             } catch {
               logoUrl = null;
             }
@@ -80,8 +80,8 @@ export class SurgeryRequestPdfAssemblyService {
         }
         customHeader = {
           logoUrl,
-          logoPosition: header.logo_position,
-          contentHtml: header.content_html,
+          logoPosition: header.logoPosition,
+          contentHtml: header.contentHtml,
         };
       }
     }
@@ -103,7 +103,7 @@ export class SurgeryRequestPdfAssemblyService {
     const doctorPhoneRaw = doctor?.phone ?? '';
     const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
 
-    // ── Dados do laudo (medical_report JSON) ───────────────────────────────
+    // ── Dados do laudo (medicalReport JSON) ───────────────────────────────
     let reportData: {
       patientData?: {
         name?: string;
@@ -119,8 +119,8 @@ export class SurgeryRequestPdfAssemblyService {
       conduct?: string;
     } = {};
     try {
-      if (request.medical_report) {
-        reportData = JSON.parse(request.medical_report as unknown as string);
+      if (request.medicalReport) {
+        reportData = JSON.parse(request.medicalReport as unknown as string);
       }
     } catch {
       // fallback vazio
@@ -150,15 +150,15 @@ export class SurgeryRequestPdfAssemblyService {
     ).filter((u): u is string => !!u);
 
     // ── Procedimentos (TUSS) ─────────────────────────────────────────────
-    const tussItems = request.tuss_items ?? [];
+    const tussItems = request.tussItems ?? [];
     const procedures = tussItems.map((item: any) => ({
       name: item.name,
-      tussCode: item.tuss_code,
+      tussCode: item.tussCode,
       quantity: item.quantity ?? 1,
     }));
 
     // ── Materiais (OPME) ─────────────────────────────────────────────────
-    const opmeItemsRaw = request.opme_items ?? [];
+    const opmeItemsRaw = request.opmeItems ?? [];
     const opmeItems = opmeItemsRaw.map((item: any) => ({
       name: item.name,
       quantity: item.quantity ?? 1,
@@ -185,7 +185,7 @@ export class SurgeryRequestPdfAssemblyService {
       .join(' – ');
 
     // ── Seções dinâmicas do laudo ─────────────────────────────────────────
-    const reportSections = ((request.report_sections ?? []) as any[]).sort(
+    const reportSections = ((request.reportSections ?? []) as any[]).sort(
       (a, b) => (a.order ?? 0) - (b.order ?? 0),
     );
 
@@ -194,16 +194,15 @@ export class SurgeryRequestPdfAssemblyService {
       patientName: pd.name || patient?.name || undefined,
       patientBirthDate:
         pd.birthDate ||
-        (patient?.birth_date ? formatDateBR(patient.birth_date) : undefined),
+        (patient?.birthDate ? formatDateBR(patient.birthDate) : undefined),
       patientRg: pd.rg || patient?.rg || undefined,
       patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
       patientPhone: formatPhone(pd.phone || patient?.phone || '') || undefined,
       patientAddress: pd.address || patient?.address || undefined,
       patientZipCode:
-        formatCep(pd.zipCode || patient?.zip_code || patient?.cep || '') ||
+        formatCep(pd.zipCode || patient?.zipCode || patient?.cep || '') ||
         undefined,
-      patientHealthPlan:
-        pd.healthPlan || request.health_plan?.name || undefined,
+      patientHealthPlan: pd.healthPlan || request.healthPlan?.name || undefined,
       historyAndDiagnosis: reportSections.length
         ? undefined
         : reportData.historyAndDiagnosis || undefined,
@@ -286,7 +285,7 @@ export class SurgeryRequestPdfAssemblyService {
       .filter((c: any) => c.type === 'authorization')
       .sort(
         (a: any, b: any) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       )[0];
 
     const reason =
@@ -297,22 +296,20 @@ export class SurgeryRequestPdfAssemblyService {
 
     const tussItems = await this.dataSource
       .getRepository(SurgeryRequestTussItem)
-      .find({ where: { surgery_request_id: id } });
+      .find({ where: { surgeryRequestId: id } });
 
     const procedures = tussItems.map((item) => ({
       description: item.name,
-      tussCode: item.tuss_code,
+      tussCode: item.tussCode,
       requestedQuantity: item.quantity,
-      authorizedQuantity: item.authorized_quantity ?? null,
+      authorizedQuantity: item.authorizedQuantity ?? null,
     }));
 
-    const opmeItems = (request.opme_items ?? []).map((item: any) => ({
+    const opmeItems = (request.opmeItems ?? []).map((item: any) => ({
       name: item.name,
       requestedQuantity: item.quantity,
       authorizedQuantity:
-        item.authorized_quantity !== undefined
-          ? item.authorized_quantity
-          : null,
+        item.authorizedQuantity !== undefined ? item.authorizedQuantity : null,
     }));
 
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
@@ -322,15 +319,15 @@ export class SurgeryRequestPdfAssemblyService {
       today: new Date().toLocaleDateString('pt-BR'),
       reason,
       patientName: patient?.name ?? undefined,
-      patientBirthDate: patient?.birth_date
-        ? new Date(patient.birth_date).toLocaleDateString('pt-BR')
+      patientBirthDate: patient?.birthDate
+        ? new Date(patient.birthDate).toLocaleDateString('pt-BR')
         : undefined,
       patientRg: patient?.rg ?? undefined,
       patientCpf: patient?.cpf ?? undefined,
       patientPhone: patient?.phone ?? undefined,
       patientAddress: patient?.address ?? undefined,
-      patientZipCode: patient?.zip_code ?? patient?.cep ?? undefined,
-      patientHealthPlan: request.health_plan?.name ?? undefined,
+      patientZipCode: patient?.zipCode ?? patient?.cep ?? undefined,
+      patientHealthPlan: request.healthPlan?.name ?? undefined,
       procedures: procedures.length ? procedures : undefined,
       opmeItems: opmeItems.length ? opmeItems : undefined,
       doctorName: doctor?.name ?? 'Médico',

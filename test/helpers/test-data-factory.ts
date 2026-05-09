@@ -21,6 +21,7 @@ export class TestDataFactory {
       name: faker.person.fullName(),
       email: faker.internet.email().toLowerCase(),
       password: 'Test@1234',
+      phone: this.generatePhone(),
     };
   }
 

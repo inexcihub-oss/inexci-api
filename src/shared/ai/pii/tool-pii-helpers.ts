@@ -79,6 +79,10 @@ export function detokenizeArg(
   const stringValue = String(value);
   if (!stringValue) return '';
   if (!context.piiVault) return stringValue;
+  // PLACEHOLDER_REGEX é global; sem reset do lastIndex, chamadas
+  // consecutivas em strings diferentes podiam retornar `false` por causa
+  // de leftover do match anterior — pulando indevidamente o detokenize.
+  PLACEHOLDER_REGEX.lastIndex = 0;
   if (!PLACEHOLDER_REGEX.test(stringValue)) return stringValue;
   return context.piiVault.detokenize(context.conversationId, stringValue);
 }

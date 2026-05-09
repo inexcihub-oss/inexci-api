@@ -5,6 +5,7 @@ export interface RegisterData {
   email: string;
   password: string;
   name: string;
+  phone?: string;
   is_doctor?: boolean;
   crm?: string;
   crm_state?: string;
@@ -21,6 +22,7 @@ export const testUsers = {
     email: 'admin@test.com',
     password: 'Admin@1234',
     name: 'Admin Test',
+    phone: '11988887777',
     is_doctor: true,
     crm: '999999',
     crm_state: 'SP',
@@ -30,6 +32,7 @@ export const testUsers = {
     email: 'user@test.com',
     password: 'User@1234',
     name: 'User Test',
+    phone: '11988887766',
   } as RegisterData,
 };
 
@@ -43,6 +46,7 @@ export async function registerUser(
       name: userData.name,
       email: userData.email,
       password: userData.password,
+      phone: userData.phone ?? '11988887777',
     })
     .expect(201);
 

@@ -62,7 +62,7 @@ export class ToolRegistryService {
         this.pendencyValidator,
       ),
       ...buildPendencyTools(this.pendencyValidator, this.surgeryRequestRepo),
-      ...buildGeneralTools(this.patientRepo),
+      ...buildGeneralTools(this.patientRepo, this.userRepo),
       ...buildActionTools(
         this.surgeryRequestRepo,
         this.workflowService,

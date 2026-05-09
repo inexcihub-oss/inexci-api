@@ -8,14 +8,14 @@ export class SurgeryRequestTemplateService {
   constructor(private readonly dataSource: DataSource) {}
 
   async createTemplate(
-    dto: { name: string; template_data: object },
+    dto: { name: string; templateData: object },
     userId: string,
   ): Promise<any> {
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const template = templateRepo.create({
-      doctor_id: userId,
+      doctorId: userId,
       name: dto.name,
-      template_data: dto.template_data,
+      templateData: dto.templateData,
     });
     const saved = await templateRepo.save(template);
     return templateRepo.findOne({
@@ -27,34 +27,34 @@ export class SurgeryRequestTemplateService {
   getTemplates(userId: string): Promise<any[]> {
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     return templateRepo.find({
-      where: { doctor_id: userId },
+      where: { doctorId: userId },
       relations: ['doctor'],
-      order: { created_at: 'DESC' },
+      order: { createdAt: 'DESC' },
     });
   }
 
   async updateTemplate(
     id: string,
-    dto: { name?: string; template_data?: object },
+    dto: { name?: string; templateData?: object },
     userId: string,
   ): Promise<any> {
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const template = await templateRepo.findOne({
-      where: { id, doctor_id: userId },
+      where: { id, doctorId: userId },
     });
     if (!template) {
       throw new NotFoundException('Template não encontrado ou sem permissão.');
     }
     if (dto.name !== undefined) template.name = dto.name;
-    if (dto.template_data !== undefined)
-      template.template_data = dto.template_data;
+    if (dto.templateData !== undefined)
+      template.templateData = dto.templateData;
     return templateRepo.save(template);
   }
 
   async deleteTemplate(id: string, userId: string): Promise<void> {
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const template = await templateRepo.findOne({
-      where: { id, doctor_id: userId },
+      where: { id, doctorId: userId },
     });
     if (!template) {
       throw new NotFoundException('Template não encontrado ou sem permissão.');
@@ -65,13 +65,13 @@ export class SurgeryRequestTemplateService {
   async incrementUsage(id: string, userId: string): Promise<any> {
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const template = await templateRepo.findOne({
-      where: { id, doctor_id: userId },
+      where: { id, doctorId: userId },
       relations: ['doctor'],
     });
     if (!template) {
       throw new NotFoundException('Template não encontrado ou sem permissão.');
     }
-    template.usage_count = (template.usage_count || 0) + 1;
+    template.usageCount = (template.usageCount || 0) + 1;
     return templateRepo.save(template);
   }
 }

@@ -47,7 +47,7 @@ export class ExecutionHandler {
           { id },
           {
             status: SurgeryRequestStatus.PERFORMED,
-            surgery_performed_at: new Date(dto.surgery_performed_at),
+            surgeryPerformedAt: new Date(dto.surgeryPerformedAt),
           },
         );
         await this.surgeryRequestRepository.recordStatusChange(
@@ -97,8 +97,8 @@ export class ExecutionHandler {
           { id },
           {
             status: SurgeryRequestStatus.CLOSED,
-            closed_at: new Date(),
-            cancel_reason: dto.reason,
+            closedAt: new Date(),
+            cancelReason: dto.reason,
           },
         );
         await this.surgeryRequestRepository.recordStatusChange(

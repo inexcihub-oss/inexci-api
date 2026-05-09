@@ -2,6 +2,8 @@ import { InjectQueue } from '@nestjs/bull';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bull';
 import { MailTemplateName } from 'src/config/mail.config';
+import { getRequestContext } from 'src/shared/logging/request-context';
+import { maskEmail } from 'src/shared/utils';
 
 export interface MailAttachment {
   filename: string;
@@ -17,6 +19,8 @@ export interface MailJobData {
   subject: string;
   context?: Record<string, any>;
   attachments?: MailAttachment[];
+  /** Correlation ID propagado para o processor (logging end-to-end). */
+  requestId?: string;
 }
 
 @Injectable()
@@ -46,19 +50,25 @@ export class MailService {
   }
 
   private async enqueue(data: MailJobData): Promise<void> {
+    const requestId = getRequestContext()?.requestId;
+    const masked = maskEmail(data.to);
     try {
-      await this.mailQueue.add('send-mail', data, {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-        removeOnFail: false,
-      });
+      await this.mailQueue.add(
+        'send-mail',
+        { ...data, requestId },
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
       this.logger.log(
-        `E-mail enfileirado: ${data.template ? `template="${data.template}"` : '(raw html)'} to="${data.to}"`,
+        `E-mail enfileirado: ${data.template ? `template="${data.template}"` : '(raw html)'} to=${masked}`,
       );
     } catch (err: any) {
       this.logger.warn(
-        `Falha ao enfileirar e-mail (Redis offline?): to="${data.to}" — ${err?.message}`,
+        `Falha ao enfileirar e-mail (Redis offline?): to=${masked} — ${err?.message}`,
       );
     }
   }
@@ -362,6 +372,39 @@ export class MailService {
       'email-verification',
       to,
       'Inexci — Confirme seu e-mail',
+      context,
+    );
+  }
+
+  /**
+   * Resumo semanal de solicitações cirúrgicas e pendências.
+   */
+  sendWeeklySummary(
+    to: string,
+    context: {
+      userName: string;
+      periodStart: string;
+      periodEnd: string;
+      counts: {
+        created: number;
+        statusChanged: number;
+        finalized: number;
+        withPendingBlocking: number;
+      };
+      highlights: Array<{
+        protocol: string;
+        patientName: string;
+        statusLabel: string;
+        pendingLabel?: string;
+      }>;
+      dashboardUrl?: string;
+      preferencesUrl?: string;
+    },
+  ) {
+    return this.send(
+      'weekly-summary',
+      to,
+      `Resumo semanal — ${context.periodStart} a ${context.periodEnd}`,
       context,
     );
   }

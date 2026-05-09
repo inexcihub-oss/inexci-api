@@ -8,7 +8,6 @@ import { SurgeryRequestRepository } from 'src/database/repositories/surgery-requ
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
-import { StatusUpdateRepository } from 'src/database/repositories/status-update.repository';
 
 @Injectable()
 export class ProceduresService {
@@ -16,12 +15,11 @@ export class ProceduresService {
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly statusUpdateRepository: StatusUpdateRepository,
   ) {}
 
   async create(data: CreateSurgeryRequestProcedureDto) {
     // Verifica duplicatas dentro do próprio payload enviado
-    const incomingCodes = data.procedures.map((p) => p.tuss_code);
+    const incomingCodes = data.procedures.map((p) => p.tussCode);
     const uniqueIncoming = new Set(incomingCodes);
     if (uniqueIncoming.size !== incomingCodes.length) {
       throw new BadRequestException(
@@ -31,27 +29,27 @@ export class ProceduresService {
 
     const itemsCreated = await Promise.all(
       data.procedures.map(async (item) => {
-        // Verifica se já existe o mesmo tuss_code para esta solicitação
+        // Verifica se já existe o mesmo tussCode para esta solicitação
         const existing = await this.tussItemRepository.findOne({
-          surgery_request_id: data.surgery_request_id,
-          tuss_code: item.tuss_code,
+          surgeryRequestId: data.surgeryRequestId,
+          tussCode: item.tussCode,
         });
         if (existing) {
           throw new BadRequestException(
-            `O procedimento TUSS ${item.tuss_code} já foi adicionado a esta solicitação.`,
+            `O procedimento TUSS ${item.tussCode} já foi adicionado a esta solicitação.`,
           );
         }
 
         const newItem = await this.tussItemRepository.create({
-          surgery_request_id: data.surgery_request_id,
-          tuss_code: item.tuss_code,
+          surgeryRequestId: data.surgeryRequestId,
+          tussCode: item.tussCode,
           name: item.name,
           quantity: Number(item.quantity),
         });
         return {
-          authorized_quantity: null,
+          authorizedQuantity: null,
           id: newItem.id,
-          tuss_code: newItem.tuss_code,
+          tussCode: newItem.tussCode,
           name: newItem.name,
           quantity: newItem.quantity,
         };
@@ -63,21 +61,21 @@ export class ProceduresService {
 
   async authorize(data: AuthorizeProceduresDto) {
     await this.surgeryRequestRepository.findOneSimple({
-      id: data.surgery_request_id,
+      id: data.surgeryRequestId,
     });
 
     await Promise.all(
       data.surgery_request_procedures.map((item) =>
         this.tussItemRepository.update(item.id, {
-          authorized_quantity: item.authorized_quantity,
+          authorizedQuantity: item.authorizedQuantity,
         }),
       ),
     );
 
     await Promise.all(
-      data.opme_items.map((item) =>
+      data.opmeItems.map((item) =>
         this.opmeItemRepository.update(item.id, {
-          authorized_quantity: item.authorized_quantity,
+          authorizedQuantity: item.authorizedQuantity,
         }),
       ),
     );

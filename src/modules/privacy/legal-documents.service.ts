@@ -3,9 +3,8 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import {
   CONSENT_DOCUMENT_FILE,
-  CURRENT_CONSENT_VERSIONS,
+  ConsentType,
 } from '../../config/consent.config';
-import { ConsentType } from '../../database/entities/consent-log.entity';
 
 const SLUG_TO_TYPE: Record<string, ConsentType> = Object.fromEntries(
   Object.entries(CONSENT_DOCUMENT_FILE).map(([type, slug]) => [
@@ -31,12 +30,11 @@ const LEGAL_DIR_CANDIDATES = [
 export class LegalDocumentsService {
   /**
    * Serve o markdown atual de um documento legal.
-   * Caminho-fonte: src/shared/legal/<slug>-<version>.md
+   * Caminho-fonte: src/shared/legal/<slug>.md
    */
   async getCurrent(slug: string): Promise<{
     slug: string;
     type: ConsentType;
-    version: string;
     content_md: string;
   }> {
     const type = SLUG_TO_TYPE[slug];
@@ -44,13 +42,12 @@ export class LegalDocumentsService {
       throw new NotFoundException(`Documento "${slug}" não encontrado.`);
     }
 
-    const version = CURRENT_CONSENT_VERSIONS[type];
-    const filename = `${slug}-${version}.md`;
+    const filename = `${slug}.md`;
 
     for (const dir of LEGAL_DIR_CANDIDATES) {
       try {
         const content_md = await fs.readFile(join(dir, filename), 'utf-8');
-        return { slug, type, version, content_md };
+        return { slug, type, content_md };
       } catch {
         // tenta o próximo candidato
       }

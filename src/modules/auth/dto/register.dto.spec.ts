@@ -7,11 +7,12 @@ import { RegisterDto } from './register.dto';
  * Valida que o RegisterDto aceita campos de médico opcionais.
  */
 describe('RegisterDto', () => {
-  it('deve validar com dados mínimos obrigatórios', async () => {
+  it('deve validar com dados mínimos obrigatórios (incluindo telefone)', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'João Silva',
       email: 'joao@email.com',
       password: '12345678',
+      phone: '(11) 98888-7777',
     });
 
     const errors = await validate(dto);
@@ -22,6 +23,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       email: 'joao@email.com',
       password: '12345678',
+      phone: '(11) 98888-7777',
     });
 
     const errors = await validate(dto);
@@ -33,6 +35,7 @@ describe('RegisterDto', () => {
       name: 'João',
       email: 'not-an-email',
       password: '12345678',
+      phone: '(11) 98888-7777',
     });
 
     const errors = await validate(dto);
@@ -44,20 +47,65 @@ describe('RegisterDto', () => {
       name: 'João',
       email: 'joao@email.com',
       password: '123',
+      phone: '(11) 98888-7777',
     });
 
     const errors = await validate(dto);
     expect(errors.length).toBeGreaterThan(0);
   });
 
-  it('deve aceitar is_doctor como true com crm e crm_state', async () => {
+  it('deve falhar quando o telefone não é informado', async () => {
+    const dto = plainToInstance(RegisterDto, {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      password: '12345678',
+    });
+
+    const errors = await validate(dto);
+    const phoneError = errors.find((e) => e.property === 'phone');
+    expect(phoneError).toBeDefined();
+  });
+
+  it('deve falhar quando o telefone não tem DDD/dígitos suficientes', async () => {
+    const dto = plainToInstance(RegisterDto, {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      password: '12345678',
+      phone: '12345',
+    });
+
+    const errors = await validate(dto);
+    const phoneError = errors.find((e) => e.property === 'phone');
+    expect(phoneError).toBeDefined();
+  });
+
+  it('aceita telefone com 10 dígitos (fixo) e 11 dígitos (celular)', async () => {
+    const dtoFixo = plainToInstance(RegisterDto, {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      password: '12345678',
+      phone: '1122334455',
+    });
+    expect(await validate(dtoFixo)).toHaveLength(0);
+
+    const dtoCelular = plainToInstance(RegisterDto, {
+      name: 'João Silva',
+      email: 'joao2@email.com',
+      password: '12345678',
+      phone: '(11) 98888-7777',
+    });
+    expect(await validate(dtoCelular)).toHaveLength(0);
+  });
+
+  it('deve aceitar isDoctor como true com crm e crmState', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Dr. Carlos',
       email: 'carlos@email.com',
       password: '12345678',
-      is_doctor: true,
+      phone: '(11) 98888-7777',
+      isDoctor: true,
       crm: '123456',
-      crm_state: 'SP',
+      crmState: 'SP',
       specialty: 'Ortopedia',
     });
 
@@ -65,14 +113,15 @@ describe('RegisterDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('deve falhar se is_doctor=true sem crm', async () => {
+  it('deve falhar se isDoctor=true sem crm', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Dr. Carlos',
       email: 'carlos@email.com',
       password: '12345678',
-      is_doctor: true,
+      phone: '(11) 98888-7777',
+      isDoctor: true,
       // crm ausente
-      crm_state: 'SP',
+      crmState: 'SP',
     });
 
     const errors = await validate(dto);
@@ -80,38 +129,41 @@ describe('RegisterDto', () => {
     expect(crmError).toBeDefined();
   });
 
-  it('deve falhar se is_doctor=true sem crm_state', async () => {
+  it('deve falhar se isDoctor=true sem crmState', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Dr. Carlos',
       email: 'carlos@email.com',
       password: '12345678',
-      is_doctor: true,
+      phone: '(11) 98888-7777',
+      isDoctor: true,
       crm: '123456',
-      // crm_state ausente
+      // crmState ausente
     });
 
     const errors = await validate(dto);
-    const crmStateError = errors.find((e) => e.property === 'crm_state');
+    const crmStateError = errors.find((e) => e.property === 'crmState');
     expect(crmStateError).toBeDefined();
   });
 
-  it('deve aceitar is_doctor como false sem crm/crm_state', async () => {
+  it('deve aceitar isDoctor como false sem crm/crmState', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Maria',
       email: 'maria@email.com',
       password: '12345678',
-      is_doctor: false,
+      phone: '(11) 98888-7777',
+      isDoctor: false,
     });
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
 
-  it('deve aceitar sem is_doctor (campo opcional)', async () => {
+  it('deve aceitar sem isDoctor (campo opcional)', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Pedro',
       email: 'pedro@email.com',
       password: '12345678',
+      phone: '(11) 98888-7777',
     });
 
     const errors = await validate(dto);

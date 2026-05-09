@@ -18,14 +18,6 @@ export class UserAnonymizationService {
     await this.anonymizeUserData(payload);
   }
 
-  @OnEvent('ai.consent.revoked')
-  async onAiConsentRevoked(payload: { userId: string }): Promise<void> {
-    this.logger.log(
-      `Consentimento de IA revogado por user=${payload.userId} — anonimizando conversas`,
-    );
-    await this.anonymizeUserData(payload);
-  }
-
   async anonymizeUserData(payload: { userId: string }): Promise<void> {
     const { userId } = payload;
     this.logger.log(`Iniciando anonimização de dados para user=${userId}`);
@@ -40,7 +32,6 @@ export class UserAnonymizationService {
 
         await this.conversationRepo.getRepository().update(conv.id, {
           phone: hashed,
-          messagesHistory: [] as any,
           active: false,
         } as any);
 

@@ -7,8 +7,8 @@ import { IsDateString, IsNumber, Min } from 'class-validator';
 export class UpdateReceiptDto {
   @IsNumber()
   @Min(0)
-  received_value: number;
+  receivedValue: number;
 
   @IsDateString()
-  received_at: string;
+  receivedAt: string;
 }

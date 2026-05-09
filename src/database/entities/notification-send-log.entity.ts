@@ -34,10 +34,10 @@ export enum NotificationSendType {
   AI = 'ai',
 }
 
-@Entity('notification_send_log')
-@Index(['channel', 'status'])
-@Index(['created_at'])
-@Index('idx_nsl_account', ['accountId'])
+@Entity('notification_send_logs')
+@Index('idx_nsl_channel_status', ['channel', 'status'])
+@Index('idx_nsl_created_at', ['createdAt'])
+@Index('idx_nsl_owner', ['ownerId'])
 @Index('idx_nsl_message_sid', ['messageSid'])
 export class NotificationSendLog {
   @PrimaryGeneratedColumn('uuid')
@@ -62,17 +62,17 @@ export class NotificationSendLog {
   @Column({ type: 'varchar', length: 100, nullable: true })
   template: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  error_message: string | null;
+  @Column({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  job_id: string | null;
+  @Column({ name: 'job_id', type: 'varchar', length: 100, nullable: true })
+  jobId: string | null;
 
   @Column({ type: 'int', default: 0 })
   attempts: number;
 
-  @Column({ type: 'timestamptz', nullable: true })
-  sent_at: Date | null;
+  @Column({ name: 'sent_at', type: 'timestamptz', nullable: true })
+  sentAt: Date | null;
 
   @Column({ type: 'text', nullable: true })
   body: string | null;
@@ -103,20 +103,20 @@ export class NotificationSendLog {
   })
   notificationType: string | null;
 
-  @Column({ name: 'account_id', type: 'uuid', nullable: true })
-  accountId: string | null;
+  @Column({ name: 'owner_id', type: 'uuid', nullable: true })
+  ownerId: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
-  created_at: Date;
+  createdAt: Date;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: User | null;
 
   @ManyToOne(() => WhatsappConversation, {
     nullable: true,
     onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'conversation_id' })
-  conversation: WhatsappConversation;
+  conversation: WhatsappConversation | null;
 }

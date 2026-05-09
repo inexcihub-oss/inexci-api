@@ -28,11 +28,11 @@ describe('SurgeryRequestTools', () => {
         protocol: 'SC-0042',
         status: 1,
         priority: 2,
-        doctor_id: 'doctor-1',
-        patient_id: 'pat-1',
-        hospital_id: null,
-        health_plan_id: null,
-        date_call: null,
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
+        hospitalId: null,
+        healthPlanId: null,
+        dateCall: null,
         patient: { name: 'João Silva' },
       });
 
@@ -60,11 +60,11 @@ describe('SurgeryRequestTools', () => {
         protocol: 'SC-664980',
         status: 3,
         priority: 2,
-        doctor_id: 'doctor-1',
-        patient_id: 'pat-1',
-        hospital_id: null,
-        health_plan_id: null,
-        date_call: null,
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
+        hospitalId: null,
+        healthPlanId: null,
+        dateCall: null,
         patient: { name: 'Carlos' },
       });
 
@@ -89,11 +89,11 @@ describe('SurgeryRequestTools', () => {
               protocol: '664980',
               status: 3,
               priority: 2,
-              doctor_id: 'doctor-1',
-              patient_id: 'pat-1',
-              hospital_id: null,
-              health_plan_id: null,
-              date_call: null,
+              doctorId: 'doctor-1',
+              patientId: 'pat-1',
+              hospitalId: null,
+              healthPlanId: null,
+              dateCall: null,
               patient: { name: 'Carlos' },
             };
           }
@@ -107,11 +107,11 @@ describe('SurgeryRequestTools', () => {
       expect(result).toContain('Solicitação SC-664980');
     });
 
-    it('deve negar acesso se doctor_id não acessível', async () => {
+    it('deve negar acesso se doctorId não acessível', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-2',
         protocol: 'SC-0001',
-        doctor_id: 'other-doctor',
+        doctorId: 'other-doctor',
       });
 
       const tool = getTool('get_surgery_request_status');
@@ -124,7 +124,7 @@ describe('SurgeryRequestTools', () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-99',
         protocol: 'SC-664980',
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
       });
 
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
@@ -132,14 +132,14 @@ describe('SurgeryRequestTools', () => {
         protocol: 'SC-664980',
         status: 2,
         priority: 1,
-        doctor_id: 'doctor-1',
-        surgery_date: new Date('2026-06-15T00:00:00.000Z'),
-        patient_id: 'pat-1',
-        hospital_id: 'hos-1',
-        health_plan_id: 'hp-1',
+        doctorId: 'doctor-1',
+        surgeryDate: new Date('2026-06-15T00:00:00.000Z'),
+        patientId: 'pat-1',
+        hospitalId: 'hos-1',
+        healthPlanId: 'hp-1',
         patient: { name: 'Carlos Mendonça' },
         hospital: { name: 'Hospital Santa Helena' },
-        health_plan: { name: 'Unimed' },
+        healthPlan: { name: 'Unimed' },
       });
 
       const pendencyValidatorMock = {
@@ -193,11 +193,11 @@ describe('SurgeryRequestTools', () => {
         protocol: 'SC-0042',
         status: 1,
         priority: 2,
-        doctor_id: 'doctor-1',
-        patient_id: 'pat-1',
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
         patient: { name: 'João Silva' },
         hospital: { name: 'Hospital Santa Maria' },
-        health_plan: { name: 'Unimed' },
+        healthPlan: { name: 'Unimed' },
       });
       mockSurgeryRequestRepo.findOne.mockResolvedValue(null);
 
@@ -261,15 +261,15 @@ describe('SurgeryRequestTools', () => {
   describe('get_documents', () => {
     it('deve listar documentos', async () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
         documents: [
-          { name: 'Laudo.pdf', folder: 'laudos', created_at: '2025-01-01' },
+          { name: 'Laudo.pdf', folder: 'laudos', createdAt: '2025-01-01' },
         ],
       });
 
       const tool = getTool('get_documents');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -278,13 +278,13 @@ describe('SurgeryRequestTools', () => {
 
     it('deve retornar mensagem quando não há documentos', async () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
-        doctor_id: 'doctor-1',
+        doctorId: 'doctor-1',
         documents: [],
       });
 
       const tool = getTool('get_documents');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -295,16 +295,16 @@ describe('SurgeryRequestTools', () => {
       mockSurgeryRequestRepo.findOne
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
-          doctor_id: 'doctor-1',
+          doctorId: 'doctor-1',
           documents: [
-            { name: 'Guia.pdf', folder: 'guias', created_at: '2025-01-01' },
+            { name: 'Guia.pdf', folder: 'guias', createdAt: '2025-01-01' },
           ],
         });
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({ id: 'req-42' });
 
       const tool = getTool('get_documents');
       const result = await tool.execute(
-        { surgery_request_id: 'SC-664980' },
+        { surgeryRequestId: 'SC-664980' },
         baseContext,
       );
 
@@ -318,15 +318,15 @@ describe('SurgeryRequestTools', () => {
   describe('get_opme_items', () => {
     it('deve listar itens OPME', async () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
-        doctor_id: 'doctor-1',
-        opme_items: [
+        doctorId: 'doctor-1',
+        opmeItems: [
           { name: 'Prótese de quadril', quantity: 1, supplier: 'MedCorp' },
         ],
       });
 
       const tool = getTool('get_opme_items');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -336,13 +336,13 @@ describe('SurgeryRequestTools', () => {
 
     it('deve retornar mensagem quando não há itens OPME', async () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
-        doctor_id: 'doctor-1',
-        opme_items: [],
+        doctorId: 'doctor-1',
+        opmeItems: [],
       });
 
       const tool = getTool('get_opme_items');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 

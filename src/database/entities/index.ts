@@ -1,8 +1,7 @@
 // ============================================
-// NOVA ARQUITETURA DE ENTIDADES (v3)
+// NOVA ARQUITETURA DE ENTIDADES (v4)
 // ============================================
 
-// Importar todas as entidades primeiro
 import { User, UserRole, UserStatus } from './user.entity';
 import { DoctorProfile } from './doctor-profile.entity';
 import { DoctorHeader } from './doctor-header.entity';
@@ -25,28 +24,23 @@ import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { SurgeryRequestAnalysis } from './surgery-request-analysis.entity';
 import { SurgeryRequestBilling } from './surgery-request-billing.entity';
 import { SurgeryRequestTemplate } from './surgery-request-template.entity';
-import { Contestation } from './contestation.entity';
+import { Contestation, ContestationTypeEnum } from './contestation.entity';
 import { SurgeryRequestTussItem } from './surgery-request-tuss-item.entity';
-import { StatusUpdate } from './status-update.entity';
 import {
   SurgeryRequestActivity,
   ActivityType,
 } from './surgery-request-activity.entity';
 import { Document } from './document.entity';
-import { DefaultDocumentClinic } from './default-document-clinic.entity';
-import { Chat } from './chat.entity';
-import { ChatMessage } from './chat-message.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { RefreshToken } from './refresh-token.entity';
-import { SubscriptionPlan } from './subscription-plan.entity';
-import {
-  WhatsappMessageLog,
-  WhatsappMessageStatus,
-  WhatsappMessageDirection,
-  WhatsappMessageType,
-} from './whatsapp-message-log.entity';
+import { SubscriptionPlan, BillingPeriod } from './subscription-plan.entity';
+import { Subscription, SubscriptionStatus } from './subscription.entity';
+import { PaymentMethod } from './payment-method.entity';
+import { Invoice, InvoiceStatus } from './invoice.entity';
+import { SubscriptionQuotaPeriod } from './subscription-quota-period.entity';
+import { PaymentGatewayEvent } from './payment-gateway-event.entity';
 import { ReportSection } from './report-section.entity';
 import {
   NotificationSendLog,
@@ -61,14 +55,6 @@ import { WhatsappConversationMessage } from './whatsapp-conversation-message.ent
 import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
-import {
-  ConsentLog,
-  ConsentType,
-  ConsentAction,
-  ConsentChannel,
-} from './consent-log.entity';
-import { Cid } from './cid.entity';
-import { Tuss } from './tuss.entity';
 
 // Re-exportar tudo
 // USUÁRIOS E ACESSO
@@ -93,30 +79,25 @@ export { SurgeryRequestQuotation };
 export { SurgeryRequestAnalysis };
 export { SurgeryRequestBilling };
 export { SurgeryRequestTemplate };
-export { Contestation };
+export { Contestation, ContestationTypeEnum };
 export { SurgeryRequestTussItem };
-export { StatusUpdate };
 export { SurgeryRequestActivity, ActivityType };
 
 // DOCUMENTOS
 export { Document };
-export { DefaultDocumentClinic };
 
 // COMUNICAÇÃO
-export { Chat };
-export { ChatMessage };
 export { Notification, NotificationType };
 export { UserNotificationSettings };
-export {
-  WhatsappMessageLog,
-  WhatsappMessageStatus,
-  WhatsappMessageDirection,
-  WhatsappMessageType,
-};
 export { ReportSection };
 
-// PLANOS DE ASSINATURA
-export { SubscriptionPlan };
+// PLANOS DE ASSINATURA / BILLING
+export { SubscriptionPlan, BillingPeriod };
+export { Subscription, SubscriptionStatus };
+export { PaymentMethod };
+export { Invoice, InvoiceStatus };
+export { SubscriptionQuotaPeriod };
+export { PaymentGatewayEvent };
 
 // AUTENTICAÇÃO
 export { RecoveryCode };
@@ -139,13 +120,6 @@ export { AiKnowledgeChunk };
 export { AiTokenUsageLog };
 export { AiPiiRedactionLog };
 
-// CONSENTIMENTOS LGPD
-export { ConsentLog, ConsentType, ConsentAction, ConsentChannel };
-
-// DADOS DE REFERÊNCIA (CID/TUSS)
-export { Cid };
-export { Tuss };
-
 // Array apenas com classes de entidade (sem enums) para TypeORM
 export const ENTITIES = [
   User,
@@ -165,18 +139,18 @@ export const ENTITIES = [
   SurgeryRequestTemplate,
   Contestation,
   SurgeryRequestTussItem,
-  StatusUpdate,
   SurgeryRequestActivity,
   Document,
-  DefaultDocumentClinic,
-  Chat,
-  ChatMessage,
   Notification,
   UserNotificationSettings,
   RecoveryCode,
   RefreshToken,
   SubscriptionPlan,
-  WhatsappMessageLog,
+  Subscription,
+  PaymentMethod,
+  Invoice,
+  SubscriptionQuotaPeriod,
+  PaymentGatewayEvent,
   ReportSection,
   NotificationSendLog,
   StaleNotificationLog,
@@ -185,7 +159,4 @@ export const ENTITIES = [
   AiKnowledgeChunk,
   AiTokenUsageLog,
   AiPiiRedactionLog,
-  ConsentLog,
-  Cid,
-  Tuss,
 ];

@@ -16,7 +16,7 @@ describe('AccessControlService', () => {
   beforeEach(async () => {
     userRepository = {
       findOneWithProfile: jest.fn(),
-      findDoctorsByAccountId: jest.fn(),
+      findDoctorsByOwnerId: jest.fn(),
       findOne: jest.fn(),
     };
 
@@ -59,10 +59,10 @@ describe('AccessControlService', () => {
       const adminUser = {
         id: 'admin-id',
         role: UserRole.ADMIN,
-        account_id: 'account-1',
+        ownerId: 'account-1',
       };
       userRepository.findOneWithProfile.mockResolvedValue(adminUser as any);
-      userRepository.findDoctorsByAccountId.mockResolvedValue([
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
         { id: 'doc-1' },
         { id: 'doc-2' },
         { id: 'doc-3' },
@@ -71,16 +71,16 @@ describe('AccessControlService', () => {
       const result = await service.getAccessibleDoctorIds('admin-id');
 
       expect(result).toEqual(['doc-1', 'doc-2', 'doc-3']);
-      expect(userRepository.findDoctorsByAccountId).toHaveBeenCalledWith(
+      expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledWith(
         'account-1',
       );
     });
 
-    it('should include own user ID when user has doctor_profile', async () => {
+    it('should include own user ID when user has doctorProfile', async () => {
       const doctorUser = {
         id: 'doctor-user-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: { id: 'profile-1' },
+        doctorProfile: { id: 'profile-1' },
       };
       userRepository.findOneWithProfile.mockResolvedValue(doctorUser as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
@@ -94,12 +94,12 @@ describe('AccessControlService', () => {
       const collaborator = {
         id: 'collab-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: null,
+        doctorProfile: null,
       };
       userRepository.findOneWithProfile.mockResolvedValue(collaborator as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
-        { doctor_user_id: 'linked-doc-1' },
-        { doctor_user_id: 'linked-doc-2' },
+        { doctorUserId: 'linked-doc-1' },
+        { doctorUserId: 'linked-doc-2' },
       ] as any);
 
       const result = await service.getAccessibleDoctorIds('collab-id');
@@ -111,12 +111,12 @@ describe('AccessControlService', () => {
       const doctorUser = {
         id: 'doctor-user-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: { id: 'profile-1' },
+        doctorProfile: { id: 'profile-1' },
       };
       userRepository.findOneWithProfile.mockResolvedValue(doctorUser as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
-        { doctor_user_id: 'doctor-user-id' },
-        { doctor_user_id: 'other-doc' },
+        { doctorUserId: 'doctor-user-id' },
+        { doctorUserId: 'other-doc' },
       ] as any);
 
       const result = await service.getAccessibleDoctorIds('doctor-user-id');
@@ -142,19 +142,19 @@ describe('AccessControlService', () => {
       const adminUser = {
         id: 'admin-id',
         role: UserRole.ADMIN,
-        account_id: 'account-1',
+        ownerId: 'account-1',
       };
       const doctors = [
         { id: 'doc-1', name: 'Doctor One' },
         { id: 'doc-2', name: 'Doctor Two' },
       ];
       userRepository.findOneWithProfile.mockResolvedValue(adminUser as any);
-      userRepository.findDoctorsByAccountId.mockResolvedValue(doctors as any);
+      userRepository.findDoctorsByOwnerId.mockResolvedValue(doctors as any);
 
       const result = await service.getAvailableDoctorsForCreation('admin-id');
 
       expect(result).toEqual(doctors);
-      expect(userRepository.findDoctorsByAccountId).toHaveBeenCalledWith(
+      expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledWith(
         'account-1',
       );
     });
@@ -163,7 +163,7 @@ describe('AccessControlService', () => {
       const doctorUser = {
         id: 'doctor-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: { id: 'profile-1' },
+        doctorProfile: { id: 'profile-1' },
       };
       userRepository.findOneWithProfile.mockResolvedValue(doctorUser as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
@@ -178,18 +178,18 @@ describe('AccessControlService', () => {
       const collaborator = {
         id: 'collab-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: null,
+        doctorProfile: null,
       };
       const linkedDoctor = {
         id: 'linked-doc-id',
         name: 'Linked Doctor',
-        doctor_profile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1' },
       };
       userRepository.findOneWithProfile
         .mockResolvedValueOnce(collaborator as any) // initial call
         .mockResolvedValueOnce(linkedDoctor as any); // loading linked doctor
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
-        { doctor_user_id: 'linked-doc-id', doctor: { id: 'linked-doc-id' } },
+        { doctorUserId: 'linked-doc-id', doctor: { id: 'linked-doc-id' } },
       ] as any);
 
       const result = await service.getAvailableDoctorsForCreation('collab-id');
@@ -202,13 +202,13 @@ describe('AccessControlService', () => {
       const doctorUser = {
         id: 'doctor-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: { id: 'profile-1' },
+        doctorProfile: { id: 'profile-1' },
       };
       userRepository.findOneWithProfile
         .mockResolvedValueOnce(doctorUser as any) // initial call
         .mockResolvedValueOnce(doctorUser as any); // loading same doctor via access
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
-        { doctor_user_id: 'doctor-id', doctor: { id: 'doctor-id' } },
+        { doctorUserId: 'doctor-id', doctor: { id: 'doctor-id' } },
       ] as any);
 
       const result = await service.getAvailableDoctorsForCreation('doctor-id');
@@ -224,11 +224,11 @@ describe('AccessControlService', () => {
       const user = {
         id: 'user-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: null,
+        doctorProfile: null,
       };
       userRepository.findOneWithProfile.mockResolvedValue(user as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
-        { doctor_user_id: 'target-doc' },
+        { doctorUserId: 'target-doc' },
       ] as any);
 
       const result = await service.canAccessDoctor('user-id', 'target-doc');
@@ -240,11 +240,11 @@ describe('AccessControlService', () => {
       const user = {
         id: 'user-id',
         role: UserRole.COLLABORATOR,
-        doctor_profile: null,
+        doctorProfile: null,
       };
       userRepository.findOneWithProfile.mockResolvedValue(user as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
-        { doctor_user_id: 'other-doc' },
+        { doctorUserId: 'other-doc' },
       ] as any);
 
       const result = await service.canAccessDoctor('user-id', 'target-doc');
@@ -256,10 +256,10 @@ describe('AccessControlService', () => {
   // ─── getAccountId ───
 
   describe('getAccountId', () => {
-    it('should return account_id when user is found', async () => {
+    it('should return ownerId when user is found', async () => {
       userRepository.findOne.mockResolvedValue({
         id: 'user-id',
-        account_id: 'account-42',
+        ownerId: 'account-42',
       } as any);
 
       const result = await service.getAccountId('user-id');
@@ -272,7 +272,7 @@ describe('AccessControlService', () => {
       userRepository.findOne.mockResolvedValue(null);
 
       await expect(service.getAccountId('missing-id')).rejects.toThrow(
-        'User missing-id not found',
+        'Usuário missing-id não encontrado',
       );
     });
   });

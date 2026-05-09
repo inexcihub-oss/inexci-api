@@ -7,7 +7,12 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
@@ -16,6 +21,8 @@ import {
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
 
+@ApiTags('Notificações')
+@ApiBearerAuth()
 @SkipThrottle()
 @Controller('notifications')
 export class NotificationsController {
@@ -24,6 +31,7 @@ export class NotificationsController {
   // ============ Settings ============
 
   @Get('settings')
+  @ApiOperation({ summary: 'Obter configurações de notificação' })
   async getSettings(@CurrentUser() user: AuthenticatedUser) {
     return await this.notificationsService.getSettings(user.userId);
   }

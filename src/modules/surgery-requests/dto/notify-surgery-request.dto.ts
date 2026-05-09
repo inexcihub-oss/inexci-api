@@ -1,8 +1,11 @@
 import {
   IsIn,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -35,4 +38,15 @@ export class NotifySurgeryRequestDto {
   @ValidateNested()
   @Type(() => NotifyChannelsDto)
   channels?: NotifyChannelsDto;
+
+  /**
+   * Status anterior (1..9) para preencher corretamente "{oldStatus} → {newStatus}"
+   * em templates de mudança de status. Se omitido, o backend infere a partir
+   * da última atividade de status registrada na solicitação.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  old_status?: number;
 }

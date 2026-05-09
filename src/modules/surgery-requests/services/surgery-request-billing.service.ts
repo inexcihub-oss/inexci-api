@@ -16,6 +16,7 @@ import { HealthPlan } from 'src/database/entities/health-plan.entity';
 
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { ContestationRepository } from 'src/database/repositories/contestation.repository';
+import { ContestationTypeEnum } from 'src/database/entities/contestation.entity';
 import { MailService } from 'src/shared/mail/mail.service';
 
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
@@ -64,37 +65,37 @@ export class SurgeryRequestBillingService {
         const billingRepo = manager.getRepository(SurgeryRequestBilling);
 
         let paymentDeadline: Date | null = null;
-        if (dto.payment_deadline) {
-          paymentDeadline = new Date(dto.payment_deadline);
-        } else if (request.health_plan?.default_payment_days) {
-          const d = new Date(dto.invoice_sent_at);
-          d.setDate(d.getDate() + request.health_plan.default_payment_days);
+        if (dto.paymentDeadline) {
+          paymentDeadline = new Date(dto.paymentDeadline);
+        } else if (request.healthPlan?.defaultPaymentDays) {
+          const d = new Date(dto.invoiceSentAt);
+          d.setDate(d.getDate() + request.healthPlan.defaultPaymentDays);
           paymentDeadline = d;
         }
 
         await billingRepo.save({
-          surgery_request_id: id,
-          created_by_id: userId,
-          invoice_protocol: dto.invoice_protocol,
-          invoice_sent_at: new Date(dto.invoice_sent_at),
-          invoice_value: dto.invoice_value,
-          payment_deadline: paymentDeadline,
+          surgeryRequestId: id,
+          createdById: userId,
+          invoiceProtocol: dto.invoiceProtocol,
+          invoiceSentAt: new Date(dto.invoiceSentAt),
+          invoiceValue: dto.invoiceValue,
+          paymentDeadline: paymentDeadline,
         });
 
         if (
           dto.set_as_default_for_health_plan &&
-          request.health_plan_id &&
-          dto.payment_deadline
+          request.healthPlanId &&
+          dto.paymentDeadline
         ) {
           const hpRepo = manager.getRepository(HealthPlan);
-          const sentAt = new Date(dto.invoice_sent_at);
-          const deadline = new Date(dto.payment_deadline);
+          const sentAt = new Date(dto.invoiceSentAt);
+          const deadline = new Date(dto.paymentDeadline);
           const days = Math.round(
             (deadline.getTime() - sentAt.getTime()) / (1000 * 60 * 60 * 24),
           );
           await hpRepo.update(
-            { id: request.health_plan_id },
-            { default_payment_days: days },
+            { id: request.healthPlanId },
+            { defaultPaymentDays: days },
           );
         }
 
@@ -132,18 +133,18 @@ export class SurgeryRequestBillingService {
         const repo = manager.getRepository(SurgeryRequest);
         const billingRepo = manager.getRepository(SurgeryRequestBilling);
 
-        const invoiceValue = Number(request.billing.invoice_value);
-        const receivedValue = Number(dto.received_value);
+        const invoiceValue = Number(request.billing.invoiceValue);
+        const receivedValue = Number(dto.receivedValue);
         const hasDivergence = receivedValue !== invoiceValue;
 
         await billingRepo.update(
-          { surgery_request_id: id },
+          { surgeryRequestId: id },
           {
-            received_value: receivedValue,
-            received_at: new Date(dto.received_at),
-            receipt_notes: dto.receipt_notes,
-            contested_received_value: hasDivergence ? receivedValue : null,
-            contested_received_at: hasDivergence ? new Date() : null,
+            receivedValue: receivedValue,
+            receivedAt: new Date(dto.receivedAt),
+            receiptNotes: dto.receiptNotes,
+            contestedReceivedValue: hasDivergence ? receivedValue : null,
+            contestedReceivedAt: hasDivergence ? new Date() : null,
           },
         );
 
@@ -173,24 +174,24 @@ export class SurgeryRequestBillingService {
         'A solicitação precisa estar Finalizada para contestar pagamento.',
       );
     }
-    if (!request.billing?.contested_received_value) {
+    if (!request.billing?.contestedReceivedValue) {
       throw new BadRequestException(
         'Não há divergência de recebimento registrada.',
       );
     }
 
     await this.contestationRepository.create({
-      surgery_request_id: id,
-      created_by_id: userId,
-      type: 'payment',
+      surgeryRequestId: id,
+      createdById: userId,
+      type: ContestationTypeEnum.PAYMENT,
       reason: dto.message,
     });
 
-    const invoiceValue = request.billing?.invoice_value
-      ? `R$ ${Number(request.billing.invoice_value).toFixed(2).replace('.', ',')}`
+    const invoiceValue = request.billing?.invoiceValue
+      ? `R$ ${Number(request.billing.invoiceValue).toFixed(2).replace('.', ',')}`
       : '—';
-    const contestedValue = request.billing?.contested_received_value
-      ? `R$ ${Number(request.billing.contested_received_value).toFixed(2).replace('.', ',')}`
+    const contestedValue = request.billing?.contestedReceivedValue
+      ? `R$ ${Number(request.billing.contestedReceivedValue).toFixed(2).replace('.', ',')}`
       : '—';
 
     await this.mailService.sendPaymentContested(dto.to, dto.subject, {
@@ -212,17 +213,17 @@ export class SurgeryRequestBillingService {
       throw new BadRequestException('A solicitação precisa estar Finalizada.');
     }
 
-    if (!request.billing?.contested_received_value) {
+    if (!request.billing?.contestedReceivedValue) {
       throw new BadRequestException(
         'Não há divergência de recebimento para editar.',
       );
     }
 
     await this.billingRepository.update(
-      { surgery_request_id: id },
+      { surgeryRequestId: id },
       {
-        received_value: dto.received_value,
-        received_at: new Date(dto.received_at),
+        receivedValue: dto.receivedValue,
+        receivedAt: new Date(dto.receivedAt),
       },
     );
   }

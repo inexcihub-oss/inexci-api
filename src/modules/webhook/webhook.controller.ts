@@ -8,10 +8,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { ApiExcludeController } from '@nestjs/swagger';
 import { Public } from '../../shared/decorator/is-public.decorator';
 import { WebhookService } from './webhook.service';
 import { AiOrchestratorService } from '../../shared/ai/services/ai-orchestrator.service';
+import { maskPhone } from '../../shared/utils';
 
+@ApiExcludeController()
 @Controller('webhooks')
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
@@ -156,7 +159,7 @@ export class WebhookController {
 
     if (!from || !messageSid) {
       this.logger.warn(
-        `Webhook Twilio ignorado por payload incompleto. From: ${from || 'N/A'}, MessageSid: ${messageSid || 'N/A'}`,
+        `Webhook Twilio ignorado por payload incompleto. From: ${from ? maskPhone(from) : 'N/A'}, MessageSid: ${messageSid || 'N/A'}`,
       );
       return '<Response></Response>';
     }

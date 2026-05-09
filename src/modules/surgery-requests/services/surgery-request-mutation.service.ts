@@ -19,8 +19,6 @@ import {
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { Hospital } from 'src/database/entities/hospital.entity';
 import { Patient } from 'src/database/entities/patient.entity';
-import { Chat } from 'src/database/entities/chat.entity';
-import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import {
   SurgeryRequestActivity,
   ActivityType,
@@ -66,6 +64,7 @@ export class SurgeryRequestMutationService {
       `[create] Criando solicitação cirúrgica completa por usuário ${userId}`,
     );
     const doctorId = await this.resolveDoctorId(userId);
+    const ownerId = await this.accessControlService.getOwnerId(userId);
 
     const result = await executeInTransaction(
       this.dataSource,
@@ -74,15 +73,14 @@ export class SurgeryRequestMutationService {
         const healthPlanRepo = manager.getRepository(HealthPlan);
         const hospitalRepo = manager.getRepository(Hospital);
         const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-        const chatRepo = manager.getRepository(Chat);
-        const statusUpdateRepo = manager.getRepository(StatusUpdate);
 
         let patient = await patientRepo.findOne({
-          where: { email: data.patient.email, doctor_id: doctorId },
+          where: { email: data.patient.email, doctorId: doctorId },
         });
         if (!patient) {
           patient = await patientRepo.save({
-            doctor_id: doctorId,
+            doctorId: doctorId,
+            ownerId,
             name: data.patient.name,
             email: data.patient.email,
             phone: data.patient.phone,
@@ -90,7 +88,7 @@ export class SurgeryRequestMutationService {
         }
 
         const healthPlan = await this.resolveHealthPlan(
-          data.health_plan,
+          data.healthPlan,
           doctorId,
           {
             findOne: (w) => healthPlanRepo.findOne({ where: w }),
@@ -107,33 +105,25 @@ export class SurgeryRequestMutationService {
         }
 
         const newRequest = await surgeryRequestRepo.save({
-          doctor_id: doctorId,
-          created_by_id: userId,
-          patient_id: patient.id,
-          hospital_id: hospital?.id || null,
+          doctorId: doctorId,
+          ownerId,
+          createdById: userId,
+          patientId: patient.id,
+          hospitalId: hospital?.id || null,
           status: SurgeryRequestStatus.PENDING,
-          is_indication: data.is_indication,
-          indication_name: data.indication_name,
-          health_plan_id: healthPlan.id,
+          isIndication: data.isIndication,
+          indicationName: data.indicationName,
+          healthPlanId: healthPlan.id,
           priority: data.priority || SurgeryRequestPriority.MEDIUM,
-          procedure_id:
-            !data.is_indication && data.procedure_id ? data.procedure_id : null,
-          last_status_changed_at: new Date(),
+          procedureId:
+            !data.isIndication && data.procedureId ? data.procedureId : null,
+          lastStatusChangedAt: new Date(),
         });
 
-        await chatRepo.save({
-          surgery_request_id: newRequest.id,
-          user_id: userId,
-        });
-        await statusUpdateRepo.save({
-          surgery_request_id: newRequest.id,
-          prev_status: SurgeryRequestStatus.PENDING,
-          new_status: SurgeryRequestStatus.PENDING,
-        });
         const activityRepo = manager.getRepository(SurgeryRequestActivity);
         await activityRepo.save({
-          surgery_request_id: newRequest.id,
-          user_id: userId,
+          surgeryRequestId: newRequest.id,
+          userId: userId,
           type: ActivityType.SYSTEM,
           content: 'Solicitação cirúrgica criada',
         });
@@ -156,44 +146,35 @@ export class SurgeryRequestMutationService {
     this.logger.log(
       `[createSurgeryRequest] Criando solicitação simplificada por usuário ${userId}`,
     );
-    const doctorId = await this.resolveDoctorId(userId, data.doctor_id);
+    const doctorId = await this.resolveDoctorId(userId, data.doctorId);
+    const ownerId = await this.accessControlService.getOwnerId(userId);
 
     const newRequest = await executeInTransaction(
       this.dataSource,
       async (manager) => {
         const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-        const chatRepo = manager.getRepository(Chat);
-        const statusUpdateRepo = manager.getRepository(StatusUpdate);
 
         const request = await surgeryRequestRepo.save({
-          doctor_id: doctorId,
-          created_by_id: userId,
-          patient_id: data.patient_id,
-          hospital_id: data.hospital_id || null,
+          doctorId: doctorId,
+          ownerId,
+          createdById: userId,
+          patientId: data.patientId,
+          hospitalId: data.hospitalId || null,
           status: SurgeryRequestStatus.PENDING,
-          is_indication: false,
-          health_plan_id: data.health_plan_id || null,
+          isIndication: false,
+          healthPlanId: data.healthPlanId || null,
           priority: data.priority,
-          procedure_id: data.procedure_id || null,
-          required_documents: data.required_documents?.length
-            ? data.required_documents
+          procedureId: data.procedureId || null,
+          requiredDocuments: data.requiredDocuments?.length
+            ? data.requiredDocuments
             : null,
-          last_status_changed_at: new Date(),
+          lastStatusChangedAt: new Date(),
         });
 
-        await chatRepo.save({
-          surgery_request_id: request.id,
-          user_id: userId,
-        });
-        await statusUpdateRepo.save({
-          surgery_request_id: request.id,
-          prev_status: SurgeryRequestStatus.PENDING,
-          new_status: SurgeryRequestStatus.PENDING,
-        });
         const activityRepo = manager.getRepository(SurgeryRequestActivity);
         await activityRepo.save({
-          surgery_request_id: request.id,
-          user_id: userId,
+          surgeryRequestId: request.id,
+          userId: userId,
           type: ActivityType.SYSTEM,
           content: 'Solicitação cirúrgica criada',
         });
@@ -209,8 +190,8 @@ export class SurgeryRequestMutationService {
   async update(data: UpdateSurgeryRequestDto, userId: string) {
     const surgeryRequest = await this.findWithAccess(data.id, userId);
 
-    const doctorId = surgeryRequest.doctor_id;
-    let hospitalId: string | null = surgeryRequest.hospital_id;
+    const doctorId = surgeryRequest.doctorId;
+    let hospitalId: string | null = surgeryRequest.hospitalId;
 
     if (data.hospital === null) {
       hospitalId = null;
@@ -223,31 +204,32 @@ export class SurgeryRequestMutationService {
       hospitalId = hospital.id;
     }
 
-    let healthPlanId: string | null = surgeryRequest.health_plan_id;
-    if (data.health_plan === null) {
+    let healthPlanId: string | null = surgeryRequest.healthPlanId;
+    if (data.healthPlan === null) {
       healthPlanId = null;
-    } else if (data.health_plan?.name) {
+    } else if (data.healthPlan?.name) {
       const healthPlan = await this.resolveHealthPlan(
-        data.health_plan,
+        data.healthPlan,
         doctorId,
         this.healthPlanRepository,
       );
       healthPlanId = healthPlan.id;
     }
 
-    const { id, hospital: _h, health_plan, cid, ...validData } = data;
-    const cidData: { cid_id?: string | null } = {};
+    const { id, hospital: _h, healthPlan, cid, ...validData } = data;
+    // cid.id retorna o código CID diretamente (ex: "A00") — sem FK para tabela
+    const cidData: { cidCode?: string | null } = {};
     if (cid === null) {
-      cidData.cid_id = null;
+      cidData.cidCode = null;
     } else if (cid?.id) {
-      cidData.cid_id = cid.id;
+      cidData.cidCode = cid.id;
     }
 
     await this.surgeryRequestRepository.update(data.id, {
       ...validData,
-      hospital_id: hospitalId,
+      hospitalId: hospitalId,
+      healthPlanId: healthPlanId,
       ...cidData,
-      health_plan_id: healthPlanId,
     });
 
     return surgeryRequest;
@@ -273,7 +255,7 @@ export class SurgeryRequestMutationService {
 
     const _surgeryRequest = await this.findWithAccess(id, userId);
 
-    await this.surgeryRequestRepository.update(id, { has_opme: hasOpme });
+    await this.surgeryRequestRepository.update(id, { hasOpme: hasOpme });
     return this.surgeryRequestRepository.findOneSimple({ id });
   }
 
@@ -285,7 +267,7 @@ export class SurgeryRequestMutationService {
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
     if (doctorIds.length > 0) {
-      where = { ...where, doctor_id: In(doctorIds) };
+      where = { ...where, doctorId: In(doctorIds) };
     }
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
@@ -309,7 +291,7 @@ export class SurgeryRequestMutationService {
         name: data.name,
         email: data.email,
         phone: data.phone,
-        doctor_id: doctorId,
+        doctorId: doctorId,
       };
       entity = repo.save
         ? await repo.save(payload)
@@ -332,7 +314,7 @@ export class SurgeryRequestMutationService {
       const payload = {
         name: data.name,
         email: data.email,
-        doctor_id: doctorId,
+        doctorId: doctorId,
       };
       entity = repo.save
         ? await repo.save(payload)

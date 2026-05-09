@@ -13,6 +13,8 @@ export const ERROR_MESSAGES = {
   DOCTOR_PROFILE_NOT_FOUND: 'Perfil de médico não encontrado',
   DOCUMENT_NOT_FOUND: 'Documento não encontrado',
   OPME_ITEM_NOT_FOUND: 'Item OPME não encontrado',
+  OPME_MIN_MANUFACTURERS: 'Cada item OPME deve ter no mínimo 3 fabricantes.',
+  OPME_MIN_SUPPLIERS: 'Cada item OPME deve ter no mínimo 3 fornecedores.',
   QUOTATION_NOT_FOUND: 'Cotação não encontrada',
   REPORT_SECTION_NOT_FOUND: 'Seção não encontrada',
   TEMPLATE_NOT_FOUND: 'Template não encontrado ou sem permissão.',

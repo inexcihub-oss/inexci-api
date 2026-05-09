@@ -59,7 +59,8 @@ async function resolveAuthorizedRequest(
   identifierRaw: unknown,
   context: ToolContext,
 ): Promise<{ request: any | null; error: string | null }> {
-  const identifier = sanitizeIdentifier(identifierRaw);
+  const detokenized = detokenizeArg(context, identifierRaw as any);
+  const identifier = sanitizeIdentifier(detokenized ?? identifierRaw);
   if (!identifier) {
     return {
       request: null,
@@ -83,7 +84,7 @@ async function resolveAuthorizedRequest(
     return { request: null, error: 'Solicitação não encontrada.' };
   }
 
-  if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+  if (!context.accessibleDoctorIds.includes(request.doctorId)) {
     return {
       request: null,
       error: 'Você não tem permissão para acessar essa solicitação.',
@@ -112,7 +113,7 @@ export function buildActionTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description:
                 'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
@@ -122,43 +123,43 @@ export function buildActionTools(
               description:
                 'Se true, executa a transição. Se false ou omitido, apenas mostra o que seria feito.',
             },
-            selected_date_index: {
+            selectedDateIndex: {
               type: 'number',
               description:
                 'Opcional no avanço 4->5. Índice da data (0, 1 ou 2).',
             },
-            surgery_performed_at: {
+            surgeryPerformedAt: {
               type: 'string',
               description:
                 'Opcional no avanço 5->6. Data de realização em formato ISO.',
             },
-            invoice_protocol: {
+            invoiceProtocol: {
               type: 'string',
               description:
                 'Necessário no avanço 6->7 quando não houver protocolo definido.',
             },
-            invoice_value: {
+            invoiceValue: {
               type: 'number',
               description:
                 'Necessário no avanço 6->7 quando não houver valor da fatura definido.',
             },
-            invoice_sent_at: {
+            invoiceSentAt: {
               type: 'string',
               description:
                 'Opcional no avanço 6->7. Data de envio da fatura em formato ISO.',
             },
-            received_value: {
+            receivedValue: {
               type: 'number',
               description:
                 'Opcional no avanço 7->8. Valor recebido. Se omitido, tenta usar valor da fatura.',
             },
-            received_at: {
+            receivedAt: {
               type: 'string',
               description:
                 'Opcional no avanço 7->8. Data do recebimento em formato ISO.',
             },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -168,7 +169,7 @@ export function buildActionTools(
 
       const auth = await resolveAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.request) return auth.error as string;
@@ -222,68 +223,68 @@ export function buildActionTools(
             break;
           case 4: {
             const selectedDateIndex =
-              typeof args.selected_date_index === 'number'
-                ? args.selected_date_index
-                : detailedRequest?.selected_date_index;
+              typeof args.selectedDateIndex === 'number'
+                ? args.selectedDateIndex
+                : detailedRequest?.selectedDateIndex;
 
             if (
               !Number.isInteger(selectedDateIndex) ||
               ![0, 1, 2].includes(selectedDateIndex as number)
             ) {
-              return 'Para avançar de Em Agendamento para Agendada, informe `selected_date_index` (0, 1 ou 2) ou confirme a data antes com `confirm_date`.';
+              return 'Para avançar de Em Agendamento para Agendada, informe `selectedDateIndex` (0, 1 ou 2) ou confirme a data antes com `confirm_date`.';
             }
 
             await workflowService.confirmDate(
               requestId,
-              { selected_date_index: selectedDateIndex as number } as any,
+              { selectedDateIndex: selectedDateIndex as number } as any,
               context.userId,
             );
             break;
           }
           case 5: {
             const performedAtRaw =
-              typeof args.surgery_performed_at === 'string' &&
-              !Number.isNaN(new Date(args.surgery_performed_at).getTime())
-                ? args.surgery_performed_at
-                : detailedRequest?.surgery_date
-                  ? new Date(detailedRequest.surgery_date).toISOString()
+              typeof args.surgeryPerformedAt === 'string' &&
+              !Number.isNaN(new Date(args.surgeryPerformedAt).getTime())
+                ? args.surgeryPerformedAt
+                : detailedRequest?.surgeryDate
+                  ? new Date(detailedRequest.surgeryDate).toISOString()
                   : new Date().toISOString();
 
             await workflowService.markPerformed(
               requestId,
-              { surgery_performed_at: performedAtRaw } as any,
+              { surgeryPerformedAt: performedAtRaw } as any,
               context.userId,
             );
             break;
           }
           case 6: {
             const invoiceProtocol =
-              typeof args.invoice_protocol === 'string' &&
-              args.invoice_protocol.trim().length
-                ? args.invoice_protocol.trim()
+              typeof args.invoiceProtocol === 'string' &&
+              args.invoiceProtocol.trim().length
+                ? args.invoiceProtocol.trim()
                 : '';
             const invoiceValue =
-              typeof args.invoice_value === 'number' &&
-              Number.isFinite(args.invoice_value) &&
-              args.invoice_value >= 0
-                ? args.invoice_value
+              typeof args.invoiceValue === 'number' &&
+              Number.isFinite(args.invoiceValue) &&
+              args.invoiceValue >= 0
+                ? args.invoiceValue
                 : null;
             const invoiceSentAt =
-              typeof args.invoice_sent_at === 'string' &&
-              !Number.isNaN(new Date(args.invoice_sent_at).getTime())
-                ? args.invoice_sent_at
+              typeof args.invoiceSentAt === 'string' &&
+              !Number.isNaN(new Date(args.invoiceSentAt).getTime())
+                ? args.invoiceSentAt
                 : new Date().toISOString();
 
             if (!invoiceProtocol || invoiceValue === null) {
-              return 'Para avançar de Realizada para Faturada, informe `invoice_protocol` e `invoice_value`.';
+              return 'Para avançar de Realizada para Faturada, informe `invoiceProtocol` e `invoiceValue`.';
             }
 
             await workflowService.invoiceRequest(
               requestId,
               {
-                invoice_protocol: invoiceProtocol,
-                invoice_value: invoiceValue,
-                invoice_sent_at: invoiceSentAt,
+                invoiceProtocol: invoiceProtocol,
+                invoiceValue: invoiceValue,
+                invoiceSentAt: invoiceSentAt,
               } as any,
               context.userId,
             );
@@ -291,30 +292,30 @@ export function buildActionTools(
           }
           case 7: {
             const billedValue =
-              detailedRequest?.billing?.invoice_value != null
-                ? Number(detailedRequest.billing.invoice_value)
+              detailedRequest?.billing?.invoiceValue != null
+                ? Number(detailedRequest.billing.invoiceValue)
                 : null;
             const receivedValue =
-              typeof args.received_value === 'number' &&
-              Number.isFinite(args.received_value) &&
-              args.received_value >= 0
-                ? args.received_value
+              typeof args.receivedValue === 'number' &&
+              Number.isFinite(args.receivedValue) &&
+              args.receivedValue >= 0
+                ? args.receivedValue
                 : billedValue;
             const receivedAt =
-              typeof args.received_at === 'string' &&
-              !Number.isNaN(new Date(args.received_at).getTime())
-                ? args.received_at
+              typeof args.receivedAt === 'string' &&
+              !Number.isNaN(new Date(args.receivedAt).getTime())
+                ? args.receivedAt
                 : new Date().toISOString();
 
             if (receivedValue === null) {
-              return 'Para avançar de Faturada para Finalizada, informe `received_value` (ou registre faturamento com valor).';
+              return 'Para avançar de Faturada para Finalizada, informe `receivedValue` (ou registre faturamento com valor).';
             }
 
             await workflowService.confirmReceipt(
               requestId,
               {
-                received_value: receivedValue,
-                received_at: receivedAt,
+                receivedValue: receivedValue,
+                receivedAt: receivedAt,
               } as any,
               context.userId,
             );
@@ -324,8 +325,8 @@ export function buildActionTools(
             return `Avanço automático para o status ${nextLabel} não suportado via WhatsApp. Acesse a plataforma web.`;
         }
         await activityRepo.create({
-          surgery_request_id: requestId,
-          user_id: context.userId,
+          surgeryRequestId: requestId,
+          userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação avançada de "${currentLabel}" para "${nextLabel}".`,
         });
@@ -346,12 +347,12 @@ export function buildActionTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description:
                 'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
             },
-            has_opme: {
+            hasOpme: {
               type: 'boolean',
               description: 'True se possui OPME, false caso contrário',
             },
@@ -360,7 +361,7 @@ export function buildActionTools(
               description: 'Confirmação do usuário',
             },
           },
-          required: ['surgery_request_id', 'has_opme'],
+          required: ['surgeryRequestId', 'hasOpme'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -369,7 +370,7 @@ export function buildActionTools(
 
       const auth = await resolveAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.request) return auth.error as string;
@@ -377,23 +378,23 @@ export function buildActionTools(
       const requestId = request.id as string;
 
       if (!args.confirm) {
-        return `Deseja ${args.has_opme ? 'marcar' : 'desmarcar'} a solicitação ${request.protocol} como ${args.has_opme ? 'possuindo' : 'não possuindo'} OPME? Confirme com "sim".`;
+        return `Deseja ${args.hasOpme ? 'marcar' : 'desmarcar'} a solicitação ${request.protocol} como ${args.hasOpme ? 'possuindo' : 'não possuindo'} OPME? Confirme com "sim".`;
       }
 
       await mutationService.setHasOpme(
         requestId,
-        args.has_opme as boolean,
+        args.hasOpme as boolean,
         context.userId,
       );
 
       await activityRepo.create({
-        surgery_request_id: requestId,
-        user_id: context.userId,
+        surgeryRequestId: requestId,
+        userId: context.userId,
         type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] OPME definido como: ${args.has_opme ? 'Sim' : 'Não'}.`,
+        content: `[WhatsApp IA] OPME definido como: ${args.hasOpme ? 'Sim' : 'Não'}.`,
       });
 
-      return `✅ Solicitação ${request.protocol} atualizada: OPME = ${args.has_opme ? 'Sim' : 'Não'}.`;
+      return `✅ Solicitação ${request.protocol} atualizada: OPME = ${args.hasOpme ? 'Sim' : 'Não'}.`;
     },
   };
 
@@ -408,7 +409,7 @@ export function buildActionTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description:
                 'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
@@ -422,7 +423,7 @@ export function buildActionTools(
               description: 'Confirmação explícita do usuário',
             },
           },
-          required: ['surgery_request_id', 'reason'],
+          required: ['surgeryRequestId', 'reason'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -431,7 +432,7 @@ export function buildActionTools(
 
       const auth = await resolveAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.request) return auth.error as string;
@@ -449,8 +450,8 @@ export function buildActionTools(
           context.userId,
         );
         await activityRepo.create({
-          surgery_request_id: requestId,
-          user_id: context.userId,
+          surgeryRequestId: requestId,
+          userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação encerrada. Motivo: "${args.reason}".`,
         });
@@ -479,7 +480,7 @@ export function buildActionTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description:
                 'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
@@ -494,7 +495,7 @@ export function buildActionTools(
                 'Se true, aplica as alterações. Se false/omitido, apenas mostra o preview.',
             },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -503,7 +504,7 @@ export function buildActionTools(
 
       const auth = await resolveAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.request) return auth.error as string;
@@ -539,8 +540,8 @@ export function buildActionTools(
       );
 
       await activityRepo.create({
-        surgery_request_id: requestId,
-        user_id: context.userId,
+        surgeryRequestId: requestId,
+        userId: context.userId,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Dados atualizados: ${changes.join(', ')}.`,
       });
@@ -560,27 +561,27 @@ export function buildActionTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description:
                 'ID/Protocolo da solicitação (UUID, SC-XXXX ou XXXX)',
             },
             name: { type: 'string', description: 'Nome do paciente' },
-            birth_date: {
+            birthDate: {
               type: 'string',
               description: 'Data de nascimento no formato YYYY-MM-DD',
             },
             cpf: { type: 'string', description: 'CPF do paciente' },
             phone: { type: 'string', description: 'Telefone do paciente' },
             address: { type: 'string', description: 'Endereço do paciente' },
-            zip_code: { type: 'string', description: 'CEP do paciente' },
+            zipCode: { type: 'string', description: 'CEP do paciente' },
             confirm: {
               type: 'boolean',
               description:
                 'Se true, aplica as alterações. Se false/omitido, apenas mostra preview.',
             },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -589,13 +590,13 @@ export function buildActionTools(
 
       const auth = await resolveAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.request) return auth.error as string;
 
       const request = auth.request;
-      if (!request.patient_id) {
+      if (!request.patientId) {
         return 'Não foi possível localizar o paciente vinculado a esta solicitação.';
       }
 
@@ -609,14 +610,12 @@ export function buildActionTools(
         changes.push(`Nome: ${v}`);
       }
 
-      if (args.birth_date !== undefined) {
-        const raw = String(
-          detokenizeArg(context, args.birth_date) ?? '',
-        ).trim();
+      if (args.birthDate !== undefined) {
+        const raw = String(detokenizeArg(context, args.birthDate) ?? '').trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-          return 'Parâmetro inválido: `birth_date` deve estar em YYYY-MM-DD.';
+          return 'Parâmetro inválido: `birthDate` deve estar em YYYY-MM-DD.';
         }
-        updates.birth_date = raw;
+        updates.birthDate = raw;
         changes.push(`Data de nascimento: ${raw}`);
       }
 
@@ -641,10 +640,10 @@ export function buildActionTools(
         changes.push(`Endereço: ${v}`);
       }
 
-      if (args.zip_code !== undefined) {
-        const v = String(detokenizeArg(context, args.zip_code) ?? '').trim();
-        if (!v) return 'Parâmetro inválido: `zip_code` não pode ser vazio.';
-        updates.zip_code = v;
+      if (args.zipCode !== undefined) {
+        const v = String(detokenizeArg(context, args.zipCode) ?? '').trim();
+        if (!v) return 'Parâmetro inválido: `zipCode` não pode ser vazio.';
+        updates.zipCode = v;
         changes.push(`CEP: ${v}`);
       }
 
@@ -656,11 +655,11 @@ export function buildActionTools(
         return `A solicitação ${request.protocol} terá os dados do paciente atualizados com:\n${changes.map((c) => `• ${c}`).join('\n')}\n\nConfirme com "sim" para executar.`;
       }
 
-      await patientRepo.update(request.patient_id, updates);
+      await patientRepo.update(request.patientId, updates);
 
       await activityRepo.create({
-        surgery_request_id: request.id,
-        user_id: context.userId,
+        surgeryRequestId: request.id,
+        userId: context.userId,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Dados do paciente atualizados: ${changes.join(', ')}.`,
       });

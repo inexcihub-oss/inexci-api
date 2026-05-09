@@ -1,0 +1,46 @@
+{{#> _layout title="Resumo da Semana" preferencesUrl=preferencesUrl}}
+  <p>Olá, {{userName}}!</p>
+  <p>
+    Aqui está o resumo da última semana ({{periodStart}} a {{periodEnd}}) das
+    suas solicitações cirúrgicas e pendências.
+  </p>
+
+  <div class='info-box'>
+    <p><strong>Solicitações criadas:</strong> {{counts.created}}</p>
+    <p>
+      <strong>Solicitações com mudança de status:</strong>
+      {{counts.statusChanged}}
+    </p>
+    <p>
+      <strong>Solicitações finalizadas:</strong>
+      {{counts.finalized}}
+    </p>
+    <p>
+      <strong>Solicitações com pendências bloqueantes:</strong>
+      {{counts.withPendingBlocking}}
+    </p>
+  </div>
+
+  {{#if highlights.length}}
+    <h2 style='font-size: 16px; color: #0f766e; margin: 24px 0 8px;'>
+      Principais movimentações
+    </h2>
+    <ul>
+      {{#each highlights}}
+        <li>
+          <strong>{{this.protocol}}</strong>
+          — {{this.patientName}} ({{this.statusLabel}})
+          {{#if this.pendingLabel}} — {{this.pendingLabel}}{{/if}}
+        </li>
+      {{/each}}
+    </ul>
+  {{else}}
+    <p>Nenhuma solicitação com movimentação ou pendência relevante nesta semana.</p>
+  {{/if}}
+
+  {{#if dashboardUrl}}
+    <p style='text-align: center; margin: 26px 0;'>
+      <a class='btn' href='{{dashboardUrl}}'>Acessar plataforma</a>
+    </p>
+  {{/if}}
+{{/_layout}}

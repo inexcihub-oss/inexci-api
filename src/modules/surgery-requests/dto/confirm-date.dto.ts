@@ -9,5 +9,5 @@ export class ConfirmDateDto {
   @IsBoolean()
   notify_patient?: boolean;
   @IsIn([0, 1, 2])
-  selected_date_index: 0 | 1 | 2;
+  selectedDateIndex: 0 | 1 | 2;
 }

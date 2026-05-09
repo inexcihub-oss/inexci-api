@@ -3,7 +3,7 @@ import { AiTool, ToolContext } from './tool.interface';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { In } from 'typeorm';
-import { tokenizePii } from '../pii/tool-pii-helpers';
+import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
@@ -43,53 +43,53 @@ function mapPendencyToRecommendedAction(key: string): {
     case 'patient_data':
       return {
         action: 'update_patient_data',
-        minParams: ['surgery_request_id', 'name|cpf|phone|birth_date'],
+        minParams: ['surgeryRequestId', 'name|cpf|phone|birthDate'],
       };
     case 'hospital_data':
       return {
         action: 'set_hospital',
-        minParams: ['surgery_request_id', 'hospital_name'],
+        minParams: ['surgeryRequestId', 'hospital_name'],
       };
     case 'tuss_procedures':
       return {
         action: 'add_tuss_item',
-        minParams: ['surgery_request_id', 'tuss_code', 'name'],
+        minParams: ['surgeryRequestId', 'tussCode', 'name'],
       };
     case 'opme_items':
       return {
         action: 'set_has_opme ou add_opme_item',
-        minParams: ['surgery_request_id', 'has_opme=true|false'],
+        minParams: ['surgeryRequestId', 'hasOpme=true|false'],
       };
     case 'medical_report':
       return {
         action: 'manage_report_sections',
-        minParams: ['surgery_request_id', 'operation=create', 'title'],
+        minParams: ['surgeryRequestId', 'operation=create', 'title'],
       };
     case 'schedule_dates':
       return {
         action: 'update_date_options',
-        minParams: ['surgery_request_id', 'date_options[]'],
+        minParams: ['surgeryRequestId', 'dateOptions[]'],
       };
     case 'confirm_date':
       return {
         action: 'confirm_date',
-        minParams: ['surgery_request_id', 'selected_date_index'],
+        minParams: ['surgeryRequestId', 'selectedDateIndex'],
       };
     case 'confirm_receipt':
       return {
         action: 'confirm_receipt',
-        minParams: ['surgery_request_id', 'received_value', 'received_at'],
+        minParams: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
       };
     default:
       if (key.startsWith('doc_')) {
         return {
           action: 'attach_document_from_whatsapp',
-          minParams: ['surgery_request_id', 'document_type?', 'confirm=true'],
+          minParams: ['surgeryRequestId', 'document_type?', 'confirm=true'],
         };
       }
       return {
         action: 'get_pendencies',
-        minParams: ['surgery_request_id'],
+        minParams: ['surgeryRequestId'],
       };
   }
 }
@@ -99,7 +99,8 @@ async function resolveRequestByIdentifier(
   identifierRaw: string,
   context: ToolContext,
 ): Promise<any | null> {
-  const identifier = sanitizeIdentifier(identifierRaw);
+  const detokenized = detokenizeArg(context, identifierRaw);
+  const identifier = sanitizeIdentifier(detokenized ?? identifierRaw);
   if (!identifier) return null;
 
   let request = null;
@@ -115,7 +116,7 @@ async function resolveRequestByIdentifier(
   }
 
   const byName = await surgeryRequestRepo.findMany(
-    { doctor_id: In(context.accessibleDoctorIds) as any },
+    { doctorId: In(context.accessibleDoctorIds) as any },
     0,
     50,
   );
@@ -141,7 +142,7 @@ export function buildPendencyTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description:
                 'Identificador da solicitação: UUID, protocolo SC-XXXX ou número',
@@ -160,8 +161,13 @@ export function buildPendencyTools(
       if (!context.userId) return 'Acesso negado.';
 
       const identifier =
-        sanitizeIdentifier(args.surgery_request_id) ||
-        sanitizeIdentifier(args.identifier);
+        sanitizeIdentifier(
+          detokenizeArg(context, args.surgeryRequestId) ??
+            args.surgeryRequestId,
+        ) ||
+        sanitizeIdentifier(
+          detokenizeArg(context, args.identifier) ?? args.identifier,
+        );
       if (!identifier) return 'Parâmetro inválido: informe a solicitação.';
 
       const request = await resolveRequestByIdentifier(
@@ -171,7 +177,7 @@ export function buildPendencyTools(
       );
 
       if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 

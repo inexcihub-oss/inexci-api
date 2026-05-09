@@ -93,4 +93,24 @@ export const envValidationSchema = Joi.object({
 
   // ── Puppeteer ────────────────────────────────────────
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),
+
+  // ── Billing / Payment Gateway ────────────────────────
+  PAYMENT_GATEWAY_PROVIDER: Joi.string().valid('asaas').default('asaas'),
+  ASAAS_API_URL: Joi.string().uri().default('https://api-sandbox.asaas.com/v3'),
+  ASAAS_API_KEY: Joi.string().allow('').default(''),
+  ASAAS_WEBHOOK_TOKEN: Joi.string().allow('').default(''),
+  ASAAS_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
+  BILLING_TRIAL_DAYS: Joi.number().default(30),
+  BILLING_GRACE_PERIOD_DAYS: Joi.number().default(7),
+  BILLING_TRIAL_REMINDER_DAYS: Joi.string().default('7,3,1'),
+
+  // ── Logging / Observabilidade ────────────────────────
+  LOG_LEVEL: Joi.string()
+    .valid('error', 'warn', 'log', 'debug', 'verbose')
+    .default('log'),
+  LOG_PRETTY: Joi.string().allow('').default(''),
+  LOG_RETENTION_NOTIFICATION_DAYS: Joi.number().default(90),
+  LOG_RETENTION_AI_USAGE_DAYS: Joi.number().default(365),
+  LOG_RETENTION_PII_DAYS: Joi.number().default(180),
+  LOG_RETENTION_STALE_DAYS: Joi.number().default(60),
 }).options({ allowUnknown: true });

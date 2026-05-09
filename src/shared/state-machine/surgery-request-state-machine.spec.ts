@@ -9,9 +9,9 @@ function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
   return {
     id: 'test-id',
     status: SurgeryRequestStatus.PENDING,
-    patient_id: 'patient-1',
-    hospital_id: 'hospital-1',
-    tuss_items: [{ id: '1', name: 'Proc', tuss_code: '123', quantity: 1 }],
+    patientId: 'patient-1',
+    hospitalId: 'hospital-1',
+    tussItems: [{ id: '1', name: 'Proc', tussCode: '123', quantity: 1 }],
     billing: null,
     ...overrides,
   } as unknown as SurgeryRequest;
@@ -43,8 +43,8 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
 
-    it('should block when patient_id is missing', () => {
-      const req = makeRequest({ patient_id: null });
+    it('should block when patientId is missing', () => {
+      const req = makeRequest({ patientId: null });
       const pendencies = sm.getBlockingPendencies(
         req,
         SurgeryRequestStatus.SENT,
@@ -52,8 +52,8 @@ describe('SurgeryRequestStateMachine', () => {
       expect(pendencies).toContain('Paciente não informado.');
     });
 
-    it('should block when hospital_id is missing', () => {
-      const req = makeRequest({ hospital_id: null });
+    it('should block when hospitalId is missing', () => {
+      const req = makeRequest({ hospitalId: null });
       const pendencies = sm.getBlockingPendencies(
         req,
         SurgeryRequestStatus.SENT,
@@ -61,8 +61,8 @@ describe('SurgeryRequestStateMachine', () => {
       expect(pendencies).toContain('Hospital não informado.');
     });
 
-    it('should block when tuss_items is empty', () => {
-      const req = makeRequest({ tuss_items: [] as any });
+    it('should block when tussItems is empty', () => {
+      const req = makeRequest({ tussItems: [] as any });
       const pendencies = sm.getBlockingPendencies(
         req,
         SurgeryRequestStatus.SENT,
@@ -72,9 +72,9 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('should return multiple pendencies at once', () => {
       const req = makeRequest({
-        patient_id: null,
-        hospital_id: null,
-        tuss_items: [] as any,
+        patientId: null,
+        hospitalId: null,
+        tussItems: [] as any,
       });
       const pendencies = sm.getBlockingPendencies(
         req,
@@ -149,17 +149,17 @@ describe('SurgeryRequestStateMachine', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.PERFORMED,
         billing: {
-          invoice_value: 1000,
-          invoice_sent_at: new Date(),
+          invoiceValue: 1000,
+          invoiceSentAt: new Date(),
         } as any,
       });
       expect(sm.canTransitionTo(req, SurgeryRequestStatus.INVOICED)).toBe(true);
     });
 
-    it('should block without invoice_value', () => {
+    it('should block without invoiceValue', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.PERFORMED,
-        billing: { invoice_sent_at: new Date() } as any,
+        billing: { invoiceSentAt: new Date() } as any,
       });
       const pendencies = sm.getBlockingPendencies(
         req,
@@ -168,10 +168,10 @@ describe('SurgeryRequestStateMachine', () => {
       expect(pendencies).toContain('Valor da fatura não informado.');
     });
 
-    it('should block without invoice_sent_at', () => {
+    it('should block without invoiceSentAt', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.PERFORMED,
-        billing: { invoice_value: 1000 } as any,
+        billing: { invoiceValue: 1000 } as any,
       });
       const pendencies = sm.getBlockingPendencies(
         req,
@@ -183,7 +183,7 @@ describe('SurgeryRequestStateMachine', () => {
     it('should block from wrong status', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.SCHEDULED,
-        billing: { invoice_value: 1000, invoice_sent_at: new Date() } as any,
+        billing: { invoiceValue: 1000, invoiceSentAt: new Date() } as any,
       });
       expect(sm.canTransitionTo(req, SurgeryRequestStatus.INVOICED)).toBe(
         false,
@@ -198,8 +198,8 @@ describe('SurgeryRequestStateMachine', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.INVOICED,
         billing: {
-          received_value: 900,
-          received_at: new Date(),
+          receivedValue: 900,
+          receivedAt: new Date(),
         } as any,
       });
       expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(
@@ -207,10 +207,10 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
 
-    it('should block without received_value', () => {
+    it('should block without receivedValue', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.INVOICED,
-        billing: { received_at: new Date() } as any,
+        billing: { receivedAt: new Date() } as any,
       });
       const pendencies = sm.getBlockingPendencies(
         req,
@@ -219,10 +219,10 @@ describe('SurgeryRequestStateMachine', () => {
       expect(pendencies).toContain('Valor recebido não informado.');
     });
 
-    it('should block without received_at', () => {
+    it('should block without receivedAt', () => {
       const req = makeRequest({
         status: SurgeryRequestStatus.INVOICED,
-        billing: { received_value: 900 } as any,
+        billing: { receivedValue: 900 } as any,
       });
       const pendencies = sm.getBlockingPendencies(
         req,
@@ -280,7 +280,7 @@ describe('SurgeryRequestStateMachine', () => {
     });
 
     it('should throw BadRequestException with pendencies for invalid transition', () => {
-      const req = makeRequest({ patient_id: null });
+      const req = makeRequest({ patientId: null });
       try {
         sm.assertCanTransition(req, SurgeryRequestStatus.SENT);
         fail('Expected BadRequestException');

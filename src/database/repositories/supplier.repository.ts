@@ -22,9 +22,12 @@ export class SupplierRepository extends BaseRepository<Supplier> {
     });
   }
 
-  findByDoctorId(doctorId: string): Promise<Supplier[]> {
+  /**
+   * Lista fornecedores cadastrados pela clínica (ownerId).
+   */
+  findByOwnerId(ownerId: string): Promise<Supplier[]> {
     return this.repository.find({
-      where: { doctor_id: doctorId },
+      where: { ownerId },
       order: { name: 'ASC' },
     });
   }
@@ -34,10 +37,10 @@ export class SupplierRepository extends BaseRepository<Supplier> {
       where: { id },
       relations: [
         'quotations',
-        'quotations.surgery_request',
-        'quotations.surgery_request.patient',
+        'quotations.surgeryRequest',
+        'quotations.surgeryRequest.patient',
       ],
-      order: { quotations: { created_at: 'DESC' } },
+      order: { quotations: { createdAt: 'DESC' } },
     });
   }
 }

@@ -72,17 +72,17 @@ export class PendencyValidatorService {
       relations: [
         'patient',
         'hospital',
-        'health_plan',
+        'healthPlan',
         'procedure',
-        'tuss_items',
-        'opme_items',
+        'tussItems',
+        'opmeItems',
         'documents',
         'analysis',
         'billing',
         'contestations',
         'doctor',
-        'doctor.doctor_profile',
-        'report_sections',
+        'doctor.doctorProfile',
+        'reportSections',
       ],
     });
   }
@@ -92,7 +92,7 @@ export class PendencyValidatorService {
    */
   private buildDocumentPendencies(request: SurgeryRequest): PendencyConfig[] {
     const requiredDocs: Array<{ type: string; name: string }> =
-      (request as any).required_documents ?? [];
+      (request as any).requiredDocuments ?? [];
     return requiredDocs.map((doc) => ({
       key: `doc_${doc.name}`,
       label: `Documento: ${doc.name}`,
@@ -109,22 +109,22 @@ export class PendencyValidatorService {
     key: string,
   ): Array<{ label: string; done: boolean }> {
     const docs = request.documents ?? [];
-    const procedures = request.tuss_items ?? [];
-    const opmeItems = request.opme_items ?? [];
+    const procedures = request.tussItems ?? [];
+    const opmeItems = request.opmeItems ?? [];
 
     switch (key) {
       case 'patient_data':
         return [
           { label: 'Nome do paciente', done: !!request.patient?.name },
-          { label: 'Data de nascimento', done: !!request.patient?.birth_date },
+          { label: 'Data de nascimento', done: !!request.patient?.birthDate },
           { label: 'CPF', done: !!request.patient?.cpf },
           { label: 'Telefone', done: !!request.patient?.phone },
           { label: 'Endereço', done: !!request.patient?.address },
-          { label: 'CEP', done: !!request.patient?.zip_code },
+          { label: 'CEP', done: !!request.patient?.zipCode },
         ];
 
       case 'hospital_data':
-        return [{ label: 'Hospital selecionado', done: !!request.hospital_id }];
+        return [{ label: 'Hospital selecionado', done: !!request.hospitalId }];
 
       case 'tuss_procedures':
         return [
@@ -135,12 +135,12 @@ export class PendencyValidatorService {
         ];
 
       case 'opme_items':
-        if (request.has_opme === false) {
+        if (request.hasOpme === false) {
           return [
             { label: 'Sem OPME (indicado pelo colaborador)', done: true },
           ];
         }
-        if (request.has_opme === true) {
+        if (request.hasOpme === true) {
           return [
             { label: 'Uso de OPME confirmado', done: true },
             {
@@ -158,21 +158,21 @@ export class PendencyValidatorService {
 
       case 'medical_report': {
         const pt = request.patient;
-        const sections = request.report_sections ?? [];
+        const sections = request.reportSections ?? [];
         return [
           { label: 'Nome do paciente', done: !!pt?.name },
-          { label: 'Data de nascimento', done: !!pt?.birth_date },
+          { label: 'Data de nascimento', done: !!pt?.birthDate },
           { label: 'CPF', done: !!pt?.cpf },
           { label: 'Telefone', done: !!pt?.phone },
           { label: 'Endereço', done: !!pt?.address },
-          { label: 'CEP', done: !!pt?.zip_code },
+          { label: 'CEP', done: !!pt?.zipCode },
           {
             label: 'Ao menos 1 seção de laudo preenchida',
             done: sections.length > 0,
           },
           {
             label: 'Assinatura do médico configurada',
-            done: !!request.doctor?.doctor_profile?.signature_url,
+            done: !!request.doctor?.doctorProfile?.signatureUrl,
           },
         ];
       }
@@ -182,8 +182,8 @@ export class PendencyValidatorService {
           {
             label: 'Ao menos 1 data de preferência informada',
             done:
-              Array.isArray(request.date_options) &&
-              request.date_options.length > 0,
+              Array.isArray(request.dateOptions) &&
+              request.dateOptions.length > 0,
           },
         ];
 
@@ -191,11 +191,11 @@ export class PendencyValidatorService {
         return [
           {
             label: 'Valor recebido informado',
-            done: !!request.billing?.received_value,
+            done: !!request.billing?.receivedValue,
           },
           {
             label: 'Data de recebimento informada',
-            done: !!request.billing?.received_at,
+            done: !!request.billing?.receivedAt,
           },
         ];
 
@@ -220,33 +220,33 @@ export class PendencyValidatorService {
     pendency: PendencyConfig,
   ): boolean {
     const docs = request.documents ?? [];
-    const procedures = request.tuss_items ?? [];
-    const opmeItems = request.opme_items ?? [];
+    const procedures = request.tussItems ?? [];
+    const opmeItems = request.opmeItems ?? [];
 
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────
       case 'patient_data':
         return !!(
           request.patient?.name &&
-          request.patient?.birth_date &&
+          request.patient?.birthDate &&
           request.patient?.cpf &&
           request.patient?.phone &&
           request.patient?.address &&
-          request.patient?.zip_code
+          request.patient?.zipCode
         );
 
       case 'hospital_data':
-        return !!request.hospital_id;
+        return !!request.hospitalId;
 
       case 'tuss_procedures':
         return procedures.length > 0;
 
       case 'opme_items':
-        // has_opme === false → usuário indicou que não há OPME (pendência dispensada)
-        if (request.has_opme === false) return true;
-        // has_opme === true → precisa ter ao menos 1 item cadastrado
-        if (request.has_opme === true) return opmeItems.length > 0;
-        // has_opme === null/undefined → usuário ainda não indicou (pendência aberta)
+        // hasOpme === false → usuário indicou que não há OPME (pendência dispensada)
+        if (request.hasOpme === false) return true;
+        // hasOpme === true → precisa ter ao menos 1 item cadastrado
+        if (request.hasOpme === true) return opmeItems.length > 0;
+        // hasOpme === null/undefined → usuário ainda não indicou (pendência aberta)
         return false;
 
       case 'medical_report': {
@@ -254,44 +254,44 @@ export class PendencyValidatorService {
         const pt = request.patient;
         const patientComplete = !!(
           pt?.name &&
-          pt?.birth_date &&
+          pt?.birthDate &&
           pt?.cpf &&
           pt?.phone &&
           pt?.address &&
-          pt?.zip_code
+          pt?.zipCode
         );
-        const sections = request.report_sections ?? [];
+        const sections = request.reportSections ?? [];
         return (
           patientComplete &&
           sections.length > 0 &&
-          !!request.doctor?.doctor_profile?.signature_url
+          !!request.doctor?.doctorProfile?.signatureUrl
         );
       }
 
       // ── IN_SCHEDULING ─────────────────────────────────────────────────────
       case 'schedule_dates':
         return !!(
-          request.date_options &&
-          Array.isArray(request.date_options) &&
-          request.date_options.length >= 1
+          request.dateOptions &&
+          Array.isArray(request.dateOptions) &&
+          request.dateOptions.length >= 1
         );
 
       case 'confirm_date':
         return (
-          request.selected_date_index !== null &&
-          request.selected_date_index !== undefined
+          request.selectedDateIndex !== null &&
+          request.selectedDateIndex !== undefined
         );
 
       // ── SCHEDULED ────────────────────────────────────────────────────────
       case 'surgery_expired':
         // Aviso: data da cirurgia está no passado
-        if (!request.surgery_date) return true; // sem data = sem aviso
-        return new Date(request.surgery_date) > new Date();
+        if (!request.surgeryDate) return true; // sem data = sem aviso
+        return new Date(request.surgeryDate) > new Date();
 
       // ── INVOICED ─────────────────────────────────────────────────────────
       case 'confirm_receipt':
         return !!(
-          request.billing?.received_value && request.billing?.received_at
+          request.billing?.receivedValue && request.billing?.receivedAt
         );
 
       default:

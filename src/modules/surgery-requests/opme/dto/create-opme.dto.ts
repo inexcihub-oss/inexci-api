@@ -33,5 +33,5 @@ export class CreateOpmeDto {
 
   @IsString()
   @IsNotEmpty()
-  surgery_request_id: string;
+  surgeryRequestId: string;
 }

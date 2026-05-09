@@ -5,11 +5,12 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 
 /**
- * Memória estruturada da conversa, persistida em `conversation_memory`.
+ * Memória estruturada da conversa, persistida em `conversationMemory`.
  * Mantém slots, fatos confirmados e perguntas em aberto sem precisar
  * reenviar histórico completo ao LLM. Schema flexível para evoluir sem
  * migration.
@@ -21,12 +22,12 @@ export interface ConversationMemory {
     name?: string;
     phone?: string;
   };
-  surgery_request?: {
+  surgeryRequest?: {
     id?: string;
     status?: string;
     hospital?: string;
-    health_plan?: string;
-    doctor_id?: string;
+    healthPlan?: string;
+    doctorId?: string;
   };
   required_slots?: Record<string, string[]>;
   filled_slots?: Record<string, unknown>;
@@ -44,7 +45,7 @@ export interface ConversationMessage {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: string;
-  tool_name?: string;
+  toolName?: string;
   metadata?: {
     source?: 'text' | 'audio' | 'text+audio';
     transcription?: {
@@ -66,7 +67,10 @@ export interface ConversationMessage {
   };
 }
 
-@Entity('whatsapp_conversation')
+@Entity('whatsapp_conversations')
+@Index('idx_wc_phone', ['phone'])
+@Index('idx_wc_active', ['active', 'lastMessageAt'])
+@Index('idx_wc_owner', ['ownerId'])
 export class WhatsappConversation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -77,17 +81,14 @@ export class WhatsappConversation {
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
 
-  @Column({ name: 'messages_history', type: 'jsonb', default: [] })
-  messagesHistory: ConversationMessage[];
-
   @Column({ name: 'started_at', type: 'timestamptz' })
   startedAt: Date;
 
   @Column({ name: 'last_message_at', type: 'timestamptz' })
   lastMessageAt: Date;
 
-  @Column({ name: 'account_id', type: 'uuid', nullable: true })
-  accountId: string | null;
+  @Column({ name: 'owner_id', type: 'uuid', nullable: true })
+  ownerId: string | null;
 
   @Column({ name: 'conversation_summary', type: 'text', nullable: true })
   conversationSummary: string | null;
@@ -113,5 +114,5 @@ export class WhatsappConversation {
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: User | null;
 }

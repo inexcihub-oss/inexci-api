@@ -5,6 +5,12 @@ import { PiiVaultService } from '../services/pii-vault.service';
 const mockPatientRepo = {
   findOne: jest.fn(),
   findMany: jest.fn(),
+  create: jest.fn(),
+};
+
+const mockUserRepo = {
+  findOne: jest.fn(),
+  findMany: jest.fn(),
 };
 
 const baseContext: ToolContext = {
@@ -15,7 +21,7 @@ const baseContext: ToolContext = {
 };
 
 describe('GeneralTools', () => {
-  const tools = buildGeneralTools(mockPatientRepo as any);
+  const tools = buildGeneralTools(mockPatientRepo as any, mockUserRepo as any);
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());
@@ -29,7 +35,7 @@ describe('GeneralTools', () => {
           cpf: '12345678900',
           phone: '11999990000',
           email: 'carlos@example.com',
-          birth_date: '1980-05-10',
+          birthDate: '1980-05-10',
         },
       ]);
 
@@ -53,7 +59,7 @@ describe('GeneralTools', () => {
           cpf: '12345678900',
           phone: '11999990000',
           email: 'carlos@example.com',
-          birth_date: '1980-05-10',
+          birthDate: '1980-05-10',
         },
       ]);
 
@@ -91,6 +97,306 @@ describe('GeneralTools', () => {
       );
 
       expect(result).toContain('não encontrado');
+    });
+  });
+
+  describe('create_patient', () => {
+    const VALID_CPF = '11144477735';
+
+    beforeEach(() => {
+      mockUserRepo.findOne.mockImplementation(async ({ id }: any) => {
+        if (id === 'user-1') {
+          return { id: 'user-1', name: 'Admin', ownerId: 'owner-1' };
+        }
+        if (id === 'doctor-1') {
+          return { id: 'doctor-1', name: 'Dr. House', ownerId: 'owner-1' };
+        }
+        return null;
+      });
+      mockPatientRepo.findMany.mockResolvedValue([]);
+    });
+
+    it('rejeita quando falta o nome', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        { phone: '11999990000', email: 'a@b.com' },
+        baseContext,
+      );
+      expect(result).toContain('`name`');
+    });
+
+    it('rejeita quando telefone não foi informado', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        { name: 'Carlos', email: 'carlos@example.com' },
+        baseContext,
+      );
+      expect(result).toContain('`phone`');
+    });
+
+    it('rejeita telefone com formato inválido', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        { name: 'Carlos', phone: '123', email: 'carlos@example.com' },
+        baseContext,
+      );
+      expect(result).toContain('`phone`');
+    });
+
+    it('rejeita quando email não foi informado', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        { name: 'Carlos', phone: '11999990000' },
+        baseContext,
+      );
+      expect(result).toContain('`email`');
+    });
+
+    it('rejeita email com formato inválido', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos',
+          phone: '11999990000',
+          email: 'sem-arroba',
+        },
+        baseContext,
+      );
+      expect(result).toContain('`email`');
+    });
+
+    it('rejeita CPF inválido (DV errado)', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos',
+          phone: '11999990000',
+          email: 'carlos@example.com',
+          cpf: '12345678900',
+        },
+        baseContext,
+      );
+      expect(result).toContain('`cpf`');
+    });
+
+    it('rejeita data de nascimento futura', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos',
+          phone: '11999990000',
+          email: 'carlos@example.com',
+          birth_date: '3000-01-01',
+        },
+        baseContext,
+      );
+      expect(result).toContain('`birth_date`');
+    });
+
+    it('mostra preview quando confirm=false', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos Silva',
+          phone: '11999990000',
+          email: 'carlos@example.com',
+          cpf: VALID_CPF,
+          birth_date: '1980-05-10',
+        },
+        baseContext,
+      );
+      expect(result).toContain('Confirme');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('cria paciente com cadastro mínimo (nome, telefone e email) e cita pendência aberta para CPF/nascimento', async () => {
+      mockPatientRepo.create.mockResolvedValue({
+        id: 'pat-min',
+        name: 'José Ferreira',
+        phone: '11999990000',
+        email: 'jose@example.com',
+        cpf: null,
+      });
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'José Ferreira',
+          phone: '11999990000',
+          email: 'jose@example.com',
+          confirm: true,
+        },
+        { ...baseContext, piiVault },
+      );
+
+      expect(mockPatientRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          doctorId: 'doctor-1',
+          ownerId: 'owner-1',
+          name: 'José Ferreira',
+          phone: '11999990000',
+          email: 'jose@example.com',
+          cpf: null,
+          birthDate: null,
+          active: true,
+        }),
+      );
+      expect(result).toContain('cadastrado com sucesso');
+      expect(result).toContain('Dados do Paciente');
+      expect(result).toContain('CPF');
+      expect(result).toContain('data de nascimento');
+      expect(result).not.toMatch(/faltam[^\n]*telefone/i);
+    });
+
+    it('preview com cadastro mínimo (nome, telefone e email) avisa sobre pendência futura', async () => {
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'José Ferreira',
+          phone: '11999990000',
+          email: 'jose@example.com',
+        },
+        baseContext,
+      );
+      expect(result).toContain('Confirme');
+      expect(result).toContain('Dados do Paciente');
+      expect(result).toContain('CPF');
+      expect(result).toContain('data de nascimento');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('cria paciente quando confirm=true e tokeniza retorno', async () => {
+      mockPatientRepo.create.mockResolvedValue({
+        id: 'pat-1',
+        name: 'Carlos Silva',
+        phone: '11999990000',
+        email: 'carlos@example.com',
+        cpf: VALID_CPF,
+      });
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos Silva',
+          phone: '(11) 99999-0000',
+          email: 'carlos@example.com',
+          cpf: VALID_CPF,
+          birth_date: '1980-05-10',
+          confirm: true,
+        },
+        { ...baseContext, piiVault },
+      );
+
+      expect(mockPatientRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          doctorId: 'doctor-1',
+          ownerId: 'owner-1',
+          name: 'Carlos Silva',
+          phone: '11999990000',
+          email: 'carlos@example.com',
+          cpf: VALID_CPF,
+          active: true,
+        }),
+      );
+      expect(result).toContain('{{patient_name_1}}');
+      expect(result).not.toContain('Carlos Silva');
+      expect(result).not.toContain(VALID_CPF);
+    });
+
+    it('detokeniza placeholders nos argumentos antes de validar/criar', async () => {
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+      const namePlaceholder = piiVault.tokenize(
+        'conv-1',
+        'José Ferreira',
+        'patient_name',
+      );
+      const phonePlaceholder = piiVault.tokenize(
+        'conv-1',
+        '11912345678',
+        'phone',
+      );
+      const cpfPlaceholder = piiVault.tokenize('conv-1', VALID_CPF, 'cpf');
+
+      mockPatientRepo.create.mockResolvedValue({
+        id: 'pat-1',
+        name: 'José Ferreira',
+        phone: '11912345678',
+        email: 'jose@example.com',
+        cpf: VALID_CPF,
+      });
+
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: namePlaceholder,
+          phone: phonePlaceholder,
+          email: 'jose@example.com',
+          cpf: cpfPlaceholder,
+          confirm: true,
+        },
+        { ...baseContext, piiVault },
+      );
+
+      expect(mockPatientRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'José Ferreira',
+          phone: '11912345678',
+          cpf: VALID_CPF,
+        }),
+      );
+      expect(result).toContain('{{patient_name_');
+    });
+
+    it('exige doctor_name_or_id quando há múltiplos médicos acessíveis', async () => {
+      mockUserRepo.findMany.mockResolvedValue([
+        { id: 'doctor-1', name: 'Dr. House' },
+        { id: 'doctor-2', name: 'Dra. Cuddy' },
+      ]);
+
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos',
+          phone: '11999990000',
+          email: 'carlos@example.com',
+          confirm: true,
+        },
+        { ...baseContext, accessibleDoctorIds: ['doctor-1', 'doctor-2'] },
+      );
+
+      expect(result).toContain('doctor_name_or_id');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('bloqueia criação quando CPF já existe na clínica', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([
+        { id: 'pat-existing', name: 'Outro Paciente', cpf: VALID_CPF },
+      ]);
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+
+      const tool = getTool('create_patient');
+      const result = await tool.execute(
+        {
+          name: 'Carlos',
+          phone: '11999990000',
+          email: 'carlos@example.com',
+          cpf: VALID_CPF,
+          confirm: true,
+        },
+        { ...baseContext, piiVault },
+      );
+
+      expect(result).toContain('Já existe paciente');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
     });
   });
 });

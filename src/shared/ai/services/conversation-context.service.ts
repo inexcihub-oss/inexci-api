@@ -30,7 +30,7 @@ export interface ContextBlockBreakdown {
   memory_tokens: number;
   recent_tokens: number;
   rag_tokens: number;
-  total_tokens: number;
+  totalTokens: number;
 }
 
 export interface BuildContextResult {
@@ -101,7 +101,7 @@ export class ConversationContextService {
    * respeitando `AI_CONTEXT_TOKEN_BUDGET` (corta na ordem rag → recent → summary).
    *
    * Circuit breaker: se o sumarizador acumulou >= SUMMARY_FAILURE_LIMIT falhas
-   * consecutivas neste `conversation_id`, summary/memory são ignorados até a
+   * consecutivas neste `conversationId`, summary/memory são ignorados até a
    * próxima sumarização bem-sucedida (estratégia retornada como `history_only`).
    */
   async buildContext(
@@ -136,7 +136,7 @@ export class ConversationContextService {
       memory_tokens: 0,
       recent_tokens: 0,
       rag_tokens: 0,
-      total_tokens: 0,
+      totalTokens: 0,
     };
 
     messages.push({ role: 'system', content: systemBase });
@@ -224,7 +224,7 @@ export class ConversationContextService {
       messages.push({ role: msg.role as any, content: msg.content });
     }
     breakdown.recent_tokens = usage.recentTokens;
-    breakdown.total_tokens =
+    breakdown.totalTokens =
       breakdown.system_tokens +
       breakdown.summary_tokens +
       breakdown.memory_tokens +

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -7,11 +7,13 @@ import { NotificationsService } from './notifications.service';
 import { NotificationsGateway } from './notifications.gateway';
 import { PatientNotificationService } from './patient-notification.service';
 import { NotificationDispatcherService } from './notification-dispatcher.service';
+import { WeeklySummaryService } from './weekly-summary.service';
 import { Notification } from 'src/database/entities/notification.entity';
 import { UserNotificationSettings } from 'src/database/entities/user-notification-settings.entity';
 import { User } from 'src/database/entities/user.entity';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
+import { PendenciesModule } from 'src/modules/surgery-requests/pendencies/pendencies.module';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
     }),
     MailModule,
     WhatsappModule,
+    forwardRef(() => PendenciesModule),
   ],
   controllers: [NotificationsController],
   providers: [
@@ -33,12 +36,14 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
     NotificationsService,
     PatientNotificationService,
     NotificationDispatcherService,
+    WeeklySummaryService,
   ],
   exports: [
     NotificationsGateway,
     NotificationsService,
     PatientNotificationService,
     NotificationDispatcherService,
+    WeeklySummaryService,
   ],
 })
 export class NotificationsModule {}

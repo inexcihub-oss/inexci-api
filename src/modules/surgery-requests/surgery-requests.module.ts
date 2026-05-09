@@ -9,7 +9,6 @@ import { Contestation } from 'src/database/entities/contestation.entity';
 import { SurgeryRequestTemplate } from 'src/database/entities/surgery-request-template.entity';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 import { User } from 'src/database/entities/user.entity';
-import { StatusUpdate } from 'src/database/entities/status-update.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { Hospital } from 'src/database/entities/hospital.entity';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
@@ -28,7 +27,6 @@ import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.s
 import { SurgeryRequestsController } from './surgery-requests.controller';
 import { UsersModule } from '../users/users.module';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { ChatsModule } from './chats/chats.module';
 import { ActivitiesModule } from './activities/activities.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
@@ -36,9 +34,9 @@ import { PdfGenerationModule } from 'src/shared/pdf/pdf-generation.module';
 import { QueuesModule } from 'src/shared/queues/queues.module';
 import { PendenciesModule } from './pendencies/pendencies.module';
 import { DocumentsModule } from './documents/documents.module';
-import { DocumentsKeyModule } from './documents-key/documents-key.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [
@@ -50,14 +48,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
       SurgeryRequestTemplate,
       ReportSection,
       User,
-      StatusUpdate,
       Patient,
       Hospital,
       HealthPlan,
       DoctorHeader,
     ]),
     UsersModule,
-    ChatsModule,
     ActivitiesModule,
     MailModule,
     PdfModule,
@@ -65,9 +61,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
     QueuesModule,
     PendenciesModule,
     DocumentsModule,
-    DocumentsKeyModule,
     WhatsappModule,
     NotificationsModule,
+    BillingModule,
   ],
   controllers: [SurgeryRequestsController],
   providers: [

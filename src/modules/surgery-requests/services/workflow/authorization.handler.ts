@@ -10,7 +10,10 @@ import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
-import { Contestation } from 'src/database/entities/contestation.entity';
+import {
+  Contestation,
+  ContestationTypeEnum,
+} from 'src/database/entities/contestation.entity';
 import {
   SurgeryRequestActivity,
   ActivityType,
@@ -70,18 +73,18 @@ export class AuthorizationHandler {
 
         await contestRepo.update(
           {
-            surgery_request_id: id,
-            type: 'authorization',
-            resolved_at: null,
+            surgeryRequestId: id,
+            type: ContestationTypeEnum.AUTHORIZATION,
+            resolvedAt: null,
           },
-          { resolved_at: new Date() },
+          { resolvedAt: new Date() },
         );
 
         await repo.update(
           { id },
           {
             status: SurgeryRequestStatus.IN_SCHEDULING,
-            date_options: dto.date_options,
+            dateOptions: dto.dateOptions,
           },
         );
         await this.surgeryRequestRepository.recordStatusChange(
@@ -138,9 +141,9 @@ export class AuthorizationHandler {
     }
 
     await this.contestationRepository.create({
-      surgery_request_id: id,
-      created_by_id: userId,
-      type: 'authorization',
+      surgeryRequestId: id,
+      createdById: userId,
+      type: ContestationTypeEnum.AUTHORIZATION,
       reason: dto.reason,
     });
 
@@ -158,8 +161,8 @@ export class AuthorizationHandler {
     // ── Registrar atividade de contestação ────────────────────────────────
     const activityRepo = this.dataSource.getRepository(SurgeryRequestActivity);
     await activityRepo.save({
-      surgery_request_id: id,
-      user_id: userId,
+      surgeryRequestId: id,
+      userId: userId,
       type: ActivityType.SYSTEM,
       content: 'Autorização contestada.',
     });
@@ -235,8 +238,8 @@ export class AuthorizationHandler {
         SurgeryRequestActivity,
       );
       await activityRepo.save({
-        surgery_request_id: id,
-        user_id: null,
+        surgeryRequestId: id,
+        userId: null,
         type: ActivityType.PDF_GENERATED,
         content: JSON.stringify({
           description: 'PDF de contestação de autorização gerado',

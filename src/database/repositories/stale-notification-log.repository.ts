@@ -15,7 +15,7 @@ export class StaleNotificationLogRepository {
     staleDays: number,
   ): Promise<boolean> {
     const count = await this.repository.count({
-      where: { surgery_request_id: surgeryRequestId, stale_days: staleDays },
+      where: { surgeryRequestId, staleDays },
     });
     return count > 0;
   }
@@ -26,13 +26,13 @@ export class StaleNotificationLogRepository {
     channel: string,
   ): Promise<StaleNotificationLog> {
     return this.repository.save({
-      surgery_request_id: surgeryRequestId,
-      stale_days: staleDays,
+      surgeryRequestId,
+      staleDays,
       channel,
     });
   }
 
   async deleteByRequest(surgeryRequestId: string): Promise<void> {
-    await this.repository.delete({ surgery_request_id: surgeryRequestId });
+    await this.repository.delete({ surgeryRequestId });
   }
 }

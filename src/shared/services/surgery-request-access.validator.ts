@@ -32,7 +32,7 @@ export class SurgeryRequestAccessValidator {
 
     const where =
       doctorIds.length > 0
-        ? { id: surgeryRequestId, doctor_id: In(doctorIds) }
+        ? { id: surgeryRequestId, doctorId: In(doctorIds) }
         : { id: surgeryRequestId };
 
     const request = await this.surgeryRequestRepository.findOneSimple(where);

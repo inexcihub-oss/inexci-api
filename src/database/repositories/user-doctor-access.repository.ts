@@ -15,7 +15,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
   findActiveByUserId(userId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
       where: {
-        user_id: userId,
+        userId,
         status: UserDoctorAccessStatus.ACTIVE,
       },
       relations: ['doctor'],
@@ -25,21 +25,11 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
   findActiveByDoctorUserId(doctorUserId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
       where: {
-        doctor_user_id: doctorUserId,
+        doctorUserId,
         status: UserDoctorAccessStatus.ACTIVE,
       },
       relations: ['user'],
     });
-  }
-
-  findByAccountId(accountId: string): Promise<UserDoctorAccess[]> {
-    return this.repository
-      .createQueryBuilder('uda')
-      .innerJoin('user', 'u', 'u.id = uda.user_id')
-      .where('u.account_id = :accountId', { accountId })
-      .leftJoinAndSelect('uda.user', 'user')
-      .leftJoinAndSelect('uda.doctor', 'doctor')
-      .getMany();
   }
 
   findByUserAndDoctor(
@@ -47,7 +37,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     doctorUserId: string,
   ): Promise<UserDoctorAccess | null> {
     return this.repository.findOne({
-      where: { user_id: userId, doctor_user_id: doctorUserId },
+      where: { userId, doctorUserId },
     });
   }
 
@@ -64,15 +54,15 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
 
     if (existing) {
       existing.status = data.status;
-      existing.created_by_id = data.createdById;
+      existing.createdById = data.createdById;
       return this.repository.save(existing);
     }
 
     const access = this.repository.create({
-      user_id: data.userId,
-      doctor_user_id: data.doctorUserId,
+      userId: data.userId,
+      doctorUserId: data.doctorUserId,
       status: data.status,
-      created_by_id: data.createdById,
+      createdById: data.createdById,
     });
     return this.repository.save(access);
   }
@@ -90,7 +80,7 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
 
   findAllByUserId(userId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
-      where: { user_id: userId },
+      where: { userId },
       relations: ['doctor'],
     });
   }

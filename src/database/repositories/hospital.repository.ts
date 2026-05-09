@@ -22,9 +22,12 @@ export class HospitalRepository extends BaseRepository<Hospital> {
     });
   }
 
-  findByDoctorId(doctorId: string): Promise<Hospital[]> {
+  /**
+   * Lista hospitais cadastrados pela clínica (ownerId).
+   */
+  findByOwnerId(ownerId: string): Promise<Hospital[]> {
     return this.repository.find({
-      where: { doctor_id: doctorId },
+      where: { ownerId },
       order: { name: 'ASC' },
     });
   }

@@ -53,14 +53,18 @@ export class HospitalsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar hospital' })
-  update(@Param('id') id: string, @Body() data: UpdateHospitalDto) {
-    return this.hospitalsService.update(id, data);
+  update(
+    @Param('id') id: string,
+    @Body() data: UpdateHospitalDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.hospitalsService.update(id, data, user.userId);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Excluir hospital (soft delete)' })
-  delete(@Param('id') id: string) {
-    return this.hospitalsService.delete(id);
+  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.hospitalsService.delete(id, user.userId);
   }
 }

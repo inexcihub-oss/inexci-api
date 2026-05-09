@@ -15,14 +15,14 @@ export class UserNotificationSettingsRepository extends BaseRepository<UserNotif
   }
 
   async findByUserId(userId: string): Promise<UserNotificationSettings | null> {
-    return await this.repository.findOne({ where: { user_id: userId } });
+    return await this.repository.findOne({ where: { userId } });
   }
 
   async update(
     userId: string,
     data: Partial<UserNotificationSettings>,
   ): Promise<UserNotificationSettings> {
-    await this.repository.update({ user_id: userId }, data);
+    await this.repository.update({ userId }, data);
     return await this.findByUserId(userId);
   }
 
@@ -34,7 +34,7 @@ export class UserNotificationSettingsRepository extends BaseRepository<UserNotif
     if (existing) {
       return await this.update(userId, data);
     } else {
-      return await this.create({ ...data, user_id: userId });
+      return await this.create({ ...data, userId });
     }
   }
 }

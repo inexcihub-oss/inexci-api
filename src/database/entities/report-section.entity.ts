@@ -13,7 +13,7 @@ import { SurgeryRequest } from './surgery-request.entity';
  * Representa uma seção dinâmica de laudo médico.
  * Substitui os campos fixos `conduta` e `historicoEDiagnostico`.
  */
-@Entity('report_section')
+@Entity('reportSections')
 export class ReportSection {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -29,18 +29,18 @@ export class ReportSection {
   @Column({ type: 'int', default: 0 })
   order: number;
 
-  @Column({ name: 'surgery_request_id' })
-  surgery_request_id: string;
+  @Column({ name: 'surgery_request_id', type: 'uuid' })
+  surgeryRequestId: string;
 
-  @ManyToOne(() => SurgeryRequest, (sr) => sr.report_sections, {
+  @ManyToOne(() => SurgeryRequest, (sr) => sr.reportSections, {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'surgery_request_id' })
-  surgery_request: SurgeryRequest;
+  surgeryRequest: SurgeryRequest;
 
   @CreateDateColumn({ name: 'created_at' })
-  created_at: Date;
+  createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
-  updated_at: Date;
+  updatedAt: Date;
 }

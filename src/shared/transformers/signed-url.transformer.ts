@@ -30,17 +30,17 @@ export function transformDocumentUrls(
 }
 
 /**
- * Transforma a `signature_url` do médico substituindo o path interno
+ * Transforma a `signatureUrl` do médico substituindo o path interno
  * por uma URL assinada do Supabase, quando necessário.
  */
 export async function transformDoctorSignatureUrl(
   doctor: any,
   storageService: StorageService,
 ): Promise<any> {
-  // A assinatura fica em doctor.doctor_profile.signature_url (path bruto).
-  // Promove para doctor.signature_url como signed URL para uso no frontend.
+  // A assinatura fica em doctor.doctorProfile.signatureUrl (path bruto).
+  // Promove para doctor.signatureUrl como signed URL para uso no frontend.
   const rawSignature: string | undefined =
-    doctor?.doctor_profile?.signature_url || doctor?.signature_url;
+    doctor?.doctorProfile?.signatureUrl || doctor?.signatureUrl;
 
   if (!rawSignature) {
     // Mesmo sem assinatura, resolve o logo do cabeçalho se houver
@@ -50,12 +50,12 @@ export async function transformDoctorSignatureUrl(
   let transformed: any;
   if (rawSignature.startsWith('http')) {
     // Já é uma URL HTTP — apenas garante que está no campo top-level
-    transformed = { ...doctor, signature_url: rawSignature };
+    transformed = { ...doctor, signatureUrl: rawSignature };
   } else {
     try {
       transformed = {
         ...doctor,
-        signature_url: await storageService.getSignedUrl(rawSignature),
+        signatureUrl: await storageService.getSignedUrl(rawSignature),
       };
     } catch {
       logger.warn(
@@ -76,18 +76,18 @@ async function resolveHeaderLogoUrl(
   doctor: any,
   storageService: StorageService,
 ): Promise<any> {
-  const header = doctor?.doctor_profile?.header;
-  if (!header?.logo_url || header.logo_url.startsWith('http')) {
+  const header = doctor?.doctorProfile?.header;
+  if (!header?.logoUrl || header.logoUrl.startsWith('http')) {
     return doctor;
   }
 
   try {
-    const signedLogoUrl = await storageService.getSignedUrl(header.logo_url);
+    const signedLogoUrl = await storageService.getSignedUrl(header.logoUrl);
     return {
       ...doctor,
-      doctor_profile: {
-        ...doctor.doctor_profile,
-        header: { ...header, logo_url: signedLogoUrl },
+      doctorProfile: {
+        ...doctor.doctorProfile,
+        header: { ...header, logoUrl: signedLogoUrl },
       },
     };
   } catch {

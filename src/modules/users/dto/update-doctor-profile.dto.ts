@@ -7,7 +7,7 @@ export class UpdateDoctorProfileDto {
 
   @IsString()
   @IsOptional()
-  crm_state?: string;
+  crmState?: string;
 
   @IsString()
   @IsOptional()

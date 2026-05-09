@@ -6,7 +6,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('ai_token_usage_log')
+@Entity('ai_token_usage_logs')
 @Index('idx_ai_token_usage_message_sid', ['messageSid'])
 @Index('idx_ai_token_usage_conversation_created_at', [
   'conversationId',
@@ -14,6 +14,7 @@ import {
 ])
 @Index('idx_ai_token_usage_user_created_at', ['userId', 'createdAt'])
 @Index('idx_ai_token_usage_created_at', ['createdAt'])
+@Index('idx_ai_token_usage_owner', ['ownerId'])
 export class AiTokenUsageLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -21,8 +22,12 @@ export class AiTokenUsageLog {
   @Column({ name: 'message_sid', type: 'varchar', length: 64 })
   messageSid: string;
 
-  @Column({ type: 'varchar', length: 20 })
-  phone: string;
+  /**
+   * Hash HMAC do telefone (via `hashPhone`). Não é PII e permite agrupar
+   * uso por usuário sem armazenar identificador clínico em claro.
+   */
+  @Column({ name: 'phone_hash', type: 'varchar', length: 64 })
+  phoneHash: string;
 
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
@@ -30,8 +35,8 @@ export class AiTokenUsageLog {
   @Column({ name: 'conversation_id', type: 'uuid', nullable: true })
   conversationId: string | null;
 
-  @Column({ name: 'account_id', type: 'uuid', nullable: true })
-  accountId: string | null;
+  @Column({ name: 'owner_id', type: 'uuid', nullable: true })
+  ownerId: string | null;
 
   @Column({ name: 'prompt_tokens', type: 'int', default: 0 })
   promptTokens: number;

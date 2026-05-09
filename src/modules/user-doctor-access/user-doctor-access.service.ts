@@ -38,10 +38,10 @@ export class UserDoctorAccessService {
     return admin;
   }
 
-  private async validateUserInAccount(userId: string, accountId: string) {
+  private async validateUserInAccount(userId: string, ownerId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    if (user.account_id !== accountId) {
+    if (user.ownerId !== ownerId) {
       throw new ForbiddenException(
         'O usuário não pertence à mesma conta do admin',
       );
@@ -49,11 +49,8 @@ export class UserDoctorAccessService {
     return user;
   }
 
-  private async validateDoctorUser(doctorUserId: string, accountId: string) {
-    const doctorUser = await this.validateUserInAccount(
-      doctorUserId,
-      accountId,
-    );
+  private async validateDoctorUser(doctorUserId: string, ownerId: string) {
+    const doctorUser = await this.validateUserInAccount(doctorUserId, ownerId);
     const hasProfile =
       await this.doctorProfileRepository.existsByUserId(doctorUserId);
     if (!hasProfile) {
@@ -70,23 +67,10 @@ export class UserDoctorAccessService {
    */
   async getAccessForUser(userId: string, adminId: string) {
     const admin = await this.validateAdmin(adminId);
-    await this.validateUserInAccount(userId, admin.account_id);
+    await this.validateUserInAccount(userId, admin.ownerId);
 
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(userId);
-    return { records: accesses };
-  }
-
-  /**
-   * GET /user-doctor-access/all
-   * Todos os vínculos da conta, agrupados por collaborator.
-   */
-  async getAccessList(adminId: string) {
-    const admin = await this.validateAdmin(adminId);
-
-    const accesses = await this.userDoctorAccessRepository.findByAccountId(
-      admin.account_id,
-    );
     return { records: accesses };
   }
 
@@ -96,11 +80,11 @@ export class UserDoctorAccessService {
    */
   async setAccess(userId: string, doctorUserIds: string[], adminId: string) {
     const admin = await this.validateAdmin(adminId);
-    await this.validateUserInAccount(userId, admin.account_id);
+    await this.validateUserInAccount(userId, admin.ownerId);
 
     // Validar todos os doctorUserIds
     for (const doctorId of doctorUserIds) {
-      await this.validateDoctorUser(doctorId, admin.account_id);
+      await this.validateDoctorUser(doctorId, admin.ownerId);
     }
 
     return executeInTransaction(
@@ -112,10 +96,10 @@ export class UserDoctorAccessService {
 
         // Desativar vínculos que não estão na nova lista
         for (const access of existing) {
-          if (!doctorUserIds.includes(access.doctor_user_id)) {
+          if (!doctorUserIds.includes(access.doctorUserId)) {
             await this.userDoctorAccessRepository.deactivate(
               userId,
-              access.doctor_user_id,
+              access.doctorUserId,
             );
           }
         }
@@ -137,40 +121,5 @@ export class UserDoctorAccessService {
       },
       { logger: this.logger, operationName: 'setAccess' },
     );
-  }
-
-  /**
-   * POST /user-doctor-access
-   * Adiciona/ativa vínculo individual.
-   */
-  async addAccess(userId: string, doctorUserId: string, adminId: string) {
-    const admin = await this.validateAdmin(adminId);
-    await this.validateUserInAccount(userId, admin.account_id);
-    await this.validateDoctorUser(doctorUserId, admin.account_id);
-
-    const result = await this.userDoctorAccessRepository.upsert({
-      userId: userId,
-      doctorUserId: doctorUserId,
-      status: UserDoctorAccessStatus.ACTIVE,
-      createdById: adminId,
-    });
-
-    return result;
-  }
-
-  /**
-   * PATCH /user-doctor-access/:userId/:doctorUserId/deactivate
-   * Desativa vínculo individual (soft-delete).
-   */
-  async deactivateAccess(
-    userId: string,
-    doctorUserId: string,
-    adminId: string,
-  ) {
-    const admin = await this.validateAdmin(adminId);
-    await this.validateUserInAccount(userId, admin.account_id);
-
-    await this.userDoctorAccessRepository.deactivate(userId, doctorUserId);
-    return { message: 'Vínculo desativado com sucesso' };
   }
 }

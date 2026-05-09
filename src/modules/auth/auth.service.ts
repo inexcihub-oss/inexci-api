@@ -11,10 +11,10 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
-import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { HttpMessages } from 'src/common';
 import { MailService } from 'src/shared/mail/mail.service';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
@@ -28,6 +28,7 @@ import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
+import { SubscriptionService } from '../billing/services/subscription.service';
 
 @Injectable()
 export class AuthService {
@@ -37,13 +38,13 @@ export class AuthService {
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly mailService: MailService,
+    private readonly whatsappService: WhatsappService,
     private readonly jwtService: JwtService,
-    @InjectRepository(SubscriptionPlan)
-    private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
     private readonly configService: ConfigService,
     private readonly consentService: ConsentService,
+    private readonly subscriptionService: SubscriptionService,
   ) {}
 
   /** Email verification token expiry: 24 hours */
@@ -58,9 +59,9 @@ export class AuthService {
   private async createRefreshToken(userId: string): Promise<string> {
     const token = uuidv4();
     await this.refreshTokenRepo.save({
-      user_id: userId,
+      userId: userId,
       token,
-      expires_at: new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY_MS),
+      expiresAt: new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY_MS),
     });
     return token;
   }
@@ -81,7 +82,7 @@ export class AuthService {
         );
       }
 
-      if (!user.email_verified) {
+      if (!user.emailVerified) {
         throw new HttpException(
           'Confirme seu e-mail antes de fazer login. Verifique sua caixa de entrada.',
           HttpStatus.FORBIDDEN,
@@ -113,28 +114,15 @@ export class AuthService {
       );
     }
 
-    // Buscar plano selecionado ou usar Básico como padrão
-    let selectedPlan = null;
-    if (data.subscription_plan_id) {
-      selectedPlan = await this.subscriptionPlanRepo.findOne({
-        where: { id: data.subscription_plan_id, is_active: true },
-      });
-    }
-    if (!selectedPlan) {
-      selectedPlan = await this.subscriptionPlanRepo.findOne({
-        where: { name: 'Básico', is_active: true },
-      });
-    }
-
     // Hash da senha
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    const isDoctor = data.is_doctor || false;
+    const isDoctor = data.isDoctor || false;
 
-    // Gera o UUID antes para usar como id E account_id (self-referência)
+    // Gera o UUID antes para usar como id E ownerId (self-referência)
     const userId = uuidv4();
 
-    // Cria o usuário como Admin com account_id = self.id na mesma operação
+    // Cria o usuário como Admin com ownerId = self.id na mesma operação
     const user = await this.userRepository.create({
       id: userId,
       name: data.name,
@@ -143,17 +131,30 @@ export class AuthService {
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
       phone: data.phone ? data.phone.replace(/\D/g, '') : null,
-      account_id: userId, // self-referência — mesmo ID
-      subscription_plan_id: selectedPlan?.id || null,
+      ownerId: userId, // self-referência — mesmo ID
     } as Partial<User>);
 
-    // Se é médico, criar doctor_profile
+    // Cria automaticamente uma assinatura TRIALING de 30 dias, ancorada no
+    // plano escolhido pelo usuário no cadastro (ou no plano default se não
+    // foi informado). Trial não exige cartão.
+    try {
+      await this.subscriptionService.createTrialSubscription(
+        user.id,
+        data.planSlug,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Falha ao criar trial para userId=${user.id}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+
+    // Se é médico, criar doctorProfile
     let doctorProfile = null;
     if (isDoctor) {
       doctorProfile = await this.doctorProfileRepository.create({
-        user_id: user.id,
+        userId: user.id,
         crm: data.crm || '',
-        crm_state: data.crm_state || '',
+        crmState: data.crmState || '',
         specialty: data.specialty || null,
       });
     }
@@ -161,7 +162,17 @@ export class AuthService {
     // Envia e-mail de confirmação (não bloqueia caso falhe)
     void this.dispatchEmailVerification(user.id, user.name, user.email);
 
-    // Retorna dados do usuário e tokens
+    // Envia WhatsApp de boas-vindas (não bloqueia caso falhe)
+    if (user.phone) {
+      void this.whatsappService
+        .sendUserWelcome(user.phone, user.name)
+        .catch((err) => {
+          this.logger.warn(
+            `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${err?.message ?? err}`,
+          );
+        });
+    }
+
     const refreshToken = await this.createRefreshToken(user.id);
 
     return {
@@ -173,21 +184,21 @@ export class AuthService {
         email: user.email,
         cpf: user.cpf,
         status: user.status,
-        account_id: user.account_id,
-        is_doctor: !!doctorProfile,
-        email_verified: user.email_verified ?? false,
-        doctor_profile: doctorProfile
+        ownerId: user.ownerId,
+        isDoctor: !!doctorProfile,
+        emailVerified: user.emailVerified ?? false,
+        doctorProfile: doctorProfile
           ? {
               id: doctorProfile.id,
               crm: doctorProfile.crm,
-              crm_state: doctorProfile.crm_state,
+              crmState: doctorProfile.crmState,
               specialty: doctorProfile.specialty,
-              signature_url: doctorProfile.signature_url,
-              clinic_name: doctorProfile.clinic_name,
+              signatureUrl: doctorProfile.signatureUrl,
+              clinicName: doctorProfile.clinicName,
             }
           : null,
-        createdAt: user.created_at?.toISOString() || new Date().toISOString(),
-        updatedAt: user.updated_at?.toISOString() || new Date().toISOString(),
+        createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
+        updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       },
       access_token: this.jwtService.sign({ userId: user.id }),
       refresh_token: refreshToken,
@@ -198,18 +209,19 @@ export class AuthService {
     const result = await this.validateUser(user.email, user.password);
 
     if (result) {
-      // Buscar doctor_profile para o response
+      // Buscar doctorProfile para o response
       const doctorProfile = await this.doctorProfileRepository.findByUserId(
         result.id,
       );
-      // Buscar user com account_id
+      // Buscar user com ownerId
       const fullUser = await this.userRepository.findOne({ id: result.id });
 
       const refreshToken = await this.createRefreshToken(result.id);
 
       let pendingConsents: string[] = [];
       try {
-        pendingConsents = await this.consentService.getPending(result.id);
+        const status = await this.consentService.getStatus(result.id);
+        pendingConsents = status.pendingRequired;
       } catch {
         // Não bloqueia login se a verificação de consentimento falhar
       }
@@ -223,23 +235,23 @@ export class AuthService {
           email: result.email,
           cpf: result.cpf,
           status: result.status,
-          account_id: fullUser?.account_id,
-          is_doctor: !!doctorProfile,
-          email_verified: fullUser?.email_verified ?? false,
-          doctor_profile: doctorProfile
+          ownerId: fullUser?.ownerId,
+          isDoctor: !!doctorProfile,
+          emailVerified: fullUser?.emailVerified ?? false,
+          doctorProfile: doctorProfile
             ? {
                 id: doctorProfile.id,
                 crm: doctorProfile.crm,
-                crm_state: doctorProfile.crm_state,
+                crmState: doctorProfile.crmState,
                 specialty: doctorProfile.specialty,
-                signature_url: doctorProfile.signature_url,
-                clinic_name: doctorProfile.clinic_name,
+                signatureUrl: doctorProfile.signatureUrl,
+                clinicName: doctorProfile.clinicName,
               }
             : null,
           createdAt:
-            result.created_at?.toISOString() || new Date().toISOString(),
+            result.createdAt?.toISOString() || new Date().toISOString(),
           updatedAt:
-            result.updated_at?.toISOString() || new Date().toISOString(),
+            result.updatedAt?.toISOString() || new Date().toISOString(),
         },
         access_token: this.jwtService.sign({ userId: result.id }),
         refresh_token: refreshToken,
@@ -250,7 +262,7 @@ export class AuthService {
 
   async me(userId: string) {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
-    const doctorProfile = user?.doctor_profile || null;
+    const doctorProfile = user?.doctorProfile || null;
 
     return {
       id: user.id,
@@ -258,18 +270,18 @@ export class AuthService {
       name: user.name,
       phone: user.phone,
       email: user.email,
-      account_id: user.account_id,
-      avatar_url: user.avatar_url ?? null,
-      is_doctor: !!doctorProfile,
-      email_verified: user.email_verified ?? false,
-      doctor_profile: doctorProfile
+      ownerId: user.ownerId,
+      avatarUrl: user.avatarUrl ?? null,
+      isDoctor: !!doctorProfile,
+      emailVerified: user.emailVerified ?? false,
+      doctorProfile: doctorProfile
         ? {
             id: doctorProfile.id,
             crm: doctorProfile.crm,
-            crm_state: doctorProfile.crm_state,
+            crmState: doctorProfile.crmState,
             specialty: doctorProfile.specialty,
-            signature_url: doctorProfile.signature_url,
-            clinic_name: doctorProfile.clinic_name,
+            signatureUrl: doctorProfile.signatureUrl,
+            clinicName: doctorProfile.clinicName,
           }
         : null,
     };
@@ -282,17 +294,17 @@ export class AuthService {
 
     // Remove any existing unused recovery codes for this user
     await this.recoveryCodeRepository.deleteMany({
-      user_id: user.id,
+      userId: user.id,
       used: false,
     });
 
     const validationCode = generateValidationCode();
 
     await this.recoveryCodeRepository.create({
-      user_id: user.id,
+      userId: user.id,
       used: false,
       code: validationCode,
-      expires_at: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
     });
 
     void this.mailService.sendPasswordRecovery(user.email, {
@@ -312,8 +324,8 @@ export class AuthService {
     if (!validationCode) throw new NotFoundException('Código inválido');
 
     if (
-      validationCode.expires_at &&
-      new Date() > new Date(validationCode.expires_at)
+      validationCode.expiresAt &&
+      new Date() > new Date(validationCode.expiresAt)
     ) {
       throw new BadRequestException('Código expirado');
     }
@@ -333,7 +345,7 @@ export class AuthService {
 
     // Verify that a recovery code was recently validated for this user
     const validatedCode = await this.recoveryCodeRepository.findOne({
-      user_id: user.id,
+      userId: user.id,
       used: true,
     });
 
@@ -354,18 +366,9 @@ export class AuthService {
     await this.userRepository.update(user.id, updatePayload);
 
     // Invalidate all recovery codes for this user after successful password change
-    await this.recoveryCodeRepository.deleteMany({ user_id: user.id });
+    await this.recoveryCodeRepository.deleteMany({ userId: user.id });
 
     return { message: 'Senha alterada com sucesso' };
-  }
-
-  async getAvailablePlans() {
-    const plans = await this.subscriptionPlanRepo.find({
-      where: { is_active: true },
-      order: { max_doctors: 'ASC' },
-      select: ['id', 'name', 'description', 'max_doctors'],
-    });
-    return plans;
   }
 
   async changePasswordAuthenticated(
@@ -406,7 +409,7 @@ export class AuthService {
       throw new BadRequestException('Refresh token inválido');
     }
 
-    if (new Date() > new Date(storedToken.expires_at)) {
+    if (new Date() > new Date(storedToken.expiresAt)) {
       // Revoke expired token
       await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
       throw new BadRequestException('Refresh token expirado');
@@ -416,10 +419,10 @@ export class AuthService {
     await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
 
     // Issue new tokens
-    const newRefreshToken = await this.createRefreshToken(storedToken.user_id);
+    const newRefreshToken = await this.createRefreshToken(storedToken.userId);
 
     return {
-      access_token: this.jwtService.sign({ userId: storedToken.user_id }),
+      access_token: this.jwtService.sign({ userId: storedToken.userId }),
       refresh_token: newRefreshToken,
     };
   }
@@ -429,7 +432,7 @@ export class AuthService {
    */
   async revokeRefreshTokens(userId: string) {
     await this.refreshTokenRepo.update(
-      { user_id: userId, revoked: false },
+      { userId: userId, revoked: false },
       { revoked: true },
     );
   }
@@ -450,8 +453,8 @@ export class AuthService {
       );
 
       await this.userRepository.update(userId, {
-        email_verification_token: token,
-        email_verification_expires_at: expiresAt,
+        emailVerificationToken: token,
+        emailVerificationExpiresAt: expiresAt,
       });
 
       const dashboardUrl =
@@ -479,7 +482,7 @@ export class AuthService {
     }
 
     const user = await this.userRepository.findOne({
-      email_verification_token: token,
+      emailVerificationToken: token,
     });
 
     if (!user) {
@@ -489,7 +492,7 @@ export class AuthService {
     }
 
     // Se o usuário já está verificado mas o token ainda está na coluna (clique duplo / StrictMode)
-    if (user.email_verified) {
+    if (user.emailVerified) {
       return {
         message: 'E-mail confirmado com sucesso',
         email: user.email,
@@ -497,8 +500,8 @@ export class AuthService {
     }
 
     if (
-      user.email_verification_expires_at &&
-      new Date() > new Date(user.email_verification_expires_at)
+      user.emailVerificationExpiresAt &&
+      new Date() > new Date(user.emailVerificationExpiresAt)
     ) {
       throw new BadRequestException(
         'O link de confirmação expirou. Solicite um novo e-mail.',
@@ -507,10 +510,10 @@ export class AuthService {
 
     const now = new Date();
     await this.userRepository.update(user.id, {
-      email_verified: true,
-      email_verified_at: now,
-      email_verification_token: null,
-      email_verification_expires_at: null,
+      emailVerified: true,
+      emailVerifiedAt: now,
+      emailVerificationToken: null,
+      emailVerificationExpiresAt: null,
     });
 
     return {
@@ -529,7 +532,7 @@ export class AuthService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (user.email_verified) {
+    if (user.emailVerified) {
       throw new BadRequestException('Este e-mail já está confirmado');
     }
 

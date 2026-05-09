@@ -24,7 +24,7 @@ export class UserRepository extends BaseRepository<User> {
   ) {
     return await this.repository.findOne({
       where,
-      relations: ['doctor_profile'],
+      relations: ['doctorProfile'],
       select: {
         id: true,
         role: true,
@@ -34,28 +34,24 @@ export class UserRepository extends BaseRepository<User> {
         phone: true,
         cpf: true,
         gender: true,
-        birth_date: true,
-        avatar_url: true,
-        email_verified: true,
-        email_verified_at: true,
+        birthDate: true,
+        avatarUrl: true,
+        emailVerified: true,
+        emailVerifiedAt: true,
         password: selectPassword,
-        account_id: true,
-        subscription_plan_id: true,
-        admin_id: true,
+        ownerId: true,
+        adminId: true,
         cep: true,
         address: true,
-        address_number: true,
-        address_complement: true,
+        addressNumber: true,
+        addressComplement: true,
         city: true,
         state: true,
-        privacy_policy_consent_at: true,
-        privacy_policy_consent_version: true,
-        terms_of_use_consent_at: true,
-        terms_of_use_consent_version: true,
-        ai_consent_at: true,
-        ai_consent_version: true,
-        created_at: true,
-        updated_at: true,
+        privacyPolicyAcceptedAt: true,
+        termsOfUseAcceptedAt: true,
+        aiConsentAcceptedAt: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -65,7 +61,7 @@ export class UserRepository extends BaseRepository<User> {
   ) {
     return await this.repository.findOne({
       where,
-      relations: ['doctor_profile', 'subscription_plan'],
+      relations: ['doctorProfile'],
       select: {
         id: true,
         role: true,
@@ -75,13 +71,12 @@ export class UserRepository extends BaseRepository<User> {
         phone: true,
         cpf: true,
         gender: true,
-        birth_date: true,
-        avatar_url: true,
-        account_id: true,
-        subscription_plan_id: true,
-        admin_id: true,
-        created_at: true,
-        updated_at: true,
+        birthDate: true,
+        avatarUrl: true,
+        ownerId: true,
+        adminId: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -95,7 +90,7 @@ export class UserRepository extends BaseRepository<User> {
       where,
       skip,
       take,
-      relations: ['doctor_profile'],
+      relations: ['doctorProfile'],
       select: {
         id: true,
         role: true,
@@ -105,46 +100,37 @@ export class UserRepository extends BaseRepository<User> {
         phone: true,
         cpf: true,
         gender: true,
-        birth_date: true,
-        avatar_url: true,
-        account_id: true,
-        subscription_plan_id: true,
-        admin_id: true,
-        created_at: true,
-        updated_at: true,
+        birthDate: true,
+        avatarUrl: true,
+        ownerId: true,
+        adminId: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
 
-  async findByAccountId(
-    accountId: string,
+  async findByOwnerId(
+    ownerId: string,
     skip?: number,
     take?: number,
   ): Promise<User[]> {
     return await this.repository.find({
-      where: { account_id: accountId },
+      where: { ownerId },
       skip,
       take,
-      relations: ['doctor_profile'],
+      relations: ['doctorProfile'],
       order: { name: 'ASC' },
     });
   }
 
-  async findDoctorsByAccountId(accountId: string): Promise<User[]> {
+  async findDoctorsByOwnerId(ownerId: string): Promise<User[]> {
     return await this.repository
       .createQueryBuilder('user')
-      .innerJoinAndSelect('user.doctor_profile', 'dp')
-      .where('user.account_id = :accountId', { accountId })
+      .innerJoinAndSelect('user.doctorProfile', 'dp')
+      .where('user.ownerId = :ownerId', { ownerId })
       .orderBy('user.name', 'ASC')
       .getMany();
-  }
-
-  async countDoctorsByAccountId(accountId: string): Promise<number> {
-    return await this.repository
-      .createQueryBuilder('user')
-      .innerJoin('doctor_profile', 'dp', 'dp.user_id = user.id')
-      .where('user.account_id = :accountId', { accountId })
-      .getCount();
   }
 
   async create(data: Partial<User>) {

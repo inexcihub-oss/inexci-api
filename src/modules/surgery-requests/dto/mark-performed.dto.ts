@@ -6,5 +6,5 @@ import { IsDateString } from 'class-validator';
  */
 export class MarkPerformedDto {
   @IsDateString()
-  surgery_performed_at: string;
+  surgeryPerformedAt: string;
 }

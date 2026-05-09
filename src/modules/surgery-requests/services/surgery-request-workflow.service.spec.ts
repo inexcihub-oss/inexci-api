@@ -8,6 +8,7 @@ import { SurgeryRequestBillingService } from './surgery-request-billing.service'
 import { SurgeryRequestNotificationService } from './surgery-request-notification.service';
 import { SurgeryRequestPdfAssemblyService } from './surgery-request-pdf-assembly.service';
 import { SendAnalysisHandler } from './workflow/send-analysis.handler';
+import { QuotaService } from 'src/modules/billing/services/quota.service';
 import { AuthorizationHandler } from './workflow/authorization.handler';
 import { SchedulingHandler } from './workflow/scheduling.handler';
 import { ExecutionHandler } from './workflow/execution.handler';
@@ -30,17 +31,17 @@ function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
   return {
     id: 'req-1',
     status: SurgeryRequestStatus.PENDING,
-    doctor_id: 'doctor-1',
-    created_by_id: 'user-1',
-    patient_id: 'patient-1',
-    hospital_id: 'hospital-1',
-    health_plan_id: 'hp-1',
-    created_by: { id: 'user-1', name: 'Dr. Test' },
+    doctorId: 'doctor-1',
+    createdById: 'user-1',
+    patientId: 'patient-1',
+    hospitalId: 'hospital-1',
+    healthPlanId: 'hp-1',
+    createdBy: { id: 'user-1', name: 'Dr. Test' },
     patient: { id: 'patient-1', name: 'Paciente Test' },
     hospital: { id: 'hospital-1', name: 'Hospital Test' },
-    health_plan: { id: 'hp-1', name: 'Plano Test' },
-    tuss_items: [{ id: 't1', tuss_code: '123', name: 'Proc', quantity: 1 }],
-    opme_items: [],
+    healthPlan: { id: 'hp-1', name: 'Plano Test' },
+    tussItems: [{ id: 't1', tussCode: '123', name: 'Proc', quantity: 1 }],
+    opmeItems: [],
     documents: [],
     analysis: null,
     billing: null,
@@ -180,6 +181,21 @@ describe('SurgeryRequestWorkflowService', () => {
           provide: StorageService,
           useValue: { getSignedUrl: jest.fn(), delete: jest.fn() },
         },
+        {
+          provide: QuotaService,
+          useValue: {
+            consumeSurgeryRequest: jest.fn().mockResolvedValue({
+              used: 1,
+              limit: 30,
+              isUnlimited: false,
+              remaining: 29,
+              periodStart: new Date(),
+              periodEnd: new Date(Date.now() + 30 * 86400000),
+            }),
+            assertCanSendSurgeryRequest: jest.fn().mockResolvedValue(undefined),
+            getQuotaSnapshot: jest.fn().mockResolvedValue(null),
+          },
+        },
       ],
     }).compile();
 
@@ -280,7 +296,7 @@ describe('SurgeryRequestWorkflowService', () => {
       await expect(
         service.startAnalysis(
           'req-1',
-          { request_number: '123', received_at: new Date().toISOString() },
+          { requestNumber: '123', receivedAt: new Date().toISOString() },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -294,7 +310,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
       await service.startAnalysis(
         'req-1',
-        { request_number: 'REQ-001', received_at: '2026-01-15T00:00:00Z' },
+        { requestNumber: 'REQ-001', receivedAt: '2026-01-15T00:00:00Z' },
         'user-1',
       );
 
@@ -315,7 +331,7 @@ describe('SurgeryRequestWorkflowService', () => {
       await expect(
         service.acceptAuthorization(
           'req-1',
-          { date_options: ['2026-03-01'] },
+          { dateOptions: ['2026-03-01'] },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -329,7 +345,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
       await service.acceptAuthorization(
         'req-1',
-        { date_options: ['2026-03-01', '2026-03-05'] },
+        { dateOptions: ['2026-03-01', '2026-03-05'] },
         'user-1',
       );
 
@@ -374,7 +390,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
       expect(contestationRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          surgery_request_id: 'req-1',
+          surgeryRequestId: 'req-1',
           type: 'authorization',
           reason: 'Negado pelo plano',
         }),
@@ -394,38 +410,34 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       await expect(
-        service.confirmDate('req-1', { selected_date_index: 0 }, 'user-1'),
+        service.confirmDate('req-1', { selectedDateIndex: 0 }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should throw when date index is invalid', async () => {
       const request = makeRequest({
         status: SurgeryRequestStatus.IN_SCHEDULING,
-        date_options: ['2026-03-01'],
+        dateOptions: ['2026-03-01'],
       });
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );
 
       await expect(
-        service.confirmDate(
-          'req-1',
-          { selected_date_index: 2 as any },
-          'user-1',
-        ),
+        service.confirmDate('req-1', { selectedDateIndex: 2 as any }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should succeed with valid date index', async () => {
       const request = makeRequest({
         status: SurgeryRequestStatus.IN_SCHEDULING,
-        date_options: ['2026-03-01', '2026-03-10'] as any,
+        dateOptions: ['2026-03-01', '2026-03-10'] as any,
       });
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );
 
-      await service.confirmDate('req-1', { selected_date_index: 0 }, 'user-1');
+      await service.confirmDate('req-1', { selectedDateIndex: 0 }, 'user-1');
 
       expect(dataSource.transaction).toHaveBeenCalled();
       expect(notificationService.notifyPatientIfRequested).toHaveBeenCalled();
@@ -443,7 +455,7 @@ describe('SurgeryRequestWorkflowService', () => {
       await expect(
         service.updateDateOptions(
           'req-1',
-          { date_options: ['2026-04-01'] },
+          { dateOptions: ['2026-04-01'] },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -456,12 +468,12 @@ describe('SurgeryRequestWorkflowService', () => {
 
       await service.updateDateOptions(
         'req-1',
-        { date_options: ['2026-04-01', '2026-04-10'] },
+        { dateOptions: ['2026-04-01', '2026-04-10'] },
         'user-1',
       );
 
       expect(surgeryRequestRepository.update).toHaveBeenCalledWith('req-1', {
-        date_options: ['2026-04-01', '2026-04-10'],
+        dateOptions: ['2026-04-01', '2026-04-10'],
       });
     });
   });
@@ -488,7 +500,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
       expect(surgeryRequestRepository.update).toHaveBeenCalledWith(
         'req-1',
-        expect.objectContaining({ surgery_date: expect.any(Date) }),
+        expect.objectContaining({ surgeryDate: expect.any(Date) }),
       );
     });
   });
@@ -507,7 +519,7 @@ describe('SurgeryRequestWorkflowService', () => {
       await expect(
         service.markPerformed(
           'req-1',
-          { surgery_performed_at: '2026-03-15T10:00:00Z' },
+          { surgeryPerformedAt: '2026-03-15T10:00:00Z' },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -521,7 +533,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
       await service.markPerformed(
         'req-1',
-        { surgery_performed_at: '2026-03-15T10:00:00Z' },
+        { surgeryPerformedAt: '2026-03-15T10:00:00Z' },
         'user-1',
       );
 
@@ -542,9 +554,9 @@ describe('SurgeryRequestWorkflowService', () => {
   describe('invoiceRequest', () => {
     it('should delegate to billingService', async () => {
       const dto = {
-        invoice_protocol: 'INV-001',
-        invoice_sent_at: '2026-04-01',
-        invoice_value: 5000,
+        invoiceProtocol: 'INV-001',
+        invoiceSentAt: '2026-04-01',
+        invoiceValue: 5000,
       };
 
       await service.invoiceRequest('req-1', dto as any, 'user-1');
@@ -560,8 +572,8 @@ describe('SurgeryRequestWorkflowService', () => {
   describe('confirmReceipt', () => {
     it('should delegate to billingService', async () => {
       const dto = {
-        received_value: 5000,
-        received_at: '2026-04-15',
+        receivedValue: 5000,
+        receivedAt: '2026-04-15',
       };
 
       await service.confirmReceipt('req-1', dto as any, 'user-1');

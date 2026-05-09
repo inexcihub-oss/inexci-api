@@ -4,7 +4,7 @@ import { SurgeryRequestRepository } from '../../../database/repositories/surgery
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
 import { In } from 'typeorm';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
-import { tokenizePii } from '../pii/tool-pii-helpers';
+import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -60,7 +60,8 @@ async function resolveRequestByIdentifier(
   identifierRaw: string,
   context: ToolContext,
 ): Promise<any | null> {
-  const identifier = sanitizeIdentifier(identifierRaw);
+  const detokenized = detokenizeArg(context, identifierRaw);
+  const identifier = sanitizeIdentifier(detokenized ?? identifierRaw);
   if (!identifier) return null;
 
   let request = null;
@@ -77,7 +78,7 @@ async function resolveRequestByIdentifier(
 
   if (!request) {
     const all = await surgeryRequestRepo.findMany(
-      { doctor_id: In(context.accessibleDoctorIds) as any },
+      { doctorId: In(context.accessibleDoctorIds) as any },
       0,
       50,
     );
@@ -135,10 +136,10 @@ export function buildSurgeryRequestTools(
       }
 
       if (!request) {
-        return `Não encontrei uma solicitação com o identificador "${identifier}". Verifique o protocolo ou o nome do paciente.`;
+        return 'Não encontrei essa solicitação. Verifique o número do protocolo ou o nome do paciente e tente novamente.';
       }
 
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 
@@ -156,7 +157,7 @@ export function buildSurgeryRequestTools(
         context,
         TOOL,
         'patient_name',
-        (request as any).patient?.name || request.patient_id,
+        (request as any).patient?.name || request.patientId,
       );
       const hospitalToken = (request as any).hospital?.name
         ? tokenizePii(
@@ -166,15 +167,15 @@ export function buildSurgeryRequestTools(
             (request as any).hospital.name,
           )
         : 'Não definido';
-      const healthPlanToken = (request as any).health_plan?.name
+      const healthPlanToken = (request as any).healthPlan?.name
         ? tokenizePii(
             context,
             TOOL,
             'health_plan_name',
-            (request as any).health_plan.name,
+            (request as any).healthPlan.name,
           )
         : 'Não definido';
-      const surgeryDateRaw = request.surgery_date || request.date_call;
+      const surgeryDateRaw = request.surgeryDate || request.dateCall;
       const surgeryDateToken = surgeryDateRaw
         ? tokenizePii(
             context,
@@ -280,7 +281,7 @@ export function buildSurgeryRequestTools(
         return 'Nenhum médico acessível encontrado.';
       }
 
-      const where: any = { doctor_id: context.accessibleDoctorIds[0] };
+      const where: any = { doctorId: context.accessibleDoctorIds[0] };
       if (statusNum) where.status = statusNum as SurgeryRequestStatus;
 
       const requests = await surgeryRequestRepo.findMany(where, 0, limit);
@@ -319,20 +320,22 @@ export function buildSurgeryRequestTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const rawIdentifier = String(args.surgery_request_id || '');
-      const byId = sanitizeIdentifier(rawIdentifier);
+      const detokenized = detokenizeArg(context, args.surgeryRequestId);
+      const byId = sanitizeIdentifier(
+        detokenized ?? String(args.surgeryRequestId || ''),
+      );
 
       let request = await surgeryRequestRepo.findOne({ id: byId });
       if (!request) {
@@ -348,7 +351,7 @@ export function buildSurgeryRequestTools(
       }
 
       if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 
@@ -357,7 +360,7 @@ export function buildSurgeryRequestTools(
 
       const lines = docs.map(
         (d: any) =>
-          `• ${d.name || d.key || 'Documento'} — ${d.folder || ''} — ${d.created_at ? new Date(d.created_at).toLocaleDateString('pt-BR') : ''}`,
+          `• ${d.name || d.key || 'Documento'} — ${d.folder || ''} — ${d.createdAt ? new Date(d.createdAt).toLocaleDateString('pt-BR') : ''}`,
       );
       return `📄 *Documentos:*\n${lines.join('\n')}`;
     },
@@ -373,20 +376,22 @@ export function buildSurgeryRequestTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const rawIdentifier = String(args.surgery_request_id || '');
-      const byId = sanitizeIdentifier(rawIdentifier);
+      const detokenized = detokenizeArg(context, args.surgeryRequestId);
+      const byId = sanitizeIdentifier(
+        detokenized ?? String(args.surgeryRequestId || ''),
+      );
 
       let request = await surgeryRequestRepo.findOne({ id: byId });
       if (!request) {
@@ -402,11 +407,11 @@ export function buildSurgeryRequestTools(
       }
 
       if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
         return 'Você não tem permissão para acessar essa solicitação.';
       }
 
-      const items = (request as any).opme_items || [];
+      const items = (request as any).opmeItems || [];
       if (!items.length)
         return 'Nenhum item OPME cadastrado para essa solicitação.';
 

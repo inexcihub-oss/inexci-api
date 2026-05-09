@@ -23,16 +23,16 @@ export enum ActivityType {
   PDF_GENERATED = 'pdf_generated',
 }
 
-@Entity('surgery_request_activity')
+@Entity('surgery_request_activities')
 export class SurgeryRequestActivity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'surgery_request_id' })
-  surgery_request_id: string;
+  @Column({ name: 'surgery_request_id', type: 'uuid' })
+  surgeryRequestId: string;
 
-  @Column({ name: 'user_id', nullable: true })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
+  userId: string | null;
 
   @Column({
     type: 'enum',
@@ -44,15 +44,15 @@ export class SurgeryRequestActivity {
   @Column({ type: 'text' })
   content: string;
 
-  @CreateDateColumn()
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
   // Relations
   @ManyToOne(() => SurgeryRequest, (request) => request.activities)
   @JoinColumn({ name: 'surgery_request_id' })
-  surgery_request: SurgeryRequest;
+  surgeryRequest: SurgeryRequest;
 
   @ManyToOne(() => User, { nullable: true, eager: false })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: User | null;
 }

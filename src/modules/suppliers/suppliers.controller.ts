@@ -37,8 +37,8 @@ export class SuppliersController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Buscar fornecedor por ID' })
-  findOne(@Param('id') id: string) {
-    return this.suppliersService.findById(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.suppliersService.findById(id, user.userId);
   }
 
   @Post()
@@ -53,14 +53,18 @@ export class SuppliersController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar fornecedor' })
-  update(@Param('id') id: string, @Body() data: UpdateSupplierDto) {
-    return this.suppliersService.update(id, data);
+  update(
+    @Param('id') id: string,
+    @Body() data: UpdateSupplierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.suppliersService.update(id, data, user.userId);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Excluir fornecedor' })
-  delete(@Param('id') id: string) {
-    return this.suppliersService.delete(id);
+  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.suppliersService.delete(id, user.userId);
   }
 }

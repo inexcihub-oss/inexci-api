@@ -46,14 +46,18 @@ export class PatientsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar paciente' })
-  update(@Param('id') id: string, @Body() data: UpdatePatientDto) {
-    return this.patientsService.update(id, data);
+  update(
+    @Param('id') id: string,
+    @Body() data: UpdatePatientDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patientsService.update(id, data, user.userId);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Excluir paciente' })
-  delete(@Param('id') id: string) {
-    return this.patientsService.delete(id);
+  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.patientsService.delete(id, user.userId);
   }
 }

@@ -39,7 +39,6 @@ function buildConversation(
     phone: '+5511999999999',
     userId: 'user-1',
     accountId: 'acc-1',
-    messagesHistory: [],
     startedAt: new Date(),
     lastMessageAt: new Date(),
     conversationSummary: null,
@@ -196,7 +195,7 @@ describe('ConversationContextService', () => {
       });
 
       expect(result.breakdown.rag_tokens).toBe(0);
-      expect(result.breakdown.total_tokens).toBeLessThanOrEqual(
+      expect(result.breakdown.totalTokens).toBeLessThanOrEqual(
         2200 + estimateTokens(longContent), // último par sempre preservado
       );
     });

@@ -22,7 +22,7 @@ function makeAdmin(overrides = {}) {
   return {
     id: ADMIN_ID,
     role: UserRole.ADMIN,
-    account_id: ACCOUNT_ID,
+    ownerId: ACCOUNT_ID,
     ...overrides,
   };
 }
@@ -31,7 +31,7 @@ function makeUser(overrides = {}) {
   return {
     id: USER_ID,
     role: UserRole.COLLABORATOR,
-    account_id: ACCOUNT_ID,
+    ownerId: ACCOUNT_ID,
     ...overrides,
   };
 }
@@ -52,7 +52,6 @@ describe('UserDoctorAccessService', () => {
 
     userDoctorAccessRepository = {
       findAllByUserId: jest.fn(),
-      findByAccountId: jest.fn(),
       upsert: jest.fn(),
       deactivate: jest.fn(),
     };
@@ -61,7 +60,6 @@ describe('UserDoctorAccessService', () => {
       existsByUserId: jest.fn(),
     };
 
-    // dataSource.transaction executes the callback with a mock manager
     dataSource = {
       transaction: jest.fn().mockImplementation((cb) => cb({})),
     };
@@ -82,13 +80,11 @@ describe('UserDoctorAccessService', () => {
     service = module.get<UserDoctorAccessService>(UserDoctorAccessService);
   });
 
-  // ── validateAdmin ──────────────────────────────────────────────────────────
-
   describe('admin validation', () => {
     it('throws NotFoundException when admin user does not exist', async () => {
       (userRepository.findOne as jest.Mock).mockResolvedValueOnce(null);
 
-      await expect(service.getAccessList(ADMIN_ID)).rejects.toThrow(
+      await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -98,33 +94,11 @@ describe('UserDoctorAccessService', () => {
         makeAdmin({ role: UserRole.COLLABORATOR }),
       );
 
-      await expect(service.getAccessList(ADMIN_ID)).rejects.toThrow(
+      await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
         ForbiddenException,
       );
     });
   });
-
-  // ── getAccessList ──────────────────────────────────────────────────────────
-
-  describe('getAccessList', () => {
-    it('returns all access records for the admin account', async () => {
-      const admin = makeAdmin();
-      const accesses = [{ id: '1' }, { id: '2' }];
-      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(admin);
-      (
-        userDoctorAccessRepository.findByAccountId as jest.Mock
-      ).mockResolvedValueOnce(accesses);
-
-      const result = await service.getAccessList(ADMIN_ID);
-
-      expect(result).toEqual({ records: accesses });
-      expect(userDoctorAccessRepository.findByAccountId).toHaveBeenCalledWith(
-        ACCOUNT_ID,
-      );
-    });
-  });
-
-  // ── getAccessForUser ───────────────────────────────────────────────────────
 
   describe('getAccessForUser', () => {
     it('returns accesses for a user in the same account', async () => {
@@ -149,7 +123,7 @@ describe('UserDoctorAccessService', () => {
 
     it('throws ForbiddenException when user belongs to a different account', async () => {
       const admin = makeAdmin();
-      const foreignUser = makeUser({ account_id: 'other-account' });
+      const foreignUser = makeUser({ ownerId: 'other-account' });
 
       (userRepository.findOne as jest.Mock)
         .mockResolvedValueOnce(admin)
@@ -173,29 +147,26 @@ describe('UserDoctorAccessService', () => {
     });
   });
 
-  // ── setAccess ──────────────────────────────────────────────────────────────
-
   describe('setAccess', () => {
     it('deactivates removed doctors and upserts new ones', async () => {
       const admin = makeAdmin();
       const user = makeUser();
       const doctorUser = makeUser({ id: DOCTOR_ID });
-      const existingAccess = { doctor_user_id: 'old-doctor', id: 'access-1' };
-      const updatedAccesses = [{ id: 'access-2', doctor_user_id: DOCTOR_ID }];
+      const existingAccess = { doctorUserId: 'old-doctor', id: 'access-1' };
+      const updatedAccesses = [{ id: 'access-2', doctorUserId: DOCTOR_ID }];
 
-      // validateAdmin + validateUserInAccount (for userId) + validateDoctorUser (findOne + existsByUserId)
       (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin) // validateAdmin
-        .mockResolvedValueOnce(user) // validateUserInAccount(userId)
-        .mockResolvedValueOnce(doctorUser); // validateUserInAccount(doctorId inside validateDoctorUser)
+        .mockResolvedValueOnce(admin)
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(doctorUser);
 
       (
         doctorProfileRepository.existsByUserId as jest.Mock
       ).mockResolvedValueOnce(true);
 
       (userDoctorAccessRepository.findAllByUserId as jest.Mock)
-        .mockResolvedValueOnce([existingAccess]) // existing accesses inside transaction
-        .mockResolvedValueOnce(updatedAccesses); // final state after transaction
+        .mockResolvedValueOnce([existingAccess])
+        .mockResolvedValueOnce(updatedAccesses);
 
       const result = await service.setAccess(USER_ID, [DOCTOR_ID], ADMIN_ID);
 
@@ -212,7 +183,7 @@ describe('UserDoctorAccessService', () => {
       expect(result).toEqual({ records: updatedAccesses });
     });
 
-    it('throws BadRequestException when a doctorUserId has no doctor_profile', async () => {
+    it('throws BadRequestException when a doctorUserId has no doctorProfile', async () => {
       const admin = makeAdmin();
       const user = makeUser();
       const nonDoctor = makeUser({ id: DOCTOR_ID });
@@ -235,7 +206,7 @@ describe('UserDoctorAccessService', () => {
       const admin = makeAdmin();
       const user = makeUser();
       const doctorUser = makeUser({ id: DOCTOR_ID });
-      const existingAccess = { doctor_user_id: DOCTOR_ID, id: 'access-1' };
+      const existingAccess = { doctorUserId: DOCTOR_ID, id: 'access-1' };
 
       (userRepository.findOne as jest.Mock)
         .mockResolvedValueOnce(admin)
@@ -253,81 +224,6 @@ describe('UserDoctorAccessService', () => {
       await service.setAccess(USER_ID, [DOCTOR_ID], ADMIN_ID);
 
       expect(userDoctorAccessRepository.deactivate).not.toHaveBeenCalled();
-    });
-  });
-
-  // ── addAccess ──────────────────────────────────────────────────────────────
-
-  describe('addAccess', () => {
-    it('upserts a new individual access link', async () => {
-      const admin = makeAdmin();
-      const user = makeUser();
-      const doctorUser = makeUser({ id: DOCTOR_ID });
-      const created = { id: 'new-access' };
-
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
-        .mockResolvedValueOnce(user)
-        .mockResolvedValueOnce(doctorUser);
-
-      (
-        doctorProfileRepository.existsByUserId as jest.Mock
-      ).mockResolvedValueOnce(true);
-      (userDoctorAccessRepository.upsert as jest.Mock).mockResolvedValueOnce(
-        created,
-      );
-
-      const result = await service.addAccess(USER_ID, DOCTOR_ID, ADMIN_ID);
-
-      expect(userDoctorAccessRepository.upsert).toHaveBeenCalledWith({
-        userId: USER_ID,
-        doctorUserId: DOCTOR_ID,
-        status: UserDoctorAccessStatus.ACTIVE,
-        createdById: ADMIN_ID,
-      });
-      expect(result).toBe(created);
-    });
-  });
-
-  // ── deactivateAccess ───────────────────────────────────────────────────────
-
-  describe('deactivateAccess', () => {
-    it('calls deactivate and returns success message', async () => {
-      const admin = makeAdmin();
-      const user = makeUser();
-
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
-        .mockResolvedValueOnce(user);
-
-      (
-        userDoctorAccessRepository.deactivate as jest.Mock
-      ).mockResolvedValueOnce(undefined);
-
-      const result = await service.deactivateAccess(
-        USER_ID,
-        DOCTOR_ID,
-        ADMIN_ID,
-      );
-
-      expect(userDoctorAccessRepository.deactivate).toHaveBeenCalledWith(
-        USER_ID,
-        DOCTOR_ID,
-      );
-      expect(result).toEqual({ message: 'Vínculo desativado com sucesso' });
-    });
-
-    it('throws ForbiddenException when user belongs to a different account', async () => {
-      const admin = makeAdmin();
-      const foreignUser = makeUser({ account_id: 'other-account' });
-
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
-        .mockResolvedValueOnce(foreignUser);
-
-      await expect(
-        service.deactivateAccess(USER_ID, DOCTOR_ID, ADMIN_ID),
-      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

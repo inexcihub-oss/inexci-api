@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { StaleNotificationLogRepository } from 'src/database/repositories/stale-notification-log.repository';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
-import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -33,7 +32,6 @@ export class StaleNotificationService {
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly staleLogRepository: StaleNotificationLogRepository,
     private readonly notificationsService: NotificationsService,
-    private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
     private readonly userRepository: UserRepository,
   ) {}
@@ -75,7 +73,7 @@ export class StaleNotificationService {
   }
 
   private calculateStaleDays(request: SurgeryRequest): number {
-    const lastChanged = request.last_status_changed_at ?? request.created_at;
+    const lastChanged = request.lastStatusChangedAt ?? request.createdAt;
     if (!lastChanged) return 0;
     const now = new Date();
     const diffMs = now.getTime() - new Date(lastChanged).getTime();
@@ -97,19 +95,17 @@ export class StaleNotificationService {
   ): Promise<void> {
     const patientName = request.patient?.name ?? 'Paciente';
     const statusLabel = getStatusLabel(request.status);
-    const _createdById = request.created_by_id;
 
-    // Get recipients
     const recipientIds = await this.getStaleRecipients(request, tier);
     if (!recipientIds.length) return;
 
-    // In-app notification
     const title =
       tier.severity === 'critical'
         ? '⚠️ Solicitação Parada — Ação Imediata'
         : 'Solicitação Parada';
     const message = `A solicitação do paciente ${patientName} está há ${staleDays} dias no status "${statusLabel}"`;
 
+    // Push (in-app + WS) — respeita pushNotifications
     await this.notificationsService.createNotificationForUsers(recipientIds, {
       type: NotificationType.SYSTEM,
       title,
@@ -123,16 +119,8 @@ export class StaleNotificationService {
       },
     });
 
-    // E-mail for recipients with email enabled
-    await this.sendStaleEmails(recipientIds, {
-      patientName,
-      currentStatus: statusLabel,
-      staleDays,
-      severity: tier.severity,
-      dashboardUrl: `/solicitacao/${request.id}`,
-    });
-
-    // WhatsApp for admin (if tier requires)
+    // WhatsApp — quando o tier exige (15+ dias). E-mail não é mais enviado
+    // para usuários do sistema; o único e-mail é o resumo semanal.
     if (tier.notifyWhatsApp) {
       await this.sendStaleWhatsApp(recipientIds, {
         requestProtocol: request.protocol ?? request.id,
@@ -148,11 +136,11 @@ export class StaleNotificationService {
     request: SurgeryRequest,
     tier: StaleTier,
   ): Promise<string[]> {
-    const createdBy = request.created_by;
+    const createdBy = request.createdBy;
     if (!createdBy) return [];
 
-    const allUsersInAccount = await this.userRepository.findByAccountId(
-      createdBy.account_id,
+    const allUsersInAccount = await this.userRepository.findByOwnerId(
+      createdBy.ownerId,
     );
 
     const adminIds = allUsersInAccount
@@ -160,64 +148,23 @@ export class StaleNotificationService {
       .map((u) => u.id);
 
     if (tier.notifyAll) {
-      // All stakeholders: doctor + creator + admins + activity users
       const activityUserIds =
         await this.surgeryRequestRepository.findDistinctActivityUserIds(
           request.id,
         );
       return [
         ...new Set([
-          request.doctor_id,
-          request.created_by_id,
+          request.doctorId,
+          request.createdById,
           ...adminIds,
           ...activityUserIds,
         ]),
       ].filter(Boolean);
     }
 
-    // Responsible + admin
     return [
-      ...new Set([request.doctor_id, request.created_by_id, ...adminIds]),
+      ...new Set([request.doctorId, request.createdById, ...adminIds]),
     ].filter(Boolean);
-  }
-
-  private async sendStaleEmails(
-    recipientIds: string[],
-    context: {
-      patientName: string;
-      currentStatus: string;
-      staleDays: number;
-      severity: string;
-      dashboardUrl: string;
-    },
-  ): Promise<void> {
-    await Promise.all(
-      recipientIds.map(async (uid) => {
-        try {
-          const user = await this.userRepository.findOne({ id: uid });
-          if (!user?.email) return;
-          if (context.severity === 'critical') {
-            await this.mailService.sendStaleCritical(user.email, {
-              patientName: context.patientName,
-              currentStatus: context.currentStatus,
-              staleDays: context.staleDays,
-              dashboardUrl: context.dashboardUrl,
-            });
-          } else {
-            await this.mailService.sendStaleReminder(user.email, {
-              patientName: context.patientName,
-              currentStatus: context.currentStatus,
-              staleDays: context.staleDays,
-              dashboardUrl: context.dashboardUrl,
-            });
-          }
-        } catch (err: any) {
-          this.logger.warn(
-            `Falha ao enviar e-mail stale para ${uid}: ${err?.message}`,
-          );
-        }
-      }),
-    );
   }
 
   private async sendStaleWhatsApp(
@@ -233,7 +180,14 @@ export class StaleNotificationService {
     await Promise.all(
       recipientIds.map(async (uid) => {
         try {
-          const user = await this.userRepository.findOne({ id: uid });
+          const [channels, user] = await Promise.all([
+            this.notificationsService.resolveChannels(
+              uid,
+              NotificationType.SYSTEM,
+            ),
+            this.userRepository.findOne({ id: uid }),
+          ]);
+          if (!channels.whatsapp) return;
           if (!user?.phone) return;
 
           await this.whatsappService.sendTemplate(

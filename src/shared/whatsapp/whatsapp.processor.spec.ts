@@ -72,15 +72,19 @@ describe('WhatsappProcessor', () => {
       const job = createJob('+5511999999999', 'Olá teste');
       await processor.handleSendWhatsapp(job);
 
+      // Telefone vai mascarado no log (LGPD); apenas o sufixo é preservado.
       expect(mockSendLogRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: NotificationChannel.WHATSAPP,
-          to: '+5511999999999',
+          to: expect.stringMatching(/9999$/),
           body: 'Olá teste',
           direction: NotificationDirection.OUTBOUND,
           notificationType: NotificationSendType.FREEFORM,
         }),
       );
+      const created = mockSendLogRepository.create.mock.calls[0][0];
+      expect(created.to).not.toBe('+5511999999999');
+      expect(created.to).toContain('*');
       expect(mockSendLogRepository.save).toHaveBeenCalled();
     });
 
@@ -90,7 +94,7 @@ describe('WhatsappProcessor', () => {
 
       const savedLog = mockSendLogRepository.save.mock.calls[0][0];
       expect(savedLog.status).toBe(NotificationSendStatus.SENT);
-      expect(savedLog.sent_at).toBeInstanceOf(Date);
+      expect(savedLog.sentAt).toBeInstanceOf(Date);
     });
 
     it('deve salvar log no finally mesmo sem Twilio configurado', async () => {
@@ -124,7 +128,7 @@ describe('WhatsappProcessor', () => {
 
       expect(mockSendLogRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          to: '+5511988887777',
+          to: expect.stringMatching(/7777$/),
           body: expect.stringContaining('HXxyz'),
           template: 'HXxyz',
           notificationType: NotificationSendType.TEMPLATE,
@@ -138,7 +142,7 @@ describe('WhatsappProcessor', () => {
 
       const savedLog = mockSendLogRepository.save.mock.calls[0][0];
       expect(savedLog.status).toBe(NotificationSendStatus.SENT);
-      expect(savedLog.sent_at).toBeInstanceOf(Date);
+      expect(savedLog.sentAt).toBeInstanceOf(Date);
     });
 
     it('deve salvar errorMessage null no modo dev (sem falha)', async () => {
@@ -146,16 +150,18 @@ describe('WhatsappProcessor', () => {
       await processor.handleSendWhatsapp(job);
 
       const savedLog = mockSendLogRepository.save.mock.calls[0][0];
-      expect(savedLog.error_message).toBeNull();
+      expect(savedLog.errorMessage).toBeNull();
     });
 
-    it('deve normalizar telefone BR para E.164', async () => {
+    it('deve normalizar telefone BR para E.164 (mascarado no log)', async () => {
       const job = createJob('21987654321', 'Teste E164');
       await processor.handleSendWhatsapp(job);
 
+      // O `to` persistido fica mascarado, mas preserva os 4 últimos dígitos
+      // do número normalizado em E.164 (`+5521987654321`).
       expect(mockSendLogRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          to: '+5521987654321',
+          to: expect.stringMatching(/4321$/),
         }),
       );
     });

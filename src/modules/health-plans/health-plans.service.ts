@@ -1,13 +1,13 @@
 import {
   ConflictException,
-  Logger,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { FindManyHealthPlanDto } from './dto/find-many-health-plan.dto';
 import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
 import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
-import { FindOptionsWhere, In } from 'typeorm';
+import { FindOptionsWhere } from 'typeorm';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
@@ -21,15 +21,9 @@ export class HealthPlansService {
   ) {}
 
   async findAll(query: FindManyHealthPlanDto, userId: string) {
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
-      return { total: 0, records: [] };
-    }
+    const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    const where: FindOptionsWhere<HealthPlan> = {
-      doctor_id: In(doctorIds),
-    };
+    const where: FindOptionsWhere<HealthPlan> = { ownerId };
 
     const [total, records] = await Promise.all([
       this.healthPlanRepository.total(where),
@@ -42,17 +36,19 @@ export class HealthPlansService {
     return { total, records };
   }
 
+  async findOne(id: string, userId: string): Promise<HealthPlan> {
+    const healthPlan = await this.healthPlanRepository.findOne({ id });
+    if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
+    await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
+    return healthPlan;
+  }
+
   async create(data: CreateHealthPlanDto, userId: string): Promise<HealthPlan> {
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
-      throw new NotFoundException('Nenhum médico acessível');
-    }
-    const doctorId = doctorIds.includes(userId) ? userId : doctorIds[0];
+    const ownerId = await this.accessControlService.getOwnerId(userId);
 
     const existing = await this.healthPlanRepository.findOne({
       name: data.name,
-      doctor_id: doctorId,
+      ownerId,
     });
     if (existing) {
       throw new ConflictException(
@@ -62,7 +58,7 @@ export class HealthPlansService {
 
     const healthPlan = await this.healthPlanRepository.create({
       ...data,
-      doctor_id: doctorId,
+      ownerId,
       active: true,
     });
     this.logger.log(
@@ -71,16 +67,22 @@ export class HealthPlansService {
     return healthPlan;
   }
 
-  async update(id: string, data: UpdateHealthPlanDto): Promise<HealthPlan> {
+  async update(
+    id: string,
+    data: UpdateHealthPlanDto,
+    userId: string,
+  ): Promise<HealthPlan> {
     const healthPlan = await this.healthPlanRepository.findOne({ id });
     if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
+    await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
     this.logger.log(`Convênio atualizado: id=${id}`);
     return this.healthPlanRepository.update(id, data);
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, userId: string): Promise<void> {
     const healthPlan = await this.healthPlanRepository.findOne({ id });
     if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
+    await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
     await this.healthPlanRepository.delete(id);
     this.logger.log(`Convênio soft-deleted: id=${id}`);
   }

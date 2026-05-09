@@ -1,14 +1,25 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
 import { User, UserRole } from '../../database/entities/user.entity';
 
 /**
- * AccessControlService — centraliza toda a lógica de acesso baseada em doctor_id.
+ * AccessControlService — centraliza toda a lógica de tenant isolation e
+ * controle de acesso baseado em médico.
  *
- * Substitui os 4+ getDoctorId() diferentes que existiam nos services.
- * Todo service que filtra por doctor_id deve usar este service.
+ * Regras gerais:
+ * - Toda informação no sistema é particionada por `ownerId` (clínica/conta).
+ * - Admin enxerga apenas dados do próprio `ownerId`.
+ * - Médico enxerga as próprias solicitações + as dos médicos vinculados via
+ *   `user_doctor_access`.
+ * - Colaborador (sem doctorProfile) só enxerga dados dos médicos vinculados.
+ *
+ * Todo service que filtra por `doctorId`/`ownerId` deve usar este service.
  */
 @Injectable()
 export class AccessControlService {
@@ -21,77 +32,67 @@ export class AccessControlService {
   /**
    * Retorna os IDs de médicos cujos dados o usuário pode ver.
    *
-   * - Admin: todos os médicos da conta
+   * - Admin: todos os médicos da própria clínica (mesmo ownerId)
    * - Médico: ele mesmo + médicos vinculados via user_doctor_access
-   * - Collaborator: apenas médicos vinculados via user_doctor_access
+   * - Colaborador: apenas médicos vinculados via user_doctor_access
    *
-   * Usado por: SurgeryRequests, Patients, Hospitals, HealthPlans, Suppliers, Reports, Documents
+   * Usado por: SurgeryRequests, Patients, Reports, Documents.
    */
   async getAccessibleDoctorIds(userId: string): Promise<string[]> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
 
     if (user.role === UserRole.ADMIN) {
-      // Admin vê todos os médicos da conta
-      const doctors = await this.userRepository.findDoctorsByAccountId(
-        user.account_id,
+      const doctors = await this.userRepository.findDoctorsByOwnerId(
+        user.ownerId,
       );
       return doctors.map((d) => d.id);
     }
 
     const ids: string[] = [];
 
-    // Se é médico, acessa as próprias solicitações
-    if (user.doctor_profile) {
+    if (user.doctorProfile) {
       ids.push(user.id);
     }
 
-    // Vínculos ativos
     const accesses =
       await this.userDoctorAccessRepository.findActiveByUserId(userId);
-    ids.push(...accesses.map((a) => a.doctor_user_id));
+    ids.push(...accesses.map((a) => a.doctorUserId));
 
-    // Deduplica
     return [...new Set(ids)];
   }
 
   /**
    * Retorna os médicos disponíveis para criação de solicitação.
    *
-   * - Admin: todos os médicos da conta (com dados completos)
-   * - Outros: mesmo que getAccessibleDoctorIds, mas retorna User[] com doctor_profile
+   * - Admin: todos os médicos da clínica (com dados completos)
+   * - Outros: mesmo que getAccessibleDoctorIds, mas retorna User[] com doctorProfile
    */
   async getAvailableDoctorsForCreation(userId: string): Promise<User[]> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
 
     if (user.role === UserRole.ADMIN) {
-      return this.userRepository.findDoctorsByAccountId(user.account_id);
+      return this.userRepository.findDoctorsByOwnerId(user.ownerId);
     }
 
     const doctors: User[] = [];
 
-    // Se é médico, inclui ele mesmo
-    if (user.doctor_profile) {
+    if (user.doctorProfile) {
       doctors.push(user);
     }
 
-    // Vínculos ativos — buscar os médicos completos
     const accesses =
       await this.userDoctorAccessRepository.findActiveByUserId(userId);
     for (const access of accesses) {
-      if (access.doctor) {
-        // Já carregado pela relation
-        const doctorUser = await this.userRepository.findOneWithProfile({
-          id: access.doctor_user_id,
-        });
-        if (doctorUser) {
-          doctors.push(doctorUser);
-        }
+      const doctorUser = await this.userRepository.findOneWithProfile({
+        id: access.doctorUserId,
+      });
+      if (doctorUser) {
+        doctors.push(doctorUser);
       }
     }
 
-    // Deduplica por ID
     const seen = new Set<string>();
     return doctors.filter((d) => {
       if (seen.has(d.id)) return false;
@@ -101,7 +102,7 @@ export class AccessControlService {
   }
 
   /**
-   * Verifica se o userId pode acessar uma entidade com o doctor_id fornecido.
+   * Verifica se o userId pode acessar uma entidade com o doctorId fornecido.
    * Usado para validação pontual (ex: findOne de uma solicitação específica).
    */
   async canAccessDoctor(userId: string, doctorId: string): Promise<boolean> {
@@ -110,11 +111,53 @@ export class AccessControlService {
   }
 
   /**
-   * Retorna o account_id do usuário (para queries de isolamento).
+   * Retorna o ownerId da clínica do usuário (raiz do tenant).
+   * Para Admins, ownerId === self.id.
+   * Para colaboradores e médicos, ownerId é o id do Admin que criou a conta.
+   */
+  async getOwnerId(userId: string): Promise<string> {
+    const user = await this.userRepository.findOne({ id: userId });
+    if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
+    return user.ownerId;
+  }
+
+  /**
+   * Garante que o usuário pertence à clínica do `ownerId` informado.
+   * Lança ForbiddenException caso contrário.
+   */
+  async assertSameOwner(userId: string, ownerId: string): Promise<void> {
+    const user = await this.userRepository.findOne({ id: userId });
+    if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
+    if (user.ownerId !== ownerId) {
+      throw new ForbiddenException(
+        'Acesso negado: recurso pertence a outra clínica.',
+      );
+    }
+  }
+
+  /**
+   * Resolve o médico padrão para uma operação de criação que exige doctorId
+   * (ex: criar paciente, template, default document).
+   *
+   * - Se o usuário é médico, retorna o próprio id.
+   * - Caso contrário, retorna o primeiro médico acessível.
+   * - Lança ForbiddenException se não houver nenhum.
+   */
+  async resolveDefaultDoctorId(userId: string): Promise<string> {
+    const accessibleIds = await this.getAccessibleDoctorIds(userId);
+    if (accessibleIds.includes(userId)) return userId;
+    if (accessibleIds.length === 0) {
+      throw new ForbiddenException(
+        'Nenhum médico acessível para esta operação.',
+      );
+    }
+    return accessibleIds[0];
+  }
+
+  /**
+   * @deprecated use `getOwnerId` em vez de `getAccountId`.
    */
   async getAccountId(userId: string): Promise<string> {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new Error(`User ${userId} not found`);
-    return user.account_id;
+    return this.getOwnerId(userId);
   }
 }

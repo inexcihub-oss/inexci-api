@@ -6,11 +6,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorator/is-public.decorator';
-import {
-  CURRENT_CONSENT_VERSIONS,
-  REQUIRED_CONSENTS,
-  isConsentVersionValid,
-} from '../../config/consent.config';
 
 export const SKIP_CONSENT_CHECK_KEY = 'skipConsentCheck';
 
@@ -35,24 +30,8 @@ export class ConsentsGuard implements CanActivate {
     if (!user) return true;
 
     const missing: string[] = [];
-
-    for (const type of REQUIRED_CONSENTS) {
-      const currentVersion = CURRENT_CONSENT_VERSIONS[type];
-      let acceptedVersion: string | null = null;
-
-      switch (type) {
-        case 'privacy_policy':
-          acceptedVersion = user.privacy_policy_consent_version;
-          break;
-        case 'terms_of_use':
-          acceptedVersion = user.terms_of_use_consent_version;
-          break;
-      }
-
-      if (!isConsentVersionValid(acceptedVersion, currentVersion)) {
-        missing.push(type);
-      }
-    }
+    if (!user.privacyPolicyAcceptedAt) missing.push('privacy_policy');
+    if (!user.termsOfUseAcceptedAt) missing.push('terms_of_use');
 
     if (missing.length > 0) {
       throw new ForbiddenException({

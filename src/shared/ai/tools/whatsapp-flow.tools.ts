@@ -208,11 +208,12 @@ async function getAuthorizedRequest(
     return { ok: false, message: 'Acesso negado.', request: null };
   }
 
-  const identifier = sanitizeIdentifier(surgeryRequestId);
+  const detokenized = detokenizeArg(context, surgeryRequestId as any);
+  const identifier = sanitizeIdentifier(detokenized ?? surgeryRequestId);
   if (!identifier) {
     return {
       ok: false,
-      message: 'Parâmetro inválido: informe `surgery_request_id` válido.',
+      message: 'Parâmetro inválido: informe `surgeryRequestId` válido.',
       request: null,
     };
   }
@@ -237,7 +238,7 @@ async function getAuthorizedRequest(
     };
   }
 
-  if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
+  if (!context.accessibleDoctorIds.includes(request.doctorId)) {
     return {
       ok: false,
       message: 'Você não tem permissão para acessar essa solicitação.',
@@ -278,11 +279,11 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            selected_date_index: {
+            selectedDateIndex: {
               type: 'number',
               description: 'Índice da data selecionada: 0, 1 ou 2',
             },
@@ -292,21 +293,21 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'selected_date_index'],
+          required: ['surgeryRequestId', 'selectedDateIndex'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
 
-      const index = args.selected_date_index;
+      const index = args.selectedDateIndex;
       if (!Number.isInteger(index) || ![0, 1, 2].includes(index)) {
-        return 'Parâmetro inválido: `selected_date_index` deve ser 0, 1 ou 2.';
+        return 'Parâmetro inválido: `selectedDateIndex` deve ser 0, 1 ou 2.';
       }
 
       if (!args.confirm) {
@@ -316,13 +317,13 @@ export function buildWhatsappFlowTools(
       try {
         await workflowService.confirmDate(
           auth.request.id,
-          { selected_date_index: index },
+          { selectedDateIndex: index },
           context.userId as string,
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Data confirmada pela opção #${index + 1}.`,
         });
@@ -345,11 +346,11 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            date_options: {
+            dateOptions: {
               type: 'array',
               description: 'Lista de datas (ISO) com 1 a 3 opções',
               items: { type: 'string' },
@@ -360,29 +361,29 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'date_options'],
+          required: ['surgeryRequestId', 'dateOptions'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
 
-      if (!Array.isArray(args.date_options)) {
-        return 'Parâmetro inválido: `date_options` deve ser um array de datas.';
+      if (!Array.isArray(args.dateOptions)) {
+        return 'Parâmetro inválido: `dateOptions` deve ser um array de datas.';
       }
 
-      if (args.date_options.length < 1 || args.date_options.length > 3) {
-        return 'Parâmetro inválido: `date_options` deve conter entre 1 e 3 datas.';
+      if (args.dateOptions.length < 1 || args.dateOptions.length > 3) {
+        return 'Parâmetro inválido: `dateOptions` deve conter entre 1 e 3 datas.';
       }
 
-      const normalizedDates = args.date_options.map(asValidDateString);
+      const normalizedDates = args.dateOptions.map(asValidDateString);
       if (normalizedDates.some((d) => !d)) {
-        return 'Parâmetro inválido: todas as datas em `date_options` devem estar em formato válido.';
+        return 'Parâmetro inválido: todas as datas em `dateOptions` devem estar em formato válido.';
       }
 
       if (!args.confirm) {
@@ -395,13 +396,13 @@ export function buildWhatsappFlowTools(
       try {
         await workflowService.updateDateOptions(
           auth.request.id,
-          { date_options: normalizedDates as string[] },
+          { dateOptions: normalizedDates as string[] },
           context.userId as string,
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Opções de data atualizadas (${normalizedDates.length} opções).`,
         });
@@ -424,7 +425,7 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
@@ -438,14 +439,14 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'new_date'],
+          required: ['surgeryRequestId', 'new_date'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -467,8 +468,8 @@ export function buildWhatsappFlowTools(
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Cirurgia reagendada para ${newDate}.`,
         });
@@ -491,11 +492,11 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            surgery_performed_at: {
+            surgeryPerformedAt: {
               type: 'string',
               description: 'Data da cirurgia realizada em formato ISO',
             },
@@ -505,21 +506,21 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'surgery_performed_at'],
+          required: ['surgeryRequestId', 'surgeryPerformedAt'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
 
-      const performedAt = asValidDateString(args.surgery_performed_at);
+      const performedAt = asValidDateString(args.surgeryPerformedAt);
       if (!performedAt) {
-        return 'Parâmetro inválido: `surgery_performed_at` deve ser uma data válida.';
+        return 'Parâmetro inválido: `surgeryPerformedAt` deve ser uma data válida.';
       }
 
       if (!args.confirm) {
@@ -529,13 +530,13 @@ export function buildWhatsappFlowTools(
       try {
         await workflowService.markPerformed(
           auth.request.id,
-          { surgery_performed_at: performedAt },
+          { surgeryPerformedAt: performedAt },
           context.userId as string,
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Cirurgia marcada como realizada em ${performedAt}.`,
         });
@@ -558,23 +559,23 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            invoice_protocol: {
+            invoiceProtocol: {
               type: 'string',
               description: 'Protocolo de faturamento',
             },
-            invoice_value: {
+            invoiceValue: {
               type: 'number',
               description: 'Valor faturado',
             },
-            invoice_sent_at: {
+            invoiceSentAt: {
               type: 'string',
               description: 'Data de envio da fatura (ISO)',
             },
-            payment_deadline: {
+            paymentDeadline: {
               type: 'string',
               description: 'Prazo de pagamento (ISO) opcional',
             },
@@ -589,10 +590,10 @@ export function buildWhatsappFlowTools(
             },
           },
           required: [
-            'surgery_request_id',
-            'invoice_protocol',
-            'invoice_value',
-            'invoice_sent_at',
+            'surgeryRequestId',
+            'invoiceProtocol',
+            'invoiceValue',
+            'invoiceSentAt',
           ],
         },
       },
@@ -600,32 +601,32 @@ export function buildWhatsappFlowTools(
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
 
-      const protocol = asNonEmptyString(args.invoice_protocol);
-      const value = asNonNegativeNumber(args.invoice_value);
-      const sentAt = asValidDateString(args.invoice_sent_at);
+      const protocol = asNonEmptyString(args.invoiceProtocol);
+      const value = asNonNegativeNumber(args.invoiceValue);
+      const sentAt = asValidDateString(args.invoiceSentAt);
 
       if (!protocol) {
-        return 'Parâmetro inválido: `invoice_protocol` é obrigatório.';
+        return 'Parâmetro inválido: `invoiceProtocol` é obrigatório.';
       }
       if (value === null) {
-        return 'Parâmetro inválido: `invoice_value` deve ser número maior ou igual a 0.';
+        return 'Parâmetro inválido: `invoiceValue` deve ser número maior ou igual a 0.';
       }
       if (!sentAt) {
-        return 'Parâmetro inválido: `invoice_sent_at` deve ser uma data válida.';
+        return 'Parâmetro inválido: `invoiceSentAt` deve ser uma data válida.';
       }
 
       const paymentDeadline =
-        args.payment_deadline == null
+        args.paymentDeadline == null
           ? undefined
-          : asValidDateString(args.payment_deadline);
+          : asValidDateString(args.paymentDeadline);
 
-      if (args.payment_deadline != null && !paymentDeadline) {
-        return 'Parâmetro inválido: `payment_deadline` deve ser uma data válida.';
+      if (args.paymentDeadline != null && !paymentDeadline) {
+        return 'Parâmetro inválido: `paymentDeadline` deve ser uma data válida.';
       }
 
       if (!args.confirm) {
@@ -639,10 +640,10 @@ export function buildWhatsappFlowTools(
         await workflowService.invoiceRequest(
           auth.request.id,
           {
-            invoice_protocol: protocol,
-            invoice_value: value,
-            invoice_sent_at: sentAt,
-            payment_deadline: paymentDeadline,
+            invoiceProtocol: protocol,
+            invoiceValue: value,
+            invoiceSentAt: sentAt,
+            paymentDeadline: paymentDeadline,
             set_as_default_for_health_plan:
               args.set_as_default_for_health_plan === true,
           },
@@ -650,8 +651,8 @@ export function buildWhatsappFlowTools(
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Faturamento registrado. Protocolo: ${protocol}, valor: ${value.toFixed(2)}.`,
         });
@@ -674,19 +675,19 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            received_value: {
+            receivedValue: {
               type: 'number',
               description: 'Valor recebido',
             },
-            received_at: {
+            receivedAt: {
               type: 'string',
               description: 'Data do recebimento (ISO)',
             },
-            receipt_notes: {
+            receiptNotes: {
               type: 'string',
               description: 'Observações do recebimento (opcional)',
             },
@@ -696,33 +697,30 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'received_value', 'received_at'],
+          required: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
 
-      const value = asNonNegativeNumber(args.received_value);
-      const receivedAt = asValidDateString(args.received_at);
+      const value = asNonNegativeNumber(args.receivedValue);
+      const receivedAt = asValidDateString(args.receivedAt);
 
       if (value === null) {
-        return 'Parâmetro inválido: `received_value` deve ser número maior ou igual a 0.';
+        return 'Parâmetro inválido: `receivedValue` deve ser número maior ou igual a 0.';
       }
       if (!receivedAt) {
-        return 'Parâmetro inválido: `received_at` deve ser uma data válida.';
+        return 'Parâmetro inválido: `receivedAt` deve ser uma data válida.';
       }
 
-      if (
-        args.receipt_notes != null &&
-        typeof args.receipt_notes !== 'string'
-      ) {
-        return 'Parâmetro inválido: `receipt_notes` deve ser texto.';
+      if (args.receiptNotes != null && typeof args.receiptNotes !== 'string') {
+        return 'Parâmetro inválido: `receiptNotes` deve ser texto.';
       }
 
       if (!args.confirm) {
@@ -733,16 +731,16 @@ export function buildWhatsappFlowTools(
         await workflowService.confirmReceipt(
           auth.request.id,
           {
-            received_value: value,
-            received_at: receivedAt,
-            receipt_notes: args.receipt_notes,
+            receivedValue: value,
+            receivedAt: receivedAt,
+            receiptNotes: args.receiptNotes,
           },
           context.userId as string,
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Recebimento confirmado. Valor: ${value.toFixed(2)}, data: ${receivedAt}.`,
         });
@@ -765,7 +763,7 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
@@ -800,14 +798,14 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'reason', 'method'],
+          required: ['surgeryRequestId', 'reason', 'method'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -865,8 +863,8 @@ export function buildWhatsappFlowTools(
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Contestação de autorização registrada por ${method}.`,
         });
@@ -889,7 +887,7 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
@@ -916,14 +914,14 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'to', 'subject', 'message'],
+          required: ['surgeryRequestId', 'to', 'subject', 'message'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -964,8 +962,8 @@ export function buildWhatsappFlowTools(
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Contestação de pagamento registrada para ${to}.`,
         });
@@ -988,15 +986,15 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            received_value: {
+            receivedValue: {
               type: 'number',
               description: 'Novo valor recebido',
             },
-            received_at: {
+            receivedAt: {
               type: 'string',
               description: 'Nova data de recebimento (ISO)',
             },
@@ -1006,26 +1004,26 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgery_request_id', 'received_value', 'received_at'],
+          required: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
 
-      const value = asNonNegativeNumber(args.received_value);
-      const receivedAt = asValidDateString(args.received_at);
+      const value = asNonNegativeNumber(args.receivedValue);
+      const receivedAt = asValidDateString(args.receivedAt);
 
       if (value === null) {
-        return 'Parâmetro inválido: `received_value` deve ser número maior ou igual a 0.';
+        return 'Parâmetro inválido: `receivedValue` deve ser número maior ou igual a 0.';
       }
       if (!receivedAt) {
-        return 'Parâmetro inválido: `received_at` deve ser uma data válida.';
+        return 'Parâmetro inválido: `receivedAt` deve ser uma data válida.';
       }
 
       if (!args.confirm) {
@@ -1036,15 +1034,15 @@ export function buildWhatsappFlowTools(
         await workflowService.updateReceipt(
           auth.request.id,
           {
-            received_value: value,
-            received_at: receivedAt,
+            receivedValue: value,
+            receivedAt: receivedAt,
           },
           context.userId as string,
         );
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Recebimento atualizado. Valor: ${value.toFixed(2)}, data: ${receivedAt}.`,
         });
@@ -1067,7 +1065,7 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: {
+            surgeryRequestId: {
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
@@ -1097,14 +1095,14 @@ export function buildWhatsappFlowTools(
               description: 'Obrigatório para operações de mutação.',
             },
           },
-          required: ['surgery_request_id', 'operation'],
+          required: ['surgeryRequestId', 'operation'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -1196,8 +1194,8 @@ export function buildWhatsappFlowTools(
             );
 
             await activityRepo.create({
-              surgery_request_id: auth.request.id,
-              user_id: context.userId as string,
+              surgeryRequestId: auth.request.id,
+              userId: context.userId as string,
               type: ActivityType.SYSTEM,
               content: `[WhatsApp IA] Seção de laudo criada (${section.id}).`,
             });
@@ -1231,8 +1229,8 @@ export function buildWhatsappFlowTools(
             );
 
             await activityRepo.create({
-              surgery_request_id: auth.request.id,
-              user_id: context.userId as string,
+              surgeryRequestId: auth.request.id,
+              userId: context.userId as string,
               type: ActivityType.SYSTEM,
               content: `[WhatsApp IA] Seção de laudo atualizada (${updated.id}).`,
             });
@@ -1252,8 +1250,8 @@ export function buildWhatsappFlowTools(
             );
 
             await activityRepo.create({
-              surgery_request_id: auth.request.id,
-              user_id: context.userId as string,
+              surgeryRequestId: auth.request.id,
+              userId: context.userId as string,
               type: ActivityType.SYSTEM,
               content: `[WhatsApp IA] Seção de laudo removida (${sectionId}).`,
             });
@@ -1278,8 +1276,8 @@ export function buildWhatsappFlowTools(
             );
 
             await activityRepo.create({
-              surgery_request_id: auth.request.id,
-              user_id: context.userId as string,
+              surgeryRequestId: auth.request.id,
+              userId: context.userId as string,
               type: ActivityType.SYSTEM,
               content: `[WhatsApp IA] Seções de laudo reordenadas (${args.ids.length} itens).`,
             });
@@ -1302,36 +1300,36 @@ export function buildWhatsappFlowTools(
       function: {
         name: 'set_hospital',
         description:
-          'Define ou troca o hospital da solicitação. Aceita `hospital_id` ou `hospital_name`. Requer confirmação explícita.',
+          'Define ou troca o hospital da solicitação. Aceita `hospitalId` ou `hospital_name`. Requer confirmação explícita.',
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: { type: 'string' },
-            hospital_id: { type: 'string' },
+            surgeryRequestId: { type: 'string' },
+            hospitalId: { type: 'string' },
             hospital_name: { type: 'string' },
             hospital_email: { type: 'string' },
             confirm: { type: 'boolean' },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
       if (!hospitalRepo) return 'Ferramenta indisponível no momento.';
 
-      const hospitalId = asNonEmptyString(args.hospital_id);
+      const hospitalId = asNonEmptyString(args.hospitalId);
       const hospitalName = asNonEmptyString(
         detokenizeArg(context, args.hospital_name),
       );
 
       if (!hospitalId && !hospitalName) {
-        return 'Parâmetro inválido: informe `hospital_id` ou `hospital_name`.';
+        return 'Parâmetro inválido: informe `hospitalId` ou `hospital_name`.';
       }
 
       const protocolToken = tokenizePii(
@@ -1355,7 +1353,7 @@ export function buildWhatsappFlowTools(
       } else {
         selectedHospital = await hospitalRepo.findOne({
           name: hospitalName as string,
-          doctor_id: auth.request.doctor_id,
+          doctorId: auth.request.doctorId,
         } as any);
 
         if (!selectedHospital) {
@@ -1364,7 +1362,7 @@ export function buildWhatsappFlowTools(
             email:
               asNonEmptyString(detokenizeArg(context, args.hospital_email)) ||
               undefined,
-            doctor_id: auth.request.doctor_id,
+            doctorId: auth.request.doctorId,
             active: true,
           } as any);
         }
@@ -1375,12 +1373,12 @@ export function buildWhatsappFlowTools(
       }
 
       await surgeryRequestRepo.update(auth.request.id, {
-        hospital_id: selectedHospital.id,
+        hospitalId: selectedHospital.id,
       } as any);
 
       await activityRepo.create({
-        surgery_request_id: auth.request.id,
-        user_id: context.userId as string,
+        surgeryRequestId: auth.request.id,
+        userId: context.userId as string,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Hospital definido para ${selectedHospital.name}.`,
       });
@@ -1406,26 +1404,26 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: { type: 'string' },
-            tuss_code: { type: 'string' },
+            surgeryRequestId: { type: 'string' },
+            tussCode: { type: 'string' },
             name: { type: 'string' },
             quantity: { type: 'number' },
             confirm: { type: 'boolean' },
           },
-          required: ['surgery_request_id', 'tuss_code', 'name'],
+          required: ['surgeryRequestId', 'tussCode', 'name'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
       if (!tussItemRepo) return 'Ferramenta indisponível no momento.';
 
-      const tussCode = asNonEmptyString(args.tuss_code);
+      const tussCode = asNonEmptyString(args.tussCode);
       const name = asNonEmptyString(args.name);
       const quantity =
         typeof args.quantity === 'number' &&
@@ -1435,7 +1433,7 @@ export function buildWhatsappFlowTools(
           : 1;
 
       if (!tussCode || !name) {
-        return 'Parâmetro inválido: informe `tuss_code` e `name`.';
+        return 'Parâmetro inválido: informe `tussCode` e `name`.';
       }
 
       if (!args.confirm) {
@@ -1443,15 +1441,15 @@ export function buildWhatsappFlowTools(
       }
 
       await tussItemRepo.create({
-        surgery_request_id: auth.request.id,
-        tuss_code: tussCode,
+        surgeryRequestId: auth.request.id,
+        tussCode: tussCode,
         name,
         quantity,
       } as any);
 
       await activityRepo.create({
-        surgery_request_id: auth.request.id,
-        user_id: context.userId as string,
+        surgeryRequestId: auth.request.id,
+        userId: context.userId as string,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Item TUSS adicionado: ${tussCode} - ${name} (qtd: ${quantity}).`,
       });
@@ -1471,7 +1469,7 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: { type: 'string' },
+            surgeryRequestId: { type: 'string' },
             name: { type: 'string' },
             quantity: { type: 'number' },
             manufacturer_names: {
@@ -1492,7 +1490,7 @@ export function buildWhatsappFlowTools(
             confirm: { type: 'boolean' },
           },
           required: [
-            'surgery_request_id',
+            'surgeryRequestId',
             'name',
             'manufacturer_names',
             'supplier_names',
@@ -1503,7 +1501,7 @@ export function buildWhatsappFlowTools(
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -1539,7 +1537,7 @@ export function buildWhatsappFlowTools(
       for (const supplierName of supplierNames) {
         const found = await supplierRepo.findMany(
           {
-            doctor_id: auth.request.doctor_id,
+            doctorId: auth.request.doctorId,
             name: supplierName,
           } as any,
           0,
@@ -1552,7 +1550,7 @@ export function buildWhatsappFlowTools(
         }
 
         const createdSupplier = await supplierRepo.create({
-          doctor_id: auth.request.doctor_id,
+          doctorId: auth.request.doctorId,
           name: supplierName,
           active: true,
         } as any);
@@ -1565,7 +1563,7 @@ export function buildWhatsappFlowTools(
         context.userId as string,
       );
       await opmeItemRepo.create({
-        surgery_request_id: auth.request.id,
+        surgeryRequestId: auth.request.id,
         name,
         brand: manufacturerNames.join(', '),
         quantity,
@@ -1573,8 +1571,8 @@ export function buildWhatsappFlowTools(
       } as any);
 
       await activityRepo.create({
-        surgery_request_id: auth.request.id,
-        user_id: context.userId as string,
+        surgeryRequestId: auth.request.id,
+        userId: context.userId as string,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Item OPME adicionado: ${name}, qtd ${quantity}, fabricantes (${manufacturerNames.length}) e fornecedores (${supplierNames.length}).`,
       });
@@ -1594,23 +1592,23 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: { type: 'string' },
+            surgeryRequestId: { type: 'string' },
             diagnosis: { type: 'string' },
-            medical_report: { type: 'string' },
-            patient_history: { type: 'string' },
-            surgery_description: { type: 'string' },
-            cid_id: { type: 'string' },
-            tuss_id: { type: 'string' },
+            medicalReport: { type: 'string' },
+            patientHistory: { type: 'string' },
+            surgeryDescription: { type: 'string' },
+            cidCode: { type: 'string' },
+
             confirm: { type: 'boolean' },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -1620,18 +1618,17 @@ export function buildWhatsappFlowTools(
 
       const SENSITIVE_CLINICAL_FIELDS = new Set([
         'diagnosis',
-        'medical_report',
-        'patient_history',
-        'surgery_description',
+        'medicalReport',
+        'patientHistory',
+        'surgeryDescription',
       ]);
 
       for (const key of [
         'diagnosis',
-        'medical_report',
-        'patient_history',
-        'surgery_description',
-        'cid_id',
-        'tuss_id',
+        'medicalReport',
+        'patientHistory',
+        'surgeryDescription',
+        'cidCode',
       ]) {
         if (args[key] !== undefined) {
           payload[key] = SENSITIVE_CLINICAL_FIELDS.has(key)
@@ -1658,8 +1655,8 @@ export function buildWhatsappFlowTools(
       await surgeryRequestRepo.update(auth.request.id, payload as any);
 
       await activityRepo.create({
-        surgery_request_id: auth.request.id,
-        user_id: context.userId as string,
+        surgeryRequestId: auth.request.id,
+        userId: context.userId as string,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Dados clínicos atualizados: ${changes.join(', ')}.`,
       });
@@ -1685,24 +1682,24 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: { type: 'string' },
-            health_plan_registration: { type: 'string' },
-            health_plan_type: { type: 'string' },
-            health_plan_protocol: { type: 'string' },
+            surgeryRequestId: { type: 'string' },
+            healthPlanRegistration: { type: 'string' },
+            healthPlanType: { type: 'string' },
+            healthPlanProtocol: { type: 'string' },
             priority: { type: 'number' },
             patient_cpf: { type: 'string' },
             patient_phone: { type: 'string' },
             patient_birth_date: { type: 'string' },
             confirm: { type: 'boolean' },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -1711,9 +1708,9 @@ export function buildWhatsappFlowTools(
       const requestChanges: string[] = [];
 
       for (const key of [
-        'health_plan_registration',
-        'health_plan_type',
-        'health_plan_protocol',
+        'healthPlanRegistration',
+        'healthPlanType',
+        'healthPlanProtocol',
         'priority',
       ]) {
         if (args[key] !== undefined) {
@@ -1749,8 +1746,8 @@ export function buildWhatsappFlowTools(
         if (!birthDate) {
           return 'Parâmetro inválido: `patient_birth_date` deve ser uma data válida (YYYY-MM-DD).';
         }
-        patientPayload.birth_date = birthDate;
-        patientChanges.push('birth_date');
+        patientPayload.birthDate = birthDate;
+        patientChanges.push('birthDate');
       }
 
       if (!requestChanges.length && !patientChanges.length) {
@@ -1772,16 +1769,13 @@ export function buildWhatsappFlowTools(
         await surgeryRequestRepo.update(auth.request.id, requestPayload as any);
       }
 
-      if (patientChanges.length && patientRepo && auth.request.patient_id) {
-        await patientRepo.update(
-          auth.request.patient_id,
-          patientPayload as any,
-        );
+      if (patientChanges.length && patientRepo && auth.request.patientId) {
+        await patientRepo.update(auth.request.patientId, patientPayload as any);
       }
 
       await activityRepo.create({
-        surgery_request_id: auth.request.id,
-        user_id: context.userId as string,
+        surgeryRequestId: auth.request.id,
+        userId: context.userId as string,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Dados administrativos atualizados. Solicitação: ${requestChanges.join(', ') || 'nenhum'}. Paciente: ${patientChanges.join(', ') || 'nenhum'}.`,
       });
@@ -1801,25 +1795,25 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            surgery_request_id: { type: 'string' },
+            surgeryRequestId: { type: 'string' },
             document_type: { type: 'string' },
             document_name: { type: 'string' },
             document_key: { type: 'string' },
             media_index: { type: 'number' },
             confirm: { type: 'boolean' },
           },
-          required: ['surgery_request_id'],
+          required: ['surgeryRequestId'],
         },
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
-      if (!args.surgery_request_id) {
-        return 'Para anexar documento, informe `surgery_request_id` ou protocolo da solicitação.';
+      if (!args.surgeryRequestId) {
+        return 'Para anexar documento, informe `surgeryRequestId` ou protocolo da solicitação.';
       }
 
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
-        args.surgery_request_id,
+        args.surgeryRequestId,
         context,
       );
       if (!auth.ok) return auth.message;
@@ -1874,8 +1868,8 @@ export function buildWhatsappFlowTools(
         );
 
         await documentRepo.create({
-          surgery_request_id: auth.request.id,
-          created_by: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          createdBy: context.userId as string,
           type: detectedType,
           key: computedKey,
           name: computedName,
@@ -1883,8 +1877,8 @@ export function buildWhatsappFlowTools(
         } as any);
 
         await activityRepo.create({
-          surgery_request_id: auth.request.id,
-          user_id: context.userId as string,
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Documento anexado via mídia inbound. Tipo: ${detectedType}, chave: ${computedKey}.`,
         });
@@ -1933,8 +1927,8 @@ export function buildWhatsappFlowTools(
           : 20;
 
       const doctorWhere = context.accessibleDoctorIds.length
-        ? ({ doctor_id: In(context.accessibleDoctorIds) } as any)
-        : ({ doctor_id: '__none__' } as any);
+        ? ({ doctorId: In(context.accessibleDoctorIds) } as any)
+        : ({ doctorId: '__none__' } as any);
 
       const [
         patients,
@@ -2003,7 +1997,7 @@ export function buildWhatsappFlowTools(
         const lines = items.slice(0, limit).map((item) => {
           const rawName = item.name || item.title || 'Sem nome';
           if (categoryKey === 'procedures') {
-            const tussCode = asNonEmptyString(item.tuss_code);
+            const tussCode = asNonEmptyString(item.tussCode);
             return tussCode
               ? `  - ${rawName} (Código TUSS: ${tussCode})`
               : `  - ${rawName}`;
@@ -2069,9 +2063,9 @@ export function buildWhatsappFlowTools(
             category: {
               type: 'string',
               description:
-                'Categoria: patient, hospital, health_plan, procedure ou template.',
+                'Categoria: patient, hospital, healthPlan, procedure ou template.',
             },
-            doctor_id: {
+            doctorId: {
               type: 'string',
               description:
                 'ID do médico (opcional quando houver apenas um acessível).',
@@ -2082,7 +2076,7 @@ export function buildWhatsappFlowTools(
               description: 'Telefone (quando aplicável).',
             },
             email: { type: 'string', description: 'Email (quando aplicável).' },
-            template_data: {
+            templateData: {
               type: 'object',
               description: 'Dados do template (apenas para category=template).',
             },
@@ -2107,14 +2101,14 @@ export function buildWhatsappFlowTools(
 
       const hasSingleDoctor = context.accessibleDoctorIds.length === 1;
       const doctorId =
-        asNonEmptyString(args.doctor_id) ||
+        asNonEmptyString(args.doctorId) ||
         (hasSingleDoctor ? context.accessibleDoctorIds[0] : null);
 
       if (
-        ['patient', 'hospital', 'health_plan'].includes(category) &&
+        ['patient', 'hospital', 'healthPlan'].includes(category) &&
         !doctorId
       ) {
-        return 'Para essa categoria, informe `doctor_id` (há mais de um médico acessível).';
+        return 'Para essa categoria, informe `doctorId` (há mais de um médico acessível).';
       }
 
       if (doctorId && !context.accessibleDoctorIds.includes(doctorId)) {
@@ -2135,7 +2129,7 @@ export function buildWhatsappFlowTools(
             return 'Para criar paciente, informe também `phone` e `email`.';
           }
           const created = await patientRepo.create({
-            doctor_id: doctorId,
+            doctorId: doctorId,
             name,
             phone,
             email,
@@ -2149,13 +2143,13 @@ export function buildWhatsappFlowTools(
             return 'Fluxo de hospital indisponível.';
           const existing = await hospitalRepo.findOne({
             name,
-            doctor_id: doctorId,
+            doctorId: doctorId,
           } as any);
           if (existing) {
             return `Hospital já cadastrado: ${existing.name} (id: ${existing.id}).`;
           }
           const created = await hospitalRepo.create({
-            doctor_id: doctorId,
+            doctorId: doctorId,
             name,
             phone: asNonEmptyString(args.phone) || undefined,
             email: asNonEmptyString(args.email) || undefined,
@@ -2164,7 +2158,7 @@ export function buildWhatsappFlowTools(
           return `✅ Hospital criado com sucesso: ${created.name} (id: ${created.id}).`;
         }
 
-        if (category === 'health_plan') {
+        if (category === 'healthPlan') {
           if (!healthPlanRepo || !doctorId)
             return 'Fluxo de convênio indisponível.';
           const phone = asNonEmptyString(args.phone);
@@ -2174,13 +2168,13 @@ export function buildWhatsappFlowTools(
           }
           const existing = await healthPlanRepo.findOne({
             name,
-            doctor_id: doctorId,
+            doctorId: doctorId,
           } as any);
           if (existing) {
             return `Convênio já cadastrado: ${existing.name} (id: ${existing.id}).`;
           }
           const created = await healthPlanRepo.create({
-            doctor_id: doctorId,
+            doctorId: doctorId,
             name,
             phone,
             email,
@@ -2197,20 +2191,20 @@ export function buildWhatsappFlowTools(
 
         if (category === 'template') {
           const templateData =
-            args.template_data && typeof args.template_data === 'object'
-              ? args.template_data
+            args.templateData && typeof args.templateData === 'object'
+              ? args.templateData
               : {};
           const created = await surgeryRequestsService.createTemplate(
             {
               name,
-              template_data: templateData,
+              templateData: templateData,
             },
             context.userId as string,
           );
           return `✅ Modelo criado com sucesso: ${created.name} (id: ${created.id}).`;
         }
 
-        return 'Categoria inválida. Use: patient, hospital, health_plan, procedure ou template.';
+        return 'Categoria inválida. Use: patient, hospital, healthPlan, procedure ou template.';
       } catch (err: any) {
         return `Erro ao criar registro da categoria ${category}: ${err?.message || 'erro desconhecido'}`;
       }
@@ -2228,21 +2222,21 @@ export function buildWhatsappFlowTools(
         parameters: {
           type: 'object',
           properties: {
-            doctor_id: {
+            doctorId: {
               type: 'string',
               description:
                 'ID do médico dono da solicitação (opcional se o usuário tiver apenas um médico acessível).',
             },
-            patient_id: {
+            patientId: {
               type: 'string',
               description: 'ID do paciente já existente (opcional).',
             },
             patient_name: {
               type: 'string',
               description:
-                'Nome do paciente. Obrigatório quando `patient_id` não for informado.',
+                'Nome do paciente. Obrigatório quando `patientId` não for informado.',
             },
-            procedure_id: {
+            procedureId: {
               type: 'string',
               description:
                 'ID do procedimento. Informe este campo ou `procedure_name`.',
@@ -2250,13 +2244,13 @@ export function buildWhatsappFlowTools(
             procedure_name: {
               type: 'string',
               description:
-                'Nome do procedimento para busca no catálogo. Informe este campo ou `procedure_id`.',
+                'Nome do procedimento para busca no catálogo. Informe este campo ou `procedureId`.',
             },
             priority: {
               type: 'number',
               description: 'Prioridade: 1=Baixa, 2=Média, 3=Alta, 4=Urgente.',
             },
-            health_plan_id: {
+            healthPlanId: {
               type: 'string',
               description: 'ID do convênio já existente (opcional).',
             },
@@ -2264,7 +2258,7 @@ export function buildWhatsappFlowTools(
               type: 'string',
               description: 'Nome do convênio para vincular/criar (opcional).',
             },
-            hospital_id: {
+            hospitalId: {
               type: 'string',
               description: 'ID do hospital já existente (opcional).',
             },
@@ -2272,7 +2266,7 @@ export function buildWhatsappFlowTools(
               type: 'string',
               description: 'Nome do hospital para vincular/criar (opcional).',
             },
-            required_documents: {
+            requiredDocuments: {
               type: 'array',
               description: 'Documentos obrigatórios iniciais (opcional).',
               items: {
@@ -2305,16 +2299,16 @@ export function buildWhatsappFlowTools(
 
         for (const key of missingKeys) {
           switch (key) {
-            case 'doctor_id':
-              lines.push('• doctor_id: informe o médico responsável.');
+            case 'doctorId':
+              lines.push('• doctorId: informe o médico responsável.');
               break;
             case 'procedure':
               lines.push(
-                '• procedimento: informe `procedure_id` ou `procedure_name`.',
+                '• procedimento: informe `procedureId` ou `procedure_name`.',
               );
               break;
             case 'patient_id_or_name':
-              lines.push('• paciente: informe `patient_id` ou `patient_name`.');
+              lines.push('• paciente: informe `patientId` ou `patient_name`.');
               break;
           }
         }
@@ -2340,14 +2334,14 @@ export function buildWhatsappFlowTools(
         return 'Fluxo de criação indisponível no momento.';
       }
 
-      const doctorIdRaw = asNonEmptyString(args.doctor_id);
+      const doctorIdRaw = asNonEmptyString(args.doctorId);
       const hasSingleDoctor = context.accessibleDoctorIds.length === 1;
       const doctorId =
         doctorIdRaw ||
         (hasSingleDoctor ? context.accessibleDoctorIds[0] : null);
       if (!doctorId) {
         return buildGuidedMissingDataMessage(
-          ['doctor_id'],
+          ['doctorId'],
           context.accessibleDoctorIds,
         );
       }
@@ -2359,7 +2353,7 @@ export function buildWhatsappFlowTools(
         ? (Number(args.priority) as SurgeryRequestPriority)
         : SurgeryRequestPriority.LOW;
 
-      const procedureIdArg = asNonEmptyString(args.procedure_id);
+      const procedureIdArg = asNonEmptyString(args.procedureId);
       const procedureNameArg = asNonEmptyString(args.procedure_name);
 
       if (!procedureIdArg && !procedureNameArg) {
@@ -2391,18 +2385,18 @@ export function buildWhatsappFlowTools(
       }
 
       if (!procedure) {
-        return 'Procedimento não encontrado. Informe um `procedure_id` válido ou um nome existente no catálogo.';
+        return 'Procedimento não encontrado. Informe um `procedureId` válido ou um nome existente no catálogo.';
       }
 
       let patient = null as any;
-      const patientIdArg = asNonEmptyString(args.patient_id);
+      const patientIdArg = asNonEmptyString(args.patientId);
       if (patientIdArg) {
         patient = await patientRepo.findOne({
           id: patientIdArg,
-          doctor_id: doctorId,
+          doctorId: doctorId,
         } as any);
         if (!patient) {
-          return 'Paciente não encontrado para este médico. Verifique `patient_id`.';
+          return 'Paciente não encontrado para este médico. Verifique `patientId`.';
         }
       }
 
@@ -2414,7 +2408,7 @@ export function buildWhatsappFlowTools(
 
       if (!patient && patientNameArg) {
         const candidates = await patientRepo.findMany(
-          { doctor_id: doctorId } as any,
+          { doctorId: doctorId } as any,
           0,
           200,
         );
@@ -2425,35 +2419,35 @@ export function buildWhatsappFlowTools(
         });
 
         if (!patient) {
-          return 'Paciente não encontrado nos cadastrados do médico. Informe `patient_id` válido ou o nome exato de um paciente existente.';
+          return 'Paciente não encontrado nos cadastrados do médico. Informe `patientId` válido ou o nome exato de um paciente existente.';
         }
       }
 
-      const hospitalIdArg = asNonEmptyString(args.hospital_id);
+      const hospitalIdArg = asNonEmptyString(args.hospitalId);
       const hospitalNameArg = asNonEmptyString(args.hospital_name);
       let hospital = null as any;
       if (hospitalIdArg) {
         if (!hospitalRepo) return 'Fluxo de hospital indisponível no momento.';
         hospital = await hospitalRepo.findOne({
           id: hospitalIdArg,
-          doctor_id: doctorId,
+          doctorId: doctorId,
         } as any);
         if (!hospital) {
-          return 'Hospital não encontrado para este médico. Verifique `hospital_id`.';
+          return 'Hospital não encontrado para este médico. Verifique `hospitalId`.';
         }
       } else if (hospitalNameArg) {
         if (!hospitalRepo) return 'Fluxo de hospital indisponível no momento.';
         hospital = await hospitalRepo.findOne({
           name: hospitalNameArg,
-          doctor_id: doctorId,
+          doctorId: doctorId,
         } as any);
 
         if (!hospital) {
-          return 'Hospital não encontrado para este médico. Informe `hospital_id` ou nome exato de um hospital cadastrado.';
+          return 'Hospital não encontrado para este médico. Informe `hospitalId` ou nome exato de um hospital cadastrado.';
         }
       }
 
-      const healthPlanIdArg = asNonEmptyString(args.health_plan_id);
+      const healthPlanIdArg = asNonEmptyString(args.healthPlanId);
       const healthPlanNameArg = asNonEmptyString(args.health_plan_name);
       let healthPlan = null as any;
       if (healthPlanIdArg) {
@@ -2461,36 +2455,36 @@ export function buildWhatsappFlowTools(
           return 'Fluxo de convênio indisponível no momento.';
         healthPlan = await healthPlanRepo.findOne({
           id: healthPlanIdArg,
-          doctor_id: doctorId,
+          doctorId: doctorId,
         } as any);
         if (!healthPlan) {
-          return 'Convênio não encontrado para este médico. Verifique `health_plan_id`.';
+          return 'Convênio não encontrado para este médico. Verifique `healthPlanId`.';
         }
       } else if (healthPlanNameArg) {
         if (!healthPlanRepo)
           return 'Fluxo de convênio indisponível no momento.';
         healthPlan = await healthPlanRepo.findOne({
           name: healthPlanNameArg,
-          doctor_id: doctorId,
+          doctorId: doctorId,
         } as any);
 
         if (!healthPlan) {
-          return 'Convênio não encontrado para este médico. Informe `health_plan_id` ou nome exato de um convênio cadastrado.';
+          return 'Convênio não encontrado para este médico. Informe `healthPlanId` ou nome exato de um convênio cadastrado.';
         }
       }
 
       let requiredDocuments: Array<{ type: string; name: string }> | undefined;
-      if (args.required_documents !== undefined) {
-        if (!Array.isArray(args.required_documents)) {
-          return 'Parâmetro inválido: `required_documents` deve ser um array.';
+      if (args.requiredDocuments !== undefined) {
+        if (!Array.isArray(args.requiredDocuments)) {
+          return 'Parâmetro inválido: `requiredDocuments` deve ser um array.';
         }
 
         requiredDocuments = [];
-        for (const item of args.required_documents) {
+        for (const item of args.requiredDocuments) {
           const type = asNonEmptyString(item?.type);
           const name = asNonEmptyString(item?.name);
           if (!type || !name) {
-            return 'Parâmetro inválido: cada item de `required_documents` deve conter `type` e `name`.';
+            return 'Parâmetro inválido: cada item de `requiredDocuments` deve conter `type` e `name`.';
           }
           requiredDocuments.push({ type, name });
         }
@@ -2524,34 +2518,34 @@ export function buildWhatsappFlowTools(
       }
 
       if (!patient) {
-        return 'Paciente obrigatório não identificado. Se necessário, cadastre o paciente antes e me informe `patient_id` ou `patient_name` exato.';
+        return 'Paciente obrigatório não identificado. Se necessário, cadastre o paciente antes e me informe `patientId` ou `patient_name` exato.';
       }
 
       if (!hospital && hospitalNameArg) {
-        return 'Hospital informado não foi encontrado. Informe `hospital_id` ou remova o hospital para criar sem esse vínculo.';
+        return 'Hospital informado não foi encontrado. Informe `hospitalId` ou remova o hospital para criar sem esse vínculo.';
       }
 
       if (!healthPlan && healthPlanNameArg) {
-        return 'Convênio informado não foi encontrado. Informe `health_plan_id` ou remova o convênio para criar sem esse vínculo.';
+        return 'Convênio informado não foi encontrado. Informe `healthPlanId` ou remova o convênio para criar sem esse vínculo.';
       }
 
       try {
         const created = await surgeryRequestsService.createSurgeryRequest(
           {
-            doctor_id: doctorId,
-            patient_id: patient.id,
-            procedure_id: procedure.id,
+            doctorId: doctorId,
+            patientId: patient.id,
+            procedureId: procedure.id,
             priority,
-            hospital_id: hospital?.id,
-            health_plan_id: healthPlan?.id,
-            required_documents: requiredDocuments,
+            hospitalId: hospital?.id,
+            healthPlanId: healthPlan?.id,
+            requiredDocuments: requiredDocuments,
           },
           context.userId as string,
         );
 
         await activityRepo.create({
-          surgery_request_id: created.id,
-          user_id: context.userId as string,
+          surgeryRequestId: created.id,
+          userId: context.userId as string,
           type: ActivityType.SYSTEM,
           content:
             '[WhatsApp IA] Solicitação criada via assistente no WhatsApp.',

@@ -15,6 +15,13 @@ import {
   NotificationChannel,
   NotificationSendStatus,
 } from 'src/database/entities/notification-send-log.entity';
+import {
+  truncateForLog,
+  truncateErrorForLog,
+  maskEmail,
+} from 'src/shared/utils';
+import { requestContextStorage } from 'src/shared/logging/request-context';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 @Processor('mail')
@@ -101,6 +108,13 @@ export class MailProcessor implements OnModuleInit {
 
   @Process('send-mail')
   async handleSendMail(job: Job<MailJobData>) {
+    const requestId = job.data.requestId || randomUUID();
+    return requestContextStorage.run({ requestId }, () =>
+      this.processSendMail(job),
+    );
+  }
+
+  private async processSendMail(job: Job<MailJobData>) {
     const {
       template,
       html: rawHtml,
@@ -110,13 +124,15 @@ export class MailProcessor implements OnModuleInit {
       attachments,
     } = job.data;
 
+    const maskedTo = maskEmail(to);
+
     const sendLog = this.sendLogRepository.create({
       channel: NotificationChannel.EMAIL,
       status: NotificationSendStatus.QUEUED,
-      to,
-      subject,
+      to: maskedTo,
+      subject: truncateForLog(subject, 250),
       template: template ?? 'raw_html',
-      job_id: String(job.id),
+      jobId: String(job.id),
       attempts: job.attemptsMade,
     });
 
@@ -149,34 +165,33 @@ export class MailProcessor implements OnModuleInit {
       });
 
       sendLog.status = NotificationSendStatus.SENT;
-      sendLog.sent_at = new Date();
+      sendLog.sentAt = new Date();
       sendLog.attempts = job.attemptsMade + 1;
 
       this.logger.log(
         JSON.stringify({
           event: 'email_sent',
           template: template ?? 'raw_html',
-          to,
-          subject,
+          to: maskedTo,
+          subject: truncateForLog(subject, 120),
           jobId: job.id,
           attemptsMade: job.attemptsMade,
         }),
       );
     } catch (error) {
       sendLog.status = NotificationSendStatus.FAILED;
-      sendLog.error_message =
-        error instanceof Error ? error.message : String(error);
+      sendLog.errorMessage = truncateErrorForLog(error, 500);
       sendLog.attempts = job.attemptsMade + 1;
 
       this.logger.warn(
         JSON.stringify({
           event: 'email_failed',
           template: template ?? 'raw_html',
-          to,
-          subject,
+          to: maskedTo,
+          subject: truncateForLog(subject, 120),
           jobId: job.id,
           attemptsMade: job.attemptsMade,
-          error: error instanceof Error ? error.message : String(error),
+          error: truncateErrorForLog(error, 200),
         }),
       );
     } finally {
@@ -219,11 +234,11 @@ export class MailProcessor implements OnModuleInit {
         JSON.stringify({
           event: 'email_dead_letter',
           template: job.data.template ?? 'raw_html',
-          to: job.data.to,
-          subject: job.data.subject,
+          to: maskEmail(job.data.to),
+          subject: truncateForLog(job.data.subject, 120),
           jobId: job.id,
           attemptsMade: job.attemptsMade,
-          error: error.message,
+          error: truncateForLog(error.message, 200),
         }),
       );
     }

@@ -1,4 +1,4 @@
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
@@ -11,6 +11,7 @@ import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
 import { CustomThrottlerGuard } from './shared/guards/custom-throttler.guard';
 import { ConsentsGuard } from './shared/guards/consents.guard';
+import { LoggingInterceptor } from './shared/logging/logging.interceptor';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { DatabaseModule } from './database/typeorm/database.module';
@@ -24,11 +25,9 @@ import { OpmeModule } from './modules/surgery-requests/opme/opme.module';
 import { ProceduresModule } from './modules/procedures/procedures.module';
 import { PendenciesModule } from './modules/surgery-requests/pendencies/pendencies.module';
 import { DocumentsModule } from './modules/surgery-requests/documents/documents.module';
-import { DocumentsKeyModule } from './modules/surgery-requests/documents-key/documents-key.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
-import { QuotationsModule } from './modules/surgery-requests/quotations/quotations.module';
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CidModule } from './modules/surgery-requests/cid/cid.module';
@@ -47,6 +46,7 @@ import { RagModule } from './shared/rag/rag.module';
 import { PrivacyModule } from './modules/privacy/privacy.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdminModule } from './modules/admin/admin.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -116,9 +116,7 @@ import { AdminModule } from './modules/admin/admin.module';
     SurgeryRequestsModule,
     ProceduresModule,
     PendenciesModule,
-    QuotationsModule,
     DocumentsModule,
-    DocumentsKeyModule,
     SuppliersModule,
     PatientsModule,
     HospitalsModule,
@@ -137,6 +135,7 @@ import { AdminModule } from './modules/admin/admin.module';
     RagModule,
     PrivacyModule,
     AdminModule,
+    BillingModule,
     BullBoardModule.forRoot({
       route: '/admin/queues',
       adapter: ExpressAdapter,
@@ -159,6 +158,10 @@ import { AdminModule } from './modules/admin/admin.module';
   ],
   controllers: [],
   providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

@@ -31,7 +31,7 @@ const mockRequest = {
   id: 'req-1',
   protocol: 'SC-0042',
   status: 1,
-  doctor_id: 'doctor-1',
+  doctorId: 'doctor-1',
 };
 
 describe('ActionTools', () => {
@@ -58,7 +58,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -76,7 +76,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', confirm: true },
+        { surgeryRequestId: 'req-1', confirm: true },
         baseContext,
       );
 
@@ -96,22 +96,22 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', confirm: true },
+        { surgeryRequestId: 'req-1', confirm: true },
         baseContext,
       );
 
       expect(result).toContain('pendências bloqueantes');
     });
 
-    it('deve negar acesso se doctor_id não acessível', async () => {
+    it('deve negar acesso se doctorId não acessível', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
-        doctor_id: 'other-doctor',
+        doctorId: 'other-doctor',
       });
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -135,7 +135,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: '411701', confirm: true },
+        { surgeryRequestId: '411701', confirm: true },
         baseContext,
       );
 
@@ -165,7 +165,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'SC-411701' },
+        { surgeryRequestId: 'SC-411701' },
         baseContext,
       );
 
@@ -179,7 +179,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: '999999', confirm: true },
+        { surgeryRequestId: '999999', confirm: true },
         baseContext,
       );
 
@@ -194,20 +194,20 @@ describe('ActionTools', () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
         ...mockRequest,
         status: 4,
-        selected_date_index: 1,
+        selectedDateIndex: 1,
       });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
       mockWorkflowService.confirmDate.mockResolvedValue(undefined);
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', confirm: true },
+        { surgeryRequestId: 'req-1', confirm: true },
         baseContext,
       );
 
       expect(mockWorkflowService.confirmDate).toHaveBeenCalledWith(
         'req-1',
-        { selected_date_index: 1 },
+        { selectedDateIndex: 1 },
         'user-1',
       );
       expect(result).toContain('Agendada');
@@ -227,7 +227,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', confirm: true },
+        { surgeryRequestId: 'req-1', confirm: true },
         baseContext,
       );
 
@@ -248,11 +248,11 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', confirm: true },
+        { surgeryRequestId: 'req-1', confirm: true },
         baseContext,
       );
 
-      expect(result).toContain('invoice_protocol');
+      expect(result).toContain('invoiceProtocol');
       expect(mockWorkflowService.invoiceRequest).not.toHaveBeenCalled();
     });
 
@@ -264,14 +264,14 @@ describe('ActionTools', () => {
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
         ...mockRequest,
         status: 7,
-        billing: { invoice_value: 1200 },
+        billing: { invoiceValue: 1200 },
       });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
       mockWorkflowService.confirmReceipt.mockResolvedValue(undefined);
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', confirm: true },
+        { surgeryRequestId: 'req-1', confirm: true },
         baseContext,
       );
 
@@ -286,7 +286,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('set_has_opme');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', has_opme: true },
+        { surgeryRequestId: 'req-1', hasOpme: true },
         baseContext,
       );
 
@@ -300,7 +300,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('set_has_opme');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', has_opme: true, confirm: true },
+        { surgeryRequestId: 'req-1', hasOpme: true, confirm: true },
         baseContext,
       );
 
@@ -320,7 +320,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('close_surgery_request');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', reason: 'Paciente desistiu' },
+        { surgeryRequestId: 'req-1', reason: 'Paciente desistiu' },
         baseContext,
       );
 
@@ -335,7 +335,7 @@ describe('ActionTools', () => {
       const tool = getTool('close_surgery_request');
       const result = await tool.execute(
         {
-          surgery_request_id: 'req-1',
+          surgeryRequestId: 'req-1',
           reason: 'Paciente desistiu',
           confirm: true,
         },
@@ -358,7 +358,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('update_surgery_request_data');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', priority: 4 },
+        { surgeryRequestId: 'req-1', priority: 4 },
         baseContext,
       );
 
@@ -373,7 +373,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('update_surgery_request_data');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', priority: 3, confirm: true },
+        { surgeryRequestId: 'req-1', priority: 3, confirm: true },
         baseContext,
       );
 
@@ -390,7 +390,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('update_surgery_request_data');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1', priority: 99, confirm: true },
+        { surgeryRequestId: 'req-1', priority: 99, confirm: true },
         baseContext,
       );
 
@@ -402,7 +402,7 @@ describe('ActionTools', () => {
 
       const tool = getTool('update_surgery_request_data');
       const result = await tool.execute(
-        { surgery_request_id: 'req-1' },
+        { surgeryRequestId: 'req-1' },
         baseContext,
       );
 
@@ -414,12 +414,12 @@ describe('ActionTools', () => {
     it('deve mostrar preview sem confirm', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
-        patient_id: 'pat-1',
+        patientId: 'pat-1',
       });
 
       const tool = getTool('update_patient_data');
       const result = await tool.execute(
-        { surgery_request_id: 'SC-0042', phone: '(11) 99999-9999' },
+        { surgeryRequestId: 'SC-0042', phone: '(11) 99999-9999' },
         baseContext,
       );
 
@@ -430,7 +430,7 @@ describe('ActionTools', () => {
     it('deve atualizar dados do paciente com confirm=true', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
         if (where?.protocol === 'SC-0042') {
-          return { ...mockRequest, patient_id: 'pat-1' };
+          return { ...mockRequest, patientId: 'pat-1' };
         }
         return null;
       });
@@ -439,9 +439,9 @@ describe('ActionTools', () => {
       const tool = getTool('update_patient_data');
       const result = await tool.execute(
         {
-          surgery_request_id: 'SC-0042',
+          surgeryRequestId: 'SC-0042',
           phone: '(11) 99999-9999',
-          zip_code: '01310-100',
+          zipCode: '01310-100',
           confirm: true,
         },
         baseContext,
@@ -449,7 +449,7 @@ describe('ActionTools', () => {
 
       expect(mockPatientRepo.update).toHaveBeenCalledWith('pat-1', {
         phone: '(11) 99999-9999',
-        zip_code: '01310-100',
+        zipCode: '01310-100',
       });
       expect(result).toContain('atualizados com sucesso');
     });

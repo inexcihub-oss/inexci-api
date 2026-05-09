@@ -2,6 +2,8 @@ import { InjectQueue } from '@nestjs/bull';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bull';
 import { WHATSAPP_TEMPLATES } from './whatsapp-templates.constants';
+import { getRequestContext } from '../logging/request-context';
+import { maskPhone } from '../utils';
 
 export interface WhatsappJobData {
   to: string;
@@ -11,6 +13,8 @@ export interface WhatsappJobData {
   contentSid?: string;
   /** Variáveis do template com chaves numéricas: {"1": valor1, "2": valor2} */
   variables?: Record<string, string>;
+  /** Correlation ID propagado para o processor (logging end-to-end). */
+  requestId?: string;
 }
 
 @Injectable()
@@ -27,10 +31,12 @@ export class WhatsappService {
    * Só funciona dentro da janela de 24h de uma conversa iniciada pelo usuário.
    */
   async sendMessage(to: string, body: string): Promise<void> {
+    const requestId = getRequestContext()?.requestId;
+    const masked = maskPhone(to);
     try {
       await this.whatsappQueue.add(
         'send-whatsapp',
-        { to, body } satisfies WhatsappJobData,
+        { to, body, requestId } satisfies WhatsappJobData,
         {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -38,10 +44,10 @@ export class WhatsappService {
           removeOnFail: false,
         },
       );
-      this.logger.log(`Mensagem WhatsApp enfileirada para: ${to}`);
+      this.logger.log(`Mensagem WhatsApp enfileirada para ${masked}`);
     } catch (err: any) {
       this.logger.warn(
-        `Falha ao enfileirar mensagem WhatsApp (Redis offline?): to="${to}" — ${err?.message}`,
+        `Falha ao enfileirar mensagem WhatsApp (Redis offline?): to=${masked} — ${err?.message}`,
       );
     }
   }
@@ -55,10 +61,12 @@ export class WhatsappService {
     contentSid: string,
     variables: Record<string, string>,
   ): Promise<void> {
+    const requestId = getRequestContext()?.requestId;
+    const masked = maskPhone(to);
     try {
       await this.whatsappQueue.add(
         'send-whatsapp',
-        { to, contentSid, variables } satisfies WhatsappJobData,
+        { to, contentSid, variables, requestId } satisfies WhatsappJobData,
         {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -67,11 +75,11 @@ export class WhatsappService {
         },
       );
       this.logger.log(
-        `Template WhatsApp enfileirado para: ${to} (contentSid: ${contentSid})`,
+        `Template WhatsApp enfileirado para ${masked} (contentSid: ${contentSid})`,
       );
     } catch (err: any) {
       this.logger.warn(
-        `Falha ao enfileirar template WhatsApp: to="${to}" contentSid="${contentSid}" — ${err?.message}`,
+        `Falha ao enfileirar template WhatsApp: to=${masked} contentSid="${contentSid}" — ${err?.message}`,
       );
     }
   }

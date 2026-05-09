@@ -30,34 +30,34 @@ export class AiUsageService {
     let groupCol: string;
     switch (groupBy) {
       case 'user':
-        groupCol = "COALESCE(log.user_id::text, 'anonymous')";
+        groupCol = "COALESCE(log.userId::text, 'anonymous')";
         break;
       case 'model':
         groupCol = "COALESCE(log.model, 'unknown')";
         break;
       case 'day':
       default:
-        groupCol = 'DATE(log.created_at)::text';
+        groupCol = 'DATE(log.createdAt)::text';
         break;
     }
 
     const qb = this.repo
       .createQueryBuilder('log')
       .select(groupCol, 'groupKey')
-      .addSelect('SUM(log.prompt_tokens)', 'totalPromptTokens')
-      .addSelect('SUM(log.completion_tokens)', 'totalCompletionTokens')
-      .addSelect('SUM(log.total_tokens)', 'totalTokens')
-      .addSelect('SUM(log.calls_count)', 'totalCalls')
-      .addSelect('SUM(log.cost_estimate_cents)', 'totalCostCents')
-      .addSelect('AVG(log.latency_ms)', 'avgLatencyMs')
+      .addSelect('SUM(log.promptTokens)', 'totalPromptTokens')
+      .addSelect('SUM(log.completionTokens)', 'totalCompletionTokens')
+      .addSelect('SUM(log.totalTokens)', 'totalTokens')
+      .addSelect('SUM(log.callsCount)', 'totalCalls')
+      .addSelect('SUM(log.costEstimateCents)', 'totalCostCents')
+      .addSelect('AVG(log.latencyMs)', 'avgLatencyMs')
       .groupBy(groupCol)
       .orderBy(groupCol, 'ASC');
 
     if (from) {
-      qb.andWhere('log.created_at >= :from', { from });
+      qb.andWhere('log.createdAt >= :from', { from });
     }
     if (to) {
-      qb.andWhere('log.created_at <= :to', { to });
+      qb.andWhere('log.createdAt <= :to', { to });
     }
 
     const raw = await qb.getRawMany();

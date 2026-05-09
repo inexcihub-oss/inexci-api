@@ -27,7 +27,7 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsDateString()
-  birth_date?: string;
+  birthDate?: string;
 
   @IsOptional()
   @IsString()
@@ -74,15 +74,15 @@ export class UpdateProfileDto {
     'SE',
     'TO',
   ])
-  crm_state?: string;
+  crmState?: string;
 
   @IsOptional()
   @Transform(({ value }) => value ?? null)
-  avatar_url?: string | null;
+  avatarUrl?: string | null;
 
   @IsOptional()
   @Transform(({ value }) => value ?? null)
-  signature_url?: string | null;
+  signatureUrl?: string | null;
 
   @IsOptional()
   @IsString()
@@ -94,11 +94,11 @@ export class UpdateProfileDto {
 
   @IsOptional()
   @IsString()
-  address_number?: string;
+  addressNumber?: string;
 
   @IsOptional()
   @IsString()
-  address_complement?: string;
+  addressComplement?: string;
 
   @IsOptional()
   @IsString()

@@ -42,8 +42,8 @@ export class SchedulingHandler {
       );
     }
 
-    const dateOptions = request.date_options as string[];
-    if (!dateOptions || dateOptions[dto.selected_date_index] === undefined) {
+    const dateOptions = request.dateOptions as string[];
+    if (!dateOptions || dateOptions[dto.selectedDateIndex] === undefined) {
       throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_INDEX);
     }
 
@@ -55,8 +55,8 @@ export class SchedulingHandler {
           { id },
           {
             status: SurgeryRequestStatus.SCHEDULED,
-            selected_date_index: dto.selected_date_index,
-            surgery_date: new Date(dateOptions[dto.selected_date_index]),
+            selectedDateIndex: dto.selectedDateIndex,
+            surgeryDate: new Date(dateOptions[dto.selectedDateIndex]),
           },
         );
         await this.surgeryRequestRepository.recordStatusChange(
@@ -108,7 +108,7 @@ export class SchedulingHandler {
     }
 
     await this.surgeryRequestRepository.update(id, {
-      date_options: dto.date_options,
+      dateOptions: dto.dateOptions,
     });
   }
 
@@ -123,7 +123,7 @@ export class SchedulingHandler {
     }
 
     await this.surgeryRequestRepository.update(id, {
-      surgery_date: new Date(dto.new_date),
+      surgeryDate: new Date(dto.new_date),
     });
   }
 }

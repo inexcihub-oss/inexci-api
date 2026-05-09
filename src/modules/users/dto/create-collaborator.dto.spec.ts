@@ -58,13 +58,13 @@ describe('CreateCollaboratorDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('deve aceitar is_doctor=true com crm e crm_state', async () => {
+  it('deve aceitar isDoctor=true com crm e crmState', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Dr. Pedro',
       email: 'pedro@email.com',
-      is_doctor: true,
+      isDoctor: true,
       crm: '654321',
-      crm_state: 'RJ',
+      crmState: 'RJ',
       specialty: 'Cardiologia',
     });
 
@@ -72,12 +72,12 @@ describe('CreateCollaboratorDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('deve falhar se is_doctor=true sem crm', async () => {
+  it('deve falhar se isDoctor=true sem crm', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Dr. Pedro',
       email: 'pedro@email.com',
-      is_doctor: true,
-      crm_state: 'RJ',
+      isDoctor: true,
+      crmState: 'RJ',
     });
 
     const errors = await validate(dto);
@@ -85,31 +85,31 @@ describe('CreateCollaboratorDto', () => {
     expect(crmError).toBeDefined();
   });
 
-  it('deve falhar se is_doctor=true sem crm_state', async () => {
+  it('deve falhar se isDoctor=true sem crmState', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Dr. Pedro',
       email: 'pedro@email.com',
-      is_doctor: true,
+      isDoctor: true,
       crm: '654321',
     });
 
     const errors = await validate(dto);
-    const crmStateError = errors.find((e) => e.property === 'crm_state');
+    const crmStateError = errors.find((e) => e.property === 'crmState');
     expect(crmStateError).toBeDefined();
   });
 
-  it('deve aceitar is_doctor=false sem crm', async () => {
+  it('deve aceitar isDoctor=false sem crm', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Secretária Maria',
       email: 'maria@email.com',
-      is_doctor: false,
+      isDoctor: false,
     });
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
 
-  it('deve aceitar sem is_doctor (padrão)', async () => {
+  it('deve aceitar sem isDoctor (padrão)', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Carlos',
       email: 'carlos@email.com',

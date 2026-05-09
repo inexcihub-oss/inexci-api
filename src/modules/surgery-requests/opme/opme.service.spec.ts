@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OpmeService } from './opme.service';
 
 describe('OpmeService', () => {
@@ -31,8 +31,17 @@ describe('OpmeService', () => {
 
   const fakeSurgeryRequest = {
     id: 'sr-1',
-    doctor_id: 'doctor-1',
+    doctorId: 'doctor-1',
+    ownerId: 'owner-1',
   };
+
+  const validBrand = 'Fabricante A, Fabricante B, Fabricante C';
+
+  const makeSuppliers = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `sup-${i + 1}`,
+      name: `Fornecedor ${i + 1}`,
+    }));
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -54,18 +63,87 @@ describe('OpmeService', () => {
   // ─── create ───────────────────────────────────────────────────────────────
 
   describe('create', () => {
-    it('deve criar item OPME sem fornecedores', async () => {
+    it('deve lançar BadRequestException se brand não fornecido (fabricantes < 3)', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Parafuso',
+            quantity: 2,
+            surgeryRequestId: 'sr-1',
+            supplier_ids: ['s1', 's2', 's3'],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('deve lançar BadRequestException se brand tem menos de 3 fabricantes', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Parafuso',
+            brand: 'Fab A, Fab B',
+            quantity: 2,
+            surgeryRequestId: 'sr-1',
+            supplier_ids: ['s1', 's2', 's3'],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('deve lançar BadRequestException se fornecedores totais < 3', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Parafuso',
+            brand: validBrand,
+            quantity: 2,
+            surgeryRequestId: 'sr-1',
+            supplier_names: ['Fornecedor A', 'Fornecedor B'],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('deve lançar BadRequestException se nenhum fornecedor informado', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Parafuso',
+            brand: validBrand,
+            quantity: 2,
+            surgeryRequestId: 'sr-1',
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('deve criar item OPME com 3 fabricantes e 3 fornecedores por nome', async () => {
+      const suppliers = makeSuppliers(3);
+      suppliers.forEach((s) =>
+        mockSupplierRepository.create.mockResolvedValueOnce(s),
+      );
+
       const savedEntity = {
         id: 'opme-1',
         name: 'Parafuso',
         quantity: 2,
-        suppliers: [],
+        suppliers,
       };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
 
       const result = await service.create(
-        { name: 'Parafuso', quantity: 2, surgery_request_id: 'sr-1' },
+        {
+          name: 'Parafuso',
+          brand: validBrand,
+          quantity: 2,
+          surgeryRequestId: 'sr-1',
+          supplier_names: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
+        },
         'user-1',
       );
 
@@ -73,55 +151,21 @@ describe('OpmeService', () => {
         'sr-1',
         'user-1',
       );
-      expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          name: 'Parafuso',
-          quantity: 2,
-          suppliers: [],
-        }),
-      );
+      expect(mockTypeOrmRepository.save).toHaveBeenCalled();
       expect(result).toEqual(savedEntity);
     });
 
-    it('deve vincular fornecedores existentes pelo ID', async () => {
-      const supplierA = { id: 'sup-1', name: 'Fornecedor A' };
+    it('deve criar item OPME com 3 fornecedores existentes por ID', async () => {
+      const suppliers = makeSuppliers(3);
+      suppliers.forEach((s) =>
+        mockSupplierRepository.findOne.mockResolvedValueOnce(s),
+      );
+
       const savedEntity = {
         id: 'opme-1',
         name: 'Placa',
         quantity: 1,
-        suppliers: [supplierA],
-      };
-
-      mockSupplierRepository.findOne.mockResolvedValue(supplierA);
-      mockTypeOrmRepository.create.mockReturnValue(savedEntity);
-      mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
-
-      await service.create(
-        {
-          name: 'Placa',
-          quantity: 1,
-          surgery_request_id: 'sr-1',
-          supplier_ids: ['sup-1'],
-        },
-        'user-1',
-      );
-
-      expect(mockSupplierRepository.findOne).toHaveBeenCalledWith({
-        id: 'sup-1',
-      });
-      expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ suppliers: [supplierA] }),
-      );
-    });
-
-    it('deve criar novos fornecedores pelo nome e vinculá-los', async () => {
-      const createdSupplier = { id: 'sup-new', name: 'Novo Fornecedor' };
-      mockSupplierRepository.create.mockResolvedValue(createdSupplier);
-      const savedEntity = {
-        id: 'opme-1',
-        name: 'Placa',
-        quantity: 1,
-        suppliers: [createdSupplier],
+        suppliers,
       };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
@@ -129,35 +173,35 @@ describe('OpmeService', () => {
       await service.create(
         {
           name: 'Placa',
+          brand: validBrand,
           quantity: 1,
-          surgery_request_id: 'sr-1',
-          supplier_names: ['Novo Fornecedor'],
+          surgeryRequestId: 'sr-1',
+          supplier_ids: ['sup-1', 'sup-2', 'sup-3'],
         },
         'user-1',
       );
 
-      expect(mockSupplierRepository.create).toHaveBeenCalledWith({
-        name: 'Novo Fornecedor',
-        doctor_id: 'doctor-1',
-        active: true,
-      });
+      expect(mockSupplierRepository.findOne).toHaveBeenCalledTimes(3);
       expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ suppliers: [createdSupplier] }),
+        expect.objectContaining({ suppliers }),
       );
     });
 
-    it('deve combinar fornecedores existentes e novos', async () => {
+    it('deve aceitar combinação de IDs + nomes desde que totalizem >= 3', async () => {
       const existingSupplier = { id: 'sup-1', name: 'Existente' };
-      const newSupplier = { id: 'sup-new', name: 'Novo' };
+      const newSupplierA = { id: 'sup-new-1', name: 'Novo A' };
+      const newSupplierB = { id: 'sup-new-2', name: 'Novo B' };
 
       mockSupplierRepository.findOne.mockResolvedValue(existingSupplier);
-      mockSupplierRepository.create.mockResolvedValue(newSupplier);
+      mockSupplierRepository.create
+        .mockResolvedValueOnce(newSupplierA)
+        .mockResolvedValueOnce(newSupplierB);
 
       const savedEntity = {
         id: 'opme-1',
         name: 'Implante',
         quantity: 1,
-        suppliers: [existingSupplier, newSupplier],
+        suppliers: [existingSupplier, newSupplierA, newSupplierB],
       };
       mockTypeOrmRepository.create.mockReturnValue(savedEntity);
       mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
@@ -165,66 +209,35 @@ describe('OpmeService', () => {
       await service.create(
         {
           name: 'Implante',
+          brand: validBrand,
           quantity: 1,
-          surgery_request_id: 'sr-1',
+          surgeryRequestId: 'sr-1',
           supplier_ids: ['sup-1'],
-          supplier_names: ['Novo'],
+          supplier_names: ['Novo A', 'Novo B'],
         },
         'user-1',
       );
 
       expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ suppliers: [existingSupplier, newSupplier] }),
+        expect.objectContaining({
+          suppliers: [existingSupplier, newSupplierA, newSupplierB],
+        }),
       );
     });
 
-    it('deve ignorar nomes de fornecedor vazios', async () => {
-      const savedEntity = {
-        id: 'opme-1',
-        name: 'Placa',
-        quantity: 1,
-        suppliers: [],
-      };
-      mockTypeOrmRepository.create.mockReturnValue(savedEntity);
-      mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
-
-      await service.create(
-        {
-          name: 'Placa',
-          quantity: 1,
-          surgery_request_id: 'sr-1',
-          supplier_names: ['', '  ', ''],
-        },
-        'user-1',
-      );
-
-      expect(mockSupplierRepository.create).not.toHaveBeenCalled();
-    });
-
-    it('deve ignorar IDs de fornecedor que não existem', async () => {
-      mockSupplierRepository.findOne.mockResolvedValue(null);
-      const savedEntity = {
-        id: 'opme-1',
-        name: 'Placa',
-        quantity: 1,
-        suppliers: [],
-      };
-      mockTypeOrmRepository.create.mockReturnValue(savedEntity);
-      mockTypeOrmRepository.save.mockResolvedValue(savedEntity);
-
-      await service.create(
-        {
-          name: 'Placa',
-          quantity: 1,
-          surgery_request_id: 'sr-1',
-          supplier_ids: ['nonexistent'],
-        },
-        'user-1',
-      );
-
-      expect(mockTypeOrmRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ suppliers: [] }),
-      );
+    it('deve ignorar nomes de fornecedor em branco na contagem de fornecedores preenchidos', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Placa',
+            brand: validBrand,
+            quantity: 1,
+            surgeryRequestId: 'sr-1',
+            supplier_names: ['Fornecedor A', '', '  '],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -234,15 +247,16 @@ describe('OpmeService', () => {
     const existingOpme = {
       id: 'opme-1',
       name: 'Parafuso',
-      brand: null,
+      brand: validBrand,
       quantity: 2,
-      surgery_request_id: 'sr-1',
-      suppliers: [],
+      surgeryRequestId: 'sr-1',
+      suppliers: makeSuppliers(3),
     };
 
     beforeEach(() => {
       mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue({
         ...existingOpme,
+        suppliers: [...existingOpme.suppliers],
       });
     });
 
@@ -254,7 +268,7 @@ describe('OpmeService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('deve atualizar campos básicos', async () => {
+    it('deve atualizar campos básicos sem tocar em fornecedores', async () => {
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
 
       const result = await service.update(
@@ -268,51 +282,68 @@ describe('OpmeService', () => {
       expect(result).toEqual({ message: 'OPME atualizado com sucesso' });
     });
 
-    it('deve sincronizar fornecedores quando supplier_ids fornecido', async () => {
-      const supplierA = { id: 'sup-1', name: 'Fornecedor A' };
-      mockSupplierRepository.findOne.mockResolvedValue(supplierA);
-      mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
-
-      await service.update({ id: 'opme-1', supplier_ids: ['sup-1'] }, 'user-1');
-
-      expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
-        expect.objectContaining({ suppliers: [supplierA] }),
-      );
+    it('deve lançar BadRequestException ao atualizar brand com menos de 3 fabricantes', async () => {
+      await expect(
+        service.update({ id: 'opme-1', brand: 'Fab A, Fab B' }, 'user-1'),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('deve criar novos fornecedores ao atualizar com supplier_names', async () => {
-      const newSupplier = { id: 'sup-new', name: 'Novo' };
-      mockSupplierRepository.create.mockResolvedValue(newSupplier);
+    it('deve lançar BadRequestException ao atualizar fornecedores com menos de 3', async () => {
+      await expect(
+        service.update(
+          { id: 'opme-1', supplier_names: ['Fornecedor A', 'Fornecedor B'] },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('deve sincronizar 3 fornecedores existentes por ID', async () => {
+      const suppliers = makeSuppliers(3);
+      suppliers.forEach((s) =>
+        mockSupplierRepository.findOne.mockResolvedValueOnce(s),
+      );
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
 
       await service.update(
-        { id: 'opme-1', supplier_names: ['Novo'] },
+        { id: 'opme-1', supplier_ids: ['sup-1', 'sup-2', 'sup-3'] },
         'user-1',
       );
 
-      expect(mockSupplierRepository.create).toHaveBeenCalledWith({
-        name: 'Novo',
-        doctor_id: 'doctor-1',
-        active: true,
-      });
+      expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
+        expect.objectContaining({ suppliers }),
+      );
+    });
+
+    it('deve criar 3 novos fornecedores ao atualizar com supplier_names', async () => {
+      const suppliers = makeSuppliers(3);
+      suppliers.forEach((s) =>
+        mockSupplierRepository.create.mockResolvedValueOnce(s),
+      );
+      mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
+
+      await service.update(
+        {
+          id: 'opme-1',
+          supplier_names: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
+        },
+        'user-1',
+      );
+
+      expect(mockSupplierRepository.create).toHaveBeenCalledTimes(3);
     });
 
     it('não deve alterar fornecedores se nem supplier_ids nem supplier_names fornecidos', async () => {
-      const opmeWithSuppliers = {
+      const existingSuppliers = makeSuppliers(3);
+      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue({
         ...existingOpme,
-        suppliers: [{ id: 'sup-1', name: 'Existente' }],
-      };
-      mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(
-        opmeWithSuppliers,
-      );
+        suppliers: existingSuppliers,
+      });
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
 
       await service.update({ id: 'opme-1', name: 'Novo nome' }, 'user-1');
 
       expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
-        expect.objectContaining({
-          suppliers: [{ id: 'sup-1', name: 'Existente' }],
-        }),
+        expect.objectContaining({ suppliers: existingSuppliers }),
       );
     });
   });
@@ -323,8 +354,8 @@ describe('OpmeService', () => {
     it('deve deletar item OPME com sucesso', async () => {
       const opmeItem = {
         id: 'opme-1',
-        surgery_request_id: 'sr-1',
-        suppliers: [],
+        surgeryRequestId: 'sr-1',
+        suppliers: makeSuppliers(3),
       };
       mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue(opmeItem);
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);

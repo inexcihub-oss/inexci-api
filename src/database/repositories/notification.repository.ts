@@ -18,7 +18,7 @@ export class NotificationRepository extends BaseRepository<Notification> {
     userId: string,
     options?: { skip?: number; take?: number; unreadOnly?: boolean },
   ): Promise<Notification[]> {
-    const where: FindOptionsWhere<Notification> = { user_id: userId };
+    const where: FindOptionsWhere<Notification> = { userId };
 
     if (options?.unreadOnly) {
       where.read = false;
@@ -26,7 +26,7 @@ export class NotificationRepository extends BaseRepository<Notification> {
 
     return await this.repository.find({
       where,
-      order: { created_at: 'DESC' },
+      order: { createdAt: 'DESC' },
       skip: options?.skip || 0,
       take: options?.take || 50,
     });
@@ -34,26 +34,23 @@ export class NotificationRepository extends BaseRepository<Notification> {
 
   async countUnread(userId: string): Promise<number> {
     return await this.repository.count({
-      where: { user_id: userId, read: false },
+      where: { userId, read: false },
     });
   }
 
   async markAsRead(notificationId: string, userId: string): Promise<void> {
     await this.repository.update(
-      { id: notificationId, user_id: userId },
+      { id: notificationId, userId },
       { read: true },
     );
   }
 
   async markAllAsRead(userId: string): Promise<void> {
-    await this.repository.update(
-      { user_id: userId, read: false },
-      { read: true },
-    );
+    await this.repository.update({ userId, read: false }, { read: true });
   }
 
   async deleteByUser(notificationId: string, userId: string): Promise<void> {
-    await this.repository.delete({ id: notificationId, user_id: userId });
+    await this.repository.delete({ id: notificationId, userId });
   }
 
   async deleteOldNotifications(
@@ -64,8 +61,8 @@ export class NotificationRepository extends BaseRepository<Notification> {
     date.setDate(date.getDate() - olderThanDays);
 
     await this.repository.delete({
-      user_id: userId,
-      created_at: LessThan(date),
+      userId,
+      createdAt: LessThan(date),
     });
   }
 

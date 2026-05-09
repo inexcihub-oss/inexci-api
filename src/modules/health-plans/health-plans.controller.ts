@@ -53,14 +53,18 @@ export class HealthPlansController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar plano de saúde' })
-  update(@Param('id') id: string, @Body() data: UpdateHealthPlanDto) {
-    return this.healthPlansService.update(id, data);
+  update(
+    @Param('id') id: string,
+    @Body() data: UpdateHealthPlanDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.healthPlansService.update(id, data, user.userId);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Excluir plano de saúde (soft delete)' })
-  delete(@Param('id') id: string) {
-    return this.healthPlansService.delete(id);
+  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.healthPlansService.delete(id, user.userId);
   }
 }

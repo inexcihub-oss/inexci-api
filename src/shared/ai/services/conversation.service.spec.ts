@@ -16,6 +16,7 @@ const mockConversationRepo = {
 const mockMessageRepo = {
   create: jest.fn(),
   findRecentByConversation: jest.fn(),
+  deleteByConversation: jest.fn(),
 };
 
 const configServiceMock = {
@@ -145,19 +146,19 @@ describe('ConversationService', () => {
   it('deve limpar histórico, summary e memory ao resetar contexto', async () => {
     mockConversationRepo.findOne.mockResolvedValue({
       id: 'conv-1',
-      messagesHistory: [{ role: 'user', content: 'Olá', timestamp: '' }],
       conversationSummary: 'algum resumo',
       conversationMemory: { intent: 'consulta' },
       summaryUpdatedAt: new Date(),
     } as unknown as WhatsappConversation);
+    mockMessageRepo.deleteByConversation.mockResolvedValue(undefined);
 
     await service.resetConversationHistory('conv-1');
 
+    expect(mockMessageRepo.deleteByConversation).toHaveBeenCalledWith('conv-1');
     expect(mockConversationRepo.update).toHaveBeenCalledTimes(1);
     expect(mockConversationRepo.update).toHaveBeenCalledWith(
       'conv-1',
       expect.objectContaining({
-        messagesHistory: [],
         conversationSummary: null,
         conversationMemory: {},
         summaryUpdatedAt: null,

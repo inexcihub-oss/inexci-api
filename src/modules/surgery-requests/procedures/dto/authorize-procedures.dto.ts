@@ -13,12 +13,12 @@ export class AuthorizeProcedureDto {
   id: string;
   @IsNumber()
   @Type(() => Number)
-  authorized_quantity: number;
+  authorizedQuantity: number;
 }
 export class AuthorizeProceduresDto {
   @IsString()
   @IsNotEmpty()
-  surgery_request_id: string;
+  surgeryRequestId: string;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AuthorizeProcedureDto)
@@ -26,5 +26,5 @@ export class AuthorizeProceduresDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AuthorizeProcedureDto)
-  opme_items: AuthorizeProcedureDto[];
+  opmeItems: AuthorizeProcedureDto[];
 }

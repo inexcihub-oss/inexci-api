@@ -33,8 +33,8 @@ export class DocumentsService {
     const storagePath = await this.storageService.create(file, data.folder);
 
     const newDocument = await this.documentRepository.create({
-      surgery_request_id: data.surgery_request_id,
-      created_by: userId,
+      surgeryRequestId: data.surgeryRequestId,
+      createdById: userId,
       key: data.key,
       name: data.name,
       uri: storagePath,
@@ -63,7 +63,7 @@ export class DocumentsService {
         await documentRepo.delete({
           id: data.id,
           key: data.key,
-          surgery_request_id: data.surgery_request_id,
+          surgeryRequestId: data.surgeryRequestId,
         });
 
         // Deletar do Supabase Storage

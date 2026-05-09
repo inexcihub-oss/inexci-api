@@ -11,9 +11,9 @@ export class CreateDoctorProfileDto {
 
   @IsString()
   @IsNotEmpty()
-  crm_state: string;
+  crmState: string;
 
-  @IsOptional() @IsString() clinic_name?: string;
-  @IsOptional() @IsString() clinic_cnpj?: string;
-  @IsOptional() @IsString() clinic_address?: string;
+  @IsOptional() @IsString() clinicName?: string;
+  @IsOptional() @IsString() clinicCnpj?: string;
+  @IsOptional() @IsString() clinicAddress?: string;
 }

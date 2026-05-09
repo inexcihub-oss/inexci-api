@@ -20,7 +20,7 @@ export class DoctorProfileRepository extends BaseRepository<DoctorProfile> {
 
   findByUserId(userId: string): Promise<DoctorProfile | null> {
     return this.repository.findOne({
-      where: { user_id: userId },
+      where: { userId },
       relations: ['user'],
     });
   }
@@ -41,7 +41,7 @@ export class DoctorProfileRepository extends BaseRepository<DoctorProfile> {
 
   async existsByUserId(userId: string): Promise<boolean> {
     const count = await this.repository.count({
-      where: { user_id: userId },
+      where: { userId },
     });
     return count > 0;
   }

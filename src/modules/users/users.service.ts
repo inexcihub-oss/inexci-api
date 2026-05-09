@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -26,15 +25,11 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
-import { CompleteRegisterDto } from './dto/complete-register.dto';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
-import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { generateValidationCode } from 'src/shared/utils';
 
 @Injectable()
@@ -47,8 +42,6 @@ export class UsersService {
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly recoveryCodeRepository: RecoveryCodeRepository,
     private readonly storageService: StorageService,
-    @InjectRepository(SubscriptionPlan)
-    private readonly subscriptionPlanRepo: Repository<SubscriptionPlan>,
     private readonly whatsappService: WhatsappService,
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
@@ -57,7 +50,7 @@ export class UsersService {
   /**
    * Lista usuários
    * - Admin: pode ver todos da conta
-   * - Médico (com doctor_profile): pode ver quem tem acesso via user_doctor_access
+   * - Médico (com doctorProfile): pode ver quem tem acesso via user_doctor_access
    * - Colaborador: só pode ver a si mesmo
    */
   async findMany(query: FindManyUsersDto, userId: string) {
@@ -68,12 +61,12 @@ export class UsersService {
 
     // Admin pode ver todos da conta
     if (user.role === UserRole.ADMIN) {
-      where.account_id = user.account_id;
+      where.ownerId = user.ownerId;
       if (query.role) {
         where.role = query.role;
       }
     } else {
-      // Verificar se é médico (tem doctor_profile) - pode ver quem tem acesso
+      // Verificar se é médico (tem doctorProfile) - pode ver quem tem acesso
       const doctorProfile =
         await this.doctorProfileRepository.findByUserId(userId);
       if (doctorProfile) {
@@ -81,7 +74,7 @@ export class UsersService {
           await this.userDoctorAccessRepository.findActiveByDoctorUserId(
             userId,
           );
-        const accessUserIds = accesses.map((a) => a.user_id);
+        const accessUserIds = accesses.map((a) => a.userId);
         where.id = In([userId, ...accessUserIds]);
       } else {
         // Colaboradores só podem ver a si mesmos
@@ -113,7 +106,7 @@ export class UsersService {
       return user;
     }
 
-    // Médico (com doctor_profile) pode ver a si mesmo ou quem tem acesso
+    // Médico (com doctorProfile) pode ver a si mesmo ou quem tem acesso
     const doctorProfile =
       await this.doctorProfileRepository.findByUserId(userId);
     if (doctorProfile) {
@@ -124,7 +117,7 @@ export class UsersService {
       }
       const accesses =
         await this.userDoctorAccessRepository.findActiveByDoctorUserId(userId);
-      const accessUserIds = accesses.map((a) => a.user_id);
+      const accessUserIds = accesses.map((a) => a.userId);
       if (!accessUserIds.includes(id)) {
         throw new ForbiddenException('Sem permissão para ver este usuário');
       }
@@ -152,11 +145,11 @@ export class UsersService {
     const { password, ...userWithoutPassword } = user;
 
     // Gerar signed URL para assinatura do médico (bucket privado)
-    const profile = userWithoutPassword.doctor_profile;
-    if (profile?.signature_url && !profile.signature_url.startsWith('http')) {
+    const profile = userWithoutPassword.doctorProfile;
+    if (profile?.signatureUrl && !profile.signatureUrl.startsWith('http')) {
       try {
-        profile.signature_url = await this.storageService.getSignedUrl(
-          profile.signature_url,
+        profile.signatureUrl = await this.storageService.getSignedUrl(
+          profile.signatureUrl,
         );
       } catch {
         // manter path original se falhar
@@ -165,7 +158,7 @@ export class UsersService {
 
     return {
       ...userWithoutPassword,
-      is_doctor: !!userWithoutPassword.doctor_profile,
+      isDoctor: !!userWithoutPassword.doctorProfile,
     };
   }
 
@@ -196,26 +189,26 @@ export class UsersService {
     if (data.name) userUpdates.name = data.name;
     if (data.phone) userUpdates.phone = data.phone;
     if (data.cpf) userUpdates.cpf = data.cpf;
-    if (data.birth_date) userUpdates.birth_date = new Date(data.birth_date);
+    if (data.birthDate) userUpdates.birthDate = new Date(data.birthDate);
     if (data.gender) userUpdates.gender = data.gender;
-    if (data.avatar_url !== undefined)
-      userUpdates.avatar_url = data.avatar_url ?? null;
+    if (data.avatarUrl !== undefined)
+      userUpdates.avatarUrl = data.avatarUrl ?? null;
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;
-    if (data.address_number !== undefined)
-      userUpdates.address_number = data.address_number;
-    if (data.address_complement !== undefined)
-      userUpdates.address_complement = data.address_complement;
+    if (data.addressNumber !== undefined)
+      userUpdates.addressNumber = data.addressNumber;
+    if (data.addressComplement !== undefined)
+      userUpdates.addressComplement = data.addressComplement;
     if (data.city !== undefined) userUpdates.city = data.city;
     if (data.state !== undefined) userUpdates.state = data.state;
 
     // Deletar avatar antigo do Storage quando for removido ou substituído
-    if (data.avatar_url !== undefined) {
-      const oldAvatar = user.avatar_url;
+    if (data.avatarUrl !== undefined) {
+      const oldAvatar = user.avatarUrl;
       if (
         oldAvatar &&
         !oldAvatar.startsWith('http') &&
-        oldAvatar !== data.avatar_url
+        oldAvatar !== data.avatarUrl
       ) {
         try {
           await this.storageService.delete(oldAvatar);
@@ -227,17 +220,17 @@ export class UsersService {
 
     const updatedUser = await this.userRepository.update(userId, userUpdates);
 
-    // Se tiver signature_url, atualizar DoctorProfile e deletar antiga do Storage
-    if (data.signature_url !== undefined) {
+    // Se tiver signatureUrl, atualizar DoctorProfile e deletar antiga do Storage
+    if (data.signatureUrl !== undefined) {
       const docProfile =
         await this.doctorProfileRepository.findByUserId(userId);
       if (docProfile) {
         // Deletar assinatura antiga do Storage
-        const oldSignature = docProfile.signature_url;
+        const oldSignature = docProfile.signatureUrl;
         if (
           oldSignature &&
           !oldSignature.startsWith('http') &&
-          oldSignature !== data.signature_url
+          oldSignature !== data.signatureUrl
         ) {
           try {
             await this.storageService.delete(oldSignature);
@@ -246,7 +239,7 @@ export class UsersService {
           }
         }
         await this.doctorProfileRepository.update(docProfile.id, {
-          signature_url: data.signature_url,
+          signatureUrl: data.signatureUrl,
         });
       }
     }
@@ -292,60 +285,13 @@ export class UsersService {
     if (data.name !== undefined) userUpdates.name = data.name;
     if (data.phone !== undefined) userUpdates.phone = data.phone;
     if (data.cpf !== undefined) userUpdates.cpf = data.cpf;
-    if (data.birth_date !== undefined)
-      userUpdates.birth_date = new Date(data.birth_date);
+    if (data.birthDate !== undefined)
+      userUpdates.birthDate = new Date(data.birthDate);
     if (data.gender !== undefined) userUpdates.gender = data.gender;
-    if (data.avatar_url !== undefined) userUpdates.avatar_url = data.avatar_url;
+    if (data.avatarUrl !== undefined) userUpdates.avatarUrl = data.avatarUrl;
 
     const updatedUser = await this.userRepository.update(targetId, userUpdates);
     return updatedUser;
-  }
-
-  async validateCompleteRegisterLink(userId: string) {
-    const where: FindOptionsWhere<User> = {
-      id: userId,
-      status: UserStatus.PENDING,
-    };
-
-    const user = await this.userRepository.findOne(where);
-    if (!user) throw new BadRequestException('Link inválido');
-
-    return user;
-  }
-
-  async completeRegister(data: CompleteRegisterDto, userId: string) {
-    const user = await this.userRepository.findOne({
-      id: userId,
-      status: UserStatus.PENDING,
-    });
-    if (!user) throw new BadRequestException('Link inválido');
-
-    // Verifica telefone duplicado
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-        id: Not(userId),
-      });
-      if (phoneFound) throw new BadRequestException('Telefone em uso');
-    }
-
-    // Verifica CPF duplicado
-    if (data.cpf) {
-      const cpfFound = await this.userRepository.findOne({
-        cpf: data.cpf,
-        id: Not(userId),
-      });
-      if (cpfFound) throw new BadRequestException('CPF em uso');
-    }
-
-    const newUser = await this.userRepository.update(userId, {
-      phone: data.phone,
-      cpf: data.cpf,
-      status: UserStatus.ACTIVE,
-      password: await bcrypt.hash(data.password, 10),
-    });
-
-    return newUser;
   }
 
   async create(data: CreateUserDto, userId: string) {
@@ -378,21 +324,21 @@ export class UsersService {
       role: data.role || UserRole.COLLABORATOR,
       status: UserStatus.PENDING,
       password: await bcrypt.hash(placeholderPw, 10),
-      account_id: user.account_id,
-      admin_id: userId,
+      ownerId: user.ownerId,
+      adminId: userId,
     });
 
     // Gera token de convite (recovery code) válido por 72 horas
     await this.recoveryCodeRepository.deleteMany({
-      user_id: newUser.id,
+      userId: newUser.id,
       used: false,
     });
     const inviteToken = generateValidationCode(6);
     await this.recoveryCodeRepository.create({
-      user_id: newUser.id,
+      userId: newUser.id,
       used: false,
       code: inviteToken,
-      expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
@@ -410,48 +356,11 @@ export class UsersService {
       },
     );
 
+    if (newUser.phone) {
+      void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
+    }
+
     return newUser;
-  }
-
-  async update(data: UpdateUserDto, userId: string) {
-    const requestingUser = await this.userRepository.findOne({ id: userId });
-    if (!requestingUser) throw new NotFoundException('Usuário não encontrado');
-
-    // Só admin pode atualizar outros usuários
-    if (requestingUser.role !== UserRole.ADMIN && data.id !== userId) {
-      throw new ForbiddenException('Sem permissão para atualizar este usuário');
-    }
-
-    const user = await this.userRepository.findOne({ id: data.id });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    // Verifica telefone duplicado
-    if (data.phone) {
-      const phoneFound = await this.userRepository.findOne({
-        phone: data.phone,
-        id: Not(data.id),
-      });
-      if (phoneFound) throw new BadRequestException('Telefone em uso');
-    }
-
-    // Verifica email duplicado
-    if (data.email) {
-      const emailFound = await this.userRepository.findOne({
-        email: data.email,
-        id: Not(data.id),
-      });
-      if (emailFound) throw new BadRequestException('Email em uso');
-    }
-
-    const updateData: Partial<User> = { ...data };
-
-    if (data.password) {
-      updateData.password = await bcrypt.hash(data.password, 10);
-    }
-
-    const updatedUser = await this.userRepository.update(data.id, updateData);
-
-    return updatedUser;
   }
 
   async changePassword(
@@ -485,13 +394,13 @@ export class UsersService {
       );
 
     return this.doctorProfileRepository.create({
-      user_id: userId,
+      userId: userId,
       specialty: dto.specialty,
       crm: dto.crm,
-      crm_state: dto.crm_state,
-      clinic_name: dto.clinic_name,
-      clinic_cnpj: dto.clinic_cnpj,
-      clinic_address: dto.clinic_address,
+      crmState: dto.crmState,
+      clinicName: dto.clinicName,
+      clinicCnpj: dto.clinicCnpj,
+      clinicAddress: dto.clinicAddress,
     });
   }
 
@@ -516,7 +425,7 @@ export class UsersService {
     const isSelf = requestingUserId === targetId;
     const isAdmin =
       requesting.role === UserRole.ADMIN &&
-      (target.admin_id === requestingUserId || isSelf);
+      (target.adminId === requestingUserId || isSelf);
 
     if (!isSelf && !isAdmin) {
       throw new ForbiddenException(
@@ -524,20 +433,20 @@ export class UsersService {
       );
     }
 
-    if (!target.doctor_profile) {
+    if (!target.doctorProfile) {
       throw new BadRequestException('Este usuário não é médico');
     }
 
     // Atualiza no DoctorProfile
     const profileUpdates: Partial<DoctorProfile> = {};
     if (data.crm !== undefined) profileUpdates.crm = data.crm;
-    if (data.crm_state !== undefined) profileUpdates.crm_state = data.crm_state;
+    if (data.crmState !== undefined) profileUpdates.crmState = data.crmState;
     if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
     if (data.signature_image_url !== undefined)
-      profileUpdates.signature_url = data.signature_image_url ?? null;
+      profileUpdates.signatureUrl = data.signature_image_url ?? null;
 
     await this.doctorProfileRepository.update(
-      target.doctor_profile.id,
+      target.doctorProfile.id,
       profileUpdates,
     );
 
@@ -549,34 +458,14 @@ export class UsersService {
 
   // ============ GESTÃO DE COLABORADORES ============
 
-  /**
-   * Verifica se o admin pode adicionar mais médicos ao plano
-   */
-  async canAddDoctor(adminId: string): Promise<boolean> {
-    const admin = await this.userRepository.findOneWithProfile({
-      id: adminId,
-    });
-    if (!admin || admin.role !== UserRole.ADMIN) return false;
-
-    const plan = admin.subscription_plan;
-    if (!plan) return false;
-
-    // Contar médicos existentes na conta (users com doctor_profile)
-    const doctorCount = await this.userRepository.countDoctorsByAccountId(
-      admin.account_id,
-    );
-
-    return doctorCount < plan.max_doctors;
-  }
-
   async findCollaborators(userId: string, skip = 0, take = 50) {
     const admin = await this.userRepository.findOne({ id: userId });
     if (!admin) throw new NotFoundException('Usuário não encontrado');
     if (admin.role !== UserRole.ADMIN)
       throw new ForbiddenException('Apenas admins podem listar colaboradores');
 
-    const collaborators = await this.userRepository.findByAccountId(
-      admin.account_id,
+    const collaborators = await this.userRepository.findByOwnerId(
+      admin.ownerId,
       skip,
       take,
     );
@@ -597,7 +486,7 @@ export class UsersService {
       email: data.email,
     });
     if (emailFound) {
-      if (!emailFound.deleted_at) {
+      if (!emailFound.deletedAt) {
         throw new BadRequestException('Email já está em uso');
       }
       // Usuário soft-deletado com email original (deletado antes da anonimização automática)
@@ -615,16 +504,7 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
 
-    // Se é médico, verificar limite do plano
-    const isDoctor = data.is_doctor || false;
-    if (isDoctor) {
-      const canAdd = await this.canAddDoctor(adminId);
-      if (!canAdd) {
-        throw new BadRequestException(
-          'Limite de médicos do plano atingido. Faça upgrade para adicionar mais médicos.',
-        );
-      }
-    }
+    const isDoctor = data.isDoctor || false;
 
     // Gera uma senha aleatória apenas para satisfazer o schema — o colaborador
     // nunca saberá esta senha; ela será substituída ao definir a senha pelo link.
@@ -639,8 +519,8 @@ export class UsersService {
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
         password: await bcrypt.hash(placeholderPassword, 10),
-        account_id: admin.account_id,
-        admin_id: adminId,
+        ownerId: admin.ownerId,
+        adminId: adminId,
       });
     } catch (err) {
       if (err instanceof QueryFailedError) {
@@ -655,27 +535,27 @@ export class UsersService {
       throw err;
     }
 
-    // Se é médico, criar doctor_profile
-    if (isDoctor && data.crm && data.crm_state) {
+    // Se é médico, criar doctorProfile
+    if (isDoctor && data.crm && data.crmState) {
       await this.doctorProfileRepository.create({
-        user_id: newUser.id,
+        userId: newUser.id,
         crm: data.crm,
-        crm_state: data.crm_state,
+        crmState: data.crmState,
         specialty: data.specialty || null,
       });
     }
 
     // Gera token de convite (recovery code) válido por 72 horas
     await this.recoveryCodeRepository.deleteMany({
-      user_id: newUser.id,
+      userId: newUser.id,
       used: false,
     });
     const inviteToken = generateValidationCode(6);
     await this.recoveryCodeRepository.create({
-      user_id: newUser.id,
+      userId: newUser.id,
       used: false,
       code: inviteToken,
-      expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000), // 72 horas
+      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000), // 72 horas
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
@@ -715,7 +595,7 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.admin_id !== adminId)
+    if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
     // Verifica email duplicado
@@ -736,14 +616,7 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
 
-    // Se está marcando como médico e não era antes, verificar limite
-    const hasProfile = !!collaborator.doctor_profile;
-    if (data.is_doctor === true && !hasProfile) {
-      const canAdd = await this.canAddDoctor(adminId);
-      if (!canAdd) {
-        throw new BadRequestException('Limite de médicos do plano atingido.');
-      }
-    }
+    const hasProfile = !!collaborator.doctorProfile;
 
     // Campos do usuário base
     const updates: Partial<User> = {};
@@ -752,59 +625,59 @@ export class UsersService {
     if (data.phone !== undefined) updates.phone = data.phone;
     if (data.cep !== undefined) updates.cep = data.cep;
     if (data.address !== undefined) updates.address = data.address;
-    if (data.address_number !== undefined)
-      updates.address_number = data.address_number;
-    if (data.address_complement !== undefined)
-      updates.address_complement = data.address_complement;
+    if (data.addressNumber !== undefined)
+      updates.addressNumber = data.addressNumber;
+    if (data.addressComplement !== undefined)
+      updates.addressComplement = data.addressComplement;
     if (data.city !== undefined) updates.city = data.city;
     if (data.state !== undefined) updates.state = data.state;
 
-    // Gestão do doctor_profile
-    if (data.is_doctor !== undefined) {
-      if (data.is_doctor && !hasProfile) {
-        // Criar doctor_profile
+    // Gestão do doctorProfile
+    if (data.isDoctor !== undefined) {
+      if (data.isDoctor && !hasProfile) {
+        // Criar doctorProfile
         await this.doctorProfileRepository.create({
-          user_id: collaboratorId,
+          userId: collaboratorId,
           crm: data.crm || '',
-          crm_state: data.crm_state || '',
+          crmState: data.crmState || '',
           specialty: data.specialty || null,
         });
-      } else if (!data.is_doctor && hasProfile) {
-        // Remover doctor_profile
+      } else if (!data.isDoctor && hasProfile) {
+        // Remover doctorProfile
         await this.doctorProfileRepository.delete(
-          collaborator.doctor_profile.id,
+          collaborator.doctorProfile.id,
         );
-      } else if (data.is_doctor && hasProfile) {
-        // Atualizar doctor_profile
+      } else if (data.isDoctor && hasProfile) {
+        // Atualizar doctorProfile
         const profileUpdates: Partial<DoctorProfile> = {};
         if (data.crm !== undefined) profileUpdates.crm = data.crm;
-        if (data.crm_state !== undefined)
-          profileUpdates.crm_state = data.crm_state;
+        if (data.crmState !== undefined)
+          profileUpdates.crmState = data.crmState;
         if (data.specialty !== undefined)
           profileUpdates.specialty = data.specialty;
         if (Object.keys(profileUpdates).length > 0) {
           await this.doctorProfileRepository.update(
-            collaborator.doctor_profile.id,
+            collaborator.doctorProfile.id,
             profileUpdates,
           );
         }
       }
     } else {
-      // Atualizar campos médicos no doctor_profile se existem
+      // Atualizar campos médicos no doctorProfile se existem
       if (
         hasProfile &&
         (data.crm !== undefined ||
-          data.crm_state !== undefined ||
+          data.crmState !== undefined ||
           data.specialty !== undefined)
       ) {
         const profileUpdates: Partial<DoctorProfile> = {};
         if (data.crm !== undefined) profileUpdates.crm = data.crm;
-        if (data.crm_state !== undefined)
-          profileUpdates.crm_state = data.crm_state;
+        if (data.crmState !== undefined)
+          profileUpdates.crmState = data.crmState;
         if (data.specialty !== undefined)
           profileUpdates.specialty = data.specialty;
         await this.doctorProfileRepository.update(
-          collaborator.doctor_profile.id,
+          collaborator.doctorProfile.id,
           profileUpdates,
         );
       }
@@ -824,7 +697,7 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.admin_id !== adminId)
+    if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
     // Anonimiza email e telefone antes do soft-delete para liberar as constraints únicas,
@@ -840,7 +713,7 @@ export class UsersService {
   // ============ MÉDICOS DA CONTA ============
 
   /**
-   * Lista médicos da conta (users com doctor_profile na mesma conta)
+   * Lista médicos da conta (users com doctorProfile na mesma conta)
    */
   async findDoctors(userId: string) {
     const admin = await this.userRepository.findOne({ id: userId });
@@ -848,8 +721,8 @@ export class UsersService {
     if (admin.role !== UserRole.ADMIN)
       throw new ForbiddenException('Apenas admins podem listar médicos');
 
-    const doctors = await this.userRepository.findDoctorsByAccountId(
-      admin.account_id,
+    const doctors = await this.userRepository.findDoctorsByOwnerId(
+      admin.ownerId,
     );
 
     return {
@@ -872,7 +745,7 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.admin_id !== adminId)
+    if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
     const newStatus =
@@ -898,7 +771,7 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.admin_id !== adminId)
+    if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
     const hashed = await bcrypt.hash(newPassword, 10);
@@ -907,7 +780,7 @@ export class UsersService {
   }
 
   /**
-   * Detalhes de um colaborador (dados + doctor_profile + user_doctor_access)
+   * Detalhes de um colaborador (dados + doctorProfile + user_doctor_access)
    */
   async findCollaboratorById(collaboratorId: string, adminId: string) {
     const admin = await this.userRepository.findOne({ id: adminId });
@@ -921,7 +794,7 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.account_id !== admin.account_id)
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
     // Buscar vínculos com médicos
@@ -932,8 +805,8 @@ export class UsersService {
 
     return {
       ...userWithoutPassword,
-      is_doctor: !!collaborator.doctor_profile,
-      doctor_accesses: accesses,
+      isDoctor: !!collaborator.doctorProfile,
+      doctorAccesses: accesses,
     };
   }
 
@@ -981,16 +854,16 @@ export class UsersService {
       throw new ForbiddenException('Apenas médicos podem configurar cabeçalho');
 
     const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
-      logo_position: dto.logo_position ?? 'left',
+      logoPosition: dto.logoPosition ?? 'left',
     };
 
-    if (dto.logo_url !== undefined) {
-      data.logo_url = dto.logo_url;
+    if (dto.logoUrl !== undefined) {
+      data.logoUrl = dto.logoUrl;
     }
 
-    if (dto.content_html !== undefined) {
-      data.content_html = dto.content_html
-        ? this.sanitizeHeaderHtml(dto.content_html)
+    if (dto.contentHtml !== undefined) {
+      data.contentHtml = dto.contentHtml
+        ? this.sanitizeHeaderHtml(dto.contentHtml)
         : null;
     }
 

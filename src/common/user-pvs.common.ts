@@ -7,7 +7,7 @@ import { UserRole } from 'src/database/entities/user.entity';
  * - ADMIN: Administrador da conta
  * - COLLABORATOR: Colaborador
  *
- * "Médico" não é um role — é definido pela existência de doctor_profile.
+ * "Médico" não é um role — é definido pela existência de doctorProfile.
  */
 export default {
   admin: UserRole.ADMIN,

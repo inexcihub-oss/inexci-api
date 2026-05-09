@@ -18,11 +18,11 @@ export class ConversationService {
   async getOrCreateConversation(
     phone: string,
     userId: string | null,
-    accountId?: string | null,
+    ownerId?: string | null,
   ): Promise<WhatsappConversation> {
     const conv = await this.conversationRepo.findActiveByPhone(
       phone,
-      accountId || undefined,
+      ownerId || undefined,
     );
 
     if (conv && !this.isExpired(conv)) {
@@ -36,8 +36,7 @@ export class ConversationService {
     return this.conversationRepo.create({
       phone,
       userId,
-      accountId: accountId || null,
-      messagesHistory: [],
+      ownerId: ownerId || null,
       startedAt: new Date(),
       lastMessageAt: new Date(),
       active: true,
@@ -72,8 +71,10 @@ export class ConversationService {
     if (!conv) return;
 
     const now = new Date();
+    // Histórico bruto vive em `whatsapp_conversation_messages`. Apagamos as
+    // mensagens da conversa para "zerar" o contexto do LLM no próximo turno.
+    await this.messageRepo.deleteByConversation(conversationId);
     await this.conversationRepo.update(conversationId, {
-      messagesHistory: [],
       startedAt: now,
       lastMessageAt: now,
       conversationSummary: null,

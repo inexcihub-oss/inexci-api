@@ -95,8 +95,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
       id: 'user-1',
-      ai_consent_version: '1.0',
-      ai_consent_at: new Date('2026-01-01T00:00:00Z'),
+      aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
     });
     accessControlMock.getAccessibleDoctorIds.mockResolvedValue(['doctor-1']);
 
@@ -130,7 +129,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           memory_tokens: 0,
           rag_tokens: 0,
           recent_tokens: 5,
-          total_tokens: 10,
+          totalTokens: 10,
         },
         strategy: 'hybrid',
         recentCount: (conversation?.messagesHistory ?? []).length,
@@ -149,7 +148,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
     surgeryRequestRepoMock.findOneSimple.mockResolvedValue({
       id: 'req-1',
-      doctor_id: 'doctor-1',
+      doctorId: 'doctor-1',
     });
     aiTokenUsageLogRepoMock.create.mockResolvedValue(undefined);
     whatsappMediaServiceMock.isAudioMime.mockImplementation(
@@ -179,7 +178,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       type: 'function',
       function: {
         name: 'confirm_date',
-        arguments: JSON.stringify({ surgery_request_id: 'req-1' }),
+        arguments: JSON.stringify({ surgeryRequestId: 'req-1' }),
       },
     };
 
@@ -412,8 +411,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         if (phone === '(31) 98908-5791') {
           return {
             id: 'user-1',
-            ai_consent_version: '1.0',
-            ai_consent_at: new Date('2026-01-01'),
+            aiConsentAcceptedAt: new Date('2026-01-01'),
           };
         }
         return null;
@@ -446,8 +444,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         if (phone === '(31) 98908-5791') {
           return {
             id: 'user-1',
-            ai_consent_version: '1.0',
-            ai_consent_at: new Date('2026-01-01'),
+            aiConsentAcceptedAt: new Date('2026-01-01'),
           };
         }
         return null;
@@ -513,7 +510,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       function: {
         name: 'update_request_admin_data',
         arguments: JSON.stringify({
-          surgery_request_id: 'req-1',
+          surgeryRequestId: 'req-1',
           confirm: true,
         }),
       },
@@ -662,8 +659,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const sentToWhatsapp = (whatsappServiceMock.sendMessage as jest.Mock).mock
-        .calls.at(-1)?.[1] as string;
+      const sentToWhatsapp = (
+        whatsappServiceMock.sendMessage as jest.Mock
+      ).mock.calls.at(-1)?.[1] as string;
       expect(sentToWhatsapp).not.toMatch(/\{\{[a-z_]+_\d+\}\}/i);
       expect(sentToWhatsapp).toContain('essa solicitação');
     });
@@ -727,7 +725,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           memory_tokens: 0,
           rag_tokens: 0,
           recent_tokens: 5,
-          total_tokens: 10,
+          totalTokens: 10,
         },
         strategy: 'hybrid',
         recentCount: 1,
@@ -809,8 +807,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           return [
             {
               toolCallId: 'call-list',
-              output:
-                '• {{protocol_1}} — {{patient_name_1}} — Finalizada',
+              output: '• {{protocol_1}} — {{patient_name_1}} — Finalizada',
             },
           ];
         },
@@ -839,8 +836,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const turn1Sent = (whatsappServiceMock.sendMessage as jest.Mock).mock
-        .calls.at(-1)?.[1] as string;
+      const turn1Sent = (
+        whatsappServiceMock.sendMessage as jest.Mock
+      ).mock.calls.at(-1)?.[1] as string;
       expect(turn1Sent).toContain('SC-0042');
       expect(turn1Sent).toContain('João Silva');
       expect(turn1Sent).not.toContain('{{protocol_1}}');
@@ -849,8 +847,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       // Reapaga o cooldown e re-injeta o usuário com consent válido.
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-1',
-        ai_consent_version: '1.0',
-        ai_consent_at: new Date('2026-01-01T00:00:00Z'),
+        aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
       });
       accessControlMock.getAccessibleDoctorIds.mockResolvedValue(['doctor-1']);
       conversationServiceMock.getOrCreateConversation.mockResolvedValue({
@@ -881,8 +878,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const turn2Sent = (whatsappServiceMock.sendMessage as jest.Mock).mock
-        .calls.at(-1)?.[1] as string;
+      const turn2Sent = (
+        whatsappServiceMock.sendMessage as jest.Mock
+      ).mock.calls.at(-1)?.[1] as string;
       expect(turn2Sent).toContain('SC-0042');
       expect(turn2Sent).toContain('João Silva');
       expect(turn2Sent).not.toContain('{{protocol_1}}');
@@ -942,9 +940,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
             'SC-9999',
             'protocol',
           );
-          return [
-            { toolCallId: 'call-list', output: '• {{protocol_1}}' },
-          ];
+          return [{ toolCallId: 'call-list', output: '• {{protocol_1}}' }];
         },
       );
 
@@ -978,6 +974,93 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       );
     });
 
+    it('não bloqueia turno seguinte quando assistant histórico contém exemplo de telefone (regressão print 2026-05-09)', async () => {
+      // Reproduz o cenário do print: o assistant escreveu literalmente
+      // "ex: 31 99999-9999" em uma resposta anterior; antes da correção,
+      // `assertNoResidualPii` detectava esse texto no histórico e bloqueava
+      // todos os turnos seguintes com a notice "Detectei um dado sensível...".
+      defaultContextServiceMock.buildContext.mockResolvedValueOnce({
+        messages: [
+          { role: 'system', content: 'system' },
+          {
+            role: 'assistant',
+            content:
+              'Forneça os dados no formato: 1 - Telefone (ex: 31 99999-9999) 2 - CPF (somente dígitos).',
+          },
+          { role: 'user', content: 'pode prosseguir' },
+        ],
+        breakdown: {
+          system_tokens: 5,
+          summary_tokens: 0,
+          memory_tokens: 0,
+          rag_tokens: 0,
+          recent_tokens: 5,
+          totalTokens: 10,
+        },
+        strategy: 'hybrid',
+        recentCount: 2,
+      });
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: 'Confirmado, pode prosseguir.',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'pode prosseguir',
+        messageSid: 'SM-PII-ASSISTANT-EXAMPLE',
+        mediaUrl: null,
+      });
+
+      expect(openaiServiceMock.chatCompletion).toHaveBeenCalled();
+      expect(piiRedactionLogRepoMock.create).not.toHaveBeenCalled();
+      expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        'Confirmado, pode prosseguir.',
+      );
+    });
+
+    it('sanitiza CPF/telefone literais em respostas do assistant antes de salvar no histórico', async () => {
+      const captured: any[] = [];
+      conversationServiceMock.appendMessage.mockImplementation(
+        async (_id: string, role: string, content: string) => {
+          captured.push({ role, content });
+        },
+      );
+
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content:
+                'Forneça os dados no formato: telefone (ex: 31 99999-9999) e CPF 123.456.789-00.',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'criar paciente',
+        messageSid: 'SM-PII-ASSIST-MASK',
+        mediaUrl: null,
+      });
+
+      const assistantSaved = captured.find((m) => m.role === 'assistant');
+      expect(assistantSaved).toBeDefined();
+      expect(assistantSaved.content).not.toContain('31 99999-9999');
+      expect(assistantSaved.content).not.toContain('123.456.789-00');
+      expect(assistantSaved.content).toContain('(DDD) NNNNN-NNNN');
+      expect(assistantSaved.content).toContain('XXX.XXX.XXX-XX');
+    });
+
     it('não dispara notice de PII por causa do telefone do usuário no contexto (regressão)', async () => {
       // Reproduz o bloco real produzido por ConversationContextService.buildContext:
       // antes da correção, "Telefone=+5511999999999" era detectado como PII residual
@@ -997,7 +1080,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           memory_tokens: 0,
           rag_tokens: 0,
           recent_tokens: 5,
-          total_tokens: 10,
+          totalTokens: 10,
         },
         strategy: 'hybrid',
         recentCount: 1,
@@ -1025,11 +1108,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   });
 
   describe('Consentimento de IA (T0.15)', () => {
-    it('bloqueia processamento e envia mensagem padrão quando ai_consent_version está ausente', async () => {
+    it('bloqueia processamento e envia mensagem padrão quando aiConsentAcceptedAt está ausente', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
-        ai_consent_version: null,
-        ai_consent_at: null,
+        aiConsentAcceptedAt: null,
       });
 
       await service.processMessage({
@@ -1049,29 +1131,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(sentBody).toContain('configuracoes/privacidade');
     });
 
-    it('bloqueia processamento quando ai_consent_version tem MAJOR diferente do vigente', async () => {
-      userRepositoryMock.findOneByPhone.mockResolvedValue({
-        id: 'user-old-consent',
-        ai_consent_version: '0.9',
-        ai_consent_at: new Date('2025-01-01'),
-      });
-
-      await service.processMessage({
-        from: 'whatsapp:+5511977776666',
-        body: 'oi',
-        messageSid: 'SM-CONSENT-2',
-        mediaUrl: null,
-      });
-
-      expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
-      expect(whatsappServiceMock.sendMessage).toHaveBeenCalledTimes(1);
-    });
-
     it('não envia a mensagem novamente dentro do cooldown para o mesmo telefone', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
-        ai_consent_version: null,
-        ai_consent_at: null,
+        aiConsentAcceptedAt: null,
       });
 
       await service.processMessage({
@@ -1108,8 +1171,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('responde via RAG (modo limitado) quando sem consent e a mensagem é uma dúvida sobre a Inexci', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
-        ai_consent_version: null,
-        ai_consent_at: null,
+        aiConsentAcceptedAt: null,
       });
       ragServiceMock.search.mockResolvedValue([
         {
@@ -1155,8 +1217,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('não tenta o modo limitado quando a mensagem contém PII (CPF, telefone, e-mail)', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
-        ai_consent_version: null,
-        ai_consent_at: null,
+        aiConsentAcceptedAt: null,
       });
 
       await service.processMessage({
@@ -1176,8 +1237,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('cai para a notice quando RAG não encontra contexto relevante', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
-        ai_consent_version: null,
-        ai_consent_at: null,
+        aiConsentAcceptedAt: null,
       });
       ragServiceMock.search.mockResolvedValue([]);
 
@@ -1282,7 +1342,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
                     function: {
                       name: 'confirm_date',
                       arguments: JSON.stringify({
-                        surgery_request_id: 'req-1',
+                        surgeryRequestId: 'req-1',
                       }),
                     },
                   },
@@ -1323,11 +1383,11 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
                       name: 'create_surgery_request_from_whatsapp',
                       arguments: JSON.stringify({
                         patient: { id: 'p-1' },
-                        surgery_request: {
+                        surgeryRequest: {
                           hospital: 'Hosp X',
-                          health_plan: 'Plano Y',
+                          healthPlan: 'Plano Y',
                         },
-                        tuss_items: [{ code: '111' }],
+                        tussItems: [{ code: '111' }],
                       }),
                     },
                   },

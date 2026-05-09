@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { QueryFailedError, EntityNotFoundError } from 'typeorm';
 import { Response, Request } from 'express';
+import { getRequestContext } from '../logging/request-context';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -46,10 +47,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
+    const requestId = getRequestContext()?.requestId ?? null;
+
     response.status(status).json({
       statusCode: status,
       message,
       ...(details && { details }),
+      ...(requestId && { requestId }),
       timestamp: new Date().toISOString(),
       path: request.url,
     });
