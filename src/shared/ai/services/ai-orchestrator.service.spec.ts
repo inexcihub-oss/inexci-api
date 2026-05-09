@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import { AiOrchestratorService } from './ai-orchestrator.service';
 import { PiiVaultService } from './pii-vault.service';
-import { ConversationContextService } from './conversation-context.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
 
 describe('AiOrchestratorService (tool-calls integration)', () => {
@@ -11,8 +10,12 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     getOrCreateConversation: jest.fn(),
     appendMessage: jest.fn(),
     resetConversationHistory: jest.fn(),
-    buildMessagesForOpenAI: jest.fn(),
-    loadRecentMessages: jest.fn(),
+    loadRecentForLlm: jest.fn(),
+  };
+  const defaultContextServiceMock = {
+    buildContext: jest.fn(),
+    shouldRefreshSummary: jest.fn().mockResolvedValue(false),
+    updateSummaryAndMemory: jest.fn().mockResolvedValue(undefined),
   };
   const toolRegistryMock = { getToolDefinitions: jest.fn() };
   const toolExecutorMock = { executeMany: jest.fn() };
@@ -87,7 +90,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       piiVault,
       piiRedactionLogRepoMock as any,
       aiRedisMock as any,
-      undefined,
+      defaultContextServiceMock as any,
     );
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
@@ -111,11 +114,32 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     conversationServiceMock.resetConversationHistory.mockResolvedValue(
       undefined,
     );
-    conversationServiceMock.loadRecentMessages.mockResolvedValue([]);
-    conversationServiceMock.buildMessagesForOpenAI.mockReturnValue([
-      { role: 'system', content: 'system' },
-      { role: 'user', content: 'mensagem' },
-    ]);
+    conversationServiceMock.loadRecentForLlm.mockResolvedValue([]);
+    defaultContextServiceMock.buildContext.mockImplementation(
+      async ({ conversation }: any) => ({
+        messages: [
+          { role: 'system', content: 'system' },
+          ...(conversation?.messagesHistory ?? []).map((m: any) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        ],
+        breakdown: {
+          system_tokens: 5,
+          summary_tokens: 0,
+          memory_tokens: 0,
+          rag_tokens: 0,
+          recent_tokens: 5,
+          total_tokens: 10,
+        },
+        strategy: 'hybrid',
+        recentCount: (conversation?.messagesHistory ?? []).length,
+      }),
+    );
+    defaultContextServiceMock.shouldRefreshSummary.mockResolvedValue(false);
+    defaultContextServiceMock.updateSummaryAndMemory.mockResolvedValue(
+      undefined,
+    );
 
     ragServiceMock.search.mockResolvedValue([]);
     ragServiceMock.formatContext.mockResolvedValue('');
@@ -614,17 +638,37 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   });
 
   describe('Pseudonimização de PII (Fase 0)', () => {
-    it('tokeniza CPF do input antes de enviar à OpenAI e detokeniza no WhatsApp', async () => {
-      conversationServiceMock.buildMessagesForOpenAI.mockImplementation(
-        (conversation: any) => {
-          const history = conversation?.messagesHistory ?? [];
-          return [
-            { role: 'system', content: 'system' },
-            ...history.map((m: any) => ({ role: m.role, content: m.content })),
-          ];
-        },
-      );
+    it('limpa placeholders alucinados pela IA quando não há binding correspondente no vault', async () => {
+      // Cenário do print do bug: a IA escreveu "{{protocol_1}}" sem que esse
+      // placeholder tivesse sido tokenizado pela tool no turno atual (nem
+      // restaurado de turnos anteriores). Antes da limpeza defensiva, o
+      // usuário recebia o placeholder cru no WhatsApp.
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content:
+                'Não consegui localizar a solicitação com o protocolo {{protocol_1}}.',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
 
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'solicitação 1',
+        messageSid: 'SM-PII-LEAK',
+        mediaUrl: null,
+      });
+
+      const sentToWhatsapp = (whatsappServiceMock.sendMessage as jest.Mock).mock
+        .calls.at(-1)?.[1] as string;
+      expect(sentToWhatsapp).not.toMatch(/\{\{[a-z_]+_\d+\}\}/i);
+      expect(sentToWhatsapp).toContain('essa solicitação');
+    });
+
+    it('tokeniza CPF do input antes de enviar à OpenAI e detokeniza no WhatsApp', async () => {
       const capturedHistory: any[] = [];
       conversationServiceMock.appendMessage.mockImplementation(
         async (_id: string, role: string, content: string) => {
@@ -672,11 +716,22 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('bloqueia chamada à OpenAI quando o histórico contém PII residual e registra no log', async () => {
-      conversationServiceMock.buildMessagesForOpenAI.mockReturnValue([
-        { role: 'system', content: 'system' },
-        // Mensagem contaminada com CPF cru (não veio do preprocessor)
-        { role: 'user', content: 'CPF: 123.456.789-00' },
-      ]);
+      defaultContextServiceMock.buildContext.mockResolvedValueOnce({
+        messages: [
+          { role: 'system', content: 'system' },
+          { role: 'user', content: 'CPF: 123.456.789-00' },
+        ],
+        breakdown: {
+          system_tokens: 5,
+          summary_tokens: 0,
+          memory_tokens: 0,
+          rag_tokens: 0,
+          recent_tokens: 5,
+          total_tokens: 10,
+        },
+        strategy: 'hybrid',
+        recentCount: 1,
+      });
 
       await service.processMessage({
         from: 'whatsapp:+5511999999999',
@@ -697,6 +752,274 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
         '+5511999999999',
         expect.stringContaining('dado sensível'),
+      );
+    });
+
+    it('persiste bindings do vault entre turnos para evitar placeholders órfãos no WhatsApp', async () => {
+      // Reproduz o bug: turno 1 tokeniza protocols/patient_names, salva no
+      // histórico; turno 2 reaproveita placeholders mas a sessão do vault é
+      // nova. Sem persistência de bindings, o detokenize devolveria texto
+      // com `{{protocol_1}}` cru (exatamente o que o usuário viu).
+      const piiVaultStore = new PiiVaultService();
+      service = new AiOrchestratorService(
+        queueMock as any,
+        openaiServiceMock as any,
+        conversationServiceMock as any,
+        toolRegistryMock as any,
+        toolExecutorMock as any,
+        ragServiceMock as any,
+        whatsappServiceMock as any,
+        userRepositoryMock as any,
+        accessControlMock as any,
+        pendencyValidatorMock as any,
+        surgeryRequestRepoMock as any,
+        aiTokenUsageLogRepoMock as any,
+        configServiceMock as any,
+        transcriptionServiceMock as any,
+        whatsappMediaServiceMock as any,
+        piiVaultStore,
+        piiRedactionLogRepoMock as any,
+        aiRedisMock as any,
+        defaultContextServiceMock as any,
+      );
+
+      const tool: OpenAI.ChatCompletionMessageToolCall = {
+        id: 'call-list',
+        type: 'function',
+        function: {
+          name: 'list_surgery_requests',
+          arguments: JSON.stringify({}),
+        },
+      };
+
+      // Turno 1: tool tokeniza diretamente no vault (como em produção) e o
+      // LLM responde reaproveitando os placeholders.
+      toolExecutorMock.executeMany.mockImplementationOnce(
+        async (_calls: any[], context: any) => {
+          context.piiVault.tokenize(
+            context.conversationId,
+            'SC-0042',
+            'protocol',
+          );
+          context.piiVault.tokenize(
+            context.conversationId,
+            'João Silva',
+            'patient_name',
+          );
+          return [
+            {
+              toolCallId: 'call-list',
+              output:
+                '• {{protocol_1}} — {{patient_name_1}} — Finalizada',
+            },
+          ];
+        },
+      );
+
+      openaiServiceMock.chatCompletion
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: null, tool_calls: [tool] } }],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content:
+                  'Encontrei: 1 - {{protocol_1}} — {{patient_name_1}} — Finalizada',
+                tool_calls: null,
+              },
+            },
+          ],
+        });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'minhas solicitações',
+        messageSid: 'SM-PERSIST-1',
+        mediaUrl: null,
+      });
+
+      const turn1Sent = (whatsappServiceMock.sendMessage as jest.Mock).mock
+        .calls.at(-1)?.[1] as string;
+      expect(turn1Sent).toContain('SC-0042');
+      expect(turn1Sent).toContain('João Silva');
+      expect(turn1Sent).not.toContain('{{protocol_1}}');
+
+      jest.clearAllMocks();
+      // Reapaga o cooldown e re-injeta o usuário com consent válido.
+      userRepositoryMock.findOneByPhone.mockResolvedValue({
+        id: 'user-1',
+        ai_consent_version: '1.0',
+        ai_consent_at: new Date('2026-01-01T00:00:00Z'),
+      });
+      accessControlMock.getAccessibleDoctorIds.mockResolvedValue(['doctor-1']);
+      conversationServiceMock.getOrCreateConversation.mockResolvedValue({
+        id: 'conv-1',
+        phone: '+5511999999999',
+        userId: 'user-1',
+        messagesHistory: [],
+      });
+
+      // Turno 2: LLM responde DIRETO citando os placeholders do histórico,
+      // sem chamar tool (cenário real do bug).
+      openaiServiceMock.chatCompletion.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content:
+                'A SC mais recente é {{protocol_1}} do paciente {{patient_name_1}}.',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'qual a sc mais recente?',
+        messageSid: 'SM-PERSIST-2',
+        mediaUrl: null,
+      });
+
+      const turn2Sent = (whatsappServiceMock.sendMessage as jest.Mock).mock
+        .calls.at(-1)?.[1] as string;
+      expect(turn2Sent).toContain('SC-0042');
+      expect(turn2Sent).toContain('João Silva');
+      expect(turn2Sent).not.toContain('{{protocol_1}}');
+      expect(turn2Sent).not.toContain('{{patient_name_1}}');
+    });
+
+    it('persiste bindings via Redis quando disponível', async () => {
+      const piiVaultStore = new PiiVaultService();
+      const redisStore = new Map<string, any>();
+      const redisAvailableMock = {
+        ...aiRedisMock,
+        isAvailable: true,
+        cacheGet: jest.fn(async (key: string) => redisStore.get(key) ?? null),
+        cacheSet: jest.fn(async (key: string, value: any) => {
+          redisStore.set(key, value);
+        }),
+        cacheDelete: jest.fn(async (key: string) => {
+          redisStore.delete(key);
+        }),
+      };
+
+      service = new AiOrchestratorService(
+        queueMock as any,
+        openaiServiceMock as any,
+        conversationServiceMock as any,
+        toolRegistryMock as any,
+        toolExecutorMock as any,
+        ragServiceMock as any,
+        whatsappServiceMock as any,
+        userRepositoryMock as any,
+        accessControlMock as any,
+        pendencyValidatorMock as any,
+        surgeryRequestRepoMock as any,
+        aiTokenUsageLogRepoMock as any,
+        configServiceMock as any,
+        transcriptionServiceMock as any,
+        whatsappMediaServiceMock as any,
+        piiVaultStore,
+        piiRedactionLogRepoMock as any,
+        redisAvailableMock as any,
+        defaultContextServiceMock as any,
+      );
+
+      const tool: OpenAI.ChatCompletionMessageToolCall = {
+        id: 'call-list',
+        type: 'function',
+        function: {
+          name: 'list_surgery_requests',
+          arguments: JSON.stringify({}),
+        },
+      };
+
+      toolExecutorMock.executeMany.mockImplementationOnce(
+        async (_calls: any[], context: any) => {
+          context.piiVault.tokenize(
+            context.conversationId,
+            'SC-9999',
+            'protocol',
+          );
+          return [
+            { toolCallId: 'call-list', output: '• {{protocol_1}}' },
+          ];
+        },
+      );
+
+      openaiServiceMock.chatCompletion
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: null, tool_calls: [tool] } }],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            { message: { content: '1 - {{protocol_1}}', tool_calls: null } },
+          ],
+        });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'minhas solicitações',
+        messageSid: 'SM-REDIS-1',
+        mediaUrl: null,
+      });
+
+      expect(redisAvailableMock.cacheSet).toHaveBeenCalledWith(
+        expect.stringContaining('pii:vault:conv-1'),
+        expect.arrayContaining([
+          expect.objectContaining({
+            token: '{{protocol_1}}',
+            category: 'protocol',
+            realValue: 'SC-9999',
+          }),
+        ]),
+        expect.any(Number),
+      );
+    });
+
+    it('não dispara notice de PII por causa do telefone do usuário no contexto (regressão)', async () => {
+      // Reproduz o bloco real produzido por ConversationContextService.buildContext:
+      // antes da correção, "Telefone=+5511999999999" era detectado como PII residual
+      // e qualquer mensagem (até "olá") respondia com a notice "Detectei um dado sensível".
+      defaultContextServiceMock.buildContext.mockResolvedValueOnce({
+        messages: [
+          { role: 'system', content: 'system' },
+          {
+            role: 'system',
+            content: 'USUÁRIO ATUAL: ID=user-1, Telefone={{phone_1}}',
+          },
+          { role: 'user', content: 'olá' },
+        ],
+        breakdown: {
+          system_tokens: 5,
+          summary_tokens: 0,
+          memory_tokens: 0,
+          rag_tokens: 0,
+          recent_tokens: 5,
+          total_tokens: 10,
+        },
+        strategy: 'hybrid',
+        recentCount: 1,
+      });
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [
+          { message: { content: 'Olá, como posso ajudar?', tool_calls: null } },
+        ],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'olá',
+        messageSid: 'SM-PII-USER-PHONE',
+        mediaUrl: null,
+      });
+
+      expect(openaiServiceMock.chatCompletion).toHaveBeenCalled();
+      expect(piiRedactionLogRepoMock.create).not.toHaveBeenCalled();
+      expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        'Olá, como posso ajudar?',
       );
     });
   });
@@ -899,107 +1222,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     );
   });
 
-  describe('Plano Tokens (Fase 4) — contexto híbrido + slot-filling', () => {
-    function buildHybridService(
-      contextOverride: Partial<ConversationContextService> = {},
-    ) {
-      const contextServiceMock: any = {
-        buildContext: jest.fn().mockResolvedValue({
-          messages: [
-            { role: 'system', content: 'system' },
-            { role: 'system', content: 'RESUMO DA CONVERSA: paciente Maria' },
-            { role: 'user', content: 'criar SC' },
-          ],
-          breakdown: {
-            system_tokens: 50,
-            summary_tokens: 30,
-            memory_tokens: 20,
-            rag_tokens: 0,
-            recent_tokens: 10,
-            total_tokens: 110,
-          },
-          strategy: 'hybrid',
-          recentCount: 1,
-        }),
-        shouldRefreshSummary: jest.fn().mockResolvedValue(false),
-        updateSummaryAndMemory: jest.fn().mockResolvedValue(undefined),
-        ...contextOverride,
-      };
-
-      const localConfig: any = {
-        get: jest.fn((key: string, def?: any) => {
-          if (key === 'AI_CONTEXT_STRATEGY') return 'hybrid';
-          if (key === 'AI_RESPONSE_MAX_TOKENS') return 450;
-          if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
-          if (key === 'AI_AUDIO_ENABLED') return 'true';
-          return def;
-        }),
-      };
-
-      return new AiOrchestratorService(
-        queueMock as any,
-        openaiServiceMock as any,
-        conversationServiceMock as any,
-        toolRegistryMock as any,
-        toolExecutorMock as any,
-        ragServiceMock as any,
-        whatsappServiceMock as any,
-        userRepositoryMock as any,
-        accessControlMock as any,
-        pendencyValidatorMock as any,
-        surgeryRequestRepoMock as any,
-        aiTokenUsageLogRepoMock as any,
-        localConfig,
-        transcriptionServiceMock as any,
-        whatsappMediaServiceMock as any,
-        piiVault,
-        piiRedactionLogRepoMock as any,
-        aiRedisMock as any,
-        contextServiceMock,
-      );
-    }
-
-    it('usa ConversationContextService.buildContext quando estratégia é hybrid', async () => {
-      const ctxMock: any = {
-        buildContext: jest.fn().mockResolvedValue({
-          messages: [
-            { role: 'system', content: 'system' },
-            { role: 'user', content: 'oi' },
-          ],
-          breakdown: {
-            system_tokens: 5,
-            summary_tokens: 0,
-            memory_tokens: 0,
-            rag_tokens: 0,
-            recent_tokens: 5,
-            total_tokens: 10,
-          },
-          strategy: 'hybrid',
-          recentCount: 1,
-        }),
-        shouldRefreshSummary: jest.fn().mockResolvedValue(false),
-        updateSummaryAndMemory: jest.fn().mockResolvedValue(undefined),
-      };
-      const hybridService = buildHybridService(ctxMock);
-
-      openaiServiceMock.chatCompletion.mockResolvedValue({
-        choices: [{ message: { content: 'oi de volta', tool_calls: null } }],
-      });
-
-      await hybridService.processMessage({
-        from: 'whatsapp:+5511999999999',
-        body: 'oi',
-        messageSid: 'SM-HYBRID-1',
-        mediaUrl: null,
-      });
-
-      expect(ctxMock.buildContext).toHaveBeenCalled();
-      // Comportamento legado NÃO foi acionado.
-      expect(
-        conversationServiceMock.buildMessagesForOpenAI,
-      ).not.toHaveBeenCalled();
-    });
-
+  describe('Plano Tokens (Fase 4) — slot-filling', () => {
     it('slot-filling bloqueia create_surgery_request_from_whatsapp quando faltar slot e pergunta o slot', async () => {
       conversationServiceMock.getOrCreateConversation.mockResolvedValue({
         id: 'conv-1',
@@ -1009,7 +1232,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         conversationMemory: { filled_slots: { 'patient.id': 'p-1' } },
       });
 
-      const hybridService = buildHybridService();
       openaiServiceMock.chatCompletion.mockResolvedValueOnce({
         choices: [
           {
@@ -1032,7 +1254,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         ],
       });
 
-      await hybridService.processMessage({
+      await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'criar SC',
         messageSid: 'SM-SLOT-1',
@@ -1047,7 +1269,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('slot-filling não bloqueia tool não-mutativa de criação', async () => {
-      const hybridService = buildHybridService();
       openaiServiceMock.chatCompletion
         .mockResolvedValueOnce({
           choices: [
@@ -1077,7 +1298,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         { toolCallId: 'call-1', output: 'ok' },
       ]);
 
-      await hybridService.processMessage({
+      await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'confirmar',
         messageSid: 'SM-SLOT-2',
@@ -1088,7 +1309,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('slot-filling NÃO bloqueia quando todos os campos foram fornecidos', async () => {
-      const hybridService = buildHybridService();
       openaiServiceMock.chatCompletion
         .mockResolvedValueOnce({
           choices: [
@@ -1125,7 +1345,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         { toolCallId: 'call-create', output: 'criada' },
       ]);
 
-      await hybridService.processMessage({
+      await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'criar SC com tudo',
         messageSid: 'SM-SLOT-3',
@@ -1133,6 +1353,111 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       });
 
       expect(toolExecutorMock.executeMany).toHaveBeenCalled();
+    });
+  });
+
+  describe('Rate limit (janela curta configurável)', () => {
+    it('usa Redis quando disponível e respeita AI_RATELIMIT_MAX/AI_RATELIMIT_WINDOW_SEC', async () => {
+      configServiceMock.get.mockImplementation(
+        (key: string, defaultValue?: any) => {
+          if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
+          if (key === 'AI_AUDIO_ENABLED') return 'true';
+          if (key === 'AI_RATELIMIT_MAX') return 7;
+          if (key === 'AI_RATELIMIT_WINDOW_SEC') return 42;
+          return defaultValue;
+        },
+      );
+      (aiRedisMock as any).isAvailable = true;
+      aiRedisMock.checkRateLimit.mockResolvedValueOnce(true);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'ok', tool_calls: null } }],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511777776666',
+        body: 'oi',
+        messageSid: 'SM-RL-1',
+        mediaUrl: null,
+      });
+
+      expect(aiRedisMock.checkRateLimit).toHaveBeenCalledWith(
+        '+5511777776666',
+        7,
+        42,
+      );
+      (aiRedisMock as any).isAvailable = false;
+    });
+
+    it('bloqueia e responde com aviso quando excede o limite (fallback in-memory)', async () => {
+      configServiceMock.get.mockImplementation(
+        (key: string, defaultValue?: any) => {
+          if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
+          if (key === 'AI_AUDIO_ENABLED') return 'true';
+          if (key === 'AI_RATELIMIT_MAX') return 2;
+          if (key === 'AI_RATELIMIT_WINDOW_SEC') return 60;
+          return defaultValue;
+        },
+      );
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'ok', tool_calls: null } }],
+      });
+
+      const phone = '+5511666665555';
+      await service.processMessage({
+        from: `whatsapp:${phone}`,
+        body: 'msg 1',
+        messageSid: 'SM-RL-A',
+        mediaUrl: null,
+      });
+      await service.processMessage({
+        from: `whatsapp:${phone}`,
+        body: 'msg 2',
+        messageSid: 'SM-RL-B',
+        mediaUrl: null,
+      });
+
+      const sendCallsBefore = (whatsappServiceMock.sendMessage as jest.Mock)
+        .mock.calls.length;
+      const openaiCallsBefore = (openaiServiceMock.chatCompletion as jest.Mock)
+        .mock.calls.length;
+
+      await service.processMessage({
+        from: `whatsapp:${phone}`,
+        body: 'msg 3 (deve bloquear)',
+        messageSid: 'SM-RL-C',
+        mediaUrl: null,
+      });
+
+      expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(
+        openaiCallsBefore,
+      );
+      const blockCall = (whatsappServiceMock.sendMessage as jest.Mock).mock
+        .calls[sendCallsBefore];
+      expect(blockCall[0]).toBe(phone);
+      expect(blockCall[1]).toContain('ritmo muito alto');
+      expect(blockCall[1]).toContain('aguarde alguns instantes');
+    });
+
+    it('aplica defaults (20/60s) quando envs não estão definidas', async () => {
+      (aiRedisMock as any).isAvailable = true;
+      aiRedisMock.checkRateLimit.mockResolvedValueOnce(true);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'ok', tool_calls: null } }],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511555554444',
+        body: 'oi',
+        messageSid: 'SM-RL-DEF',
+        mediaUrl: null,
+      });
+
+      expect(aiRedisMock.checkRateLimit).toHaveBeenCalledWith(
+        '+5511555554444',
+        20,
+        60,
+      );
+      (aiRedisMock as any).isAvailable = false;
     });
   });
 });

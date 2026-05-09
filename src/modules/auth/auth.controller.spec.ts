@@ -73,7 +73,9 @@ describe('AuthController', () => {
   });
 
   describe('register', () => {
-    it('should set refresh_token as httpOnly cookie and exclude it from response body', async () => {
+    it('should NOT start a session and exclude refresh_token/access_token from body', async () => {
+      // O fluxo de registro exige confirmação por e-mail antes do login,
+      // então o controller descarta qualquer token retornado pelo service.
       const registerResult = {
         user: { id: 'user-2', name: 'New User' },
         access_token: 'jwt-token-2',
@@ -81,19 +83,15 @@ describe('AuthController', () => {
       };
       mockAuthService.register.mockResolvedValue(registerResult);
 
-      const res = mockResponse() as Response;
-      const result = await controller.register(
-        { name: 'New User', email: 'new@test.com', password: '123456' } as any,
-        res,
-      );
+      const result = await controller.register({
+        name: 'New User',
+        email: 'new@test.com',
+        password: '123456',
+      } as any);
 
-      expect(res.cookie).toHaveBeenCalledWith(
-        'refresh_token',
-        'rt-456',
-        expect.objectContaining({ httpOnly: true }),
-      );
       expect(result).not.toHaveProperty('refresh_token');
-      expect(result).toHaveProperty('access_token');
+      expect(result).not.toHaveProperty('access_token');
+      expect(result).toHaveProperty('user');
     });
   });
 

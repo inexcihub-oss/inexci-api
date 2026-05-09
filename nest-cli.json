@@ -8,6 +8,10 @@
       {
         "include": "**/*.hbs",
         "watchAssets": true
+      },
+      {
+        "include": "shared/legal/**/*.md",
+        "watchAssets": true
       }
     ]
   }

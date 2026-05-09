@@ -114,7 +114,8 @@ export function buildActionTools(
           properties: {
             surgery_request_id: {
               type: 'string',
-              description: 'ID da solicitação',
+              description:
+                'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
             },
             confirm: {
               type: 'boolean',
@@ -165,22 +166,20 @@ export function buildActionTools(
       if (!context.userId)
         return 'Você precisa estar cadastrado para executar esta ação.';
 
-      const request = await surgeryRequestRepo.findOneSimple({
-        id: args.surgery_request_id as string,
-      });
-
-      const detailedRequest = await surgeryRequestRepo.findOne({
-        id: args.surgery_request_id as string,
-      });
-
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
-
-      const canAdvance = await pendencyValidator.canAdvance(
-        args.surgery_request_id as string,
+      const auth = await resolveAuthorizedRequest(
+        surgeryRequestRepo,
+        args.surgery_request_id,
+        context,
       );
+      if (!auth.request) return auth.error as string;
+
+      const request = auth.request;
+      const requestId = request.id as string;
+      const detailedRequest = await surgeryRequestRepo.findOne({
+        id: requestId,
+      });
+
+      const canAdvance = await pendencyValidator.canAdvance(requestId);
       const currentLabel =
         STATUS_LABELS[request.status] || String(request.status);
       const nextStatus = NEXT_STATUS[request.status];
@@ -199,25 +198,24 @@ export function buildActionTools(
       }
 
       try {
-        // Avança conforme o status atual
         switch (request.status) {
           case 1:
             await workflowService.sendRequest(
-              args.surgery_request_id as string,
+              requestId,
               {} as any,
               context.userId,
             );
             break;
           case 2:
             await workflowService.startAnalysis(
-              args.surgery_request_id as string,
+              requestId,
               {} as any,
               context.userId,
             );
             break;
           case 3:
             await workflowService.acceptAuthorization(
-              args.surgery_request_id as string,
+              requestId,
               {} as any,
               context.userId,
             );
@@ -236,7 +234,7 @@ export function buildActionTools(
             }
 
             await workflowService.confirmDate(
-              args.surgery_request_id as string,
+              requestId,
               { selected_date_index: selectedDateIndex as number } as any,
               context.userId,
             );
@@ -252,7 +250,7 @@ export function buildActionTools(
                   : new Date().toISOString();
 
             await workflowService.markPerformed(
-              args.surgery_request_id as string,
+              requestId,
               { surgery_performed_at: performedAtRaw } as any,
               context.userId,
             );
@@ -281,7 +279,7 @@ export function buildActionTools(
             }
 
             await workflowService.invoiceRequest(
-              args.surgery_request_id as string,
+              requestId,
               {
                 invoice_protocol: invoiceProtocol,
                 invoice_value: invoiceValue,
@@ -313,7 +311,7 @@ export function buildActionTools(
             }
 
             await workflowService.confirmReceipt(
-              args.surgery_request_id as string,
+              requestId,
               {
                 received_value: receivedValue,
                 received_at: receivedAt,
@@ -326,7 +324,7 @@ export function buildActionTools(
             return `Avanço automático para o status ${nextLabel} não suportado via WhatsApp. Acesse a plataforma web.`;
         }
         await activityRepo.create({
-          surgery_request_id: args.surgery_request_id as string,
+          surgery_request_id: requestId,
           user_id: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação avançada de "${currentLabel}" para "${nextLabel}".`,
@@ -350,7 +348,8 @@ export function buildActionTools(
           properties: {
             surgery_request_id: {
               type: 'string',
-              description: 'ID da solicitação cirúrgica',
+              description:
+                'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
             },
             has_opme: {
               type: 'boolean',
@@ -368,27 +367,27 @@ export function buildActionTools(
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const request = await surgeryRequestRepo.findOneSimple({
-        id: args.surgery_request_id as string,
-      });
-
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
+      const auth = await resolveAuthorizedRequest(
+        surgeryRequestRepo,
+        args.surgery_request_id,
+        context,
+      );
+      if (!auth.request) return auth.error as string;
+      const request = auth.request;
+      const requestId = request.id as string;
 
       if (!args.confirm) {
         return `Deseja ${args.has_opme ? 'marcar' : 'desmarcar'} a solicitação ${request.protocol} como ${args.has_opme ? 'possuindo' : 'não possuindo'} OPME? Confirme com "sim".`;
       }
 
       await mutationService.setHasOpme(
-        args.surgery_request_id as string,
+        requestId,
         args.has_opme as boolean,
         context.userId,
       );
 
       await activityRepo.create({
-        surgery_request_id: args.surgery_request_id as string,
+        surgery_request_id: requestId,
         user_id: context.userId,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] OPME definido como: ${args.has_opme ? 'Sim' : 'Não'}.`,
@@ -411,7 +410,8 @@ export function buildActionTools(
           properties: {
             surgery_request_id: {
               type: 'string',
-              description: 'ID da solicitação',
+              description:
+                'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
             },
             reason: {
               type: 'string',
@@ -429,14 +429,14 @@ export function buildActionTools(
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const request = await surgeryRequestRepo.findOneSimple({
-        id: args.surgery_request_id as string,
-      });
-
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
+      const auth = await resolveAuthorizedRequest(
+        surgeryRequestRepo,
+        args.surgery_request_id,
+        context,
+      );
+      if (!auth.request) return auth.error as string;
+      const request = auth.request;
+      const requestId = request.id as string;
 
       if (!args.confirm) {
         return `⚠️ Você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${args.reason}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
@@ -444,12 +444,12 @@ export function buildActionTools(
 
       try {
         await workflowService.closeSurgeryRequest(
-          args.surgery_request_id as string,
+          requestId,
           { reason: args.reason as string } as any,
           context.userId,
         );
         await activityRepo.create({
-          surgery_request_id: args.surgery_request_id as string,
+          surgery_request_id: requestId,
           user_id: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação encerrada. Motivo: "${args.reason}".`,
@@ -481,7 +481,8 @@ export function buildActionTools(
           properties: {
             surgery_request_id: {
               type: 'string',
-              description: 'ID da solicitação cirúrgica',
+              description:
+                'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
             },
             priority: {
               type: 'number',
@@ -500,14 +501,14 @@ export function buildActionTools(
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const request = await surgeryRequestRepo.findOneSimple({
-        id: args.surgery_request_id as string,
-      });
-
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctor_id)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
+      const auth = await resolveAuthorizedRequest(
+        surgeryRequestRepo,
+        args.surgery_request_id,
+        context,
+      );
+      if (!auth.request) return auth.error as string;
+      const request = auth.request;
+      const requestId = request.id as string;
 
       if (
         args.priority !== undefined &&
@@ -531,14 +532,14 @@ export function buildActionTools(
 
       await mutationService.updateBasic(
         {
-          id: args.surgery_request_id as string,
+          id: requestId,
           priority: args.priority as SurgeryRequestPriority | undefined,
         },
         context.userId,
       );
 
       await activityRepo.create({
-        surgery_request_id: args.surgery_request_id as string,
+        surgery_request_id: requestId,
         user_id: context.userId,
         type: ActivityType.SYSTEM,
         content: `[WhatsApp IA] Dados atualizados: ${changes.join(', ')}.`,

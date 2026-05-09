@@ -25,6 +25,10 @@ const mockMessageRepo = {
 
 const mockPiiVault = {
   detectResidualPii: jest.fn().mockReturnValue([]),
+  tokenize: jest.fn(
+    (_sessionId: string, value: string, category: string) =>
+      `{{${category}_1}}` + (value ? '' : ''),
+  ),
 };
 
 function buildConversation(
@@ -51,11 +55,8 @@ function buildConversation(
 
 function buildConfig(overrides: Record<string, any> = {}): ConfigService {
   const map: Record<string, any> = {
-    AI_CONTEXT_STRATEGY: 'hybrid',
     AI_MAX_RECENT_MESSAGES: 4,
     AI_CONTEXT_TOKEN_BUDGET: 2200,
-    AI_SUMMARY_ENABLED: 'true',
-    AI_MEMORY_ENABLED: 'true',
     AI_SUMMARY_TRIGGER_EVERY_MESSAGES: 5,
     AI_SUMMARY_MAX_TOKENS: 450,
     ...overrides,
@@ -90,6 +91,10 @@ describe('ConversationContextService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockPiiVault.detectResidualPii.mockReturnValue([]);
+    mockPiiVault.tokenize.mockImplementation(
+      (_sessionId: string, _value: string, category: string) =>
+        `{{${category}_1}}`,
+    );
     const module: TestingModule = await makeService();
     service = module.get<ConversationContextService>(
       ConversationContextService,
@@ -107,29 +112,16 @@ describe('ConversationContextService', () => {
     });
   });
 
-  describe('buildContext (history_only)', () => {
-    beforeEach(async () => {
-      const module: TestingModule = await makeService({
-        AI_CONTEXT_STRATEGY: 'history_only',
-      });
-      service = module.get<ConversationContextService>(
-        ConversationContextService,
-      );
-    });
-
-    it('NÃO inclui summary nem memory na estratégia history_only', async () => {
+  describe('buildContext (circuit breaker)', () => {
+    it('degrada para history_only após 3 falhas consecutivas do sumarizador', async () => {
       mockMessageRepo.findRecentByConversation.mockResolvedValue([
-        {
-          role: 'user',
-          content: 'Oi',
-          createdAt: new Date(),
-        },
+        { role: 'user', content: 'Oi', createdAt: new Date() },
       ]);
 
       const result = await service.buildContext({
         conversation: buildConversation({
           conversationSummary: 'resumo antigo',
-          conversationMemory: { intent: 'consulta' },
+          conversationMemory: { intent: 'consulta', summary_failures: 3 },
         }),
       });
 
@@ -209,6 +201,42 @@ describe('ConversationContextService', () => {
       );
     });
 
+    it('tokeniza o telefone do usuário no bloco USUÁRIO ATUAL (regressão LGPD)', async () => {
+      mockMessageRepo.findRecentByConversation.mockResolvedValue([]);
+      const conv = buildConversation({ phone: '+5531989085791' });
+
+      const result = await service.buildContext({ conversation: conv });
+
+      const userBlock = result.messages.find(
+        (m) =>
+          typeof m.content === 'string' &&
+          m.content.startsWith('USUÁRIO ATUAL'),
+      );
+      expect(userBlock).toBeDefined();
+      const userBlockContent = userBlock?.content as string;
+      expect(userBlockContent).not.toContain('+5531989085791');
+      expect(userBlockContent).toContain('{{phone_1}}');
+      expect(mockPiiVault.tokenize).toHaveBeenCalledWith(
+        'conv-1',
+        '+5531989085791',
+        'phone',
+      );
+    });
+
+    it('não inclui campo de telefone quando conversation.phone está vazio', async () => {
+      mockMessageRepo.findRecentByConversation.mockResolvedValue([]);
+      const conv = buildConversation({ phone: '' });
+
+      const result = await service.buildContext({ conversation: conv });
+
+      const userBlock = result.messages.find(
+        (m) =>
+          typeof m.content === 'string' &&
+          m.content.startsWith('USUÁRIO ATUAL'),
+      );
+      expect(userBlock?.content).toBe('USUÁRIO ATUAL: ID=user-1');
+    });
+
     it('não corta system prompt nem memory mesmo sob orçamento apertado', async () => {
       const longContent = 'a'.repeat(20000);
       mockMessageRepo.findRecentByConversation.mockResolvedValue([
@@ -231,17 +259,6 @@ describe('ConversationContextService', () => {
   });
 
   describe('shouldRefreshSummary', () => {
-    it('retorna false em history_only', async () => {
-      const module: TestingModule = await makeService({
-        AI_CONTEXT_STRATEGY: 'history_only',
-      });
-      service = module.get(ConversationContextService);
-      mockMessageRepo.findRecentByConversation.mockResolvedValue([]);
-
-      const result = await service.shouldRefreshSummary(buildConversation());
-      expect(result).toBe(false);
-    });
-
     it('dispara quando há >= AI_SUMMARY_TRIGGER_EVERY_MESSAGES novas mensagens', async () => {
       mockMessageRepo.findRecentByConversation.mockResolvedValue(
         Array.from({ length: 6 }).map(() => ({

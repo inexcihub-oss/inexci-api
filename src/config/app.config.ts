@@ -30,7 +30,6 @@ export const envValidationSchema = Joi.object({
   SUPABASE_KEY: Joi.string().allow('').default(''),
   SUPABASE_SERVICE_KEY: Joi.string().allow('').default(''),
   SUPABASE_BUCKET: Joi.string().allow('').default('inexci-storage'),
-  SUPABASE_BUCKET_NAME: Joi.string().allow('').default('documents'),
 
   // ── Email (SMTP) ─────────────────────────────────────
   MAIL_HOST: Joi.string().allow('').default('smtp.example.com'),
@@ -45,6 +44,28 @@ export const envValidationSchema = Joi.object({
   TWILIO_ACCOUNT_SID: Joi.string().allow('').default(''),
   TWILIO_AUTH_TOKEN: Joi.string().allow('').default(''),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
+  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('true'),
+
+  // ── Security (criptografia / hash) ───────────────────
+  DB_ENCRYPTION_KEY: Joi.string().allow('').default(''),
+  PHONE_HASH_SALT: Joi.string().allow('').default('inexci-default-salt'),
+
+  // ── OpenAI / IA conversa ─────────────────────────────
+  OPENAI_API_KEY: Joi.string().allow('').default(''),
+  OPENAI_MODEL: Joi.string().allow('').default('gpt-4o'),
+  OPENAI_EMBEDDING_MODEL: Joi.string()
+    .allow('')
+    .default('text-embedding-3-small'),
+  OPENAI_REQUEST_TIMEOUT_MS: Joi.number().default(25000),
+  AI_SESSION_TIMEOUT_MINUTES: Joi.number().default(30),
+  AI_MAX_RECENT_MESSAGES: Joi.number().default(10),
+  AI_SUMMARY_TRIGGER_EVERY_MESSAGES: Joi.number().default(5),
+  AI_SUMMARY_MAX_TOKENS: Joi.number().default(450),
+  AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2200),
+  AI_RESPONSE_MAX_TOKENS: Joi.number().default(450),
+  AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
+  AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
+  CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
   // ── IA WhatsApp (Áudio/STT) ─────────────────────────
   AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),

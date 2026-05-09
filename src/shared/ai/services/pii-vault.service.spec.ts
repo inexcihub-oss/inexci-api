@@ -145,6 +145,106 @@ describe('PiiVaultService', () => {
     });
   });
 
+  describe('serializeSession / restoreSession', () => {
+    it('serializeSession devolve cópia dos bindings (JSON-safe)', () => {
+      service.tokenize(sid, 'João Silva', 'patient_name');
+      service.tokenize(sid, 'SC-0042', 'protocol');
+
+      const snapshot = service.serializeSession(sid);
+      expect(snapshot).toEqual([
+        {
+          token: '{{patient_name_1}}',
+          category: 'patient_name',
+          realValue: 'João Silva',
+        },
+        {
+          token: '{{protocol_1}}',
+          category: 'protocol',
+          realValue: 'SC-0042',
+        },
+      ]);
+
+      // Mutar o snapshot não deve afetar a sessão.
+      snapshot.push({
+        token: '{{cpf_1}}',
+        category: 'cpf',
+        realValue: '123',
+      });
+      expect(service.snapshot(sid)).toHaveLength(2);
+    });
+
+    it('restoreSession permite detokenizar placeholders salvos em turno anterior', () => {
+      // Simula bindings persistidos no turno anterior (Redis/banco).
+      const persisted = [
+        {
+          token: '{{protocol_1}}',
+          category: 'protocol' as const,
+          realValue: 'SC-0042',
+        },
+        {
+          token: '{{patient_name_1}}',
+          category: 'patient_name' as const,
+          realValue: 'João Silva',
+        },
+      ];
+
+      service.startSession('nova-sessao');
+      service.restoreSession('nova-sessao', persisted);
+
+      const text =
+        '1 - {{protocol_1}} — {{patient_name_1}} — Finalizada';
+      expect(service.detokenize('nova-sessao', text)).toBe(
+        '1 - SC-0042 — João Silva — Finalizada',
+      );
+    });
+
+    it('restoreSession é idempotente (não duplica bindings)', () => {
+      const persisted = [
+        {
+          token: '{{patient_name_1}}',
+          category: 'patient_name' as const,
+          realValue: 'João Silva',
+        },
+      ];
+
+      service.restoreSession(sid, persisted);
+      service.restoreSession(sid, persisted);
+
+      expect(service.snapshot(sid)).toHaveLength(1);
+    });
+
+    it('restoreSession ignora bindings malformados sem quebrar a sessão', () => {
+      const persisted: any[] = [
+        {
+          token: '{{patient_name_1}}',
+          category: 'patient_name',
+          realValue: 'João Silva',
+        },
+        { token: null, category: 'patient_name', realValue: 'X' },
+        { token: '{{x_1}}', category: 'patient_name', realValue: null },
+      ];
+
+      service.restoreSession('s-novo', persisted);
+      expect(service.snapshot('s-novo')).toHaveLength(1);
+    });
+
+    it('restoreSession + tokenize subsequente continua a sequência sem colidir', () => {
+      const persisted = [
+        {
+          token: '{{patient_name_1}}',
+          category: 'patient_name' as const,
+          realValue: 'João Silva',
+        },
+      ];
+
+      service.startSession('s-novo');
+      service.restoreSession('s-novo', persisted);
+
+      const next = service.tokenize('s-novo', 'Maria Souza', 'patient_name');
+      expect(next).toBe('{{patient_name_2}}');
+    });
+  });
+
   describe('categoryCounts', () => {
     it('conta corretamente tokens por categoria', () => {
       service.tokenize(sid, 'João', 'patient_name');

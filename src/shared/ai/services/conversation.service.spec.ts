@@ -21,7 +21,6 @@ const mockMessageRepo = {
 const configServiceMock = {
   get: jest.fn((key: string, def?: any) => {
     const map: Record<string, any> = {
-      AI_MAX_CONVERSATION_HISTORY: 20,
       AI_MAX_RECENT_MESSAGES: 10,
       AI_SESSION_TIMEOUT_MINUTES: 30,
     };
@@ -121,56 +120,9 @@ describe('ConversationService', () => {
     expect(result.id).toBe('conv-new');
   });
 
-  it('deve construir mensagens OpenAI com histórico da tabela filha', () => {
-    const conv = {
-      id: 'conv-1',
-      phone: '+5511999999999',
-      userId: 'user-1',
-      messagesHistory: [],
-    } as unknown as WhatsappConversation;
-
-    const recentMessages = [
-      { role: 'user', content: 'Olá' },
-      { role: 'assistant', content: 'Oi!' },
-    ];
-
-    const messages = service.buildMessagesForOpenAI(
-      conv,
-      undefined,
-      recentMessages,
-    );
-
-    expect(messages[0].role).toBe('system');
-    expect(messages.some((m) => m.role === 'user' && m.content === 'Olá')).toBe(
-      true,
-    );
-    expect(
-      messages.some((m) => m.role === 'assistant' && m.content === 'Oi!'),
-    ).toBe(true);
-  });
-
-  it('deve fazer fallback para messagesHistory quando não há tabela filha', () => {
-    const conv = {
-      id: 'conv-1',
-      phone: '+5511999999999',
-      userId: 'user-1',
-      messagesHistory: [
-        { role: 'user', content: 'Olá', timestamp: '' },
-        { role: 'assistant', content: 'Oi!', timestamp: '' },
-      ],
-    } as unknown as WhatsappConversation;
-
-    const messages = service.buildMessagesForOpenAI(conv);
-
-    expect(messages.some((m) => m.role === 'user' && m.content === 'Olá')).toBe(
-      true,
-    );
-  });
-
-  it('deve gravar na tabela filha e no jsonb ao appendMessage', async () => {
+  it('deve gravar mensagem na tabela filha e atualizar lastMessageAt', async () => {
     mockConversationRepo.findOne.mockResolvedValue({
       id: 'conv-1',
-      messagesHistory: [],
     } as unknown as WhatsappConversation);
     mockMessageRepo.create.mockResolvedValue({});
     mockConversationRepo.update.mockResolvedValue({});
@@ -184,7 +136,10 @@ describe('ConversationService', () => {
         content: 'Olá',
       }),
     );
-    expect(mockConversationRepo.update).toHaveBeenCalledTimes(1);
+    expect(mockConversationRepo.update).toHaveBeenCalledWith(
+      'conv-1',
+      expect.objectContaining({ lastMessageAt: expect.any(Date) }),
+    );
   });
 
   it('deve limpar histórico, summary e memory ao resetar contexto', async () => {
@@ -223,19 +178,14 @@ describe('ConversationService', () => {
     );
   });
 
-  it('deve carregar mensagens recentes da tabela filha (T24)', async () => {
-    mockMessageRepo.findRecentByConversation.mockResolvedValue([
-      { role: 'user', content: 'Oi', createdAt: new Date() },
-      { role: 'assistant', content: 'Olá!', createdAt: new Date() },
-    ]);
+  it('loadRecentForLlm respeita override explícito de limite', async () => {
+    mockMessageRepo.findRecentByConversation.mockResolvedValue([]);
 
-    const messages = await service.loadRecentMessages('conv-1');
+    await service.loadRecentForLlm('conv-1', 3);
 
-    expect(messages).toHaveLength(2);
-    expect(messages[0].role).toBe('user');
     expect(mockMessageRepo.findRecentByConversation).toHaveBeenCalledWith(
       'conv-1',
-      20,
+      3,
     );
   });
 });

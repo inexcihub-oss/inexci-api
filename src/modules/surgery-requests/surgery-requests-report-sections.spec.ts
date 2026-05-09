@@ -29,14 +29,11 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     findOneSimple: jest.fn(),
     findOne: jest.fn(),
     findOneWithRelations: jest.fn(),
+    findOneWithAllRelations: jest.fn(),
   };
-  const mockUserRepository = { findOne: jest.fn(), findOneSimple: jest.fn() };
-  const mockStorageService = {
-    create: jest.fn(),
-    getSignedUrl: jest.fn(),
-    uploadBuffer: jest.fn(),
+  const mockPdfAssemblyService = {
+    generateLaudoPdf: jest.fn(),
   };
-  const mockPdfService = { generateMedicalReportPdf: jest.fn() };
   const mockDataSource = { query: jest.fn() } as unknown as DataSource;
 
   beforeEach(() => {
@@ -52,15 +49,14 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     (mockDataSource.query as jest.Mock).mockReset();
     (mockDataSource.query as jest.Mock).mockResolvedValue([]);
 
-    // Instanciação direta do SurgeryRequestReportService
+    // Instanciação direta do SurgeryRequestReportService — assinatura
+    // atual: (reportSectionRepository, surgeryRequestRepository,
+    // pdfAssemblyService, dataSource).
     service = new SurgeryRequestReportService(
       mockReportSectionRepo as any,
       mockSurgeryRequestRepository as any,
-      mockUserRepository as any,
-      mockStorageService as any,
-      mockPdfService as any,
+      mockPdfAssemblyService as any,
       mockDataSource,
-      { findByDoctorProfileId: jest.fn().mockResolvedValue(null) } as any,
     );
   });
 

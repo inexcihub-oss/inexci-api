@@ -13,6 +13,15 @@ import { SYSTEM_PROMPT } from '../prompts/system-prompt';
 
 const SUMMARY_FAILURE_LIMIT = 3;
 
+/**
+ * Estratégia efetivamente aplicada na montagem do contexto.
+ *
+ * - `hybrid`: caminho normal — system + summary + memory + RAG + janela curta.
+ * - `history_only`: estado degradado quando o circuit breaker disparou
+ *   (>= 3 falhas consecutivas do sumarizador na mesma conversa). Apenas
+ *   `system + RAG + janela curta` são enviados; summary/memory são ignorados
+ *   até a próxima sumarização bem-sucedida.
+ */
 export type ContextStrategy = 'history_only' | 'hybrid';
 
 export interface ContextBlockBreakdown {
@@ -60,15 +69,6 @@ export class ConversationContextService {
     private readonly configService: ConfigService,
   ) {}
 
-  private getStrategy(): ContextStrategy {
-    const raw = (
-      this.configService.get<string>('AI_CONTEXT_STRATEGY') || 'history_only'
-    )
-      .trim()
-      .toLowerCase();
-    return raw === 'hybrid' ? 'hybrid' : 'history_only';
-  }
-
   private getMaxRecent(): number {
     const value = this.configService.get<number>('AI_MAX_RECENT_MESSAGES', 10);
     return Math.max(1, Math.floor(Number(value) || 10));
@@ -80,16 +80,6 @@ export class ConversationContextService {
       2200,
     );
     return Math.max(500, Math.floor(Number(value) || 2200));
-  }
-
-  private isSummaryEnabled(): boolean {
-    const raw = this.configService.get<string>('AI_SUMMARY_ENABLED', 'true');
-    return String(raw).toLowerCase() !== 'false';
-  }
-
-  private isMemoryEnabled(): boolean {
-    const raw = this.configService.get<string>('AI_MEMORY_ENABLED', 'true');
-    return String(raw).toLowerCase() !== 'false';
   }
 
   private getSummaryTriggerEvery(): number {
@@ -106,33 +96,24 @@ export class ConversationContextService {
   }
 
   /**
-   * Monta a lista final de mensagens para o LLM respeitando o orçamento.
+   * Monta a lista final de mensagens para o LLM:
+   *   `system + summary + memory + RAG + janela curta`
+   * respeitando `AI_CONTEXT_TOKEN_BUDGET` (corta na ordem rag → recent → summary).
    *
-   * Estratégia `history_only` (default): comportamento legado — system + RAG +
-   * janela curta de mensagens recentes.
-   *
-   * Estratégia `hybrid`: system + summary + memory + RAG + janela curta, com
-   * `enforceTokenBudget` cortando na ordem rag → recent older → summary.
+   * Circuit breaker: se o sumarizador acumulou >= SUMMARY_FAILURE_LIMIT falhas
+   * consecutivas neste `conversation_id`, summary/memory são ignorados até a
+   * próxima sumarização bem-sucedida (estratégia retornada como `history_only`).
    */
   async buildContext(
     options: BuildContextOptions,
   ): Promise<BuildContextResult> {
     const { conversation, ragContext } = options;
-    const configuredStrategy = this.getStrategy();
-    // Fase 7.2 do plano: rollback automático para `history_only` quando o
-    // sumarizador acumulou >= SUMMARY_FAILURE_LIMIT falhas neste conversation_id.
     const failures = conversation.conversationMemory?.summary_failures ?? 0;
-    const strategy: ContextStrategy =
-      configuredStrategy === 'hybrid' && failures >= SUMMARY_FAILURE_LIMIT
-        ? 'history_only'
-        : configuredStrategy;
-    if (
-      configuredStrategy === 'hybrid' &&
-      strategy === 'history_only' &&
-      failures >= SUMMARY_FAILURE_LIMIT
-    ) {
+    const degraded = failures >= SUMMARY_FAILURE_LIMIT;
+    const strategy: ContextStrategy = degraded ? 'history_only' : 'hybrid';
+    if (degraded) {
       this.logger.warn(
-        `[CONTEXT_SUMMARY] conv=${conversation.id} fallback_to_history_only failures=${failures}`,
+        `[CONTEXT_SUMMARY] conv=${conversation.id} circuit_breaker_open failures=${failures}`,
       );
     }
     const maxRecent = options.recentLimit ?? this.getMaxRecent();
@@ -162,7 +143,15 @@ export class ConversationContextService {
     breakdown.system_tokens = estimateTokens(systemBase);
 
     if (conversation.userId) {
-      const userBlock = `USUÁRIO ATUAL: ID=${conversation.userId}, Telefone=${conversation.phone}`;
+      // Tokeniza o telefone do usuário (LGPD/T0.7): sem isso, o filtro
+      // defensivo `assertNoResidualPii` detecta o número bruto e bloqueia
+      // qualquer mensagem com a notice "Detectei um dado sensível...".
+      const phoneToken = conversation.phone
+        ? this.piiVault.tokenize(conversation.id, conversation.phone, 'phone')
+        : '';
+      const userBlock = phoneToken
+        ? `USUÁRIO ATUAL: ID=${conversation.userId}, Telefone=${phoneToken}`
+        : `USUÁRIO ATUAL: ID=${conversation.userId}`;
       messages.push({ role: 'system', content: userBlock });
       breakdown.system_tokens += estimateTokens(userBlock);
     }
@@ -171,11 +160,10 @@ export class ConversationContextService {
     let memoryText: string | null = null;
 
     if (strategy === 'hybrid') {
-      if (this.isSummaryEnabled() && conversation.conversationSummary) {
+      if (conversation.conversationSummary) {
         summaryText = `RESUMO DA CONVERSA (use apenas como contexto, não repita literalmente):\n${conversation.conversationSummary}`;
       }
       if (
-        this.isMemoryEnabled() &&
         conversation.conversationMemory &&
         Object.keys(conversation.conversationMemory).length > 0
       ) {
@@ -262,9 +250,6 @@ export class ConversationContextService {
     conversation: WhatsappConversation,
     newIntentHint?: string,
   ): Promise<boolean> {
-    if (!this.isSummaryEnabled()) return false;
-    if (this.getStrategy() !== 'hybrid') return false;
-
     const failures = conversation.conversationMemory?.summary_failures ?? 0;
     if (failures >= SUMMARY_FAILURE_LIMIT) return false;
 

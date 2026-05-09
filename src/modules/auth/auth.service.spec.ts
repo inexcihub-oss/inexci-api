@@ -17,6 +17,7 @@ import { SubscriptionPlan } from 'src/database/entities/subscription-plan.entity
 import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { ConfigService } from '@nestjs/config';
+import { ConsentService } from '../privacy/consent.service';
 
 // Mock bcryptjs before it's imported by the service
 jest.mock('bcryptjs', () => ({
@@ -77,6 +78,12 @@ describe('AuthService', () => {
     get: jest.fn(),
   };
 
+  const mockConsentService = {
+    record: jest.fn().mockResolvedValue(undefined),
+    revoke: jest.fn().mockResolvedValue(undefined),
+    hasValidConsent: jest.fn().mockResolvedValue(true),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -101,6 +108,7 @@ describe('AuthService', () => {
           useValue: mockRefreshTokenRepo,
         },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: ConsentService, useValue: mockConsentService },
       ],
     }).compile();
 
@@ -116,6 +124,7 @@ describe('AuthService', () => {
       email: 'test@example.com',
       password: 'hashed-password',
       status: UserStatus.ACTIVE,
+      email_verified: true,
     };
 
     it('should return user when credentials are correct', async () => {
@@ -298,6 +307,7 @@ describe('AuthService', () => {
         phone: '123',
         cpf: '000',
         status: UserStatus.ACTIVE,
+        email_verified: true,
         account_id: 'user-1',
         created_at: new Date('2024-01-01'),
         updated_at: new Date('2024-01-01'),
@@ -527,6 +537,9 @@ describe('AuthService', () => {
   });
 
   // ─── verifyEmail ─────────────────────────────────────────────────
+  // O token de verificação é armazenado inline em `user`
+  // (colunas `email_verification_token` / `email_verification_expires_at`),
+  // logo o spec usa `mockUserRepository` em vez de um repositório dedicado.
 
   describe('verifyEmail', () => {
     it('should throw BadRequestException when token is empty', async () => {
@@ -536,32 +549,19 @@ describe('AuthService', () => {
     });
 
     it('should throw BadRequestException when token does not exist', async () => {
-      mockEmailVerificationRepository.findOne.mockResolvedValue(null);
+      mockUserRepository.findOne.mockResolvedValue(null);
       await expect(service.verifyEmail('invalid-token')).rejects.toThrow(
         'Token de verificação inválido',
       );
     });
 
-    it('should throw BadRequestException when token was already used', async () => {
-      mockEmailVerificationRepository.findOne.mockResolvedValue({
-        id: 'ev-1',
-        user_id: 'user-1',
-        token: 'used-token',
-        used: true,
-        expires_at: new Date(Date.now() + 60_000),
-      });
-      await expect(service.verifyEmail('used-token')).rejects.toThrow(
-        'Este link de confirmação já foi utilizado',
-      );
-    });
-
     it('should throw BadRequestException when token is expired', async () => {
-      mockEmailVerificationRepository.findOne.mockResolvedValue({
-        id: 'ev-1',
-        user_id: 'user-1',
-        token: 'expired-token',
-        used: false,
-        expires_at: new Date(Date.now() - 60_000), // 1 min atrás
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        email_verified: false,
+        email_verification_token: 'expired-token',
+        email_verification_expires_at: new Date(Date.now() - 60_000),
       });
       await expect(service.verifyEmail('expired-token')).rejects.toThrow(
         'O link de confirmação expirou',
@@ -570,19 +570,13 @@ describe('AuthService', () => {
 
     it('should confirm email and return message + email on valid token', async () => {
       const now = Date.now();
-      mockEmailVerificationRepository.findOne.mockResolvedValue({
-        id: 'ev-1',
-        user_id: 'user-1',
-        token: 'valid-token',
-        used: false,
-        expires_at: new Date(now + 60 * 60 * 1000),
-      });
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
         email_verified: false,
+        email_verification_token: 'valid-token',
+        email_verification_expires_at: new Date(now + 60 * 60 * 1000),
       });
-      mockEmailVerificationRepository.updateByWhere.mockResolvedValue({});
       mockUserRepository.update.mockResolvedValue({});
 
       const result = await service.verifyEmail('valid-token');
@@ -591,35 +585,31 @@ describe('AuthService', () => {
         message: 'E-mail confirmado com sucesso',
         email: 'test@example.com',
       });
-      expect(
-        mockEmailVerificationRepository.updateByWhere,
-      ).toHaveBeenCalledWith(
-        { id: 'ev-1' },
-        expect.objectContaining({ used: true }),
-      );
       expect(mockUserRepository.update).toHaveBeenCalledWith(
         'user-1',
-        expect.objectContaining({ email_verified: true }),
+        expect.objectContaining({
+          email_verified: true,
+          email_verification_token: null,
+          email_verification_expires_at: null,
+        }),
       );
     });
 
-    it('should not update user when email is already verified', async () => {
-      mockEmailVerificationRepository.findOne.mockResolvedValue({
-        id: 'ev-1',
-        user_id: 'user-1',
-        token: 'valid-token',
-        used: false,
-        expires_at: new Date(Date.now() + 60 * 60 * 1000),
-      });
+    it('should return success without updating when email is already verified', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
         email_verified: true,
+        email_verification_token: 'valid-token',
+        email_verification_expires_at: new Date(Date.now() + 60 * 60 * 1000),
       });
-      mockEmailVerificationRepository.updateByWhere.mockResolvedValue({});
 
-      await service.verifyEmail('valid-token');
+      const result = await service.verifyEmail('valid-token');
 
+      expect(result).toEqual({
+        message: 'E-mail confirmado com sucesso',
+        email: 'test@example.com',
+      });
       expect(mockUserRepository.update).not.toHaveBeenCalled();
     });
   });

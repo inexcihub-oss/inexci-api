@@ -44,11 +44,18 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
   'payload_blob',
 ];
 
-interface PiiBinding {
+export interface PiiBinding {
   token: string;
   category: PiiCategory;
   realValue: string;
 }
+
+/**
+ * Forma serializável usada para persistir os bindings da sessão entre
+ * turnos da mesma conversa (Redis/banco). Mantemos `PiiBinding[]` direto:
+ * é JSON-friendly e idempotente com `restoreSession`.
+ */
+export type SerializedPiiBindings = PiiBinding[];
 
 export interface ResidualPiiFinding {
   category: PiiCategory;
@@ -74,6 +81,63 @@ export class PiiVaultService {
 
   hasSession(sessionId: string): boolean {
     return this.bindings.has(sessionId);
+  }
+
+  /**
+   * Restaura bindings previamente serializados (Redis/banco) na sessão atual.
+   *
+   * Necessário para preservar a correspondência placeholder→valor real entre
+   * turnos consecutivos da mesma conversa: sem isso, os placeholders salvos
+   * no histórico (`{{protocol_1}}`, `{{patient_name_1}}`, …) viram órfãos no
+   * próximo turno e o `detokenize` retorna o texto inalterado.
+   *
+   * - Sessão é (re)criada se não existir.
+   * - Mantém bindings já presentes na sessão (caso `tokenize` tenha sido
+   *   chamado antes de `restoreSession` por algum motivo) e mescla pelos
+   *   `(category, realValue)` para evitar duplicatas.
+   */
+  restoreSession(
+    sessionId: string,
+    bindings: SerializedPiiBindings | null | undefined,
+  ): void {
+    if (!sessionId) return;
+    const list = this.bindings.get(sessionId) ?? [];
+    if (!bindings?.length) {
+      this.bindings.set(sessionId, list);
+      return;
+    }
+    for (const incoming of bindings) {
+      if (
+        !incoming ||
+        typeof incoming.token !== 'string' ||
+        typeof incoming.realValue !== 'string'
+      ) {
+        continue;
+      }
+      const exists = list.some(
+        (b) =>
+          b.category === incoming.category && b.realValue === incoming.realValue,
+      );
+      if (exists) continue;
+      list.push({
+        token: incoming.token,
+        category: incoming.category,
+        realValue: incoming.realValue,
+      });
+    }
+    this.bindings.set(sessionId, list);
+  }
+
+  /**
+   * Snapshot serializável da sessão para persistência externa.
+   * Diferente de `snapshot`, devolve apenas os campos JSON-safe.
+   */
+  serializeSession(sessionId: string): SerializedPiiBindings {
+    return [...(this.bindings.get(sessionId) ?? [])].map((b) => ({
+      token: b.token,
+      category: b.category,
+      realValue: b.realValue,
+    }));
   }
 
   /**

@@ -1,13 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import {
   WhatsappConversation,
   ConversationMessage,
 } from '../../../database/entities/whatsapp-conversation.entity';
 import { WhatsappConversationRepository } from '../../../database/repositories/whatsapp-conversation.repository';
 import { WhatsappConversationMessageRepository } from '../../../database/repositories/whatsapp-conversation-message.repository';
-import { SYSTEM_PROMPT } from '../prompts/system-prompt';
 
 @Injectable()
 export class ConversationService {
@@ -56,20 +54,6 @@ export class ConversationService {
     const conv = await this.conversationRepo.findOne({ id: conversationId });
     if (!conv) return;
 
-    const maxHistory = this.configService.get<number>(
-      'AI_MAX_CONVERSATION_HISTORY',
-      20,
-    );
-
-    const message: ConversationMessage = {
-      role,
-      content,
-      timestamp: new Date().toISOString(),
-      ...(toolName ? { tool_name: toolName } : {}),
-      ...(metadata ? { metadata } : {}),
-    };
-
-    // T22: Gravar na tabela filha (principal)
     await this.messageRepo.create({
       conversationId,
       role,
@@ -78,13 +62,7 @@ export class ConversationService {
       metadata: metadata || null,
     });
 
-    // T23: Manter messages_history jsonb como deprecated (compatibilidade)
-    const history = [...(conv.messagesHistory || []), message];
-    const trimmedHistory =
-      history.length > maxHistory ? history.slice(-maxHistory) : history;
-
     await this.conversationRepo.update(conversationId, {
-      messagesHistory: trimmedHistory,
       lastMessageAt: new Date(),
     });
   }
@@ -104,60 +82,10 @@ export class ConversationService {
     });
   }
 
-  // T22/T24: Constrói mensagens para a OpenAI a partir da tabela filha com LIMIT
-  buildMessagesForOpenAI(
-    conversation: WhatsappConversation,
-    ragContext?: string,
-    recentMessages?: Array<{ role: string; content: string }>,
-  ): OpenAI.ChatCompletionMessageParam[] {
-    const messages: OpenAI.ChatCompletionMessageParam[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
-    ];
-
-    if (ragContext) {
-      messages.push({
-        role: 'system',
-        content: `CONTEXTO RELEVANTE DA BASE DE CONHECIMENTO:\n${ragContext}`,
-      });
-    }
-
-    if (conversation.userId) {
-      messages.push({
-        role: 'system',
-        content: `USUÁRIO ATUAL: ID=${conversation.userId}, Telefone=${conversation.phone}`,
-      });
-    }
-
-    // Usa mensagens da tabela filha se disponíveis, senão fallback para jsonb
-    const historySource = recentMessages || conversation.messagesHistory || [];
-    for (const msg of historySource) {
-      messages.push({ role: msg.role as any, content: msg.content });
-    }
-
-    return messages;
-  }
-
-  // T24: Carrega as últimas N mensagens da tabela filha
-  async loadRecentMessages(
-    conversationId: string,
-    limit?: number,
-  ): Promise<Array<{ role: string; content: string }>> {
-    const maxHistory =
-      limit ||
-      this.configService.get<number>('AI_MAX_CONVERSATION_HISTORY', 20);
-
-    const rows = await this.messageRepo.findRecentByConversation(
-      conversationId,
-      maxHistory,
-    );
-
-    return rows.map((r) => ({ role: r.role, content: r.content }));
-  }
-
   /**
-   * Carrega janela curta para envio ao LLM, aplicando AI_MAX_RECENT_MESSAGES
-   * em vez de AI_MAX_CONVERSATION_HISTORY. Mantém o histórico bruto para
-   * auditoria, mas envia apenas as últimas N (default 10) ao modelo.
+   * Carrega janela curta de mensagens recentes para envio ao LLM, aplicando
+   * `AI_MAX_RECENT_MESSAGES` (default 10). Histórico completo permanece na
+   * tabela filha (`whatsapp_conversation_message`) para auditoria.
    */
   async loadRecentForLlm(
     conversationId: string,
@@ -165,7 +93,11 @@ export class ConversationService {
   ): Promise<Array<{ role: string; content: string }>> {
     const limit =
       max ?? this.configService.get<number>('AI_MAX_RECENT_MESSAGES', 10);
-    return this.loadRecentMessages(conversationId, limit);
+    const rows = await this.messageRepo.findRecentByConversation(
+      conversationId,
+      limit,
+    );
+    return rows.map((r) => ({ role: r.role, content: r.content }));
   }
 
   private isExpired(conv: WhatsappConversation): boolean {

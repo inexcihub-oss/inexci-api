@@ -582,19 +582,42 @@ export class PdfService {
     });
   }
 
+  /**
+   * Em dev (ts-node) `__dirname` é `src/shared/pdf/`. Após `nest build`, o JS
+   * compilado pode acabar em `dist/src/shared/pdf/` (porque o tsc adota
+   * `rootDir: "."` ao detectar a pasta `scripts/` ao lado de `src/`), enquanto
+   * os assets `.hbs` são copiados para `dist/shared/pdf/templates/`. Para
+   * sobreviver aos dois layouts, procuramos os templates em vários candidatos.
+   */
+  private resolveTemplatesDir(): string[] {
+    return [
+      path.join(__dirname, 'templates'),
+      path.join(__dirname, '..', '..', '..', 'shared', 'pdf', 'templates'),
+      path.join(process.cwd(), 'src', 'shared', 'pdf', 'templates'),
+      path.join(process.cwd(), 'dist', 'shared', 'pdf', 'templates'),
+    ];
+  }
+
+  private async findTemplatePath(filename: string): Promise<string | null> {
+    for (const dir of this.resolveTemplatesDir()) {
+      const candidate = path.join(dir, filename);
+      try {
+        await fs.promises.access(candidate);
+        return candidate;
+      } catch {
+        // tenta próximo candidato
+      }
+    }
+    return null;
+  }
+
   private async renderTemplate(
     templateName: string,
     context: Record<string, any>,
   ): Promise<string> {
-    const templatePath = path.join(
-      __dirname,
-      'templates',
-      `${templateName}.hbs`,
-    );
+    const templatePath = await this.findTemplatePath(`${templateName}.hbs`);
 
-    try {
-      await fs.promises.access(templatePath);
-    } catch {
+    if (!templatePath) {
       throw new Error(`Template de PDF não encontrado: ${templateName}`);
     }
 

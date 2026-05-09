@@ -11,7 +11,10 @@ import {
 } from './conversation-context.service';
 import { ToolRegistryService } from './tool-registry.service';
 import { ToolExecutorService } from './tool-executor.service';
-import { PiiVaultService } from './pii-vault.service';
+import {
+  PiiVaultService,
+  SerializedPiiBindings,
+} from './pii-vault.service';
 import { AiRedisService } from './ai-redis.service';
 import { RagService } from '../../rag/rag.service';
 import { WhatsappService } from '../../whatsapp/whatsapp.service';
@@ -43,6 +46,12 @@ const CLEAR_CONTEXT_CONFIRMATION_TTL_MS = 10 * 60 * 1000;
 const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AI_CONSENT_PORTAL_PATH = '/configuracoes/privacidade';
 const AI_CONSENT_DEFAULT_PORTAL_URL = `https://app.inexci.com${AI_CONSENT_PORTAL_PATH}`;
+// TTL dos bindings do PII vault entre turnos da mesma conversa.
+// Maior que `AI_SESSION_TIMEOUT_MINUTES` (default 30 min) para tolerar
+// pequenas variações de janela; valores expirados são reconstituídos pela
+// próxima execução da tool relevante.
+const PII_VAULT_PERSIST_TTL_SECONDS = 60 * 60;
+const PII_VAULT_REDIS_KEY_PREFIX = 'pii:vault:';
 
 const CLEAR_CONTEXT_EXACT_COMMANDS = new Set<string>([
   'limpar contexto',
@@ -213,6 +222,14 @@ export class AiOrchestratorService {
   // Memória curta dos telefones já avisados sobre falta de consentimento de IA,
   // para não floodá-los a cada nova mensagem (T0.15 — item 4.3 do PLANO-LGPD).
   private readonly aiConsentNoticesSent = new Map<string, number>();
+  // Fallback in-memory dos bindings do PII vault por conversa, usado quando
+  // o Redis não estiver disponível. Preserva placeholder→valor real entre
+  // turnos consecutivos para que `detokenize` funcione mesmo após reinícios
+  // de sessão do vault. Em produção, a persistência primária é Redis.
+  private readonly inMemoryPiiBindings = new Map<
+    string,
+    { bindings: SerializedPiiBindings; expiresAt: number }
+  >();
 
   constructor(
     @InjectQueue('ai-messages') private readonly aiQueue: Queue,
@@ -233,20 +250,12 @@ export class AiOrchestratorService {
     private readonly piiVault: PiiVaultService,
     private readonly piiRedactionLogRepo: AiPiiRedactionLogRepository,
     private readonly aiRedis: AiRedisService,
-    private readonly contextService?: ConversationContextService,
+    private readonly contextService: ConversationContextService,
   ) {}
 
   private getResponseMaxTokens(): number {
     const value = this.configService.get<number>('AI_RESPONSE_MAX_TOKENS', 450);
     return Math.max(60, Math.floor(Number(value) || 450));
-  }
-
-  private isHybridContextEnabled(): boolean {
-    if (!this.contextService) return false;
-    const strategy = (
-      this.configService.get<string>('AI_CONTEXT_STRATEGY') || 'history_only'
-    ).toLowerCase();
-    return strategy === 'hybrid';
   }
 
   /**
@@ -333,6 +342,151 @@ export class AiOrchestratorService {
         `[SLOT_FILLING] persist_failed conv=${conversationId} err=${(err as Error)?.message}`,
       );
     }
+  }
+
+  /**
+   * Carrega bindings do PII vault persistidos no turno anterior da mesma
+   * conversa. Sem isso, placeholders (`{{protocol_1}}`, `{{patient_name_1}}`…)
+   * já presentes no histórico aparecem órfãos no detokenize do próximo turno
+   * — exatamente o sintoma da imagem reportada pelo usuário (resposta com
+   * placeholders crus chegando ao WhatsApp).
+   *
+   * Estratégia primária: Redis (compartilhada entre instâncias).
+   * Fallback: Map in-memory com TTL local — útil em dev/teste sem Redis e
+   * preserva ao menos a sessão do mesmo processo entre mensagens.
+   */
+  private async loadPersistedPiiBindings(
+    conversationId: string,
+  ): Promise<SerializedPiiBindings | null> {
+    const key = `${PII_VAULT_REDIS_KEY_PREFIX}${conversationId}`;
+    if (this.aiRedis.isAvailable) {
+      try {
+        const stored =
+          await this.aiRedis.cacheGet<SerializedPiiBindings>(key);
+        if (Array.isArray(stored)) return stored;
+      } catch (err: any) {
+        this.logger.debug(
+          `[PII_VAULT_PERSIST] redis_load_failed conv=${conversationId} err=${err?.message || err}`,
+        );
+      }
+    }
+
+    const fallback = this.inMemoryPiiBindings.get(conversationId);
+    if (!fallback) return null;
+    if (Date.now() > fallback.expiresAt) {
+      this.inMemoryPiiBindings.delete(conversationId);
+      return null;
+    }
+    return fallback.bindings;
+  }
+
+  /**
+   * Serializa o estado atual do vault para esta conversa e persiste com TTL.
+   * Chamado após o detokenize da resposta final, antes de encerrar a sessão.
+   */
+  private async persistPiiBindings(conversationId: string): Promise<void> {
+    let snapshot: SerializedPiiBindings = [];
+    try {
+      snapshot = this.piiVault.serializeSession(conversationId);
+    } catch (err: any) {
+      this.logger.debug(
+        `[PII_VAULT_PERSIST] serialize_failed conv=${conversationId} err=${err?.message || err}`,
+      );
+      return;
+    }
+
+    if (!snapshot.length) return;
+
+    const key = `${PII_VAULT_REDIS_KEY_PREFIX}${conversationId}`;
+    if (this.aiRedis.isAvailable) {
+      try {
+        await this.aiRedis.cacheSet(
+          key,
+          snapshot,
+          PII_VAULT_PERSIST_TTL_SECONDS,
+        );
+        return;
+      } catch (err: any) {
+        this.logger.debug(
+          `[PII_VAULT_PERSIST] redis_save_failed conv=${conversationId} err=${err?.message || err}`,
+        );
+      }
+    }
+
+    this.inMemoryPiiBindings.set(conversationId, {
+      bindings: snapshot,
+      expiresAt: Date.now() + PII_VAULT_PERSIST_TTL_SECONDS * 1000,
+    });
+  }
+
+  /**
+   * Substitutos neutros usados para placeholders de PII que escapam ao
+   * detokenize (geralmente alucinações da IA: ela "vê" `{{protocol_1}}` no
+   * histórico e replica em uma resposta nova mesmo quando o vault da
+   * categoria/índice não foi populado naquele turno). Em vez de deixar o
+   * placeholder cru chegar ao WhatsApp, trocamos por um termo genérico para
+   * que a frase ainda faça sentido.
+   */
+  private readonly RESIDUAL_PLACEHOLDER_FALLBACKS: Record<string, string> = {
+    protocol: 'essa solicitação',
+    patient_name: 'o paciente',
+    doctor_name: 'o médico',
+    hospital_name: 'o hospital',
+    health_plan_name: 'o convênio',
+    cpf: '[CPF não disponível]',
+    phone: '[telefone não disponível]',
+    email: '[e-mail não disponível]',
+    address: '[endereço não disponível]',
+    date: 'a data informada',
+    birth_date: 'a data de nascimento',
+    medical_report: '[laudo]',
+    patient_history: '[histórico clínico]',
+    diagnosis: '[diagnóstico]',
+    surgery_description: '[descrição cirúrgica]',
+    payload_blob: '[conteúdo enviado]',
+  };
+
+  /**
+   * Remove qualquer placeholder `{{categoria_n}}` que tenha escapado ao
+   * detokenize, evitando que o usuário receba a string crua no WhatsApp
+   * (sintoma reportado pela imagem: "protocolo {{protocol_1}}").
+   *
+   * Causas conhecidas:
+   *  - IA alucina um placeholder que nunca foi tokenizado (não há binding).
+   *  - Bindings persistidos foram perdidos entre turnos (Redis indisponível +
+   *    reinício de processo invalidando o fallback in-memory).
+   *
+   * Os placeholders são substituídos por termos neutros baseados na
+   * categoria, e qualquer ocorrência é logada para investigação posterior.
+   */
+  private scrubResidualPlaceholders(
+    text: string,
+    sessionId: string,
+    messageSid: string,
+  ): string {
+    if (!text) return text;
+    const placeholderRegex = /\{\{([a-z_]+)_(\d+)\}\}/gi;
+    if (!placeholderRegex.test(text)) return text;
+
+    placeholderRegex.lastIndex = 0;
+    const seen = new Map<string, number>();
+
+    const cleaned = text.replace(placeholderRegex, (_match, category) => {
+      const key = String(category || '').toLowerCase();
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+      return this.RESIDUAL_PLACEHOLDER_FALLBACKS[key] ?? '[informação não disponível]';
+    });
+
+    if (seen.size) {
+      const breakdown = Array.from(seen.entries())
+        .map(([cat, count]) => `${cat}=${count}`)
+        .join(',');
+      this.logger.warn(
+        `[AI_PLACEHOLDER_LEAK] sid=${messageSid} conv=${sessionId} ${breakdown}`,
+      );
+    }
+
+    return cleaned;
   }
 
   /**
@@ -475,7 +629,13 @@ export class AiOrchestratorService {
         return false;
       }
 
-      await this.whatsappService.sendMessage(phone, answer);
+      const safeAnswer = this.scrubResidualPlaceholders(
+        answer,
+        sessionId,
+        messageSid,
+      );
+
+      await this.whatsappService.sendMessage(phone, safeAnswer);
       this.logger.log(
         `[AI_LIMITED_FAQ] sid=${messageSid} phone=${this.maskPhone(phone)} answered=true latency=${Date.now() - t0}ms`,
       );
@@ -668,7 +828,7 @@ export class AiOrchestratorService {
       this.logger.warn(`Rate limit excedido para ${maskedPhone}`);
       await this.whatsappService.sendMessage(
         phone,
-        '⚠️ Você enviou muitas mensagens. Por favor, aguarde alguns minutos antes de tentar novamente.',
+        '⚠️ Você enviou mensagens em ritmo muito alto. Por favor, aguarde alguns instantes antes de tentar novamente.',
       );
       return;
     }
@@ -747,8 +907,20 @@ export class AiOrchestratorService {
         );
       activeConversationId = conversation.id;
 
-      // Inicia sessão do PII Vault para esta mensagem (T0.6)
+      // Inicia sessão do PII Vault para esta mensagem (T0.6) e restaura os
+      // bindings persistidos do turno anterior, se houver. Isso garante que
+      // placeholders já presentes no histórico (`{{protocol_1}}`, etc.)
+      // continuem mapeando para os valores reais no detokenize de saída.
       this.piiVault.startSession(conversation.id);
+      const persistedBindings = await this.loadPersistedPiiBindings(
+        conversation.id,
+      );
+      if (persistedBindings?.length) {
+        this.piiVault.restoreSession(conversation.id, persistedBindings);
+        this.logger.debug(
+          `[PII_VAULT_PERSIST] restored conv=${conversation.id} count=${persistedBindings.length}`,
+        );
+      }
 
       const normalizedInput = this.normalizeIntentText(data.body);
 
@@ -881,34 +1053,13 @@ export class AiOrchestratorService {
           accountId,
         );
 
-      // Fase 4 do plano de redução de tokens — quando flag `hybrid` ligada e
-      // o serviço de contexto disponível, monta system + summary + memory +
-      // RAG + janela curta com orçamento de tokens. Caso contrário, mantém o
-      // caminho legado (history_only) para garantir rollback rápido.
-      let messages: OpenAI.ChatCompletionMessageParam[];
-      let contextBreakdown:
-        | CompletionUsageSnapshot['contextBreakdown']
-        | undefined;
-      let contextStrategy: ContextStrategy = 'history_only';
-
-      if (this.isHybridContextEnabled() && this.contextService) {
-        const built = await this.contextService.buildContext({
-          conversation: updatedConv,
-          ragContext: ragContext || null,
-        });
-        messages = built.messages;
-        contextBreakdown = built.breakdown;
-        contextStrategy = built.strategy;
-      } else {
-        const recentMessages =
-          await this.conversationService.loadRecentMessages(updatedConv.id);
-        messages = this.conversationService.buildMessagesForOpenAI(
-          updatedConv,
-          ragContext,
-          recentMessages,
-        );
-        contextStrategy = 'history_only';
-      }
+      const built = await this.contextService.buildContext({
+        conversation: updatedConv,
+        ragContext: ragContext || null,
+      });
+      const messages: OpenAI.ChatCompletionMessageParam[] = built.messages;
+      const contextBreakdown = built.breakdown;
+      const contextStrategy = built.strategy;
 
       const tools = this.toolRegistry.getToolDefinitions();
 
@@ -954,34 +1105,31 @@ export class AiOrchestratorService {
         iterations--;
 
         // Slot-filling: intercepta criação de SC com slot faltante.
-        if (this.isHybridContextEnabled() && this.contextService) {
-          const createCall = responseMessage.tool_calls.find(
-            (call) => call.function?.name === SC_CREATE_TOOL,
-          );
-          if (createCall) {
-            let parsedArgs: Record<string, any> = {};
-            try {
-              parsedArgs = createCall.function?.arguments
-                ? JSON.parse(createCall.function.arguments)
-                : {};
-            } catch {
-              parsedArgs = {};
-            }
-            const slotCheck = this.evaluateSlotFilling(
-              responseMessage.tool_calls,
-              updatedConv,
-              parsedArgs,
-            );
-            if (slotCheck) {
-              slotPromptOverride = slotCheck.prompt;
-              this.logger.log(
-                `[SLOT_FILLING] sid=${data.messageSid} conv=${conversation.id} blocked=${SC_CREATE_TOOL} missing=${slotCheck.missingSlot}`,
-              );
-              break;
-            }
-            // Slots ok — registra como filled antes de executar.
-            await this.persistFilledSlots(conversation.id, parsedArgs);
+        const createCall = responseMessage.tool_calls.find(
+          (call) => call.function?.name === SC_CREATE_TOOL,
+        );
+        if (createCall) {
+          let parsedArgs: Record<string, any> = {};
+          try {
+            parsedArgs = createCall.function?.arguments
+              ? JSON.parse(createCall.function.arguments)
+              : {};
+          } catch {
+            parsedArgs = {};
           }
+          const slotCheck = this.evaluateSlotFilling(
+            responseMessage.tool_calls,
+            updatedConv,
+            parsedArgs,
+          );
+          if (slotCheck) {
+            slotPromptOverride = slotCheck.prompt;
+            this.logger.log(
+              `[SLOT_FILLING] sid=${data.messageSid} conv=${conversation.id} blocked=${SC_CREATE_TOOL} missing=${slotCheck.missingSlot}`,
+            );
+            break;
+          }
+          await this.persistFilledSlots(conversation.id, parsedArgs);
         }
 
         const toolResults = await this.toolExecutor.executeMany(
@@ -1099,9 +1247,14 @@ export class AiOrchestratorService {
         conversation.id,
         finalText,
       );
+      const safeText = this.scrubResidualPlaceholders(
+        detokenizedText,
+        conversation.id,
+        data.messageSid,
+      );
 
-      await this.whatsappService.sendMessage(phone, detokenizedText);
-      await this.trySendInteractiveConfirmationTemplate(phone, detokenizedText);
+      await this.whatsappService.sendMessage(phone, safeText);
+      await this.trySendInteractiveConfirmationTemplate(phone, safeText);
 
       await this.persistUsageSummary(
         phone,
@@ -1114,36 +1267,33 @@ export class AiOrchestratorService {
 
       this.logUsageSummary(phone, data.messageSid, usageSnapshots);
 
-      // Atualização incremental de summary/memory em background — nunca bloqueia
-      // a resposta ao usuário. Falhas são contadas via `summary_failures` no
-      // próprio serviço (após 3 falhas consecutivas, a estratégia híbrida é
-      // automaticamente desativada para essa conversa).
-      if (this.isHybridContextEnabled() && this.contextService) {
-        const ctxService = this.contextService;
-        const convId = conversation.id;
-        Promise.resolve()
-          .then(async () => {
-            const conv = await this.conversationService.getOrCreateConversation(
-              phone,
-              userId,
-              accountId,
-            );
-            if (await ctxService.shouldRefreshSummary(conv)) {
-              await ctxService.updateSummaryAndMemory(convId);
-            }
-          })
-          .catch((err) => {
-            this.logger.warn(
-              `[CONTEXT_SUMMARY] background_failed conv=${convId} err=${err?.message || err}`,
-            );
-          });
-      }
+      // Atualização incremental de summary/memory em background. Após 3 falhas
+      // consecutivas em uma mesma conversa, `buildContext` para de injetar
+      // summary/memory automaticamente (circuit breaker).
+      const ctxService = this.contextService;
+      const convId = conversation.id;
+      Promise.resolve()
+        .then(async () => {
+          const conv = await this.conversationService.getOrCreateConversation(
+            phone,
+            userId,
+            accountId,
+          );
+          if (await ctxService.shouldRefreshSummary(conv)) {
+            await ctxService.updateSummaryAndMemory(convId);
+          }
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `[CONTEXT_SUMMARY] background_failed conv=${convId} err=${err?.message || err}`,
+          );
+        });
 
       // T0.11 — métrica/contador de PII por categoria nesta sessão.
       this.logPiiVaultUsage(data.messageSid, conversation.id);
 
       this.logger.log(
-        `Resposta enviada para ${maskedPhone} (${detokenizedText.length} chars)`,
+        `Resposta enviada para ${maskedPhone} (${safeText.length} chars)`,
       );
     } catch (error: any) {
       this.logger.error(
@@ -1169,35 +1319,73 @@ export class AiOrchestratorService {
 
       await this.whatsappService.sendMessage(phone, userFacingMessage);
     } finally {
-      // Encerra sessão do vault (ainda que ocorra erro): evita acúmulo de bindings em memória.
+      // Persiste bindings do vault (Redis com fallback in-memory) ANTES de
+      // encerrar a sessão. Sem isso, o próximo turno desta conversa carrega
+      // o histórico com placeholders órfãos e o detokenize não substitui nada
+      // — exatamente o bug em que a resposta chegava ao WhatsApp com
+      // `{{protocol_1}}`, `{{patient_name_1}}`, etc., visíveis ao usuário.
       if (activeConversationId) {
+        try {
+          await this.persistPiiBindings(activeConversationId);
+        } catch (err: any) {
+          this.logger.debug(
+            `[PII_VAULT_PERSIST] finally_failed conv=${activeConversationId} err=${err?.message || err}`,
+          );
+        }
         this.piiVault.endSession(activeConversationId);
       }
     }
   }
 
-  // T32: Rate limit via Redis com fallback in-memory
-  private async checkRateLimitAsync(
-    phone: string,
-    maxPerHour = 30,
-  ): Promise<boolean> {
-    if (this.aiRedis.isAvailable) {
-      return this.aiRedis.checkRateLimit(phone, maxPerHour, 3600);
-    }
-    return this.checkRateLimitInMemory(phone, maxPerHour);
+  // T32: Rate limit via Redis com fallback in-memory.
+  // Janela curta (default 20 msgs / 60 s) para proteger contra flood real
+  // sem atrapalhar fluxos de cadastro/conversa, em que cada turno (texto,
+  // áudio, confirmação) conta como 1 mensagem. Configurável via env:
+  //   AI_RATELIMIT_MAX           (default 20)
+  //   AI_RATELIMIT_WINDOW_SEC    (default 60)
+  private getRateLimitConfig(): { max: number; windowSec: number } {
+    const max = Math.max(
+      1,
+      Math.floor(
+        Number(this.configService.get<number>('AI_RATELIMIT_MAX', 20)) || 20,
+      ),
+    );
+    const windowSec = Math.max(
+      1,
+      Math.floor(
+        Number(this.configService.get<number>('AI_RATELIMIT_WINDOW_SEC', 60)) ||
+          60,
+      ),
+    );
+    return { max, windowSec };
   }
 
-  private checkRateLimitInMemory(phone: string, maxPerHour = 30): boolean {
+  private async checkRateLimitAsync(phone: string): Promise<boolean> {
+    const { max, windowSec } = this.getRateLimitConfig();
+    if (this.aiRedis.isAvailable) {
+      return this.aiRedis.checkRateLimit(phone, max, windowSec);
+    }
+    return this.checkRateLimitInMemory(phone, max, windowSec);
+  }
+
+  private checkRateLimitInMemory(
+    phone: string,
+    max: number,
+    windowSec: number,
+  ): boolean {
     const now = Date.now();
     const entry = this.rateLimitCounts.get(phone);
 
     if (!entry || now > entry.resetAt) {
-      this.rateLimitCounts.set(phone, { count: 1, resetAt: now + 3600_000 });
+      this.rateLimitCounts.set(phone, {
+        count: 1,
+        resetAt: now + windowSec * 1000,
+      });
       return true;
     }
 
     entry.count++;
-    return entry.count <= maxPerHour;
+    return entry.count <= max;
   }
 
   private async handleUnknownUser(

@@ -1077,20 +1077,21 @@ async function main() {
         'Colecistectomia videolaparoscópica eletiva. Decúbito lateral esquerdo. Insuflação com CO2 a 12mmHg.',
         '5544332211',
         'Apartamento',
-        JSON.stringify([
-          {
-            date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            period: 'morning',
-          },
-          {
-            date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-            period: 'afternoon',
-          },
-          {
-            date: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(),
-            period: 'morning',
-          },
-        ]),
+        JSON.stringify(
+          (() => {
+            const buildSlot = (daysAhead: number, hour: number, minute = 0) => {
+              const d = new Date();
+              d.setDate(d.getDate() + daysAhead);
+              d.setHours(hour, minute, 0, 0);
+              return d.toISOString();
+            };
+            return [
+              buildSlot(7, 7, 30),
+              buildSlot(14, 13, 0),
+              buildSlot(21, 8, 0),
+            ];
+          })(),
+        ),
       ],
     );
     srIds2.push(r[0].id);
@@ -1498,16 +1499,21 @@ async function main() {
         'Artroplastia total do quadril direito cimentada. Via póstero-lateral. Prótese cimentada com cimento antibiótico.',
         '9988776655',
         'Apartamento Superior',
-        JSON.stringify([
-          {
-            date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-            period: 'morning',
-          },
-          {
-            date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-            period: 'morning',
-          },
-        ]),
+        JSON.stringify(
+          (() => {
+            const buildSlot = (daysAhead: number, hour: number, minute = 0) => {
+              const d = new Date();
+              d.setDate(d.getDate() + daysAhead);
+              d.setHours(hour, minute, 0, 0);
+              return d.toISOString();
+            };
+            return [
+              buildSlot(2, 7, 0),
+              buildSlot(3, 7, 0),
+              buildSlot(4, 13, 30),
+            ];
+          })(),
+        ),
       ],
     );
     srIds1.push(r[0].id);
@@ -1857,206 +1863,6 @@ async function main() {
   logger.log('  ✅ 4 documentos padrão criados\n');
 
   // ========================================
-  // 15i. NOTIFICAÇÕES
-  // ========================================
-  logger.log('🔔 Criando notificações...');
-
-  // Notificações para admin conta 1
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'new_surgery_request','Nova solicitação criada','A solicitação de ATJ para Fernando Augusto Costa foi criada.',true,'/solicitacoes/${srIds1[0]}','{"surgery_request_id":"${srIds1[0]}"}')`,
-    [adminMedicoId],
-  );
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'status_update','Solicitação agendada','A cirurgia de ATJ para Fernando Augusto Costa foi agendada.',true,'/solicitacoes/${srIds1[0]}','{"surgery_request_id":"${srIds1[0]}","new_status":5}')`,
-    [adminMedicoId],
-  );
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'status_update','ATQ urgente em agendamento','A solicitação de ATQ para Beatriz Helena Santos está em fase de agendamento.',false,'/solicitacoes/${srIds1[1]}','{"surgery_request_id":"${srIds1[1]}","new_status":4}')`,
-    [adminMedicoId],
-  );
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'pendency','Contestação pendente','Há uma contestação de pagamento aberta na solicitação de ATJ para Marcos Antônio Ribeiro.',false,'/solicitacoes/${srIds1[3]}','{"surgery_request_id":"${srIds1[3]}"}')`,
-    [adminMedicoId],
-  );
-
-  // Notificações para assistente conta 1
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'status_update','Solicitação agendada','A cirurgia de ATJ para Fernando Augusto Costa foi agendada.',false,'/solicitacoes/${srIds1[0]}')`,
-    [assistenteOrtId],
-  );
-
-  // Notificações para admin conta 2
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'new_surgery_request','Nova solicitação','Uma nova solicitação cirúrgica foi criada para Roberto Carlos Ferreira.',true,'/solicitacoes/${srIds2[0]}','{"surgery_request_id":"${srIds2[0]}"}')`,
-    [adminId],
-  );
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'status_update','Cirurgia agendada','A revascularização de Carlos Eduardo Pinto foi agendada.',true,'/solicitacoes/${srIds2[4]}')`,
-    [adminId],
-  );
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'system','Solicitação parada há 15 dias','A solicitação de Roberto Carlos Ferreira está pendente há mais de 15 dias.',false,'/solicitacoes/${srIds2[0]}')`,
-    [adminId],
-  );
-
-  // Notificações para Dra. Fernanda
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link, metadata) VALUES ($1,'status_update','Solicitação em análise','A discectomia de Luciana Mendes Barbosa está em análise pelo convênio.',false,'/solicitacoes/${srIds2[9]}','{"surgery_request_id":"${srIds2[9]}","new_status":3}')`,
-    [collabMedicaId],
-  );
-
-  // Notificações para assistentes conta 2
-  await dataSource.query(
-    `INSERT INTO notification (user_id, type, title, message, read, link) VALUES ($1,'info','Bem-vindo ao InExci','Sua conta foi criada. Você tem acesso às solicitações de Dr. Rafael e Dra. Fernanda.',true,'/dashboard')`,
-    [assistente1Id],
-  );
-
-  logger.log('  ✅ Notificações criadas\n');
-
-  // ========================================
-  // 15j. CHATS e MENSAGENS
-  // ========================================
-  logger.log('💬 Criando chats e mensagens...');
-
-  // Chat na SR5 (revascularização - agendada)
-  const chat1Result = await dataSource.query(
-    `INSERT INTO chat (surgery_request_id, user_id) VALUES ($1, $2) RETURNING id`,
-    [srIds2[4], adminId],
-  );
-  const chat1Id = chat1Result[0].id;
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Precisamos confirmar a disponibilidade do oxigenador de membrana para a data agendada.', true)`,
-    [chat1Id, adminId],
-  );
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Confirmado com a Stryker. Equipamento reservado para a data.', true)`,
-    [chat1Id, assistente1Id],
-  );
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Perfeito. Paciente confirmou jejum e internação na véspera.', true)`,
-    [chat1Id, adminId],
-  );
-
-  // Chat na SR10 (discectomia - Dra. Fernanda)
-  const chat2Result = await dataSource.query(
-    `INSERT INTO chat (surgery_request_id, user_id) VALUES ($1, $2) RETURNING id`,
-    [srIds2[9], collabMedicaId],
-  );
-  const chat2Id = chat2Result[0].id;
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Cotação da Synthes chegou. R$ 24.500. Acho que podemos negociar.', true)`,
-    [chat2Id, collabMedicaId],
-  );
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Vou entrar em contato com o Marcelo da Synthes para tentar reduzir o valor do cage.', false)`,
-    [chat2Id, assistente2Id],
-  );
-
-  // Chat na SR C1-1 (ATJ conta 1)
-  const chat3Result = await dataSource.query(
-    `INSERT INTO chat (surgery_request_id, user_id) VALUES ($1, $2) RETURNING id`,
-    [srIds1[0], adminMedicoId],
-  );
-  const chat3Id = chat3Result[0].id;
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Patricia, confirme com o Einstein a reserva do bloco para o dia agendado.', true)`,
-    [chat3Id, adminMedicoId],
-  );
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Confirmado Dr. Carlos! Bloco 3, turno da manhã, às 7h.', true)`,
-    [chat3Id, assistenteOrtId],
-  );
-  await dataSource.query(
-    `INSERT INTO chat_message (chat_id, sender_id, message, read) VALUES ($1, $2, 'Ótimo. Lembre de enviar o checklist pré-operatório ao paciente.', false)`,
-    [chat3Id, adminMedicoId],
-  );
-
-  logger.log('  ✅ Chats e mensagens criados\n');
-
-  // ========================================
-  // 16. NOTIFICATION SETTINGS
-  // ========================================
-  logger.log('🔔 Criando configurações de notificação...');
-
-  const allUserIds = [
-    adminMedicoId,
-    adminId,
-    collabMedicaId,
-    assistente1Id,
-    assistente2Id,
-    secretariaId,
-    assistenteOrtId,
-  ];
-  for (const uid of allUserIds) {
-    await dataSource.query(
-      `INSERT INTO user_notification_settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`,
-      [uid],
-    );
-  }
-  logger.log(`  ✅ ${allUserIds.length} configurações criadas\n`);
-
-  // ========================================
-  // 16. STALE NOTIFICATION LOG
-  // ========================================
-  logger.log('⏰ Criando logs de notificações de solicitações paradas...');
-
-  // Solicitar stale para as 2 primeiras SRs da conta 2 (status 1 e 2 = paradas)
-  const staleSrIds = [srIds2[0], srIds2[1]];
-  const staleTiers = [3, 7, 15, 30];
-  let staleCount = 0;
-  for (const srId of staleSrIds) {
-    const tiersForSr = srId === staleSrIds[0] ? staleTiers : [3, 7]; // primeira com todos os tiers, segunda com 2
-    for (const days of tiersForSr) {
-      const notifiedAt = new Date('2026-02-23');
-      notifiedAt.setDate(notifiedAt.getDate() + days);
-      await dataSource.query(
-        `INSERT INTO stale_notification_log (surgery_request_id, stale_days, channel, notified_at)
-         VALUES ($1, $2, $3, $4)`,
-        [srId, days, 'in_app', notifiedAt.toISOString()],
-      );
-      staleCount++;
-    }
-  }
-  logger.log(`  ✅ ${staleCount} logs de stale criados\n`);
-
-  // ========================================
-  // 17. NOTIFICATION SEND LOG
-  // ========================================
-  logger.log('📨 Criando logs de envio de notificação (email/whatsapp)...');
-
-  // E-mail enviado com sucesso — nova solicitação
-  await dataSource.query(
-    `INSERT INTO notification_send_log (channel, status, "to", subject, template, job_id, attempts, sent_at, created_at)
-     VALUES ('email', 'sent', 'admin@inexci.com', 'Nova solicitação cirúrgica criada', 'new-surgery-request', 'mail-seed-1', 1, NOW() - INTERVAL '30 days', NOW() - INTERVAL '30 days')`,
-  );
-
-  // E-mail enviado — atualização de status
-  await dataSource.query(
-    `INSERT INTO notification_send_log (channel, status, "to", subject, template, job_id, attempts, sent_at, created_at)
-     VALUES ('email', 'sent', 'assistente1@inexci.com', 'Status atualizado - Solicitação em agendamento', 'status-update', 'mail-seed-2', 1, NOW() - INTERVAL '25 days', NOW() - INTERVAL '25 days')`,
-  );
-
-  // WhatsApp enviado — lembrete stale
-  await dataSource.query(
-    `INSERT INTO notification_send_log (channel, status, "to", subject, template, job_id, attempts, sent_at, created_at)
-     VALUES ('whatsapp', 'sent', '21998765432', NULL, 'stale-reminder', 'wa-seed-1', 1, NOW() - INTERVAL '20 days', NOW() - INTERVAL '20 days')`,
-  );
-
-  // E-mail falhou — erro SMTP
-  await dataSource.query(
-    `INSERT INTO notification_send_log (channel, status, "to", subject, template, error_message, job_id, attempts, created_at)
-     VALUES ('email', 'failed', 'invalido@teste.com', 'Lembrete de solicitação parada', 'stale-reminder', 'SMTP connection refused after 3 attempts', 'mail-seed-3', 3, NOW() - INTERVAL '15 days')`,
-  );
-
-  // WhatsApp na fila
-  await dataSource.query(
-    `INSERT INTO notification_send_log (channel, status, "to", template, job_id, attempts, created_at)
-     VALUES ('whatsapp', 'queued', '21976543210', 'patient-notification', 'wa-seed-2', 0, NOW())`,
-  );
-
-  logger.log('  ✅ 5 logs de envio criados\n');
-
-  // ========================================
   // 18. COBERTURA DE ENTIDADE COMPLEMENTAR
   // ========================================
   logger.log('🧩 Criando dados complementares (doctor_header)...');
@@ -2110,10 +1916,6 @@ async function main() {
   logger.log('  • Atividades (comentários, mudanças de status, sistema)');
   logger.log('  • Sem documentos nas solicitações (conforme solicitado)');
   logger.log('  • 4 documentos padrão de clínica');
-  logger.log('  • 10+ notificações in-app');
-  logger.log('  • 3 chats com mensagens');
-  logger.log('  • 6 logs de stale notification (solicitações paradas)');
-  logger.log('  • 5 logs de envio (email/whatsapp — sent, failed, queued)');
   logger.log('  • Entidade complementar coberta: doctor_header');
   logger.log('');
   logger.log('🔐 Credenciais (todos com senha: 123456):');

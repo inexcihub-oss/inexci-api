@@ -14,11 +14,24 @@ const SLUG_TO_TYPE: Record<string, ConsentType> = Object.fromEntries(
   ]),
 );
 
+// Em dev (ts-node) `__dirname` aponta para `src/modules/privacy/`, e os
+// `.md` ficam em `src/shared/legal/`. Após o build, o Nest CLI copia os
+// assets para `dist/shared/legal/`, mas o JS compilado fica em
+// `dist/src/modules/privacy/` (porque o tsc adota `rootDir: "."` ao
+// detectar a pasta `scripts/` ao lado de `src/`). Isso gera um nível
+// extra de `src/`, então procuramos em ambos os layouts.
+const LEGAL_DIR_CANDIDATES = [
+  join(__dirname, '..', '..', 'shared', 'legal'),
+  join(__dirname, '..', '..', '..', 'shared', 'legal'),
+  join(process.cwd(), 'src', 'shared', 'legal'),
+  join(process.cwd(), 'dist', 'shared', 'legal'),
+];
+
 @Injectable()
 export class LegalDocumentsService {
   /**
    * Serve o markdown atual de um documento legal.
-   * Caminho: src/shared/legal/<slug>-<version>.md
+   * Caminho-fonte: src/shared/legal/<slug>-<version>.md
    */
   async getCurrent(slug: string): Promise<{
     slug: string;
@@ -33,15 +46,18 @@ export class LegalDocumentsService {
 
     const version = CURRENT_CONSENT_VERSIONS[type];
     const filename = `${slug}-${version}.md`;
-    const fullPath = join(__dirname, '..', '..', 'shared', 'legal', filename);
 
-    try {
-      const content_md = await fs.readFile(fullPath, 'utf-8');
-      return { slug, type, version, content_md };
-    } catch {
-      throw new NotFoundException(
-        `Arquivo "${filename}" não encontrado em src/shared/legal/.`,
-      );
+    for (const dir of LEGAL_DIR_CANDIDATES) {
+      try {
+        const content_md = await fs.readFile(join(dir, filename), 'utf-8');
+        return { slug, type, version, content_md };
+      } catch {
+        // tenta o próximo candidato
+      }
     }
+
+    throw new NotFoundException(
+      `Arquivo "${filename}" não encontrado em src/shared/legal/.`,
+    );
   }
 }

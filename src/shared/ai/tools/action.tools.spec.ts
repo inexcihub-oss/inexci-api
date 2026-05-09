@@ -117,6 +117,75 @@ describe('ActionTools', () => {
 
       expect(result).toContain('permissão');
     });
+
+    it('deve aceitar protocolo numérico (sem prefixo SC-) como identificador', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
+        if (where?.protocol === 'SC-411701') {
+          return {
+            ...mockRequest,
+            id: 'uuid-xyz',
+            protocol: 'SC-411701',
+            status: 1,
+          };
+        }
+        return null;
+      });
+      mockPendencyValidator.canAdvance.mockResolvedValue(true);
+      mockWorkflowService.sendRequest.mockResolvedValue(undefined);
+
+      const tool = getTool('advance_surgery_request');
+      const result = await tool.execute(
+        { surgery_request_id: '411701', confirm: true },
+        baseContext,
+      );
+
+      expect(mockPendencyValidator.canAdvance).toHaveBeenCalledWith('uuid-xyz');
+      expect(mockWorkflowService.sendRequest).toHaveBeenCalledWith(
+        'uuid-xyz',
+        {},
+        'user-1',
+      );
+      expect(result).toContain('SC-411701');
+      expect(result).toContain('com sucesso');
+    });
+
+    it('deve aceitar protocolo com prefixo SC- como identificador', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
+        if (where?.protocol === 'SC-411701') {
+          return {
+            ...mockRequest,
+            id: 'uuid-xyz',
+            protocol: 'SC-411701',
+            status: 1,
+          };
+        }
+        return null;
+      });
+      mockPendencyValidator.canAdvance.mockResolvedValue(true);
+
+      const tool = getTool('advance_surgery_request');
+      const result = await tool.execute(
+        { surgery_request_id: 'SC-411701' },
+        baseContext,
+      );
+
+      expect(result).toContain('SC-411701');
+      expect(result).toContain('Pendente');
+      expect(result).toContain('Enviada');
+    });
+
+    it('deve retornar erro amigável quando solicitação não for encontrada', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(null);
+
+      const tool = getTool('advance_surgery_request');
+      const result = await tool.execute(
+        { surgery_request_id: '999999', confirm: true },
+        baseContext,
+      );
+
+      expect(result).toContain('não encontrada');
+      expect(mockWorkflowService.sendRequest).not.toHaveBeenCalled();
+    });
     it('deve avançar de Em Agendamento para Agendada (4->5)', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,

@@ -43,28 +43,60 @@ export class MailProcessor implements OnModuleInit {
     await this.registerPartials();
   }
 
+  /**
+   * Em dev (ts-node) `__dirname` é `src/shared/mail/`. Após `nest build`, o JS
+   * compilado pode acabar em `dist/src/shared/mail/` (porque o tsc adota
+   * `rootDir: "."` ao detectar a pasta `scripts/` ao lado de `src/`), enquanto
+   * os assets `.hbs` são copiados para `dist/shared/mail/templates/`. Para
+   * sobreviver aos dois layouts, procuramos os templates em vários candidatos.
+   */
+  private resolveTemplatesDir(): string[] {
+    return [
+      path.join(__dirname, 'templates'),
+      path.join(__dirname, '..', '..', '..', 'shared', 'mail', 'templates'),
+      path.join(process.cwd(), 'src', 'shared', 'mail', 'templates'),
+      path.join(process.cwd(), 'dist', 'shared', 'mail', 'templates'),
+    ];
+  }
+
+  private async findTemplatePath(filename: string): Promise<string | null> {
+    for (const dir of this.resolveTemplatesDir()) {
+      const candidate = path.join(dir, filename);
+      try {
+        await fs.promises.access(candidate);
+        return candidate;
+      } catch {
+        // tenta próximo candidato
+      }
+    }
+    return null;
+  }
+
   private async registerPartials() {
-    const partialsDir = path.join(__dirname, 'templates', 'partials');
-    try {
-      await fs.promises.access(partialsDir);
-    } catch {
+    for (const baseDir of this.resolveTemplatesDir()) {
+      const partialsDir = path.join(baseDir, 'partials');
+      try {
+        await fs.promises.access(partialsDir);
+      } catch {
+        continue;
+      }
+
+      const files = await fs.promises.readdir(partialsDir);
+      await Promise.all(
+        files
+          .filter((f) => f.endsWith('.hbs'))
+          .map(async (file) => {
+            const name = file.replace('.hbs', '');
+            const source = await fs.promises.readFile(
+              path.join(partialsDir, file),
+              'utf-8',
+            );
+            Handlebars.registerPartial(name, source);
+            this.logger.log(`Handlebars partial registrado: ${name}`);
+          }),
+      );
       return;
     }
-
-    const files = await fs.promises.readdir(partialsDir);
-    await Promise.all(
-      files
-        .filter((f) => f.endsWith('.hbs'))
-        .map(async (file) => {
-          const name = file.replace('.hbs', '');
-          const source = await fs.promises.readFile(
-            path.join(partialsDir, file),
-            'utf-8',
-          );
-          Handlebars.registerPartial(name, source);
-          this.logger.log(`Handlebars partial registrado: ${name}`);
-        }),
-    );
   }
 
   @Process('send-mail')
@@ -162,15 +194,8 @@ export class MailProcessor implements OnModuleInit {
     templateName: string,
     context: Record<string, any>,
   ): Promise<string> {
-    const templatePath = path.join(
-      __dirname,
-      'templates',
-      `${templateName}.hbs`,
-    );
-
-    try {
-      await fs.promises.access(templatePath);
-    } catch {
+    const templatePath = await this.findTemplatePath(`${templateName}.hbs`);
+    if (!templatePath) {
       throw new Error(`Template de e-mail não encontrado: ${templateName}`);
     }
 
