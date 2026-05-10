@@ -57,8 +57,10 @@ export enum SurgeryRequestPriority {
 /**
  * Opções de datas armazenadas em date_options (jsonb).
  *
- * Formato atual: array de strings ISO ("2026-03-01"), ordenadas por preferência.
- * O índice selecionado pelo médico fica em `selected_date_index`.
+ * Formato: array de timestamps ISO 8601 completos (data + hora + minuto, ex.:
+ * "2026-03-01T07:30:00.000Z"), ordenados por preferência. Cada slot
+ * representa um par dia + horário sugerido pelo médico ao convênio/hospital.
+ * O índice escolhido pelo médico fica em `selected_date_index`.
  */
 export type SurgeryDateOptions = string[];
 
