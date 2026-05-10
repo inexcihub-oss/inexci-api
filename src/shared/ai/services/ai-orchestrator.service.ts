@@ -33,10 +33,15 @@ import {
   WhatsappMediaValidationError,
 } from '../../whatsapp/whatsapp-media.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
+import { collapseDuplicatedScPrefixes } from '../tools/protocol.helpers';
 
 const MAX_TOOL_ITERATIONS = 5;
 const MAX_RESPONSE_LENGTH = 1000;
-const WHATSAPP_TARGET_LENGTH = 700;
+const WHATSAPP_TARGET_LENGTH = 850;
+// Limite "macio" de emojis por resposta para manter o tom amigável sem
+// transformar a mensagem em uma parede de figuras. Excedentes são removidos
+// silenciosamente preservando o texto.
+const MAX_EMOJIS_PER_RESPONSE = 3;
 const CLEAR_CONTEXT_CONFIRMATION_TTL_MS = 10 * 60 * 1000;
 const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AI_CONSENT_PORTAL_PATH = '/configuracoes/privacidade';
@@ -492,10 +497,9 @@ export class AiOrchestratorService {
    *
    * Motivo: o LLM costuma escrever exemplos de formato em respostas
    * orientativas (ex.: "Telefone (formato: DDD + número, ex: 31 99999-9999)").
-   * Esses literais são salvos como conteúdo textual da mensagem `assistant` e,
-   * no turno seguinte, batem na regex de PII estruturada do filtro defensivo
-   * `assertNoResidualPii` — bloqueando toda a conversa indefinidamente com a
-   * notice "Detectei um dado sensível...".
+   * Sanitizar aqui mantém o histórico limpo de PII estrutural; mesmo que
+   * algo escape, o `redactResidualPii` redige in-place antes da chamada à
+   * OpenAI no turno seguinte (sem incomodar o usuário).
    *
    * Placeholders válidos do vault (`{{categoria_n}}`) são preservados pois as
    * regexes de CPF/telefone/email não casam com chaves duplas.
@@ -515,7 +519,36 @@ export class AiOrchestratorService {
         `[AI_ASSISTANT_PII_MASK] sid=${messageSid} conv=${conversationId} ${breakdown}`,
       );
     }
-    return result.text;
+    // Colapsa prefixos `SC-` duplicados que a IA possa ter inserido por
+    // engano antes de `{{protocol_n}}` (ex.: "SC-SC-{{protocol_1}}").
+    // Aplicado no histórico para impedir que o erro se replique nos próximos
+    // turnos via contexto.
+    return this.collapseDuplicatedScInText(
+      result.text,
+      conversationId,
+      messageSid,
+    );
+  }
+
+  /**
+   * Sanitização final aplicada ao texto JÁ detokenizado, antes do envio ao
+   * WhatsApp e da gravação no histórico. Colapsa quaisquer ocorrências de
+   * `SC-SC-XXX` (e variações com 3+ prefixos) em um único `SC-XXX`. Quando
+   * detecta a duplicação, loga um aviso para diagnóstico.
+   */
+  private collapseDuplicatedScInText(
+    text: string,
+    conversationId: string,
+    messageSid: string,
+  ): string {
+    if (!text) return text;
+    const collapsed = collapseDuplicatedScPrefixes(text);
+    if (collapsed !== text) {
+      this.logger.warn(
+        `[AI_PROTOCOL_DUP_PREFIX] sid=${messageSid} conv=${conversationId} colapso=SC-SC->SC-`,
+      );
+    }
+    return collapsed;
   }
 
   /**
@@ -635,7 +668,7 @@ export class AiOrchestratorService {
         { role: 'user', content: processed },
       ];
 
-      await this.assertNoResidualPii(messages, {
+      await this.redactResidualPii(messages, {
         conversationId: sessionId,
         messageSid,
       });
@@ -760,20 +793,26 @@ export class AiOrchestratorService {
   }
 
   /**
-   * Filtro defensivo (T0.7): varre as mensagens que serão enviadas à OpenAI
-   * em busca de PII residual não tokenizada. Em caso de detecção, registra o
-   * incidente em `ai_pii_redaction_log` e lança um erro com `code='PII_RESIDUAL'`
-   * para abortar a chamada.
+   * Filtro defensivo (T0.7 — versão "redact, don't block"): varre as
+   * mensagens que serão enviadas à OpenAI e MASCARA in-place qualquer PII
+   * estrutural residual (CPF, telefone BR, e-mail) por placeholders
+   * genéricos (`XXX.XXX.XXX-XX`, `(DDD) NNNNN-NNNN`, `<usuario>@<dominio>`).
    *
-   * Mensagens com role `assistant` (vindas do histórico ou geradas em
-   * follow-ups da própria IA) são ignoradas: o LLM frequentemente inclui
-   * exemplos de formato (ex.: "use o formato 31 99999-9999") que casavam com
-   * a regex de telefone e bloqueavam toda a conversa nos turnos seguintes.
-   * A defesa para esse caminho passa a ser `sanitizeAssistantOutputForHistory`
-   * — chamado antes de persistir respostas do assistant — que mascara
-   * literais por placeholders genéricos não-PII.
+   * Decisão de produto: o usuário NUNCA deve ser cobrado por enviar PII —
+   * ele confia na plataforma para lidar com isso. Logo, o caminho antigo
+   * (lançar `PII_RESIDUAL` e responder no WhatsApp com "Detectei um dado
+   * sensível...") foi descartado. A garantia de que nada de PII bruto chega
+   * à OpenAI continua valendo, mas via redação silenciosa.
+   *
+   * Mensagens com role `assistant` (histórico/follow-ups da própria IA) são
+   * ignoradas pelo mesmo motivo de antes: o LLM frequentemente inclui
+   * exemplos de formato e a defesa para esse caminho é
+   * `sanitizeAssistantOutputForHistory`, que mascara antes de persistir.
+   *
+   * Cada redação é registrada em `ai_pii_redaction_log` com `blocked=false`
+   * para auditoria/observabilidade.
    */
-  private async assertNoResidualPii(
+  private async redactResidualPii(
     messages: OpenAI.ChatCompletionMessageParam[],
     context: { conversationId: string; messageSid: string; toolName?: string },
   ): Promise<void> {
@@ -784,6 +823,11 @@ export class AiOrchestratorService {
       const findings = this.piiVault.detectResidualPii(content);
       if (!findings.length) continue;
 
+      const masked = this.piiVault.maskLiteralPii(content);
+      // Mutação in-place: o array `messages` é repassado adiante e precisa
+      // refletir o conteúdo redigido antes do `chatCompletion`.
+      (message as { content: string }).content = masked.text;
+
       const first = findings[0];
       try {
         await this.piiRedactionLogRepo.create({
@@ -791,7 +835,7 @@ export class AiOrchestratorService {
           messageSid: context.messageSid,
           category: first.category,
           valueHash: this.piiVault.hashValue(first.sample),
-          blocked: true,
+          blocked: false,
           toolName: context.toolName ?? null,
           occurrences: findings.length,
         });
@@ -801,15 +845,12 @@ export class AiOrchestratorService {
         );
       }
 
-      this.logger.error(
-        `[AI_PII_BLOCK] sid=${context.messageSid} category=${first.category} occurrences=${findings.length}`,
+      const breakdown = masked.masked.length
+        ? masked.masked.map((m) => `${m.category}=${m.count}`).join(',')
+        : findings.map((f) => f.category).join(',');
+      this.logger.warn(
+        `[AI_PII_REDACT] sid=${context.messageSid} role=${message.role} occurrences=${findings.length} ${breakdown}`,
       );
-      const err: any = new Error(
-        'PII residual detectada antes da chamada à IA externa.',
-      );
-      err.code = 'PII_RESIDUAL';
-      err.category = first.category;
-      throw err;
     }
   }
 
@@ -1107,8 +1148,8 @@ export class AiOrchestratorService {
       const tools = this.toolRegistry.getToolDefinitions();
 
       this.ensureWithinTimeout(processStartedAt, processTimeoutMs);
-      // T0.7 — filtro defensivo antes da primeira chamada à IA.
-      await this.assertNoResidualPii(messages, {
+      // T0.7 — redator defensivo antes da primeira chamada à IA.
+      await this.redactResidualPii(messages, {
         conversationId: conversation.id,
         messageSid: data.messageSid,
       });
@@ -1222,8 +1263,8 @@ export class AiOrchestratorService {
           });
         }
 
-        // T0.7 — filtro defensivo antes de cada follow-up.
-        await this.assertNoResidualPii(messages, {
+        // T0.7 — redator defensivo antes de cada follow-up.
+        await this.redactResidualPii(messages, {
           conversationId: conversation.id,
           messageSid: data.messageSid,
         });
@@ -1301,8 +1342,16 @@ export class AiOrchestratorService {
         conversation.id,
         finalText,
       );
-      const safeText = this.scrubResidualPlaceholders(
+      const scrubbedText = this.scrubResidualPlaceholders(
         detokenizedText,
+        conversation.id,
+        data.messageSid,
+      );
+      // Defesa final contra duplicação de prefixo "SC-" que pode ter sido
+      // produzida pela IA (ex.: alucinação "SC-SC-{{protocol_n}}"). Garante
+      // que o usuário sempre recebe "SC-468131", nunca "SC-SC-468131".
+      const safeText = this.collapseDuplicatedScInText(
+        scrubbedText,
         conversation.id,
         data.messageSid,
       );
@@ -1359,16 +1408,12 @@ export class AiOrchestratorService {
         error?.code === 'ETIMEDOUT' ||
         error?.code === 'ECONNABORTED' ||
         error?.name === 'AbortError';
-      const isPiiBlock = error?.code === 'PII_RESIDUAL';
 
       let userFacingMessage =
         '⚠️ Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em alguns minutos ou acesse a plataforma web.';
       if (isTimeout) {
         userFacingMessage =
           '⚠️ A solicitação demorou mais do que o esperado (1 min e 30 s) e foi cancelada. Tente novamente.';
-      } else if (isPiiBlock) {
-        userFacingMessage =
-          '⚠️ Detectei um dado sensível na sua mensagem que não pude processar com segurança. Pode reenviar omitindo CPF/telefone/e-mail ou usar a plataforma web?';
       }
 
       await this.whatsappService.sendMessage(phone, userFacingMessage);
@@ -1479,8 +1524,8 @@ export class AiOrchestratorService {
     const hasCodeBlock = text.includes('```');
     const hasMarkdownHeader = /^\s*#/m.test(text);
     const hasJsonLikePayload = /\{\s*"[^"]+"\s*:/m.test(text);
-    const tooManyBreaks = (text.match(/\n/g) || []).length > 10;
-    const tooLong = text.length > 900;
+    const tooManyBreaks = (text.match(/\n/g) || []).length > 14;
+    const tooLong = text.length > 1000;
 
     return (
       hasCodeBlock ||
@@ -1514,7 +1559,7 @@ export class AiOrchestratorService {
           {
             role: 'system',
             content:
-              'Reescreva a resposta para WhatsApp em português do Brasil, mantendo apenas os fatos já presentes. Não adicione informações novas. Use tom profissional, linguagem direta, no máximo 6 linhas, sem emojis, sem markdown avançado e sem JSON.',
+              'Reescreva a resposta para WhatsApp em português do Brasil, mantendo apenas os fatos já presentes. Não adicione informações novas. Use tom gentil, acolhedor e profissional, com linguagem direta e frases curtas. Pode usar no máximo 1 ou 2 emojis sutis quando agregarem clareza ou calor humano (ex.: ✅, 📅, 📋), mas nunca em todas as mensagens. Quando fizer sentido, encerre sugerindo de 2 a 4 próximos passos como opções numeradas no formato "1 - opção", uma por linha. Mire em até 8 linhas, sem markdown avançado e sem JSON.',
           },
           {
             role: 'user',
@@ -1681,8 +1726,11 @@ export class AiOrchestratorService {
   }
 
   private normalizeWhatsappText(text: string): string {
-    const normalizedLines = (text || '')
-      .replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '')
+    const limitedEmojiText = this.limitEmojis(
+      text || '',
+      MAX_EMOJIS_PER_RESPONSE,
+    );
+    const normalizedLines = limitedEmojiText
       .replace(/\r\n/g, '\n')
       .replace(/\t/g, ' ')
       .split('\n')
@@ -1719,6 +1767,25 @@ export class AiOrchestratorService {
     }
 
     return output;
+  }
+
+  /**
+   * Limita o número de emojis no texto a `max` ocorrências. Emojis adicionais
+   * são removidos preservando o conteúdo textual ao redor. Combina o caractere
+   * pictográfico Unicode com o seletor de variação `\uFE0F` (presente em
+   * emojis monocromáticos como "ℹ️") para garantir que ambos sumam juntos.
+   *
+   * Existe para honrar a regra do prompt de "no máximo 1 a 2 emojis" sem
+   * depender só do compromisso do LLM, que ocasionalmente exagera.
+   */
+  private limitEmojis(text: string, max: number): string {
+    if (!text) return text;
+    const emojiRegex = /[\p{Extended_Pictographic}](\uFE0F)?/gu;
+    let count = 0;
+    return text.replace(emojiRegex, (match) => {
+      count += 1;
+      return count <= max ? match : '';
+    });
   }
 
   private convertListLinesToOptions(lines: string[]): string[] {

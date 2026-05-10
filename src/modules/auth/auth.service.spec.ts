@@ -249,6 +249,7 @@ describe('AuthService', () => {
         name: 'Dr. Test',
         email: 'doctor@example.com',
         password: '123456',
+        phone: '11999998888',
         isDoctor: true,
         crm: '12345',
         crmState: 'SP',
@@ -291,6 +292,7 @@ describe('AuthService', () => {
         name: 'Assistant',
         email: 'assistant@example.com',
         password: '123456',
+        phone: '11999998888',
         isDoctor: false,
       } as any);
 
@@ -699,6 +701,7 @@ describe('AuthService', () => {
         name: 'Novo Usuário',
         email: 'novo@example.com',
         password: '123456',
+        phone: '11999998888',
         isDoctor: false,
       } as any);
 
@@ -775,6 +778,7 @@ describe('AuthService', () => {
         name: 'Sem Phone',
         email: 'sem@example.com',
         password: '123456',
+        phone: '11999990000',
         isDoctor: false,
       } as any);
 

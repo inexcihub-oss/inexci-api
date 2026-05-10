@@ -31,5 +31,5 @@ export class InvoiceRequestDto {
    */
   @IsOptional()
   @IsBoolean()
-  set_as_default_for_health_plan?: boolean;
+  setAsDefaultForHealthPlan?: boolean;
 }

@@ -4,15 +4,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { FindOptionsWhere, In } from 'typeorm';
+import { FindOptionsWhere } from 'typeorm';
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { MailService } from 'src/shared/mail/mail.service';
 
 @Injectable()
 export class PatientsService {
@@ -22,18 +24,14 @@ export class PatientsService {
     private readonly userRepository: UserRepository,
     private readonly whatsappService: WhatsappService,
     private readonly accessControlService: AccessControlService,
+    private readonly mailService: MailService,
+    private readonly configService: ConfigService,
   ) {}
 
   async findAll(query: FindManyPatientDto, userId: string) {
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
-      return { total: 0, records: [] };
-    }
+    const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    const where: FindOptionsWhere<Patient> = {
-      doctorId: In(doctorIds),
-    };
+    const where: FindOptionsWhere<Patient> = { ownerId };
 
     const [total, records] = await Promise.all([
       this.patientRepository.total(where),
@@ -89,6 +87,14 @@ export class PatientsService {
     });
 
     void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+
+    const doctor = await this.userRepository.findOne({ id: doctorId });
+    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL') ?? '';
+    void this.mailService.sendWelcomePatient(patient.email, {
+      patientName: patient.name,
+      doctorName: doctor?.name ?? '',
+      dashboardUrl: dashboardUrl || undefined,
+    });
 
     return patient;
   }

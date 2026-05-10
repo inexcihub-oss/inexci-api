@@ -24,9 +24,9 @@ const DOCTOR = {
   name: 'Dr. StatusChange E2E',
   email: `dr.status.${Date.now()}@inexci.test`,
   password: 'Senha@12345',
-  is_doctor: true,
+  isDoctor: true,
   crm: 'CRM777666',
-  crm_state: 'MG',
+  crmState: 'MG',
   specialty: 'Cirurgia Geral',
 };
 
@@ -89,10 +89,10 @@ beforeAll(async () => {
       email: 'paciente@status.com',
       cpf: '11122233344',
       gender: 'M',
-      birth_date: '1988-11-10',
-      health_plan_id: planRes.body.id,
-      health_plan_number: 'HP-STATUS-001',
-      health_plan_type: 'individual',
+      birthDate: '1988-11-10',
+      healthPlanId: planRes.body.id,
+      healthPlanNumber: 'HP-STATUS-001',
+      healthPlanType: 'individual',
     })
     .expect(201);
 
@@ -101,11 +101,11 @@ beforeAll(async () => {
     .post('/surgery-requests')
     .set(authHeader())
     .send({
-      procedure_id: procRes.body.id,
-      patient_id: patRes.body.id,
+      procedureId: procRes.body.id,
+      patientId: patRes.body.id,
       manager_id: userId,
-      health_plan_id: planRes.body.id,
-      hospital_id: hospRes.body.id,
+      healthPlanId: planRes.body.id,
+      hospitalId: hospRes.body.id,
       priority: 2,
     })
     .expect(201);
@@ -183,14 +183,14 @@ describe('Status Change Notifications E2E', () => {
     expect(res.body).toBeDefined();
   });
 
-  it('unread-count deve refletir notificações não lidas', async () => {
+  it('listagem deve refletir notificações não lidas via unreadCount', async () => {
     const res = await request(app.getHttpServer())
-      .get('/notifications/unread-count')
+      .get('/notifications')
       .set(authHeader());
 
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('count');
-    expect(typeof res.body.count).toBe('number');
+    expect(res.body).toHaveProperty('unreadCount');
+    expect(typeof res.body.unreadCount).toBe('number');
   });
 
   it('deve criar segundo usuário e verificar que recebe notificação de status change', async () => {

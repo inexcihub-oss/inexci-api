@@ -5,6 +5,7 @@ import {
   ObjectLiteral,
   QueryDeepPartialEntity,
 } from 'typeorm';
+import { traceInstanceMethods } from '../../shared/logging/trace.decorator';
 
 /** Interface que garante a presença de campo `id` para operações de update/findOne por id */
 interface HasId {
@@ -12,7 +13,16 @@ interface HasId {
 }
 
 export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
-  constructor(protected readonly repository: Repository<T>) {}
+  constructor(protected readonly repository: Repository<T>) {
+    // Envolve os métodos da instância (incluindo os sobrescritos pelas
+    // subclasses como UserRepository) em um wrapper de trace. Cada chamada
+    // emite uma linha entry/exit no logger 'Trace' com requestId/userId
+    // herdados do AsyncLocalStorage. Cobre os 29 repositórios sem precisar
+    // decorar cada um manualmente.
+    traceInstanceMethods(this, {
+      exclude: ['getRepository'],
+    });
+  }
 
   findOne(where: FindOptionsWhere<T>): Promise<T | null> {
     return this.repository.findOne({ where });

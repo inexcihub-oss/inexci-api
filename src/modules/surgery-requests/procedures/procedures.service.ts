@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-procedure.dto';
+import { UpdateSurgeryRequestProcedureDto } from './dto/update-surgery-request-procedure.dto';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
@@ -65,7 +66,7 @@ export class ProceduresService {
     });
 
     await Promise.all(
-      data.surgery_request_procedures.map((item) =>
+      data.surgeryRequestProcedures.map((item) =>
         this.tussItemRepository.update(item.id, {
           authorizedQuantity: item.authorizedQuantity,
         }),
@@ -81,6 +82,18 @@ export class ProceduresService {
     );
 
     return {};
+  }
+
+  async update(id: string, dto: UpdateSurgeryRequestProcedureDto) {
+    const item = await this.tussItemRepository.findOne({ id });
+
+    if (!item) {
+      throw new NotFoundException('Procedimento TUSS não encontrado');
+    }
+
+    await this.tussItemRepository.update(id, { quantity: dto.quantity });
+
+    return { ...item, quantity: dto.quantity };
   }
 
   async delete(id: string) {

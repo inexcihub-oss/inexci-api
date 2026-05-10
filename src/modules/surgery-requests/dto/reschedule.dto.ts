@@ -6,5 +6,5 @@ import { IsDateString } from 'class-validator';
  */
 export class RescheduleDto {
   @IsDateString()
-  new_date: string;
+  newDate: string;
 }

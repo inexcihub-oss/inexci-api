@@ -139,7 +139,7 @@ export class InexciLogger extends ConsoleLogger {
       ? `${ANSI.gray}[${ctx.requestId.slice(0, 8)}]${ANSI.reset} `
       : '';
     const userTag = ctx?.userId
-      ? `${ANSI.magenta}user=${ctx.userId.slice(0, 8)}${ANSI.reset} `
+      ? `${ANSI.magenta}[userId: ${ctx.userId}]${ANSI.reset} `
       : '';
     const ctxTag = ctxLabel ? `${ANSI.cyan}[${ctxLabel}]${ANSI.reset} ` : '';
     const head = `${ANSI.gray}${timestamp}${ANSI.reset} ${color}${ANSI.bold}${level.toUpperCase().padEnd(7)}${ANSI.reset}`;

@@ -235,6 +235,35 @@ describe('SurgeryRequestTools', () => {
       expect(result).toContain('Maria');
     });
 
+    it('deve agrupar e ordenar a lista por status (Pendente → Encerrada)', async () => {
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([
+        { protocol: '0050', status: 5, patient: { name: 'Carlos' } },
+        { protocol: '0001', status: 1, patient: { name: 'Maria' } },
+        { protocol: '0010', status: 3, patient: { name: 'João' } },
+        { protocol: '0011', status: 3, patient: { name: 'Lucas' } },
+      ]);
+
+      const tool = getTool('list_surgery_requests');
+      const result = await tool.execute({}, baseContext);
+
+      expect(result).toContain('por status');
+      const indexPendente = result.indexOf('Pendente');
+      const indexAnalise = result.indexOf('Em Análise');
+      const indexAgendada = result.indexOf('Agendada');
+
+      expect(indexPendente).toBeGreaterThan(-1);
+      expect(indexAnalise).toBeGreaterThan(indexPendente);
+      expect(indexAgendada).toBeGreaterThan(indexAnalise);
+
+      // Os dois itens "Em Análise" devem estar agrupados (sem outro status entre eles)
+      const segmentoAnalise = result.slice(
+        indexAnalise,
+        indexAgendada > indexAnalise ? indexAgendada : result.length,
+      );
+      expect(segmentoAnalise).toContain('SC-0010');
+      expect(segmentoAnalise).toContain('SC-0011');
+    });
+
     it('deve retornar mensagem quando não há solicitações', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 

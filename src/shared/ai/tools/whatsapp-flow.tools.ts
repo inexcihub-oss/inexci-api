@@ -24,6 +24,10 @@ import { TussService } from '../../../modules/tuss/tuss.service';
 import { SupplierRepository } from '../../../database/repositories/supplier.repository';
 import { tokenizePii, detokenizeArg } from '../pii/tool-pii-helpers';
 import { PiiCategory } from '../services/pii-vault.service';
+import {
+  buildProtocolCandidates,
+  formatScProtocolForDisplay,
+} from './protocol.helpers';
 
 function asNonEmptyString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -54,23 +58,6 @@ function formatDatePtBr(dateStr: string): string {
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-function buildProtocolCandidates(identifier: string): string[] {
-  const cleaned = identifier.trim();
-  if (!cleaned) return [];
-
-  const upper = cleaned.toUpperCase();
-  const candidates = new Set<string>([upper]);
-
-  if (upper.startsWith('SC-')) {
-    const withoutPrefix = upper.slice(3).trim();
-    if (withoutPrefix) candidates.add(withoutPrefix);
-  } else {
-    candidates.add(`SC-${upper}`);
-  }
-
-  return Array.from(candidates);
 }
 
 function parseStringList(value: unknown): string[] {
@@ -141,14 +128,6 @@ function priorityLabel(priority: SurgeryRequestPriority): string {
     default:
       return String(priority);
   }
-}
-
-function normalizeProtocolDisplay(protocol: unknown): string {
-  const value = String(protocol || '').trim();
-  if (!value) return 'SC-N/D';
-  return value.toUpperCase().startsWith('SC-')
-    ? value.toUpperCase()
-    : `SC-${value}`;
 }
 
 function classifyDocumentType(
@@ -429,7 +408,7 @@ export function buildWhatsappFlowTools(
               type: 'string',
               description: 'ID da solicitação cirúrgica',
             },
-            new_date: {
+            newDate: {
               type: 'string',
               description: 'Nova data da cirurgia em formato ISO',
             },
@@ -439,7 +418,7 @@ export function buildWhatsappFlowTools(
                 'Se true, executa a ação. Caso contrário, mostra preview.',
             },
           },
-          required: ['surgeryRequestId', 'new_date'],
+          required: ['surgeryRequestId', 'newDate'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -451,9 +430,9 @@ export function buildWhatsappFlowTools(
       );
       if (!auth.ok) return auth.message;
 
-      const newDate = asValidDateString(args.new_date);
+      const newDate = asValidDateString(args.newDate);
       if (!newDate) {
-        return 'Parâmetro inválido: `new_date` deve ser uma data válida.';
+        return 'Parâmetro inválido: `newDate` deve ser uma data válida.';
       }
 
       if (!args.confirm) {
@@ -463,7 +442,7 @@ export function buildWhatsappFlowTools(
       try {
         await workflowService.reschedule(
           auth.request.id,
-          { new_date: newDate },
+          { newDate },
           context.userId as string,
         );
 
@@ -579,7 +558,7 @@ export function buildWhatsappFlowTools(
               type: 'string',
               description: 'Prazo de pagamento (ISO) opcional',
             },
-            set_as_default_for_health_plan: {
+            setAsDefaultForHealthPlan: {
               type: 'boolean',
               description: 'Se true, usa prazo como padrão para o convênio',
             },
@@ -644,8 +623,8 @@ export function buildWhatsappFlowTools(
             invoiceValue: value,
             invoiceSentAt: sentAt,
             paymentDeadline: paymentDeadline,
-            set_as_default_for_health_plan:
-              args.set_as_default_for_health_plan === true,
+            setAsDefaultForHealthPlan:
+              args.setAsDefaultForHealthPlan === true,
           },
           context.userId as string,
         );
@@ -1472,12 +1451,12 @@ export function buildWhatsappFlowTools(
             surgeryRequestId: { type: 'string' },
             name: { type: 'string' },
             quantity: { type: 'number' },
-            manufacturer_names: {
+            manufacturerNames: {
               type: 'array',
               items: { type: 'string' },
               description: 'Lista com ao menos 3 fabricantes',
             },
-            supplier_names: {
+            supplierNames: {
               type: 'array',
               items: { type: 'string' },
               description: 'Lista com ao menos 3 fornecedores',
@@ -1492,8 +1471,8 @@ export function buildWhatsappFlowTools(
           required: [
             'surgeryRequestId',
             'name',
-            'manufacturer_names',
-            'supplier_names',
+            'manufacturerNames',
+            'supplierNames',
           ],
         },
       },
@@ -1510,9 +1489,9 @@ export function buildWhatsappFlowTools(
 
       const name = asNonEmptyString(args.name);
       const manufacturerNames = parseStringList(
-        args.manufacturer_names ?? args.manufacturers ?? args.brand,
+        args.manufacturerNames ?? args.manufacturers ?? args.brand,
       );
-      const supplierNames = parseStringList(args.supplier_names);
+      const supplierNames = parseStringList(args.supplierNames);
 
       const quantity =
         typeof args.quantity === 'number' &&
@@ -1523,10 +1502,10 @@ export function buildWhatsappFlowTools(
 
       if (!name) return 'Parâmetro inválido: `name` é obrigatório.';
       if (manufacturerNames.length < 3) {
-        return 'Para adicionar OPME, informe ao menos 3 fabricantes em `manufacturer_names`. Ex.: ["Fabricante 1", "Fabricante 2", "Fabricante 3"].';
+        return 'Para adicionar OPME, informe ao menos 3 fabricantes em `manufacturerNames`. Ex.: ["Fabricante 1", "Fabricante 2", "Fabricante 3"].';
       }
       if (supplierNames.length < 3) {
-        return 'Para adicionar OPME, informe ao menos 3 fornecedores em `supplier_names`. Ex.: ["Fornecedor 1", "Fornecedor 2", "Fornecedor 3"].';
+        return 'Para adicionar OPME, informe ao menos 3 fornecedores em `supplierNames`. Ex.: ["Fornecedor 1", "Fornecedor 2", "Fornecedor 3"].';
       }
 
       if (!args.confirm) {
@@ -2563,7 +2542,7 @@ export function buildWhatsappFlowTools(
         const persistedRequest = await surgeryRequestRepo.findOneSimple({
           id: created.id,
         } as any);
-        const protocol = normalizeProtocolDisplay(
+        const protocol = formatScProtocolForDisplay(
           persistedRequest?.protocol ?? created.protocol,
         );
         const pendencyText = blockingPendencies.length

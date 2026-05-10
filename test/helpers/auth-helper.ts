@@ -6,9 +6,9 @@ export interface RegisterData {
   password: string;
   name: string;
   phone?: string;
-  is_doctor?: boolean;
+  isDoctor?: boolean;
   crm?: string;
-  crm_state?: string;
+  crmState?: string;
   specialty?: string;
 }
 
@@ -23,9 +23,9 @@ export const testUsers = {
     password: 'Admin@1234',
     name: 'Admin Test',
     phone: '11988887777',
-    is_doctor: true,
+    isDoctor: true,
     crm: '999999',
-    crm_state: 'SP',
+    crmState: 'SP',
     specialty: 'Cirurgia Geral',
   } as RegisterData,
   user: {

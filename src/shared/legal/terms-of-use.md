@@ -1,12 +1,5 @@
 # Termos de Uso da Inexci
 
-**Versão:** 1.0 (DRAFT — pendente revisão jurídica)
-**Vigência:** a partir de [DATA A DEFINIR]
-
-> ⚠️ **AVISO INTERNO** — Draft inicial gerado pela engenharia para revisão jurídica. **Não publicar nem aplicar em produção sem revisão por advogado(a) especializado(a).**
-
----
-
 ## 1. Aceitação
 
 Ao criar conta na plataforma **Inexci** ([RAZÃO SOCIAL], CNPJ [CNPJ]) você (o "Usuário") declara ter lido, compreendido e aceito integralmente estes Termos de Uso e a [Política de Privacidade](privacy-policy-1.0.md). Se não concordar com qualquer disposição, não utilize a plataforma.

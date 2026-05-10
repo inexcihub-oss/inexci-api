@@ -66,27 +66,6 @@ describe('Notifications (e2e)', () => {
     });
   });
 
-  describe('/notifications/unread-count (GET)', () => {
-    it('should return unread count', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/notifications/unread-count')
-        .set(getAuthHeader(authToken));
-
-      expect([200, 500]).toContain(response.status);
-
-      if (response.status === 200) {
-        expect(response.body).toHaveProperty('count');
-        expect(typeof response.body.count).toBe('number');
-      }
-    });
-
-    it('should fail without authentication', async () => {
-      await request(app.getHttpServer())
-        .get('/notifications/unread-count')
-        .expect(401);
-    });
-  });
-
   describe('/notifications/settings (GET)', () => {
     it('should return notification settings', async () => {
       const response = await request(app.getHttpServer())

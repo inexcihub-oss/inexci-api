@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import {
   AuthenticatedUser,
   CurrentUser,
@@ -34,6 +35,7 @@ export class PrivacyController {
 
   @Get('consent/status')
   @ApiBearerAuth()
+  @SkipThrottle()
   @ApiOperation({ summary: 'Estado dos consentimentos do usuário.' })
   async getStatus(@CurrentUser() user: AuthenticatedUser) {
     return this.consentService.getStatus(user.userId);

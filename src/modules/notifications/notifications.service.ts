@@ -73,20 +73,18 @@ export class NotificationsService {
     };
   }
 
-  async getUnreadCount(userId: string) {
-    return await this.notificationRepository.countUnread(userId);
-  }
-
   async markAsRead(
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
     await this.notificationRepository.markAsRead(notificationId, userId);
+    await this.broadcastUnreadCount(userId);
     return { message: 'Notificação marcada como lida' };
   }
 
   async markAllAsRead(userId: string): Promise<MessageResponse> {
     await this.notificationRepository.markAllAsRead(userId);
+    await this.broadcastUnreadCount(userId);
     return { message: 'Todas as notificações marcadas como lidas' };
   }
 
@@ -95,7 +93,20 @@ export class NotificationsService {
     userId: string,
   ): Promise<MessageResponse> {
     await this.notificationRepository.deleteByUser(notificationId, userId);
+    await this.broadcastUnreadCount(userId);
     return { message: 'Notificação removida' };
+  }
+
+  private async broadcastUnreadCount(userId: string): Promise<void> {
+    if (!this.notificationsGateway) return;
+    try {
+      const count = await this.notificationRepository.countUnread(userId);
+      this.notificationsGateway.emitUnreadCount(userId, count);
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao emitir unread-count para ${userId}: ${err?.message}`,
+      );
+    }
   }
 
   // ============ Create Notifications ============

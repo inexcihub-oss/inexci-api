@@ -9,6 +9,7 @@ import { ActivityType } from '../../../database/entities/surgery-request-activit
 import { SurgeryRequestPriority } from '../../../database/entities/surgery-request.entity';
 import { PatientRepository } from '../../../database/repositories/patient.repository';
 import { detokenizeArg } from '../pii/tool-pii-helpers';
+import { buildProtocolCandidates } from './protocol.helpers';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -35,23 +36,6 @@ const NEXT_STATUS: Record<number, number> = {
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-function buildProtocolCandidates(identifier: string): string[] {
-  const cleaned = identifier.trim();
-  if (!cleaned) return [];
-
-  const upper = cleaned.toUpperCase();
-  const candidates = new Set<string>([upper]);
-
-  if (upper.startsWith('SC-')) {
-    const withoutPrefix = upper.slice(3).trim();
-    if (withoutPrefix) candidates.add(withoutPrefix);
-  } else {
-    candidates.add(`SC-${upper}`);
-  }
-
-  return Array.from(candidates);
 }
 
 async function resolveAuthorizedRequest(

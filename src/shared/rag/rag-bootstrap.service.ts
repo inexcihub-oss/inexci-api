@@ -80,7 +80,7 @@ export class RagBootstrapService implements OnModuleInit {
     const isSchemaReady = await this.isRagSchemaReady();
     if (!isSchemaReady) {
       this.logger.error(
-        'Schema RAG não está pronto. A migration `CreateAiKnowledgeChunkVector` precisa ter sido aplicada e a extensão pgvector instalada. Seed automático abortado.',
+        'Schema RAG não está pronto. A tabela `ai_knowledge_chunks` com a coluna `embedding` (pgvector) precisa existir. Verifique se as migrations foram aplicadas. Seed automático abortado.',
       );
       return;
     }
@@ -139,7 +139,7 @@ export class RagBootstrapService implements OnModuleInit {
         `SELECT 1
          FROM information_schema.tables
          WHERE table_schema = 'public'
-           AND table_name = 'ai_knowledge_chunk'
+           AND table_name = 'ai_knowledge_chunks'
          LIMIT 1`,
       );
       if (!tableExists.length) return false;
@@ -148,7 +148,7 @@ export class RagBootstrapService implements OnModuleInit {
         `SELECT 1
          FROM information_schema.columns
          WHERE table_schema = 'public'
-           AND table_name = 'ai_knowledge_chunk'
+           AND table_name = 'ai_knowledge_chunks'
            AND column_name = 'embedding'
          LIMIT 1`,
       );
@@ -164,7 +164,7 @@ export class RagBootstrapService implements OnModuleInit {
   private async hasAnyActiveChunk(): Promise<boolean> {
     try {
       const result = await this.dataSource.query(
-        'SELECT 1 FROM ai_knowledge_chunk WHERE active = true LIMIT 1',
+        'SELECT 1 FROM ai_knowledge_chunks WHERE active = true LIMIT 1',
       );
       return result.length > 0;
     } catch (error) {

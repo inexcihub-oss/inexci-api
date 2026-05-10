@@ -19,10 +19,12 @@ export class AuthorizeProceduresDto {
   @IsString()
   @IsNotEmpty()
   surgeryRequestId: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AuthorizeProcedureDto)
-  surgery_request_procedures: AuthorizeProcedureDto[];
+  surgeryRequestProcedures: AuthorizeProcedureDto[];
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AuthorizeProcedureDto)

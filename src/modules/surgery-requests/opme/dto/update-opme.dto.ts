@@ -23,12 +23,12 @@ export class UpdateOpmeDto {
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
-  supplier_ids?: string[];
+  supplierIds?: string[];
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  supplier_names?: string[];
+  supplierNames?: string[];
 
   @IsOptional()
   @IsNumber()

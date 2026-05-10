@@ -197,6 +197,18 @@ export class UsersController {
     );
   }
 
+  @Post('collaborators/:id/resend-invite')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Reenviar e-mail de convite (link de primeiro acesso)',
+  })
+  async resendCollaboratorInvite(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.usersService.resendCollaboratorInvite(id, user.userId);
+  }
+
   @Delete('collaborators/:id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Excluir colaborador' })

@@ -50,11 +50,11 @@ describe('Surgery Request Procedures (e2e)', () => {
       }
 
       const procedureData = {
-        surgery_request_id: testSurgeryRequestId,
+        surgeryRequestId: testSurgeryRequestId,
         procedures: [
           {
             id: 1,
-            procedure_id: 1,
+            procedureId: 1,
             quantity: 1,
           },
         ],
@@ -78,11 +78,11 @@ describe('Surgery Request Procedures (e2e)', () => {
 
     it('should fail without authentication', async () => {
       const procedureData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
         procedures: [
           {
             id: 1,
-            procedure_id: 1,
+            procedureId: 1,
             quantity: 1,
           },
         ],
@@ -108,11 +108,11 @@ describe('Surgery Request Procedures (e2e)', () => {
 
     it('should fail with invalid surgery request id', async () => {
       const procedureData = {
-        surgery_request_id: 999999,
+        surgeryRequestId: 999999,
         procedures: [
           {
             id: 1,
-            procedure_id: 1,
+            procedureId: 1,
             quantity: 1,
           },
         ],
@@ -136,14 +136,14 @@ describe('Surgery Request Procedures (e2e)', () => {
       }
 
       const authorizeData = {
-        surgery_request_id: testSurgeryRequestId,
-        surgery_request_procedures: [
+        surgeryRequestId: testSurgeryRequestId,
+        surgeryRequestProcedures: [
           {
             id: 1,
-            authorized_quantity: 1,
+            authorizedQuantity: 1,
           },
         ],
-        opme_items: [],
+        opmeItems: [],
       };
 
       const response = await request(app.getHttpServer())
@@ -158,14 +158,14 @@ describe('Surgery Request Procedures (e2e)', () => {
 
     it('should fail without authentication', async () => {
       const authorizeData = {
-        surgery_request_id: 1,
-        surgery_request_procedures: [
+        surgeryRequestId: 1,
+        surgeryRequestProcedures: [
           {
             id: 1,
-            authorized_quantity: 1,
+            authorizedQuantity: 1,
           },
         ],
-        opme_items: [],
+        opmeItems: [],
       };
 
       await request(app.getHttpServer())
@@ -176,7 +176,7 @@ describe('Surgery Request Procedures (e2e)', () => {
 
     it('should fail with missing required fields', async () => {
       const incompleteData = {
-        surgery_request_procedures: [],
+        surgeryRequestProcedures: [],
       };
 
       await request(app.getHttpServer())
@@ -193,18 +193,18 @@ describe('Surgery Request Procedures (e2e)', () => {
       }
 
       const authorizeData = {
-        surgery_request_id: testSurgeryRequestId,
-        surgery_request_procedures: [
+        surgeryRequestId: testSurgeryRequestId,
+        surgeryRequestProcedures: [
           {
             id: 1,
-            authorized_quantity: 1,
+            authorizedQuantity: 1,
           },
           {
             id: 2,
-            authorized_quantity: 0,
+            authorizedQuantity: 0,
           },
         ],
-        opme_items: [],
+        opmeItems: [],
       };
 
       const response = await request(app.getHttpServer())

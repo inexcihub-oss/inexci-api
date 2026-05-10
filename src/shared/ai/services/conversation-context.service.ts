@@ -143,9 +143,9 @@ export class ConversationContextService {
     breakdown.system_tokens = estimateTokens(systemBase);
 
     if (conversation.userId) {
-      // Tokeniza o telefone do usuário (LGPD/T0.7): sem isso, o filtro
-      // defensivo `assertNoResidualPii` detecta o número bruto e bloqueia
-      // qualquer mensagem com a notice "Detectei um dado sensível...".
+      // Tokeniza o telefone do usuário (LGPD/T0.7): preserva o número como
+      // placeholder para a IA usar (em vez de ser redigido por máscara
+      // genérica pelo `redactResidualPii`).
       const phoneToken = conversation.phone
         ? this.piiVault.tokenize(conversation.id, conversation.phone, 'phone')
         : '';

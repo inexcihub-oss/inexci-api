@@ -18,10 +18,10 @@ export class CreateCollaboratorDto {
   @IsEmail()
   email: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty({ message: 'Telefone é obrigatório' })
   @PhoneTransform()
-  phone?: string;
+  phone: string;
 
   @IsBoolean()
   @IsOptional()

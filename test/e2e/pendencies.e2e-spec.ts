@@ -28,8 +28,8 @@ describe('Pendencies (e2e)', () => {
       .post('/surgery-requests/simple')
       .set(getAuthHeader(authToken))
       .send({
-        is_indication: true,
-        indication_name: 'Test Procedure for Pendencies',
+        isIndication: true,
+        indicationName: 'Test Procedure for Pendencies',
         patient: {
           name: 'Test Patient',
           email: 'test-patient-pendency@test.com',

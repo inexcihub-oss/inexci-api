@@ -5,6 +5,7 @@ import { SurgeryRequestStatus } from '../../../database/entities/surgery-request
 import { In } from 'typeorm';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
+import { buildProtocolCandidates, stripScPrefix } from './protocol.helpers';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -28,31 +29,6 @@ const PRIORITY_LABELS: Record<number, string> = {
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-function normalizeProtocolDisplay(protocol: unknown): string {
-  const value = String(protocol || '').trim();
-  if (!value) return 'SC-N/D';
-  return value.toUpperCase().startsWith('SC-')
-    ? value.toUpperCase()
-    : `SC-${value}`;
-}
-
-function buildProtocolCandidates(identifier: string): string[] {
-  const cleaned = identifier.trim();
-  if (!cleaned) return [];
-
-  const upper = cleaned.toUpperCase();
-  const candidates = new Set<string>([upper]);
-
-  if (upper.startsWith('SC-')) {
-    const withoutPrefix = upper.slice(3).trim();
-    if (withoutPrefix) candidates.add(withoutPrefix);
-  } else {
-    candidates.add(`SC-${upper}`);
-  }
-
-  return Array.from(candidates);
 }
 
 async function resolveRequestByIdentifier(
@@ -147,12 +123,16 @@ export function buildSurgeryRequestTools(
       const priority =
         PRIORITY_LABELS[request.priority as any] || String(request.priority);
       const TOOL = 'get_surgery_request_status';
+      // Vault armazena o protocol SEM prefixo "SC-"; prefixamos no template
+      // (`SC-${protocolToken}`) para evitar duplicação `SC-SC-` quando a IA
+      // copia o padrão.
       const protocolToken = tokenizePii(
         context,
         TOOL,
         'protocol',
-        normalizeProtocolDisplay(request.protocol),
+        stripScPrefix(request.protocol),
       );
+      const protocolDisplay = `SC-${protocolToken}`;
       const patientToken = tokenizePii(
         context,
         TOOL,
@@ -219,7 +199,7 @@ export function buildSurgeryRequestTools(
       }
 
       return [
-        `📋 *Solicitação ${protocolToken}*`,
+        `📋 *Solicitação ${protocolDisplay}*`,
         `Status: ${status}`,
         `Prioridade: ${priority}`,
         `Paciente: ${patientToken}`,
@@ -293,19 +273,46 @@ export function buildSurgeryRequestTools(
       }
 
       const TOOL = 'list_surgery_requests';
-      const lines = requests.map((r: any) => {
-        const protocolToken = tokenizePii(
-          context,
-          TOOL,
-          'protocol',
-          normalizeProtocolDisplay(r.protocol),
-        );
-        const patientToken = r.patient?.name
-          ? tokenizePii(context, TOOL, 'patient_name', r.patient.name)
-          : 'Paciente';
-        return `• ${protocolToken} — ${patientToken} — ${STATUS_LABELS[r.status] || r.status}`;
+
+      // Ordenação primária: status (na ordem do workflow Pendente → Encerrada).
+      // Desempate: createdAt mais recente primeiro (já vem ordenado do repo).
+      const sortedRequests = [...requests].sort((a: any, b: any) => {
+        const sa = Number(a?.status) || 0;
+        const sb = Number(b?.status) || 0;
+        if (sa !== sb) return sa - sb;
+        const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return db - da;
       });
-      return `📋 *Suas solicitações:*\n${lines.join('\n')}`;
+
+      // Agrupa por status para deixar a leitura no WhatsApp mais clara.
+      const groups = new Map<number, any[]>();
+      for (const request of sortedRequests) {
+        const status = Number(request?.status) || 0;
+        const bucket = groups.get(status) ?? [];
+        bucket.push(request);
+        groups.set(status, bucket);
+      }
+
+      const sections: string[] = [];
+      for (const [status, items] of groups) {
+        const label = STATUS_LABELS[status] || `Status ${status}`;
+        const itemLines = items.map((r: any) => {
+          const protocolToken = tokenizePii(
+            context,
+            TOOL,
+            'protocol',
+            stripScPrefix(r.protocol),
+          );
+          const patientToken = r.patient?.name
+            ? tokenizePii(context, TOOL, 'patient_name', r.patient.name)
+            : 'Paciente';
+          return `• SC-${protocolToken} — ${patientToken}`;
+        });
+        sections.push(`*${label}*\n${itemLines.join('\n')}`);
+      }
+
+      return `📋 *Suas solicitações (por status):*\n\n${sections.join('\n\n')}`;
     },
   };
 

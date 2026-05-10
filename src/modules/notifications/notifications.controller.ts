@@ -65,13 +65,6 @@ export class NotificationsController {
     });
   }
 
-  @Get('unread-count')
-  @ApiOperation({ summary: 'Contagem de notificações não lidas' })
-  async getUnreadCount(@CurrentUser() user: AuthenticatedUser) {
-    const count = await this.notificationsService.getUnreadCount(user.userId);
-    return { count };
-  }
-
   @Put(':id/read')
   @ApiOperation({ summary: 'Marcar notificação como lida' })
   async markAsRead(

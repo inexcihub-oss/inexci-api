@@ -27,8 +27,8 @@ export const envValidationSchema = Joi.object({
 
   // ── Supabase ─────────────────────────────────────────
   SUPABASE_URL: Joi.string().allow('').default(''),
-  SUPABASE_KEY: Joi.string().allow('').default(''),
-  SUPABASE_SERVICE_KEY: Joi.string().allow('').default(''),
+  SUPABASE_PUBLISHABLE_KEY: Joi.string().allow('').default(''),
+  SUPABASE_SECRET_KEY: Joi.string().allow('').default(''),
   SUPABASE_BUCKET: Joi.string().allow('').default('inexci-storage'),
 
   // ── Email (SMTP) ─────────────────────────────────────
@@ -44,7 +44,7 @@ export const envValidationSchema = Joi.object({
   TWILIO_ACCOUNT_SID: Joi.string().allow('').default(''),
   TWILIO_AUTH_TOKEN: Joi.string().allow('').default(''),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
-  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('true'),
+  TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('false'),
 
   // ── Security (criptografia / hash) ───────────────────
   DB_ENCRYPTION_KEY: Joi.string().allow('').default(''),
@@ -109,6 +109,7 @@ export const envValidationSchema = Joi.object({
     .valid('error', 'warn', 'log', 'debug', 'verbose')
     .default('log'),
   LOG_PRETTY: Joi.string().allow('').default(''),
+  DB_LOG_FULL_QUERIES: Joi.string().allow('').default('false'),
   LOG_RETENTION_NOTIFICATION_DAYS: Joi.number().default(90),
   LOG_RETENTION_AI_USAGE_DAYS: Joi.number().default(365),
   LOG_RETENTION_PII_DAYS: Joi.number().default(180),

@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-@Entity('recoveryCodes')
+@Entity('recovery_codes')
 export class RecoveryCode {
   @PrimaryGeneratedColumn('uuid')
   id: string;

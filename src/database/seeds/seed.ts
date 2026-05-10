@@ -1635,6 +1635,171 @@ async function main() {
     );
   }
 
+  // SR C1-5 — SENT (Enviada) — Eduardo Luiz Teixeira
+  {
+    const r = await dataSource.query(
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,2,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '4 days','email') RETURNING id`,
+      [
+        adminMedicoId,
+        adminMedicoId,
+        patientIds1[4],
+        hospitalIds[3],
+        healthPlanIds[4],
+        procedureIds[19],
+        'Espondilolistese degenerativa L4-L5 grau II com estenose foraminal e dor radicular bilateral. Sem resposta ao tratamento conservador por 18 meses.',
+        'Paciente de 80 anos com lombalgia crônica irradiada para membros inferiores. RM confirma listese e estenose foraminal bilateral grave. Fisioterapia e bloqueio epidural sem resultado.',
+        'Osteoporose severa. HAS controlada. Uso de bifosfonatos. Risco cirúrgico moderado (ASA III). Avaliação cardiológica favorável ao procedimento.',
+        'Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão do canal vertebral.',
+        '2211009988',
+        'Apartamento',
+      ],
+    );
+    srIds1.push(r[0].id);
+    await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
+  }
+
+  // SR C1-6 — IN_ANALYSIS (Em Análise) — Fernando Augusto Costa (segunda cirurgia)
+  {
+    const r = await dataSource.query(
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '15 days',NOW() - INTERVAL '12 days') RETURNING id`,
+      [
+        adminMedicoId,
+        assistenteOrtId,
+        patientIds1[0],
+        hospitalIds[4],
+        healthPlanIds[5],
+        procedureIds[1],
+        'Hérnia inguinal bilateral volumosa com episódios de encarceramento. Indicação cirúrgica de urgência relativa.',
+        'Paciente com abaulamento inguinal bilateral há 3 anos com progressão nos últimos 6 meses e dois episódios de encarceramento. Exame clínico confirma hérnia inguinal direta bilateral redutível.',
+        'HAS controlada. DM2 compensada. ASA II. Avaliação pré-operatória em andamento.',
+        'Herniorrafia inguinal bilateral com tela de polipropileno por via aberta (técnica de Lichtenstein bilateral).',
+        '1122334455',
+        'Apartamento',
+      ],
+    );
+    srIds1.push(r[0].id);
+    await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
+    await recordStatusChange(dataSource, r[0].id, 2, 3, adminMedicoId);
+    await dataSource.query(
+      `INSERT INTO surgery_request_analyses (surgery_request_id, request_number, received_at, notes)
+       VALUES ($1,'PORTO-2024-01834',NOW() - INTERVAL '12 days','Documentação recebida. Aguardando análise técnica do convênio.')`,
+      [r[0].id],
+    );
+  }
+
+  // SR C1-7 — PERFORMED (Realizada) — Beatriz Helena Santos (segunda cirurgia)
+  {
+    const r = await dataSource.query(
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,6,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '55 days',NOW() - INTERVAL '52 days','UNIMED-20241243',NOW() - INTERVAL '20 days',NOW() - INTERVAL '20 days') RETURNING id`,
+      [
+        adminMedicoId,
+        adminMedicoId,
+        patientIds1[1],
+        hospitalIds[3],
+        healthPlanIds[4],
+        procedureIds[17],
+        'Catarata nuclear densa grau IV no olho direito. Acuidade visual inferior a 20/200 com piora progressiva nos últimos 6 meses.',
+        'Paciente de 70 anos com redução progressiva da acuidade visual. Oftalmoscopia confirma catarata densa bilateral. Indicação de tratamento cirúrgico pelo olho direito.',
+        'HAS controlada. Osteoporose. Uso de anticoagulantes suspensos 5 dias antes do procedimento. ASA II.',
+        'Facoemulsificação com implante de LIO monofocal no olho direito. Anestesia tópica com sedação leve.',
+        '9988776655',
+        'Apartamento Superior',
+      ],
+    );
+    srIds1.push(r[0].id);
+    for (const [prev, next] of [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 6],
+    ]) {
+      await recordStatusChange(dataSource, r[0].id, prev, next, adminMedicoId);
+    }
+    const opmeC7a = await dataSource.query(
+      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Lente intraocular monofocal AcrySof IQ','Alcon',1,1) RETURNING id`,
+      [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
+      [opmeC7a[0].id, supplierIds[3]],
+    );
+    await dataSource.query(
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Diagnóstico e Indicação','<p>Paciente com catarata nuclear densa grau IV no olho direito. Acuidade visual inferior a 20/200. Indicação de facoemulsificação com implante de LIO.</p>',1)`,
+      [r[0].id],
+    );
+    await dataSource.query(
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Procedimento Realizado','<p>Facoemulsificação realizada sem intercorrências. LIO implantada em posição correta. Alta no mesmo dia. Olho esquerdo a ser operado em 60 dias.</p>',2)`,
+      [r[0].id],
+    );
+  }
+
+  // SR C1-8 — INVOICED (Faturada) — Marcos Antônio Ribeiro (segunda cirurgia)
+  {
+    const r = await dataSource.query(
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '65 days',NOW() - INTERVAL '35 days') RETURNING id`,
+      [
+        adminMedicoId,
+        assistenteOrtId,
+        patientIds1[2],
+        hospitalIds[4],
+        healthPlanIds[4],
+        procedureIds[18],
+        'Desvio septal esquerdo grau III com obstrução nasal crônica e hipertrofia de cornetos inferiores bilaterais.',
+        'Paciente com obstrução nasal crônica bilateral predominante à esquerda há 4 anos. Sem resposta a corticosteroides tópicos por 6 meses. Desvio septal confirmado por rinoscopia.',
+        'Sem comorbidades. ASA I. Exames pré-operatórios normais.',
+        'Rinoplastia funcional com septoplastia e turbinoplastia por redução. Anestesia geral.',
+        '4433221100',
+        'Enfermaria',
+      ],
+    );
+    srIds1.push(r[0].id);
+    for (const [prev, next] of [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 5],
+      [5, 6],
+      [6, 7],
+    ]) {
+      await recordStatusChange(dataSource, r[0].id, prev, next, adminMedicoId);
+    }
+    await dataSource.query(
+      `INSERT INTO surgery_request_billings (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline)
+       VALUES ($1,$2,'FAT-UNP-2024-00512',NOW() - INTERVAL '12 days',3200.00,NOW() + INTERVAL '18 days')`,
+      [r[0].id, adminMedicoId],
+    );
+  }
+
+  // SR C1-9 — CLOSED (Encerrada) — Patrícia Gonçalves Ferraz (segunda solicitação)
+  {
+    const r = await dataSource.query(
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '35 days','Convênio negou autorização por carência contratual do plano. Paciente optou por reagendamento após período de carência.',NOW() - INTERVAL '10 days') RETURNING id`,
+      [
+        adminMedicoId,
+        adminMedicoId,
+        patientIds1[3],
+        hospitalIds[4],
+        healthPlanIds[6],
+        procedureIds[10],
+        'Nódulo tireoidiano sólido de 2,8 cm com PAAF indeterminada (Bethesda IV). Indicação de tireoidectomia total para diagnóstico definitivo e tratamento.',
+        'Paciente com nódulo tireoidiano palpável identificado há 6 meses. USG confirma nódulo sólido hipoecogênico de 2,8 cm. PAAF: neoplasia folicular (Bethesda IV).',
+        'Sem comorbidades. ASA I. Avaliação laringoscópica normal.',
+        'Tireoidectomia total com linfadenectomia do compartimento central por cervicotomia.',
+        '7766554433',
+        'Apartamento',
+      ],
+    );
+    srIds1.push(r[0].id);
+    await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
+    await recordStatusChange(dataSource, r[0].id, 2, 9, adminMedicoId);
+  }
+
   logger.log(`  ✅ ${srIds1.length} solicitações criadas para conta 1\n`);
 
   // ========================================
@@ -1895,7 +2060,7 @@ async function main() {
     '  • 13 pacientes com dados completos (endereço, convênio, histórico)',
   );
   logger.log(
-    '  • 15 solicitações cirúrgicas (cobertura completa: 1 em cada status 1..9)',
+    '  • 20 solicitações cirúrgicas (todos os 9 status cobertos nas 2 contas)',
   );
   logger.log(
     '  • OPME, cotações, análises, faturamentos, contestações, laudos',

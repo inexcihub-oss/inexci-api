@@ -18,5 +18,5 @@ export class UpdateStatusDto {
 
   @IsOptional()
   @IsBoolean()
-  notify_patient?: boolean;
+  notifyPatient?: boolean;
 }

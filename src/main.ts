@@ -3,7 +3,11 @@ import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
+import {
+  ClassSerializerInterceptor,
+  Logger,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
@@ -102,9 +106,14 @@ async function bootstrap() {
       'Content-Type',
       'Authorization',
       'ngrok-skip-browser-warning',
+      'X-Request-Id',
     ],
+    exposedHeaders: ['X-Request-Id'],
   });
 
-  await app.listen(configService.get<number>('PORT') || 3000);
+  const port = configService.get<number>('PORT') || 3000;
+  await app.listen(port);
+
+  new Logger('Bootstrap').log(`Aplicação iniciada na porta ${port}`);
 }
 bootstrap();

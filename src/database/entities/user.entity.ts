@@ -71,8 +71,8 @@ export class User {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'varchar', length: 15, nullable: true })
-  phone: string | null;
+  @Column({ type: 'varchar', length: 15 })
+  phone: string;
 
   @Column({ type: 'varchar', length: 14, nullable: true })
   cpf: string | null;

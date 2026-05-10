@@ -7,14 +7,26 @@ import { CreateCollaboratorDto } from './create-collaborator.dto';
  * Testa validação do DTO de criação de colaborador.
  */
 describe('CreateCollaboratorDto', () => {
-  it('deve validar com dados mínimos (name + email)', async () => {
+  it('deve validar com dados mínimos (name + email + phone)', async () => {
+    const dto = plainToInstance(CreateCollaboratorDto, {
+      name: 'Ana Souza',
+      email: 'ana@email.com',
+      phone: '11999998888',
+    });
+
+    const errors = await validate(dto);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('deve falhar sem phone', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Ana Souza',
       email: 'ana@email.com',
     });
 
     const errors = await validate(dto);
-    expect(errors).toHaveLength(0);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.find((e) => e.property === 'phone')).toBeDefined();
   });
 
   it('deve falhar sem name', async () => {
@@ -47,7 +59,7 @@ describe('CreateCollaboratorDto', () => {
     expect(errors.find((e) => e.property === 'email')).toBeDefined();
   });
 
-  it('deve aceitar phone opcional', async () => {
+  it('deve aceitar phone obrigatório', async () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Ana',
       email: 'ana@email.com',
@@ -62,6 +74,7 @@ describe('CreateCollaboratorDto', () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Dr. Pedro',
       email: 'pedro@email.com',
+      phone: '21999998888',
       isDoctor: true,
       crm: '654321',
       crmState: 'RJ',
@@ -102,6 +115,7 @@ describe('CreateCollaboratorDto', () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Secretária Maria',
       email: 'maria@email.com',
+      phone: '21988887777',
       isDoctor: false,
     });
 
@@ -113,6 +127,7 @@ describe('CreateCollaboratorDto', () => {
     const dto = plainToInstance(CreateCollaboratorDto, {
       name: 'Carlos',
       email: 'carlos@email.com',
+      phone: '11977776666',
     });
 
     const errors = await validate(dto);

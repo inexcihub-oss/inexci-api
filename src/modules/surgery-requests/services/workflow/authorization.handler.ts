@@ -102,7 +102,7 @@ export class AuthorizationHandler {
       request,
       request.status,
       SurgeryRequestStatus.IN_SCHEDULING,
-      dto.notify_patient,
+      dto.notifyPatient,
     );
 
     await this.notificationService.notifyAdminsOfWorkflowAction(

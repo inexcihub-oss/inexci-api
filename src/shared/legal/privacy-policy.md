@@ -1,13 +1,5 @@
 # Política de Privacidade da Inexci
 
-**Versão:** 1.0 (DRAFT — pendente revisão jurídica)
-**Vigência:** a partir de [DATA A DEFINIR]
-**Última atualização:** [DATA A DEFINIR]
-
-> ⚠️ **AVISO INTERNO** — Este é um draft inicial gerado pela engenharia para servir de base à revisão por advogado(a) especializado(a) em proteção de dados. **Não publicar nem aplicar em produção sem revisão jurídica formal.** Os textos entre colchetes são lacunas que dependem de decisão da Inexci ou redação jurídica.
-
----
-
 ## 1. Quem somos
 
 A **Inexci** ([RAZÃO SOCIAL COMPLETA], CNPJ [CNPJ], com sede em [ENDEREÇO]) é a controladora dos dados pessoais tratados na plataforma de gestão de solicitações cirúrgicas disponível em [DOMÍNIO PRINCIPAL]. Esta Política descreve como coletamos, usamos, compartilhamos e protegemos esses dados.

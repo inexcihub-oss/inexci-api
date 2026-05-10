@@ -780,6 +780,74 @@ export class UsersService {
   }
 
   /**
+   * Reenvia o e-mail de convite (link de primeiro acesso) para um colaborador
+   * que ainda não ativou a conta. Gera um novo token de 72h e invalida os
+   * anteriores. Disponível apenas para colaboradores com status PENDING.
+   */
+  async resendCollaboratorInvite(collaboratorId: string, adminId: string) {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin || admin.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Apenas admins podem reenviar convites');
+    }
+
+    const collaborator = await this.userRepository.findOne({
+      id: collaboratorId,
+    });
+    if (!collaborator) {
+      throw new NotFoundException('Colaborador não encontrado');
+    }
+    if (collaborator.ownerId !== admin.ownerId) {
+      throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    }
+    if (collaborator.status !== UserStatus.PENDING) {
+      throw new BadRequestException(
+        'Este usuário já ativou a conta. Reenvio de convite só está disponível para convites pendentes.',
+      );
+    }
+    if (!collaborator.email) {
+      throw new BadRequestException(
+        'Colaborador não possui e-mail cadastrado',
+      );
+    }
+
+    // Invalida TODOS os tokens anteriores deste usuário (usados ou não) para
+    // garantir que apenas o novo link seja válido. Sem o filtro de `used`,
+    // tokens já validados (mas com senha ainda não trocada) também são
+    // descartados — caso contrário o link antigo continuaria funcionando.
+    await this.recoveryCodeRepository.deleteMany({
+      userId: collaborator.id,
+    });
+
+    const inviteToken = generateValidationCode(6);
+    await this.recoveryCodeRepository.create({
+      userId: collaborator.id,
+      used: false,
+      code: inviteToken,
+      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+    });
+
+    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
+    const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(collaborator.email)}&token=${inviteToken}`;
+
+    void this.mailService.send(
+      'invite-collaborator',
+      collaborator.email,
+      'Você foi convidado para a Inexci!',
+      {
+        collaboratorName: collaborator.name,
+        inviterName: admin.name,
+        email: collaborator.email,
+        setupLink,
+      },
+    );
+
+    return {
+      message: 'Convite reenviado com sucesso',
+      email: collaborator.email,
+    };
+  }
+
+  /**
    * Detalhes de um colaborador (dados + doctorProfile + user_doctor_access)
    */
   async findCollaboratorById(collaboratorId: string, adminId: string) {

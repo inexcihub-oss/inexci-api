@@ -14,7 +14,8 @@ import {
 export class AcceptAuthorizationDto {
   @IsOptional()
   @IsBoolean()
-  notify_patient?: boolean;
+  notifyPatient?: boolean;
+
   /** Mínimo 1 data, máximo 3 opções */
   @IsArray()
   @ArrayMinSize(1)

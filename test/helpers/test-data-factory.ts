@@ -115,9 +115,9 @@ export class TestDataFactory {
     healthPlanId: number,
   ) {
     return {
-      patient_id: patientId,
-      hospital_id: hospitalId,
-      health_plan_id: healthPlanId,
+      patientId: patientId,
+      hospitalId: hospitalId,
+      healthPlanId: healthPlanId,
       surgery_date: faker.date.future().toISOString().split('T')[0],
       observation: faker.lorem.paragraph(),
     };
@@ -126,8 +126,8 @@ export class TestDataFactory {
   // Gera dados mínimos para criar solicitação de cirurgia (para testes)
   static generateSurgeryRequestData() {
     return {
-      is_indication: false,
-      indication_name: '',
+      isIndication: false,
+      indicationName: '',
       patient: {
         name: faker.person.fullName(),
         email: faker.internet.email().toLowerCase(),
@@ -150,7 +150,7 @@ export class TestDataFactory {
 
   static generateQuotation(surgeryRequestId: number, supplierId: number) {
     return {
-      surgery_request_id: surgeryRequestId,
+      surgeryRequestId: surgeryRequestId,
       supplier_id: supplierId,
       amount: parseFloat(faker.commerce.price({ min: 1000, max: 10000 })),
       items: [

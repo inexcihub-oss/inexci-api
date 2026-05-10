@@ -22,6 +22,7 @@ import { getRequestContext, setRequestContext } from './request-context';
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger('Http');
+  private readonly traceLogger = new Logger('Trace');
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== 'http') {
@@ -33,17 +34,37 @@ export class LoggingInterceptor implements NestInterceptor {
     const res = http.getResponse<Response>();
     const startedAt = Date.now();
 
+    // O payload do JwtStrategy.validate() expõe `userId` (não `id`).
+    // Mantemos `id` como fallback para qualquer outra estratégia de auth
+    // que populasse `req.user.id` diretamente.
     if (req.user) {
       setRequestContext({
-        userId: req.user?.id ?? null,
+        userId: req.user?.userId ?? req.user?.id ?? null,
         tenantId: req.user?.ownerId ?? req.user?.accountId ?? null,
       });
     }
 
+    const handlerLabel = `${context.getClass().name}.${context.getHandler().name}`;
+    this.traceLogger.log(
+      `→ ${handlerLabel} ${req.method} ${sanitizeUrl(req.originalUrl || req.url || '')}`,
+    );
+
     return next.handle().pipe(
       tap({
-        next: () => this.emit(req, res, startedAt),
-        error: () => this.emit(req, res, startedAt),
+        next: () => {
+          this.traceLogger.log(
+            `← ${handlerLabel} (${Date.now() - startedAt}ms)`,
+          );
+          this.emit(req, res, startedAt);
+        },
+        error: (err: unknown) => {
+          const reason =
+            err instanceof Error ? err.message : 'erro desconhecido';
+          this.traceLogger.error(
+            `✗ ${handlerLabel} (${Date.now() - startedAt}ms) — ${reason}`,
+          );
+          this.emit(req, res, startedAt);
+        },
       }),
     );
   }

@@ -43,7 +43,7 @@ describe('NotificationsService', () => {
     findDistinctActivityUserIds: jest.Mock;
     findOneWithRelations: jest.Mock;
   };
-  let mockGateway: { emitToUser: jest.Mock };
+  let mockGateway: { emitToUser: jest.Mock; emitUnreadCount: jest.Mock };
 
   const adminUser = {
     id: 'admin-1',
@@ -117,7 +117,7 @@ describe('NotificationsService', () => {
         .fn()
         .mockResolvedValue({ patient: { name: 'Paciente Teste' } }),
     };
-    mockGateway = { emitToUser: jest.fn() };
+    mockGateway = { emitToUser: jest.fn(), emitUnreadCount: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

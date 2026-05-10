@@ -83,7 +83,7 @@ export class SurgeryRequestBillingService {
         });
 
         if (
-          dto.set_as_default_for_health_plan &&
+          dto.setAsDefaultForHealthPlan &&
           request.healthPlanId &&
           dto.paymentDeadline
         ) {

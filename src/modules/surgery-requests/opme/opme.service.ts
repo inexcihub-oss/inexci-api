@@ -26,7 +26,7 @@ export class OpmeService {
 
   async create(data: CreateOpmeDto, userId: string) {
     this.validateMinManufacturers(data.brand);
-    this.validateMinSuppliers(data.supplier_ids, data.supplier_names);
+    this.validateMinSuppliers(data.supplierIds, data.supplierNames);
 
     const surgeryRequest =
       await this.surgeryRequestAccessValidator.validateAndFetch(
@@ -35,8 +35,8 @@ export class OpmeService {
       );
 
     const suppliers = await this.resolveSuppliers(
-      data.supplier_ids,
-      data.supplier_names,
+      data.supplierIds,
+      data.supplierNames,
       surgeryRequest.ownerId,
     );
 
@@ -73,11 +73,11 @@ export class OpmeService {
 
     if (data.quantity !== undefined) opmeItem.quantity = data.quantity;
 
-    if (data.supplier_ids !== undefined || data.supplier_names !== undefined) {
-      this.validateMinSuppliers(data.supplier_ids, data.supplier_names);
+    if (data.supplierIds !== undefined || data.supplierNames !== undefined) {
+      this.validateMinSuppliers(data.supplierIds, data.supplierNames);
       opmeItem.suppliers = await this.resolveSuppliers(
-        data.supplier_ids,
-        data.supplier_names,
+        data.supplierIds,
+        data.supplierNames,
         surgeryRequest.ownerId,
       );
     }

@@ -28,14 +28,14 @@ export class ActivitiesService {
     return Promise.all(
       activities.map(async (a) => {
         let content = a.content;
-        let pdf_url: string | undefined;
+        let pdfUrl: string | undefined;
 
         if (a.type === ActivityType.PDF_GENERATED) {
           try {
             const parsed = JSON.parse(a.content);
             content = parsed.description ?? a.content;
             if (parsed.pdf_path) {
-              pdf_url = await this.storageService.getSignedUrl(parsed.pdf_path);
+              pdfUrl = await this.storageService.getSignedUrl(parsed.pdf_path);
             }
           } catch {
             // conteúdo não é JSON — usa o texto bruto
@@ -49,7 +49,7 @@ export class ActivitiesService {
           id: a.id,
           type: a.type,
           content,
-          pdf_url,
+          pdfUrl,
           createdAt: a.createdAt,
           user: a.user
             ? {

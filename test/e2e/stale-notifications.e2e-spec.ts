@@ -19,9 +19,9 @@ const DOCTOR = {
   name: 'Dr. Stale E2E',
   email: `dr.stale.${Date.now()}@inexci.test`,
   password: 'Senha@12345',
-  is_doctor: true,
+  isDoctor: true,
   crm: 'CRM999888',
-  crm_state: 'RJ',
+  crmState: 'RJ',
   specialty: 'Ortopedia',
 };
 
@@ -87,10 +87,10 @@ beforeAll(async () => {
       email: 'paciente@stale.com',
       cpf: '98765432100',
       gender: 'F',
-      birth_date: '1990-03-20',
-      health_plan_id: planRes.body.id,
-      health_plan_number: 'HP-STALE-001',
-      health_plan_type: 'individual',
+      birthDate: '1990-03-20',
+      healthPlanId: planRes.body.id,
+      healthPlanNumber: 'HP-STALE-001',
+      healthPlanType: 'individual',
     })
     .expect(201);
 
@@ -99,11 +99,11 @@ beforeAll(async () => {
     .post('/surgery-requests')
     .set(authHeader())
     .send({
-      procedure_id: procRes.body.id,
-      patient_id: patRes.body.id,
+      procedureId: procRes.body.id,
+      patientId: patRes.body.id,
       manager_id: userId,
-      health_plan_id: planRes.body.id,
-      hospital_id: hospRes.body.id,
+      healthPlanId: planRes.body.id,
+      hospitalId: hospRes.body.id,
       priority: 2,
     })
     .expect(201);

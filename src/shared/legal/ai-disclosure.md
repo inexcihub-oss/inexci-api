@@ -1,12 +1,5 @@
 # Aviso de uso de Inteligência Artificial
 
-**Versão:** 1.0 (DRAFT — pendente revisão jurídica)
-**Vigência:** a partir de [DATA A DEFINIR]
-
-> ⚠️ **AVISO INTERNO** — Draft inicial gerado pela engenharia. Texto destinado ao **modal de consentimento na primeira sessão web** e à **página `/configuracoes/privacidade`**. Pendente revisão jurídica antes de publicação.
-
----
-
 ## Inteligência Artificial no atendimento
 
 Para oferecer respostas rápidas no WhatsApp e auxiliar na gestão das suas solicitações cirúrgicas, a Inexci utiliza um assistente de Inteligência Artificial fornecido pela **Microsoft Corporation** por meio do serviço **Azure OpenAI Service**, hospedado na região **Brasil-Sul (São Paulo)**.

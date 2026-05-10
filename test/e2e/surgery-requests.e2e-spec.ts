@@ -122,9 +122,9 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/simple (POST)', () => {
     it('should create a simple surgery request', async () => {
       const surgeryRequestData = {
-        patient_id: 1,
-        hospital_id: 1,
-        health_plan_id: 1,
+        patientId: 1,
+        hospitalId: 1,
+        healthPlanId: 1,
         surgery_date: new Date().toISOString().split('T')[0],
         observation: 'Test observation',
       };
@@ -149,7 +149,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/send (POST)', () => {
     it('should send a surgery request', async () => {
       const sendData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
         // Add other required fields
       };
 
@@ -170,7 +170,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/cancel (POST)', () => {
     it('should cancel a surgery request', async () => {
       const cancelData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
       };
 
       await request(app.getHttpServer())
@@ -190,7 +190,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/schedule (POST)', () => {
     it('should schedule a surgery request', async () => {
       const scheduleData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
         surgery_date: new Date().toISOString().split('T')[0],
       };
 
@@ -211,7 +211,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/to-invoice (POST)', () => {
     it('should mark surgery request as to invoice', async () => {
       const invoiceData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
       };
 
       await request(app.getHttpServer())
@@ -243,7 +243,7 @@ describe('Surgery Requests (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/invoice')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
+        .field('surgeryRequestId', '1')
         .attach('invoice_protocol', testFilePath);
     });
 
@@ -258,7 +258,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/receive (POST)', () => {
     it('should mark surgery request as received', async () => {
       const receiveData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
       };
 
       await request(app.getHttpServer())
@@ -278,7 +278,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/surgery-dates (POST)', () => {
     it('should create surgery date options', async () => {
       const dateOptionsData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
         dates: [
           new Date().toISOString().split('T')[0],
           new Date(Date.now() + 86400000).toISOString().split('T')[0],
@@ -367,7 +367,7 @@ describe('Surgery Requests (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/contest')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
+        .field('surgeryRequestId', '1')
         .field('reason', 'Test contest reason')
         .attach('contest_file', testFilePath);
     });
@@ -376,7 +376,7 @@ describe('Surgery Requests (e2e)', () => {
       const response = await request(app.getHttpServer())
         .post('/surgery-requests/contest')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1');
+        .field('surgeryRequestId', '1');
       expect([400, 404]).toContain(response.status);
     });
   });
@@ -384,7 +384,7 @@ describe('Surgery Requests (e2e)', () => {
   describe('/surgery-requests/complaint (POST)', () => {
     it('should create a complaint', async () => {
       const complaintData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
         description: 'Test complaint',
       };
 
@@ -433,10 +433,10 @@ describe('Surgery Requests (e2e)', () => {
         .post('/surgery-requests/simple')
         .set(getAuthHeader(authToken))
         .send({
-          patient_id: 1,
-          hospital_id: 1,
-          health_plan_id: 1,
-          indication_name: 'Test Procedure for Approval',
+          patientId: 1,
+          hospitalId: 1,
+          healthPlanId: 1,
+          indicationName: 'Test Procedure for Approval',
         });
 
       if (createResponse.status === 201) {
@@ -478,10 +478,10 @@ describe('Surgery Requests (e2e)', () => {
         .post('/surgery-requests/simple')
         .set(getAuthHeader(authToken))
         .send({
-          patient_id: 1,
-          hospital_id: 1,
-          health_plan_id: 1,
-          indication_name: 'Test Procedure for Denial',
+          patientId: 1,
+          hospitalId: 1,
+          healthPlanId: 1,
+          indicationName: 'Test Procedure for Denial',
         });
 
       if (createResponse.status === 201) {
@@ -535,10 +535,10 @@ describe('Surgery Requests (e2e)', () => {
         .post('/surgery-requests/simple')
         .set(getAuthHeader(authToken))
         .send({
-          patient_id: 1,
-          hospital_id: 1,
-          health_plan_id: 1,
-          indication_name: 'Test Procedure for Transition',
+          patientId: 1,
+          hospitalId: 1,
+          healthPlanId: 1,
+          indicationName: 'Test Procedure for Transition',
         });
 
       if (createResponse.status === 201) {
@@ -585,10 +585,10 @@ describe('Surgery Requests (e2e)', () => {
         .post('/surgery-requests/simple')
         .set(getAuthHeader(authToken))
         .send({
-          patient_id: 1,
-          hospital_id: 1,
-          health_plan_id: 1,
-          indication_name: 'Test Automatic Transition',
+          patientId: 1,
+          hospitalId: 1,
+          healthPlanId: 1,
+          indicationName: 'Test Automatic Transition',
         });
 
       if (createResponse.status === 201) {

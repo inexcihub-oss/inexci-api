@@ -201,6 +201,9 @@ describe('PiiVaultService', () => {
   describe('serializeSession / restoreSession', () => {
     it('serializeSession devolve cópia dos bindings (JSON-safe)', () => {
       service.tokenize(sid, 'João Silva', 'patient_name');
+      // tokenize de protocolo NORMALIZA o realValue (strip SC-), porque o
+      // banco armazena o protocolo sem prefixo. As tools prefixam "SC-"
+      // FORA do placeholder na resposta para o usuário (regressão SC-SC-).
       service.tokenize(sid, 'SC-0042', 'protocol');
 
       const snapshot = service.serializeSession(sid);
@@ -213,7 +216,7 @@ describe('PiiVaultService', () => {
         {
           token: '{{protocol_1}}',
           category: 'protocol',
-          realValue: 'SC-0042',
+          realValue: '0042',
         },
       ]);
 
@@ -228,11 +231,12 @@ describe('PiiVaultService', () => {
 
     it('restoreSession permite detokenizar placeholders salvos em turno anterior', () => {
       // Simula bindings persistidos no turno anterior (Redis/banco).
+      // Note: realValue de protocol é armazenado SEM prefixo "SC-".
       const persisted = [
         {
           token: '{{protocol_1}}',
           category: 'protocol' as const,
-          realValue: 'SC-0042',
+          realValue: '0042',
         },
         {
           token: '{{patient_name_1}}',
@@ -244,9 +248,39 @@ describe('PiiVaultService', () => {
       service.startSession('nova-sessao');
       service.restoreSession('nova-sessao', persisted);
 
-      const text = '1 - {{protocol_1}} — {{patient_name_1}} — Finalizada';
+      const text = '1 - SC-{{protocol_1}} — {{patient_name_1}} — Finalizada';
       expect(service.detokenize('nova-sessao', text)).toBe(
         '1 - SC-0042 — João Silva — Finalizada',
+      );
+    });
+
+    // Regressão SC-SC-: bindings persistidos ANTES do fix gravavam
+    // realValue="SC-0042". Sem normalização no restoreSession, o detokenize
+    // de "SC-{{protocol_1}}" produzia "SC-SC-0042" no WhatsApp.
+    it('restoreSession normaliza realValue de protocol legado removendo prefixo SC-', () => {
+      const persistedLegacy = [
+        {
+          token: '{{protocol_1}}',
+          category: 'protocol' as const,
+          realValue: 'SC-0042',
+        },
+        {
+          token: '{{protocol_2}}',
+          category: 'protocol' as const,
+          realValue: 'SC-SC-468131',
+        },
+      ];
+
+      service.startSession('legacy-sess');
+      service.restoreSession('legacy-sess', persistedLegacy);
+
+      const snapshot = service.serializeSession('legacy-sess');
+      expect(snapshot[0].realValue).toBe('0042');
+      expect(snapshot[1].realValue).toBe('468131');
+
+      const text = 'A SC-{{protocol_1}} e a SC-{{protocol_2}} estão prontas.';
+      expect(service.detokenize('legacy-sess', text)).toBe(
+        'A SC-0042 e a SC-468131 estão prontas.',
       );
     });
 

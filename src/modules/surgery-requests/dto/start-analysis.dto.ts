@@ -7,7 +7,8 @@ import { IsBoolean, IsDateString, IsOptional, IsString } from 'class-validator';
 export class StartAnalysisDto {
   @IsOptional()
   @IsBoolean()
-  notify_patient?: boolean;
+  notifyPatient?: boolean;
+
   @IsString()
   requestNumber: string;
 

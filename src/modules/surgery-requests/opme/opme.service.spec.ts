@@ -70,7 +70,7 @@ describe('OpmeService', () => {
             name: 'Parafuso',
             quantity: 2,
             surgeryRequestId: 'sr-1',
-            supplier_ids: ['s1', 's2', 's3'],
+            supplierIds: ['s1', 's2', 's3'],
           },
           'user-1',
         ),
@@ -85,7 +85,7 @@ describe('OpmeService', () => {
             brand: 'Fab A, Fab B',
             quantity: 2,
             surgeryRequestId: 'sr-1',
-            supplier_ids: ['s1', 's2', 's3'],
+            supplierIds: ['s1', 's2', 's3'],
           },
           'user-1',
         ),
@@ -100,7 +100,7 @@ describe('OpmeService', () => {
             brand: validBrand,
             quantity: 2,
             surgeryRequestId: 'sr-1',
-            supplier_names: ['Fornecedor A', 'Fornecedor B'],
+            supplierNames: ['Fornecedor A', 'Fornecedor B'],
           },
           'user-1',
         ),
@@ -142,7 +142,7 @@ describe('OpmeService', () => {
           brand: validBrand,
           quantity: 2,
           surgeryRequestId: 'sr-1',
-          supplier_names: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
+          supplierNames: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
         },
         'user-1',
       );
@@ -176,7 +176,7 @@ describe('OpmeService', () => {
           brand: validBrand,
           quantity: 1,
           surgeryRequestId: 'sr-1',
-          supplier_ids: ['sup-1', 'sup-2', 'sup-3'],
+          supplierIds: ['sup-1', 'sup-2', 'sup-3'],
         },
         'user-1',
       );
@@ -212,8 +212,8 @@ describe('OpmeService', () => {
           brand: validBrand,
           quantity: 1,
           surgeryRequestId: 'sr-1',
-          supplier_ids: ['sup-1'],
-          supplier_names: ['Novo A', 'Novo B'],
+          supplierIds: ['sup-1'],
+          supplierNames: ['Novo A', 'Novo B'],
         },
         'user-1',
       );
@@ -233,7 +233,7 @@ describe('OpmeService', () => {
             brand: validBrand,
             quantity: 1,
             surgeryRequestId: 'sr-1',
-            supplier_names: ['Fornecedor A', '', '  '],
+            supplierNames: ['Fornecedor A', '', '  '],
           },
           'user-1',
         ),
@@ -291,7 +291,7 @@ describe('OpmeService', () => {
     it('deve lançar BadRequestException ao atualizar fornecedores com menos de 3', async () => {
       await expect(
         service.update(
-          { id: 'opme-1', supplier_names: ['Fornecedor A', 'Fornecedor B'] },
+          { id: 'opme-1', supplierNames: ['Fornecedor A', 'Fornecedor B'] },
           'user-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -305,7 +305,7 @@ describe('OpmeService', () => {
       mockOpmeItemRepository.saveWithSuppliers.mockResolvedValue(undefined);
 
       await service.update(
-        { id: 'opme-1', supplier_ids: ['sup-1', 'sup-2', 'sup-3'] },
+        { id: 'opme-1', supplierIds: ['sup-1', 'sup-2', 'sup-3'] },
         'user-1',
       );
 
@@ -314,7 +314,7 @@ describe('OpmeService', () => {
       );
     });
 
-    it('deve criar 3 novos fornecedores ao atualizar com supplier_names', async () => {
+    it('deve criar 3 novos fornecedores ao atualizar com supplierNames', async () => {
       const suppliers = makeSuppliers(3);
       suppliers.forEach((s) =>
         mockSupplierRepository.create.mockResolvedValueOnce(s),
@@ -324,7 +324,7 @@ describe('OpmeService', () => {
       await service.update(
         {
           id: 'opme-1',
-          supplier_names: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
+          supplierNames: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
         },
         'user-1',
       );
@@ -332,7 +332,7 @@ describe('OpmeService', () => {
       expect(mockSupplierRepository.create).toHaveBeenCalledTimes(3);
     });
 
-    it('não deve alterar fornecedores se nem supplier_ids nem supplier_names fornecidos', async () => {
+    it('não deve alterar fornecedores se nem supplierIds nem supplierNames fornecidos', async () => {
       const existingSuppliers = makeSuppliers(3);
       mockOpmeItemRepository.findByIdWithSuppliers.mockResolvedValue({
         ...existingOpme,

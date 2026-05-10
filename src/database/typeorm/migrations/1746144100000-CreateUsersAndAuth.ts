@@ -22,7 +22,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
         "name"                            VARCHAR(100) NOT NULL,
         "email"                           VARCHAR(160) NOT NULL,
         "password"                        VARCHAR(60),
-        "phone"                           VARCHAR(15),
+        "phone"                           VARCHAR(15) NOT NULL,
         "cpf"                             VARCHAR(14),
         "gender"                          CHAR(1),
         "birth_date"                      DATE,

@@ -393,18 +393,18 @@ describe('WhatsappFlowTools', () => {
       });
 
       const result = await getTool('reschedule_surgery').execute(
-        { surgeryRequestId: 'req-1', new_date: '2026-05-10' },
+        { surgeryRequestId: 'req-1', newDate: '2026-05-10' },
         baseContext,
       );
 
       expect(result).toContain('permissão');
     });
 
-    it('deve validar new_date inválida', async () => {
+    it('deve validar newDate inválida', async () => {
       const result = await getTool('reschedule_surgery').execute(
         {
           surgeryRequestId: 'req-1',
-          new_date: 'abc',
+          newDate: 'abc',
           confirm: true,
         },
         baseContext,
@@ -420,7 +420,7 @@ describe('WhatsappFlowTools', () => {
       const result = await getTool('reschedule_surgery').execute(
         {
           surgeryRequestId: 'req-1',
-          new_date: '2026-05-15',
+          newDate: '2026-05-15',
           confirm: true,
         },
         baseContext,
@@ -428,7 +428,7 @@ describe('WhatsappFlowTools', () => {
 
       expect(mockWorkflowService.reschedule).toHaveBeenCalledWith(
         'req-1',
-        { new_date: '2026-05-15' },
+        { newDate: '2026-05-15' },
         'user-1',
       );
       expect(result).toContain('✅');
@@ -905,8 +905,8 @@ describe('WhatsappFlowTools', () => {
           surgeryRequestId: 'req-1',
           name: 'Parafuso',
           quantity: 2,
-          manufacturer_names: ['Fabricante 1', 'Fabricante 2'],
-          supplier_names: ['Fornecedor 1', 'Fornecedor 2'],
+          manufacturerNames: ['Fabricante 1', 'Fabricante 2'],
+          supplierNames: ['Fornecedor 1', 'Fornecedor 2'],
           confirm: true,
         },
         baseContext,
@@ -922,8 +922,8 @@ describe('WhatsappFlowTools', () => {
           surgeryRequestId: 'req-1',
           name: 'Parafuso',
           quantity: 2,
-          manufacturer_names: ['Fabricante 1', 'Fabricante 2', 'Fabricante 3'],
-          supplier_names: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
+          manufacturerNames: ['Fabricante 1', 'Fabricante 2', 'Fabricante 3'],
+          supplierNames: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
           confirm: true,
         },
         baseContext,

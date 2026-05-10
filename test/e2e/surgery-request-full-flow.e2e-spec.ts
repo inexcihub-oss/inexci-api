@@ -42,9 +42,9 @@ const DOCTOR = {
   name: 'Dr. Teste Fluxo E2E',
   email: `dr.e2e.flow.${Date.now()}@inexci.test`,
   password: 'Senha@12345',
-  is_doctor: true,
+  isDoctor: true,
   crm: 'CRM123456',
-  crm_state: 'SP',
+  crmState: 'SP',
   specialty: 'Cirurgia Geral',
 };
 
@@ -80,7 +80,7 @@ beforeAll(async () => {
   app = await createTestApp();
   await cleanDatabase(app);
 
-  // 1. Registrar medico (is_doctor: true cria doctor_profile automaticamente)
+  // 1. Registrar medico (isDoctor: true cria doctor_profile automaticamente)
   const registerRes = await request(app.getHttpServer())
     .post('/auth/register')
     .send(DOCTOR)
@@ -132,10 +132,10 @@ beforeAll(async () => {
       email: 'paciente@e2e.com',
       cpf: '12345678900',
       gender: 'M',
-      birth_date: '1985-06-15',
-      health_plan_id: healthPlanId,
-      health_plan_number: 'HP-001-E2E',
-      health_plan_type: 'individual',
+      birthDate: '1985-06-15',
+      healthPlanId: healthPlanId,
+      healthPlanNumber: 'HP-001-E2E',
+      healthPlanType: 'individual',
     })
     .expect(201);
   const patientId: string = patientRes.body.id;
@@ -146,11 +146,11 @@ beforeAll(async () => {
     .post('/surgery-requests')
     .set(authHeader())
     .send({
-      procedure_id: procedureId,
-      patient_id: patientId,
+      procedureId: procedureId,
+      patientId: patientId,
       manager_id: userId,
-      health_plan_id: healthPlanId,
-      hospital_id: hospitalId,
+      healthPlanId: healthPlanId,
+      hospitalId: hospitalId,
       priority: 2,
     })
     .expect(201);
@@ -199,10 +199,10 @@ describe('2. Transicao PENDING -> SENT (2)', () => {
       .post('/surgery-requests/procedures')
       .set(authHeader())
       .send({
-        surgery_request_id: surgeryRequestId,
+        surgeryRequestId: surgeryRequestId,
         procedures: [
           {
-            tuss_code: '30101012',
+            tussCode: '30101012',
             name: 'Colecistectomia Videolaparoscópica',
             quantity: 1,
           },
@@ -245,8 +245,8 @@ describe('3. Transicao SENT -> IN_ANALYSIS (3)', () => {
       .post(`/surgery-requests/${surgeryRequestId}/start-analysis`)
       .set(authHeader())
       .send({
-        request_number: 'REQ-2026-001',
-        received_at: new Date().toISOString(),
+        requestNumber: 'REQ-2026-001',
+        receivedAt: new Date().toISOString(),
         notes: 'Analise iniciada via teste E2E.',
       })
       .expect(201);
@@ -272,7 +272,7 @@ describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
     await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/accept-authorization`)
       .set(authHeader())
-      .send({ date_options: [d(7), d(14), d(21)] })
+      .send({ dateOptions: [d(7), d(14), d(21)] })
       .expect(201);
   });
 
@@ -284,7 +284,7 @@ describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
     const res = await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/accept-authorization`)
       .set(authHeader())
-      .send({ date_options: [] });
+      .send({ dateOptions: [] });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 });
@@ -298,7 +298,7 @@ describe('5. Transicao IN_SCHEDULING -> SCHEDULED (5)', () => {
     await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/confirm-date`)
       .set(authHeader())
-      .send({ selected_date_index: 0 })
+      .send({ selectedDateIndex: 0 })
       .expect(201);
   });
 
@@ -316,7 +316,7 @@ describe('6. Transicao SCHEDULED -> PERFORMED (6)', () => {
     await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/mark-performed`)
       .set(authHeader())
-      .send({ surgery_performed_at: new Date().toISOString() })
+      .send({ surgeryPerformedAt: new Date().toISOString() })
       .expect(201);
   });
 
@@ -338,11 +338,11 @@ describe('7. Transicao PERFORMED -> INVOICED (7)', () => {
       .post(`/surgery-requests/${surgeryRequestId}/invoice`)
       .set(authHeader())
       .send({
-        invoice_protocol: 'NF-2026-00123',
-        invoice_sent_at: sentAt.toISOString(),
-        invoice_value: 4500.0,
-        payment_deadline: deadline.toISOString().split('T')[0],
-        set_as_default_for_health_plan: false,
+        invoiceProtocol: 'NF-2026-00123',
+        invoiceSentAt: sentAt.toISOString(),
+        invoiceValue: 4500.0,
+        paymentDeadline: deadline.toISOString().split('T')[0],
+        setAsDefaultForHealthPlan: false,
       })
       .expect(201);
   });
@@ -362,9 +362,9 @@ describe('8. Transicao INVOICED -> FINALIZED (8)', () => {
       .post(`/surgery-requests/${surgeryRequestId}/confirm-receipt`)
       .set(authHeader())
       .send({
-        received_value: 4500.0,
-        received_at: new Date().toISOString(),
-        receipt_notes: 'Pagamento recebido integralmente via teste E2E.',
+        receivedValue: 4500.0,
+        receivedAt: new Date().toISOString(),
+        receiptNotes: 'Pagamento recebido integralmente via teste E2E.',
       })
       .expect(201);
   });
@@ -406,7 +406,7 @@ describe('10. Protecao de maquina de estados (transicoes invalidas)', () => {
     const res = await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/start-analysis`)
       .set(authHeader())
-      .send({ request_number: 'REQ-X', received_at: new Date().toISOString() });
+      .send({ requestNumber: 'REQ-X', receivedAt: new Date().toISOString() });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
@@ -414,7 +414,7 @@ describe('10. Protecao de maquina de estados (transicoes invalidas)', () => {
     const res = await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/mark-performed`)
       .set(authHeader())
-      .send({ surgery_performed_at: new Date().toISOString() });
+      .send({ surgeryPerformedAt: new Date().toISOString() });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 

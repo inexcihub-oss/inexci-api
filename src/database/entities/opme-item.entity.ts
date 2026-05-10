@@ -12,7 +12,7 @@ import {
 import { SurgeryRequest } from './surgery-request.entity';
 import { Supplier } from './supplier.entity';
 
-@Entity('opmeItems')
+@Entity('opme_items')
 export class OpmeItem {
   @PrimaryGeneratedColumn('uuid')
   id: string;

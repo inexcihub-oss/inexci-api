@@ -31,38 +31,50 @@ export class SurgeryRequestAnalysis {
 
   // ── Cotação 1 ──────────────────────────────────
   @Column({
-    name: 'quotation1_number',
+    name: 'quotation_1_number',
     type: 'varchar',
     length: 100,
     nullable: true,
   })
   quotation1Number: string | null;
 
-  @Column({ name: 'quotation1_received_at', type: 'timestamp', nullable: true })
+  @Column({
+    name: 'quotation_1_received_at',
+    type: 'timestamp',
+    nullable: true,
+  })
   quotation1ReceivedAt: Date | null;
 
   // ── Cotação 2 ──────────────────────────────────
   @Column({
-    name: 'quotation2_number',
+    name: 'quotation_2_number',
     type: 'varchar',
     length: 100,
     nullable: true,
   })
   quotation2Number: string | null;
 
-  @Column({ name: 'quotation2_received_at', type: 'timestamp', nullable: true })
+  @Column({
+    name: 'quotation_2_received_at',
+    type: 'timestamp',
+    nullable: true,
+  })
   quotation2ReceivedAt: Date | null;
 
   // ── Cotação 3 ──────────────────────────────────
   @Column({
-    name: 'quotation3_number',
+    name: 'quotation_3_number',
     type: 'varchar',
     length: 100,
     nullable: true,
   })
   quotation3Number: string | null;
 
-  @Column({ name: 'quotation3_received_at', type: 'timestamp', nullable: true })
+  @Column({
+    name: 'quotation_3_received_at',
+    type: 'timestamp',
+    nullable: true,
+  })
   quotation3ReceivedAt: Date | null;
 
   @Column({ type: 'text', nullable: true })

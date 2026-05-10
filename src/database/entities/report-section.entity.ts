@@ -13,7 +13,7 @@ import { SurgeryRequest } from './surgery-request.entity';
  * Representa uma seção dinâmica de laudo médico.
  * Substitui os campos fixos `conduta` e `historicoEDiagnostico`.
  */
-@Entity('reportSections')
+@Entity('report_sections')
 export class ReportSection {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Delete, Param } from '@nestjs/common';
+import { Controller, Post, Patch, Body, Delete, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ProceduresService } from './procedures.service';
 import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-procedure.dto';
+import { UpdateSurgeryRequestProcedureDto } from './dto/update-surgery-request-procedure.dto';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
 
 @ApiTags('Procedimentos da Solicitação')
@@ -26,5 +27,11 @@ export class ProceduresController {
   @ApiOperation({ summary: 'Remover procedimento da solicitação' })
   delete(@Param('id') id: string) {
     return this.proceduresService.delete(id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Atualizar quantidade de procedimento da solicitação' })
+  update(@Param('id') id: string, @Body() dto: UpdateSurgeryRequestProcedureDto) {
+    return this.proceduresService.update(id, dto);
   }
 }

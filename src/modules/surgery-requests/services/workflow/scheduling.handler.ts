@@ -74,7 +74,7 @@ export class SchedulingHandler {
       request,
       request.status,
       SurgeryRequestStatus.SCHEDULED,
-      dto.notify_patient,
+      dto.notifyPatient,
     );
 
     await this.notificationService.notifyAdminsOfWorkflowAction(
@@ -123,7 +123,7 @@ export class SchedulingHandler {
     }
 
     await this.surgeryRequestRepository.update(id, {
-      surgeryDate: new Date(dto.new_date),
+      surgeryDate: new Date(dto.newDate),
     });
   }
 }

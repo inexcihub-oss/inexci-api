@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsGateway } from './notifications.gateway';
 import { JwtService } from '@nestjs/jwt';
+import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { NotificationType } from 'src/database/entities/notification.entity';
 
 const makeSocket = (token?: string): any => ({
@@ -8,19 +9,28 @@ const makeSocket = (token?: string): any => ({
   data: {},
   join: jest.fn(),
   disconnect: jest.fn(),
+  emit: jest.fn(),
 });
 
 describe('NotificationsGateway', () => {
   let gateway: NotificationsGateway;
   let jwtService: { verify: jest.Mock };
+  let notificationRepository: { countUnread: jest.Mock };
 
   beforeEach(async () => {
     jwtService = { verify: jest.fn() };
+    notificationRepository = {
+      countUnread: jest.fn().mockResolvedValue(0),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NotificationsGateway,
         { provide: JwtService, useValue: jwtService },
+        {
+          provide: NotificationRepository,
+          useValue: notificationRepository,
+        },
       ],
     }).compile();
 
@@ -45,6 +55,32 @@ describe('NotificationsGateway', () => {
       expect(client.data.userId).toBe('user-123');
       expect(client.join).toHaveBeenCalledWith('user:user-123');
       expect(client.disconnect).not.toHaveBeenCalled();
+    });
+
+    it('emite contagem inicial de não lidas após autenticar', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'user-123' });
+      notificationRepository.countUnread.mockResolvedValue(7);
+
+      await gateway.handleConnection(client);
+
+      expect(notificationRepository.countUnread).toHaveBeenCalledWith(
+        'user-123',
+      );
+      expect(client.emit).toHaveBeenCalledWith('notification:unread-count', {
+        count: 7,
+      });
+    });
+
+    it('não derruba a conexão se countUnread falhar', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'user-123' });
+      notificationRepository.countUnread.mockRejectedValue(new Error('db'));
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).not.toHaveBeenCalled();
+      expect(client.join).toHaveBeenCalledWith('user:user-123');
     });
 
     it('desconecta cliente sem token', async () => {
@@ -87,6 +123,21 @@ describe('NotificationsGateway', () => {
 
       expect(mockTo).toHaveBeenCalledWith('user:user-abc');
       expect(mockEmit).toHaveBeenCalledWith('notification:new', payload);
+    });
+  });
+
+  describe('emitUnreadCount', () => {
+    it('envia o total de não lidas para a room do usuário', () => {
+      const mockEmit = jest.fn();
+      const mockTo = jest.fn().mockReturnValue({ emit: mockEmit });
+      (gateway as any).server = { to: mockTo };
+
+      gateway.emitUnreadCount('user-xyz', 4);
+
+      expect(mockTo).toHaveBeenCalledWith('user:user-xyz');
+      expect(mockEmit).toHaveBeenCalledWith('notification:unread-count', {
+        count: 4,
+      });
     });
   });
 });

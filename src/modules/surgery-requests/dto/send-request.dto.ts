@@ -14,7 +14,8 @@ import { SendMethod } from 'src/shared/constants/send-method';
 export class SendRequestDto {
   @IsOptional()
   @IsBoolean()
-  notify_patient?: boolean;
+  notifyPatient?: boolean;
+
   @IsEnum(SendMethod)
   method: SendMethod;
 

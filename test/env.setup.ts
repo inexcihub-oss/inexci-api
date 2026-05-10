@@ -32,11 +32,15 @@ if (!process.env.DATABASE_URL) {
 if (!process.env.SUPABASE_URL) {
   process.env.SUPABASE_URL = 'https://placeholder.supabase.co';
 }
-if (!process.env.SUPABASE_KEY) {
-  process.env.SUPABASE_KEY = 'placeholder-key-for-local-tests';
+if (!process.env.SUPABASE_PUBLISHABLE_KEY) {
+  process.env.SUPABASE_PUBLISHABLE_KEY =
+    'sb_publishable_placeholder_for_local_tests';
 }
-if (!process.env.SUPABASE_BUCKET_NAME) {
-  process.env.SUPABASE_BUCKET_NAME = 'documents';
+if (!process.env.SUPABASE_SECRET_KEY) {
+  process.env.SUPABASE_SECRET_KEY = 'sb_secret_placeholder_for_local_tests';
+}
+if (!process.env.SUPABASE_BUCKET) {
+  process.env.SUPABASE_BUCKET = 'documents';
 }
 if (!process.env.DASHBOARD_URL) {
   process.env.DASHBOARD_URL = 'http://localhost:3001';

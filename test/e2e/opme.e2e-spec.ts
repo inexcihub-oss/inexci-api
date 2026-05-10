@@ -50,7 +50,7 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
       }
 
       const opmeData = {
-        surgery_request_id: testSurgeryRequestId,
+        surgeryRequestId: testSurgeryRequestId,
         name: 'Prótese de quadril titanium',
         distributor: 'Medical Supplies Inc',
         brand: 'OrthoTech',
@@ -69,7 +69,7 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
 
     it('should fail without authentication', async () => {
       const opmeData = {
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
         name: 'Prótese de quadril',
         distributor: 'Medical Supplies Inc',
         brand: 'OrthoTech',
@@ -96,7 +96,7 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
 
     it('should fail with invalid surgery request id', async () => {
       const opmeData = {
-        surgery_request_id: 999999,
+        surgeryRequestId: 999999,
         name: 'Prótese de quadril',
         distributor: 'Medical Supplies Inc',
         brand: 'OrthoTech',

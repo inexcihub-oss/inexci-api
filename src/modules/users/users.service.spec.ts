@@ -156,6 +156,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
     beforeEach(() => {
       mockUserRepository.findOne.mockResolvedValueOnce(adminUser); // admin lookup
+      mockUserRepository.findOne.mockResolvedValueOnce(null); // sem telefone duplicado
       mockUserRepository.findOneWithDeleted.mockResolvedValue(null); // sem email duplicado
     });
 
@@ -171,7 +172,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       });
 
       const result = await service.createCollaborator(
-        { name: 'Novo', email: 'novo@email.com' },
+        { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
         'admin-1',
       );
 
@@ -195,7 +196,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await expect(
         service.createCollaborator(
-          { name: 'Dup', email: 'existente@email.com' },
+          { name: 'Dup', email: 'existente@email.com', phone: '11999997777' },
           'admin-1',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -210,7 +211,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       });
 
       await service.createCollaborator(
-        { name: 'Novo', email: 'novo@email.com' },
+        { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
         'admin-1',
       );
 
@@ -377,6 +378,140 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(
         service.deleteCollaborator('invalid', 'admin-1'),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('resendCollaboratorInvite', () => {
+    const adminUser = {
+      id: 'admin-1',
+      name: 'Admin',
+      role: UserRole.ADMIN,
+      ownerId: 'admin-1',
+    };
+
+    it('deve gerar novo token, invalidar TODOS os anteriores e enviar e-mail', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(adminUser)
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          name: 'Colaborador Pendente',
+          email: 'pending@example.com',
+          ownerId: 'admin-1',
+          status: UserStatus.PENDING,
+        });
+      mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
+      mockRecoveryCodeRepository.create.mockResolvedValue({});
+
+      const result = await service.resendCollaboratorInvite(
+        'collab-1',
+        'admin-1',
+      );
+
+      // Importante: deve apagar TODOS os tokens (sem filtro `used`),
+      // inclusive os já validados, para invalidar completamente o link antigo.
+      expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
+        userId: 'collab-1',
+      });
+      expect(mockRecoveryCodeRepository.deleteMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ used: expect.anything() }),
+      );
+      expect(mockRecoveryCodeRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'collab-1',
+          used: false,
+          code: expect.any(String),
+          expiresAt: expect.any(Date),
+        }),
+      );
+      expect(mockMailService.send).toHaveBeenCalledWith(
+        'invite-collaborator',
+        'pending@example.com',
+        'Você foi convidado para a Inexci!',
+        expect.objectContaining({
+          collaboratorName: 'Colaborador Pendente',
+          inviterName: 'Admin',
+          email: 'pending@example.com',
+          setupLink: expect.stringContaining('/primeiro-acesso?email='),
+        }),
+      );
+      expect(result).toEqual({
+        message: 'Convite reenviado com sucesso',
+        email: 'pending@example.com',
+      });
+    });
+
+    it('deve invalidar token antigo já validado (used=true) ao reenviar', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(adminUser)
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          name: 'Colaborador Pendente',
+          email: 'pending@example.com',
+          ownerId: 'admin-1',
+          status: UserStatus.PENDING,
+        });
+      mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
+      mockRecoveryCodeRepository.create.mockResolvedValue({});
+
+      await service.resendCollaboratorInvite('collab-1', 'admin-1');
+
+      // O delete deve ocorrer ANTES do create — ordem importa para garantir
+      // que o novo token não seja apagado junto com os antigos.
+      const deleteCall =
+        mockRecoveryCodeRepository.deleteMany.mock.invocationCallOrder[0];
+      const createCall =
+        mockRecoveryCodeRepository.create.mock.invocationCallOrder[0];
+      expect(deleteCall).toBeLessThan(createCall);
+    });
+
+    it('deve lançar ForbiddenException se quem chama não é admin', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'user-1',
+        role: UserRole.COLLABORATOR,
+      });
+
+      await expect(
+        service.resendCollaboratorInvite('collab-1', 'user-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('deve lançar NotFoundException se colaborador não existe', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(adminUser)
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.resendCollaboratorInvite('invalid', 'admin-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('deve lançar ForbiddenException se colaborador é de outra conta', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(adminUser)
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          ownerId: 'outro-admin',
+          status: UserStatus.PENDING,
+        });
+
+      await expect(
+        service.resendCollaboratorInvite('collab-1', 'admin-1'),
+      ).rejects.toThrow('Este colaborador não pertence à sua conta');
+    });
+
+    it('deve lançar BadRequestException se colaborador já está ativo', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(adminUser)
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          ownerId: 'admin-1',
+          status: UserStatus.ACTIVE,
+        });
+
+      await expect(
+        service.resendCollaboratorInvite('collab-1', 'admin-1'),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockMailService.send).not.toHaveBeenCalled();
     });
   });
 

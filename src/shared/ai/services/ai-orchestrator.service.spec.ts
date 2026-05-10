@@ -478,7 +478,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     );
   });
 
-  it('deve remover emojis e markdown inline da resposta final', async () => {
+  it('deve preservar emojis sutis e remover markdown inline da resposta final', async () => {
     openaiServiceMock.chatCompletion.mockResolvedValue({
       choices: [
         {
@@ -499,8 +499,36 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
       '+5511888888888',
-      'Solicitação SC-664980\nStatus: Em análise',
+      '📋 Solicitação SC-664980\nStatus: Em análise ✅',
     );
+  });
+
+  it('deve limitar a no máximo 3 emojis na resposta final', async () => {
+    openaiServiceMock.chatCompletion.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: '✅ Pronto 🎉🎊🚀🥳 obrigado!',
+            tool_calls: null,
+          },
+        },
+      ],
+    });
+
+    await service.processMessage({
+      from: 'whatsapp:+5511777777777',
+      body: 'obrigado',
+      messageSid: 'SM6B',
+      mediaUrl: null,
+    });
+
+    const sentText = whatsappServiceMock.sendMessage.mock.calls[0][1] as string;
+    const emojiCount = (
+      sentText.match(/[\p{Extended_Pictographic}]/gu) || []
+    ).length;
+    expect(emojiCount).toBeLessThanOrEqual(3);
+    expect(sentText).toContain('Pronto');
+    expect(sentText).toContain('obrigado!');
   });
 
   it('deve enriquecer resultado de mutação com próximo passo recomendado', async () => {
@@ -713,7 +741,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(sentToWhatsapp).not.toContain('{{cpf_1}}');
     });
 
-    it('bloqueia chamada à OpenAI quando o histórico contém PII residual e registra no log', async () => {
+    it('redige PII residual in-place antes de chamar a OpenAI sem incomodar o usuário', async () => {
       defaultContextServiceMock.buildContext.mockResolvedValueOnce({
         messages: [
           { role: 'system', content: 'system' },
@@ -730,27 +758,47 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         strategy: 'hybrid',
         recentCount: 1,
       });
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: 'Tudo certo, prossigo com o cadastro.',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
 
       await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'consulta normal',
-        messageSid: 'SM-PII-BLOCK',
+        messageSid: 'SM-PII-REDACT',
         mediaUrl: null,
       });
 
-      expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
+      expect(openaiServiceMock.chatCompletion).toHaveBeenCalled();
+      const callArgs = openaiServiceMock.chatCompletion.mock.calls[0][0];
+      const userMessage = callArgs.messages.find(
+        (m: any) => m.role === 'user' && (m.content as string).includes('CPF'),
+      );
+      expect(userMessage.content).not.toContain('123.456.789-00');
+      expect(userMessage.content).toContain('XXX.XXX.XXX-XX');
+
       expect(piiRedactionLogRepoMock.create).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: 'conv-1',
-          messageSid: 'SM-PII-BLOCK',
+          messageSid: 'SM-PII-REDACT',
           category: 'cpf',
-          blocked: true,
+          blocked: false,
         }),
       );
-      expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
-        '+5511999999999',
-        expect.stringContaining('dado sensível'),
-      );
+
+      const sentMessages = (
+        whatsappServiceMock.sendMessage as jest.Mock
+      ).mock.calls.map((call) => call[1]);
+      for (const sent of sentMessages) {
+        expect(sent).not.toContain('dado sensível');
+      }
     });
 
     it('persiste bindings do vault entre turnos para evitar placeholders órfãos no WhatsApp', async () => {
@@ -791,12 +839,14 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       };
 
       // Turno 1: tool tokeniza diretamente no vault (como em produção) e o
-      // LLM responde reaproveitando os placeholders.
+      // LLM responde reaproveitando os placeholders. As tools reais
+      // armazenam o protocol SEM prefixo "SC-" no vault e prefixam "SC-"
+      // FORA do placeholder no output (regressão SC-SC-).
       toolExecutorMock.executeMany.mockImplementationOnce(
         async (_calls: any[], context: any) => {
           context.piiVault.tokenize(
             context.conversationId,
-            'SC-0042',
+            '0042',
             'protocol',
           );
           context.piiVault.tokenize(
@@ -807,7 +857,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           return [
             {
               toolCallId: 'call-list',
-              output: '• {{protocol_1}} — {{patient_name_1}} — Finalizada',
+              output: '• SC-{{protocol_1}} — {{patient_name_1}} — Finalizada',
             },
           ];
         },
@@ -822,7 +872,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
             {
               message: {
                 content:
-                  'Encontrei: 1 - {{protocol_1}} — {{patient_name_1}} — Finalizada',
+                  'Encontrei: 1 - SC-{{protocol_1}} — {{patient_name_1}} — Finalizada',
                 tool_calls: null,
               },
             },
@@ -864,7 +914,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           {
             message: {
               content:
-                'A SC mais recente é {{protocol_1}} do paciente {{patient_name_1}}.',
+                'A SC mais recente é SC-{{protocol_1}} do paciente {{patient_name_1}}.',
               tool_calls: null,
             },
           },
@@ -961,17 +1011,84 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
+      // Note: o vault normaliza realValue de protocol removendo SC-
+      // (regressão SC-SC-): mesmo que a tool passe "SC-9999", grava "9999".
       expect(redisAvailableMock.cacheSet).toHaveBeenCalledWith(
         expect.stringContaining('pii:vault:conv-1'),
         expect.arrayContaining([
           expect.objectContaining({
             token: '{{protocol_1}}',
             category: 'protocol',
-            realValue: 'SC-9999',
+            realValue: '9999',
           }),
         ]),
         expect.any(Number),
       );
+    });
+
+    // Regressão: print 2026-05-10 — usuário recebia "SC-SC-468131" no
+    // WhatsApp porque a IA, ao copiar o padrão "SC-{{protocol_n}}" do
+    // contexto, prefixava MAIS um "SC-" por engano. Defesa: o orchestrator
+    // colapsa "SC-SC-XXX" em "SC-XXX" antes de enviar e antes de gravar no
+    // histórico, garantindo que o erro nunca chegue ao usuário e nem se
+    // propague nos turnos seguintes.
+    it('colapsa "SC-SC-XXXX" para "SC-XXXX" antes de enviar a resposta ao WhatsApp', async () => {
+      const tool: OpenAI.ChatCompletionMessageToolCall = {
+        id: 'call-list',
+        type: 'function',
+        function: {
+          name: 'list_surgery_requests',
+          arguments: JSON.stringify({}),
+        },
+      };
+
+      toolExecutorMock.executeMany.mockImplementationOnce(
+        async (_calls: any[], context: any) => {
+          context.piiVault.tokenize(
+            context.conversationId,
+            '468131',
+            'protocol',
+          );
+          return [
+            { toolCallId: 'call-list', output: '• SC-{{protocol_1}}' },
+          ];
+        },
+      );
+
+      // IA alucina prefixo duplicado ao referenciar a SC.
+      openaiServiceMock.chatCompletion
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: null, tool_calls: [tool] } }],
+        })
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: 'A solicitação SC-SC-{{protocol_1}} está pendente.',
+                tool_calls: null,
+              },
+            },
+          ],
+        });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'qual a sc 1?',
+        messageSid: 'SM-DUP-SC-1',
+        mediaUrl: null,
+      });
+
+      const sentText = (whatsappServiceMock.sendMessage as jest.Mock).mock.calls
+        .at(-1)?.[1] as string;
+      expect(sentText).toContain('SC-468131');
+      expect(sentText).not.toContain('SC-SC-468131');
+      expect(sentText).not.toContain('SC-SC-');
+
+      // Histórico também é saneado para impedir que o erro se propague.
+      const historyAppendCall = (
+        conversationServiceMock.appendMessage as jest.Mock
+      ).mock.calls.find((call) => call[1] === 'assistant');
+      expect(historyAppendCall?.[2]).not.toContain('SC-SC-');
     });
 
     it('não bloqueia turno seguinte quando assistant histórico contém exemplo de telefone (regressão print 2026-05-09)', async () => {

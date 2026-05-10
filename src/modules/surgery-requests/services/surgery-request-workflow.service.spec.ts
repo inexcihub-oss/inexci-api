@@ -487,7 +487,7 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       await expect(
-        service.reschedule('req-1', { new_date: '2026-05-01' }, 'user-1'),
+        service.reschedule('req-1', { newDate: '2026-05-01' }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -496,7 +496,7 @@ describe('SurgeryRequestWorkflowService', () => {
         makeRequest({ status: SurgeryRequestStatus.SCHEDULED }),
       );
 
-      await service.reschedule('req-1', { new_date: '2026-05-01' }, 'user-1');
+      await service.reschedule('req-1', { newDate: '2026-05-01' }, 'user-1');
 
       expect(surgeryRequestRepository.update).toHaveBeenCalledWith(
         'req-1',

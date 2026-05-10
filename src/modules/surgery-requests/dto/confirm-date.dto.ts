@@ -7,7 +7,8 @@ import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 export class ConfirmDateDto {
   @IsOptional()
   @IsBoolean()
-  notify_patient?: boolean;
+  notifyPatient?: boolean;
+
   @IsIn([0, 1, 2])
   selectedDateIndex: 0 | 1 | 2;
 }

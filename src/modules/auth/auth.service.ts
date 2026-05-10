@@ -29,8 +29,10 @@ import { ChangePasswordAuthenticatedDto } from './dto/change-password-authentica
 import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
+import { LogTrace } from 'src/shared/logging/trace.decorator';
 
 @Injectable()
+@LogTrace()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   constructor(
@@ -130,7 +132,7 @@ export class AuthService {
       password: hashedPassword,
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
-      phone: data.phone ? data.phone.replace(/\D/g, '') : null,
+      phone: data.phone.replace(/\D/g, ''),
       ownerId: userId, // self-referência — mesmo ID
     } as Partial<User>);
 
@@ -357,10 +359,14 @@ export class AuthService {
 
     const password = await bcrypt.hash(data.password, 10);
 
-    // Atualiza senha e ativa conta caso ainda esteja pendente (primeiro acesso)
+    // Atualiza senha e ativa conta caso ainda esteja pendente (primeiro acesso).
+    // Marca e-mail como verificado: o link do convite já prova a posse do endereço.
+    const now = new Date();
     const updatePayload: Partial<User> = { password };
     if (user.status === UserStatus.PENDING) {
       updatePayload.status = UserStatus.ACTIVE;
+      updatePayload.emailVerified = true;
+      updatePayload.emailVerifiedAt = now;
     }
 
     await this.userRepository.update(user.id, updatePayload);

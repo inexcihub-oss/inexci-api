@@ -25,8 +25,8 @@ export class CreateUserDto {
   @IsEmail()
   email: string;
 
-  @IsOptional()
   @IsString()
+  @IsNotEmpty({ message: 'Telefone é obrigatório' })
   @PhoneTransform()
-  phone?: string;
+  phone: string;
 }

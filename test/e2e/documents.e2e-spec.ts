@@ -42,8 +42,8 @@ describe('Documents (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
-        .field('document_type', 'medical_report')
+        .field('surgeryRequestId', '1')
+        .field('documentType', 'medical_report')
         .attach('document', testFilePath);
 
       // Response depends on surgery request existence
@@ -53,8 +53,8 @@ describe('Documents (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
-        .field('document_type', 'medical_report')
+        .field('surgeryRequestId', '1')
+        .field('documentType', 'medical_report')
         .expect(400);
     });
 
@@ -70,7 +70,7 @@ describe('Documents (e2e)', () => {
       try {
         const response = await request(app.getHttpServer())
           .post('/surgery-requests/documents')
-          .field('surgery_request_id', '1')
+          .field('surgeryRequestId', '1')
           .attach('document', testFilePath);
         expect([401, 404]).toContain(response.status);
       } catch (error) {
@@ -83,8 +83,8 @@ describe('Documents (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
-        .field('document_type', 'invalid_type')
+        .field('surgeryRequestId', '1')
+        .field('documentType', 'invalid_type')
         .attach('document', testFilePath);
     });
   });
@@ -93,7 +93,7 @@ describe('Documents (e2e)', () => {
     it('should delete a document', async () => {
       const deleteData = {
         id: 1,
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
       };
 
       await request(app.getHttpServer())
@@ -105,7 +105,7 @@ describe('Documents (e2e)', () => {
     it('should fail to delete non-existent document', async () => {
       const deleteData = {
         id: 999999,
-        surgery_request_id: 1,
+        surgeryRequestId: 1,
       };
 
       const response = await request(app.getHttpServer())
@@ -130,8 +130,8 @@ describe('Documents (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
-        .field('document_type', 'medical_report')
+        .field('surgeryRequestId', '1')
+        .field('documentType', 'medical_report')
         .attach('document', testFilePath);
     });
 
@@ -150,8 +150,8 @@ describe('Documents (e2e)', () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgery_request_id', '1')
-        .field('document_type', 'medical_report')
+        .field('surgeryRequestId', '1')
+        .field('documentType', 'medical_report')
         .attach('document', largFilePath);
 
       // Clean up

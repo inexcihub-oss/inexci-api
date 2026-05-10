@@ -113,7 +113,7 @@ export class SendAnalysisHandler {
       request,
       SurgeryRequestStatus.PENDING,
       SurgeryRequestStatus.SENT,
-      dto.notify_patient,
+      dto.notifyPatient,
     );
 
     await this.notificationService.notifyAdminsOfWorkflowAction(
@@ -243,7 +243,7 @@ export class SendAnalysisHandler {
       request,
       SurgeryRequestStatus.SENT,
       SurgeryRequestStatus.IN_ANALYSIS,
-      dto.notify_patient,
+      dto.notifyPatient,
     );
 
     await this.notificationService.notifyAdminsOfWorkflowAction(

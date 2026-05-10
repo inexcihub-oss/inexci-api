@@ -62,6 +62,28 @@ export interface ResidualPiiFinding {
   sample: string;
 }
 
+/**
+ * Normaliza `realValue` por categoria antes de gravar/restaurar no vault.
+ *
+ * Caso especial: `protocol`. Versões antigas tokenizavam o protocolo já com
+ * prefixo `SC-`, e bindings persistidos em Redis (TTL 1h) mantêm esse formato
+ * mesmo após o fix. Sem essa normalização, o detokenize gera `"SC-SC-XXXXX"`
+ * porque a IA acabou aprendendo o padrão `"SC-{{protocol_n}}"` no histórico.
+ * Aqui forçamos que TODO `realValue` de `protocol` seja salvo SEM prefixo
+ * `SC-`, garantindo que o detokenize da resposta da IA produza `"SC-XXXXX"`.
+ */
+function normalizeRealValueForCategory(
+  category: PiiCategory,
+  rawValue: string,
+): string {
+  if (category !== 'protocol') return rawValue;
+  let value = rawValue;
+  while (/^sc-/i.test(value)) {
+    value = value.replace(/^sc-/i, '').trim();
+  }
+  return value;
+}
+
 @Injectable()
 export class PiiVaultService {
   private readonly logger = new Logger(PiiVaultService.name);
@@ -114,16 +136,20 @@ export class PiiVaultService {
       ) {
         continue;
       }
+      const normalizedRealValue = normalizeRealValueForCategory(
+        incoming.category,
+        incoming.realValue,
+      );
       const exists = list.some(
         (b) =>
           b.category === incoming.category &&
-          b.realValue === incoming.realValue,
+          b.realValue === normalizedRealValue,
       );
       if (exists) continue;
       list.push({
         token: incoming.token,
         category: incoming.category,
-        realValue: incoming.realValue,
+        realValue: normalizedRealValue,
       });
     }
     this.bindings.set(sessionId, list);
@@ -152,7 +178,9 @@ export class PiiVaultService {
     category: PiiCategory,
   ): string {
     if (value === null || value === undefined) return '';
-    const stringValue = String(value).trim();
+    const rawString = String(value).trim();
+    if (!rawString) return '';
+    const stringValue = normalizeRealValueForCategory(category, rawString);
     if (!stringValue) return '';
     if (!sessionId) return stringValue;
 
@@ -215,8 +243,8 @@ export class PiiVaultService {
    *
    * Usado para sanitizar respostas do assistente ANTES de salvar no histórico
    * conversacional — sem isso, exemplos de formato gerados pela IA
-   * (ex.: "use o formato 31 99999-9999") são detectados pelo
-   * `assertNoResidualPii` em turnos seguintes e bloqueiam toda a conversa.
+   * (ex.: "use o formato 31 99999-9999") seriam redigidos pelo
+   * `redactResidualPii` a cada turno seguinte e poluiriam o log de auditoria.
    *
    * Os placeholders do vault (`{{categoria_n}}`) NÃO são tocados pois as
    * regexes de PII estruturada não casam com chaves `{{ }}`. Um helper

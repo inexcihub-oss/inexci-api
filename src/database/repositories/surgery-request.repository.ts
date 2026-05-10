@@ -190,16 +190,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoinAndSelect('surgeryRequest.quotations', 'quotations')
       .leftJoinAndSelect('quotations.supplier', 'quotations_supplier')
       .leftJoinAndSelect('surgeryRequest.activities', 'activities')
-      .leftJoinAndSelect('surgeryRequest.chats', 'chats')
-      .leftJoin('chats.user', 'chats_user')
-      .addSelect(['chats_user.id', 'chats_user.name', 'chats_user.avatarUrl'])
-      .leftJoinAndSelect('chats.messages', 'messages')
       .leftJoinAndSelect('surgeryRequest.analysis', 'analysis')
       .leftJoinAndSelect('surgeryRequest.billing', 'billing')
       .leftJoinAndSelect('surgeryRequest.contestations', 'contestations')
       .where(where)
-      .orderBy('activities.createdAt', 'DESC')
-      .addOrderBy('messages.createdAt', 'ASC');
+      .orderBy('activities.createdAt', 'DESC');
 
     const entity = await queryBuilder.getOne();
 

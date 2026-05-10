@@ -32,7 +32,7 @@ export class RagService {
         `SELECT
           id, title, content, category,
           1 - (embedding <=> $1::vector) AS score
-        FROM ai_knowledge_chunk
+        FROM ai_knowledge_chunks
         WHERE active = true
           AND 1 - (embedding <=> $1::vector) > $2
         ORDER BY embedding <=> $1::vector

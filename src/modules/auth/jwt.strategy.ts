@@ -27,6 +27,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.userRepository.findOne({ id: payload.userId });
     return {
       userId: payload.userId,
+      ownerId: user?.ownerId ?? null,
       role: user?.role,
       privacyPolicyAcceptedAt: user?.privacyPolicyAcceptedAt ?? null,
       termsOfUseAcceptedAt: user?.termsOfUseAcceptedAt ?? null,
