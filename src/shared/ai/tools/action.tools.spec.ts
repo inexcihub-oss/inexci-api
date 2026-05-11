@@ -16,7 +16,23 @@ const mockMutationService = {
   setHasOpme: jest.fn(),
   updateBasic: jest.fn(),
 };
-const mockPendencyValidator = { canAdvance: jest.fn() };
+const mockPendencyValidator = {
+  canAdvance: jest.fn(),
+  getSummary: jest.fn().mockResolvedValue({
+    canAdvance: false,
+    pending: 1,
+    total: 1,
+    items: [
+      {
+        key: 'tuss_procedures',
+        label: 'Procedimentos TUSS cadastrados',
+        blocking: true,
+        resolved: false,
+        responsibleRole: 'collaborator',
+      },
+    ],
+  }),
+};
 const mockActivityRepo = { create: jest.fn() };
 const mockPatientRepo = { update: jest.fn() };
 
@@ -49,7 +65,7 @@ describe('ActionTools', () => {
   beforeEach(() => jest.clearAllMocks());
 
   describe('advance_surgery_request', () => {
-    it('deve mostrar preview sem confirm', async () => {
+    it('para status PENDING (1) bloqueia e direciona para draft send_sc', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
         status: 1,
@@ -62,17 +78,17 @@ describe('ActionTools', () => {
         baseContext,
       );
 
-      expect(result).toContain('Pendente');
-      expect(result).toContain('Enviada');
+      expect(result).toContain('plan_actions');
+      expect(result).toContain('send_sc');
       expect(mockWorkflowService.sendRequest).not.toHaveBeenCalled();
     });
-    it('deve avançar de Pendente para Enviada com confirm=true', async () => {
+
+    it('para status PENDING (1) bloqueia mesmo com confirm=true (vai para draft)', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
         status: 1,
       });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
-      mockWorkflowService.sendRequest.mockResolvedValue(undefined);
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
@@ -80,14 +96,13 @@ describe('ActionTools', () => {
         baseContext,
       );
 
-      expect(mockWorkflowService.sendRequest).toHaveBeenCalled();
-      expect(mockActivityRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'system' }),
-      );
-      expect(result).toContain('com sucesso');
+      expect(result).toContain('plan_actions');
+      expect(result).toContain('send_sc');
+      expect(mockWorkflowService.sendRequest).not.toHaveBeenCalled();
+      expect(mockActivityRepo.create).not.toHaveBeenCalled();
     });
 
-    it('deve bloquear se houver pendências', async () => {
+    it('deve bloquear se houver pendências (lista resumo)', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
         status: 1,
@@ -101,6 +116,7 @@ describe('ActionTools', () => {
       );
 
       expect(result).toContain('pendências bloqueantes');
+      expect(result).toContain('Procedimentos TUSS cadastrados');
     });
 
     it('deve negar acesso se doctorId não acessível', async () => {
@@ -131,7 +147,6 @@ describe('ActionTools', () => {
         return null;
       });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
-      mockWorkflowService.sendRequest.mockResolvedValue(undefined);
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
@@ -140,13 +155,9 @@ describe('ActionTools', () => {
       );
 
       expect(mockPendencyValidator.canAdvance).toHaveBeenCalledWith('uuid-xyz');
-      expect(mockWorkflowService.sendRequest).toHaveBeenCalledWith(
-        'uuid-xyz',
-        {},
-        'user-1',
-      );
-      expect(result).toContain('SC-411701');
-      expect(result).toContain('com sucesso');
+      expect(result).toContain('plan_actions');
+      expect(result).toContain('send_sc');
+      expect(mockWorkflowService.sendRequest).not.toHaveBeenCalled();
     });
 
     it('deve aceitar protocolo com prefixo SC- como identificador', async () => {
@@ -170,8 +181,8 @@ describe('ActionTools', () => {
       );
 
       expect(result).toContain('SC-411701');
-      expect(result).toContain('Pendente');
-      expect(result).toContain('Enviada');
+      expect(result).toContain('plan_actions');
+      expect(result).toContain('send_sc');
     });
 
     it('deve retornar erro amigável quando solicitação não for encontrada', async () => {
@@ -213,7 +224,7 @@ describe('ActionTools', () => {
       expect(result).toContain('Agendada');
     });
 
-    it('deve avançar de Agendada para Realizada (5->6)', async () => {
+    it('para status SCHEDULED (5) bloqueia e direciona para draft mark_performed', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
         status: 5,
@@ -223,7 +234,6 @@ describe('ActionTools', () => {
         status: 5,
       });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
-      mockWorkflowService.markPerformed.mockResolvedValue(undefined);
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
@@ -231,8 +241,9 @@ describe('ActionTools', () => {
         baseContext,
       );
 
-      expect(mockWorkflowService.markPerformed).toHaveBeenCalled();
-      expect(result).toContain('Realizada');
+      expect(result).toContain('plan_actions');
+      expect(result).toContain('mark_performed');
+      expect(mockWorkflowService.markPerformed).not.toHaveBeenCalled();
     });
 
     it('deve exigir dados no avanço 6->7 quando faltarem', async () => {

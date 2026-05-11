@@ -12,6 +12,9 @@ describe('WhatsappMediaService', () => {
     AI_AUDIO_MAX_BYTES: 8,
     AI_AUDIO_MAX_DURATION_SECONDS: 60,
     AI_AUDIO_DEBUG_PERSIST: 'false',
+    AI_DOC_ALLOWED_IMAGE_MIME: 'image/jpeg,image/png,image/webp',
+    AI_DOC_ALLOWED_PDF_MIME: 'application/pdf',
+    AI_DOC_MAX_BYTES: 16,
   };
 
   const configServiceMock = {
@@ -101,5 +104,118 @@ describe('WhatsappMediaService', () => {
         category: 'audio',
       }),
     ).rejects.toBeInstanceOf(WhatsappMediaValidationError);
+  });
+
+  describe('downloadInboundDocument', () => {
+    it('deve baixar imagem JPG válida e expor kind=image', async () => {
+      const payload = Buffer.from('hello-jpeg');
+
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) => {
+            if (name === 'content-length') return String(payload.byteLength);
+            if (name === 'content-type') return 'image/jpeg';
+            return null;
+          },
+        },
+        body: null,
+        arrayBuffer: async () =>
+          payload.buffer.slice(
+            payload.byteOffset,
+            payload.byteOffset + payload.byteLength,
+          ),
+      });
+
+      const result = await service.downloadInboundDocument({
+        url: 'https://api.twilio.com/2010-04-01/Accounts/AC_test/Messages/MM2/Media/ME2',
+        contentType: 'image/jpeg',
+        category: 'image',
+      });
+
+      expect(result.kind).toBe('image');
+      expect(result.mimeType).toBe('image/jpeg');
+      expect(result.sizeBytes).toBe(payload.byteLength);
+      expect(result.fileName.endsWith('.jpg')).toBe(true);
+    });
+
+    it('deve baixar PDF válido e expor kind=pdf', async () => {
+      const payload = Buffer.from('%PDF-1.4');
+
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) => {
+            if (name === 'content-length') return String(payload.byteLength);
+            if (name === 'content-type') return 'application/pdf';
+            return null;
+          },
+        },
+        body: null,
+        arrayBuffer: async () =>
+          payload.buffer.slice(
+            payload.byteOffset,
+            payload.byteOffset + payload.byteLength,
+          ),
+      });
+
+      const result = await service.downloadInboundDocument({
+        url: 'https://api.twilio.com/media/pdf-0',
+        contentType: 'application/pdf',
+        category: 'pdf',
+      });
+
+      expect(result.kind).toBe('pdf');
+      expect(result.mimeType).toBe('application/pdf');
+      expect(result.fileName.endsWith('.pdf')).toBe(true);
+    });
+
+    it('deve rejeitar MIME não permitido para documento (gif)', async () => {
+      await expect(
+        service.downloadInboundDocument({
+          url: 'https://api.twilio.com/media/2',
+          contentType: 'image/gif',
+          category: 'image',
+        }),
+      ).rejects.toMatchObject({ code: 'DOC_NOT_ALLOWED' });
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('deve rejeitar documento acima do limite', async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (name: string) => {
+            if (name === 'content-length') return '99999';
+            if (name === 'content-type') return 'application/pdf';
+            return null;
+          },
+        },
+        body: null,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      });
+
+      await expect(
+        service.downloadInboundDocument({
+          url: 'https://api.twilio.com/media/3',
+          contentType: 'application/pdf',
+          category: 'pdf',
+        }),
+      ).rejects.toMatchObject({ code: 'DOC_TOO_LARGE' });
+    });
+
+    it('deve rejeitar URL fora dos hosts confiáveis', async () => {
+      await expect(
+        service.downloadInboundDocument({
+          url: 'https://malicioso.example.com/media/1',
+          contentType: 'image/png',
+          category: 'image',
+        }),
+      ).rejects.toMatchObject({ code: 'MEDIA_URL_INVALID' });
+    });
   });
 });

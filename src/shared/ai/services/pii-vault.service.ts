@@ -217,6 +217,43 @@ export class PiiVaultService {
   }
 
   /**
+   * Pré-processador de input livre (texto do usuário, OCR de documento, etc.):
+   * substitui CPF/telefone/email por placeholders ANTES de o conteúdo entrar
+   * no histórico ou ir para a OpenAI. Blocos muito longos viram `payload_blob`.
+   *
+   * Extraído do `AiOrchestratorService` para que outros pontos de entrada
+   * (ex.: OCR de documentos) possam reaproveitar a mesma lógica de
+   * tokenização sem duplicar regex/decisões de produto.
+   */
+  preprocessUserInput(
+    sessionId: string,
+    rawInput: string,
+    options?: { blobThreshold?: number },
+  ): string {
+    if (!rawInput) return '';
+    let out = rawInput;
+
+    out = out.replace(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, (match) =>
+      this.tokenize(sessionId, match, 'cpf'),
+    );
+
+    out = out.replace(/(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g, (match) =>
+      this.tokenize(sessionId, match, 'phone'),
+    );
+
+    out = out.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, (match) =>
+      this.tokenize(sessionId, match, 'email'),
+    );
+
+    const threshold = options?.blobThreshold ?? 1500;
+    if (out.length > threshold) {
+      out = this.tokenize(sessionId, out, 'payload_blob');
+    }
+
+    return out;
+  }
+
+  /**
    * Detecta resíduos de PII estruturada (CPF, telefone BR, email) que não
    * passaram pela tokenização. Usado como filtro defensivo antes de
    * qualquer chamada ao LLM externo.

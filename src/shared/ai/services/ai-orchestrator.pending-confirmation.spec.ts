@@ -67,6 +67,25 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         cancel: jest.fn(),
         finalizeCommit: jest.fn(),
       } as any,
+      {
+        isEnabled: jest.fn().mockReturnValue(false),
+        pickDocumentMedia: jest.fn().mockReturnValue(null),
+        stageInboundDocument: jest
+          .fn()
+          .mockResolvedValue({ status: 'no_document' }),
+        getPending: jest.fn().mockResolvedValue(null),
+        savePending: jest.fn().mockResolvedValue(undefined),
+        clearPending: jest.fn().mockResolvedValue(undefined),
+        deleteStoragePath: jest.fn().mockResolvedValue(undefined),
+        parseIntent: jest.fn().mockReturnValue(null),
+        buildDownloadFailureMessage: jest.fn().mockReturnValue('falha'),
+        buildIntentPromptMessage: jest.fn().mockReturnValue('intent'),
+      } as any,
+      {
+        processPendingDocument: jest
+          .fn()
+          .mockResolvedValue({ status: 'ok', userSummary: 'resumo' }),
+      } as any,
     );
   });
 

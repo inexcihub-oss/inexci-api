@@ -137,12 +137,19 @@ export class WebhookController {
           typeof contentType === 'string' && contentType.trim().length
             ? contentType
             : null;
+        const lowerMime = normalizedContentType?.toLowerCase() ?? '';
+        let category: 'audio' | 'image' | 'pdf' | 'other' = 'other';
+        if (lowerMime.startsWith('audio/')) {
+          category = 'audio';
+        } else if (lowerMime.startsWith('image/')) {
+          category = 'image';
+        } else if (lowerMime === 'application/pdf') {
+          category = 'pdf';
+        }
         return {
           url,
           contentType: normalizedContentType,
-          category: normalizedContentType?.toLowerCase().startsWith('audio/')
-            ? ('audio' as const)
-            : ('other' as const),
+          category,
           durationSeconds,
         };
       })
@@ -152,7 +159,7 @@ export class WebhookController {
         ): item is {
           url: string;
           contentType: string | null;
-          category: 'audio' | 'other';
+          category: 'audio' | 'image' | 'pdf' | 'other';
           durationSeconds: number | null;
         } => item !== null,
       );

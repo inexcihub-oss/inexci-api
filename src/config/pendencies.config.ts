@@ -97,6 +97,12 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
         blocking: false, // apenas aviso
         responsibleRole: 'collaborator',
       },
+      {
+        key: 'post_surgery_documents',
+        label: 'Documentos cirúrgicos pós-operatórios',
+        blocking: true,
+        responsibleRole: 'collaborator',
+      },
     ],
   },
   {

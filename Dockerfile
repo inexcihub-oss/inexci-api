@@ -2,14 +2,16 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install Chromium and required libs for Puppeteer on Alpine (ARM64 & x86)
+# Install Chromium (Puppeteer) and native libs needed by sharp/@napi-rs/canvas/tesseract
 RUN apk add --no-cache \
     chromium \
     nss \
     freetype \
     harfbuzz \
     ca-certificates \
-    ttf-freefont
+    ttf-freefont \
+    vips-dev \
+    fontconfig
 
 # Tell Puppeteer to use the installed Chromium instead of downloading its own
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \

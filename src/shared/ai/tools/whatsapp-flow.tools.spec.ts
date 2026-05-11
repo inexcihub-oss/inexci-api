@@ -1147,4 +1147,342 @@ describe('WhatsappFlowTools', () => {
       expect(result).not.toContain('{{patient_name_');
     });
   });
+
+  // ---------------------------------------------------------------------
+  // OCR — tools novas do Sprint 3 (attach_document_from_whatsapp e
+  // create_patient_from_document). Construímos um conjunto separado de
+  // tools com as deps de documento mockadas para não poluir os testes
+  // anteriores do `WhatsappFlowTools`.
+  // ---------------------------------------------------------------------
+  describe('OCR — attach_document_from_whatsapp', () => {
+    const documentDispatcher = {
+      getPending: jest.fn(),
+      clearPending: jest.fn().mockResolvedValue(undefined),
+      deleteStoragePath: jest.fn().mockResolvedValue(undefined),
+    };
+    const storageService = {
+      move: jest.fn().mockResolvedValue('documents/abc-laudo.pdf'),
+    };
+    const documentRepo = {
+      create: jest.fn().mockResolvedValue({
+        id: 'doc-99',
+        name: 'Laudo Joao.pdf',
+        type: 'medical_report',
+      }),
+    };
+
+    const ocrTools = buildWhatsappFlowTools(
+      mockSurgeryRequestRepo as any,
+      mockWorkflowService as any,
+      mockSurgeryRequestsService as any,
+      mockActivityRepo as any,
+      mockPendencyValidator as any,
+      mockPatientRepo as any,
+      mockHospitalRepo as any,
+      mockHealthPlanRepo as any,
+      mockProcedureRepo as any,
+      mockUserRepo as any,
+      undefined,
+      new EntityResolverService(),
+      {
+        documentDispatcher: documentDispatcher as any,
+        storageService: storageService as any,
+        documentRepo: documentRepo as any,
+      },
+    );
+
+    const attach = ocrTools.find(
+      (t) => t.name === 'attach_document_from_whatsapp',
+    )!;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
+      documentDispatcher.getPending.mockResolvedValue({
+        storagePath: 'whatsapp-tmp/abc-laudo.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 12345,
+        fileName: 'Laudo Joao.pdf',
+        kind: 'pdf',
+        receivedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        messageSid: 'SM-1',
+      });
+    });
+
+    it('rejeita documentType desconhecido', async () => {
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'tipo_invalido',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('documentType');
+      expect(documentRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('mostra preview quando confirm=false', async () => {
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('Pré-visualização');
+      expect(result).toContain('Laudo médico');
+      expect(documentRepo.create).not.toHaveBeenCalled();
+      expect(storageService.move).not.toHaveBeenCalled();
+    });
+
+    it('retorna mensagem amigável quando não há pendência ativa', async () => {
+      documentDispatcher.getPending.mockResolvedValueOnce(null);
+
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('nenhum documento pendente');
+      expect(storageService.move).not.toHaveBeenCalled();
+    });
+
+    it('move o arquivo, cria o registro e limpa a pendência ao confirmar', async () => {
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+          documentName: 'Laudo do Joao',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(storageService.move).toHaveBeenCalledWith(
+        'whatsapp-tmp/abc-laudo.pdf',
+        expect.any(String),
+      );
+      expect(documentRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          surgeryRequestId: 'req-1',
+          createdById: 'user-1',
+          type: 'medical_report',
+          key: 'medical_report',
+          name: 'Laudo do Joao',
+          uri: 'documents/abc-laudo.pdf',
+        }),
+      );
+      expect(mockActivityRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          surgeryRequestId: 'req-1',
+          content: expect.stringContaining('Documento anexado'),
+        }),
+      );
+      expect(documentDispatcher.clearPending).toHaveBeenCalledWith(
+        baseContext.phone,
+      );
+      expect(documentDispatcher.deleteStoragePath).not.toHaveBeenCalled();
+      expect(result).toContain('Documento anexado');
+      expect(result).toContain('doc-99');
+    });
+
+    it('bloqueia quando o usuário não tem acesso à SC', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce({
+        ...mockRequest,
+        doctorId: 'doctor-outro',
+      });
+
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('permissão');
+      expect(storageService.move).not.toHaveBeenCalled();
+    });
+
+    it('retorna mensagem de indisponibilidade quando deps de documento ausentes', async () => {
+      const noDepsTools = buildWhatsappFlowTools(
+        mockSurgeryRequestRepo as any,
+        mockWorkflowService as any,
+        mockSurgeryRequestsService as any,
+        mockActivityRepo as any,
+        mockPendencyValidator as any,
+        mockPatientRepo as any,
+        mockHospitalRepo as any,
+        mockHealthPlanRepo as any,
+        mockProcedureRepo as any,
+        mockUserRepo as any,
+        undefined,
+        new EntityResolverService(),
+      );
+      const tool = noDepsTools.find(
+        (t) => t.name === 'attach_document_from_whatsapp',
+      )!;
+
+      const result = await tool.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('finalizado');
+    });
+  });
+
+  describe('OCR — create_patient_from_document', () => {
+    const documentDispatcher = {
+      getPending: jest.fn(),
+      clearPending: jest.fn().mockResolvedValue(undefined),
+      deleteStoragePath: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const ocrTools = buildWhatsappFlowTools(
+      mockSurgeryRequestRepo as any,
+      mockWorkflowService as any,
+      mockSurgeryRequestsService as any,
+      mockActivityRepo as any,
+      mockPendencyValidator as any,
+      mockPatientRepo as any,
+      mockHospitalRepo as any,
+      mockHealthPlanRepo as any,
+      mockProcedureRepo as any,
+      mockUserRepo as any,
+      undefined,
+      new EntityResolverService(),
+      {
+        documentDispatcher: documentDispatcher as any,
+      },
+    );
+    const createPatient = ocrTools.find(
+      (t) => t.name === 'create_patient_from_document',
+    )!;
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockUserRepo.findMany.mockReset();
+      (mockUserRepo as any).findOne = jest
+        .fn()
+        .mockImplementation(({ id }: any) => {
+          if (id === 'doctor-1')
+            return Promise.resolve({ id: 'doctor-1', name: 'Dr. House' });
+          if (id === 'user-1')
+            return Promise.resolve({ id: 'user-1', ownerId: 'owner-1' });
+          return Promise.resolve(null);
+        });
+      mockPatientRepo.findMany.mockResolvedValue([]);
+      mockPatientRepo.create.mockResolvedValue({
+        id: 'pat-99',
+        name: 'João da Silva',
+      });
+      documentDispatcher.getPending.mockResolvedValue(null);
+    });
+
+    it('bloqueia quando o nome é muito curto', async () => {
+      const result = await createPatient.execute(
+        { name: 'A', phone: '11988887777', email: 'a@a.com', confirm: true },
+        baseContext,
+      );
+
+      expect(result).toContain('name');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('mostra preview quando confirm=false', async () => {
+      const result = await createPatient.execute(
+        {
+          name: 'João da Silva',
+          phone: '11988887777',
+          email: 'joao@silva.com',
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('Confirme a criação');
+      expect(result).toContain('João da Silva');
+      expect(result).toContain('joao@silva.com');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('cria paciente, limpa pendência e devolve mensagem de sucesso', async () => {
+      documentDispatcher.getPending.mockResolvedValueOnce({
+        storagePath: 'whatsapp-tmp/rg.jpg',
+        contentType: 'image/jpeg',
+        sizeBytes: 4321,
+        fileName: 'rg.jpg',
+        kind: 'image',
+        receivedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        messageSid: 'SM-2',
+      });
+
+      const result = await createPatient.execute(
+        {
+          name: 'João da Silva',
+          phone: '11988887777',
+          email: 'joao@silva.com',
+          cpf: '52998224725',
+          birth_date: '1990-05-10',
+          gender: 'M',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(mockPatientRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          doctorId: 'doctor-1',
+          ownerId: 'owner-1',
+          name: 'João da Silva',
+          email: 'joao@silva.com',
+          phone: '11988887777',
+          cpf: '52998224725',
+          gender: 'M',
+        }),
+      );
+      expect(documentDispatcher.deleteStoragePath).toHaveBeenCalledWith(
+        'whatsapp-tmp/rg.jpg',
+      );
+      expect(documentDispatcher.clearPending).toHaveBeenCalledWith(
+        baseContext.phone,
+      );
+      expect(result).toContain('cadastrado com sucesso');
+      expect(result).toContain('solicitação cirúrgica');
+    });
+
+    it('avisa quando CPF já está cadastrado nesta clínica', async () => {
+      mockPatientRepo.findMany.mockResolvedValueOnce([
+        { id: 'pat-existente', name: 'Maria de Souza' },
+      ]);
+
+      const result = await createPatient.execute(
+        {
+          name: 'Maria de Souza',
+          phone: '11988887777',
+          email: 'maria@souza.com',
+          cpf: '52998224725',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('Já existe paciente');
+      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+    });
+  });
 });

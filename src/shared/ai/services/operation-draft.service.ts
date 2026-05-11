@@ -336,6 +336,16 @@ function prettifyKey(key: string): string {
     confirmedDateIndex: 'Opção confirmada',
     scope: 'Escopo',
     changes: 'Alterações',
+    requestNumber: 'Nº da solicitação (operadora)',
+    receivedAt: 'Data de recebimento',
+    quotation1Number: 'Cotação 1 — Nº',
+    quotation1ReceivedAt: 'Cotação 1 — Data',
+    quotation2Number: 'Cotação 2 — Nº',
+    quotation2ReceivedAt: 'Cotação 2 — Data',
+    quotation3Number: 'Cotação 3 — Nº',
+    quotation3ReceivedAt: 'Cotação 3 — Data',
+    notifyPatient: 'Notificar paciente',
+    surgeryPerformedAt: 'Data da cirurgia',
   };
   return lookup[key] ?? key;
 }

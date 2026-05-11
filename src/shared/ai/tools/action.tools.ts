@@ -86,6 +86,41 @@ export function buildActionTools(
   activityRepo: SurgeryRequestActivityRepository,
   patientRepo: PatientRepository,
 ): AiTool[] {
+  /**
+   * Mapa de transições que exigem fluxo guiado com draft. Quando o usuário
+   * pede "avançar" via `advance_surgery_request` para um desses status, a
+   * tool bloqueia e direciona para a intent correta do `plan_actions`.
+   *
+   * Reflete os modais do frontend: cada transição abaixo abre um modal com
+   * campos obrigatórios que NÃO podem ser silenciosamente preenchidos com
+   * valores vazios.
+   */
+  const TRANSITIONS_REQUIRING_DRAFT: Record<
+    number,
+    { intent: string; label: string; what: string }
+  > = {
+    1: {
+      intent: 'send_sc',
+      label: 'envio da SC para análise',
+      what: 'método de envio (e-mail ou download) e, se for e-mail, destinatários + assunto',
+    },
+    2: {
+      intent: 'start_analysis',
+      label: 'início da análise',
+      what: 'número da solicitação na operadora, data de recebimento e cotações opcionais',
+    },
+    3: {
+      intent: 'accept_authorization',
+      label: 'aceite da autorização',
+      what: 'até 3 datas propostas para a cirurgia',
+    },
+    5: {
+      intent: 'mark_performed',
+      label: 'marcação como realizada',
+      what: 'data de realização e documentos cirúrgicos obrigatórios (folha de sala, imagens, autorização)',
+    },
+  };
+
   const advanceSurgeryRequest: AiTool = {
     name: 'advance_surgery_request',
     definition: {
@@ -93,7 +128,7 @@ export function buildActionTools(
       function: {
         name: 'advance_surgery_request',
         description:
-          'Avança uma solicitação cirúrgica para a próxima etapa do fluxo. Só funciona se todas as pendências bloqueantes estiverem resolvidas. IMPORTANTE: sempre pergunte ao usuário se ele confirma antes de executar.',
+          'Avança uma solicitação cirúrgica para a próxima etapa do fluxo. Só funciona em transições "simples" (4→5 com data já confirmada, 6→7 com fatura informada, 7→8 com recebimento informado). Para transições "ricas" (1→2, 2→3, 3→4, 5→6) use `plan_actions` com a intent apropriada.',
         parameters: {
           type: 'object',
           properties: {
@@ -171,11 +206,21 @@ export function buildActionTools(
       const nextLabel = nextStatus ? STATUS_LABELS[nextStatus] : null;
 
       if (!canAdvance) {
-        return `A solicitação ${request.protocol} ainda tem pendências bloqueantes e não pode avançar. Consulte as pendências com "get_pendencies".`;
+        const summary = await pendencyValidator.getSummary(requestId);
+        const blockingLines = summary.items
+          .filter((p) => p.blocking && !p.resolved)
+          .map((p) => `• ${p.label}`)
+          .join('\n');
+        return `A solicitação ${request.protocol} ainda tem pendências bloqueantes e não pode avançar de *${currentLabel}*:\n${blockingLines}\n\nResolva essas pendências antes de tentar avançar.`;
       }
 
       if (!nextLabel) {
         return `A solicitação ${request.protocol} já está no status final: ${currentLabel}.`;
+      }
+
+      const draftTransition = TRANSITIONS_REQUIRING_DRAFT[request.status];
+      if (draftTransition) {
+        return `Para o ${draftTransition.label} da solicitação ${request.protocol} (${currentLabel} → ${nextLabel}), preciso coletar: ${draftTransition.what}.\n\nChame \`plan_actions\` com intent="${draftTransition.intent}" e surgeryRequestId="${request.protocol}" para iniciar o fluxo guiado. Não use \`advance_surgery_request\` para essa transição.`;
       }
 
       if (!args.confirm) {
@@ -184,27 +229,6 @@ export function buildActionTools(
 
       try {
         switch (request.status) {
-          case 1:
-            await workflowService.sendRequest(
-              requestId,
-              {} as any,
-              context.userId,
-            );
-            break;
-          case 2:
-            await workflowService.startAnalysis(
-              requestId,
-              {} as any,
-              context.userId,
-            );
-            break;
-          case 3:
-            await workflowService.acceptAuthorization(
-              requestId,
-              {} as any,
-              context.userId,
-            );
-            break;
           case 4: {
             const selectedDateIndex =
               typeof args.selectedDateIndex === 'number'
@@ -221,22 +245,6 @@ export function buildActionTools(
             await workflowService.confirmDate(
               requestId,
               { selectedDateIndex: selectedDateIndex as number } as any,
-              context.userId,
-            );
-            break;
-          }
-          case 5: {
-            const performedAtRaw =
-              typeof args.surgeryPerformedAt === 'string' &&
-              !Number.isNaN(new Date(args.surgeryPerformedAt).getTime())
-                ? args.surgeryPerformedAt
-                : detailedRequest?.surgeryDate
-                  ? new Date(detailedRequest.surgeryDate).toISOString()
-                  : new Date().toISOString();
-
-            await workflowService.markPerformed(
-              requestId,
-              { surgeryPerformedAt: performedAtRaw } as any,
               context.userId,
             );
             break;

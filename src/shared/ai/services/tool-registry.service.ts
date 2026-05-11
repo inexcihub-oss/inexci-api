@@ -32,10 +32,12 @@ import { ConfigService } from '@nestjs/config';
 import { TussService } from '../../../modules/tuss/tuss.service';
 import { EntityResolverService } from './entity-resolver.service';
 import { OperationDraftService } from './operation-draft.service';
+import { WhatsappDocumentDispatcherService } from './whatsapp-document-dispatcher.service';
 import { buildPlanTools } from '../tools/plan.tools';
 import { buildScDraftTools } from '../tools/sc-draft.tools';
 import { buildCadastroDraftTools } from '../tools/cadastro-draft.tools';
 import { buildFlowDraftTools } from '../tools/flow-draft.tools';
+import { buildFlowDraftTransitionTools } from '../tools/flow-draft-transition.tools';
 
 @Injectable()
 export class ToolRegistryService {
@@ -64,6 +66,7 @@ export class ToolRegistryService {
     private readonly tussService: TussService,
     private readonly entityResolver: EntityResolverService,
     private readonly draftService: OperationDraftService,
+    private readonly documentDispatcher: WhatsappDocumentDispatcherService,
   ) {
     this.registerAll();
   }
@@ -97,6 +100,14 @@ export class ToolRegistryService {
         workflowService: this.workflowService,
         activityRepo: this.activityRepo,
         patientRepo: this.patientRepo,
+      }),
+      ...buildFlowDraftTransitionTools({
+        draftService: this.draftService,
+        surgeryRequestRepo: this.surgeryRequestRepo,
+        workflowService: this.workflowService,
+        activityRepo: this.activityRepo,
+        documentRepo: this.documentRepo,
+        pendencyValidator: this.pendencyValidator,
       }),
       ...buildSurgeryRequestTools(
         this.surgeryRequestRepo,
@@ -151,6 +162,11 @@ export class ToolRegistryService {
         this.userRepo,
         this.tussService,
         this.entityResolver,
+        {
+          documentDispatcher: this.documentDispatcher,
+          storageService: this.storageService,
+          documentRepo: this.documentRepo,
+        },
       ),
       ...buildManageTools(
         this.surgeryRequestRepo,

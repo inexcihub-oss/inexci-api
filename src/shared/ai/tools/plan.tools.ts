@@ -43,6 +43,10 @@ const PLAN_INTENTS = [
   'contestation',
   'scheduling',
   'update_sc',
+  'send_sc',
+  'start_analysis',
+  'accept_authorization',
+  'mark_performed',
   'read_only',
   'smalltalk',
   'unknown',
@@ -204,6 +208,10 @@ function labelFor(intent: string): string {
     contestation: 'contestação',
     scheduling: 'agendamento',
     update_sc: 'atualização de dados da SC',
+    send_sc: 'envio da SC para análise',
+    start_analysis: 'início da análise',
+    accept_authorization: 'aceite da autorização',
+    mark_performed: 'marcação como realizada',
   };
   return map[intent] ?? intent;
 }

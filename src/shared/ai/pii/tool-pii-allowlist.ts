@@ -75,6 +75,21 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
 
   create_surgery_request_from_whatsapp: ['protocol'],
 
+  // ---------- OCR de documentos no WhatsApp (Sprint 3 do plano OCR) ----------
+  // attach: só ID/protocolo da SC. Os dados do documento já vivem no storage
+  // e no `documents` — a tool não tokeniza nenhum conteúdo do paciente.
+  attach_document_from_whatsapp: ['protocol'],
+  // create_patient_from_document espelha a allowlist de `create_patient`:
+  // o usuário fornece dados pessoais para cadastro e a tool só ecoa de volta
+  // o nome do paciente (tokenizado).
+  create_patient_from_document: [
+    'patient_name',
+    'cpf',
+    'phone',
+    'email',
+    'birth_date',
+  ],
+
   // ---------- Draft de criação de SC (Fase 3) ----------
   // Tools de draft expõem apenas `protocol` quando ecoam o resultado final.
   // Nomes (paciente/médico/hospital/convênio) ficam em claro porque o LLM
@@ -157,6 +172,39 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   update_sc_draft_commit: ['protocol'],
   update_sc_draft_cancel: [],
   update_sc_draft_status: [],
+
+  // ---------- Drafts de transição de status (Fase 6.5) ----------
+  // Cobrem PENDING→SENT, SENT→IN_ANALYSIS, IN_ANALYSIS→IN_SCHEDULING e
+  // SCHEDULED→PERFORMED, exigindo os mesmos campos dos modais do frontend.
+  send_sc_draft_set_request: ['protocol'],
+  send_sc_draft_set_method: [],
+  send_sc_draft_set_email_fields: ['email'],
+  send_sc_draft_preview: [],
+  send_sc_draft_commit: ['protocol'],
+  send_sc_draft_cancel: [],
+  send_sc_draft_status: [],
+  start_analysis_draft_set_request: ['protocol'],
+  start_analysis_draft_set_request_number: [],
+  start_analysis_draft_set_received_at: ['date'],
+  start_analysis_draft_set_quotation: ['date'],
+  start_analysis_draft_set_notes: [],
+  start_analysis_draft_preview: [],
+  start_analysis_draft_commit: ['protocol'],
+  start_analysis_draft_cancel: [],
+  start_analysis_draft_status: [],
+  accept_authorization_draft_set_request: ['protocol'],
+  accept_authorization_draft_set_date_options: ['date'],
+  accept_authorization_draft_preview: [],
+  accept_authorization_draft_commit: ['protocol'],
+  accept_authorization_draft_cancel: [],
+  accept_authorization_draft_status: [],
+  mark_performed_draft_set_request: ['protocol'],
+  mark_performed_draft_set_performed_at: ['date'],
+  mark_performed_draft_check_docs: [],
+  mark_performed_draft_preview: [],
+  mark_performed_draft_commit: ['protocol'],
+  mark_performed_draft_cancel: [],
+  mark_performed_draft_status: [],
 
   // ---------- Plan tool ----------
   plan_actions: [],

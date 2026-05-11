@@ -35,6 +35,13 @@ export class OpenaiService {
     temperature?: number;
     maxTokens?: number;
     timeoutMs?: number;
+    /** Override do modelo configurado em `OPENAI_MODEL` (ex.: classifier do OCR usa `gpt-4o-mini`). */
+    model?: string;
+    /**
+     * Habilita JSON Schema strict ou JSON mode legacy.
+     * Compatível com o param `response_format` do Chat Completions da OpenAI.
+     */
+    responseFormat?: OpenAI.ChatCompletionCreateParams['response_format'];
   }): Promise<OpenAI.ChatCompletion> {
     return this.chatCompletionWithRetry(params);
   }
@@ -46,6 +53,8 @@ export class OpenaiService {
       temperature?: number;
       maxTokens?: number;
       timeoutMs?: number;
+      model?: string;
+      responseFormat?: OpenAI.ChatCompletionCreateParams['response_format'];
     },
     retries = 1,
   ): Promise<OpenAI.ChatCompletion> {
@@ -54,15 +63,21 @@ export class OpenaiService {
         ? Math.max(1, Math.floor(params.timeoutMs))
         : this.requestTimeoutMs;
 
+    const effectiveModel =
+      params.model && params.model.trim().length > 0
+        ? params.model.trim()
+        : this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
+
     try {
       return await this.client.chat.completions.create(
         {
-          model: this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
+          model: effectiveModel,
           messages: params.messages,
           tools: params.tools?.length ? params.tools : undefined,
           tool_choice: params.tools?.length ? 'auto' : undefined,
           temperature: params.temperature ?? 0.3,
           max_tokens: params.maxTokens ?? this.defaultMaxTokens,
+          response_format: params.responseFormat,
         },
         { timeout: effectiveTimeoutMs },
       );

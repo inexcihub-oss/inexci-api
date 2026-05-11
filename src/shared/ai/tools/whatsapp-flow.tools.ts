@@ -29,6 +29,11 @@ import {
   buildProtocolCandidates,
   formatScProtocolForDisplay,
 } from './protocol.helpers';
+import { WhatsappDocumentDispatcherService } from '../services/whatsapp-document-dispatcher.service';
+import { StorageService } from '../../storage/storage.service';
+import { DocumentRepository } from '../../../database/repositories/document.repository';
+import { STORAGE_FOLDERS } from '../../../config/storage.config';
+import DOCUMENT_TYPES from '../../../common/document-types.common';
 
 function asNonEmptyString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -216,6 +221,12 @@ async function getAuthorizedRequest(
   return { ok: true, message: '', request };
 }
 
+export interface WhatsappFlowToolDeps {
+  documentDispatcher?: WhatsappDocumentDispatcherService;
+  storageService?: StorageService;
+  documentRepo?: DocumentRepository;
+}
+
 export function buildWhatsappFlowTools(
   surgeryRequestRepo: SurgeryRequestRepository,
   workflowService: SurgeryRequestWorkflowService,
@@ -229,6 +240,7 @@ export function buildWhatsappFlowTools(
   userRepo?: UserRepository,
   tussService?: TussService,
   entityResolver?: EntityResolverService,
+  documentDeps: WhatsappFlowToolDeps = {},
 ): AiTool[] {
   const confirmDate: AiTool = {
     name: 'confirm_date',
@@ -2260,6 +2272,394 @@ export function buildWhatsappFlowTools(
     },
   };
 
+  // ---------------------------------------------------------------------
+  // OCR de documentos no WhatsApp (Sprint 3 do plano OCR)
+  // ---------------------------------------------------------------------
+  const SUPPORTED_ATTACH_DOCUMENT_TYPES = Object.values(DOCUMENT_TYPES);
+
+  function documentTypeKeyToLabel(typeKey: string): string {
+    const labels: Record<string, string> = {
+      personal_document: 'Documento pessoal',
+      exam_report: 'Laudo de exame',
+      medical_report: 'Laudo médico',
+      authorization_guide: 'Guia de autorização',
+      surgery_room: 'Sala cirúrgica',
+      surgery_images: 'Imagens da cirurgia',
+      surgery_auth_document: 'Autorização cirúrgica',
+      invoice_protocol: 'Protocolo de faturamento',
+      receipt_document: 'Comprovante de recebimento',
+      contest_file: 'Anexo de contestação',
+      additional_document: 'Documento adicional',
+    };
+    return labels[typeKey] ?? typeKey;
+  }
+
+  const attachDocumentFromWhatsapp: AiTool = {
+    name: 'attach_document_from_whatsapp',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'attach_document_from_whatsapp',
+        description:
+          'Anexa o documento que o usuário acabou de enviar pelo WhatsApp (imagem ou PDF) a uma solicitação cirúrgica. O arquivo já está no staging — aqui o sistema move para o storage definitivo, cria o registro `documents` e limpa a pendência. Requer `confirm=true` para executar.',
+        parameters: {
+          type: 'object',
+          properties: {
+            surgeryRequestId: {
+              type: 'string',
+              description:
+                'ID ou protocolo (ex.: SC-1234) da solicitação cirúrgica destino.',
+            },
+            documentType: {
+              type: 'string',
+              description:
+                'Tipo do documento. Valores aceitos: personal_document, exam_report, medical_report, authorization_guide, surgery_room, surgery_images, surgery_auth_document, invoice_protocol, receipt_document, contest_file, additional_document. Use o `suggestedDocumentType` quando disponível.',
+            },
+            documentName: {
+              type: 'string',
+              description:
+                'Nome amigável para o documento (opcional). Se omitido, usa o nome do arquivo original.',
+            },
+            confirm: {
+              type: 'boolean',
+              description:
+                'Se true, executa a ação. Se false ou omitido, mostra preview.',
+            },
+          },
+          required: ['surgeryRequestId', 'documentType'],
+        },
+      },
+    } as OpenAI.ChatCompletionTool,
+    async execute(args, context): Promise<string> {
+      const { documentDispatcher, storageService, documentRepo } = documentDeps;
+      if (!documentDispatcher || !storageService || !documentRepo) {
+        return 'Anexar documentos via WhatsApp ainda está sendo finalizado pela equipe.';
+      }
+      if (!context.userId || !context.phone) {
+        return 'Acesso negado.';
+      }
+
+      const auth = await getAuthorizedRequest(
+        surgeryRequestRepo,
+        args.surgeryRequestId,
+        context,
+      );
+      if (!auth.ok) return auth.message;
+
+      const documentType = asNonEmptyString(args.documentType);
+      if (
+        !documentType ||
+        !SUPPORTED_ATTACH_DOCUMENT_TYPES.includes(documentType)
+      ) {
+        return `Parâmetro inválido: \`documentType\` deve ser um destes: ${SUPPORTED_ATTACH_DOCUMENT_TYPES.join(', ')}.`;
+      }
+
+      const pending = await documentDispatcher.getPending(context.phone);
+      if (!pending) {
+        return 'Não encontrei nenhum documento pendente recente. Reenvie o arquivo pelo WhatsApp e tente novamente.';
+      }
+
+      const documentName =
+        asNonEmptyString(args.documentName) ||
+        pending.fileName ||
+        documentTypeKeyToLabel(documentType);
+      const protocolToken = tokenizePii(
+        context,
+        'attach_document_from_whatsapp',
+        'protocol',
+        auth.request.protocol,
+      );
+
+      if (!args.confirm) {
+        return [
+          'Pré-visualização do anexo:',
+          `• Solicitação: ${protocolToken}`,
+          `• Tipo: ${documentTypeKeyToLabel(documentType)}`,
+          `• Arquivo: ${documentName}`,
+          `• Origem: WhatsApp (${pending.kind === 'pdf' ? 'PDF' : 'imagem'} • ${(pending.sizeBytes / 1024).toFixed(1)} KB)`,
+          'Confirme com "sim" para anexar.',
+        ].join('\n');
+      }
+
+      let finalPath: string;
+      try {
+        finalPath = await storageService.move(
+          pending.storagePath,
+          STORAGE_FOLDERS.DOCUMENTS,
+        );
+      } catch (err: any) {
+        return `Erro ao mover o arquivo para o storage definitivo: ${err?.message || 'erro desconhecido'}.`;
+      }
+
+      let document: any;
+      try {
+        document = await documentRepo.create({
+          surgeryRequestId: auth.request.id,
+          createdById: context.userId as string,
+          type: documentType,
+          key: documentType,
+          name: documentName,
+          uri: finalPath,
+        } as any);
+      } catch (err: any) {
+        return `Anexei o arquivo, mas não consegui registrá-lo no histórico: ${err?.message || 'erro desconhecido'}.`;
+      }
+
+      await activityRepo.create({
+        surgeryRequestId: auth.request.id,
+        userId: context.userId as string,
+        type: ActivityType.SYSTEM,
+        content: `[WhatsApp IA] Documento anexado via WhatsApp (${documentTypeKeyToLabel(documentType)}: ${documentName}).`,
+      });
+
+      // Limpa pending sem apagar o arquivo (já foi MOVIDO para `documents/`).
+      await documentDispatcher.clearPending(context.phone);
+
+      return [
+        `✅ Documento anexado à solicitação ${protocolToken}.`,
+        `• Tipo: ${documentTypeKeyToLabel(documentType)}`,
+        `• Nome: ${documentName}`,
+        document?.id ? `• ID: ${document.id}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+    },
+  };
+
+  const createPatientFromDocument: AiTool = {
+    name: 'create_patient_from_document',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'create_patient_from_document',
+        description:
+          'Cria um paciente a partir dos dados extraídos do documento enviado pelo WhatsApp (RG, CPF, ficha de cadastro, etc.). Reaproveita o mesmo cadastro mínimo de `create_patient` — telefone e e-mail continuam obrigatórios. Requer `confirm=true`.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Nome completo do paciente (obrigatório).',
+            },
+            phone: {
+              type: 'string',
+              description:
+                'Telefone do paciente (10 a 13 dígitos, com ou sem máscara). Obrigatório.',
+            },
+            email: {
+              type: 'string',
+              description: 'E-mail do paciente. Obrigatório.',
+            },
+            cpf: {
+              type: 'string',
+              description: 'CPF (11 dígitos, com ou sem máscara). Opcional.',
+            },
+            birth_date: {
+              type: 'string',
+              description:
+                'Data de nascimento no formato AAAA-MM-DD. Opcional.',
+            },
+            gender: {
+              type: 'string',
+              enum: ['M', 'F'],
+              description: 'M (masculino) ou F (feminino). Opcional.',
+            },
+            doctor_name_or_id: {
+              type: 'string',
+              description:
+                'Nome ou ID do médico responsável. Obrigatório quando o usuário tem acesso a múltiplos médicos.',
+            },
+            confirm: {
+              type: 'boolean',
+              description:
+                'Se true, executa a criação. Se false ou omitido, mostra preview.',
+            },
+          },
+          required: ['name', 'phone', 'email'],
+        },
+      },
+    } as OpenAI.ChatCompletionTool,
+    async execute(args, context): Promise<string> {
+      const { documentDispatcher } = documentDeps;
+      if (!patientRepo || !userRepo) {
+        return 'Cadastro de paciente indisponível no momento.';
+      }
+      if (!context.userId) return 'Acesso negado.';
+
+      const TOOL = 'create_patient_from_document';
+      const name = String(detokenizeArg(context, args.name) ?? '').trim();
+      if (!name || name.length < 2) {
+        return 'Parâmetro inválido: `name` é obrigatório (mínimo 2 caracteres).';
+      }
+
+      const phoneRaw = detokenizeArg(context, args.phone);
+      const phoneDigits = normalizePhone(phoneRaw);
+      if (!phoneDigits) {
+        return 'Parâmetro inválido: `phone` é obrigatório e deve ter 10 a 13 dígitos.';
+      }
+
+      const emailRaw = detokenizeArg(context, args.email);
+      const email =
+        typeof emailRaw === 'string' && /\S+@\S+\.\S+/.test(emailRaw.trim())
+          ? emailRaw.trim().toLowerCase()
+          : null;
+      if (!email) {
+        return 'Parâmetro inválido: `email` é obrigatório e deve ser válido.';
+      }
+
+      let cpfDigits: string | null = null;
+      if (args.cpf !== undefined && args.cpf !== null && args.cpf !== '') {
+        cpfDigits = normalizeCpf(detokenizeArg(context, args.cpf));
+        if (!cpfDigits) {
+          return 'Parâmetro inválido: `cpf` deve conter 11 dígitos.';
+        }
+      }
+
+      let birthDate: string | null = null;
+      if (
+        args.birth_date !== undefined &&
+        args.birth_date !== null &&
+        args.birth_date !== ''
+      ) {
+        const raw = detokenizeArg(context, args.birth_date);
+        const validated = asValidDateString(raw);
+        if (!validated) {
+          return 'Parâmetro inválido: `birth_date` deve estar no formato AAAA-MM-DD.';
+        }
+        birthDate = validated;
+      }
+
+      let gender: string | null = null;
+      if (
+        args.gender !== undefined &&
+        args.gender !== null &&
+        args.gender !== ''
+      ) {
+        const raw = String(args.gender).trim().toUpperCase();
+        if (raw !== 'M' && raw !== 'F') {
+          return 'Parâmetro inválido: `gender` deve ser "M" ou "F".';
+        }
+        gender = raw;
+      }
+
+      const accessibleDoctorIds = context.accessibleDoctorIds || [];
+      if (!accessibleDoctorIds.length) {
+        return 'Você não tem acesso a nenhum médico para criar pacientes.';
+      }
+
+      let doctorId: string;
+      let doctorName: string | null = null;
+      if (accessibleDoctorIds.length === 1) {
+        doctorId = accessibleDoctorIds[0];
+        const doctor = await userRepo.findOne({ id: doctorId } as any);
+        doctorName = doctor?.name || null;
+      } else {
+        const hint = String(
+          detokenizeArg(context, args.doctor_name_or_id) ?? '',
+        ).trim();
+        if (!hint) {
+          const doctors = await userRepo.findMany(
+            { id: In(accessibleDoctorIds) } as any,
+            0,
+            10,
+          );
+          const list = doctors.map((d, i) => `${i + 1} - ${d.name}`).join('\n');
+          return `Você tem acesso a vários médicos. Informe \`doctor_name_or_id\` para indicar quem é o responsável:\n${list}`;
+        }
+        const doctors = await userRepo.findMany(
+          { id: In(accessibleDoctorIds) } as any,
+          0,
+          50,
+        );
+        const isUuid = /^[0-9a-f-]{36}$/i.test(hint);
+        const match = isUuid
+          ? doctors.find((d) => d.id === hint)
+          : doctors.find((d) =>
+              (d.name || '').toLowerCase().includes(hint.toLowerCase()),
+            );
+        if (!match) {
+          return `Médico "${hint}" não encontrado entre os acessíveis a você.`;
+        }
+        doctorId = match.id;
+        doctorName = match.name;
+      }
+
+      const requestingUser = await userRepo.findOne({
+        id: context.userId,
+      } as any);
+      if (!requestingUser) {
+        return 'Usuário solicitante não encontrado.';
+      }
+      const ownerId = requestingUser.ownerId;
+
+      if (cpfDigits) {
+        const existing = await patientRepo.findMany({
+          ownerId,
+          cpf: cpfDigits,
+        } as any);
+        if (existing.length > 0) {
+          const existingNameToken = tokenizePii(
+            context,
+            TOOL,
+            'patient_name',
+            existing[0].name,
+          );
+          return `Já existe paciente cadastrado nesta clínica com este CPF: ${existingNameToken}.`;
+        }
+      }
+
+      if (!args.confirm) {
+        const previewLines = [
+          'Confirme a criação do paciente a partir do documento:',
+          `Nome: ${name}`,
+          `Telefone: ${phoneDigits}`,
+          `Email: ${email}`,
+        ];
+        if (cpfDigits) previewLines.push(`CPF: ${cpfDigits}`);
+        if (birthDate) previewLines.push(`Nascimento: ${birthDate}`);
+        if (gender) previewLines.push(`Sexo: ${gender}`);
+        if (doctorName) previewLines.push(`Médico responsável: ${doctorName}`);
+        previewLines.push('', 'Responda "sim" para confirmar.');
+        return previewLines.join('\n');
+      }
+
+      const created = await patientRepo.create({
+        doctorId,
+        ownerId,
+        name,
+        phone: phoneDigits,
+        email,
+        cpf: cpfDigits,
+        gender,
+        birthDate: birthDate ? new Date(`${birthDate}T00:00:00Z`) : null,
+        active: true,
+      } as any);
+
+      // Pós-criação: limpa o documento pendente do staging (já não precisamos
+      // mais — o cadastro foi concluído). Se o usuário quiser anexar o
+      // documento original a uma SC depois, basta reenviá-lo.
+      if (documentDispatcher && context.phone) {
+        const pending = await documentDispatcher.getPending(context.phone);
+        if (pending) {
+          await documentDispatcher.deleteStoragePath(pending.storagePath);
+          await documentDispatcher.clearPending(context.phone);
+        }
+      }
+
+      const nameToken = tokenizePii(
+        context,
+        TOOL,
+        'patient_name',
+        created.name,
+      );
+
+      return [
+        `✅ Paciente ${nameToken} cadastrado com sucesso a partir do documento.`,
+        'Posso abrir uma solicitação cirúrgica para esse paciente agora? (responda "sim" para começar).',
+      ].join('\n');
+    },
+  };
+
   return [
     listScCreationCatalog,
     createSurgeryRequestFromWhatsapp,
@@ -2276,5 +2676,7 @@ export function buildWhatsappFlowTools(
     setHospital,
     updateRequestClinicalData,
     updateRequestAdminData,
+    attachDocumentFromWhatsapp,
+    createPatientFromDocument,
   ];
 }

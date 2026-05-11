@@ -51,4 +51,11 @@ export const STORAGE_FOLDERS = {
 
   /** Logo do cabeçalho customizado do médico */
   HEADERS: 'headers',
+
+  /**
+   * Pasta temporária para mídias inbound do WhatsApp (imagens/PDFs) enquanto
+   * o assistente IA aguarda o usuário escolher o que fazer com o arquivo.
+   * Limpada periodicamente via cron (ver `AI_DOC_TMP_RETENTION_HOURS`).
+   */
+  WHATSAPP_TMP: 'whatsapp-tmp',
 } as const;

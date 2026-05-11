@@ -14,6 +14,7 @@ import { SchedulingHandler } from './workflow/scheduling.handler';
 import { ExecutionHandler } from './workflow/execution.handler';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { ContestationRepository } from 'src/database/repositories/contestation.repository';
+import { DocumentRepository } from 'src/database/repositories/document.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
@@ -180,6 +181,17 @@ describe('SurgeryRequestWorkflowService', () => {
         {
           provide: StorageService,
           useValue: { getSignedUrl: jest.fn(), delete: jest.fn() },
+        },
+        {
+          provide: DocumentRepository,
+          useValue: {
+            findMany: jest
+              .fn()
+              .mockResolvedValue([
+                { key: 'surgery_room' },
+                { key: 'surgery_auth_document' },
+              ]),
+          },
         },
         {
           provide: QuotaService,

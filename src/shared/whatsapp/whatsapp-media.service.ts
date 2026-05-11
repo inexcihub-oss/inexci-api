@@ -6,7 +6,7 @@ import * as path from 'path';
 export interface InboundWhatsappMedia {
   url: string;
   contentType: string | null;
-  category?: 'audio' | 'other';
+  category?: 'audio' | 'image' | 'pdf' | 'other';
   durationSeconds?: number | null;
 }
 
@@ -18,19 +18,35 @@ export interface DownloadedWhatsappAudio {
   fileName: string;
 }
 
+export interface DownloadedWhatsappDocument {
+  buffer: Buffer;
+  mimeType: string;
+  sizeBytes: number;
+  fileName: string;
+  /** `image` ou `pdf` — definido pelo MIME aceito. */
+  kind: 'image' | 'pdf';
+}
+
+export type WhatsappMediaErrorCode =
+  | 'AUDIO_NOT_ALLOWED'
+  | 'AUDIO_TOO_LARGE'
+  | 'AUDIO_TOO_LONG'
+  | 'MEDIA_URL_INVALID'
+  | 'DOC_NOT_ALLOWED'
+  | 'DOC_TOO_LARGE'
+  | 'DOC_PAGE_LIMIT';
+
 export class WhatsappMediaValidationError extends Error {
   constructor(
     message: string,
-    public readonly code:
-      | 'AUDIO_NOT_ALLOWED'
-      | 'AUDIO_TOO_LARGE'
-      | 'AUDIO_TOO_LONG'
-      | 'MEDIA_URL_INVALID',
+    public readonly code: WhatsappMediaErrorCode,
   ) {
     super(message);
     this.name = 'WhatsappMediaValidationError';
   }
 }
+
+type MediaKind = 'audio' | 'image' | 'pdf';
 
 @Injectable()
 export class WhatsappMediaService {
@@ -43,16 +59,102 @@ export class WhatsappMediaService {
     );
   }
 
+  isImageMime(mimeType: string | null | undefined): boolean {
+    return (
+      typeof mimeType === 'string' &&
+      mimeType.toLowerCase().startsWith('image/')
+    );
+  }
+
+  isPdfMime(mimeType: string | null | undefined): boolean {
+    return (
+      typeof mimeType === 'string' &&
+      mimeType.toLowerCase() === 'application/pdf'
+    );
+  }
+
+  /**
+   * Backwards-compatible wrapper para o pipeline de áudio existente.
+   */
   async downloadInboundAudio(
     media: InboundWhatsappMedia,
   ): Promise<DownloadedWhatsappAudio> {
+    const downloaded = await this.downloadInboundMedia(media, 'audio');
+    const durationSeconds = await this.resolveAudioDuration(
+      media,
+      downloaded.responseHeaders,
+    );
+    this.validateAudioDuration(durationSeconds);
+
+    await this.persistDebugCopyIfEnabled(
+      downloaded.fileName,
+      downloaded.buffer,
+    );
+
+    return {
+      buffer: downloaded.buffer,
+      mimeType: downloaded.mimeType,
+      sizeBytes: downloaded.buffer.byteLength,
+      durationSeconds,
+      fileName: downloaded.fileName,
+    };
+  }
+
+  /**
+   * Baixa imagem ou PDF inbound vindo do WhatsApp via Twilio.
+   * Aplica whitelist de MIME e limite de bytes específico para documentos.
+   */
+  async downloadInboundDocument(
+    media: InboundWhatsappMedia,
+  ): Promise<DownloadedWhatsappDocument> {
+    const declaredMime = this.normalizeMime(media.contentType);
+    const kind: MediaKind | null = declaredMime
+      ? this.isImageMime(declaredMime)
+        ? 'image'
+        : this.isPdfMime(declaredMime)
+          ? 'pdf'
+          : null
+      : null;
+
+    if (!kind) {
+      throw new WhatsappMediaValidationError(
+        'Tipo de documento não permitido. Envie uma imagem (JPG/PNG/WEBP) ou um PDF.',
+        'DOC_NOT_ALLOWED',
+      );
+    }
+
+    const downloaded = await this.downloadInboundMedia(media, kind);
+
+    return {
+      buffer: downloaded.buffer,
+      mimeType: downloaded.mimeType,
+      sizeBytes: downloaded.buffer.byteLength,
+      fileName: downloaded.fileName,
+      kind,
+    };
+  }
+
+  /**
+   * Núcleo do download (auth Twilio, validação de host/mime, leitura com
+   * limite). Mantemos privado para que `audio`/`image`/`pdf` reaproveitem o
+   * mesmo caminho de erro/observabilidade.
+   */
+  private async downloadInboundMedia(
+    media: InboundWhatsappMedia,
+    kind: MediaKind,
+  ): Promise<{
+    buffer: Buffer;
+    mimeType: string;
+    fileName: string;
+    responseHeaders: Headers;
+  }> {
     this.ensureTwilioUrl(media.url);
 
     const declaredMime = this.normalizeMime(media.contentType);
-    if (!declaredMime || !this.isAllowedAudioMime(declaredMime)) {
+    if (!declaredMime || !this.isAllowedMime(declaredMime, kind)) {
       throw new WhatsappMediaValidationError(
-        'Tipo de áudio não permitido. Envie áudio em formato suportado.',
-        'AUDIO_NOT_ALLOWED',
+        this.buildNotAllowedMessage(kind),
+        this.notAllowedCode(kind),
       );
     }
 
@@ -92,10 +194,7 @@ export class WhatsappMediaService {
         );
       }
 
-      const maxBytes = this.configService.get<number>(
-        'AI_AUDIO_MAX_BYTES',
-        15 * 1024 * 1024,
-      );
+      const maxBytes = this.getMaxBytesFor(kind);
       const contentLength = Number(response.headers.get('content-length') || 0);
       if (
         Number.isFinite(contentLength) &&
@@ -103,8 +202,8 @@ export class WhatsappMediaService {
         contentLength > maxBytes
       ) {
         throw new WhatsappMediaValidationError(
-          'Áudio excede o tamanho máximo permitido.',
-          'AUDIO_TOO_LARGE',
+          this.buildTooLargeMessage(kind),
+          this.tooLargeCode(kind),
         );
       }
 
@@ -112,39 +211,70 @@ export class WhatsappMediaService {
         response.headers.get('content-type'),
       );
       const effectiveMime = responseMime || declaredMime;
-      if (!effectiveMime || !this.isAllowedAudioMime(effectiveMime)) {
+      if (!effectiveMime || !this.isAllowedMime(effectiveMime, kind)) {
         throw new WhatsappMediaValidationError(
-          'Tipo de áudio retornado não é permitido.',
-          'AUDIO_NOT_ALLOWED',
+          this.buildNotAllowedMessage(kind),
+          this.notAllowedCode(kind),
         );
       }
 
-      const buffer = await this.readResponseWithLimit(response, maxBytes);
-      const durationSeconds = this.extractDurationSeconds(
-        media,
-        response.headers,
-      );
-      this.validateDuration(durationSeconds);
-
-      const fileName = this.buildFileName(effectiveMime);
-      await this.persistDebugCopyIfEnabled(fileName, buffer);
+      const buffer = await this.readResponseWithLimit(response, maxBytes, kind);
+      const fileName = this.buildFileName(effectiveMime, kind);
 
       return {
         buffer,
         mimeType: effectiveMime,
-        sizeBytes: buffer.byteLength,
-        durationSeconds,
         fileName,
+        responseHeaders: response.headers,
       };
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private normalizeMime(value: string | null | undefined): string | null {
-    if (!value || typeof value !== 'string') return null;
-    const mime = value.split(';')[0]?.trim().toLowerCase();
-    return mime || null;
+  private notAllowedCode(kind: MediaKind): WhatsappMediaErrorCode {
+    return kind === 'audio' ? 'AUDIO_NOT_ALLOWED' : 'DOC_NOT_ALLOWED';
+  }
+
+  private tooLargeCode(kind: MediaKind): WhatsappMediaErrorCode {
+    return kind === 'audio' ? 'AUDIO_TOO_LARGE' : 'DOC_TOO_LARGE';
+  }
+
+  private buildNotAllowedMessage(kind: MediaKind): string {
+    if (kind === 'audio') {
+      return 'Tipo de áudio não permitido. Envie áudio em formato suportado.';
+    }
+    if (kind === 'image') {
+      return 'Tipo de imagem não permitido. Envie JPG, PNG ou WEBP.';
+    }
+    return 'Documento não permitido. Envie um PDF válido.';
+  }
+
+  private buildTooLargeMessage(kind: MediaKind): string {
+    if (kind === 'audio') {
+      return 'Áudio excede o tamanho máximo permitido.';
+    }
+    return 'Documento excede o tamanho máximo permitido.';
+  }
+
+  private getMaxBytesFor(kind: MediaKind): number {
+    if (kind === 'audio') {
+      return this.configService.get<number>(
+        'AI_AUDIO_MAX_BYTES',
+        15 * 1024 * 1024,
+      );
+    }
+    return this.configService.get<number>('AI_DOC_MAX_BYTES', 10 * 1024 * 1024);
+  }
+
+  private isAllowedMime(mimeType: string, kind: MediaKind): boolean {
+    if (kind === 'audio') {
+      return this.getAllowedAudioMimes().includes(mimeType.toLowerCase());
+    }
+    if (kind === 'image') {
+      return this.getAllowedImageMimes().includes(mimeType.toLowerCase());
+    }
+    return this.getAllowedPdfMimes().includes(mimeType.toLowerCase());
   }
 
   private getAllowedAudioMimes(): string[] {
@@ -159,9 +289,32 @@ export class WhatsappMediaService {
       .filter(Boolean);
   }
 
-  private isAllowedAudioMime(mimeType: string): boolean {
-    const allowed = this.getAllowedAudioMimes();
-    return allowed.includes(mimeType.toLowerCase());
+  private getAllowedImageMimes(): string[] {
+    const raw = this.configService.get<string>(
+      'AI_DOC_ALLOWED_IMAGE_MIME',
+      'image/jpeg,image/jpg,image/png,image/webp',
+    );
+    return raw
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  private getAllowedPdfMimes(): string[] {
+    const raw = this.configService.get<string>(
+      'AI_DOC_ALLOWED_PDF_MIME',
+      'application/pdf',
+    );
+    return raw
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  private normalizeMime(value: string | null | undefined): string | null {
+    if (!value || typeof value !== 'string') return null;
+    const mime = value.split(';')[0]?.trim().toLowerCase();
+    return mime || null;
   }
 
   private ensureTwilioUrl(url: string): void {
@@ -189,14 +342,15 @@ export class WhatsappMediaService {
   private async readResponseWithLimit(
     response: Response,
     maxBytes: number,
+    kind: MediaKind,
   ): Promise<Buffer> {
     const stream = response.body;
     if (!stream || typeof (stream as ReadableStream).getReader !== 'function') {
       const payload = Buffer.from(await response.arrayBuffer());
       if (payload.byteLength > maxBytes) {
         throw new WhatsappMediaValidationError(
-          'Áudio excede o tamanho máximo permitido.',
-          'AUDIO_TOO_LARGE',
+          this.buildTooLargeMessage(kind),
+          this.tooLargeCode(kind),
         );
       }
       return payload;
@@ -215,8 +369,8 @@ export class WhatsappMediaService {
       total += chunk.byteLength;
       if (total > maxBytes) {
         throw new WhatsappMediaValidationError(
-          'Áudio excede o tamanho máximo permitido.',
-          'AUDIO_TOO_LARGE',
+          this.buildTooLargeMessage(kind),
+          this.tooLargeCode(kind),
         );
       }
 
@@ -226,10 +380,10 @@ export class WhatsappMediaService {
     return Buffer.concat(chunks, total);
   }
 
-  private extractDurationSeconds(
+  private async resolveAudioDuration(
     media: InboundWhatsappMedia,
     headers: Headers,
-  ): number | null {
+  ): Promise<number | null> {
     if (
       typeof media.durationSeconds === 'number' &&
       Number.isFinite(media.durationSeconds)
@@ -254,7 +408,7 @@ export class WhatsappMediaService {
     return null;
   }
 
-  private validateDuration(durationSeconds: number | null): void {
+  private validateAudioDuration(durationSeconds: number | null): void {
     if (durationSeconds === null) return;
 
     const maxDuration = this.configService.get<number>(
@@ -270,8 +424,8 @@ export class WhatsappMediaService {
     }
   }
 
-  private buildFileName(mimeType: string): string {
-    const extensionMap: Record<string, string> = {
+  private buildFileName(mimeType: string, kind: MediaKind): string {
+    const audioExtMap: Record<string, string> = {
       'audio/ogg': 'ogg',
       'audio/mpeg': 'mp3',
       'audio/mp4': 'm4a',
@@ -280,8 +434,21 @@ export class WhatsappMediaService {
       'audio/x-wav': 'wav',
     };
 
-    const extension = extensionMap[mimeType] || 'bin';
-    return `whatsapp-audio-${Date.now()}.${extension}`;
+    const docExtMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'application/pdf': 'pdf',
+    };
+
+    if (kind === 'audio') {
+      const extension = audioExtMap[mimeType] || 'bin';
+      return `whatsapp-audio-${Date.now()}.${extension}`;
+    }
+
+    const extension = docExtMap[mimeType] || 'bin';
+    return `whatsapp-doc-${Date.now()}.${extension}`;
   }
 
   private async persistDebugCopyIfEnabled(

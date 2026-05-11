@@ -5,6 +5,7 @@ import { CronController } from './cron.controller';
 import { LogRetentionService } from './log-retention.service';
 import { MailModule } from '../mail/mail.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { StorageModule } from '../storage/storage.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
 import { StaleNotificationService } from 'src/modules/notifications/stale-notification.service';
 import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
@@ -26,6 +27,7 @@ import { User } from 'src/database/entities/user.entity';
     MailModule,
     WhatsappModule,
     NotificationsModule,
+    StorageModule,
   ],
   controllers: [CronController],
   providers: [

@@ -64,6 +64,25 @@ describe('AiOrchestratorService — plan-first guard', () => {
       cancel: jest.fn(),
       finalizeCommit: jest.fn(),
     },
+    documentDispatcher: {
+      isEnabled: jest.fn().mockReturnValue(false),
+      pickDocumentMedia: jest.fn().mockReturnValue(null),
+      stageInboundDocument: jest
+        .fn()
+        .mockResolvedValue({ status: 'no_document' }),
+      getPending: jest.fn().mockResolvedValue(null),
+      savePending: jest.fn().mockResolvedValue(undefined),
+      clearPending: jest.fn().mockResolvedValue(undefined),
+      deleteStoragePath: jest.fn().mockResolvedValue(undefined),
+      parseIntent: jest.fn().mockReturnValue(null),
+      buildDownloadFailureMessage: jest.fn().mockReturnValue('falha'),
+      buildIntentPromptMessage: jest.fn().mockReturnValue('intent'),
+    },
+    documentProcessor: {
+      processPendingDocument: jest
+        .fn()
+        .mockResolvedValue({ status: 'ok', userSummary: 'resumo' }),
+    },
   });
 
   const buildService = (m: ReturnType<typeof baseMocks>) =>
@@ -89,6 +108,8 @@ describe('AiOrchestratorService — plan-first guard', () => {
       m.context as any,
       m.whatsappConversationRepo as any,
       m.draft as any,
+      m.documentDispatcher as any,
+      m.documentProcessor as any,
     );
 
   it('evaluatePlanFirstGuard: bloqueia tool de mutação complexa sem plan_actions nem draft ativo', async () => {

@@ -64,13 +64,13 @@ describe('WebhookController', () => {
         {
           url: 'https://api.twilio.com/media/0',
           contentType: 'application/pdf',
-          category: 'other',
+          category: 'pdf',
           durationSeconds: null,
         },
         {
           url: 'https://api.twilio.com/media/1',
           contentType: 'image/jpeg',
-          category: 'other',
+          category: 'image',
           durationSeconds: null,
         },
       ],

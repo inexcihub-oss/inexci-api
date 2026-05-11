@@ -100,6 +100,134 @@ export class StorageService {
   }
 
   /**
+   * Faz upload direto de um buffer (sem Multer) — útil para mídias geradas
+   * fora de uma request HTTP, como documentos inbound vindos do WhatsApp.
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    folder: string,
+    fileName: string,
+    contentType: string,
+  ): Promise<string> {
+    const sanitizedName = this.sanitizeFilename(fileName);
+    const finalName = `${uuid()}-${sanitizedName}`;
+    const filePath = `${folder}/${finalName}`;
+
+    try {
+      const { data, error } = await this.supabase.storage
+        .from(this.bucket)
+        .upload(filePath, buffer, {
+          contentType,
+          upsert: false,
+        });
+
+      if (error) {
+        this.logger.error(`Supabase upload error: ${JSON.stringify(error)}`);
+        throw new BadRequestException(`Erro ao fazer upload: ${error.message}`);
+      }
+
+      return data.path;
+    } catch (error: any) {
+      this.logger.error('Storage service error', error.stack);
+      throw new BadRequestException(
+        `Erro ao fazer upload do arquivo: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Move um arquivo já existente no bucket de uma pasta para outra,
+   * preservando o nome do arquivo.
+   */
+  async move(fromPath: string, toFolder: string): Promise<string> {
+    const fileName = fromPath.split('/').pop() || `${uuid()}.bin`;
+    const toPath = `${toFolder}/${fileName}`;
+
+    const { error } = await this.supabase.storage
+      .from(this.bucket)
+      .move(fromPath, toPath);
+
+    if (error) {
+      this.logger.error(`Supabase move error: ${JSON.stringify(error)}`);
+      throw new BadRequestException(`Erro ao mover arquivo: ${error.message}`);
+    }
+
+    return toPath;
+  }
+
+  /**
+   * Lista arquivos de uma pasta. Retorna nomes relativos ao folder.
+   */
+  async listFolder(
+    folder: string,
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<Array<{ name: string; createdAt: string | null }>> {
+    const limit = options.limit ?? 1000;
+    const offset = options.offset ?? 0;
+
+    const { data, error } = await this.supabase.storage
+      .from(this.bucket)
+      .list(folder, {
+        limit,
+        offset,
+        sortBy: { column: 'created_at', order: 'asc' },
+      });
+
+    if (error) {
+      this.logger.warn(`Supabase list error em ${folder}: ${error.message}`);
+      return [];
+    }
+
+    return (data || []).map((entry: any) => ({
+      name: entry.name as string,
+      createdAt: (entry.created_at as string | undefined) ?? null,
+    }));
+  }
+
+  /**
+   * Faz download de um arquivo do bucket e devolve como Buffer.
+   * Usado para reprocessar documentos staged (OCR no Sprint 3 do plano OCR).
+   * Não levanta exceção quando o arquivo não existe — devolve `null` para
+   * que o chamador trate como "pendência expirada/limpa".
+   */
+  async download(filePath: string): Promise<Buffer | null> {
+    if (!filePath) return null;
+    try {
+      const { data, error } = await this.supabase.storage
+        .from(this.bucket)
+        .download(filePath);
+
+      if (error || !data) {
+        this.logger.warn(
+          `Supabase download error em ${filePath}: ${error?.message || 'no data'}`,
+        );
+        return null;
+      }
+
+      const arrayBuffer = await data.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha inesperada ao baixar ${filePath}: ${err?.message || 'erro'}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Apaga múltiplos caminhos (nomes completos com folder) em batch.
+   */
+  async deleteMany(paths: string[]): Promise<void> {
+    if (!paths.length) return;
+    const { error } = await this.supabase.storage
+      .from(this.bucket)
+      .remove(paths);
+    if (error) {
+      this.logger.warn(`Supabase deleteMany error: ${error.message}`);
+    }
+  }
+
+  /**
    * Deleta um arquivo do Supabase Storage
    * @param filePath - Caminho do arquivo no bucket
    */

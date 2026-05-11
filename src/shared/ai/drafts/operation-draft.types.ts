@@ -13,7 +13,11 @@ export type OperationDraftType =
   | 'invoice'
   | 'contestation'
   | 'scheduling'
-  | 'update_sc';
+  | 'update_sc'
+  | 'send_sc'
+  | 'start_analysis'
+  | 'accept_authorization'
+  | 'mark_performed';
 
 export type OperationDraftStatus =
   | 'collecting'
@@ -113,6 +117,71 @@ export interface UpdateScDraftFields {
   changes?: Record<string, unknown>;
 }
 
+/**
+ * Draft do fluxo de ENVIO (PENDING → SENT).
+ *
+ * Antes de commit, o service valida via `pendencyValidator` que o checklist
+ * obrigatório está completo (hospital, TUSS, OPME, laudo).
+ */
+export interface SendScDraftFields {
+  surgeryRequestId?: string;
+  surgeryRequestLabel?: string;
+  method?: 'email' | 'download';
+  /** Quando `method = 'email'`: destinatários separados por `;`. */
+  to?: string;
+  subject?: string;
+  message?: string;
+  notifyPatient?: boolean;
+}
+
+/**
+ * Draft do fluxo de INÍCIO DE ANÁLISE (SENT → IN_ANALYSIS).
+ *
+ * Reflete o `StartAnalysisModal`: nº de protocolo da operadora, data de
+ * recebimento e até 3 cotações opcionais.
+ */
+export interface StartAnalysisDraftFields {
+  surgeryRequestId?: string;
+  surgeryRequestLabel?: string;
+  requestNumber?: string;
+  receivedAt?: string;
+  quotation1Number?: string | null;
+  quotation1ReceivedAt?: string | null;
+  quotation2Number?: string | null;
+  quotation2ReceivedAt?: string | null;
+  quotation3Number?: string | null;
+  quotation3ReceivedAt?: string | null;
+  notes?: string | null;
+  notifyPatient?: boolean;
+}
+
+/**
+ * Draft do fluxo de ACEITE DE AUTORIZAÇÃO (IN_ANALYSIS → IN_SCHEDULING).
+ *
+ * Reflete o `UpdateAuthorizationsModal`: o usuário aceita a autorização do
+ * convênio e cadastra de 1 a 3 datas propostas para a cirurgia.
+ */
+export interface AcceptAuthorizationDraftFields {
+  surgeryRequestId?: string;
+  surgeryRequestLabel?: string;
+  /** Entre 1 e 3 datas (ISO). */
+  dateOptions?: string[];
+  notifyPatient?: boolean;
+}
+
+/**
+ * Draft do fluxo de MARCAÇÃO DE REALIZADA (SCHEDULED → PERFORMED).
+ *
+ * Reflete o `SurgeryStatusModal`: o usuário confirma a data de realização e
+ * o draft só pode ser commitado quando os documentos pós-cirúrgicos
+ * obrigatórios estiverem anexados na solicitação.
+ */
+export interface MarkPerformedDraftFields {
+  surgeryRequestId?: string;
+  surgeryRequestLabel?: string;
+  surgeryPerformedAt?: string;
+}
+
 export type DraftFieldsByType = {
   create_sc: CreateScDraftFields;
   create_patient: CreatePatientDraftFields;
@@ -123,6 +192,10 @@ export type DraftFieldsByType = {
   contestation: ContestationDraftFields;
   scheduling: SchedulingDraftFields;
   update_sc: UpdateScDraftFields;
+  send_sc: SendScDraftFields;
+  start_analysis: StartAnalysisDraftFields;
+  accept_authorization: AcceptAuthorizationDraftFields;
+  mark_performed: MarkPerformedDraftFields;
 };
 
 export interface OperationDraft<
@@ -163,6 +236,10 @@ export const REQUIRED_FIELDS_BY_TYPE: Record<OperationDraftType, string[]> = {
   contestation: ['surgeryRequestId', 'contestationType', 'reason'],
   scheduling: ['surgeryRequestId'],
   update_sc: ['surgeryRequestId', 'scope', 'changes'],
+  send_sc: ['surgeryRequestId', 'method'],
+  start_analysis: ['surgeryRequestId', 'requestNumber', 'receivedAt'],
+  accept_authorization: ['surgeryRequestId', 'dateOptions'],
+  mark_performed: ['surgeryRequestId', 'surgeryPerformedAt'],
 };
 
 /**
@@ -178,6 +255,10 @@ export const DRAFT_TYPE_LABELS: Record<OperationDraftType, string> = {
   contestation: 'Contestação',
   scheduling: 'Agendamento',
   update_sc: 'Atualização de dados da SC',
+  send_sc: 'Envio da solicitação para análise',
+  start_analysis: 'Início da análise pela operadora',
+  accept_authorization: 'Aceite da autorização do convênio',
+  mark_performed: 'Marcação de cirurgia como realizada',
 };
 
 /**
@@ -205,6 +286,14 @@ export function intentToDraftType(intent: string): OperationDraftType | null {
       return 'scheduling';
     case 'update_sc':
       return 'update_sc';
+    case 'send_sc':
+      return 'send_sc';
+    case 'start_analysis':
+      return 'start_analysis';
+    case 'accept_authorization':
+      return 'accept_authorization';
+    case 'mark_performed':
+      return 'mark_performed';
     default:
       return null;
   }
@@ -224,4 +313,8 @@ export const COMPLEX_INTENTS: ReadonlyArray<string> = [
   'contestation',
   'scheduling',
   'update_sc',
+  'send_sc',
+  'start_analysis',
+  'accept_authorization',
+  'mark_performed',
 ];

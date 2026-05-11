@@ -151,4 +151,49 @@ describe('SYSTEM_PROMPT', () => {
   it('deixa claro que nomes de paciente/hospital/convênio ficam EM CLARO (não tokenizados)', () => {
     expect(SYSTEM_PROMPT).toMatch(/N[ÃA]O s[ãa]o tokenizados/i);
   });
+
+  // ============================================================
+  // v2.1 — Drafts de transição de status
+  // ============================================================
+
+  it('é versão 2.1.x ou superior', () => {
+    expect(PROMPT_VERSION).toMatch(/^2\.[1-9]/);
+  });
+
+  it('lista os 4 intents de transição de status com seus drafts', () => {
+    expect(SYSTEM_PROMPT).toMatch(/send_sc/);
+    expect(SYSTEM_PROMPT).toMatch(/start_analysis/);
+    expect(SYSTEM_PROMPT).toMatch(/accept_authorization/);
+    expect(SYSTEM_PROMPT).toMatch(/mark_performed/);
+  });
+
+  it('proíbe advance_surgery_request para transições ricas (1→2, 2→3, 3→4, 5→6)', () => {
+    expect(SYSTEM_PROMPT).toMatch(
+      /NUNCA chame `advance_surgery_request` para as transições "ricas"/,
+    );
+    expect(SYSTEM_PROMPT).toMatch(/1→2.*2→3.*3→4.*5→6/);
+  });
+
+  it('explica que send_sc valida checklist (hospital, TUSS, OPME, laudo)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Enviar SC.*1→2/);
+    expect(SYSTEM_PROMPT).toMatch(/checklist.*hospital.*TUSS.*OPME.*laudo/i);
+  });
+
+  it('explica que start_analysis precisa de nº da operadora + data de recebimento', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Iniciar an[áa]lise.*2→3/);
+    expect(SYSTEM_PROMPT).toMatch(/request_number.*operadora/);
+  });
+
+  it('explica que accept_authorization precisa de 1-3 datas propostas', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Aceitar autoriza[çc][ãa]o.*3→4/);
+    expect(SYSTEM_PROMPT).toMatch(/1 a 3 datas propostas/);
+  });
+
+  it('explica que mark_performed precisa de docs cirúrgicos via mark_performed_draft_check_docs', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Marcar como realizada.*5→6/);
+    expect(SYSTEM_PROMPT).toMatch(/mark_performed_draft_check_docs/);
+    expect(SYSTEM_PROMPT).toMatch(
+      /backend bloqueia.*transi[çc][ãa]o.*obrigat[óo]rios/i,
+    );
+  });
 });

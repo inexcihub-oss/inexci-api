@@ -34,6 +34,8 @@ import {
   WhatsappMediaService,
   WhatsappMediaValidationError,
 } from '../../whatsapp/whatsapp-media.service';
+import { WhatsappDocumentDispatcherService } from './whatsapp-document-dispatcher.service';
+import { WhatsappDocumentProcessorService } from './whatsapp-document-processor.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
 import { collapseDuplicatedScPrefixes } from '../tools/protocol.helpers';
 import { OperationDraftService } from './operation-draft.service';
@@ -227,6 +229,7 @@ const MUTATION_TOOL_NAMES = new Set<string>([
   'update_request_clinical_data',
   'update_request_admin_data',
   'attach_document_from_whatsapp',
+  'create_patient_from_document',
 ]);
 
 /**
@@ -327,6 +330,8 @@ export class AiOrchestratorService {
     private readonly contextService: ConversationContextService,
     private readonly whatsappConversationRepo: WhatsappConversationRepository,
     private readonly operationDraftService: OperationDraftService,
+    private readonly documentDispatcher: WhatsappDocumentDispatcherService,
+    private readonly documentProcessor: WhatsappDocumentProcessorService,
   ) {}
 
   private getResponseMaxTokens(): number {
@@ -1512,26 +1517,7 @@ export class AiOrchestratorService {
     conversationId: string,
     rawInput: string,
   ): string {
-    if (!rawInput) return '';
-    let out = rawInput;
-
-    out = out.replace(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, (match) =>
-      this.piiVault.tokenize(conversationId, match, 'cpf'),
-    );
-
-    out = out.replace(/(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g, (match) =>
-      this.piiVault.tokenize(conversationId, match, 'phone'),
-    );
-
-    out = out.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, (match) =>
-      this.piiVault.tokenize(conversationId, match, 'email'),
-    );
-
-    if (out.length > 1500) {
-      out = this.piiVault.tokenize(conversationId, out, 'payload_blob');
-    }
-
-    return out;
+    return this.piiVault.preprocessUserInput(conversationId, rawInput);
   }
 
   /**
@@ -1626,7 +1612,7 @@ export class AiOrchestratorService {
     media?: Array<{
       url: string;
       contentType: string | null;
-      category: 'audio' | 'other';
+      category: 'audio' | 'image' | 'pdf' | 'other';
       durationSeconds: number | null;
     }>;
   }): Promise<void> {
@@ -1645,7 +1631,7 @@ export class AiOrchestratorService {
     media?: Array<{
       url: string;
       contentType: string | null;
-      category: 'audio' | 'other';
+      category: 'audio' | 'image' | 'pdf' | 'other';
       durationSeconds: number | null;
     }>;
   }): Promise<void> {
@@ -1805,6 +1791,18 @@ export class AiOrchestratorService {
         );
         return;
       }
+
+      const documentHandled = await this.processInboundDocumentIfNeeded({
+        phone,
+        body: data.body || '',
+        normalizedInput,
+        messageSid: data.messageSid,
+        media: data.media,
+        userId,
+        ownerId,
+        conversationId: conversation.id,
+      });
+      if (documentHandled) return;
 
       const hasInboundAudio =
         this.isAudioEnabled() &&
@@ -2801,11 +2799,192 @@ export class AiOrchestratorService {
     return normalized === 'true' || normalized === '1';
   }
 
+  /**
+   * Pipeline de documentos inbound (Sprint 1 — apenas intent gate).
+   *
+   * - Mídia nova (image/pdf): faz staging no Supabase tmp, salva pendência
+   *   por telefone e envia mensagem de texto pedindo a intent (1/2/3).
+   *   Retorna `true` para encerrar o turno antes de chamar o LLM.
+   * - Pendência ativa + resposta "cancelar": apaga staging + pendência.
+   * - Pendência ativa + resposta 1/2/3: por enquanto, responde que o
+   *   processamento (OCR/criação) ainda não está disponível e mantém a
+   *   pendência ativa para o Sprint 3 finalizar.
+   *
+   * Para qualquer outro caso retorna `false` (deixa o fluxo principal
+   * seguir normalmente).
+   */
+  private async processInboundDocumentIfNeeded(opts: {
+    phone: string;
+    body: string;
+    normalizedInput: string;
+    messageSid: string;
+    userId: string;
+    ownerId?: string | null;
+    conversationId?: string;
+    media?: Array<{
+      url: string;
+      contentType: string | null;
+      category: 'audio' | 'image' | 'pdf' | 'other';
+      durationSeconds: number | null;
+    }>;
+  }): Promise<boolean> {
+    if (!this.documentDispatcher.isEnabled()) {
+      return false;
+    }
+
+    // 1) Tem mídia inbound de documento? Faz staging + intent prompt.
+    const incomingDocMedia = this.documentDispatcher.pickDocumentMedia(
+      opts.media as any,
+    );
+    if (incomingDocMedia) {
+      const existingPending = await this.documentDispatcher.getPending(
+        opts.phone,
+      );
+      if (existingPending) {
+        await this.documentDispatcher.deleteStoragePath(
+          existingPending.storagePath,
+        );
+        await this.documentDispatcher.clearPending(opts.phone);
+      }
+
+      const outcome = await this.documentDispatcher.stageInboundDocument({
+        media: incomingDocMedia,
+        phone: opts.phone,
+        messageSid: opts.messageSid,
+      });
+
+      if (outcome.status === 'failed') {
+        await this.whatsappService.sendMessage(
+          opts.phone,
+          this.documentDispatcher.buildDownloadFailureMessage(
+            outcome.failureReason || 'UNKNOWN',
+          ),
+        );
+        return true;
+      }
+
+      if (outcome.status === 'staged') {
+        await this.whatsappService.sendMessage(
+          opts.phone,
+          this.documentDispatcher.buildIntentPromptMessage(),
+        );
+        return true;
+      }
+
+      return false;
+    }
+
+    // 2) Não tem mídia nova — verifica se há pendência ativa de turno
+    //    anterior e se a mensagem é uma intent reconhecida.
+    const pending = await this.documentDispatcher.getPending(opts.phone);
+    if (!pending) return false;
+
+    const intent = this.documentDispatcher.parseIntent(opts.body);
+    if (!intent) {
+      // Usuário não respondeu a intent — não bloqueia o fluxo. Pendência
+      // permanece ativa até expirar pelo TTL (cron limpa o tmp).
+      return false;
+    }
+
+    if (intent === 'cancel') {
+      await this.documentDispatcher.deleteStoragePath(pending.storagePath);
+      await this.documentDispatcher.clearPending(opts.phone);
+      this.logger.log(
+        `[AI_DOC_INTENT] sid=${opts.messageSid} phone=${this.maskPhone(opts.phone)} intent=cancel`,
+      );
+      await this.whatsappService.sendMessage(
+        opts.phone,
+        'Tudo bem, descartei o arquivo enviado. Se quiser, é só mandar de novo quando precisar.',
+      );
+      return true;
+    }
+
+    this.logger.log(
+      `[AI_DOC_INTENT] sid=${opts.messageSid} phone=${this.maskPhone(opts.phone)} intent=${intent}`,
+    );
+
+    // Sprint 3 — intent reconhecida: roda OCR + classifier e responde com
+    // resumo do que foi encontrado + pergunta apropriada. As tools
+    // `attach_document_from_whatsapp` / `create_patient_from_document` /
+    // sc_draft_* serão chamadas nos próximos turnos via LLM.
+    void opts.userId;
+
+    // Reuso da classificação se já foi feita anteriormente para a mesma
+    // pendência (caso o usuário responda outra coisa entre o intent prompt
+    // e a confirmação final). Evita custo desnecessário de OpenAI.
+    if (
+      pending.classification &&
+      pending.intent === intent &&
+      pending.classifiedAt &&
+      Date.now() - pending.classifiedAt < 5 * 60 * 1000
+    ) {
+      const cachedSummary = this.buildDocumentReminderMessage(intent, pending);
+      await this.whatsappService.sendMessage(opts.phone, cachedSummary);
+      return true;
+    }
+
+    const outcome = await this.documentProcessor.processPendingDocument({
+      phone: opts.phone,
+      pending,
+      intent,
+      conversationId: opts.conversationId ?? opts.phone,
+      messageSid: opts.messageSid,
+      userId: opts.userId,
+      ownerId: opts.ownerId ?? null,
+    });
+
+    if (outcome.status !== 'ok' || !outcome.userSummary) {
+      await this.whatsappService.sendMessage(
+        opts.phone,
+        outcome.errorMessage ||
+          'Não consegui processar o arquivo agora. Tente reenviar em alguns instantes.',
+      );
+      return true;
+    }
+
+    await this.whatsappService.sendMessage(opts.phone, outcome.userSummary);
+    return true;
+  }
+
+  /**
+   * Quando o usuário responde a intent uma segunda vez (ex.: clicou "1" de
+   * novo) sem mudar de assunto, devolvemos um resumo encurtado da
+   * classificação já feita, sem chamar OCR/LLM novamente.
+   */
+  private buildDocumentReminderMessage(
+    intent: 'attach' | 'create_sc' | 'create_patient',
+    pending: any,
+  ): string {
+    const classification = pending.classification;
+    const kindLabel = classification?.kind ?? 'documento';
+    const lines: string[] = [
+      `Já analisei o documento (${kindLabel}). O que devo fazer agora?`,
+    ];
+    switch (intent) {
+      case 'attach':
+        lines.push(
+          'Me diga o protocolo da SC (ex.: SC-1234) onde anexar, ou peça para listar suas SCs ativas.',
+        );
+        break;
+      case 'create_sc':
+        lines.push(
+          'Responda "sim" para iniciar o rascunho da nova SC com os dados extraídos.',
+        );
+        break;
+      case 'create_patient':
+        lines.push(
+          'Responda "sim" para confirmar o cadastro do paciente com os dados extraídos.',
+        );
+        break;
+    }
+    return lines.join('\n');
+  }
+
   private async processInboundAudioIfNeeded(data: {
     media?: Array<{
       url: string;
       contentType: string | null;
-      category: 'audio' | 'other';
+      category: 'audio' | 'image' | 'pdf' | 'other';
       durationSeconds: number | null;
     }>;
     messageSid: string;
@@ -2886,7 +3065,16 @@ export class AiOrchestratorService {
         | 'UNKNOWN' = 'UNKNOWN';
 
       if (error instanceof WhatsappMediaValidationError) {
-        reason = error.code;
+        // Erros DOC_* não chegam aqui (esse caminho é só áudio), mas a
+        // união do tipo precisa do narrowing.
+        if (
+          error.code === 'AUDIO_NOT_ALLOWED' ||
+          error.code === 'AUDIO_TOO_LARGE' ||
+          error.code === 'AUDIO_TOO_LONG' ||
+          error.code === 'MEDIA_URL_INVALID'
+        ) {
+          reason = error.code;
+        }
       } else if (/transcrição vazia/i.test(errMessage)) {
         reason = 'STT_EMPTY_TRANSCRIPTION';
       } else if (

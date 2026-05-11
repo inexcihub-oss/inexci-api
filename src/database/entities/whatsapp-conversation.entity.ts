@@ -74,7 +74,7 @@ export interface ConversationMessage {
     inboundMedia?: Array<{
       url: string;
       contentType: string | null;
-      category?: 'audio' | 'other';
+      category?: 'audio' | 'image' | 'pdf' | 'other';
       durationSeconds?: number | null;
       sizeBytes?: number;
     }>;

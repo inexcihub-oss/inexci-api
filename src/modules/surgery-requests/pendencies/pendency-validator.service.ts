@@ -9,6 +9,7 @@ import {
   getPendenciesForStatus,
   PendencyConfig,
 } from 'src/config/pendencies.config';
+import { POST_SURGERY_REQUIRED_DOCS } from 'src/config/post-surgery-documents.config';
 
 export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
@@ -199,6 +200,17 @@ export class PendencyValidatorService {
           },
         ];
 
+      case 'post_surgery_documents': {
+        const presentKeys = new Set(
+          (request.documents ?? [])
+            .map((d) => d.key)
+            .filter((k): k is string => !!k),
+        );
+        return POST_SURGERY_REQUIRED_DOCS.filter((d) => d.required).map(
+          (d) => ({ label: d.label, done: presentKeys.has(d.type) }),
+        );
+      }
+
       default:
         // Pendências dinâmicas de documentos (prefixo 'doc_')
         if (key.startsWith('doc_')) {
@@ -287,6 +299,17 @@ export class PendencyValidatorService {
         // Aviso: data da cirurgia está no passado
         if (!request.surgeryDate) return true; // sem data = sem aviso
         return new Date(request.surgeryDate) > new Date();
+
+      case 'post_surgery_documents': {
+        const present = new Set(
+          (request.documents ?? [])
+            .map((d) => d.key)
+            .filter((k): k is string => !!k),
+        );
+        return POST_SURGERY_REQUIRED_DOCS.filter((d) => d.required).every((d) =>
+          present.has(d.type),
+        );
+      }
 
       // ── INVOICED ─────────────────────────────────────────────────────────
       case 'confirm_receipt':

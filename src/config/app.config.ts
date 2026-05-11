@@ -98,6 +98,22 @@ export const envValidationSchema = Joi.object({
     .uri()
     .default('https://api.openai.com/v1/audio/transcriptions'),
 
+  // ── IA WhatsApp (Documentos / OCR) ──────────────────
+  AI_DOC_ENABLED: Joi.string().allow('').default('true'),
+  AI_DOC_MAX_BYTES: Joi.number().default(10 * 1024 * 1024),
+  AI_DOC_ALLOWED_IMAGE_MIME: Joi.string()
+    .allow('')
+    .default('image/jpeg,image/jpg,image/png,image/webp'),
+  AI_DOC_ALLOWED_PDF_MIME: Joi.string().allow('').default('application/pdf'),
+  AI_DOC_MAX_PAGES: Joi.number().default(5),
+  AI_DOC_PENDING_TTL_MINUTES: Joi.number().default(10),
+  AI_DOC_TMP_FOLDER: Joi.string().allow('').default('whatsapp-tmp'),
+  AI_DOC_TMP_RETENTION_HOURS: Joi.number().default(1),
+  AI_DOC_OCR_LANG: Joi.string().allow('').default('por'),
+  AI_DOC_CLASSIFIER_MODEL: Joi.string().allow('').default('gpt-4o-mini'),
+  AI_DOC_VISION_FALLBACK_ENABLED: Joi.string().allow('').default('true'),
+  AI_DOC_VISION_FALLBACK_MODEL: Joi.string().allow('').default('gpt-4o'),
+
   // ── Puppeteer ────────────────────────────────────────
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),
 

@@ -64,6 +64,25 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     cancel: jest.fn().mockResolvedValue(undefined),
     finalizeCommit: jest.fn().mockResolvedValue(null),
   };
+  const documentDispatcherMock = {
+    isEnabled: jest.fn().mockReturnValue(false),
+    pickDocumentMedia: jest.fn().mockReturnValue(null),
+    stageInboundDocument: jest
+      .fn()
+      .mockResolvedValue({ status: 'no_document' }),
+    getPending: jest.fn().mockResolvedValue(null),
+    savePending: jest.fn().mockResolvedValue(undefined),
+    clearPending: jest.fn().mockResolvedValue(undefined),
+    deleteStoragePath: jest.fn().mockResolvedValue(undefined),
+    parseIntent: jest.fn().mockReturnValue(null),
+    buildDownloadFailureMessage: jest.fn().mockReturnValue('falha'),
+    buildIntentPromptMessage: jest.fn().mockReturnValue('intent'),
+  };
+  const documentProcessorMock = {
+    processPendingDocument: jest
+      .fn()
+      .mockResolvedValue({ status: 'ok', userSummary: 'resumo do documento' }),
+  };
   const aiRedisMock = {
     isAvailable: false,
     checkRateLimit: jest.fn().mockResolvedValue(true),
@@ -116,6 +135,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       defaultContextServiceMock as any,
       whatsappConversationRepoMock as any,
       operationDraftServiceMock as any,
+      documentDispatcherMock as any,
+      documentProcessorMock as any,
     );
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
@@ -856,6 +877,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         defaultContextServiceMock as any,
         whatsappConversationRepoMock as any,
         operationDraftServiceMock as any,
+        documentDispatcherMock as any,
+        documentProcessorMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
@@ -999,6 +1022,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         defaultContextServiceMock as any,
         whatsappConversationRepoMock as any,
         operationDraftServiceMock as any,
+        documentDispatcherMock as any,
+        documentProcessorMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
