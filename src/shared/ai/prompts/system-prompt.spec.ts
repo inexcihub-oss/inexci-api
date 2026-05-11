@@ -115,4 +115,40 @@ describe('SYSTEM_PROMPT', () => {
       /POR UM [ÚU]NICO MOTIVO: permitir que o usu[áa]rio responda com o d[íi]gito/i,
     );
   });
+
+  // ============================================================
+  // v2.0 — Drafts de operação
+  // ============================================================
+
+  it('é versão 2.x', () => {
+    expect(PROMPT_VERSION.startsWith('2.')).toBe(true);
+  });
+
+  it('explica que toda criação/edição complexa passa por plan_actions + draft', () => {
+    expect(SYSTEM_PROMPT).toMatch(/DRAFTS DE OPERA[ÇC][ÃA]O/);
+    expect(SYSTEM_PROMPT).toMatch(/plan_actions/);
+    expect(SYSTEM_PROMPT).toMatch(/RASCUNHO ESTRUTURADO/);
+  });
+
+  it('lista as tools de set_* e o ciclo preview/commit', () => {
+    expect(SYSTEM_PROMPT).toMatch(/sc_draft_set_/);
+    expect(SYSTEM_PROMPT).toMatch(/_draft_preview/);
+    expect(SYSTEM_PROMPT).toMatch(/_draft_commit/);
+    expect(SYSTEM_PROMPT).toMatch(/confirm=true/);
+  });
+
+  it('explica sub-drafts (cadastros aninhados dentro de criação de SC)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/SUB-DRAFT/);
+    expect(SYSTEM_PROMPT).toMatch(/RETOMA o draft pai/);
+  });
+
+  it('aposenta create_surgery_request_from_whatsapp', () => {
+    expect(SYSTEM_PROMPT).toMatch(
+      /create_surgery_request_from_whatsapp.*deprecada/i,
+    );
+  });
+
+  it('deixa claro que nomes de paciente/hospital/convênio ficam EM CLARO (não tokenizados)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/N[ÃA]O s[ãa]o tokenizados/i);
+  });
 });

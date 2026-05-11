@@ -4,7 +4,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -25,7 +24,6 @@ export class PatientsService {
     private readonly whatsappService: WhatsappService,
     private readonly accessControlService: AccessControlService,
     private readonly mailService: MailService,
-    private readonly configService: ConfigService,
   ) {}
 
   async findAll(query: FindManyPatientDto, userId: string) {
@@ -89,11 +87,9 @@ export class PatientsService {
     void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
 
     const doctor = await this.userRepository.findOne({ id: doctorId });
-    const dashboardUrl = this.configService.get<string>('DASHBOARD_URL') ?? '';
     void this.mailService.sendWelcomePatient(patient.email, {
       patientName: patient.name,
       doctorName: doctor?.name ?? '',
-      dashboardUrl: dashboardUrl || undefined,
     });
 
     return patient;

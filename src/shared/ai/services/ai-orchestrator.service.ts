@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
+import { In } from 'typeorm';
 import { Queue } from 'bull';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
 import { ConversationService } from './conversation.service';
+import { WhatsappConversationRepository } from '../../../database/repositories/whatsapp-conversation.repository';
 import {
   ConversationContextService,
   ContextStrategy,
@@ -34,6 +36,8 @@ import {
 } from '../../whatsapp/whatsapp-media.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
 import { collapseDuplicatedScPrefixes } from '../tools/protocol.helpers';
+import { OperationDraftService } from './operation-draft.service';
+import { buildToolResult } from '../tools/tool-result';
 
 const MAX_TOOL_ITERATIONS = 5;
 const MAX_RESPONSE_LENGTH = 1000;
@@ -106,35 +110,79 @@ interface CompletionUsageSnapshot {
 const SC_CREATE_TOOL = 'create_surgery_request_from_whatsapp';
 
 /**
- * Slots obrigatórios por intent que cobrem mutações sensíveis do fluxo.
- * Definidos por config; o orchestrator bloqueia a tool de criação quando
- * algum slot ainda não foi confirmado em `conversationMemory.filled_slots`.
+ * Tools que seguem o padrão preview/confirmação: chamadas com `confirm: false`
+ * mostram apenas a pré-visualização e exigem que o usuário responda "sim"
+ * para que a tool seja chamada de novo com `confirm: true`. Quando uma
+ * destas tools é executada com `confirm: false`, o orchestrator grava
+ * `conversationMemory.pending_confirmation` e, se o próximo turno do
+ * usuário for afirmativo, re-executa a tool determinísticamente — sem
+ * depender do LLM lembrar do que ele acabou de pedir.
+ */
+const PREVIEWABLE_MUTATION_TOOLS = new Set<string>([
+  'create_hospital',
+  'create_health_plan',
+  'create_procedure',
+  'create_patient',
+  'create_surgery_request_from_whatsapp',
+  'upload_doctor_signature',
+]);
+
+/** Rótulo amigável de cada tool, usado nas mensagens determinísticas. */
+const TOOL_DISPLAY_LABELS: Record<string, string> = {
+  create_hospital: 'cadastrar o hospital',
+  create_health_plan: 'cadastrar o convênio',
+  create_procedure: 'cadastrar o procedimento',
+  create_patient: 'cadastrar o paciente',
+  create_surgery_request_from_whatsapp: 'criar a solicitação cirúrgica',
+  upload_doctor_signature: 'atualizar sua assinatura digital',
+};
+
+/**
+ * Slots OBRIGATÓRIOS para criar uma SC (status Pendente).
+ *
+ * Conforme o prompt do sistema (regra "CRIAR ≠ ENVIAR"), o mínimo para
+ * criar uma SC é: PACIENTE + PROCEDIMENTO (+ prioridade que tem default e
+ * + médico que é assumido quando há apenas um acessível).
+ *
+ * Hospital, convênio, TUSS, OPME e laudo são exigidos APENAS para enviar,
+ * portanto NÃO bloqueiam a criação. A própria tool
+ * `create_surgery_request_from_whatsapp` já valida internamente e devolve
+ * preview/erros guiados quando algo essencial está faltando — o slot-filling
+ * aqui serve apenas como segunda linha de defesa.
  */
 const REQUIRED_SLOTS_BY_INTENT: Record<string, string[]> = {
-  create: [
-    'patient.id',
-    'surgeryRequest.hospital',
-    'surgeryRequest.healthPlan',
-    'tussItems',
-  ],
+  create: ['patient', 'procedure'],
   update: ['surgeryRequest.id'],
   advance: ['surgeryRequest.id'],
 };
 
-/**
- * Mapeamento entre slots e mensagens curtas de cobrança ao usuário.
- * Cada item do `pending_actions` adicionado pelo orchestrator vira UMA pergunta
- * por vez (a primeira que aparecer faltando), evitando "rajadas" de perguntas.
- */
 const SLOT_PROMPTS: Record<string, string> = {
-  'patient.id':
-    'Antes de criar a solicitação, qual paciente devo usar? Pode me passar o nome ou o CPF (já cadastrado).',
-  'surgeryRequest.hospital': 'Qual hospital vamos indicar nesta solicitação?',
-  'surgeryRequest.healthPlan': 'Qual convênio vamos usar nesta solicitação?',
-  tussItems:
-    'Quais procedimentos (códigos TUSS ou nomes) devem entrar nessa solicitação? Pode listar pelo menos um.',
+  patient:
+    'Antes de criar a solicitação, qual paciente devo usar? Pode me passar o nome (parcial já ajuda) ou o CPF.',
+  procedure:
+    'Qual o procedimento da cirurgia? Pode me dizer o nome (ex.: "artroscopia de joelho") ou o código.',
   'surgeryRequest.id':
     'Sobre qual solicitação estamos falando? Pode me dizer o protocolo (SC-XXXX) ou o nome do paciente.',
+};
+
+/**
+ * Aliases por slot — aceita os nomes reais usados pela tool
+ * `create_surgery_request_from_whatsapp` (definida em whatsapp-flow.tools.ts).
+ * Sem isso, o orchestrator bloqueava SEMPRE a criação por procurar caminhos
+ * que a tool nunca recebe (`patient.id`, `surgeryRequest.hospital`, etc.).
+ */
+const SLOT_ARG_ALIASES: Record<string, string[]> = {
+  patient: ['patientId', 'patient_name', 'patient.id'],
+  procedure: ['procedureId', 'procedure_name', 'procedure.id'],
+};
+
+/**
+ * Aliases para o que o orchestrator persiste em `filled_slots` — sempre
+ * em chaves "simples" coerentes com `SLOT_ARG_ALIASES`.
+ */
+const SLOT_PERSIST_KEYS: Record<string, string> = {
+  patient: 'patient',
+  procedure: 'procedure',
 };
 
 // Custo por 1K tokens (centavos de USD) — preços OpenAI vigentes (pode virar env var/seed)
@@ -155,7 +203,9 @@ interface PendingClearContextConfirmation {
 
 const MUTATION_TOOL_NAMES = new Set<string>([
   'create_surgery_request_from_whatsapp',
-  'create_sc_catalog_record',
+  'create_hospital',
+  'create_health_plan',
+  'create_procedure',
   'advance_surgery_request',
   'set_has_opme',
   'close_surgery_request',
@@ -177,6 +227,27 @@ const MUTATION_TOOL_NAMES = new Set<string>([
   'update_request_clinical_data',
   'update_request_admin_data',
   'attach_document_from_whatsapp',
+]);
+
+/**
+ * Tools de mutação que iniciam um fluxo COMPLEXO (múltiplos campos) e
+ * portanto exigem `plan_actions` antes — quando `AI_USE_DRAFT_FLOWS=true`.
+ * Tools de draft (`*_draft_*`) e tools de mutação simples (avanço/encerramento,
+ * confirmar data, set flags) ficam fora — não precisam de pre-planning.
+ */
+const COMPLEX_MUTATION_TOOL_NAMES = new Set<string>([
+  'create_surgery_request_from_whatsapp',
+  'create_patient',
+  'create_hospital',
+  'create_health_plan',
+  'create_procedure',
+  'invoice_request',
+  'contest_authorization_full',
+  'contest_payment',
+  'update_request_clinical_data',
+  'update_request_admin_data',
+  'update_patient_data',
+  'update_date_options',
 ]);
 
 interface CacheEntry<T> {
@@ -211,6 +282,9 @@ export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
   private readonly userCache = new SimpleCache<any>();
   private readonly doctorIdsCache = new SimpleCache<string[]>();
+  private readonly accessibleDoctorsInfoCache = new SimpleCache<
+    Array<{ id: string; name?: string | null }>
+  >();
   private readonly pendingClearContextByPhone = new Map<
     string,
     PendingClearContextConfirmation
@@ -251,6 +325,8 @@ export class AiOrchestratorService {
     private readonly piiRedactionLogRepo: AiPiiRedactionLogRepository,
     private readonly aiRedis: AiRedisService,
     private readonly contextService: ConversationContextService,
+    private readonly whatsappConversationRepo: WhatsappConversationRepository,
+    private readonly operationDraftService: OperationDraftService,
   ) {}
 
   private getResponseMaxTokens(): number {
@@ -259,11 +335,682 @@ export class AiOrchestratorService {
   }
 
   /**
+   * Lê do banco a memória mais recente da conversa (cobre escritas feitas
+   * em turnos anteriores que ainda não estão no objeto carregado na
+   * variável local).
+   */
+  private async readConversationMemory(
+    conversationId: string,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      const conv = await this.whatsappConversationRepo.findOne({
+        id: conversationId,
+      } as any);
+      return (conv?.conversationMemory as Record<string, unknown>) || null;
+    } catch (err) {
+      this.logger.debug(
+        `[PENDING_CONFIRMATION] read_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+      return null;
+    }
+  }
+
+  private async writeConversationMemoryPatch(
+    conversationId: string,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const conv = await this.whatsappConversationRepo.findOne({
+        id: conversationId,
+      } as any);
+      if (!conv) return;
+      const memory = (conv.conversationMemory as Record<string, unknown>) || {};
+      await this.whatsappConversationRepo.update(conversationId, {
+        conversationMemory: { ...memory, ...patch } as any,
+      });
+    } catch (err) {
+      this.logger.debug(
+        `[PENDING_CONFIRMATION] write_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Grava em `conversationMemory.pending_confirmation` a operação que está
+   * aguardando confirmação do usuário (após uma tool de mutação retornar
+   * preview com `confirm: false`). No turno seguinte, se o usuário disser
+   * "sim", o orchestrator re-executa essa tool com `confirm: true`.
+   */
+  private async setPendingConfirmation(
+    conversationId: string,
+    payload: {
+      tool: string;
+      args: Record<string, unknown>;
+      description: string;
+    },
+  ): Promise<void> {
+    await this.writeConversationMemoryPatch(conversationId, {
+      pending_confirmation: {
+        ...payload,
+        createdAt: new Date().toISOString(),
+      },
+    });
+  }
+
+  private async clearPendingConfirmation(
+    conversationId: string,
+  ): Promise<void> {
+    await this.writeConversationMemoryPatch(conversationId, {
+      pending_confirmation: null,
+    });
+  }
+
+  /**
+   * Considera o pending_confirmation expirado se mais de 15 minutos
+   * passaram. Evita "fantasmas" de confirmações antigas reagirem a um
+   * "sim" inocente em uma nova conversa.
+   */
+  private isPendingConfirmationFresh(createdAt: unknown): boolean {
+    if (typeof createdAt !== 'string') return false;
+    const ts = Date.parse(createdAt);
+    if (Number.isNaN(ts)) return false;
+    const MAX_AGE_MS = 15 * 60 * 1000;
+    return Date.now() - ts <= MAX_AGE_MS;
+  }
+
+  /**
+   * Verifica se uma string indica que a tool retornou apenas um preview
+   * pedindo confirmação (não executou a mutação). Identificado por chaves
+   * estáveis no texto: "Confirme", "Responda \"sim\" para confirmar".
+   */
+  private looksLikeConfirmationPreview(output: string): boolean {
+    if (!output) return false;
+    const lower = output.toLowerCase();
+    if (lower.includes('responda "sim" para confirmar')) return true;
+    if (lower.includes('confirme o cadastro')) return true;
+    if (lower.includes('confirme a criação')) return true;
+    if (lower.includes('confirme a criacao')) return true;
+    return false;
+  }
+
+  /**
+   * Detecta se uma tool foi executada com sucesso (a mutação aconteceu).
+   * Heurística simples mas robusta: a tool retorna "cadastrado com sucesso"
+   * / "criada" etc. Ao detectar, limpa pending_confirmation.
+   */
+  private looksLikeExecutedMutation(output: string): boolean {
+    if (!output) return false;
+    const lower = output.toLowerCase();
+    return (
+      lower.includes('cadastrado com sucesso') ||
+      lower.includes('cadastrada com sucesso') ||
+      lower.includes('criada com sucesso') ||
+      lower.includes('criado com sucesso') ||
+      lower.includes('atualizado com sucesso') ||
+      lower.includes('atualizada com sucesso')
+    );
+  }
+
+  /**
+   * Memoriza entidades em `conversationMemory.filled_slots` e
+   * `conversationMemory.surgeryRequest` toda vez que uma tool relevante
+   * for chamada. O system prompt do próximo turno injeta esses dados em
+   * um bloco "SC EM CONSTRUÇÃO" para o LLM não esquecer e voltar a
+   * perguntar a mesma coisa (loop do print 2 / 13:55).
+   *
+   * Só grava quando a tool foi de fato executada (não apenas preview com
+   * `confirm:false`) — caso contrário "polui" a memória com tentativas
+   * abortadas. Para tools sem confirmação (ex.: `list_patients`), grava
+   * direto a partir dos args quando fizer sentido.
+   */
+  private async memorizeEntitiesFromToolCall(opts: {
+    conversationId: string;
+    toolName: string;
+    args: Record<string, any>;
+    output: string;
+  }): Promise<void> {
+    const { conversationId, toolName, args, output } = opts;
+
+    // Para tools preview-aware de criação de catálogo (hospital, convênio,
+    // procedimento), só memoriza após a execução real (confirm:true +
+    // mensagem de sucesso) — antes disso, é só preview e pode ser
+    // cancelado.
+    //
+    // EXCEÇÃO: `create_surgery_request_from_whatsapp` é diferente. Mesmo
+    // quando ela falha (ex.: hospital não cadastrado, procedimento não
+    // existe), os args do usuário já são uma declaração de intenção que
+    // não devem ser perdidos entre turnos (essa era a causa do loop do
+    // print 2, em que a IA pedia o procedimento de novo depois de ter
+    // sido informado).
+    if (
+      PREVIEWABLE_MUTATION_TOOLS.has(toolName) &&
+      toolName !== 'create_surgery_request_from_whatsapp'
+    ) {
+      const confirmFlag =
+        typeof args.confirm === 'boolean' ? Boolean(args.confirm) : false;
+      if (!confirmFlag) return;
+      if (!this.looksLikeExecutedMutation(output)) return;
+    }
+
+    const memory = (await this.readConversationMemory(conversationId)) || {};
+    const filled: Record<string, unknown> = {
+      ...((memory as any).filled_slots || {}),
+    };
+    const surgeryRequest: Record<string, unknown> = {
+      ...((memory as any).surgeryRequest || {}),
+    };
+
+    const setIfPresent = (
+      target: Record<string, unknown>,
+      key: string,
+      value: unknown,
+    ) => {
+      if (value === null || value === undefined) return;
+      const text = String(value).trim();
+      if (!text) return;
+      target[key] = text;
+    };
+
+    switch (toolName) {
+      case 'create_patient':
+        setIfPresent(filled, 'patient', args.name);
+        break;
+      case 'create_procedure':
+        setIfPresent(filled, 'procedure', args.name);
+        break;
+      case 'create_hospital':
+        setIfPresent(surgeryRequest, 'hospital', args.name);
+        break;
+      case 'create_health_plan':
+        setIfPresent(surgeryRequest, 'healthPlan', args.name);
+        break;
+      case 'create_surgery_request_from_whatsapp':
+        setIfPresent(filled, 'patient', args.patientId || args.patient_name);
+        setIfPresent(
+          filled,
+          'procedure',
+          args.procedureId || args.procedure_name,
+        );
+        if (args.priority !== undefined && args.priority !== null) {
+          setIfPresent(filled, 'priority', String(args.priority));
+        }
+        setIfPresent(
+          surgeryRequest,
+          'hospital',
+          args.hospitalId || args.hospital_name,
+        );
+        setIfPresent(
+          surgeryRequest,
+          'healthPlan',
+          args.healthPlanId || args.health_plan_name,
+        );
+        setIfPresent(surgeryRequest, 'doctorId', args.doctorId);
+        break;
+      case 'set_hospital':
+        setIfPresent(
+          surgeryRequest,
+          'hospital',
+          args.hospitalId || args.hospital_name,
+        );
+        break;
+      case 'set_health_plan':
+        setIfPresent(
+          surgeryRequest,
+          'healthPlan',
+          args.healthPlanId || args.health_plan_name,
+        );
+        break;
+      default:
+        return;
+    }
+
+    await this.writeConversationMemoryPatch(conversationId, {
+      filled_slots: filled,
+      surgeryRequest,
+    });
+  }
+
+  /**
+   * Após a execução de cada tool, decide se grava/limpa o pending_confirmation
+   * no conversation_memory. Chamado dentro do loop de toolResults.
+   *
+   * - Se a tool é de mutação preview-aware e retornou preview → grava.
+   * - Se a tool é de mutação preview-aware e EXECUTOU (confirm:true ou
+   *   resultado de sucesso) → limpa.
+   * - Se a tool é qualquer outra (não-preview) → não mexe.
+   */
+  private async trackPendingConfirmation(opts: {
+    conversationId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    output: string;
+  }): Promise<void> {
+    const { conversationId, toolName, args, output } = opts;
+    if (!PREVIEWABLE_MUTATION_TOOLS.has(toolName)) return;
+
+    const confirmFlag =
+      typeof (args as any).confirm === 'boolean'
+        ? Boolean((args as any).confirm)
+        : false;
+
+    if (this.looksLikeExecutedMutation(output)) {
+      await this.clearPendingConfirmation(conversationId);
+      return;
+    }
+
+    if (!confirmFlag && this.looksLikeConfirmationPreview(output)) {
+      const description =
+        TOOL_DISPLAY_LABELS[toolName] || `executar ${toolName}`;
+      await this.setPendingConfirmation(conversationId, {
+        tool: toolName,
+        args: { ...args, confirm: true },
+        description,
+      });
+      this.logger.log(
+        `[PENDING_CONFIRMATION] saved conv=${conversationId} tool=${toolName}`,
+      );
+    }
+  }
+
+  /**
+   * Constrói um hint imperativo quando há pending_confirmation fresco e o
+   * usuário respondeu com confirmação ("sim", "ok", etc.). O hint força o
+   * LLM a chamar a tool indicada exatamente com os args salvos +
+   * `confirm: true`, evitando o velho "não ficou claro o que confirmou".
+   *
+   * Se o usuário negou explicitamente (não/cancela/esquece), retorna hint
+   * de cancelamento e limpa o estado.
+   */
+  private async buildPendingConfirmationHint(
+    conversationId: string,
+    rawInput: string,
+  ): Promise<string | null> {
+    if (!rawInput?.trim()) return null;
+    const isAffirmative = this.parseAffirmativeConfirmation(rawInput);
+    const isNegative =
+      !isAffirmative && this.parseNegativeConfirmation(rawInput);
+    if (!isAffirmative && !isNegative) return null;
+
+    const memory = await this.readConversationMemory(conversationId);
+    const pending = memory?.pending_confirmation as
+      | {
+          tool: string;
+          args: Record<string, unknown>;
+          description?: string;
+          createdAt?: string;
+        }
+      | null
+      | undefined;
+    if (!pending || !pending.tool) return null;
+    if (!this.isPendingConfirmationFresh(pending.createdAt)) {
+      await this.clearPendingConfirmation(conversationId);
+      return null;
+    }
+
+    if (isNegative) {
+      await this.clearPendingConfirmation(conversationId);
+      const description = pending.description || `executar ${pending.tool}`;
+      return [
+        'CANCELAMENTO DETERMINÍSTICO:',
+        `- O usuário disse "não" em resposta ao seu pedido de confirmação para ${description}.`,
+        '- NÃO chame a tool agora. Responda confirmando o cancelamento em uma frase curta e pergunte como prefere prosseguir.',
+      ].join('\n');
+    }
+
+    // Serializa args para o hint de forma curta e segura.
+    const safeArgs: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(pending.args || {})) {
+      if (v === undefined || v === null) continue;
+      if (typeof v === 'object') {
+        try {
+          safeArgs[k] = JSON.parse(JSON.stringify(v));
+        } catch {
+          safeArgs[k] = String(v);
+        }
+        continue;
+      }
+      safeArgs[k] = v;
+    }
+    safeArgs.confirm = true;
+
+    const argsJson = JSON.stringify(safeArgs);
+    const description = pending.description || `executar ${pending.tool}`;
+    return [
+      'CONFIRMAÇÃO DETERMINÍSTICA:',
+      `- No turno anterior, você pediu ao usuário para confirmar uma operação (${description}).`,
+      `- O usuário respondeu afirmativamente ("${rawInput.trim()}").`,
+      `- AÇÃO OBRIGATÓRIA AGORA: chame IMEDIATAMENTE a tool \`${pending.tool}\` com EXATAMENTE estes argumentos:`,
+      `\`\`\`json\n${argsJson}\n\`\`\``,
+      '- NÃO peça mais dados, NÃO repita a mesma pergunta, NÃO responda "não ficou claro o que confirmou".',
+      '- Após a tool executar, apenas confirme o resultado em uma frase curta e ofereça o próximo passo natural (ex.: continuar a SC).',
+    ].join('\n');
+  }
+
+  /**
+   * Detecta entradas de confirmação afirmativa ("sim", "confirmo", "ok",
+   * "pode mandar", etc.). Usado em conjunto com `conversationMemory.pending_confirmation`
+   * para re-executar uma tool de mutação determinada sem depender do LLM
+   * lembrar do contexto.
+   */
+  private parseAffirmativeConfirmation(rawInput: string): boolean {
+    if (!rawInput) return false;
+    const normalized = rawInput
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (!normalized) return false;
+    if (normalized.length > 60) return false;
+    const phrases = new Set<string>([
+      'sim',
+      's',
+      'sim!',
+      'sim por favor',
+      'sim, por favor',
+      'sim por favor.',
+      'sim claro',
+      'sim, claro',
+      'claro',
+      'claro!',
+      'pode',
+      'pode sim',
+      'pode mandar',
+      'pode mandar ver',
+      'manda',
+      'manda ver',
+      'manda bala',
+      'mandar',
+      'segue',
+      'segue ai',
+      'segue aí',
+      'vai',
+      'vai la',
+      'vai lá',
+      'vamos',
+      'vamos la',
+      'vamos lá',
+      'confirmo',
+      'confirmado',
+      'confirma',
+      'confirmar',
+      'ok',
+      'okay',
+      'beleza',
+      'blz',
+      'show',
+      'isso',
+      'isso mesmo',
+      'isso ai',
+      'isso aí',
+      'positivo',
+      'afirmativo',
+      'quero',
+      'quero sim',
+      'quero sim por favor',
+      'aceito',
+      'aceitar',
+      'fechado',
+      'feito',
+      'bora',
+      'bora la',
+      'bora lá',
+      'pode prosseguir',
+      'prosseguir',
+      'prossiga',
+      'prossiga por favor',
+    ]);
+    return phrases.has(normalized);
+  }
+
+  /**
+   * Detecta cancelamento / negativa explícita ("não", "cancela", "pare").
+   */
+  private parseNegativeConfirmation(rawInput: string): boolean {
+    if (!rawInput) return false;
+    const normalized = rawInput
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (!normalized) return false;
+    if (normalized.length > 60) return false;
+    return new Set<string>([
+      'nao',
+      'n',
+      'nao, obrigado',
+      'nao obrigado',
+      'nao quero',
+      'cancela',
+      'cancelar',
+      'cancele',
+      'pare',
+      'para',
+      'desiste',
+      'desistir',
+      'esquece',
+      'esquecer',
+      'deixa',
+      'deixa pra la',
+      'deixa pra lá',
+      'nada',
+      'nada nao',
+    ]).has(normalized);
+  }
+
+  /**
+   * Detecta se a mensagem do usuário é uma escolha numérica curta e direta
+   * referente à lista de "Próximos passos" enviada no turno anterior.
+   *
+   * Aceita:
+   *   - "1", "2", ..., "9" (apenas o dígito)
+   *   - "opção 2", "opcao 2", "a 3", "na 2", "quero a 1", "vai na 2"…
+   *   - Variantes por extenso curtas: "um", "dois", "três"
+   *
+   * Retorna o dígito (1-9) ou `null`.
+   */
+  private parseNumericChoice(rawInput: string): number | null {
+    if (!rawInput) return null;
+    const normalized = rawInput
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    if (!normalized) return null;
+    if (normalized.length > 30) return null;
+
+    const wordToDigit: Record<string, number> = {
+      um: 1,
+      uma: 1,
+      dois: 2,
+      duas: 2,
+      tres: 3,
+    };
+    if (wordToDigit[normalized] !== undefined) return wordToDigit[normalized];
+
+    const patterns: RegExp[] = [
+      /^([1-9])$/,
+      /^op[cs]ao\s*([1-9])$/,
+      /^opcao\s+([1-9])$/,
+      /^(?:a|na|o|no)\s+([1-9])$/,
+      /^quero\s+(?:a\s+)?([1-9])$/,
+      /^vai\s+(?:na?\s+)?([1-9])$/,
+      /^escolho\s+(?:a\s+)?([1-9])$/,
+      /^seleciono\s+(?:a\s+)?([1-9])$/,
+      /^(?:e\s+)?(?:a|o)\s+([1-9])$/,
+    ];
+    for (const re of patterns) {
+      const m = normalized.match(re);
+      if (m) return Number(m[1]);
+    }
+    return null;
+  }
+
+  /**
+   * Extrai um mapa `{digito -> texto da opção}` a partir de um texto livre
+   * (geralmente a última mensagem do assistente). Olha linhas no formato
+   * "1 - texto", "1) texto", "1. texto", "1 — texto", etc.
+   */
+  private extractNumberedOptionsFromText(text: string): Record<number, string> {
+    const out: Record<number, string> = {};
+    if (!text) return out;
+    const lines = text.split(/\r?\n/);
+    for (const rawLine of lines) {
+      const line = rawLine.trimEnd();
+      const m = line.match(/^\s*([1-9])\s*[-–—).]\s+(.+?)\s*$/);
+      if (!m) continue;
+      const digit = Number(m[1]);
+      if (!out[digit]) out[digit] = m[2].trim();
+    }
+    return out;
+  }
+
+  /**
+   * Quando o usuário responde apenas com um dígito (ou variação curta) e a
+   * última mensagem do assistente terminou com uma lista numerada, monta um
+   * bloco system determinístico instruindo o LLM a executar a opção
+   * escolhida (sem voltar a perguntar "qual ação você quer?"). Sem isso o
+   * modelo ainda às vezes ignora a regra do prompt e devolve o famigerado
+   * "Parece que você escolheu a opção X, mas não ficou claro..." — sintoma
+   * exato do print reportado pelo usuário em 2026-05-11.
+   *
+   * Retorna `null` quando não há nada a injetar (input não é numérico,
+   * última mensagem não tem opções, etc.).
+   */
+  private async buildNumericChoiceHint(
+    conversationId: string,
+    rawInput: string,
+  ): Promise<string | null> {
+    const digit = this.parseNumericChoice(rawInput);
+    if (!digit) return null;
+    try {
+      // Janela curta — precisamos só da última mensagem do assistente.
+      const recent = await this.conversationService.loadRecentForLlm(
+        conversationId,
+        6,
+      );
+      let lastAssistant: string | null = null;
+      for (let i = recent.length - 1; i >= 0; i--) {
+        if (recent[i].role === 'assistant') {
+          lastAssistant = recent[i].content;
+          break;
+        }
+      }
+      if (!lastAssistant) return null;
+      const options = this.extractNumberedOptionsFromText(lastAssistant);
+      const optionKeys = Object.keys(options).map((k) => Number(k));
+      if (!optionKeys.length) return null;
+
+      const chosenText = options[digit];
+      if (!chosenText) {
+        return [
+          'INTERPRETAÇÃO DETERMINÍSTICA DE RESPOSTA NUMÉRICA:',
+          `- O usuário respondeu "${rawInput.trim()}", mas a última lista de Próximos passos só ofereceu as opções ${optionKeys.join('/')}.`,
+          '- Peça desculpa em UMA frase e mostre as opções novamente.',
+          '- NÃO responda "não ficou claro qual ação".',
+        ].join('\n');
+      }
+
+      return [
+        'INTERPRETAÇÃO DETERMINÍSTICA DE RESPOSTA NUMÉRICA (OBRIGATÓRIO SEGUIR):',
+        `- A última mensagem que você enviou terminou com uma lista de "Próximos passos" numerada.`,
+        `- O usuário respondeu "${rawInput.trim()}", o que significa que ele escolheu a OPÇÃO ${digit}: "${chosenText}".`,
+        '- AGORA EXECUTE essa opção, sem voltar a perguntar qual ação ele quer:',
+        '  • Se a opção requer um dado adicional (ex.: protocolo da SC), faça APENAS UMA pergunta curta e objetiva pedindo SÓ esse dado.',
+        '  • Se você pode executá-la direto (chamando uma tool), execute imediatamente.',
+        '- PROIBIDO responder "não ficou claro qual ação", "não entendi", "pode me explicar melhor" ou variações. A escolha JÁ está clara.',
+      ].join('\n');
+    } catch (err) {
+      this.logger.debug(
+        `[NUMERIC_CHOICE] hint_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Resolve a lista de médicos acessíveis ao usuário em `{id, name}` —
+   * usado para enriquecer o bloco "USUÁRIO ATUAL" no contexto da IA. Cache
+   * curto (5 min) para evitar consulta a cada mensagem.
+   */
+  private async resolveAccessibleDoctorsInfo(
+    accessibleDoctorIds: string[],
+  ): Promise<Array<{ id: string; name?: string | null }>> {
+    if (!accessibleDoctorIds.length) return [];
+    const cacheKey = accessibleDoctorIds.slice().sort().join(',');
+    const cached = this.accessibleDoctorsInfoCache.get(cacheKey);
+    if (cached) return cached;
+    try {
+      const doctors = await this.userRepository.findMany(
+        { id: In(accessibleDoctorIds) } as any,
+        0,
+        accessibleDoctorIds.length,
+      );
+      const info = doctors.map((d: any) => ({
+        id: d.id,
+        name: d.name ?? null,
+      }));
+      this.accessibleDoctorsInfoCache.set(cacheKey, info, 5 * 60 * 1000);
+      return info;
+    } catch (err) {
+      this.logger.debug(
+        `[USER_CONTEXT] failed_to_resolve_doctors err=${(err as Error)?.message}`,
+      );
+      return accessibleDoctorIds.map((id) => ({ id, name: null }));
+    }
+  }
+
+  /**
    * Slot-filling: se o LLM estiver tentando criar uma SC com algum slot
    * obrigatório ainda ausente, intercepta a chamada e devolve a próxima
    * pergunta determinística ao usuário (uma por vez). Slots já confirmados
    * em `conversationMemory.filled_slots` não são re-perguntados.
    */
+  /**
+   * Identifica tool_calls de mutação COMPLEXA que devem ser bloqueadas
+   * porque não há `plan_actions` no mesmo turno nem `operation_draft` ativo.
+   * Aplica-se somente quando `AI_USE_DRAFT_FLOWS=true`.
+   */
+  private async evaluatePlanFirstGuard(
+    toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
+    conversationId: string,
+  ): Promise<Set<string>> {
+    const blocked = new Set<string>();
+    if (!toolCalls?.length) return blocked;
+
+    const flagValue = String(
+      this.configService.get<string>('AI_USE_DRAFT_FLOWS', 'true'),
+    ).toLowerCase();
+    if (flagValue !== 'true' && flagValue !== '1') return blocked;
+
+    // Se o LLM já chamou plan_actions neste mesmo turno, libera todos.
+    const calledPlanActions = toolCalls.some(
+      (call) => call.function?.name === 'plan_actions',
+    );
+    if (calledPlanActions) return blocked;
+
+    // Se já existe operation_draft ativo, o plan_actions desta sessão
+    // já foi chamado em turno anterior — não exigimos novamente.
+    let draftActive = false;
+    try {
+      const current =
+        await this.operationDraftService.getCurrent(conversationId);
+      draftActive = !!current;
+    } catch (err) {
+      this.logger.warn(
+        `[PLAN_GUARD] falha ao consultar operation_draft conv=${conversationId}: ${String((err as Error)?.message ?? err)}`,
+      );
+    }
+    if (draftActive) return blocked;
+
+    for (const call of toolCalls) {
+      const name = call.function?.name;
+      if (name && COMPLEX_MUTATION_TOOL_NAMES.has(name)) {
+        blocked.add(call.id);
+      }
+    }
+    return blocked;
+  }
+
   private evaluateSlotFilling(
     toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
     conversation: { conversationMemory?: any },
@@ -293,9 +1040,18 @@ export class AiOrchestratorService {
       return Boolean(current);
     };
 
+    const slotHasValue = (slot: string): boolean => {
+      // Considera preenchido se a memória da conversa já registrou esse slot
+      // (turnos anteriores) OU se a chamada atual trouxe qualquer um dos
+      // aliases conhecidos da tool (`patientId` ou `patient_name`, etc.).
+      if (filled[slot]) return true;
+      if (filled[`${slot}.id`]) return true;
+      const aliases = SLOT_ARG_ALIASES[slot] || [slot];
+      return aliases.some((alias) => argsHasPath(alias));
+    };
+
     for (const slot of required) {
-      const provided = argsHasPath(slot) || Boolean(filled[slot]);
-      if (!provided) {
+      if (!slotHasValue(slot)) {
         return {
           missingSlot: slot,
           prompt:
@@ -322,14 +1078,22 @@ export class AiOrchestratorService {
       if (!conv) return;
       const memory = conv.conversationMemory || {};
       const filled = { ...(memory.filled_slots || {}) };
-      // Persiste apenas hashes/ids — nunca conteúdo livre.
-      if (args?.patient?.id) filled['patient.id'] = String(args.patient.id);
-      if (args?.surgeryRequest?.hospital)
-        filled['surgeryRequest.hospital'] = '✓';
-      if (args?.surgeryRequest?.healthPlan)
-        filled['surgeryRequest.healthPlan'] = '✓';
-      if (Array.isArray(args?.tussItems) && args.tussItems.length)
-        filled['tussItems'] = `count:${args.tussItems.length}`;
+
+      const recordSlot = (slotKey: string, value: unknown): void => {
+        if (value == null) return;
+        if (typeof value === 'string' && !value.trim()) return;
+        const key = SLOT_PERSIST_KEYS[slotKey] || slotKey;
+        filled[key] = String(value);
+      };
+
+      // Aliases reais da tool `create_surgery_request_from_whatsapp`.
+      recordSlot('patient', args?.patientId);
+      if (!filled['patient']) recordSlot('patient', args?.patient_name);
+      if (!filled['patient']) recordSlot('patient', args?.patient?.id);
+
+      recordSlot('procedure', args?.procedureId);
+      if (!filled['procedure']) recordSlot('procedure', args?.procedure_name);
+      if (!filled['procedure']) recordSlot('procedure', args?.procedure?.id);
 
       const repo = this.conversationService['conversationRepo'];
       if (repo?.update) {
@@ -1067,10 +1831,10 @@ export class AiOrchestratorService {
 
       const hasTypedText = Boolean((data.body || '').trim());
       if (audioProcessing.failed && !hasTypedText) {
-        await this.whatsappService.sendMessage(
-          phone,
-          'Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
+        const failureMessage = this.buildAudioFailureUserMessage(
+          audioProcessing.failureReason,
         );
+        await this.whatsappService.sendMessage(phone, failureMessage);
         return;
       }
 
@@ -1137,13 +1901,80 @@ export class AiOrchestratorService {
           ownerId,
         );
 
+      const accessibleDoctorsInfo =
+        await this.resolveAccessibleDoctorsInfo(accessibleDoctorIds);
+
       const built = await this.contextService.buildContext({
         conversation: updatedConv,
         ragContext: ragContext || null,
+        userInfo: {
+          id: userId,
+          name: user?.name ?? null,
+          role: user?.role ?? null,
+          isDoctor: Boolean(user?.doctorProfile?.id) || Boolean(user?.isDoctor),
+          ownerId,
+          accessibleDoctors: accessibleDoctorsInfo,
+        },
       });
       const messages: OpenAI.ChatCompletionMessageParam[] = built.messages;
       const contextBreakdown = built.breakdown;
       const contextStrategy = built.strategy;
+
+      // Interpretação determinística de resposta numérica: se o usuário só
+      // enviou "2" (e variações curtas) e a última mensagem do assistente
+      // tinha "Próximos passos" numerados, injeta um system hint imperativo
+      // dizendo qual opção foi escolhida — sem isso o LLM volta a responder
+      // "não ficou claro qual ação" mesmo com a regra no prompt.
+      const numericHint = await this.buildNumericChoiceHint(
+        conversation.id,
+        data.body || '',
+      );
+      if (numericHint) {
+        // Insere logo após o último bloco system inicial, antes da janela
+        // recente de mensagens — assim o LLM lê o hint como configuração de
+        // turno, não como mais um item da conversa.
+        let insertAt = messages.length;
+        for (let i = 0; i < messages.length; i++) {
+          if (messages[i].role !== 'system') {
+            insertAt = i;
+            break;
+          }
+        }
+        messages.splice(insertAt, 0, {
+          role: 'system',
+          content: numericHint,
+        });
+        this.logger.log(
+          `[NUMERIC_CHOICE] sid=${data.messageSid} conv=${conversation.id} injected=true`,
+        );
+      }
+
+      // Confirmação determinística de operação pendente: se o usuário disse
+      // "sim/confirmo/ok" e o turno anterior gravou pending_confirmation no
+      // conversation_memory (tool de mutação chamada com confirm:false),
+      // injeta um hint imperativo dizendo qual tool re-chamar com confirm:true.
+      // Sem isso, o LLM frequentemente esquece a operação pendente e responde
+      // "não ficou claro o que confirmou".
+      const confirmationHint = await this.buildPendingConfirmationHint(
+        conversation.id,
+        data.body || '',
+      );
+      if (confirmationHint) {
+        let insertAt = messages.length;
+        for (let i = 0; i < messages.length; i++) {
+          if (messages[i].role !== 'system') {
+            insertAt = i;
+            break;
+          }
+        }
+        messages.splice(insertAt, 0, {
+          role: 'system',
+          content: confirmationHint,
+        });
+        this.logger.log(
+          `[PENDING_CONFIRMATION] sid=${data.messageSid} conv=${conversation.id} injected=true`,
+        );
+      }
 
       const tools = this.toolRegistry.getToolDefinitions();
 
@@ -1177,6 +2008,7 @@ export class AiOrchestratorService {
         userId,
         phone,
         accessibleDoctorIds,
+        ownerId,
         conversationId: conversation.id,
         inboundMedia: data.media || [],
         piiVault: this.piiVault,
@@ -1216,10 +2048,45 @@ export class AiOrchestratorService {
           await this.persistFilledSlots(conversation.id, parsedArgs);
         }
 
-        const toolResults = await this.toolExecutor.executeMany(
+        // Plan-first guard: bloqueia tools de mutação complexa quando o LLM
+        // não chamou `plan_actions` neste turno e ainda não há `operation_draft`.
+        // Devolve resultado estruturado de `blocked` para que o LLM se corrija
+        // e chame `plan_actions` na próxima iteração.
+        const blockedToolCallIds = await this.evaluatePlanFirstGuard(
           responseMessage.tool_calls,
-          toolContext,
+          conversation.id,
         );
+
+        const toolCallsToExecute = blockedToolCallIds.size
+          ? responseMessage.tool_calls.filter(
+              (call) => !blockedToolCallIds.has(call.id),
+            )
+          : responseMessage.tool_calls;
+
+        const toolResults = toolCallsToExecute.length
+          ? await this.toolExecutor.executeMany(toolCallsToExecute, toolContext)
+          : [];
+
+        if (blockedToolCallIds.size) {
+          for (const call of responseMessage.tool_calls) {
+            if (!blockedToolCallIds.has(call.id)) continue;
+            toolResults.push({
+              toolCallId: call.id,
+              output: buildToolResult({
+                status: 'blocked',
+                message:
+                  'Antes de chamar tools de mutação complexa, chame `plan_actions` para classificar a intenção e abrir o rascunho correspondente.',
+                errors: [
+                  {
+                    code: 'PLAN_ACTIONS_REQUIRED',
+                    message:
+                      'Chame `plan_actions` primeiro neste turno para inicializar o rascunho.',
+                  },
+                ],
+              }),
+            });
+          }
+        }
 
         const patchedToolResults = await Promise.all(
           toolResults.map(async (result) => {
@@ -1239,6 +2106,27 @@ export class AiOrchestratorService {
             } catch {
               return result;
             }
+
+            // Gerencia o pending_confirmation no conversation_memory para que
+            // o próximo turno consiga re-executar a tool sem depender do LLM
+            // lembrar do contexto.
+            await this.trackPendingConfirmation({
+              conversationId: conversation.id,
+              toolName: functionName,
+              args,
+              output: result.output,
+            });
+
+            // Memoriza entidades extraídas dos args quando a tool foi
+            // efetivamente executada (não apenas preview). Garante que
+            // procedimento/paciente/hospital/convênio mencionados em turnos
+            // anteriores fiquem visíveis no system prompt do próximo turno.
+            await this.memorizeEntitiesFromToolCall({
+              conversationId: conversation.id,
+              toolName: functionName,
+              args,
+              output: result.output,
+            });
 
             const enrichedOutput = await this.appendNextStepIfNeeded(
               functionName,
@@ -1924,6 +2812,16 @@ export class AiOrchestratorService {
   }): Promise<{
     hasAudio: boolean;
     failed: boolean;
+    failureReason?:
+      | 'AUDIO_NOT_ALLOWED'
+      | 'AUDIO_TOO_LARGE'
+      | 'AUDIO_TOO_LONG'
+      | 'MEDIA_URL_INVALID'
+      | 'STT_PROVIDER_UNREACHABLE'
+      | 'STT_PROVIDER_ERROR'
+      | 'STT_EMPTY_TRANSCRIPTION'
+      | 'UNKNOWN';
+    failureMessage?: string;
     transcription:
       | (Awaited<ReturnType<TranscriptionService['transcribe']>> & {
           downloadedMedia: { url: string; sizeBytes: number };
@@ -1973,14 +2871,74 @@ export class AiOrchestratorService {
         },
       };
     } catch (error) {
-      const code =
-        error instanceof WhatsappMediaValidationError ? error.code : 'UNKNOWN';
+      const errMessage = error instanceof Error ? error.message : String(error);
+
+      // Classifica a causa raiz para que a resposta ao usuário seja útil
+      // (e o log mostre exatamente o que falhou — antes só aparecia "UNKNOWN").
+      let reason:
+        | 'AUDIO_NOT_ALLOWED'
+        | 'AUDIO_TOO_LARGE'
+        | 'AUDIO_TOO_LONG'
+        | 'MEDIA_URL_INVALID'
+        | 'STT_PROVIDER_UNREACHABLE'
+        | 'STT_PROVIDER_ERROR'
+        | 'STT_EMPTY_TRANSCRIPTION'
+        | 'UNKNOWN' = 'UNKNOWN';
+
+      if (error instanceof WhatsappMediaValidationError) {
+        reason = error.code;
+      } else if (/transcrição vazia/i.test(errMessage)) {
+        reason = 'STT_EMPTY_TRANSCRIPTION';
+      } else if (
+        /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|fetch failed|aborted|ETIMEDOUT|UND_ERR_CONNECT/i.test(
+          errMessage,
+        )
+      ) {
+        reason = 'STT_PROVIDER_UNREACHABLE';
+      } else if (
+        /faster-whisper retornou status|openai-whisper retornou status|status 4\d\d|status 5\d\d/i.test(
+          errMessage,
+        )
+      ) {
+        reason = 'STT_PROVIDER_ERROR';
+      }
 
       this.logger.warn(
-        `[AI_STT] status=failure sid=${data.messageSid} code=${code} message=${error instanceof Error ? error.message : String(error)}`,
+        `[AI_STT] status=failure sid=${data.messageSid} reason=${reason} message=${errMessage}`,
       );
 
-      return { hasAudio: true, failed: true, transcription: null };
+      return {
+        hasAudio: true,
+        failed: true,
+        failureReason: reason,
+        failureMessage: errMessage,
+        transcription: null,
+      };
+    }
+  }
+
+  /**
+   * Mapeia o motivo da falha do STT para uma resposta amigável e
+   * acionável ao usuário, em vez do genérico "não consegui transcrever".
+   */
+  private buildAudioFailureUserMessage(reason: string | undefined): string {
+    switch (reason) {
+      case 'AUDIO_NOT_ALLOWED':
+        return 'O formato deste áudio não é suportado. Tente regravar o áudio diretamente pelo WhatsApp (que envia em formato compatível) ou digite a mensagem.';
+      case 'AUDIO_TOO_LARGE':
+        return 'Esse áudio é muito grande. Tente gravar um áudio mais curto (até ~5 minutos) ou digite a mensagem.';
+      case 'AUDIO_TOO_LONG':
+        return 'Esse áudio é muito longo. O limite é de 5 minutos. Pode quebrar em áudios menores ou digitar a mensagem.';
+      case 'STT_PROVIDER_UNREACHABLE':
+        return 'O serviço de transcrição está temporariamente indisponível. Pode digitar a mensagem que sigo daqui — assim que o serviço voltar, áudios funcionam de novo.';
+      case 'STT_PROVIDER_ERROR':
+        return 'O serviço de transcrição respondeu com um erro. Pode tentar novamente em alguns minutos ou, se preferir, digite a mensagem.';
+      case 'STT_EMPTY_TRANSCRIPTION':
+        return 'Recebi seu áudio mas não consegui identificar nenhum trecho de fala. Pode tentar gravar de novo (mais perto do microfone, sem ruído) ou digitar a mensagem?';
+      case 'MEDIA_URL_INVALID':
+        return 'Não consegui baixar o áudio enviado. Pode tentar de novo ou digitar a mensagem.';
+      default:
+        return 'Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem.';
     }
   }
 

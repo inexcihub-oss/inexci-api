@@ -6,6 +6,12 @@ export interface ToolContext {
   phone: string;
   accessibleDoctorIds: string[];
   conversationId: string;
+  /**
+   * ID do admin dono da clínica (tenant). Usado por tools que criam/listam
+   * recursos compartilhados pela clínica (hospitais, convênios, etc.).
+   * Quando ausente, as tools devem buscar pelo `userId`.
+   */
+  ownerId?: string | null;
   inboundMedia?: Array<{
     url: string;
     contentType?: string | null;

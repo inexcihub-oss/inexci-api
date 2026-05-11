@@ -47,7 +47,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('sr')
       .leftJoin('sr.hospital', 'h')
       .select('sr.hospitalId', 'hospitalId')
-      .addSelect("COALESCE(h.name, 'Sem Hospital')", 'hospital_name')
+      .addSelect("COALESCE(h.name, 'Sem Hospital')", 'hospitalName')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
       .where('sr.doctorId IN (:...doctorIds)', { doctorIds });
     if (filters?.hospitalId)
@@ -115,7 +115,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('sr')
       .leftJoin('sr.healthPlan', 'hp')
       .select('sr.healthPlanId', 'healthPlanId')
-      .addSelect("COALESCE(hp.name, 'Sem Convênio')", 'health_plan_name')
+      .addSelect("COALESCE(hp.name, 'Sem Convênio')", 'healthPlanName')
       .addSelect('CAST(COUNT(*) AS INTEGER)', 'total')
       .where('sr.doctorId IN (:...doctorIds)', { doctorIds });
     if (filters?.hospitalId)
@@ -139,11 +139,13 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .getRawMany();
   }
 
-  async sumInvoiced(filter: SumInvoicedFilter) {
+  async sumInvoiced(
+    filter: SumInvoicedFilter,
+  ): Promise<{ invoicedValue: number; receivedValue: number }> {
     const qb = this.repository
       .createQueryBuilder('sr')
       .leftJoin('sr.billing', 'srb')
-      .select('COALESCE(SUM(srb.invoiceValue), 0)', 'invoiced_value')
+      .select('COALESCE(SUM(srb.invoiceValue), 0)', 'invoicedValue')
       .addSelect('COALESCE(SUM(srb.receivedValue), 0)', 'receivedValue');
 
     if (filter.doctorIds?.length) {
@@ -155,10 +157,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const result = await qb.getRawOne();
 
     return {
-      _sum: {
-        invoiced_value: result?.invoiced_value || null,
-        receivedValue: result?.receivedValue || null,
-      },
+      invoicedValue: Number(result?.invoicedValue) || 0,
+      receivedValue: Number(result?.receivedValue) || 0,
     };
   }
 
@@ -473,13 +473,13 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     where: FindOptionsWhere<SurgeryRequest>,
     startDate: Date,
     endDate: Date,
-  ): Promise<Array<{ date: string; count: string; invoiced_value: string }>> {
+  ): Promise<Array<{ date: string; count: string; invoicedValue: string }>> {
     const queryBuilder = this.repository
       .createQueryBuilder('surgeryRequest')
       .leftJoin('surgeryRequest.billing', 'billing')
       .select('DATE(surgeryRequest.createdAt)', 'date')
       .addSelect('COUNT(*)', 'count')
-      .addSelect('SUM(billing.invoiceValue)', 'invoiced_value')
+      .addSelect('SUM(billing.invoiceValue)', 'invoicedValue')
       .where(where)
       .andWhere('surgeryRequest.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
@@ -494,14 +494,14 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async getMonthlyEvolution(
     where: FindOptionsWhere<SurgeryRequest>,
     months = 6,
-  ): Promise<Array<{ month_key: string; month_label: string; count: string }>> {
+  ): Promise<Array<{ monthKey: string; monthLabel: string; count: string }>> {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - months);
 
     const queryBuilder = this.repository
       .createQueryBuilder('surgeryRequest')
-      .select("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')", 'month_key')
-      .addSelect("TO_CHAR(surgeryRequest.createdAt, 'Mon/YY')", 'month_label')
+      .select("TO_CHAR(surgeryRequest.createdAt, 'YYYY-MM')", 'monthKey')
+      .addSelect("TO_CHAR(surgeryRequest.createdAt, 'Mon/YY')", 'monthLabel')
       .addSelect('COUNT(*)', 'count')
       .where(where)
       .andWhere('surgeryRequest.createdAt >= :startDate', { startDate })
@@ -514,20 +514,20 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
   async getAverageCompletionTime(
     where: FindOptionsWhere<SurgeryRequest>,
-  ): Promise<{ average_days: number }> {
+  ): Promise<{ averageDays: number }> {
     // Calcula a média de dias entre createdAt e updatedAt para solicitações finalizadas (status 9)
     const result = await this.repository
       .createQueryBuilder('surgeryRequest')
       .select(
         'AVG(EXTRACT(DAY FROM (surgeryRequest.updatedAt - surgeryRequest.createdAt)))',
-        'average_days',
+        'averageDays',
       )
       .where({ ...where, status: SurgeryRequestStatus.CLOSED })
       .getRawOne();
 
     return {
-      average_days: result?.average_days
-        ? parseFloat(parseFloat(result.average_days).toFixed(1))
+      averageDays: result?.averageDays
+        ? parseFloat(parseFloat(result.averageDays).toFixed(1))
         : 0,
     };
   }

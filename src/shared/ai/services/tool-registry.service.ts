@@ -9,6 +9,7 @@ import { buildNotificationTools } from '../tools/notification.tools';
 import { buildWhatsappFlowTools } from '../tools/whatsapp-flow.tools';
 import { buildManageTools } from '../tools/manage.tools';
 import { buildDoctorProfileTools } from '../tools/doctor-profile.tools';
+import { buildCatalogTools } from '../tools/catalog.tools';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
@@ -29,6 +30,12 @@ import { SupplierRepository } from '../../../database/repositories/supplier.repo
 import { StorageService } from '../../storage/storage.service';
 import { ConfigService } from '@nestjs/config';
 import { TussService } from '../../../modules/tuss/tuss.service';
+import { EntityResolverService } from './entity-resolver.service';
+import { OperationDraftService } from './operation-draft.service';
+import { buildPlanTools } from '../tools/plan.tools';
+import { buildScDraftTools } from '../tools/sc-draft.tools';
+import { buildCadastroDraftTools } from '../tools/cadastro-draft.tools';
+import { buildFlowDraftTools } from '../tools/flow-draft.tools';
 
 @Injectable()
 export class ToolRegistryService {
@@ -55,12 +62,42 @@ export class ToolRegistryService {
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
     private readonly tussService: TussService,
+    private readonly entityResolver: EntityResolverService,
+    private readonly draftService: OperationDraftService,
   ) {
     this.registerAll();
   }
 
   private registerAll(): void {
     const allTools: AiTool[] = [
+      ...buildPlanTools(this.draftService),
+      ...buildScDraftTools({
+        draftService: this.draftService,
+        resolver: this.entityResolver,
+        patientRepo: this.patientRepo,
+        procedureRepo: this.procedureRepo,
+        hospitalRepo: this.hospitalRepo,
+        healthPlanRepo: this.healthPlanRepo,
+        userRepo: this.userRepo,
+        surgeryRequestRepo: this.surgeryRequestRepo,
+        surgeryRequestsService: this.surgeryRequestsService,
+        activityRepo: this.activityRepo,
+      }),
+      ...buildCadastroDraftTools({
+        draftService: this.draftService,
+        patientRepo: this.patientRepo,
+        hospitalRepo: this.hospitalRepo,
+        healthPlanRepo: this.healthPlanRepo,
+        procedureRepo: this.procedureRepo,
+        userRepo: this.userRepo,
+      }),
+      ...buildFlowDraftTools({
+        draftService: this.draftService,
+        surgeryRequestRepo: this.surgeryRequestRepo,
+        workflowService: this.workflowService,
+        activityRepo: this.activityRepo,
+        patientRepo: this.patientRepo,
+      }),
       ...buildSurgeryRequestTools(
         this.surgeryRequestRepo,
         this.pendencyValidator,
@@ -76,7 +113,18 @@ export class ToolRegistryService {
         this.storageService,
         this.configService,
       ),
-      ...buildGeneralTools(this.patientRepo, this.userRepo),
+      ...buildGeneralTools(
+        this.patientRepo,
+        this.userRepo,
+        this.entityResolver,
+      ),
+      ...buildCatalogTools(
+        this.hospitalRepo,
+        this.healthPlanRepo,
+        this.procedureRepo,
+        this.userRepo,
+        this.entityResolver,
+      ),
       ...buildActionTools(
         this.surgeryRequestRepo,
         this.workflowService,
@@ -102,6 +150,7 @@ export class ToolRegistryService {
         this.procedureRepo,
         this.userRepo,
         this.tussService,
+        this.entityResolver,
       ),
       ...buildManageTools(
         this.surgeryRequestRepo,
@@ -114,6 +163,7 @@ export class ToolRegistryService {
         this.healthPlanRepo,
         this.storageService,
         this.configService,
+        this.entityResolver,
       ),
     ];
 

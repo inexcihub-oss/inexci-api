@@ -4,6 +4,7 @@ import { AiTool, ToolContext } from './tool.interface';
 import { PatientRepository } from '../../../database/repositories/patient.repository';
 import { UserRepository } from '../../../database/repositories/user.repository';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
+import { EntityResolverService } from '../services/entity-resolver.service';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BIRTH_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -79,20 +80,24 @@ function formatCpfDisplay(digits: string): string {
 export function buildGeneralTools(
   patientRepo: PatientRepository,
   userRepo: UserRepository,
+  resolver?: EntityResolverService,
 ): AiTool[] {
+  const entityResolver = resolver ?? new EntityResolverService();
+
   const getPatientInfo: AiTool = {
     name: 'get_patient_info',
     definition: {
       type: 'function',
       function: {
         name: 'get_patient_info',
-        description: 'Busca dados de um paciente pelo nome ou ID.',
+        description:
+          'Busca dados de um paciente pelo nome (tolerante a typos via fuzzy match) ou ID UUID. Retorna o paciente identificado; quando ambíguo, lista candidatos para o usuário escolher.',
         parameters: {
           type: 'object',
           properties: {
             patient_name_or_id: {
               type: 'string',
-              description: 'Nome ou ID UUID do paciente',
+              description: 'Nome (completo ou parcial) ou ID UUID do paciente',
             },
           },
           required: ['patient_name_or_id'],
@@ -102,51 +107,84 @@ export function buildGeneralTools(
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
-      const { patient_name_or_id } = args as { patient_name_or_id: string };
-      let patient = null;
-
-      if (patient_name_or_id.match(/^[0-9a-f-]{36}$/i)) {
-        patient = await patientRepo.findOne({ id: patient_name_or_id });
-      }
-
-      if (!patient) {
-        const all = await patientRepo.findMany({}, 0, 50);
-        patient = all.find((p: any) =>
-          p.name?.toLowerCase().includes(patient_name_or_id.toLowerCase()),
-        );
-      }
-
-      if (!patient) {
-        return `Paciente "${patient_name_or_id}" não encontrado.`;
-      }
-
       const TOOL = 'get_patient_info';
-      const nameToken = tokenizePii(
-        context,
-        TOOL,
-        'patient_name',
-        patient.name,
-      );
-      const cpfToken = (patient as any).cpf
-        ? tokenizePii(context, TOOL, 'cpf', (patient as any).cpf)
+      const requestingUser = await userRepo.findOne({ id: context.userId });
+      if (!requestingUser) {
+        return 'Usuário solicitante não encontrado.';
+      }
+      const ownerId = (requestingUser as any).ownerId;
+
+      const rawQuery = String(
+        detokenizeArg(context, (args as any).patient_name_or_id) ?? '',
+      ).trim();
+      if (!rawQuery) {
+        return 'Parâmetro inválido: `patient_name_or_id` é obrigatório.';
+      }
+
+      let patient: any = null;
+      if (rawQuery.match(/^[0-9a-f-]{36}$/i)) {
+        patient = await patientRepo.findOne({ id: rawQuery, ownerId } as any);
+      }
+
+      const candidates = patient
+        ? [patient]
+        : await patientRepo.findMany({ ownerId } as any, 0, 500);
+
+      if (!candidates.length) {
+        return `Paciente "${rawQuery}" não encontrado.`;
+      }
+
+      let resolved: any = patient ?? null;
+      let ambiguousCandidates: any[] = [];
+      if (!resolved) {
+        const result = entityResolver.resolve<any>({
+          query: rawQuery,
+          candidates,
+          getName: (p) => String(p.name ?? ''),
+          getId: (p) => String(p.id),
+        });
+        if (result.status === 'resolved' && result.resolved) {
+          resolved = result.resolved.data;
+        } else if (result.status === 'ambiguous') {
+          ambiguousCandidates = result.candidates.map((c) => c.data);
+        }
+      }
+
+      if (!resolved && ambiguousCandidates.length) {
+        const lines = ambiguousCandidates
+          .slice(0, 5)
+          .map((p: any, idx) => `${idx + 1}) ${p.name} | id: ${p.id}`);
+        return [
+          `Mais de um paciente possível para "${rawQuery}". Peça desambiguação:`,
+          ...lines,
+        ].join('\n');
+      }
+
+      if (!resolved) {
+        return `Paciente "${rawQuery}" não encontrado.`;
+      }
+
+      const patientName: string = String(resolved.name ?? '');
+      const cpfToken = (resolved as any).cpf
+        ? tokenizePii(context, TOOL, 'cpf', (resolved as any).cpf)
         : 'Não informado';
-      const phoneToken = (patient as any).phone
-        ? tokenizePii(context, TOOL, 'phone', (patient as any).phone)
+      const phoneToken = (resolved as any).phone
+        ? tokenizePii(context, TOOL, 'phone', (resolved as any).phone)
         : 'Não informado';
-      const emailToken = (patient as any).email
-        ? tokenizePii(context, TOOL, 'email', (patient as any).email)
+      const emailToken = (resolved as any).email
+        ? tokenizePii(context, TOOL, 'email', (resolved as any).email)
         : 'Não informado';
-      const birthToken = (patient as any).birthDate
+      const birthToken = (resolved as any).birthDate
         ? tokenizePii(
             context,
             TOOL,
             'birth_date',
-            new Date((patient as any).birthDate).toLocaleDateString('pt-BR'),
+            new Date((resolved as any).birthDate).toLocaleDateString('pt-BR'),
           )
         : null;
 
       const lines = [
-        `*Paciente: ${nameToken}*`,
+        `*Paciente: ${patientName}* (id: ${resolved.id})`,
         `CPF: ${cpfToken}`,
         `Telefone: ${phoneToken}`,
         `Email: ${emailToken}`,
@@ -163,14 +201,20 @@ export function buildGeneralTools(
       function: {
         name: 'list_patients',
         description:
-          'Lista pacientes cadastrados na clínica acessíveis ao usuário. Aceita filtro opcional por nome (search). Use SEMPRE esta tool antes de afirmar que um paciente não existe ou que não há pacientes cadastrados.',
+          'Lista pacientes cadastrados na clínica acessíveis ao usuário. Aceita filtro opcional por nome (`search`) e modo de match (`match_mode`). Use SEMPRE esta tool antes de afirmar que um paciente não existe ou que não há pacientes cadastrados. O modo `fuzzy` (padrão) tolera typos e erros de transcrição; use `prefix` quando o usuário disser "começa com" / "começam com", `exact` para nome integral, ou `contains` para substring estrita.',
         parameters: {
           type: 'object',
           properties: {
             search: {
               type: 'string',
               description:
-                'Texto para filtrar por nome do paciente (case-insensitive, parcial). Opcional.',
+                'Texto para filtrar por nome do paciente (acento e caixa são ignorados). Opcional.',
+            },
+            match_mode: {
+              type: 'string',
+              enum: ['fuzzy', 'contains', 'prefix', 'exact'],
+              description:
+                'Modo de comparação: `fuzzy` (similaridade tolerante a typos, padrão), `contains` (substring), `prefix` (começa com) ou `exact` (igual).',
             },
             limit: {
               type: 'number',
@@ -202,32 +246,96 @@ export function buildGeneralTools(
       const searchRaw = String(
         detokenizeArg(context, args.search) ?? '',
       ).trim();
-      const search = searchRaw.toLowerCase();
 
-      // Busca todos os pacientes da clínica e filtra em memória — volume típico
-      // por clínica cabe em uma página única (centenas).
+      const matchModeRaw =
+        typeof args.match_mode === 'string'
+          ? args.match_mode.trim().toLowerCase()
+          : 'fuzzy';
+      const matchMode: 'contains' | 'prefix' | 'exact' | 'fuzzy' =
+        matchModeRaw === 'prefix' ||
+        matchModeRaw === 'exact' ||
+        matchModeRaw === 'contains' ||
+        matchModeRaw === 'fuzzy'
+          ? (matchModeRaw as 'contains' | 'prefix' | 'exact' | 'fuzzy')
+          : 'fuzzy';
+
+      const normalize = (text: string): string =>
+        text
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+
+      const search = normalize(searchRaw);
+
       const all = await patientRepo.findMany({ ownerId } as any, 0, 500);
-      const filtered = search
-        ? all.filter((p: any) => (p.name || '').toLowerCase().includes(search))
-        : all;
+
+      let filtered: any[];
+      if (!search) {
+        filtered = all;
+      } else if (matchMode === 'fuzzy') {
+        const resolverResult = entityResolver.resolve<any>({
+          query: searchRaw,
+          candidates: all,
+          getName: (p: any) => String(p.name ?? ''),
+          getId: (p: any) => String(p.id),
+          candidateThreshold: 0.5,
+          maxCandidates: limit,
+        });
+        if (resolverResult.status === 'resolved' && resolverResult.resolved) {
+          filtered = [
+            resolverResult.resolved.data,
+            ...resolverResult.candidates.map((c) => c.data),
+          ];
+        } else if (resolverResult.status === 'ambiguous') {
+          filtered = resolverResult.candidates.map((c) => c.data);
+        } else {
+          filtered = [];
+        }
+      } else {
+        filtered = all.filter((p: any) => {
+          const name = normalize(String(p.name || ''));
+          if (!name) return false;
+          if (matchMode === 'exact') return name === search;
+          if (matchMode === 'prefix') return name.startsWith(search);
+          return name.includes(search);
+        });
+      }
 
       if (!filtered.length) {
-        return search
-          ? `Nenhum paciente encontrado com "${searchRaw}".`
-          : 'Nenhum paciente cadastrado nesta clínica ainda.';
+        if (search) {
+          const hint =
+            matchMode === 'prefix'
+              ? `nenhum começa com "${searchRaw}"`
+              : matchMode === 'exact'
+                ? `nenhum tem nome exatamente "${searchRaw}"`
+                : matchMode === 'fuzzy'
+                  ? `nenhum se parece com "${searchRaw}"`
+                  : `nenhum contém "${searchRaw}"`;
+          return `Nenhum paciente encontrado: ${hint}.`;
+        }
+        return 'Nenhum paciente cadastrado nesta clínica ainda.';
       }
 
       const slice = filtered.slice(0, limit);
-      const lines = slice.map((p: any, index: number) => {
-        const nameToken = tokenizePii(context, TOOL, 'patient_name', p.name);
+      const lines = slice.map((p: any) => {
         const phoneToken = (p as any).phone
           ? tokenizePii(context, TOOL, 'phone', (p as any).phone)
           : 'sem telefone';
-        return `${index + 1} - ${nameToken} (${phoneToken})`;
+        return `${p.name} | id: ${p.id} | telefone: ${phoneToken}`;
       });
 
+      const modeLabel =
+        matchMode === 'prefix'
+          ? 'começam com'
+          : matchMode === 'exact'
+            ? 'exatamente'
+            : matchMode === 'fuzzy'
+              ? 'se parecem com'
+              : 'contêm';
+
       const header = search
-        ? `Pacientes encontrados para "${searchRaw}" (${filtered.length}):`
+        ? `Pacientes que ${modeLabel} "${searchRaw}" (${filtered.length}):`
         : `Pacientes cadastrados (${filtered.length}, mostrando ${slice.length}):`;
       return [header, ...lines].join('\n');
     },

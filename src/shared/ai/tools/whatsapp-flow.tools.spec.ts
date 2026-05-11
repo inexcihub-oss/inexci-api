@@ -2,6 +2,7 @@ import { buildWhatsappFlowTools } from './whatsapp-flow.tools';
 import { ToolContext } from './tool.interface';
 import { SendMethod } from '../../constants/send-method';
 import { PiiVaultService } from '../services/pii-vault.service';
+import { EntityResolverService } from '../services/entity-resolver.service';
 
 const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
@@ -35,8 +36,16 @@ const mockPatientRepo = {
   findMany: jest.fn(),
   create: jest.fn(),
 };
-const mockHospitalRepo = { findOne: jest.fn(), create: jest.fn() };
-const mockHealthPlanRepo = { findOne: jest.fn(), create: jest.fn() };
+const mockHospitalRepo = {
+  findOne: jest.fn(),
+  findMany: jest.fn(),
+  create: jest.fn(),
+};
+const mockHealthPlanRepo = {
+  findOne: jest.fn(),
+  findMany: jest.fn(),
+  create: jest.fn(),
+};
 const mockProcedureRepo = { findOne: jest.fn(), findMany: jest.fn() };
 const mockUserRepo = { findMany: jest.fn() };
 
@@ -72,6 +81,7 @@ describe('WhatsappFlowTools', () => {
     mockProcedureRepo as any,
     mockUserRepo as any,
     undefined,
+    new EntityResolverService(),
   );
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
@@ -137,9 +147,77 @@ describe('WhatsappFlowTools', () => {
         baseContext,
       );
 
-      // Mensagem deve sugerir cadastrar o paciente em vez de pedir um nome exato.
-      expect(result).toContain('não está cadastrado');
+      // Mensagem deve indicar paciente não encontrado e sugerir cadastrá-lo.
+      expect(result).toContain('Não encontrei');
+      expect(result).toContain('João');
       expect(result).toContain('create_patient');
+    });
+
+    it('deve sugerir pacientes próximos (mesmo médico) quando nome não bate exatamente', async () => {
+      // Catálogo do médico atual: pacientes com nomes que compartilham
+      // tokens com a busca, mas não correspondem exatamente.
+      mockPatientRepo.findMany = jest.fn().mockImplementation(async () => [
+        { id: 'pat-2', name: 'Beatriz Helena Santos', doctorId: 'doctor-1' },
+        { id: 'pat-3', name: 'Beatriz Souza Lima', doctorId: 'doctor-1' },
+        { id: 'pat-4', name: 'Carlos Silva', doctorId: 'doctor-1' },
+      ]);
+
+      const result = await getTool(
+        'create_surgery_request_from_whatsapp',
+      ).execute(
+        {
+          patient_name: 'Beatriz Helena Pereira',
+          procedure_name: 'Artroscopia de Joelho',
+        },
+        baseContext,
+      );
+
+      // Como nenhum nome bate exatamente, a tool retorna sugestões com IDs.
+      expect(result).toContain('Pacientes parecidos');
+      expect(result).toContain('pat-2');
+      expect(result).toContain('pat-3');
+      expect(result).not.toContain('pat-4');
+    });
+
+    it('deve achar paciente em outro médico acessível (cross-doctor)', async () => {
+      // Cenário: usuário admin tem acesso a doctor-1 e doctor-2; quer criar SC
+      // com doctor-1, mas Beatriz só existe em doctor-2.
+      mockPatientRepo.findMany = jest.fn().mockImplementation(async (where) => {
+        const did = (where as any)?.doctorId;
+        if (did === 'doctor-1') return [];
+        // Match por In([...]) - segunda chamada cobre outros doctorIds
+        return [
+          {
+            id: 'pat-foreign-1',
+            name: 'Beatriz Helena Santos',
+            doctorId: 'doctor-2',
+          },
+        ];
+      });
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        ...mockRequest,
+        doctorId: 'doctor-1',
+      });
+
+      const result = await getTool(
+        'create_surgery_request_from_whatsapp',
+      ).execute(
+        {
+          patient_name: 'Beatriz Helena',
+          procedure_name: 'Artroscopia de Joelho',
+          doctorId: 'doctor-1',
+        },
+        {
+          ...baseContext,
+          accessibleDoctorIds: ['doctor-1', 'doctor-2'],
+        },
+      );
+
+      // Deve informar que o paciente existe em outro médico, com o ID e
+      // o doctorId correto para o usuário decidir como prosseguir.
+      expect(result).toContain('outro médico');
+      expect(result).toContain('pat-foreign-1');
+      expect(result).toContain('doctor-2');
     });
 
     it('deve retornar preview sem criar dados quando confirm=false', async () => {
@@ -872,6 +950,28 @@ describe('WhatsappFlowTools', () => {
       expect(result).toContain('Hospital atualizado com sucesso');
     });
 
+    it('fuzzy: hospital_name parcial casa por similaridade (Einstein → Hospital Israelita Albert Einstein)', async () => {
+      // Match exato falha; usa findMany e EntityResolverService.
+      mockHospitalRepo.findOne.mockResolvedValue(null);
+      mockHospitalRepo.findMany.mockResolvedValue([
+        { id: 'h-1', name: 'Hospital Israelita Albert Einstein' },
+        { id: 'h-2', name: 'Hospital Sírio-Libanês' },
+      ]);
+
+      const result = await getTool('set_hospital').execute(
+        {
+          surgeryRequestId: 'req-1',
+          hospital_name: 'Einstein',
+          confirm: true,
+        },
+        baseContext,
+      );
+      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
+        hospitalId: 'h-1',
+      });
+      expect(result).toContain('Hospital atualizado com sucesso');
+    });
+
     it('deve permitir remover hospital com clear=true', async () => {
       const result = await getTool('set_hospital').execute(
         {
@@ -1020,7 +1120,7 @@ describe('WhatsappFlowTools', () => {
   });
 
   describe('list_sc_creation_catalog (PII)', () => {
-    it('com vault ativo, tokeniza nomes de pacientes/hospitais/convênios antes de retornar à IA', async () => {
+    it('com vault ativo, mantém nomes de pacientes/hospitais/convênios em claro (refatoração de drafts: matching por similaridade)', async () => {
       mockPatientRepo.findMany = jest.fn().mockResolvedValue([
         { id: 'pat-1', name: 'Maria do Carmo' },
         { id: 'pat-2', name: 'José Pereira' },
@@ -1042,14 +1142,9 @@ describe('WhatsappFlowTools', () => {
         { ...baseContext, piiVault },
       );
 
-      expect(result).not.toContain('Maria do Carmo');
-      expect(result).not.toContain('José Pereira');
-      expect(result).toContain('{{patient_name_1}}');
-      expect(result).toContain('{{patient_name_2}}');
-
-      const detok = piiVault.detokenize('conv-1', result);
-      expect(detok).toContain('Maria do Carmo');
-      expect(detok).toContain('José Pereira');
+      expect(result).toContain('Maria do Carmo');
+      expect(result).toContain('José Pereira');
+      expect(result).not.toContain('{{patient_name_');
     });
   });
 });

@@ -28,6 +28,8 @@ import { ToolExecutorService } from './services/tool-executor.service';
 import { PiiVaultService } from './services/pii-vault.service';
 import { UserAnonymizationService } from './services/user-anonymization.service';
 import { AiRedisService } from './services/ai-redis.service';
+import { EntityResolverService } from './services/entity-resolver.service';
+import { OperationDraftService } from './services/operation-draft.service';
 import { AiMessageProcessor } from './ai-message.processor';
 import { TranscriptionService } from './transcription/transcription.service';
 import { FasterWhisperProvider } from './transcription/providers/faster-whisper.provider';
@@ -70,6 +72,8 @@ import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.
     AiOrchestratorService,
     UserAnonymizationService,
     AiRedisService,
+    EntityResolverService,
+    OperationDraftService,
     AiMessageProcessor,
   ],
   exports: [AiOrchestratorService],

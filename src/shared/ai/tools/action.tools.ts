@@ -38,7 +38,7 @@ function sanitizeIdentifier(raw: unknown): string {
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
 }
 
-async function resolveAuthorizedRequest(
+export async function resolveAuthorizedRequest(
   surgeryRequestRepo: SurgeryRequestRepository,
   identifierRaw: unknown,
   context: ToolContext,

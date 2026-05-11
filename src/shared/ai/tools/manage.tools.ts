@@ -16,6 +16,7 @@ import { STORAGE_FOLDERS } from '../../../config/storage.config';
 import { DOCUMENT_KEYS } from '../../constants/document-keys';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 import { buildProtocolCandidates } from './protocol.helpers';
+import { EntityResolverService } from '../services/entity-resolver.service';
 
 const REPORT_IMAGE_KEY = DOCUMENT_KEYS.REPORT_IMAGES;
 const REPORT_IMAGE_TYPE = 'exam_image';
@@ -215,6 +216,7 @@ export function buildManageTools(
   healthPlanRepo: HealthPlanRepository,
   storageService: StorageService,
   configService: ConfigService,
+  entityResolver?: EntityResolverService,
 ): AiTool[] {
   // ────────────────────────────────────────────────────────────────────────
   // manage_tuss_items
@@ -1203,21 +1205,40 @@ export function buildManageTools(
           return 'Convênio não encontrado para essa clínica. Verifique o `healthPlanId`.';
         }
       } else if (healthPlanName) {
+        // Match exato primeiro, depois fuzzy (Dice + Levenshtein) para
+        // tolerar acentos / typos. Ex.: "unimed" → "Unimed Paulistana".
         selected = await healthPlanRepo.findOne({
           name: healthPlanName,
           ownerId: auth.request.ownerId,
         } as any);
+        if (!selected && entityResolver) {
+          const candidates = await healthPlanRepo.findMany(
+            { ownerId: auth.request.ownerId } as any,
+            0,
+            200,
+          );
+          const result = entityResolver.resolve<any>({
+            query: healthPlanName,
+            candidates,
+            getName: (h: any) => String(h.name ?? ''),
+            getId: (h: any) => String(h.id),
+          });
+          if (result.status === 'resolved' && result.resolved) {
+            selected = result.resolved.data;
+          } else if (result.status === 'ambiguous') {
+            const top = result.candidates
+              .slice(0, 5)
+              .map((c) => `• ${c.label}`)
+              .join('\n');
+            return `Encontrei vários convênios parecidos com "${healthPlanName}":\n${top}\nResponda com o nome exato ou o ID.`;
+          }
+        }
         if (!selected) {
           return `Convênio "${healthPlanName}" não encontrado para essa clínica. Cadastre-o antes ou informe o \`healthPlanId\`.`;
         }
       }
 
-      const previewName = tokenizePii(
-        context,
-        'set_health_plan',
-        'health_plan_name',
-        selected.name,
-      );
+      const previewName = String(selected.name);
 
       if (!args.confirm) {
         return `A solicitação SC-${protocolToken} terá o convênio atualizado para ${previewName}. Confirme com "sim" para executar.`;

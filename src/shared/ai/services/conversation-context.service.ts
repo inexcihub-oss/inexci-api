@@ -40,12 +40,28 @@ export interface BuildContextResult {
   recentCount: number;
 }
 
+export interface UserContextInfo {
+  id: string;
+  name?: string | null;
+  role?: string | null;
+  isDoctor?: boolean;
+  ownerId?: string | null;
+  /**
+   * Lista resumida de médicos acessíveis ao usuário (id + nome). Permite
+   * que a IA cite o médico correto quando o usuário pedir "criar SC para
+   * o Dr. Fulano" sem precisar consultar a base.
+   */
+  accessibleDoctors?: Array<{ id: string; name?: string | null }>;
+}
+
 export interface BuildContextOptions {
   conversation: WhatsappConversation;
   ragContext?: string | null;
   systemPromptBase?: string;
   /** Override do número de mensagens recentes (default = AI_MAX_RECENT_MESSAGES). */
   recentLimit?: number;
+  /** Dados do usuário atual injetados como bloco no system. */
+  userInfo?: UserContextInfo | null;
 }
 
 /**
@@ -104,6 +120,53 @@ export class ConversationContextService {
    * consecutivas neste `conversationId`, summary/memory são ignorados até a
    * próxima sumarização bem-sucedida (estratégia retornada como `history_only`).
    */
+
+  /**
+   * Constrói um bloco system curto e imperativo com as entidades que o
+   * usuário já forneceu para a SC em construção (paciente, procedimento,
+   * hospital, convênio, prioridade). Esse bloco é incluído em TODOS os
+   * turnos, mesmo no modo `history_only`, para evitar que o LLM esqueça
+   * informações dadas em turnos anteriores e fique repetindo perguntas.
+   */
+  private buildSurgeryRequestBuildingBlock(
+    memory: Record<string, unknown> | null | undefined,
+  ): string | null {
+    if (!memory) return null;
+    const filled = (memory as any).filled_slots as
+      | Record<string, unknown>
+      | undefined;
+    const sr = (memory as any).surgeryRequest as
+      | Record<string, unknown>
+      | undefined;
+
+    const items: string[] = [];
+    const pushIfPresent = (label: string, value: unknown) => {
+      if (value === null || value === undefined) return;
+      const text = String(value).trim();
+      if (!text) return;
+      items.push(`- ${label}: ${text}`);
+    };
+
+    if (filled) {
+      pushIfPresent('Paciente', filled.patient);
+      pushIfPresent('Procedimento cirúrgico', filled.procedure);
+      pushIfPresent('Prioridade', filled.priority);
+    }
+    if (sr) {
+      pushIfPresent('Hospital', sr.hospital);
+      pushIfPresent('Convênio', sr.healthPlan);
+      pushIfPresent('Médico responsável (doctorId)', sr.doctorId);
+      if (sr.id) items.push(`- SC já criada (id): ${String(sr.id)}`);
+    }
+    if (!items.length) return null;
+
+    return [
+      'SC EM CONSTRUÇÃO — DADOS JÁ FORNECIDOS PELO USUÁRIO (NÃO PEÇA DE NOVO):',
+      ...items,
+      'Antes de perguntar qualquer um destes dados, verifique aqui. Se já estiver listado, NÃO peça de novo: use o valor existente. Pergunte apenas o que AINDA não está nesta lista.',
+    ].join('\n');
+  }
+
   async buildContext(
     options: BuildContextOptions,
   ): Promise<BuildContextResult> {
@@ -149,9 +212,28 @@ export class ConversationContextService {
       const phoneToken = conversation.phone
         ? this.piiVault.tokenize(conversation.id, conversation.phone, 'phone')
         : '';
-      const userBlock = phoneToken
-        ? `USUÁRIO ATUAL: ID=${conversation.userId}, Telefone=${phoneToken}`
-        : `USUÁRIO ATUAL: ID=${conversation.userId}`;
+
+      const info = options.userInfo;
+      const lines: string[] = [
+        'USUÁRIO ATUAL (use estes dados — NÃO peça de novo):',
+      ];
+      lines.push(`- ID: ${conversation.userId}`);
+      if (phoneToken) lines.push(`- Telefone: ${phoneToken}`);
+      if (info?.name) lines.push(`- Nome: ${info.name}`);
+      if (info?.role)
+        lines.push(`- Papel: ${info.role}${info.isDoctor ? ' (médico)' : ''}`);
+      if (info?.ownerId) lines.push(`- Clínica (ownerId): ${info.ownerId}`);
+      if (info?.accessibleDoctors?.length) {
+        const list = info.accessibleDoctors
+          .map((d) => `${d.name || 'sem nome'} (id=${d.id})`)
+          .join('; ');
+        lines.push(`- Médicos acessíveis: ${list}`);
+      }
+      lines.push(
+        'IMPORTANTE: O usuário é um profissional da clínica (médico ou colaborador) já autenticado. NUNCA o oriente a "se cadastrar na plataforma" — ele já está dentro do sistema.',
+      );
+
+      const userBlock = lines.join('\n');
       messages.push({ role: 'system', content: userBlock });
       breakdown.system_tokens += estimateTokens(userBlock);
     }
@@ -170,6 +252,18 @@ export class ConversationContextService {
         const memJson = JSON.stringify(conversation.conversationMemory);
         memoryText = `MEMÓRIA ESTRUTURADA DA CONVERSA (slots/fatos confirmados):\n${memJson}`;
       }
+    }
+
+    // SC EM CONSTRUÇÃO — bloco SEMPRE incluído (qualquer strategy) quando
+    // houver entidades já mencionadas/coletadas em turnos anteriores. Sem
+    // isso, o LLM "esquece" o procedimento que o usuário falou três turnos
+    // atrás e volta a perguntar, causando o loop.
+    const scBuildingBlock = this.buildSurgeryRequestBuildingBlock(
+      conversation.conversationMemory,
+    );
+    if (scBuildingBlock) {
+      messages.push({ role: 'system', content: scBuildingBlock });
+      breakdown.system_tokens += estimateTokens(scBuildingBlock);
     }
 
     let ragBlock: string | null = ragContext

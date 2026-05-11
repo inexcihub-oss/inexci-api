@@ -66,6 +66,13 @@ export const envValidationSchema = Joi.object({
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
   AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
+  /**
+   * Habilita a nova arquitetura de fluxos baseada em `operation_draft` +
+   * tool obrigatória `plan_actions` + tools de draft (sc_draft_*, etc.).
+   * Quando `false`, o orchestrator usa as tools legadas como `create_surgery_request_from_whatsapp`.
+   * Default true para garantir a correção do problema de alucinação.
+   */
+  AI_USE_DRAFT_FLOWS: Joi.string().allow('').default('true'),
 
   // ── IA WhatsApp (Áudio/STT) ─────────────────────────
   AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),

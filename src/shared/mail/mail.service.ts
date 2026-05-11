@@ -216,6 +216,7 @@ export class MailService {
 
   /**
    * Notificação de mudança de status ao paciente (usa layout unificado).
+   * Paciente não tem acesso ao dashboard: a comunicação se concentra no WhatsApp.
    */
   sendStatusChangePatient(
     to: string,
@@ -225,7 +226,6 @@ export class MailService {
       oldStatus: string;
       newStatus: string;
       changedAt: string;
-      preferencesUrl?: string;
     },
   ) {
     return this.send(
@@ -307,6 +307,7 @@ export class MailService {
 
   /**
    * Boas-vindas ao paciente.
+   * Paciente não tem acesso ao dashboard: toda a comunicação ocorre via WhatsApp.
    */
   sendWelcomePatient(
     to: string,
@@ -314,8 +315,6 @@ export class MailService {
       patientName: string;
       doctorName: string;
       hospitalName?: string;
-      dashboardUrl?: string;
-      preferencesUrl?: string;
     },
   ) {
     return this.send('welcome-patient', to, 'Bem-vindo ao Inexci!', context);

@@ -187,7 +187,7 @@ describe('SurgeryRequestTools', () => {
       expect(result).toContain('cadastrado');
     });
 
-    it('com vault ativo, retorna placeholders em vez de nomes reais', async () => {
+    it('com vault ativo, tokeniza apenas protocolo e datas — nomes de negócio em claro', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
         protocol: 'SC-0042',
@@ -209,14 +209,13 @@ describe('SurgeryRequestTools', () => {
         { ...baseContext, piiVault },
       );
 
-      expect(result).not.toContain('João Silva');
-      expect(result).not.toContain('Hospital Santa Maria');
-      expect(result).not.toContain('Unimed');
-      expect(result).toContain('{{patient_name_1}}');
-      expect(result).toContain('{{hospital_name_1}}');
-      expect(result).toContain('{{health_plan_name_1}}');
-
-      expect(piiVault.detokenize('conv-1', result)).toContain('João Silva');
+      // Nomes de negócio ficam em claro após a refatoração de drafts: o LLM
+      // precisa enxergar o nome real para fazer matching por similaridade.
+      expect(result).toContain('João Silva');
+      expect(result).toContain('Hospital Santa Maria');
+      expect(result).toContain('Unimed');
+      // Apenas protocolo continua tokenizado.
+      expect(result).toContain('{{protocol_1}}');
     });
   });
 

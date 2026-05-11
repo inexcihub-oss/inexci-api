@@ -38,10 +38,32 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     get: jest.fn((key: string, defaultValue?: any) => {
       if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
       if (key === 'AI_AUDIO_ENABLED') return 'true';
+      // Mantém testes legados rodando sob comportamento pré-guard:
+      // o guard de `plan_actions` é exercido em spec dedicado
+      // (`ai-orchestrator.plan-guard.spec.ts`).
+      if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
       return defaultValue;
     }),
   };
   const piiRedactionLogRepoMock = { create: jest.fn() };
+  const whatsappConversationRepoMock = {
+    findOne: jest.fn().mockResolvedValue(null),
+    update: jest.fn().mockResolvedValue(undefined),
+  };
+  const operationDraftServiceMock = {
+    getCurrent: jest.fn().mockResolvedValue(null),
+    getCurrentOfType: jest.fn().mockResolvedValue(null),
+    start: jest.fn().mockResolvedValue(null),
+    setField: jest.fn().mockResolvedValue(null),
+    setFields: jest.fn().mockResolvedValue(null),
+    setStatus: jest.fn().mockResolvedValue(null),
+    validate: jest
+      .fn()
+      .mockResolvedValue({ isReady: false, missing: [], draft: null }),
+    getPreview: jest.fn().mockResolvedValue({ text: '', draft: null }),
+    cancel: jest.fn().mockResolvedValue(undefined),
+    finalizeCommit: jest.fn().mockResolvedValue(null),
+  };
   const aiRedisMock = {
     isAvailable: false,
     checkRateLimit: jest.fn().mockResolvedValue(true),
@@ -62,6 +84,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       (key: string, defaultValue?: any) => {
         if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
         if (key === 'AI_AUDIO_ENABLED') return 'true';
+        if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
         return defaultValue;
       },
     );
@@ -91,6 +114,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       piiRedactionLogRepoMock as any,
       aiRedisMock as any,
       defaultContextServiceMock as any,
+      whatsappConversationRepoMock as any,
+      operationDraftServiceMock as any,
     );
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
@@ -335,10 +360,13 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
-    expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
-      '+5511888888888',
-      'Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
+    const audioCall = whatsappServiceMock.sendMessage.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[1] === 'string' &&
+        (call[1] as string).includes('Não consegui transcrever'),
     );
+    expect(audioCall).toBeTruthy();
+    expect(audioCall?.[0]).toBe('+5511888888888');
   });
 
   it('deve reescrever e normalizar resposta mal formatada para WhatsApp', async () => {
@@ -826,6 +854,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         piiRedactionLogRepoMock as any,
         aiRedisMock as any,
         defaultContextServiceMock as any,
+        whatsappConversationRepoMock as any,
+        operationDraftServiceMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
@@ -967,6 +997,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         piiRedactionLogRepoMock as any,
         redisAvailableMock as any,
         defaultContextServiceMock as any,
+        whatsappConversationRepoMock as any,
+        operationDraftServiceMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
@@ -1395,12 +1427,15 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
   describe('Plano Tokens (Fase 4) — slot-filling', () => {
     it('slot-filling bloqueia create_surgery_request_from_whatsapp quando faltar slot e pergunta o slot', async () => {
+      // Memória já tem `patient` confirmado de um turno anterior; a tool é
+      // chamada sem `procedureId` nem `procedure_name`, então o slot-filling
+      // intercepta e devolve a pergunta determinística sobre procedimento.
       conversationServiceMock.getOrCreateConversation.mockResolvedValue({
         id: 'conv-1',
         phone: '+5511999999999',
         userId: 'user-1',
         messagesHistory: [],
-        conversationMemory: { filled_slots: { 'patient.id': 'p-1' } },
+        conversationMemory: { filled_slots: { patient: 'p-1' } },
       });
 
       openaiServiceMock.chatCompletion.mockResolvedValueOnce({
@@ -1415,7 +1450,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
                   function: {
                     name: 'create_surgery_request_from_whatsapp',
                     arguments: JSON.stringify({
-                      patient: { id: 'p-1' },
+                      patientId: 'p-1',
                     }),
                   },
                 },
@@ -1436,7 +1471,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       const sentBody = (
         whatsappServiceMock.sendMessage as jest.Mock
       ).mock.calls.at(-1)?.[1] as string;
-      expect(sentBody).toMatch(/hospital/i);
+      expect(sentBody).toMatch(/procedimento/i);
     });
 
     it('slot-filling não bloqueia tool não-mutativa de criação', async () => {
@@ -1480,6 +1515,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('slot-filling NÃO bloqueia quando todos os campos foram fornecidos', async () => {
+      // Para criar uma SC só é exigido paciente + procedimento (CRIAR ≠ ENVIAR).
+      // Hospital, convênio e TUSS são opcionais nesse momento; o teste passa
+      // patientId + procedure_name (aliases reais da tool) e espera que o
+      // slot-filling deixe a chamada seguir.
       openaiServiceMock.chatCompletion
         .mockResolvedValueOnce({
           choices: [
@@ -1493,12 +1532,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
                     function: {
                       name: 'create_surgery_request_from_whatsapp',
                       arguments: JSON.stringify({
-                        patient: { id: 'p-1' },
-                        surgeryRequest: {
-                          hospital: 'Hosp X',
-                          healthPlan: 'Plano Y',
-                        },
-                        tussItems: [{ code: '111' }],
+                        patientId: 'p-1',
+                        procedure_name: 'Artroscopia de Joelho',
                       }),
                     },
                   },
@@ -1524,6 +1559,191 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       });
 
       expect(toolExecutorMock.executeMany).toHaveBeenCalled();
+    });
+  });
+
+  describe('Resposta numérica determinística', () => {
+    /**
+     * Captura a lista de mensagens enviada ao OpenAI na PRIMEIRA chamada
+     * dentro do turno atual. Útil para conferir o conteúdo do system hint
+     * de interpretação numérica.
+     */
+    const firstMessagesSentToOpenAi = (): any[] => {
+      const call = openaiServiceMock.chatCompletion.mock.calls.at(0);
+      return (call?.[0]?.messages || []) as any[];
+    };
+
+    it('quando o usuário responde "2" e a última mensagem tinha opções numeradas, injeta system hint mapeando para a opção 2', async () => {
+      conversationServiceMock.loadRecentForLlm.mockResolvedValue([
+        {
+          role: 'assistant',
+          content: [
+            'Aqui estão suas solicitações cirúrgicas:',
+            'Pendente: SC-405355 — Patrícia',
+            'Enviada: SC-549841 — Eduardo',
+            '',
+            'O que você gostaria de fazer agora?',
+            '1 - Ver detalhes de uma SC (me diga o protocolo)',
+            '2 - Ver pendências de uma SC',
+            '3 - Criar uma nova SC',
+          ].join('\n'),
+        },
+        { role: 'user', content: '2' },
+      ]);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: 'Claro — qual o protocolo?',
+              tool_calls: null,
+            },
+          },
+        ],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: '2',
+        messageSid: 'SM-NUM-1',
+        mediaUrl: null,
+      });
+
+      const messages = firstMessagesSentToOpenAi();
+      const hint = messages.find(
+        (m: any) =>
+          m.role === 'system' &&
+          typeof m.content === 'string' &&
+          m.content.includes('INTERPRETAÇÃO DETERMINÍSTICA'),
+      );
+      expect(hint).toBeDefined();
+      expect(hint.content).toContain('OPÇÃO 2');
+      expect(hint.content).toContain('Ver pendências de uma SC');
+      expect(hint.content).toMatch(/PROIBIDO/);
+    });
+
+    it('aceita variações curtas como "opcao 3" e mapeia para a opção 3', async () => {
+      conversationServiceMock.loadRecentForLlm.mockResolvedValue([
+        {
+          role: 'assistant',
+          content: [
+            'Posso ajudar com:',
+            '1 - Ver SC',
+            '2 - Ver pendências',
+            '3 - Criar nova SC',
+          ].join('\n'),
+        },
+      ]);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'Vamos criar', tool_calls: null } }],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'opção 3',
+        messageSid: 'SM-NUM-2',
+        mediaUrl: null,
+      });
+
+      const messages = firstMessagesSentToOpenAi();
+      const hint = messages.find(
+        (m: any) =>
+          m.role === 'system' &&
+          typeof m.content === 'string' &&
+          m.content.includes('INTERPRETAÇÃO DETERMINÍSTICA'),
+      );
+      expect(hint).toBeDefined();
+      expect(hint.content).toContain('OPÇÃO 3');
+      expect(hint.content).toContain('Criar nova SC');
+    });
+
+    it('quando dígito não existe na lista, injeta hint pedindo para mostrar opções de novo', async () => {
+      conversationServiceMock.loadRecentForLlm.mockResolvedValue([
+        {
+          role: 'assistant',
+          content: [
+            'Posso ajudar com:',
+            '1 - Ver SC',
+            '2 - Ver pendências',
+          ].join('\n'),
+        },
+      ]);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'Ops, repito', tool_calls: null } }],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: '5',
+        messageSid: 'SM-NUM-3',
+        mediaUrl: null,
+      });
+
+      const messages = firstMessagesSentToOpenAi();
+      const hint = messages.find(
+        (m: any) =>
+          m.role === 'system' &&
+          typeof m.content === 'string' &&
+          m.content.includes('INTERPRETAÇÃO DETERMINÍSTICA'),
+      );
+      expect(hint).toBeDefined();
+      expect(hint.content).toMatch(/1\/2/);
+      expect(hint.content).toMatch(/mostre as op[çc][õo]es novamente/i);
+    });
+
+    it('NÃO injeta hint quando a última mensagem do assistente não tem opções numeradas', async () => {
+      conversationServiceMock.loadRecentForLlm.mockResolvedValue([
+        {
+          role: 'assistant',
+          content: 'Olá, em que posso ajudar?',
+        },
+      ]);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'Resposta', tool_calls: null } }],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: '2',
+        messageSid: 'SM-NUM-4',
+        mediaUrl: null,
+      });
+
+      const messages = firstMessagesSentToOpenAi();
+      const hint = messages.find(
+        (m: any) =>
+          m.role === 'system' &&
+          typeof m.content === 'string' &&
+          m.content.includes('INTERPRETAÇÃO DETERMINÍSTICA'),
+      );
+      expect(hint).toBeUndefined();
+    });
+
+    it('NÃO injeta hint quando o usuário escreve uma frase longa (não é escolha numérica)', async () => {
+      conversationServiceMock.loadRecentForLlm.mockResolvedValue([
+        {
+          role: 'assistant',
+          content: '1 - Ver SC\n2 - Criar nova SC',
+        },
+      ]);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'Resposta', tool_calls: null } }],
+      });
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'quero criar uma nova solicitação para a Beatriz',
+        messageSid: 'SM-NUM-5',
+        mediaUrl: null,
+      });
+
+      const messages = firstMessagesSentToOpenAi();
+      const hint = messages.find(
+        (m: any) =>
+          m.role === 'system' &&
+          typeof m.content === 'string' &&
+          m.content.includes('INTERPRETAÇÃO DETERMINÍSTICA'),
+      );
+      expect(hint).toBeUndefined();
     });
   });
 

@@ -114,6 +114,80 @@ describe('ConversationContextService', () => {
     });
   });
 
+  describe('SC EM CONSTRUÇÃO (memória de slots no system prompt)', () => {
+    it('injeta bloco com paciente e procedimento já fornecidos', async () => {
+      mockMessageRepo.findRecentByConversation.mockResolvedValue([
+        { role: 'user', content: 'Oi', createdAt: new Date() },
+      ]);
+
+      const result = await service.buildContext({
+        conversation: buildConversation({
+          conversationMemory: {
+            filled_slots: {
+              patient: 'Beatriz Helena Santos',
+              procedure: 'Cirurgia do Joelho',
+            },
+            surgeryRequest: {
+              hospital: 'Albert Einstein',
+              healthPlan: 'Unimed',
+            },
+          },
+        }),
+      });
+
+      const block = result.messages.find((m) =>
+        (m.content as string)?.startsWith?.(
+          'SC EM CONSTRUÇÃO — DADOS JÁ FORNECIDOS',
+        ),
+      );
+
+      expect(block).toBeTruthy();
+      const content = block?.content as string;
+      expect(content).toContain('Beatriz Helena Santos');
+      expect(content).toContain('Cirurgia do Joelho');
+      expect(content).toContain('Albert Einstein');
+      expect(content).toContain('Unimed');
+      expect(content).toContain('NÃO peça de novo');
+    });
+
+    it('não injeta bloco quando não há slots preenchidos', async () => {
+      mockMessageRepo.findRecentByConversation.mockResolvedValue([]);
+
+      const result = await service.buildContext({
+        conversation: buildConversation({
+          conversationMemory: {},
+        }),
+      });
+
+      const block = result.messages.find((m) =>
+        (m.content as string)?.startsWith?.('SC EM CONSTRUÇÃO'),
+      );
+      expect(block).toBeUndefined();
+    });
+
+    it('injeta bloco mesmo em estratégia history_only (circuit breaker)', async () => {
+      mockMessageRepo.findRecentByConversation.mockResolvedValue([
+        { role: 'user', content: 'Oi', createdAt: new Date() },
+      ]);
+
+      const result = await service.buildContext({
+        conversation: buildConversation({
+          conversationMemory: {
+            summary_failures: 3,
+            filled_slots: { procedure: 'Artroscopia de Joelho' },
+          },
+        }),
+      });
+
+      expect(result.strategy).toBe('history_only');
+      const block = result.messages.find((m) =>
+        (m.content as string)?.startsWith?.('SC EM CONSTRUÇÃO'),
+      );
+      expect(block).toBeTruthy();
+      expect(block?.content as string).toContain('Artroscopia de Joelho');
+    });
+  });
+
   describe('buildContext (circuit breaker)', () => {
     it('degrada para history_only após 3 falhas consecutivas do sumarizador', async () => {
       mockMessageRepo.findRecentByConversation.mockResolvedValue([
@@ -236,7 +310,9 @@ describe('ConversationContextService', () => {
           typeof m.content === 'string' &&
           m.content.startsWith('USUÁRIO ATUAL'),
       );
-      expect(userBlock?.content).toBe('USUÁRIO ATUAL: ID=user-1');
+      const content = userBlock?.content as string;
+      expect(content).toContain('- ID: user-1');
+      expect(content).not.toContain('Telefone');
     });
 
     it('não corta system prompt nem memory mesmo sob orçamento apertado', async () => {

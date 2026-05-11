@@ -55,14 +55,14 @@ export class ReportsService {
       return {
         surgeryRequest: {
           total: 0,
-          total_scheduled: 0,
-          total_performed: 0,
-          total_invoiced_count: 0,
-          total_invoiced_value: 0,
-          total_received_value: 0,
-          total_by_health_plan: [],
-          total_by_status: [],
-          total_by_hospital: [],
+          totalScheduled: 0,
+          totalPerformed: 0,
+          totalInvoicedCount: 0,
+          totalInvoicedValue: 0,
+          totalReceivedValue: 0,
+          totalByHealthPlan: [],
+          totalByStatus: [],
+          totalByHospital: [],
         },
       };
     }
@@ -119,14 +119,14 @@ export class ReportsService {
     return {
       surgeryRequest: {
         total: respTotal,
-        total_scheduled: respTotalScheduled,
-        total_performed: respPerformed,
-        total_invoiced_count: respInvoiced,
-        total_invoiced_value: totalInvoiced._sum.invoiced_value,
-        total_received_value: totalInvoiced._sum.receivedValue,
-        total_by_health_plan: totalByHealthPlan,
-        total_by_status: totalByStatus,
-        total_by_hospital: totalByHospital,
+        totalScheduled: respTotalScheduled,
+        totalPerformed: respPerformed,
+        totalInvoicedCount: respInvoiced,
+        totalInvoicedValue: totalInvoiced.invoicedValue,
+        totalReceivedValue: totalInvoiced.receivedValue,
+        totalByHealthPlan: totalByHealthPlan,
+        totalByStatus: totalByStatus,
+        totalByHospital: totalByHospital,
       },
     };
   }
@@ -175,7 +175,7 @@ export class ReportsService {
       await this.surgeryRequestRepository.getAverageCompletionTime(where);
 
     return {
-      average_days: result?.average_days || 0,
+      averageDays: result?.averageDays || 0,
     };
   }
 
@@ -201,8 +201,8 @@ export class ReportsService {
 
     return {
       total: pendingAnalysis + pendingClosed,
-      pending_analysis: pendingAnalysis,
-      pending_scheduling: pendingClosed,
+      pendingAnalysis,
+      pendingScheduling: pendingClosed,
     };
   }
 
@@ -219,7 +219,7 @@ export class ReportsService {
     );
 
     return results.map((item) => ({
-      month: item.month_label,
+      month: item.monthLabel,
       count: parseInt(item.count, 10),
     }));
   }

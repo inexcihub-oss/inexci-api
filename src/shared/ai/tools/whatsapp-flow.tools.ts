@@ -12,6 +12,10 @@ import { HealthPlanRepository } from '../../../database/repositories/health-plan
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
 import { UserRepository } from '../../../database/repositories/user.repository';
 import {
+  findOwnedByNormalizedName,
+  resolveOwnerIdFromContext,
+} from './catalog.helpers';
+import {
   SurgeryRequestPriority,
   SurgeryRequestStatus,
 } from '../../../database/entities/surgery-request.entity';
@@ -20,6 +24,7 @@ import { PendencyValidatorService } from '../../../modules/surgery-requests/pend
 import { TussService } from '../../../modules/tuss/tuss.service';
 import { tokenizePii, detokenizeArg } from '../pii/tool-pii-helpers';
 import { PiiCategory } from '../services/pii-vault.service';
+import { EntityResolverService } from '../services/entity-resolver.service';
 import {
   buildProtocolCandidates,
   formatScProtocolForDisplay,
@@ -49,6 +54,25 @@ function formatDatePtBr(dateStr: string): string {
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return dateStr;
   return date.toLocaleDateString('pt-BR');
+}
+
+/**
+ * Verifica se dois nomes compartilham pelo menos um token "significativo"
+ * (com 3+ caracteres alfabéticos). Útil para sugerir pacientes próximos
+ * quando o usuário digitou só o primeiro nome ou um nome levemente
+ * diferente. Insensível a acentos/caixa.
+ */
+function namesShareToken(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const tokensA = a.split(/\s+/).filter((t) => t.length >= 3);
+  const tokensB = b.split(/\s+/).filter((t) => t.length >= 3);
+  if (!tokensA.length || !tokensB.length) return false;
+  return tokensA.some((tokenA) =>
+    tokensB.some(
+      (tokenB) =>
+        tokenA === tokenB || tokenA.includes(tokenB) || tokenB.includes(tokenA),
+    ),
+  );
 }
 
 function sanitizeIdentifier(raw: unknown): string {
@@ -204,6 +228,7 @@ export function buildWhatsappFlowTools(
   procedureRepo?: ProcedureRepository,
   userRepo?: UserRepository,
   tussService?: TussService,
+  entityResolver?: EntityResolverService,
 ): AiTool[] {
   const confirmDate: AiTool = {
     name: 'confirm_date',
@@ -1311,21 +1336,41 @@ export function buildWhatsappFlowTools(
           return 'Hospital não encontrado para essa clínica. Verifique o `hospitalId`.';
         }
       } else if (hospitalName) {
+        // Tenta primeiro match exato; depois fuzzy (Dice + Levenshtein) para
+        // tolerar acentos / typos / nomes parciais (ex.: "Albert Einstein"
+        // → "Hospital Israelita Albert Einstein").
         selectedHospital = await hospitalRepo.findOne({
           name: hospitalName,
           ownerId: auth.request.ownerId,
         } as any);
+        if (!selectedHospital && entityResolver) {
+          const candidates = await hospitalRepo.findMany(
+            { ownerId: auth.request.ownerId } as any,
+            0,
+            200,
+          );
+          const result = entityResolver.resolve<any>({
+            query: hospitalName,
+            candidates,
+            getName: (h: any) => String(h.name ?? ''),
+            getId: (h: any) => String(h.id),
+          });
+          if (result.status === 'resolved' && result.resolved) {
+            selectedHospital = result.resolved.data;
+          } else if (result.status === 'ambiguous') {
+            const top = result.candidates
+              .slice(0, 5)
+              .map((c) => `• ${c.label}`)
+              .join('\n');
+            return `Encontrei vários hospitais parecidos com "${hospitalName}":\n${top}\nResponda com o nome exato ou o ID.`;
+          }
+        }
         if (!selectedHospital) {
           return `Hospital "${hospitalName}" não encontrado para essa clínica. Cadastre-o antes ou informe o \`hospitalId\`.`;
         }
       }
 
-      const previewName = tokenizePii(
-        context,
-        'set_hospital',
-        'hospital_name',
-        selectedHospital.name,
-      );
+      const previewName = String(selectedHospital.name);
 
       if (!args.confirm) {
         return `A solicitação ${protocolToken} terá o hospital atualizado para ${previewName}. Confirme com "sim" para executar.`;
@@ -1562,14 +1607,14 @@ export function buildWhatsappFlowTools(
       function: {
         name: 'list_sc_creation_catalog',
         description:
-          'Lista categorias e registros disponíveis para criação de solicitação via WhatsApp (pacientes, procedimentos, convênios, hospitais, médicos e modelos).',
+          'Lista categorias e registros disponíveis para criação de solicitação via WhatsApp. ATENÇÃO: `procedures` (procedimentos cirúrgicos como "Artroscopia de Joelho") e `tuss_codes` (códigos TUSS de faturamento) são categorias DISTINTAS. Para buscar procedimento cirúrgico por nome use a tool dedicada `search_procedures`.',
         parameters: {
           type: 'object',
           properties: {
             category: {
               type: 'string',
               description:
-                'Categoria opcional: patients, procedures, health_plans, hospitals, doctors, templates. Se omitido, retorna resumo de todas.',
+                'Categoria opcional: patients, procedures (cirúrgicos), tuss_codes (faturamento), health_plans, hospitals, doctors, templates. Se omitido, retorna resumo de todas.',
             },
             limit: {
               type: 'number',
@@ -1591,9 +1636,18 @@ export function buildWhatsappFlowTools(
           ? Math.min(Math.max(Math.floor(args.limit), 1), 100)
           : 20;
 
+      // Pacientes são por médico; hospitais e convênios são por CLÍNICA (ownerId).
       const doctorWhere = context.accessibleDoctorIds.length
         ? ({ doctorId: In(context.accessibleDoctorIds) } as any)
         : ({ doctorId: '__none__' } as any);
+
+      const ownerIdForLookup = await resolveOwnerIdFromContext(
+        context,
+        userRepo,
+      );
+      const ownerWhere = ownerIdForLookup
+        ? ({ ownerId: ownerIdForLookup } as any)
+        : ({} as any);
 
       const [
         patients,
@@ -1608,10 +1662,10 @@ export function buildWhatsappFlowTools(
           ? patientRepo.findMany(doctorWhere, 0, limit)
           : Promise.resolve([] as any[]),
         hospitalRepo
-          ? hospitalRepo.findMany(doctorWhere, 0, limit)
+          ? hospitalRepo.findMany(ownerWhere, 0, limit)
           : Promise.resolve([] as any[]),
         healthPlanRepo
-          ? healthPlanRepo.findMany(doctorWhere, 0, limit)
+          ? healthPlanRepo.findMany(ownerWhere, 0, limit)
           : Promise.resolve([] as any[]),
         procedureRepo
           ? procedureRepo.findMany({} as any, 0, limit)
@@ -1629,13 +1683,19 @@ export function buildWhatsappFlowTools(
         surgeryRequestsService.getTemplates(context.userId as string),
       ]);
 
+      // ATENÇÃO: procedimentos cirúrgicos (tabela `procedures`, ex.:
+      // "Artroscopia de Joelho") e códigos TUSS (faturamento) são entidades
+      // DISTINTAS. Categorias separadas para evitar que a IA confunda os dois
+      // ao responder ao usuário.
       const categoryMap: Record<string, { label: string; items: any[] }> = {
         patients: { label: 'Pacientes', items: patients as any[] },
         procedures: {
-          label: 'Procedimentos TUSS',
-          items: ((tussCatalog as any[])?.length
-            ? (tussCatalog as any[])
-            : (procedures as any[])) as any[],
+          label: 'Procedimentos cirúrgicos',
+          items: procedures as any[],
+        },
+        tuss_codes: {
+          label: 'Códigos TUSS (faturamento)',
+          items: tussCatalog as any[],
         },
         health_plans: { label: 'Convênios', items: healthPlans as any[] },
         hospitals: { label: 'Hospitais', items: hospitals as any[] },
@@ -1649,6 +1709,7 @@ export function buildWhatsappFlowTools(
         health_plans: 'health_plan_name',
         doctors: 'doctor_name',
         procedures: null,
+        tuss_codes: null,
         templates: null,
       };
 
@@ -1661,22 +1722,18 @@ export function buildWhatsappFlowTools(
         const piiCategory = CATEGORY_TO_PII[categoryKey] ?? null;
         const lines = items.slice(0, limit).map((item) => {
           const rawName = item.name || item.title || 'Sem nome';
-          if (categoryKey === 'procedures') {
+          if (categoryKey === 'tuss_codes') {
             const tussCode = asNonEmptyString(item.tussCode);
             return tussCode
               ? `  - ${rawName} (Código TUSS: ${tussCode})`
               : `  - ${rawName}`;
           }
 
-          const displayName = piiCategory
-            ? tokenizePii(
-                context,
-                'list_sc_creation_catalog',
-                piiCategory,
-                rawName,
-              )
-            : rawName;
-          return `  - ${displayName} (id: ${item.id})`;
+          // Após a refatoração de drafts: nomes ficam em claro no catálogo
+          // de criação para que o LLM possa identificar matches por
+          // similaridade. CPF/telefone/email não entram aqui.
+          void piiCategory;
+          return `  - ${rawName} (id: ${item.id})`;
         });
         return [`• ${label} (${items.length}):`, ...lines].join('\n');
       };
@@ -1684,7 +1741,7 @@ export function buildWhatsappFlowTools(
       if (normalizedCategory) {
         const category = categoryMap[normalizedCategory];
         if (!category) {
-          return 'Categoria inválida. Use: patients, procedures, health_plans, hospitals, doctors, templates.';
+          return 'Categoria inválida. Use: patients, procedures, tuss_codes, health_plans, hospitals, doctors, templates.';
         }
 
         return [
@@ -1698,8 +1755,13 @@ export function buildWhatsappFlowTools(
         formatItems('patients', 'Pacientes', categoryMap.patients.items),
         formatItems(
           'procedures',
-          'Procedimentos TUSS',
+          'Procedimentos cirúrgicos',
           categoryMap.procedures.items,
+        ),
+        formatItems(
+          'tuss_codes',
+          'Códigos TUSS (faturamento)',
+          categoryMap.tuss_codes.items,
         ),
         formatItems(
           'health_plans',
@@ -1709,172 +1771,16 @@ export function buildWhatsappFlowTools(
         formatItems('hospitals', 'Hospitais', categoryMap.hospitals.items),
         formatItems('doctors', 'Médicos', categoryMap.doctors.items),
         formatItems('templates', 'Modelos', categoryMap.templates.items),
-        'Se quiser, posso listar uma categoria específica em mais detalhes.',
+        'Procedimento cirúrgico ≠ código TUSS: o primeiro é o tipo da cirurgia (ex.: "Artroscopia de Joelho"); o segundo é faturamento.',
       ].join('\n');
     },
   };
 
-  const createScCatalogRecord: AiTool = {
-    name: 'create_sc_catalog_record',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'create_sc_catalog_record',
-        description:
-          'Cria um registro auxiliar para uso na criação da SC (paciente, hospital, convênio, procedimento ou modelo). Requer confirmação explícita.',
-        parameters: {
-          type: 'object',
-          properties: {
-            category: {
-              type: 'string',
-              description:
-                'Categoria: patient, hospital, healthPlan, procedure ou template.',
-            },
-            doctorId: {
-              type: 'string',
-              description:
-                'ID do médico (opcional quando houver apenas um acessível).',
-            },
-            name: { type: 'string', description: 'Nome do registro.' },
-            phone: {
-              type: 'string',
-              description: 'Telefone (quando aplicável).',
-            },
-            email: { type: 'string', description: 'Email (quando aplicável).' },
-            templateData: {
-              type: 'object',
-              description: 'Dados do template (apenas para category=template).',
-            },
-            confirm: {
-              type: 'boolean',
-              description:
-                'Se true, executa a criação. Caso contrário, mostra preview.',
-            },
-          },
-          required: ['category', 'name'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const category = asNonEmptyString(args.category)?.toLowerCase();
-      const name = asNonEmptyString(args.name);
-      if (!category || !name) {
-        return 'Parâmetro inválido: informe `category` e `name`.';
-      }
-
-      const hasSingleDoctor = context.accessibleDoctorIds.length === 1;
-      const doctorId =
-        asNonEmptyString(args.doctorId) ||
-        (hasSingleDoctor ? context.accessibleDoctorIds[0] : null);
-
-      if (
-        ['patient', 'hospital', 'healthPlan'].includes(category) &&
-        !doctorId
-      ) {
-        return 'Para essa categoria, informe `doctorId` (há mais de um médico acessível).';
-      }
-
-      if (doctorId && !context.accessibleDoctorIds.includes(doctorId)) {
-        return 'Você não tem permissão para criar registro para esse médico.';
-      }
-
-      if (!args.confirm) {
-        return `Pré-visualização: vou criar um registro de categoria ${category} com nome "${name}". Confirme com "sim" para executar.`;
-      }
-
-      try {
-        if (category === 'patient') {
-          if (!patientRepo || !doctorId)
-            return 'Fluxo de paciente indisponível.';
-          const phone = asNonEmptyString(args.phone);
-          const email = asNonEmptyString(args.email);
-          if (!phone || !email) {
-            return 'Para criar paciente, informe também `phone` e `email`.';
-          }
-          const created = await patientRepo.create({
-            doctorId: doctorId,
-            name,
-            phone,
-            email,
-            active: true,
-          } as any);
-          return `✅ Paciente criado com sucesso: ${created.name} (id: ${created.id}).`;
-        }
-
-        if (category === 'hospital') {
-          if (!hospitalRepo || !doctorId)
-            return 'Fluxo de hospital indisponível.';
-          const existing = await hospitalRepo.findOne({
-            name,
-            doctorId: doctorId,
-          } as any);
-          if (existing) {
-            return `Hospital já cadastrado: ${existing.name} (id: ${existing.id}).`;
-          }
-          const created = await hospitalRepo.create({
-            doctorId: doctorId,
-            name,
-            phone: asNonEmptyString(args.phone) || undefined,
-            email: asNonEmptyString(args.email) || undefined,
-            active: true,
-          } as any);
-          return `✅ Hospital criado com sucesso: ${created.name} (id: ${created.id}).`;
-        }
-
-        if (category === 'healthPlan') {
-          if (!healthPlanRepo || !doctorId)
-            return 'Fluxo de convênio indisponível.';
-          const phone = asNonEmptyString(args.phone);
-          const email = asNonEmptyString(args.email);
-          if (!phone || !email) {
-            return 'Para criar convênio, informe também `phone` e `email`.';
-          }
-          const existing = await healthPlanRepo.findOne({
-            name,
-            doctorId: doctorId,
-          } as any);
-          if (existing) {
-            return `Convênio já cadastrado: ${existing.name} (id: ${existing.id}).`;
-          }
-          const created = await healthPlanRepo.create({
-            doctorId: doctorId,
-            name,
-            phone,
-            email,
-            active: true,
-          } as any);
-          return `✅ Convênio criado com sucesso: ${created.name} (id: ${created.id}).`;
-        }
-
-        if (category === 'procedure') {
-          if (!procedureRepo) return 'Fluxo de procedimento indisponível.';
-          const created = await procedureRepo.create({ name } as any);
-          return `✅ Procedimento criado com sucesso: ${created.name} (id: ${created.id}).`;
-        }
-
-        if (category === 'template') {
-          const templateData =
-            args.templateData && typeof args.templateData === 'object'
-              ? args.templateData
-              : {};
-          const created = await surgeryRequestsService.createTemplate(
-            {
-              name,
-              templateData: templateData,
-            },
-            context.userId as string,
-          );
-          return `✅ Modelo criado com sucesso: ${created.name} (id: ${created.id}).`;
-        }
-
-        return 'Categoria inválida. Use: patient, hospital, healthPlan, procedure ou template.';
-      } catch (err: any) {
-        return `Erro ao criar registro da categoria ${category}: ${err?.message || 'erro desconhecido'}`;
-      }
-    },
-  };
+  // Tool legada `create_sc_catalog_record` foi removida em 2026-05-11. A
+  // criação de hospital/convênio/procedimento é feita pelas tools dedicadas
+  // `create_hospital`, `create_health_plan` e `create_procedure` (registradas
+  // a partir de `catalog.tools.ts`). Paciente continua sendo criado via
+  // `create_patient` (em `general.tools.ts`).
 
   const createSurgeryRequestFromWhatsapp: AiTool = {
     name: 'create_surgery_request_from_whatsapp',
@@ -1883,7 +1789,7 @@ export function buildWhatsappFlowTools(
       function: {
         name: 'create_surgery_request_from_whatsapp',
         description:
-          'Cria uma nova solicitação cirúrgica a partir do WhatsApp, seguindo os campos do wizard web. Requer confirmação explícita.',
+          '[DEPRECATED — preferir `sc_draft_*`] Cria uma nova solicitação cirúrgica a partir do WhatsApp em uma única chamada. Mantida por compatibilidade; use o fluxo de rascunho (`plan_actions` → `sc_draft_set_*` → `sc_draft_preview` → `sc_draft_commit`).',
         parameters: {
           type: 'object',
           properties: {
@@ -2051,7 +1957,17 @@ export function buildWhatsappFlowTools(
       }
 
       if (!procedure) {
-        return 'Procedimento não encontrado. Informe um `procedureId` válido ou um nome existente no catálogo.';
+        // Mensagem imperativa: força o LLM a chamar a tool de criação em vez
+        // de "conversar" sobre cadastrar (que vira loop infinito).
+        const nameForCreate = procedureNameArg || '<nome do procedimento>';
+        return [
+          `Procedimento "${nameForCreate}" não está cadastrado no catálogo de procedimentos cirúrgicos.`,
+          'AÇÃO OBRIGATÓRIA AGORA: chame a tool `create_procedure` com',
+          `\`name="${nameForCreate}"\` e \`confirm=false\` para mostrar o preview ao usuário.`,
+          'NÃO responda em texto pedindo confirmação — apenas chame a tool.',
+          'Quando o usuário responder "sim", o sistema re-executará automaticamente com `confirm=true`.',
+          'Alternativamente, use `search_procedures(query)` para sugerir um procedimento já existente.',
+        ].join(' ');
       }
 
       let patient = null as any;
@@ -2073,21 +1989,20 @@ export function buildWhatsappFlowTools(
       }
 
       if (!patient && patientNameArg) {
-        const candidates = await patientRepo.findMany(
+        const normalizedName = normalizeText(patientNameArg);
+
+        // 1) Tentativa principal: pacientes vinculados ao próprio médico
+        //    escolhido para a SC.
+        const ownCandidates = await patientRepo.findMany(
           { doctorId: doctorId } as any,
           0,
           200,
         );
-        const normalizedName = normalizeText(patientNameArg);
-        // 1) match exato por nome
-        patient = candidates.find((item) => {
-          const itemName = normalizeText(item.name);
-          return itemName === normalizedName;
-        });
-        // 2) match parcial (sub-string) — ajuda quando o usuário fala só o
-        //    primeiro/último nome via áudio.
+        patient = ownCandidates.find(
+          (item) => normalizeText(item.name) === normalizedName,
+        );
         if (!patient && normalizedName) {
-          patient = candidates.find((item) => {
+          patient = ownCandidates.find((item) => {
             const itemName = normalizeText(item.name);
             return (
               !!itemName &&
@@ -2097,14 +2012,91 @@ export function buildWhatsappFlowTools(
           });
         }
 
-        if (!patient) {
+        // 2) Ampliação: paciente pode estar cadastrado em outro médico
+        //    acessível pelo mesmo usuário (cenário comum em clínicas com
+        //    secretárias/colaboradores que atendem vários médicos).
+        let foreignMatch: any = null;
+        if (
+          !patient &&
+          normalizedName &&
+          Array.isArray(context.accessibleDoctorIds) &&
+          context.accessibleDoctorIds.length > 0
+        ) {
+          const otherDoctorIds = context.accessibleDoctorIds.filter(
+            (id) => id !== doctorId,
+          );
+          if (otherDoctorIds.length > 0) {
+            const foreignCandidates = await patientRepo.findMany(
+              { doctorId: In(otherDoctorIds) } as any,
+              0,
+              500,
+            );
+            foreignMatch =
+              foreignCandidates.find(
+                (item) => normalizeText(item.name) === normalizedName,
+              ) ||
+              foreignCandidates.find((item) => {
+                const itemName = normalizeText(item.name);
+                return (
+                  !!itemName &&
+                  (itemName.includes(normalizedName) ||
+                    normalizedName.includes(itemName))
+                );
+              }) ||
+              null;
+          }
+        }
+
+        if (!patient && foreignMatch) {
+          const foreignNameToken = String(foreignMatch.name);
           return [
-            `Paciente "${patientNameArg}" não está cadastrado para esse médico.`,
-            'Posso cadastrá-lo agora antes de criar a SC: chame `create_patient` com nome, telefone e e-mail (mínimo). Em seguida volte aqui com o `patientId` retornado.',
-            'Se preferir consultar a lista de pacientes existentes, use `list_patients` (com `search` opcional).',
+            `Encontrei a paciente ${foreignNameToken} (id: ${foreignMatch.id}), mas está vinculada a outro médico da clínica.`,
+            'Opções:',
+            `1) Criar a SC com o médico responsável por ela (informe \`doctorId=${foreignMatch.doctorId}\` na próxima chamada).`,
+            `2) Cadastrar uma nova ficha desta paciente para o médico atual (use \`create_patient\`).`,
+            'Responda informando qual opção prefere.',
+          ].join('\n');
+        }
+
+        if (!patient) {
+          // 3) Candidatos próximos (mesmo doctor) — ajuda quando o usuário
+          //    digitou um nome levemente diferente. Mostramos até 5 para o
+          //    LLM oferecer ao usuário sem inventar.
+          const close = ownCandidates
+            .map((item) => ({
+              item,
+              name: normalizeText(item.name),
+            }))
+            .filter(
+              ({ name }) => !!name && namesShareToken(name, normalizedName),
+            )
+            .slice(0, 5);
+
+          if (close.length > 0) {
+            const lines = close.map(({ item }) => {
+              return `- ${String(item.name)} (id: ${item.id})`;
+            });
+            return [
+              `Não encontrei exatamente "${patientNameArg}" entre os pacientes deste médico.`,
+              'Pacientes parecidos:',
+              ...lines,
+              'É algum desses? Responda com o nome ou o id. Se for um paciente novo, use `create_patient` antes de prosseguir.',
+            ].join('\n');
+          }
+
+          return [
+            `Não encontrei nenhum paciente com nome "${patientNameArg}" entre os pacientes acessíveis.`,
+            'Posso cadastrá-lo antes de criar a SC? Use `create_patient` (apenas `name` é obrigatório; telefone e e-mail são opcionais).',
+            'Se preferir consultar a base de pacientes, use `list_patients` (`search` opcional, `match_mode` opcional).',
           ].join(' ');
         }
       }
+
+      // Hospital e convênio são por CLÍNICA (ownerId), não por médico.
+      const ownerIdForLookup = await resolveOwnerIdFromContext(
+        context,
+        userRepo,
+      );
 
       const hospitalIdArg = asNonEmptyString(args.hospitalId);
       const hospitalNameArg = asNonEmptyString(args.hospital_name);
@@ -2113,20 +2105,21 @@ export function buildWhatsappFlowTools(
         if (!hospitalRepo) return 'Fluxo de hospital indisponível no momento.';
         hospital = await hospitalRepo.findOne({
           id: hospitalIdArg,
-          doctorId: doctorId,
+          ...(ownerIdForLookup ? { ownerId: ownerIdForLookup } : {}),
         } as any);
         if (!hospital) {
-          return 'Hospital não encontrado para este médico. Verifique `hospitalId`.';
+          return 'Hospital não encontrado nesta clínica. Verifique `hospitalId` ou peça para criar com `create_hospital`.';
         }
       } else if (hospitalNameArg) {
         if (!hospitalRepo) return 'Fluxo de hospital indisponível no momento.';
-        hospital = await hospitalRepo.findOne({
-          name: hospitalNameArg,
-          doctorId: doctorId,
-        } as any);
+        hospital = await findOwnedByNormalizedName(
+          hospitalRepo as any,
+          hospitalNameArg,
+          ownerIdForLookup,
+        );
 
         if (!hospital) {
-          return 'Hospital não encontrado para este médico. Informe `hospitalId` ou nome exato de um hospital cadastrado.';
+          return `Hospital "${hospitalNameArg}" não está cadastrado nesta clínica. Posso criá-lo agora com \`create_hospital\` (precisa só do nome e da sua confirmação) e em seguida retomar a criação da SC. Hospital é opcional na criação — você também pode prosseguir sem ele.`;
         }
       }
 
@@ -2138,21 +2131,22 @@ export function buildWhatsappFlowTools(
           return 'Fluxo de convênio indisponível no momento.';
         healthPlan = await healthPlanRepo.findOne({
           id: healthPlanIdArg,
-          doctorId: doctorId,
+          ...(ownerIdForLookup ? { ownerId: ownerIdForLookup } : {}),
         } as any);
         if (!healthPlan) {
-          return 'Convênio não encontrado para este médico. Verifique `healthPlanId`.';
+          return 'Convênio não encontrado nesta clínica. Verifique `healthPlanId` ou peça para criar com `create_health_plan`.';
         }
       } else if (healthPlanNameArg) {
         if (!healthPlanRepo)
           return 'Fluxo de convênio indisponível no momento.';
-        healthPlan = await healthPlanRepo.findOne({
-          name: healthPlanNameArg,
-          doctorId: doctorId,
-        } as any);
+        healthPlan = await findOwnedByNormalizedName(
+          healthPlanRepo as any,
+          healthPlanNameArg,
+          ownerIdForLookup,
+        );
 
         if (!healthPlan) {
-          return 'Convênio não encontrado para este médico. Informe `healthPlanId` ou nome exato de um convênio cadastrado.';
+          return `Convênio "${healthPlanNameArg}" não está cadastrado nesta clínica. Posso criá-lo agora com \`create_health_plan\` (precisa só do nome e da sua confirmação) e em seguida retomar a criação da SC. Convênio é opcional na criação — você também pode prosseguir sem ele.`;
         }
       }
 
@@ -2268,7 +2262,6 @@ export function buildWhatsappFlowTools(
 
   return [
     listScCreationCatalog,
-    createScCatalogRecord,
     createSurgeryRequestFromWhatsapp,
     confirmDate,
     updateDateOptions,

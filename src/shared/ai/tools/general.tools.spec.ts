@@ -27,6 +27,14 @@ describe('GeneralTools', () => {
   beforeEach(() => jest.clearAllMocks());
 
   describe('get_patient_info', () => {
+    beforeEach(() => {
+      mockUserRepo.findOne.mockResolvedValue({
+        id: 'user-1',
+        name: 'Admin',
+        ownerId: 'owner-1',
+      });
+    });
+
     it('retorna dados em texto plano quando não há vault ativo', async () => {
       mockPatientRepo.findMany.mockResolvedValue([
         {
@@ -51,7 +59,7 @@ describe('GeneralTools', () => {
       expect(result).toContain('carlos@example.com');
     });
 
-    it('com vault ativo, mascara nome, CPF, telefone, e-mail e nascimento', async () => {
+    it('com vault ativo, mascara CPF, telefone, e-mail e nascimento mas mantém nome em claro (PII de negócio do próprio owner)', async () => {
       mockPatientRepo.findMany.mockResolvedValue([
         {
           id: 'pat-1',
@@ -72,11 +80,10 @@ describe('GeneralTools', () => {
         { ...baseContext, piiVault },
       );
 
-      expect(result).not.toContain('Carlos Silva');
+      expect(result).toContain('Carlos Silva');
       expect(result).not.toContain('12345678900');
       expect(result).not.toContain('11999990000');
       expect(result).not.toContain('carlos@example.com');
-      expect(result).toContain('{{patient_name_1}}');
       expect(result).toContain('{{cpf_1}}');
       expect(result).toContain('{{phone_1}}');
       expect(result).toContain('{{email_1}}');
@@ -109,7 +116,7 @@ describe('GeneralTools', () => {
       });
     });
 
-    it('lista os pacientes da clínica e tokeniza nomes/telefones', async () => {
+    it('lista os pacientes da clínica em claro (nome) mas tokeniza telefone', async () => {
       mockPatientRepo.findMany.mockResolvedValue([
         { id: 'p1', name: 'Maria do Carmo', phone: '11988887777' },
         { id: 'p2', name: 'José Pereira', phone: '11955554444' },
@@ -122,13 +129,12 @@ describe('GeneralTools', () => {
       const result = await tool.execute({}, { ...baseContext, piiVault });
 
       expect(result).toContain('Pacientes cadastrados');
-      expect(result).toContain('{{patient_name_1}}');
-      expect(result).toContain('{{patient_name_2}}');
-      expect(result).not.toContain('Maria do Carmo');
-
-      const detok = piiVault.detokenize('conv-1', result);
-      expect(detok).toContain('Maria do Carmo');
-      expect(detok).toContain('José Pereira');
+      expect(result).toContain('Maria do Carmo');
+      expect(result).toContain('José Pereira');
+      expect(result).toContain('{{phone_1}}');
+      expect(result).toContain('{{phone_2}}');
+      expect(result).not.toContain('11988887777');
+      expect(result).not.toContain('11955554444');
     });
 
     it('retorna mensagem clara quando não há pacientes', async () => {
@@ -140,18 +146,70 @@ describe('GeneralTools', () => {
       expect(result).toContain('Nenhum paciente cadastrado');
     });
 
-    it('aplica filtro por search (case-insensitive)', async () => {
+    it('aplica filtro por search (modo `contains`, case-insensitive)', async () => {
       mockPatientRepo.findMany.mockResolvedValue([
         { id: 'p1', name: 'Maria do Carmo', phone: '11988887777' },
         { id: 'p2', name: 'José Pereira', phone: '11955554444' },
       ]);
 
       const tool = getTool('list_patients');
-      const result = await tool.execute({ search: 'maria' }, baseContext);
+      const result = await tool.execute(
+        { search: 'maria', match_mode: 'contains' },
+        baseContext,
+      );
 
-      expect(result).toContain('Pacientes encontrados para "maria"');
+      expect(result).toMatch(/contêm "maria"/);
       expect(result).toContain('Maria do Carmo');
       expect(result).not.toContain('José Pereira');
+    });
+
+    it('match_mode="fuzzy" tolera typos e nome parcial', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([
+        { id: 'p1', name: 'Beatriz Helena Santos', phone: '11988887777' },
+        { id: 'p2', name: 'Marcos Antônio', phone: '11955554444' },
+      ]);
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute(
+        { search: 'Beatriz Elena', match_mode: 'fuzzy' },
+        baseContext,
+      );
+
+      expect(result).toContain('Beatriz Helena Santos');
+      expect(result).not.toContain('Marcos Antônio');
+    });
+
+    it('match_mode="prefix" filtra apenas quem começa com o termo (regressão "começa com B")', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([
+        { id: 'p1', name: 'Beatriz Helena Santos', phone: '11988887777' },
+        { id: 'p2', name: 'Marcos Antônio Ribeiro', phone: '11955554444' },
+      ]);
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute(
+        { search: 'B', match_mode: 'prefix' },
+        baseContext,
+      );
+
+      expect(result).toContain('Beatriz Helena Santos');
+      // "Ribeiro" contém "b" mas o nome NÃO começa com B → não pode vazar.
+      expect(result).not.toContain('Marcos Antônio Ribeiro');
+    });
+
+    it('match_mode="exact" exige nome integral', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([
+        { id: 'p1', name: 'Beatriz Helena Santos', phone: '11988887777' },
+        { id: 'p2', name: 'Carlos Andrade', phone: '11955554444' },
+      ]);
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute(
+        { search: 'Beatriz', match_mode: 'exact' },
+        baseContext,
+      );
+
+      expect(result).toContain('Nenhum paciente encontrado');
+      expect(result).not.toContain('Beatriz Helena Santos');
     });
 
     it('respeita limit (cap em 50)', async () => {

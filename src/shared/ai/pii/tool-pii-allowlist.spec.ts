@@ -8,12 +8,15 @@ import {
 
 describe('tool-pii-allowlist', () => {
   describe('TOOL_PII_ALLOWLIST', () => {
-    it('inclui get_surgery_request_status com patient_name e hospital_name', () => {
-      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).toContain(
+    it('get_surgery_request_status NÃO tokeniza patient_name/hospital_name (PII de negócio fica em claro após refatoração de draft)', () => {
+      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).not.toContain(
         'patient_name',
       );
-      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).toContain(
+      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).not.toContain(
         'hospital_name',
+      );
+      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).toContain(
+        'protocol',
       );
     });
 
@@ -35,18 +38,15 @@ describe('tool-pii-allowlist', () => {
       expect(TOOL_PII_ALLOWLIST.manage_report_images).toEqual(['protocol']);
     });
 
-    it('set_health_plan permite tokenizar protocol e health_plan_name', () => {
-      expect(TOOL_PII_ALLOWLIST.set_health_plan).toEqual(
-        expect.arrayContaining(['protocol', 'health_plan_name']),
-      );
+    it('set_health_plan e set_hospital tokenizam apenas o protocol (nomes de negócio em claro)', () => {
+      expect(TOOL_PII_ALLOWLIST.set_health_plan).toEqual(['protocol']);
+      expect(TOOL_PII_ALLOWLIST.set_hospital).toEqual(['protocol']);
     });
   });
 
   describe('isCategoryAllowedForTool', () => {
-    it('retorna true para combinação válida', () => {
-      expect(
-        isCategoryAllowedForTool('get_surgery_request_status', 'patient_name'),
-      ).toBe(true);
+    it('retorna true para combinação válida (cpf em get_patient_info)', () => {
+      expect(isCategoryAllowedForTool('get_patient_info', 'cpf')).toBe(true);
     });
 
     it('retorna false para combinação inválida', () => {

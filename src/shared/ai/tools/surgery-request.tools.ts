@@ -133,27 +133,18 @@ export function buildSurgeryRequestTools(
         stripScPrefix(request.protocol),
       );
       const protocolDisplay = `SC-${protocolToken}`;
-      const patientToken = tokenizePii(
-        context,
-        TOOL,
-        'patient_name',
-        (request as any).patient?.name || request.patientId,
+      // Após a refatoração de drafts: nomes de paciente/hospital/convênio
+      // ficam em claro nas saídas de tools de leitura (PII de negócio do
+      // próprio `owner_id`, não de terceiros). CPF/telefone/email/datas
+      // continuam tokenizados.
+      const patientToken = String(
+        (request as any).patient?.name || request.patientId || 'Não informado',
       );
       const hospitalToken = (request as any).hospital?.name
-        ? tokenizePii(
-            context,
-            TOOL,
-            'hospital_name',
-            (request as any).hospital.name,
-          )
+        ? String((request as any).hospital.name)
         : 'Não definido';
       const healthPlanToken = (request as any).healthPlan?.name
-        ? tokenizePii(
-            context,
-            TOOL,
-            'health_plan_name',
-            (request as any).healthPlan.name,
-          )
+        ? String((request as any).healthPlan.name)
         : 'Não definido';
       const surgeryDateRaw = request.surgeryDate || request.dateCall;
       const surgeryDateToken = surgeryDateRaw
@@ -330,10 +321,10 @@ export function buildSurgeryRequestTools(
             'protocol',
             stripScPrefix(r.protocol),
           );
-          const patientToken = r.patient?.name
-            ? tokenizePii(context, TOOL, 'patient_name', r.patient.name)
+          const patientName = r.patient?.name
+            ? String(r.patient.name)
             : 'Paciente';
-          return `SC-${protocolToken} — ${patientToken}`;
+          return `SC-${protocolToken} — ${patientName}`;
         });
         sections.push(`*${label}*\n${itemLines.join('\n')}`);
       }
