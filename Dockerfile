@@ -23,6 +23,9 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 # Copy package files
 COPY package*.json ./
 
+# Install node-gyp globally (required to build sharp from source on Alpine)
+RUN npm install -g node-gyp
+
 # Install dependencies
 RUN npm install
 
