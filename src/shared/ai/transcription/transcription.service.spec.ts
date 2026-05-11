@@ -93,4 +93,47 @@ describe('TranscriptionService', () => {
       }),
     ).rejects.toThrow('erro fallback');
   });
+
+  describe('postProcessSpokenText (via normalizeResult)', () => {
+    async function transcribe(text: string): Promise<string> {
+      fasterWhisperProviderMock.transcribe.mockResolvedValue({
+        text,
+        provider: 'faster_whisper',
+        latencyMs: 100,
+        language: 'pt-BR',
+      });
+      const result = await service.transcribe({
+        audioBuffer: Buffer.from('x'),
+        mimeType: 'audio/ogg',
+      });
+      return result.text;
+    }
+
+    it('substitui "arroba" por "@" em e-mails ditados', async () => {
+      const out = await transcribe('Meu e-mail é joao arroba teste ponto com');
+      expect(out).toContain('joao@teste.com');
+    });
+
+    it('substitui "ponto br/net" pela TLD correta', async () => {
+      expect(await transcribe('site exemplo ponto br')).toContain('exemplo.br');
+      expect(await transcribe('email a arroba b ponto net')).toContain(
+        'a@b.net',
+      );
+    });
+
+    it('junta dígitos de telefone falados com espaços', async () => {
+      const out = await transcribe('meu telefone é 31 99999 9999');
+      expect(out).toContain('31999999999');
+    });
+
+    it('aceita "(31) 9 9999-9999" → grupo de dígitos juntos', async () => {
+      const out = await transcribe('telefone 31 9 9999 9999');
+      expect(out).toContain('31999999999');
+    });
+
+    it('mantém texto sem ruído inalterado', async () => {
+      const out = await transcribe('preciso ver a SC do João');
+      expect(out).toBe('preciso ver a SC do João');
+    });
+  });
 });

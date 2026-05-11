@@ -1,10 +1,7 @@
 import { ExecutionContext, CallHandler, Logger } from '@nestjs/common';
 import { lastValueFrom, of, throwError } from 'rxjs';
 import { LoggingInterceptor } from './logging.interceptor';
-import {
-  getRequestContext,
-  requestContextStorage,
-} from './request-context';
+import { getRequestContext, requestContextStorage } from './request-context';
 
 function buildExecutionContext(req: any, res: any): ExecutionContext {
   return {

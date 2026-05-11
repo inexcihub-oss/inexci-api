@@ -7,6 +7,8 @@ import { buildGeneralTools } from '../tools/general.tools';
 import { buildActionTools } from '../tools/action.tools';
 import { buildNotificationTools } from '../tools/notification.tools';
 import { buildWhatsappFlowTools } from '../tools/whatsapp-flow.tools';
+import { buildManageTools } from '../tools/manage.tools';
+import { buildDoctorProfileTools } from '../tools/doctor-profile.tools';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
@@ -22,6 +24,7 @@ import { DocumentRepository } from '../../../database/repositories/document.repo
 import { HealthPlanRepository } from '../../../database/repositories/health-plan.repository';
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
 import { UserRepository } from '../../../database/repositories/user.repository';
+import { DoctorProfileRepository } from '../../../database/repositories/doctor-profile.repository';
 import { SupplierRepository } from '../../../database/repositories/supplier.repository';
 import { StorageService } from '../../storage/storage.service';
 import { ConfigService } from '@nestjs/config';
@@ -47,6 +50,7 @@ export class ToolRegistryService {
     private readonly healthPlanRepo: HealthPlanRepository,
     private readonly procedureRepo: ProcedureRepository,
     private readonly userRepo: UserRepository,
+    private readonly doctorProfileRepo: DoctorProfileRepository,
     private readonly supplierRepo: SupplierRepository,
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
@@ -61,7 +65,17 @@ export class ToolRegistryService {
         this.surgeryRequestRepo,
         this.pendencyValidator,
       ),
-      ...buildPendencyTools(this.pendencyValidator, this.surgeryRequestRepo),
+      ...buildPendencyTools(
+        this.pendencyValidator,
+        this.surgeryRequestRepo,
+        this.documentRepo,
+      ),
+      ...buildDoctorProfileTools(
+        this.userRepo,
+        this.doctorProfileRepo,
+        this.storageService,
+        this.configService,
+      ),
       ...buildGeneralTools(this.patientRepo, this.userRepo),
       ...buildActionTools(
         this.surgeryRequestRepo,
@@ -87,13 +101,19 @@ export class ToolRegistryService {
         this.healthPlanRepo,
         this.procedureRepo,
         this.userRepo,
+        this.tussService,
+      ),
+      ...buildManageTools(
+        this.surgeryRequestRepo,
+        this.surgeryRequestsService,
+        this.activityRepo,
         this.tussItemRepo,
         this.opmeItemRepo,
         this.documentRepo,
+        this.supplierRepo,
+        this.healthPlanRepo,
         this.storageService,
         this.configService,
-        this.tussService,
-        this.supplierRepo,
       ),
     ];
 

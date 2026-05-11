@@ -14,6 +14,7 @@ export class CreateSupplierDto {
   @IsOptional() @IsString() zipCode?: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsString() addressNumber?: string;
+  @IsOptional() @IsString() addressComplement?: string;
   @IsOptional() @IsString() neighborhood?: string;
   @IsOptional() @IsString() city?: string;
   @IsOptional() @IsString() state?: string;

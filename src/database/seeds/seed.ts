@@ -666,8 +666,8 @@ async function main() {
   const supplierIds: string[] = [];
   for (const s of suppliersData) {
     const r = await dataSource.query(
-      `INSERT INTO suppliers (name, cnpj, email, phone, contact_name, contact_phone, contact_email, city, state, active, owner_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10) RETURNING id`,
+      `INSERT INTO suppliers (name, cnpj, email, phone, contact_name, contact_phone, contact_email, city, state, owner_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
       [
         s.name,
         generateCNPJ(),
@@ -1803,6 +1803,129 @@ async function main() {
   logger.log(`  ✅ ${srIds1.length} solicitações criadas para conta 1\n`);
 
   // ========================================
+  // 14a. COMPLETUDE DAS SCs (TUSS + OPME + Laudo)
+  // ========================================
+  logger.log('🧩 Garantindo completude das solicitações cirúrgicas...');
+
+  const allSurgeryRequests: {
+    id: string;
+    owner_id: string;
+    procedure_name: string | null;
+  }[] = await dataSource.query(
+    `SELECT sr.id, sr.owner_id, p.name AS procedure_name
+     FROM surgery_requests sr
+     LEFT JOIN procedures p ON p.id = sr.procedure_id`,
+  );
+
+  const suppliersByOwner: { owner_id: string; id: string }[] =
+    await dataSource.query(
+      `SELECT id, owner_id
+       FROM suppliers
+       ORDER BY created_at ASC`,
+    );
+
+  const defaultSupplierByOwner = new Map<string, string>();
+  for (const s of suppliersByOwner) {
+    if (!defaultSupplierByOwner.has(s.owner_id)) {
+      defaultSupplierByOwner.set(s.owner_id, s.id);
+    }
+  }
+
+  let addedTuss = 0;
+  let addedOpme = 0;
+  let addedReportSections = 0;
+
+  for (let i = 0; i < allSurgeryRequests.length; i++) {
+    const sr = allSurgeryRequests[i];
+    const procedureName = sr.procedure_name ?? 'Procedimento cirúrgico';
+
+    const tussCountResult = await dataSource.query(
+      `SELECT COUNT(*)::int AS count
+       FROM surgery_request_tuss_items
+       WHERE surgery_request_id = $1`,
+      [sr.id],
+    );
+    const tussCount = tussCountResult?.[0]?.count ?? 0;
+
+    if (tussCount === 0) {
+      await dataSource.query(
+        `INSERT INTO surgery_request_tuss_items (surgery_request_id, tuss_code, name, quantity, authorized_quantity)
+         VALUES ($1, $2, $3, 1, 1)`,
+        [sr.id, `SEED-TUSS-${i + 1}`, procedureName],
+      );
+      addedTuss++;
+    }
+
+    const opmeCountResult = await dataSource.query(
+      `SELECT COUNT(*)::int AS count
+       FROM opme_items
+       WHERE surgery_request_id = $1`,
+      [sr.id],
+    );
+    const opmeCount = opmeCountResult?.[0]?.count ?? 0;
+
+    if (opmeCount === 0) {
+      const opmeInsert = await dataSource.query(
+        `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity)
+         VALUES ($1, $2, $3, 1, 1) RETURNING id`,
+        [sr.id, `Kit OPME padrão - ${procedureName}`, 'Padrão Seed'],
+      );
+
+      const supplierId = defaultSupplierByOwner.get(sr.owner_id);
+      if (supplierId && opmeInsert?.[0]?.id) {
+        await dataSource.query(
+          `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id)
+           VALUES ($1, $2)`,
+          [opmeInsert[0].id, supplierId],
+        );
+      }
+
+      await dataSource.query(
+        `UPDATE surgery_requests
+         SET has_opme = true
+         WHERE id = $1`,
+        [sr.id],
+      );
+
+      addedOpme++;
+    }
+
+    const reportSectionsCountResult = await dataSource.query(
+      `SELECT COUNT(*)::int AS count
+       FROM report_sections
+       WHERE surgery_request_id = $1`,
+      [sr.id],
+    );
+    const reportSectionsCount = reportSectionsCountResult?.[0]?.count ?? 0;
+
+    if (reportSectionsCount === 0) {
+      await dataSource.query(
+        `INSERT INTO report_sections (surgery_request_id, title, description, "order")
+         VALUES ($1, 'Histórico e Diagnóstico', $2, 1)`,
+        [
+          sr.id,
+          `<p>Paciente em acompanhamento para <strong>${procedureName}</strong>, com indicação cirúrgica baseada em avaliação clínica e exames complementares.</p>`,
+        ],
+      );
+
+      await dataSource.query(
+        `INSERT INTO report_sections (surgery_request_id, title, description, "order")
+         VALUES ($1, 'Conduta', $2, 2)`,
+        [
+          sr.id,
+          `<p>Conduta proposta: realização de <strong>${procedureName}</strong>, com preparo pré-operatório, documentação assistencial e acompanhamento pós-operatório conforme protocolo institucional.</p>`,
+        ],
+      );
+
+      addedReportSections += 2;
+    }
+  }
+
+  logger.log(
+    `  ✅ Completude aplicada: ${addedTuss} TUSS, ${addedOpme} OPMEs e ${addedReportSections} seções de laudo adicionadas\n`,
+  );
+
+  // ========================================
   // 15. CID/TUSS
   // ========================================
   logger.log(
@@ -1821,6 +1944,9 @@ async function main() {
       'ATJ Padrão',
       JSON.stringify({
         procedure_id: procedureIds[4],
+        procedure: { id: procedureIds[4], name: procedureNames[4] },
+        procedureName: procedureNames[4],
+        procedure_name: procedureNames[4],
         opme_items: [
           {
             name: 'Prótese total de joelho cimentada',
@@ -1856,6 +1982,9 @@ async function main() {
       'Artroscopia de Joelho',
       JSON.stringify({
         procedure_id: procedureIds[5],
+        procedure: { id: procedureIds[5], name: procedureNames[5] },
+        procedureName: procedureNames[5],
+        procedure_name: procedureNames[5],
         opme_items: [],
         required_documents: [
           'personal_document',
@@ -1874,6 +2003,9 @@ async function main() {
       'Revascularização Miocárdica',
       JSON.stringify({
         procedure_id: procedureIds[12],
+        procedure: { id: procedureIds[12], name: procedureNames[12] },
+        procedureName: procedureNames[12],
+        procedure_name: procedureNames[12],
         opme_items: [
           {
             name: 'Oxigenador de membrana',
@@ -1905,6 +2037,9 @@ async function main() {
       'Discectomia Lombar',
       JSON.stringify({
         procedure_id: procedureIds[6],
+        procedure: { id: procedureIds[6], name: procedureNames[6] },
+        procedureName: procedureNames[6],
+        procedure_name: procedureNames[6],
         opme_items: [
           {
             name: 'Cage intersomático TLIF PEEK',

@@ -50,8 +50,13 @@ export function LogTrace(options: LogTraceOptions = {}): any {
     descriptor?: PropertyDescriptor,
   ): any {
     if (descriptor && propertyKey !== undefined) {
-      const className = options.label ?? target?.constructor?.name ?? 'Anonymous';
-      wrapDescriptor(descriptor, `${className}.${String(propertyKey)}`, options);
+      const className =
+        options.label ?? target?.constructor?.name ?? 'Anonymous';
+      wrapDescriptor(
+        descriptor,
+        `${className}.${String(propertyKey)}`,
+        options,
+      );
       return descriptor;
     }
 
@@ -104,7 +109,11 @@ export function traceInstanceMethods(
     const original = (instance as any)[name];
     if (typeof original !== 'function') continue;
 
-    const wrapped = createTracer(original.bind(instance), `${className}.${name}`, options);
+    const wrapped = createTracer(
+      original.bind(instance),
+      `${className}.${name}`,
+      options,
+    );
     Object.defineProperty(instance, name, {
       value: wrapped,
       writable: true,
@@ -242,12 +251,16 @@ function describeError(err: unknown): string {
  * os argumentos / decorators do método decorado.
  */
 function copyMetadata(from: object, to: object): void {
-  const reflect = (Reflect as unknown as {
+  const reflect = Reflect as unknown as {
     getMetadataKeys?: (target: object) => unknown[];
     getMetadata?: (key: unknown, target: object) => unknown;
     defineMetadata?: (key: unknown, value: unknown, target: object) => void;
-  });
-  if (!reflect.getMetadataKeys || !reflect.getMetadata || !reflect.defineMetadata) {
+  };
+  if (
+    !reflect.getMetadataKeys ||
+    !reflect.getMetadata ||
+    !reflect.defineMetadata
+  ) {
     return;
   }
   for (const key of reflect.getMetadataKeys(from)) {

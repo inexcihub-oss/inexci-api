@@ -8,7 +8,11 @@ import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Patient, User]), WhatsappModule, MailModule],
+  imports: [
+    TypeOrmModule.forFeature([Patient, User]),
+    WhatsappModule,
+    MailModule,
+  ],
   controllers: [PatientsController],
   providers: [PatientsService],
 })

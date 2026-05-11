@@ -80,6 +80,14 @@ export class Supplier {
   })
   addressNumber: string | null;
 
+  @Column({
+    name: 'address_complement',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  addressComplement: string | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   neighborhood: string | null;
 
@@ -117,11 +125,6 @@ export class Supplier {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
-
-  // ============ STATUS ============
-
-  @Column({ type: 'boolean', default: true })
-  active: boolean;
 
   // ============ ISOLAMENTO POR CLÍNICA ============
 

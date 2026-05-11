@@ -310,7 +310,7 @@ describe('ActionTools', () => {
         'user-1',
       );
       expect(mockActivityRepo.create).toHaveBeenCalled();
-      expect(result).toContain('✅');
+      expect(result).not.toMatch(/[\p{Extended_Pictographic}]/u);
     });
   });
 
@@ -348,7 +348,7 @@ describe('ActionTools', () => {
           content: expect.stringContaining('Paciente desistiu'),
         }),
       );
-      expect(result).toContain('✅');
+      expect(result).not.toMatch(/[\p{Extended_Pictographic}]/u);
     });
   });
 
@@ -382,7 +382,7 @@ describe('ActionTools', () => {
         'user-1',
       );
       expect(mockActivityRepo.create).toHaveBeenCalled();
-      expect(result).toContain('✅');
+      expect(result).not.toMatch(/[\p{Extended_Pictographic}]/u);
     });
 
     it('deve rejeitar prioridade inválida', async () => {

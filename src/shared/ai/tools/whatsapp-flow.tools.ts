@@ -11,17 +11,13 @@ import { HospitalRepository } from '../../../database/repositories/hospital.repo
 import { HealthPlanRepository } from '../../../database/repositories/health-plan.repository';
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
 import { UserRepository } from '../../../database/repositories/user.repository';
-import { SurgeryRequestTussItemRepository } from '../../../database/repositories/surgery-request-tuss-item.repository';
-import { OpmeItemRepository } from '../../../database/repositories/opme-item.repository';
-import { DocumentRepository } from '../../../database/repositories/document.repository';
-import { StorageService } from '../../storage/storage.service';
-import { ConfigService } from '@nestjs/config';
-import { STORAGE_FOLDERS } from '../../../config/storage.config';
-import { SurgeryRequestPriority } from '../../../database/entities/surgery-request.entity';
+import {
+  SurgeryRequestPriority,
+  SurgeryRequestStatus,
+} from '../../../database/entities/surgery-request.entity';
 import { In } from 'typeorm';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { TussService } from '../../../modules/tuss/tuss.service';
-import { SupplierRepository } from '../../../database/repositories/supplier.repository';
 import { tokenizePii, detokenizeArg } from '../pii/tool-pii-helpers';
 import { PiiCategory } from '../services/pii-vault.service';
 import {
@@ -58,32 +54,6 @@ function formatDatePtBr(dateStr: string): string {
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-function parseStringList(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => asNonEmptyString(item))
-      .filter((item): item is string => Boolean(item));
-  }
-
-  const single = asNonEmptyString(value);
-  if (!single) return [];
-
-  return single
-    .split(/[\n,;|]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function sanitizeAlphaNumKey(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 50);
 }
 
 function normalizeCpf(value: unknown): string | null {
@@ -130,49 +100,43 @@ function priorityLabel(priority: SurgeryRequestPriority): string {
   }
 }
 
-function classifyDocumentType(
-  contentType: string | null | undefined,
-  providedType: unknown,
-): string {
-  const typed = asNonEmptyString(providedType);
-  if (typed) return typed;
-
-  const mime = (contentType || '').toLowerCase();
-  if (mime.includes('pdf')) return 'medical_report';
-  if (mime.startsWith('image/')) return 'exam_image';
-  if (mime.includes('word') || mime.includes('officedocument')) {
-    return 'report_document';
+function statusLabel(status: number | null | undefined): string {
+  switch (status) {
+    case 1:
+      return 'Pendente';
+    case 2:
+      return 'Enviada';
+    case 3:
+      return 'Em Análise';
+    case 4:
+      return 'Em Agendamento';
+    case 5:
+      return 'Agendada';
+    case 6:
+      return 'Realizada';
+    case 7:
+      return 'Faturada';
+    case 8:
+      return 'Finalizada';
+    case 9:
+      return 'Encerrada';
+    default:
+      return String(status ?? 'Desconhecido');
   }
-  return 'other_document';
 }
 
-async function downloadInboundMedia(
-  url: string,
-  configService?: ConfigService,
-): Promise<{ buffer: Buffer; contentType: string | null; fileName: string }> {
-  const sid = configService?.get<string>('TWILIO_ACCOUNT_SID', '') || '';
-  const token = configService?.get<string>('TWILIO_AUTH_TOKEN', '') || '';
-
-  const headers: Record<string, string> = {};
-  if (sid && token) {
-    headers.Authorization = `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`;
+/**
+ * Espelha a regra do frontend (`statusNum >= 2` em InformacoesGeraisTab/OpmeTab/MedicalReportEditor):
+ * informações gerais, TUSS, OPME e laudo só podem ser alterados enquanto a SC está em "Pendente".
+ * A partir de "Enviada" tudo vira histórico (somente leitura).
+ */
+function ensurePendingForMutation(request: any): string | null {
+  if (request?.status !== SurgeryRequestStatus.PENDING) {
+    return `Não é possível alterar essas informações: a solicitação está em "${statusLabel(
+      request?.status,
+    )}". A partir de "Enviada" os dados ficam apenas como histórico (somente leitura).`;
   }
-
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
-    throw new Error(`falha no download da mídia (${response.status})`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get('content-type');
-  const urlPath = new URL(url).pathname;
-  const fileNameFallback = urlPath.split('/').pop() || `media-${Date.now()}`;
-
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    contentType,
-    fileName: fileNameFallback,
-  };
+  return null;
 }
 
 async function getAuthorizedRequest(
@@ -239,13 +203,7 @@ export function buildWhatsappFlowTools(
   healthPlanRepo?: HealthPlanRepository,
   procedureRepo?: ProcedureRepository,
   userRepo?: UserRepository,
-  tussItemRepo?: SurgeryRequestTussItemRepository,
-  opmeItemRepo?: OpmeItemRepository,
-  documentRepo?: DocumentRepository,
-  storageService?: StorageService,
-  configService?: ConfigService,
   tussService?: TussService,
-  supplierRepo?: SupplierRepository,
 ): AiTool[] {
   const confirmDate: AiTool = {
     name: 'confirm_date',
@@ -623,8 +581,7 @@ export function buildWhatsappFlowTools(
             invoiceValue: value,
             invoiceSentAt: sentAt,
             paymentDeadline: paymentDeadline,
-            setAsDefaultForHealthPlan:
-              args.setAsDefaultForHealthPlan === true,
+            setAsDefaultForHealthPlan: args.setAsDefaultForHealthPlan === true,
           },
           context.userId as string,
         );
@@ -1109,8 +1066,11 @@ export function buildWhatsappFlowTools(
             `${index + 1}. ${section.title} (id: ${section.id})${section.description ? `\n   ${section.description}` : ''}`,
         );
 
-        return `🧾 Seções do laudo da solicitação ${auth.request.protocol}:\n${lines.join('\n')}`;
+        return `Seções do laudo da solicitação ${auth.request.protocol}:\n${lines.join('\n')}`;
       }
+
+      const blockedMutation = ensurePendingForMutation(auth.request);
+      if (blockedMutation) return blockedMutation;
 
       if (!args.confirm) {
         switch (operation) {
@@ -1279,14 +1239,17 @@ export function buildWhatsappFlowTools(
       function: {
         name: 'set_hospital',
         description:
-          'Define ou troca o hospital da solicitação. Aceita `hospitalId` ou `hospital_name`. Requer confirmação explícita.',
+          'Define, troca ou remove o hospital vinculado à solicitação. Aceita `hospitalId` ou `hospital_name` (deve estar cadastrado na clínica). Para remover, use `clear=true`. Requer confirmação explícita.',
         parameters: {
           type: 'object',
           properties: {
             surgeryRequestId: { type: 'string' },
             hospitalId: { type: 'string' },
             hospital_name: { type: 'string' },
-            hospital_email: { type: 'string' },
+            clear: {
+              type: 'boolean',
+              description: 'Se true, remove o hospital da solicitação.',
+            },
             confirm: { type: 'boolean' },
           },
           required: ['surgeryRequestId'],
@@ -1302,15 +1265,6 @@ export function buildWhatsappFlowTools(
       if (!auth.ok) return auth.message;
       if (!hospitalRepo) return 'Ferramenta indisponível no momento.';
 
-      const hospitalId = asNonEmptyString(args.hospitalId);
-      const hospitalName = asNonEmptyString(
-        detokenizeArg(context, args.hospital_name),
-      );
-
-      if (!hospitalId && !hospitalName) {
-        return 'Parâmetro inválido: informe `hospitalId` ou `hospital_name`.';
-      }
-
       const protocolToken = tokenizePii(
         context,
         'set_hospital',
@@ -1318,37 +1272,63 @@ export function buildWhatsappFlowTools(
         auth.request.protocol,
       );
 
-      if (!args.confirm) {
-        const previewName = hospitalName
-          ? tokenizePii(context, 'set_hospital', 'hospital_name', hospitalName)
-          : hospitalId;
-        return `A solicitação ${protocolToken} terá o hospital atualizado para ${previewName}. Confirme com "sim" para executar.`;
+      const blockedMutation = ensurePendingForMutation(auth.request);
+      if (blockedMutation) return blockedMutation;
+
+      if (args.clear === true) {
+        if (!args.confirm) {
+          return `O hospital será removido da solicitação ${protocolToken}. Confirme com "sim" para executar.`;
+        }
+        await surgeryRequestRepo.update(auth.request.id, {
+          hospitalId: null,
+        } as any);
+        await activityRepo.create({
+          surgeryRequestId: auth.request.id,
+          userId: context.userId as string,
+          type: ActivityType.SYSTEM,
+          content: '[WhatsApp IA] Hospital removido da solicitação.',
+        });
+        return `Hospital removido com sucesso da solicitação ${protocolToken}.`;
       }
 
-      let selectedHospital = null as any;
+      const hospitalId = asNonEmptyString(args.hospitalId);
+      const hospitalName = asNonEmptyString(
+        detokenizeArg(context, args.hospital_name),
+      );
+
+      if (!hospitalId && !hospitalName) {
+        return 'Parâmetro inválido: informe `hospitalId` ou `hospital_name`. Para remover, use `clear=true`.';
+      }
+
+      let selectedHospital: any = null;
 
       if (hospitalId) {
-        selectedHospital = await hospitalRepo.findOne({ id: hospitalId });
-      } else {
         selectedHospital = await hospitalRepo.findOne({
-          name: hospitalName as string,
-          doctorId: auth.request.doctorId,
+          id: hospitalId,
+          ownerId: auth.request.ownerId,
         } as any);
-
         if (!selectedHospital) {
-          selectedHospital = await hospitalRepo.create({
-            name: hospitalName,
-            email:
-              asNonEmptyString(detokenizeArg(context, args.hospital_email)) ||
-              undefined,
-            doctorId: auth.request.doctorId,
-            active: true,
-          } as any);
+          return 'Hospital não encontrado para essa clínica. Verifique o `hospitalId`.';
+        }
+      } else if (hospitalName) {
+        selectedHospital = await hospitalRepo.findOne({
+          name: hospitalName,
+          ownerId: auth.request.ownerId,
+        } as any);
+        if (!selectedHospital) {
+          return `Hospital "${hospitalName}" não encontrado para essa clínica. Cadastre-o antes ou informe o \`hospitalId\`.`;
         }
       }
 
-      if (!selectedHospital) {
-        return 'Hospital não encontrado para atualização.';
+      const previewName = tokenizePii(
+        context,
+        'set_hospital',
+        'hospital_name',
+        selectedHospital.name,
+      );
+
+      if (!args.confirm) {
+        return `A solicitação ${protocolToken} terá o hospital atualizado para ${previewName}. Confirme com "sim" para executar.`;
       }
 
       await surgeryRequestRepo.update(auth.request.id, {
@@ -1362,201 +1342,7 @@ export function buildWhatsappFlowTools(
         content: `[WhatsApp IA] Hospital definido para ${selectedHospital.name}.`,
       });
 
-      const successName = tokenizePii(
-        context,
-        'set_hospital',
-        'hospital_name',
-        selectedHospital.name,
-      );
-      return `Hospital atualizado com sucesso para ${successName} na solicitação ${protocolToken}.`;
-    },
-  };
-
-  const addTussItem: AiTool = {
-    name: 'add_tuss_item',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'add_tuss_item',
-        description:
-          'Adiciona item TUSS na solicitação. Requer confirmação explícita.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: { type: 'string' },
-            tussCode: { type: 'string' },
-            name: { type: 'string' },
-            quantity: { type: 'number' },
-            confirm: { type: 'boolean' },
-          },
-          required: ['surgeryRequestId', 'tussCode', 'name'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context): Promise<string> {
-      const auth = await getAuthorizedRequest(
-        surgeryRequestRepo,
-        args.surgeryRequestId,
-        context,
-      );
-      if (!auth.ok) return auth.message;
-      if (!tussItemRepo) return 'Ferramenta indisponível no momento.';
-
-      const tussCode = asNonEmptyString(args.tussCode);
-      const name = asNonEmptyString(args.name);
-      const quantity =
-        typeof args.quantity === 'number' &&
-        Number.isFinite(args.quantity) &&
-        args.quantity > 0
-          ? Math.floor(args.quantity)
-          : 1;
-
-      if (!tussCode || !name) {
-        return 'Parâmetro inválido: informe `tussCode` e `name`.';
-      }
-
-      if (!args.confirm) {
-        return `A solicitação ${auth.request.protocol} receberá o item TUSS ${tussCode} (${name}), quantidade ${quantity}. Confirme com "sim" para executar.`;
-      }
-
-      await tussItemRepo.create({
-        surgeryRequestId: auth.request.id,
-        tussCode: tussCode,
-        name,
-        quantity,
-      } as any);
-
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Item TUSS adicionado: ${tussCode} - ${name} (qtd: ${quantity}).`,
-      });
-
-      return `Item TUSS adicionado com sucesso na solicitação ${auth.request.protocol}.`;
-    },
-  };
-
-  const addOpmeItem: AiTool = {
-    name: 'add_opme_item',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'add_opme_item',
-        description:
-          'Adiciona item OPME na solicitação. Exige ao menos 3 fabricantes e 3 fornecedores. Requer confirmação explícita.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: { type: 'string' },
-            name: { type: 'string' },
-            quantity: { type: 'number' },
-            manufacturerNames: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Lista com ao menos 3 fabricantes',
-            },
-            supplierNames: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Lista com ao menos 3 fornecedores',
-            },
-            brand: {
-              type: 'string',
-              description:
-                'Compatibilidade legada (será tratado como lista de fabricantes se informado).',
-            },
-            confirm: { type: 'boolean' },
-          },
-          required: [
-            'surgeryRequestId',
-            'name',
-            'manufacturerNames',
-            'supplierNames',
-          ],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context): Promise<string> {
-      const auth = await getAuthorizedRequest(
-        surgeryRequestRepo,
-        args.surgeryRequestId,
-        context,
-      );
-      if (!auth.ok) return auth.message;
-      if (!opmeItemRepo) return 'Ferramenta indisponível no momento.';
-      if (!supplierRepo) return 'Ferramenta indisponível no momento.';
-
-      const name = asNonEmptyString(args.name);
-      const manufacturerNames = parseStringList(
-        args.manufacturerNames ?? args.manufacturers ?? args.brand,
-      );
-      const supplierNames = parseStringList(args.supplierNames);
-
-      const quantity =
-        typeof args.quantity === 'number' &&
-        Number.isFinite(args.quantity) &&
-        args.quantity > 0
-          ? Math.floor(args.quantity)
-          : 1;
-
-      if (!name) return 'Parâmetro inválido: `name` é obrigatório.';
-      if (manufacturerNames.length < 3) {
-        return 'Para adicionar OPME, informe ao menos 3 fabricantes em `manufacturerNames`. Ex.: ["Fabricante 1", "Fabricante 2", "Fabricante 3"].';
-      }
-      if (supplierNames.length < 3) {
-        return 'Para adicionar OPME, informe ao menos 3 fornecedores em `supplierNames`. Ex.: ["Fornecedor 1", "Fornecedor 2", "Fornecedor 3"].';
-      }
-
-      if (!args.confirm) {
-        return `A solicitação ${auth.request.protocol} receberá item OPME ${name}, quantidade ${quantity}, com ${manufacturerNames.length} fabricantes e ${supplierNames.length} fornecedores. Confirme com "sim" para executar.`;
-      }
-
-      const suppliers = [] as any[];
-      for (const supplierName of supplierNames) {
-        const found = await supplierRepo.findMany(
-          {
-            doctorId: auth.request.doctorId,
-            name: supplierName,
-          } as any,
-          0,
-          1,
-        );
-
-        if (found.length > 0) {
-          suppliers.push(found[0]);
-          continue;
-        }
-
-        const createdSupplier = await supplierRepo.create({
-          doctorId: auth.request.doctorId,
-          name: supplierName,
-          active: true,
-        } as any);
-        suppliers.push(createdSupplier);
-      }
-
-      await surgeryRequestsService.setHasOpme(
-        auth.request.id,
-        true,
-        context.userId as string,
-      );
-      await opmeItemRepo.create({
-        surgeryRequestId: auth.request.id,
-        name,
-        brand: manufacturerNames.join(', '),
-        quantity,
-        suppliers,
-      } as any);
-
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Item OPME adicionado: ${name}, qtd ${quantity}, fabricantes (${manufacturerNames.length}) e fornecedores (${supplierNames.length}).`,
-      });
-
-      return `Item OPME adicionado com sucesso na solicitação ${auth.request.protocol}.`;
+      return `Hospital atualizado com sucesso para ${previewName} na solicitação ${protocolToken}.`;
     },
   };
 
@@ -1591,6 +1377,9 @@ export function buildWhatsappFlowTools(
         context,
       );
       if (!auth.ok) return auth.message;
+
+      const blockedMutation = ensurePendingForMutation(auth.request);
+      if (blockedMutation) return blockedMutation;
 
       const payload: Record<string, any> = {};
       const changes: string[] = [];
@@ -1683,6 +1472,9 @@ export function buildWhatsappFlowTools(
       );
       if (!auth.ok) return auth.message;
 
+      const blockedMutation = ensurePendingForMutation(auth.request);
+      if (blockedMutation) return blockedMutation;
+
       const requestPayload: Record<string, any> = {};
       const requestChanges: string[] = [];
 
@@ -1760,112 +1552,6 @@ export function buildWhatsappFlowTools(
       });
 
       return `Dados administrativos atualizados com sucesso na solicitação ${protocolToken}.`;
-    },
-  };
-
-  const attachDocumentFromWhatsapp: AiTool = {
-    name: 'attach_document_from_whatsapp',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'attach_document_from_whatsapp',
-        description:
-          'Anexa a mídia recebida no WhatsApp como documento da solicitação. Requer confirmação explícita.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: { type: 'string' },
-            document_type: { type: 'string' },
-            document_name: { type: 'string' },
-            document_key: { type: 'string' },
-            media_index: { type: 'number' },
-            confirm: { type: 'boolean' },
-          },
-          required: ['surgeryRequestId'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context): Promise<string> {
-      if (!args.surgeryRequestId) {
-        return 'Para anexar documento, informe `surgeryRequestId` ou protocolo da solicitação.';
-      }
-
-      const auth = await getAuthorizedRequest(
-        surgeryRequestRepo,
-        args.surgeryRequestId,
-        context,
-      );
-      if (!auth.ok) return auth.message;
-      if (!documentRepo || !storageService) {
-        return 'Pipeline de anexos indisponível no momento.';
-      }
-
-      const inboundMedia = context.inboundMedia || [];
-      if (!inboundMedia.length) {
-        return 'Não identifiquei mídia nesta mensagem. Envie o arquivo no WhatsApp e solicite novamente o anexo.';
-      }
-
-      const mediaIndex =
-        typeof args.media_index === 'number' &&
-        Number.isInteger(args.media_index) &&
-        args.media_index >= 0 &&
-        args.media_index < inboundMedia.length
-          ? args.media_index
-          : 0;
-
-      const media = inboundMedia[mediaIndex];
-      const detectedType = classifyDocumentType(
-        media.contentType,
-        args.document_type,
-      );
-      const providedName = asNonEmptyString(args.document_name);
-      const computedKey =
-        asNonEmptyString(args.document_key) ||
-        sanitizeAlphaNumKey(
-          detectedType || providedName || 'documento_whatsapp',
-        );
-      const computedName =
-        providedName ||
-        `Documento WhatsApp ${new Date().toLocaleDateString('pt-BR')}`;
-
-      if (!args.confirm) {
-        return `Documento identificado para a solicitação ${auth.request.protocol}. Tipo: ${detectedType}. Nome: ${computedName}. Chave: ${computedKey}. Confirme com "sim" para anexar.`;
-      }
-
-      try {
-        const downloaded = await downloadInboundMedia(media.url, configService);
-        const path = await storageService.create(
-          {
-            originalname: computedName,
-            mimetype:
-              media.contentType ||
-              downloaded.contentType ||
-              'application/octet-stream',
-            buffer: downloaded.buffer,
-          } as any,
-          STORAGE_FOLDERS.DOCUMENTS,
-        );
-
-        await documentRepo.create({
-          surgeryRequestId: auth.request.id,
-          createdBy: context.userId as string,
-          type: detectedType,
-          key: computedKey,
-          name: computedName,
-          uri: path,
-        } as any);
-
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Documento anexado via mídia inbound. Tipo: ${detectedType}, chave: ${computedKey}.`,
-        });
-
-        return `Documento anexado com sucesso na solicitação ${auth.request.protocol}. Tipo: ${detectedType}.`;
-      } catch (err: any) {
-        return `Erro ao anexar documento: ${err?.message || 'erro desconhecido'}`;
-      }
     },
   };
 
@@ -2002,13 +1688,13 @@ export function buildWhatsappFlowTools(
         }
 
         return [
-          `📚 ${category.label} disponíveis para criação da SC:`,
+          `${category.label} disponíveis para criação da SC:`,
           formatItems(normalizedCategory, category.label, category.items),
         ].join('\n');
       }
 
       return [
-        '📚 Categorias disponíveis para montar sua solicitação:',
+        'Categorias disponíveis para montar sua solicitação:',
         formatItems('patients', 'Pacientes', categoryMap.patients.items),
         formatItems(
           'procedures',
@@ -2227,7 +1913,8 @@ export function buildWhatsappFlowTools(
             },
             priority: {
               type: 'number',
-              description: 'Prioridade: 1=Baixa, 2=Média, 3=Alta, 4=Urgente.',
+              description:
+                'Prioridade da SC. Aceita os números 1, 2, 3 ou 4 (1=Baixa, 2=Média, 3=Alta, 4=Urgente). IMPORTANTE: ao FALAR sobre prioridades com o usuário, mostre apenas o NOME (Baixa, Média, Alta ou Urgente) — nunca exiba o código numérico.',
             },
             healthPlanId: {
               type: 'string',
@@ -2392,13 +2079,30 @@ export function buildWhatsappFlowTools(
           200,
         );
         const normalizedName = normalizeText(patientNameArg);
+        // 1) match exato por nome
         patient = candidates.find((item) => {
           const itemName = normalizeText(item.name);
           return itemName === normalizedName;
         });
+        // 2) match parcial (sub-string) — ajuda quando o usuário fala só o
+        //    primeiro/último nome via áudio.
+        if (!patient && normalizedName) {
+          patient = candidates.find((item) => {
+            const itemName = normalizeText(item.name);
+            return (
+              !!itemName &&
+              (itemName.includes(normalizedName) ||
+                normalizedName.includes(itemName))
+            );
+          });
+        }
 
         if (!patient) {
-          return 'Paciente não encontrado nos cadastrados do médico. Informe `patientId` válido ou o nome exato de um paciente existente.';
+          return [
+            `Paciente "${patientNameArg}" não está cadastrado para esse médico.`,
+            'Posso cadastrá-lo agora antes de criar a SC: chame `create_patient` com nome, telefone e e-mail (mínimo). Em seguida volte aqui com o `patientId` retornado.',
+            'Se preferir consultar a lista de pacientes existentes, use `list_patients` (com `search` opcional).',
+          ].join(' ');
         }
       }
 
@@ -2577,10 +2281,7 @@ export function buildWhatsappFlowTools(
     updateReceipt,
     manageReportSections,
     setHospital,
-    addTussItem,
-    addOpmeItem,
     updateRequestClinicalData,
     updateRequestAdminData,
-    attachDocumentFromWhatsapp,
   ];
 }

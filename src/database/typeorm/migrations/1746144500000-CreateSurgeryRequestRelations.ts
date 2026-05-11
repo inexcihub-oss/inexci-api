@@ -14,9 +14,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *  - report_sections
  *  - stale_notification_logs
  */
-export class CreateSurgeryRequestRelations1746144500000
-  implements MigrationInterface
-{
+export class CreateSurgeryRequestRelations1746144500000 implements MigrationInterface {
   name = 'CreateSurgeryRequestRelations1746144500000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

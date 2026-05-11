@@ -140,7 +140,6 @@ export class OpmeService {
       const newSupplier = await this.supplierRepository.create({
         name: trimmed,
         ownerId,
-        active: true,
       });
       result.push(newSupplier);
     }

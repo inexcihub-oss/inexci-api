@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 
 export class UpdateSupplierDto {
   @IsOptional() @IsString() name?: string;
@@ -11,6 +11,7 @@ export class UpdateSupplierDto {
   @IsOptional() @IsString() zipCode?: string;
   @IsOptional() @IsString() address?: string;
   @IsOptional() @IsString() addressNumber?: string;
+  @IsOptional() @IsString() addressComplement?: string;
   @IsOptional() @IsString() neighborhood?: string;
   @IsOptional() @IsString() city?: string;
   @IsOptional() @IsString() state?: string;
@@ -19,5 +20,4 @@ export class UpdateSupplierDto {
   @IsOptional() @IsString() paymentTerms?: string;
   @IsOptional() @IsString() deliveryTime?: string;
   @IsOptional() @IsString() notes?: string;
-  @IsOptional() @IsBoolean() active?: boolean;
 }

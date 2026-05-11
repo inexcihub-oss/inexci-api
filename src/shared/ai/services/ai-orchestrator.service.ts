@@ -41,7 +41,7 @@ const WHATSAPP_TARGET_LENGTH = 850;
 // Limite "macio" de emojis por resposta para manter o tom amigável sem
 // transformar a mensagem em uma parede de figuras. Excedentes são removidos
 // silenciosamente preservando o texto.
-const MAX_EMOJIS_PER_RESPONSE = 3;
+const MAX_EMOJIS_PER_RESPONSE = 0;
 const CLEAR_CONTEXT_CONFIRMATION_TTL_MS = 10 * 60 * 1000;
 const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AI_CONSENT_PORTAL_PATH = '/configuracoes/privacidade';
@@ -904,7 +904,7 @@ export class AiOrchestratorService {
       this.logger.warn(`Rate limit excedido para ${maskedPhone}`);
       await this.whatsappService.sendMessage(
         phone,
-        '⚠️ Você enviou mensagens em ritmo muito alto. Por favor, aguarde alguns instantes antes de tentar novamente.',
+        'Você enviou mensagens em ritmo muito alto. Por favor, aguarde alguns instantes antes de tentar novamente.',
       );
       return;
     }
@@ -1069,7 +1069,7 @@ export class AiOrchestratorService {
       if (audioProcessing.failed && !hasTypedText) {
         await this.whatsappService.sendMessage(
           phone,
-          '⚠️ Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
+          'Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
         );
         return;
       }
@@ -1077,7 +1077,7 @@ export class AiOrchestratorService {
       if (!userInputRaw) {
         await this.whatsappService.sendMessage(
           phone,
-          '⚠️ Não consegui identificar texto na sua mensagem. Se preferir, envie novamente em texto ou um áudio mais curto.',
+          'Não consegui identificar texto na sua mensagem. Se preferir, envie novamente em texto ou um áudio mais curto.',
         );
         return;
       }
@@ -1410,10 +1410,10 @@ export class AiOrchestratorService {
         error?.name === 'AbortError';
 
       let userFacingMessage =
-        '⚠️ Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em alguns minutos ou acesse a plataforma web.';
+        'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em alguns minutos ou acesse a plataforma web.';
       if (isTimeout) {
         userFacingMessage =
-          '⚠️ A solicitação demorou mais do que o esperado (1 min e 30 s) e foi cancelada. Tente novamente.';
+          'A solicitação demorou mais do que o esperado (1 min e 30 s) e foi cancelada. Tente novamente.';
       }
 
       await this.whatsappService.sendMessage(phone, userFacingMessage);
@@ -1559,7 +1559,7 @@ export class AiOrchestratorService {
           {
             role: 'system',
             content:
-              'Reescreva a resposta para WhatsApp em português do Brasil, mantendo apenas os fatos já presentes. Não adicione informações novas. Use tom gentil, acolhedor e profissional, com linguagem direta e frases curtas. Pode usar no máximo 1 ou 2 emojis sutis quando agregarem clareza ou calor humano (ex.: ✅, 📅, 📋), mas nunca em todas as mensagens. Quando fizer sentido, encerre sugerindo de 2 a 4 próximos passos como opções numeradas no formato "1 - opção", uma por linha. Mire em até 8 linhas, sem markdown avançado e sem JSON.',
+              'Reescreva a resposta para WhatsApp em português do Brasil, mantendo apenas os fatos já presentes. Não adicione informações novas. Use tom gentil, acolhedor e profissional, com linguagem direta e frases curtas. NUNCA use emojis (nem ✅, 📅, 📋, ⚠️, 👋 — qualquer figura está proibida); o tom acolhedor deve vir do texto. Se a resposta bruta tiver emojis, REMOVA todos. Quando fizer sentido, encerre sugerindo de 2 a 4 próximos passos como opções numeradas no formato "1 - opção", uma por linha. Mire em até 8 linhas, sem markdown avançado e sem JSON.',
           },
           {
             role: 'user',
@@ -1730,7 +1730,8 @@ export class AiOrchestratorService {
       text || '',
       MAX_EMOJIS_PER_RESPONSE,
     );
-    const normalizedLines = limitedEmojiText
+    const cleanedEmojiText = this.cleanEmojiArtifacts(limitedEmojiText);
+    const normalizedLines = cleanedEmojiText
       .replace(/\r\n/g, '\n')
       .replace(/\t/g, ' ')
       .split('\n')
@@ -1775,8 +1776,10 @@ export class AiOrchestratorService {
    * pictográfico Unicode com o seletor de variação `\uFE0F` (presente em
    * emojis monocromáticos como "ℹ️") para garantir que ambos sumam juntos.
    *
-   * Existe para honrar a regra do prompt de "no máximo 1 a 2 emojis" sem
-   * depender só do compromisso do LLM, que ocasionalmente exagera.
+   * Hoje a política é "ZERO emojis" (`MAX_EMOJIS_PER_RESPONSE = 0`), então
+   * a função efetivamente remove qualquer emoji que o LLM produza. Mantemos
+   * o nome `limitEmojis` para preservar a possibilidade de reativar um teto
+   * pequeno no futuro sem mudar a arquitetura.
    */
   private limitEmojis(text: string, max: number): string {
     if (!text) return text;
@@ -1786,6 +1789,20 @@ export class AiOrchestratorService {
       count += 1;
       return count <= max ? match : '';
     });
+  }
+
+  /**
+   * Limpa artefatos deixados pela remoção de emojis: espaços duplicados,
+   * espaços antes de pontuação e linhas que ficaram vazias. Sem isso, frases
+   * como "Pronto ✅ tudo certo." viravam "Pronto  tudo certo." após
+   * `limitEmojis(0)`, o que parecia um erro de formatação.
+   */
+  private cleanEmojiArtifacts(text: string): string {
+    if (!text) return text;
+    return text
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\s+([,.!?;:])/g, '$1')
+      .replace(/(^|\n)[ \t]+/g, '$1');
   }
 
   private convertListLinesToOptions(lines: string[]): string[] {

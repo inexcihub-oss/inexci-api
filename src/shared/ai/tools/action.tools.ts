@@ -378,7 +378,7 @@ export function buildActionTools(
         content: `[WhatsApp IA] OPME definido como: ${args.hasOpme ? 'Sim' : 'Não'}.`,
       });
 
-      return `✅ Solicitação ${request.protocol} atualizada: OPME = ${args.hasOpme ? 'Sim' : 'Não'}.`;
+      return `Solicitação ${request.protocol} atualizada: OPME = ${args.hasOpme ? 'Sim' : 'Não'}.`;
     },
   };
 
@@ -424,7 +424,7 @@ export function buildActionTools(
       const requestId = request.id as string;
 
       if (!args.confirm) {
-        return `⚠️ Você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${args.reason}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
+        return `Atenção: você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${args.reason}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
       }
 
       try {
@@ -439,7 +439,7 @@ export function buildActionTools(
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação encerrada. Motivo: "${args.reason}".`,
         });
-        return `✅ Solicitação ${request.protocol} encerrada com sucesso.`;
+        return `Solicitação ${request.protocol} encerrada com sucesso.`;
       } catch (err: any) {
         return `Erro ao encerrar: ${err?.message || 'erro desconhecido'}`;
       }
@@ -471,7 +471,8 @@ export function buildActionTools(
             },
             priority: {
               type: 'number',
-              description: 'Prioridade: 1=Baixa, 2=Média, 3=Alta, 4=Urgente',
+              description:
+                'Prioridade da SC. Aceita os números 1, 2, 3 ou 4 (1=Baixa, 2=Média, 3=Alta, 4=Urgente). IMPORTANTE: ao FALAR sobre prioridades com o usuário, mostre apenas o NOME (Baixa, Média, Alta ou Urgente) — nunca exiba o código numérico.',
             },
             confirm: {
               type: 'boolean',
@@ -499,7 +500,7 @@ export function buildActionTools(
         args.priority !== undefined &&
         ![1, 2, 3, 4].includes(args.priority as number)
       ) {
-        return 'Prioridade inválida. Use 1=Baixa, 2=Média, 3=Alta, 4=Urgente.';
+        return 'Prioridade inválida. As opções válidas são: Baixa, Média, Alta ou Urgente.';
       }
 
       const changes: string[] = [];
@@ -530,7 +531,7 @@ export function buildActionTools(
         content: `[WhatsApp IA] Dados atualizados: ${changes.join(', ')}.`,
       });
 
-      return `✅ Solicitação *${request.protocol}* atualizada:\n${changes.map((c) => `• ${c}`).join('\n')}`;
+      return `Solicitação *${request.protocol}* atualizada:\n${changes.map((c) => `• ${c}`).join('\n')}`;
     },
   };
 

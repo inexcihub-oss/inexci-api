@@ -78,7 +78,7 @@ export function buildSurgeryRequestTools(
       function: {
         name: 'get_surgery_request_status',
         description:
-          'Busca o status e detalhes resumidos de uma solicitação cirúrgica. Aceita ID UUID ou número de protocolo (ex: SC-0042) ou nome do paciente.',
+          'Busca o status e detalhes resumidos de uma solicitação cirúrgica (status, prioridade, paciente, hospital, convênio, CID, matrícula, plano/apartamento, data e pendências). Aceita ID UUID ou número de protocolo (ex: SC-0042) ou nome do paciente.',
         parameters: {
           type: 'object',
           properties: {
@@ -165,6 +165,16 @@ export function buildSurgeryRequestTools(
           )
         : 'Não agendada';
 
+      const cidLabel = (request as any).cidCode
+        ? String((request as any).cidCode)
+        : 'Não informado';
+      const registrationLabel = (request as any).healthPlanRegistration
+        ? String((request as any).healthPlanRegistration)
+        : 'Não informada';
+      const planTypeLabel = (request as any).healthPlanType
+        ? String((request as any).healthPlanType)
+        : 'Não informado';
+
       let pendencyLines: string[] = [];
       if (pendencyValidator && request.id) {
         try {
@@ -199,12 +209,15 @@ export function buildSurgeryRequestTools(
       }
 
       return [
-        `📋 *Solicitação ${protocolDisplay}*`,
+        `*Solicitação ${protocolDisplay}*`,
         `Status: ${status}`,
         `Prioridade: ${priority}`,
         `Paciente: ${patientToken}`,
         `Hospital: ${hospitalToken}`,
         `Convênio: ${healthPlanToken}`,
+        `Matrícula: ${registrationLabel}`,
+        `Plano/Apartamento: ${planTypeLabel}`,
+        `CID: ${cidLabel}`,
         `Data da cirurgia: ${surgeryDateToken}`,
         ...pendencyLines,
       ].join('\n');
@@ -218,18 +231,19 @@ export function buildSurgeryRequestTools(
       function: {
         name: 'list_surgery_requests',
         description:
-          'Lista as solicitações cirúrgicas do usuário com filtro opcional por status.',
+          'Lista TODAS as solicitações cirúrgicas acessíveis ao usuário, agrupadas e ordenadas por status (Pendente → Encerrada). Por padrão traz até 200 SCs (todas, na maioria dos casos). Aceita filtro opcional por status.',
         parameters: {
           type: 'object',
           properties: {
             status: {
               type: 'string',
               description:
-                'Status para filtrar: pendente, enviada, em_analise, em_agendamento, agendada, realizada, faturada, finalizada, encerrada',
+                'Status para filtrar (opcional): pendente, enviada, em_analise, em_agendamento, agendada, realizada, faturada, finalizada, encerrada',
             },
             limit: {
               type: 'number',
-              description: 'Quantidade máxima de resultados (padrão: 5)',
+              description:
+                'Quantidade máxima de resultados (padrão: 50, máximo: 200). Use o padrão para listagens completas.',
             },
           },
           required: [],
@@ -252,7 +266,10 @@ export function buildSurgeryRequestTools(
         encerrada: 9,
       };
 
-      const limit = Math.min((args.limit as number) || 5, 10);
+      const requestedLimit = Number.isFinite(Number(args.limit))
+        ? Number(args.limit)
+        : 50;
+      const limit = Math.min(Math.max(requestedLimit, 1), 200);
       const statusNum = args.status
         ? STATUS_MAP[String(args.status).toLowerCase()]
         : undefined;
@@ -261,7 +278,9 @@ export function buildSurgeryRequestTools(
         return 'Nenhum médico acessível encontrado.';
       }
 
-      const where: any = { doctorId: context.accessibleDoctorIds[0] };
+      // BUG histórico: usar `accessibleDoctorIds[0]` escondia SCs de
+      // colaboradores com acesso a múltiplos médicos. Listar de TODOS.
+      const where: any = { doctorId: In(context.accessibleDoctorIds) as any };
       if (statusNum) where.status = statusNum as SurgeryRequestStatus;
 
       const requests = await surgeryRequestRepo.findMany(where, 0, limit);
@@ -274,29 +293,36 @@ export function buildSurgeryRequestTools(
 
       const TOOL = 'list_surgery_requests';
 
-      // Ordenação primária: status (na ordem do workflow Pendente → Encerrada).
-      // Desempate: createdAt mais recente primeiro (já vem ordenado do repo).
-      const sortedRequests = [...requests].sort((a: any, b: any) => {
-        const sa = Number(a?.status) || 0;
-        const sb = Number(b?.status) || 0;
-        if (sa !== sb) return sa - sb;
-        const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return db - da;
-      });
-
-      // Agrupa por status para deixar a leitura no WhatsApp mais clara.
+      // Agrupa por status. Iterar depois sobre a ordem CANÔNICA do workflow
+      // (1..9) garante "Pendente → Enviada → Em Análise → ..." mesmo que a
+      // query tenha trazido os registros embaralhados.
       const groups = new Map<number, any[]>();
-      for (const request of sortedRequests) {
+      for (const request of requests) {
         const status = Number(request?.status) || 0;
         const bucket = groups.get(status) ?? [];
         bucket.push(request);
         groups.set(status, bucket);
       }
 
+      // Desempate dentro de cada grupo: createdAt mais recente primeiro.
+      for (const items of groups.values()) {
+        items.sort((a: any, b: any) => {
+          const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return db - da;
+        });
+      }
+
       const sections: string[] = [];
-      for (const [status, items] of groups) {
+      // Ordem fixa do workflow — não depende da ordem de inserção no Map.
+      const ORDERED_STATUSES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+      for (const status of ORDERED_STATUSES) {
+        const items = groups.get(status);
+        if (!items?.length) continue;
         const label = STATUS_LABELS[status] || `Status ${status}`;
+        // Sem bullet/numeração: a SC já tem protocolo (SC-XXXX) como
+        // identificador natural — qualquer prefixo numérico vira ruído e
+        // induz o usuário a responder "1" achando que abre a SC.
         const itemLines = items.map((r: any) => {
           const protocolToken = tokenizePii(
             context,
@@ -307,133 +333,14 @@ export function buildSurgeryRequestTools(
           const patientToken = r.patient?.name
             ? tokenizePii(context, TOOL, 'patient_name', r.patient.name)
             : 'Paciente';
-          return `• SC-${protocolToken} — ${patientToken}`;
+          return `SC-${protocolToken} — ${patientToken}`;
         });
         sections.push(`*${label}*\n${itemLines.join('\n')}`);
       }
 
-      return `📋 *Suas solicitações (por status):*\n\n${sections.join('\n\n')}`;
+      return `*Suas solicitações por status:*\n\n${sections.join('\n\n')}`;
     },
   };
 
-  const getDocuments: AiTool = {
-    name: 'get_documents',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'get_documents',
-        description:
-          'Lista os documentos anexados a uma solicitação cirúrgica.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: {
-              type: 'string',
-              description: 'ID da solicitação cirúrgica',
-            },
-          },
-          required: ['surgeryRequestId'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const detokenized = detokenizeArg(context, args.surgeryRequestId);
-      const byId = sanitizeIdentifier(
-        detokenized ?? String(args.surgeryRequestId || ''),
-      );
-
-      let request = await surgeryRequestRepo.findOne({ id: byId });
-      if (!request) {
-        for (const candidate of buildProtocolCandidates(byId)) {
-          const byProtocol = await surgeryRequestRepo.findOneSimple({
-            protocol: candidate,
-          });
-          if (byProtocol?.id) {
-            request = await surgeryRequestRepo.findOne({ id: byProtocol.id });
-            if (request) break;
-          }
-        }
-      }
-
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
-
-      const docs = (request as any).documents || [];
-      if (!docs.length) return 'Nenhum documento anexado a essa solicitação.';
-
-      const lines = docs.map(
-        (d: any) =>
-          `• ${d.name || d.key || 'Documento'} — ${d.folder || ''} — ${d.createdAt ? new Date(d.createdAt).toLocaleDateString('pt-BR') : ''}`,
-      );
-      return `📄 *Documentos:*\n${lines.join('\n')}`;
-    },
-  };
-
-  const getOpmeItems: AiTool = {
-    name: 'get_opme_items',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'get_opme_items',
-        description: 'Lista os itens OPME de uma solicitação cirúrgica.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: {
-              type: 'string',
-              description: 'ID da solicitação cirúrgica',
-            },
-          },
-          required: ['surgeryRequestId'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const detokenized = detokenizeArg(context, args.surgeryRequestId);
-      const byId = sanitizeIdentifier(
-        detokenized ?? String(args.surgeryRequestId || ''),
-      );
-
-      let request = await surgeryRequestRepo.findOne({ id: byId });
-      if (!request) {
-        for (const candidate of buildProtocolCandidates(byId)) {
-          const byProtocol = await surgeryRequestRepo.findOneSimple({
-            protocol: candidate,
-          });
-          if (byProtocol?.id) {
-            request = await surgeryRequestRepo.findOne({ id: byProtocol.id });
-            if (request) break;
-          }
-        }
-      }
-
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
-
-      const items = (request as any).opmeItems || [];
-      if (!items.length)
-        return 'Nenhum item OPME cadastrado para essa solicitação.';
-
-      const lines = items.map(
-        (i: any) =>
-          `• ${i.name || i.description || 'Item'} — Qtd: ${i.quantity || 1}${i.supplier ? ` — Fornecedor: ${i.supplier}` : ''}`,
-      );
-      return `🔩 *Itens OPME:*\n${lines.join('\n')}`;
-    },
-  };
-
-  return [
-    getSurgeryRequestStatus,
-    listSurgeryRequests,
-    getDocuments,
-    getOpmeItems,
-  ];
+  return [getSurgeryRequestStatus, listSurgeryRequests];
 }

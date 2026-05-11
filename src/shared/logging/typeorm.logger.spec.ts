@@ -25,14 +25,16 @@ describe('summarizeQuery', () => {
 
   it('resume UPDATE com a tabela alvo', () => {
     expect(
-      summarizeQuery('UPDATE "surgery_requests" SET "status" = $1 WHERE id = $2'),
+      summarizeQuery(
+        'UPDATE "surgery_requests" SET "status" = $1 WHERE id = $2',
+      ),
     ).toBe('UPDATE surgery_requests');
   });
 
   it('resume DELETE com a tabela alvo', () => {
-    expect(summarizeQuery('DELETE FROM "refresh_tokens" WHERE user_id = $1')).toBe(
-      'DELETE refresh_tokens',
-    );
+    expect(
+      summarizeQuery('DELETE FROM "refresh_tokens" WHERE user_id = $1'),
+    ).toBe('DELETE refresh_tokens');
   });
 
   it('resume CTE (WITH) usando a primeira tabela encontrada', () => {

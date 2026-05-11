@@ -41,6 +41,36 @@ export class HealthPlan {
   @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string | null;
 
+  // ============ ENDEREÇO ============
+
+  @Column({ name: 'zip_code', type: 'varchar', length: 10, nullable: true })
+  zipCode: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  address: string | null;
+
+  @Column({
+    name: 'address_number',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  addressNumber: string | null;
+
+  @Column({
+    name: 'address_complement',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  addressComplement: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  city: string | null;
+
+  @Column({ type: 'char', length: 2, nullable: true })
+  state: string | null;
+
   // ============ CONTATO PARA AUTORIZAÇÕES ============
 
   @Column({

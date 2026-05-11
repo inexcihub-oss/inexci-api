@@ -25,8 +25,20 @@ describe('tool-pii-allowlist', () => {
       expect(allowed).not.toContain('surgery_description');
     });
 
-    it('get_documents só pode tokenizar protocol (sem nome de paciente)', () => {
-      expect(TOOL_PII_ALLOWLIST.get_documents).toEqual(['protocol']);
+    it('manage_documents só pode tokenizar protocol (sem nome de paciente)', () => {
+      expect(TOOL_PII_ALLOWLIST.manage_documents).toEqual(['protocol']);
+    });
+
+    it('manage_tuss_items, manage_opme_items e manage_report_images só tokenizam protocol', () => {
+      expect(TOOL_PII_ALLOWLIST.manage_tuss_items).toEqual(['protocol']);
+      expect(TOOL_PII_ALLOWLIST.manage_opme_items).toEqual(['protocol']);
+      expect(TOOL_PII_ALLOWLIST.manage_report_images).toEqual(['protocol']);
+    });
+
+    it('set_health_plan permite tokenizar protocol e health_plan_name', () => {
+      expect(TOOL_PII_ALLOWLIST.set_health_plan).toEqual(
+        expect.arrayContaining(['protocol', 'health_plan_name']),
+      );
     });
   });
 
@@ -38,7 +50,7 @@ describe('tool-pii-allowlist', () => {
     });
 
     it('retorna false para combinação inválida', () => {
-      expect(isCategoryAllowedForTool('get_documents', 'patient_name')).toBe(
+      expect(isCategoryAllowedForTool('manage_documents', 'patient_name')).toBe(
         false,
       );
     });
@@ -65,18 +77,18 @@ describe('tool-pii-allowlist', () => {
 
     it('lança PiiAllowlistViolationError quando categoria é proibida', () => {
       expect(() =>
-        assertCategoryAllowed('get_documents', 'patient_name'),
+        assertCategoryAllowed('manage_documents', 'patient_name'),
       ).toThrow(PiiAllowlistViolationError);
     });
 
     it('error inclui toolName e category', () => {
       try {
-        assertCategoryAllowed('get_documents', 'cpf');
+        assertCategoryAllowed('manage_documents', 'cpf');
         fail('deveria ter lançado');
       } catch (err) {
         expect(err).toBeInstanceOf(PiiAllowlistViolationError);
         expect((err as PiiAllowlistViolationError).toolName).toBe(
-          'get_documents',
+          'manage_documents',
         );
         expect((err as PiiAllowlistViolationError).category).toBe('cpf');
       }

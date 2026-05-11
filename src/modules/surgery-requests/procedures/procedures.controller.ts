@@ -30,8 +30,13 @@ export class ProceduresController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Atualizar quantidade de procedimento da solicitação' })
-  update(@Param('id') id: string, @Body() dto: UpdateSurgeryRequestProcedureDto) {
+  @ApiOperation({
+    summary: 'Atualizar quantidade de procedimento da solicitação',
+  })
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateSurgeryRequestProcedureDto,
+  ) {
     return this.proceduresService.update(id, dto);
   }
 }

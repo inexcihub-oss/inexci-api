@@ -88,9 +88,7 @@ describe('protocol.helpers', () => {
     });
 
     it('colapsa três ou mais prefixos consecutivos', () => {
-      expect(collapseDuplicatedScPrefixes('SC-SC-SC-468131')).toBe(
-        'SC-468131',
-      );
+      expect(collapseDuplicatedScPrefixes('SC-SC-SC-468131')).toBe('SC-468131');
     });
 
     it('preserva ocorrências legítimas (SC- único + sufixo)', () => {

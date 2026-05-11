@@ -100,6 +100,77 @@ describe('GeneralTools', () => {
     });
   });
 
+  describe('list_patients', () => {
+    beforeEach(() => {
+      mockUserRepo.findOne.mockResolvedValue({
+        id: 'user-1',
+        name: 'Admin',
+        ownerId: 'owner-1',
+      });
+    });
+
+    it('lista os pacientes da clínica e tokeniza nomes/telefones', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([
+        { id: 'p1', name: 'Maria do Carmo', phone: '11988887777' },
+        { id: 'p2', name: 'José Pereira', phone: '11955554444' },
+      ]);
+
+      const piiVault = new PiiVaultService();
+      piiVault.startSession('conv-1');
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute({}, { ...baseContext, piiVault });
+
+      expect(result).toContain('Pacientes cadastrados');
+      expect(result).toContain('{{patient_name_1}}');
+      expect(result).toContain('{{patient_name_2}}');
+      expect(result).not.toContain('Maria do Carmo');
+
+      const detok = piiVault.detokenize('conv-1', result);
+      expect(detok).toContain('Maria do Carmo');
+      expect(detok).toContain('José Pereira');
+    });
+
+    it('retorna mensagem clara quando não há pacientes', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([]);
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute({}, baseContext);
+
+      expect(result).toContain('Nenhum paciente cadastrado');
+    });
+
+    it('aplica filtro por search (case-insensitive)', async () => {
+      mockPatientRepo.findMany.mockResolvedValue([
+        { id: 'p1', name: 'Maria do Carmo', phone: '11988887777' },
+        { id: 'p2', name: 'José Pereira', phone: '11955554444' },
+      ]);
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute({ search: 'maria' }, baseContext);
+
+      expect(result).toContain('Pacientes encontrados para "maria"');
+      expect(result).toContain('Maria do Carmo');
+      expect(result).not.toContain('José Pereira');
+    });
+
+    it('respeita limit (cap em 50)', async () => {
+      const fake = Array.from({ length: 80 }, (_, i) => ({
+        id: `p${i}`,
+        name: `Paciente ${i}`,
+        phone: '11999999999',
+      }));
+      mockPatientRepo.findMany.mockResolvedValue(fake);
+
+      const tool = getTool('list_patients');
+      const result = await tool.execute({ limit: 200 }, baseContext);
+
+      // Apenas até 50 nomes devem aparecer.
+      const matches = result.match(/Paciente \d+/g) ?? [];
+      expect(matches.length).toBeLessThanOrEqual(50);
+    });
+  });
+
   describe('create_patient', () => {
     const VALID_CPF = '11144477735';
 

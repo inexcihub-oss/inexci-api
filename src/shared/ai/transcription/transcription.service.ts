@@ -87,17 +87,59 @@ export class TranscriptionService {
   }
 
   private normalizeResult(result: TranscriptionResult): TranscriptionResult {
-    const text = (result.text || '')
-      .replace(/\s+/g, ' ')
-      .split('\0')
-      .join('')
-      .trim();
+    const text = this.postProcessSpokenText(
+      (result.text || '').replace(/\s+/g, ' ').split('\0').join('').trim(),
+    );
 
     return {
       ...result,
       text,
       language: result.language || 'pt-BR',
     };
+  }
+
+  /**
+   * Pós-processa a transcrição do Whisper para reduzir erros recorrentes em
+   * mensagens ditadas em português brasileiro:
+   *
+   *  - "arroba" → "@"             (e-mails ditados oralmente)
+   *  - "ponto com/br/etc."        → ".com"/".br"/etc.
+   *  - "traço/hífen"              → "-"
+   *  - "espaço" entre dígitos     → junção dos dígitos quando formam DDD+telefone
+   *
+   * Sem isso, e-mail "joao arroba teste ponto com" e telefone "31 99999 9999"
+   * chegam ao pipeline como literais que o regex de PII não reconhece e a IA
+   * trata como nome/texto comum.
+   */
+  private postProcessSpokenText(input: string): string {
+    if (!input) return input;
+    let out = input;
+
+    // E-mails: "arroba" → "@" e "ponto X" → ".X" (com tld curto)
+    out = out.replace(/\s+arroba\s+/gi, '@');
+    out = out.replace(/\barroba\b/gi, '@');
+    out = out.replace(/\s+ponto\s+(com|br|net|org|edu|gov|io|app)\b/gi, '.$1');
+    // Limpa espaços residuais ao redor de @ e .
+    out = out.replace(/\s*@\s*/g, '@');
+    out = out.replace(/(@[^\s]+)\s+\.\s*/g, '$1.');
+
+    // Telefones falados: "31 99999 9999" / "31 9 9999 9999" / "(31) 9 9999-9999"
+    // Junta sequências de dígitos separadas por espaços/pontos/hífens quando
+    // totalizam um número de telefone (10 a 13 dígitos no agregado). Exige
+    // pelo menos 2 grupos para não grudar números soltos do contexto.
+    out = out.replace(
+      /(?:\+?\s*55[\s.-]*)?\(?\d{2,4}\)?(?:[\s.-]+\d+){1,5}/g,
+      (match) => {
+        const digits = match.replace(/\D/g, '');
+        if (digits.length < 10 || digits.length > 13) return match;
+        return digits;
+      },
+    );
+
+    // "traço"/"hifen" entre números → "-"
+    out = out.replace(/(\d)\s+(?:tra[çc]o|h[ií]fen)\s+(\d)/gi, '$1-$2');
+
+    return out.replace(/\s{2,}/g, ' ').trim();
   }
 
   private recordSuccess(result: TranscriptionResult): void {

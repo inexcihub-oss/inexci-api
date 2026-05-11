@@ -7,6 +7,7 @@ const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
   findMany: jest.fn(),
 };
+const mockDocumentRepo = { findMany: jest.fn() };
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -19,6 +20,7 @@ describe('PendencyTools', () => {
   const tools = buildPendencyTools(
     mockPendencyValidator as any,
     mockSurgeryRequestRepo as any,
+    mockDocumentRepo as any,
   );
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
@@ -215,19 +217,17 @@ describe('PendencyTools', () => {
     // "SC-{{protocol_n}}" detokeniza para "SC-468131" e a tool resolve.
     it('resolve a SC mesmo quando a IA passa "SC-{{protocol_n}}" como argumento (regressão SC-SC-)', async () => {
       // Banco devolve o protocol cru (como o `generate_protocol()` em SQL).
-      mockSurgeryRequestRepo.findOneSimple.mockImplementation(
-        async (where) => {
-          if (where?.protocol === '468131') {
-            return {
-              id: 'req-468131',
-              protocol: '468131',
-              status: 1,
-              doctorId: 'doctor-1',
-            };
-          }
-          return null;
-        },
-      );
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
+        if (where?.protocol === '468131') {
+          return {
+            id: 'req-468131',
+            protocol: '468131',
+            status: 1,
+            doctorId: 'doctor-1',
+          };
+        }
+        return null;
+      });
       mockPendencyValidator.validateForStatus.mockResolvedValue({
         statusLabel: 'Pendente',
         canAdvance: true,
@@ -268,19 +268,17 @@ describe('PendencyTools', () => {
     // estrito (não tolera SC-SC-XXXX) — quem trata duplicação textual da IA
     // é o `collapseDuplicatedScPrefixes` aplicado no orchestrator.
     it('resolve a SC mesmo quando o vault tem binding legado com realValue="SC-XXXX" (regressão SC-SC-)', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockImplementation(
-        async (where) => {
-          if (where?.protocol === '468131') {
-            return {
-              id: 'req-468131',
-              protocol: '468131',
-              status: 1,
-              doctorId: 'doctor-1',
-            };
-          }
-          return null;
-        },
-      );
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
+        if (where?.protocol === '468131') {
+          return {
+            id: 'req-468131',
+            protocol: '468131',
+            status: 1,
+            doctorId: 'doctor-1',
+          };
+        }
+        return null;
+      });
       mockPendencyValidator.validateForStatus.mockResolvedValue({
         statusLabel: 'Pendente',
         canAdvance: true,
@@ -335,6 +333,224 @@ describe('PendencyTools', () => {
       );
 
       expect(result).toContain('SC-999001');
+    });
+  });
+
+  describe('get_workflow_requirements', () => {
+    it('default (sem args) devolve requisitos de CRIAÇÃO — sem TUSS/OPME/laudo na lista', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute({}, baseContext);
+
+      expect(result).toContain('Criar uma nova SC');
+      expect(result).toContain('Paciente');
+      expect(result).toContain('Procedimento');
+      expect(result).toContain('Prioridade');
+      // Hospital e convênio aparecem como OPCIONAIS na criação
+      expect(result).toMatch(/Hospital.*opcional/i);
+      expect(result).toMatch(/Conv[êe]nio.*opcional/i);
+      // Reforço explícito: TUSS/OPME/laudo só para enviar
+      expect(result).toMatch(/TUSS.*OPME.*laudo.*N[ÃA]O.*exigidos.*criar/i);
+    });
+
+    it('com 1 médico acessível, NÃO pede para informar médico (assume automático)', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute({ stage: 'create' }, baseContext);
+
+      expect(result).toMatch(/M[ée]dico.*assumido automaticamente/i);
+      expect(result).not.toMatch(/precisa indicar qual/i);
+    });
+
+    it('com múltiplos médicos acessíveis, EXIGE indicar o médico', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute(
+        { stage: 'create' },
+        { ...baseContext, accessibleDoctorIds: ['doctor-1', 'doctor-2'] },
+      );
+
+      expect(result).toMatch(/precisa indicar qual/i);
+    });
+
+    it('stage=send devolve as pendências bloqueantes do PENDING (Enviar)', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute({ stage: 'send' }, baseContext);
+
+      expect(result).toContain('Enviar a SC');
+      expect(result).toContain('Dados do Paciente');
+      expect(result).toContain('Hospital');
+      expect(result).toContain('Procedimentos (TUSS)');
+      expect(result).toContain('Itens OPME');
+      expect(result).toContain('Laudo Médico');
+      // Item OPME deve mencionar a opção de marcar que NÃO há OPME
+      expect(result).toMatch(/marcar que N[ÃA]O h[áa] OPME/i);
+      // Laudo deve mencionar assinatura
+      expect(result).toMatch(/assinatura do m[ée]dico/i);
+    });
+
+    it('stage=schedule devolve pendências do IN_SCHEDULING', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute({ stage: 'schedule' }, baseContext);
+
+      expect(result).toContain('Agendar');
+      expect(result).toContain('Definir datas disponíveis');
+      expect(result).toContain('Paciente confirmar data');
+    });
+
+    it('stage=invoice devolve pendência de confirmar recebimento', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute({ stage: 'invoice' }, baseContext);
+
+      expect(result).toContain('Confirmar recebimento');
+    });
+
+    it('stage=all combina criação + todos os status com pendências', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute({ stage: 'all' }, baseContext);
+
+      expect(result).toContain('Criar uma nova SC');
+      expect(result).toContain('Pendente');
+      expect(result).toContain('Em Agendamento');
+      expect(result).toContain('Faturada');
+    });
+
+    it('stage inválido cai no default (create)', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute(
+        { stage: 'qualquer-coisa' },
+        baseContext,
+      );
+
+      expect(result).toContain('Criar uma nova SC');
+    });
+
+    it('sem userId no contexto, nega acesso', async () => {
+      const tool = getTool('get_workflow_requirements');
+      const result = await tool.execute(
+        {},
+        { ...baseContext, userId: undefined as any },
+      );
+
+      expect(result).toContain('Acesso negado');
+    });
+  });
+
+  describe('list_post_surgery_required_docs', () => {
+    beforeEach(() => {
+      mockDocumentRepo.findMany.mockReset();
+      mockSurgeryRequestRepo.findOneSimple.mockReset();
+    });
+
+    it('rejeita sem userId', async () => {
+      const tool = getTool('list_post_surgery_required_docs');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-1' },
+        { ...baseContext, userId: undefined as any },
+      );
+      expect(result).toContain('Acesso negado');
+    });
+
+    it('quando NADA está anexado, lista todos como faltando e bloqueia mark_performed', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        doctorId: 'doctor-1',
+      });
+      mockDocumentRepo.findMany.mockResolvedValue([]);
+
+      const tool = getTool('list_post_surgery_required_docs');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-1' },
+        baseContext,
+      );
+
+      expect(result).toContain('SC-0042');
+      expect(result).toMatch(/Ficha da sala de cirurgia.*\(obrigatório\)/i);
+      expect(result).toMatch(
+        /Documento de autorização da cirurgia.*\(obrigatório\)/i,
+      );
+      expect(result).toMatch(/Imagens.*\(opcional\)/i);
+      expect(result).toMatch(/\[faltando\]/);
+      expect(result).toMatch(/Faltam 2 documento\(s\) obrigatório/i);
+      expect(result).toMatch(/manage_documents/);
+    });
+
+    it('quando todos os obrigatórios estão anexados, libera mark_performed', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        doctorId: 'doctor-1',
+      });
+      mockDocumentRepo.findMany.mockResolvedValue([
+        { type: 'surgery_room' },
+        { type: 'surgery_auth_document' },
+      ]);
+
+      const tool = getTool('list_post_surgery_required_docs');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-1' },
+        baseContext,
+      );
+
+      expect(result).toMatch(
+        /Ficha da sala.*\[anexado\]|\[anexado\].*Ficha da sala/i,
+      );
+      expect(result).toMatch(/pode prosseguir com `mark_performed`/i);
+      // Há ainda o opcional (surgery_images) faltando — deve avisar.
+      expect(result).toMatch(/opcionais ainda não anexados/i);
+    });
+
+    it('quando obrigatórios e opcionais estão todos anexados, sem aviso de opcional', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        doctorId: 'doctor-1',
+      });
+      mockDocumentRepo.findMany.mockResolvedValue([
+        { type: 'surgery_room' },
+        { type: 'surgery_auth_document' },
+        { type: 'surgery_images' },
+      ]);
+
+      const tool = getTool('list_post_surgery_required_docs');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-1' },
+        baseContext,
+      );
+
+      expect(result).toMatch(/pode prosseguir/i);
+      expect(result).not.toMatch(/opcionais ainda não anexados/i);
+    });
+
+    it('rejeita quando o doctorId da SC não é acessível ao usuário', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-x',
+        protocol: 'SC-9999',
+        doctorId: 'doctor-other',
+      });
+
+      const tool = getTool('list_post_surgery_required_docs');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-x' },
+        baseContext,
+      );
+
+      expect(result).toMatch(/permissão/i);
+      expect(mockDocumentRepo.findMany).not.toHaveBeenCalled();
+    });
+
+    it('aceita identifier como alias de surgeryRequestId (protocolo SC-XXXX)', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
+        if (where?.protocol === '0042') {
+          return { id: 'req-1', protocol: '0042', doctorId: 'doctor-1' };
+        }
+        return null;
+      });
+      mockDocumentRepo.findMany.mockResolvedValue([]);
+
+      const tool = getTool('list_post_surgery_required_docs');
+      const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
+
+      expect(result).toContain('SC-0042');
+      expect(result).toMatch(/Faltam 2/);
     });
   });
 });

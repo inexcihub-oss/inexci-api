@@ -337,7 +337,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
     expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
       '+5511888888888',
-      '⚠️ Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
+      'Não consegui transcrever seu áudio desta vez. Pode tentar novamente enviando outro áudio mais curto ou, se preferir, digitar a mensagem?',
     );
   });
 
@@ -478,7 +478,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     );
   });
 
-  it('deve preservar emojis sutis e remover markdown inline da resposta final', async () => {
+  it('deve remover emojis e markdown inline da resposta final', async () => {
     openaiServiceMock.chatCompletion.mockResolvedValue({
       choices: [
         {
@@ -499,11 +499,11 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
       '+5511888888888',
-      '📋 Solicitação SC-664980\nStatus: Em análise ✅',
+      'Solicitação SC-664980\nStatus: Em análise',
     );
   });
 
-  it('deve limitar a no máximo 3 emojis na resposta final', async () => {
+  it('deve remover todos os emojis da resposta final (política zero-emoji)', async () => {
     openaiServiceMock.chatCompletion.mockResolvedValue({
       choices: [
         {
@@ -523,10 +523,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     const sentText = whatsappServiceMock.sendMessage.mock.calls[0][1] as string;
-    const emojiCount = (
-      sentText.match(/[\p{Extended_Pictographic}]/gu) || []
-    ).length;
-    expect(emojiCount).toBeLessThanOrEqual(3);
+    const emojiCount = (sentText.match(/[\p{Extended_Pictographic}]/gu) || [])
+      .length;
+    expect(emojiCount).toBe(0);
     expect(sentText).toContain('Pronto');
     expect(sentText).toContain('obrigado!');
   });
@@ -844,11 +843,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       // FORA do placeholder no output (regressão SC-SC-).
       toolExecutorMock.executeMany.mockImplementationOnce(
         async (_calls: any[], context: any) => {
-          context.piiVault.tokenize(
-            context.conversationId,
-            '0042',
-            'protocol',
-          );
+          context.piiVault.tokenize(context.conversationId, '0042', 'protocol');
           context.piiVault.tokenize(
             context.conversationId,
             'João Silva',
@@ -1049,9 +1044,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
             '468131',
             'protocol',
           );
-          return [
-            { toolCallId: 'call-list', output: '• SC-{{protocol_1}}' },
-          ];
+          return [{ toolCallId: 'call-list', output: '• SC-{{protocol_1}}' }];
         },
       );
 
@@ -1078,8 +1071,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const sentText = (whatsappServiceMock.sendMessage as jest.Mock).mock.calls
-        .at(-1)?.[1] as string;
+      const sentText = (
+        whatsappServiceMock.sendMessage as jest.Mock
+      ).mock.calls.at(-1)?.[1] as string;
       expect(sentText).toContain('SC-468131');
       expect(sentText).not.toContain('SC-SC-468131');
       expect(sentText).not.toContain('SC-SC-');

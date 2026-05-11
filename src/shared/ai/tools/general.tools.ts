@@ -146,13 +146,90 @@ export function buildGeneralTools(
         : null;
 
       const lines = [
-        `👤 *Paciente: ${nameToken}*`,
+        `*Paciente: ${nameToken}*`,
         `CPF: ${cpfToken}`,
         `Telefone: ${phoneToken}`,
         `Email: ${emailToken}`,
       ];
       if (birthToken) lines.push(`Nascimento: ${birthToken}`);
       return lines.join('\n');
+    },
+  };
+
+  const listPatients: AiTool = {
+    name: 'list_patients',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'list_patients',
+        description:
+          'Lista pacientes cadastrados na clínica acessíveis ao usuário. Aceita filtro opcional por nome (search). Use SEMPRE esta tool antes de afirmar que um paciente não existe ou que não há pacientes cadastrados.',
+        parameters: {
+          type: 'object',
+          properties: {
+            search: {
+              type: 'string',
+              description:
+                'Texto para filtrar por nome do paciente (case-insensitive, parcial). Opcional.',
+            },
+            limit: {
+              type: 'number',
+              description:
+                'Quantidade máxima de resultados (1 a 50, padrão 10).',
+            },
+          },
+          required: [],
+        },
+      },
+    } as OpenAI.ChatCompletionTool,
+    async execute(args, context: ToolContext): Promise<string> {
+      if (!context.userId) return 'Acesso negado.';
+
+      const TOOL = 'list_patients';
+      const requestingUser = await userRepo.findOne({ id: context.userId });
+      if (!requestingUser) {
+        return 'Usuário solicitante não encontrado.';
+      }
+      const ownerId = (requestingUser as any).ownerId;
+
+      const limit = Math.min(
+        Math.max(
+          typeof args.limit === 'number' ? Math.floor(args.limit) : 10,
+          1,
+        ),
+        50,
+      );
+      const searchRaw = String(
+        detokenizeArg(context, args.search) ?? '',
+      ).trim();
+      const search = searchRaw.toLowerCase();
+
+      // Busca todos os pacientes da clínica e filtra em memória — volume típico
+      // por clínica cabe em uma página única (centenas).
+      const all = await patientRepo.findMany({ ownerId } as any, 0, 500);
+      const filtered = search
+        ? all.filter((p: any) => (p.name || '').toLowerCase().includes(search))
+        : all;
+
+      if (!filtered.length) {
+        return search
+          ? `Nenhum paciente encontrado com "${searchRaw}".`
+          : 'Nenhum paciente cadastrado nesta clínica ainda.';
+      }
+
+      const slice = filtered.slice(0, limit);
+      const lines = slice.map((p: any, index: number) => {
+        const nameToken = tokenizePii(context, TOOL, 'patient_name', p.name);
+        const phoneToken = (p as any).phone
+          ? tokenizePii(context, TOOL, 'phone', (p as any).phone)
+          : 'sem telefone';
+        return `${index + 1} - ${nameToken} (${phoneToken})`;
+      });
+
+      const header = search
+        ? `Pacientes encontrados para "${searchRaw}" (${filtered.length}):`
+        : `Pacientes cadastrados (${filtered.length}, mostrando ${slice.length}):`;
+      return [header, ...lines].join('\n');
     },
   };
 
@@ -395,5 +472,5 @@ export function buildGeneralTools(
     },
   };
 
-  return [getPatientInfo, createPatient];
+  return [getPatientInfo, listPatients, createPatient];
 }

@@ -289,6 +289,14 @@ export class UsersService {
       userUpdates.birthDate = new Date(data.birthDate);
     if (data.gender !== undefined) userUpdates.gender = data.gender;
     if (data.avatarUrl !== undefined) userUpdates.avatarUrl = data.avatarUrl;
+    if (data.cep !== undefined) userUpdates.cep = data.cep;
+    if (data.address !== undefined) userUpdates.address = data.address;
+    if (data.addressNumber !== undefined)
+      userUpdates.addressNumber = data.addressNumber;
+    if (data.addressComplement !== undefined)
+      userUpdates.addressComplement = data.addressComplement;
+    if (data.city !== undefined) userUpdates.city = data.city;
+    if (data.state !== undefined) userUpdates.state = data.state;
 
     const updatedUser = await this.userRepository.update(targetId, userUpdates);
     return updatedUser;
@@ -805,9 +813,7 @@ export class UsersService {
       );
     }
     if (!collaborator.email) {
-      throw new BadRequestException(
-        'Colaborador não possui e-mail cadastrado',
-      );
+      throw new BadRequestException('Colaborador não possui e-mail cadastrado');
     }
 
     // Invalida TODOS os tokens anteriores deste usuário (usados ou não) para

@@ -80,7 +80,7 @@ export function buildNotificationTools(
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Notificação de status enviada.`,
         });
-        return `✅ Notificação enviada para a solicitação ${request.protocol}.`;
+        return `Notificação enviada para a solicitação ${request.protocol}.`;
       } catch (err: any) {
         return `Erro ao enviar notificação: ${err?.message || 'erro desconhecido'}`;
       }

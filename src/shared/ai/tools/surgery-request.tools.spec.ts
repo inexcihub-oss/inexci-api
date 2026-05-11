@@ -273,109 +273,190 @@ describe('SurgeryRequestTools', () => {
       expect(result).toContain('Nenhuma');
     });
 
-    it('deve limitar a 10 resultados no máximo', async () => {
+    it('deve limitar a 200 resultados no máximo (clamp do limit alto)', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
       const tool = getTool('list_surgery_requests');
-      await tool.execute({ limit: 100 }, baseContext);
+      await tool.execute({ limit: 5000 }, baseContext);
 
       expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
         expect.anything(),
         0,
-        10,
+        200,
       );
+    });
+
+    it('deve usar 50 como limit padrão quando o usuário não informa', async () => {
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
+
+      const tool = getTool('list_surgery_requests');
+      await tool.execute({}, baseContext);
+
+      expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
+        expect.anything(),
+        0,
+        50,
+      );
+    });
+
+    // Regressão: print 2026-05-11 — colaborador com acesso a múltiplos médicos
+    // só via SCs do primeiro doctorId porque a tool fazia
+    // `where.doctorId = accessibleDoctorIds[0]` em vez de `In(...)`. Faltavam
+    // SCs e a IA via uma lista incompleta.
+    it('lista SCs de TODOS os médicos acessíveis ao usuário (não só do primeiro)', async () => {
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
+
+      const tool = getTool('list_surgery_requests');
+      await tool.execute(
+        {},
+        { ...baseContext, accessibleDoctorIds: ['doctor-1', 'doctor-2'] },
+      );
+
+      const callArgs = mockSurgeryRequestRepo.findMany.mock.calls[0];
+      const where = callArgs[0];
+      // O TypeORM In(...) cria um objeto com `_type: 'in'` e `_value: [...]`.
+      const doctorIdValue = where?.doctorId;
+      const inValues =
+        doctorIdValue?._value || doctorIdValue?.value || doctorIdValue;
+      expect(Array.isArray(inValues) ? inValues : []).toEqual(
+        expect.arrayContaining(['doctor-1', 'doctor-2']),
+      );
+    });
+
+    it('respeita a ordem canônica do workflow mesmo quando a query devolve embaralhado', async () => {
+      // Devolve totalmente fora de ordem, com status 9, 5, 1, 7, 3 misturados.
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([
+        { protocol: '0099', status: 9, patient: { name: 'Z' } },
+        { protocol: '0050', status: 5, patient: { name: 'C' } },
+        { protocol: '0001', status: 1, patient: { name: 'M' } },
+        { protocol: '0070', status: 7, patient: { name: 'F' } },
+        { protocol: '0030', status: 3, patient: { name: 'J' } },
+      ]);
+
+      const tool = getTool('list_surgery_requests');
+      const result = await tool.execute({}, baseContext);
+
+      const order = [
+        'Pendente',
+        'Em Análise',
+        'Agendada',
+        'Faturada',
+        'Encerrada',
+      ].map((label) => result.indexOf(label));
+      // Todos presentes
+      expect(order.every((i) => i > -1)).toBe(true);
+      // Estritamente crescente — confirma a ordem do workflow
+      for (let i = 1; i < order.length; i++) {
+        expect(order[i]).toBeGreaterThan(order[i - 1]);
+      }
     });
   });
 
-  describe('get_documents', () => {
-    it('deve listar documentos', async () => {
-      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+  describe('get_surgery_request_status (campos enriquecidos)', () => {
+    it('deve incluir CID, matrícula e plano quando preenchidos', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
         doctorId: 'doctor-1',
-        documents: [
-          { name: 'Laudo.pdf', folder: 'laudos', createdAt: '2025-01-01' },
-        ],
+      });
+      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        status: 1,
+        priority: 2,
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
+        patient: { name: 'João' },
+        cidCode: 'M75.1',
+        healthPlanRegistration: 'REG-1234',
+        healthPlanType: 'Apartamento',
       });
 
-      const tool = getTool('get_documents');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1' },
-        baseContext,
-      );
+      const tool = getTool('get_surgery_request_status');
+      const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
-      expect(result).toContain('Laudo.pdf');
+      expect(result).toContain('CID: M75.1');
+      expect(result).toContain('Matrícula: REG-1234');
+      expect(result).toContain('Plano/Apartamento: Apartamento');
     });
 
-    it('deve retornar mensagem quando não há documentos', async () => {
-      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+    it('deve mostrar "Não informado/a" quando CID, matrícula e plano estão vazios', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
         doctorId: 'doctor-1',
-        documents: [],
+      });
+      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        status: 1,
+        priority: 2,
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
+        patient: { name: 'João' },
       });
 
-      const tool = getTool('get_documents');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1' },
-        baseContext,
-      );
+      const tool = getTool('get_surgery_request_status');
+      const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
-      expect(result).toContain('Nenhum documento');
+      expect(result).toContain('CID: Não informado');
+      expect(result).toContain('Matrícula: Não informada');
+      expect(result).toContain('Plano/Apartamento: Não informado');
     });
 
-    it('deve aceitar protocolo SC-XXXX em vez de UUID', async () => {
-      mockSurgeryRequestRepo.findOne
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({
-          doctorId: 'doctor-1',
-          documents: [
-            { name: 'Guia.pdf', folder: 'guias', createdAt: '2025-01-01' },
-          ],
-        });
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({ id: 'req-42' });
-
-      const tool = getTool('get_documents');
-      const result = await tool.execute(
-        { surgeryRequestId: 'SC-664980' },
-        baseContext,
-      );
-
-      expect(mockSurgeryRequestRepo.findOneSimple).toHaveBeenCalledWith({
-        protocol: 'SC-664980',
+    it('NÃO deve incluir o emoji de prancheta no cabeçalho', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        doctorId: 'doctor-1',
       });
-      expect(result).toContain('Guia.pdf');
+      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+        id: 'req-1',
+        protocol: 'SC-0042',
+        status: 1,
+        priority: 2,
+        doctorId: 'doctor-1',
+        patientId: 'pat-1',
+        patient: { name: 'João' },
+      });
+
+      const tool = getTool('get_surgery_request_status');
+      const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
+
+      expect(result).not.toContain('📋');
     });
   });
 
-  describe('get_opme_items', () => {
-    it('deve listar itens OPME', async () => {
-      mockSurgeryRequestRepo.findOne.mockResolvedValue({
-        doctorId: 'doctor-1',
-        opmeItems: [
-          { name: 'Prótese de quadril', quantity: 1, supplier: 'MedCorp' },
-        ],
-      });
+  describe('list_surgery_requests (sem emoji)', () => {
+    it('NÃO deve incluir emoji de prancheta no cabeçalho', async () => {
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([
+        { protocol: '0001', status: 1, patient: { name: 'Maria' } },
+      ]);
 
-      const tool = getTool('get_opme_items');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1' },
-        baseContext,
-      );
+      const tool = getTool('list_surgery_requests');
+      const result = await tool.execute({}, baseContext);
 
-      expect(result).toContain('Prótese de quadril');
-      expect(result).toContain('MedCorp');
+      expect(result).not.toContain('📋');
     });
+  });
 
-    it('deve retornar mensagem quando não há itens OPME', async () => {
-      mockSurgeryRequestRepo.findOne.mockResolvedValue({
-        doctorId: 'doctor-1',
-        opmeItems: [],
-      });
+  describe('list_surgery_requests (sem numeração nem bullet)', () => {
+    it('NÃO deve numerar nem usar bullet — usar SC-XXXX direto', async () => {
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([
+        { protocol: '0001', status: 1, patient: { name: 'Maria' } },
+        { protocol: '0002', status: 1, patient: { name: 'José' } },
+      ]);
 
-      const tool = getTool('get_opme_items');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1' },
-        baseContext,
-      );
+      const tool = getTool('list_surgery_requests');
+      const result = await tool.execute({}, baseContext);
 
-      expect(result).toContain('Nenhum item OPME');
+      // Não deve aparecer prefixo de bullet ou numeração antes do "SC-"
+      expect(result).not.toMatch(/•\s*SC-/);
+      expect(result).not.toMatch(/^\s*1\s*[-.)]\s*SC-/m);
+      expect(result).not.toMatch(/^\s*2\s*[-.)]\s*SC-/m);
+      // E o item deve aparecer começando direto com "SC-"
+      expect(result).toMatch(/SC-0001\s—\sMaria/);
+      expect(result).toMatch(/SC-0002\s—\sJosé/);
     });
   });
 });

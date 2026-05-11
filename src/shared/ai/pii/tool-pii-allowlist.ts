@@ -22,10 +22,17 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
     'date',
   ],
   list_surgery_requests: ['protocol', 'patient_name'],
-  get_documents: ['protocol'],
-  get_opme_items: ['protocol'],
   get_pendencies: ['protocol'],
+  // Apenas configuração estática (PENDENCIES_CONFIG) — nenhuma PII envolvida.
+  get_workflow_requirements: [],
+  // Tokeniza apenas o protocolo da SC; a tool só lê tipos/nomes técnicos
+  // de documentos (lista canônica em post-surgery-documents.config.ts).
+  list_post_surgery_required_docs: ['protocol'],
+  // Não expõe nenhum dado pessoal: a assinatura é binária (imagem) e a
+  // resposta para o usuário é só uma confirmação textual.
+  upload_doctor_signature: [],
   get_patient_info: ['patient_name', 'cpf', 'phone', 'email', 'birth_date'],
+  list_patients: ['patient_name', 'phone'],
   create_patient: ['patient_name', 'cpf', 'phone', 'email', 'birth_date'],
   list_sc_creation_catalog: [
     'patient_name',
@@ -53,14 +60,18 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   update_surgery_request_data: ['protocol'],
   update_patient_data: ['protocol'],
   set_hospital: ['protocol', 'hospital_name'],
-  add_tuss_item: ['protocol'],
-  add_opme_item: ['protocol'],
+  set_health_plan: ['protocol', 'health_plan_name'],
+
+  // ---------- Gestão consolidada (list/add/update/remove ou list/attach/remove) ----------
+  manage_tuss_items: ['protocol'],
+  manage_opme_items: ['protocol'],
+  manage_documents: ['protocol'],
+  manage_report_images: ['protocol'],
 
   // Conteúdo clínico longo NÃO ecoa para a IA: apenas placeholders genéricos.
   update_request_clinical_data: ['protocol'],
   update_request_admin_data: ['protocol'],
 
-  attach_document_from_whatsapp: ['protocol'],
   create_sc_catalog_record: [
     'patient_name',
     'hospital_name',

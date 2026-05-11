@@ -15,6 +15,12 @@ export class CreateHealthPlanDto {
 
   @IsOptional() @IsString() ansCode?: string;
   @IsOptional() @IsString() cnpj?: string;
+  @IsOptional() @IsString() zipCode?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() addressNumber?: string;
+  @IsOptional() @IsString() addressComplement?: string;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() state?: string;
   @IsOptional() @IsString() authorizationContact?: string;
   @IsOptional() @IsString() authorizationPhone?: string;
   @IsOptional() @IsString() authorizationEmail?: string;

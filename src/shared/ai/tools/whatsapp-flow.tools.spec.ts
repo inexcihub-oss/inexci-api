@@ -39,12 +39,6 @@ const mockHospitalRepo = { findOne: jest.fn(), create: jest.fn() };
 const mockHealthPlanRepo = { findOne: jest.fn(), create: jest.fn() };
 const mockProcedureRepo = { findOne: jest.fn(), findMany: jest.fn() };
 const mockUserRepo = { findMany: jest.fn() };
-const mockTussItemRepo = { create: jest.fn() };
-const mockOpmeItemRepo = { create: jest.fn() };
-const mockSupplierRepo = { findMany: jest.fn(), create: jest.fn() };
-const mockDocumentRepo = { create: jest.fn() };
-const mockStorageService = { create: jest.fn() };
-const mockConfigService = { get: jest.fn() };
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -57,7 +51,13 @@ const mockRequest = {
   id: 'req-1',
   protocol: 'SC-0042',
   doctorId: 'doctor-1',
+  ownerId: 'owner-1',
+  // Status Pendente: alterações em informações gerais, TUSS, OPME e laudo
+  // só são permitidas enquanto a SC está em PENDING.
+  status: 1,
 };
+
+const mockSentRequest = { ...mockRequest, status: 2 };
 
 describe('WhatsappFlowTools', () => {
   const tools = buildWhatsappFlowTools(
@@ -71,13 +71,7 @@ describe('WhatsappFlowTools', () => {
     mockHealthPlanRepo as any,
     mockProcedureRepo as any,
     mockUserRepo as any,
-    mockTussItemRepo as any,
-    mockOpmeItemRepo as any,
-    mockDocumentRepo as any,
-    mockStorageService as any,
-    mockConfigService as any,
     undefined,
-    mockSupplierRepo as any,
   );
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
@@ -85,15 +79,10 @@ describe('WhatsappFlowTools', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
-    mockConfigService.get.mockReturnValue('');
     mockProcedureRepo.findOne.mockResolvedValue({
       id: 'proc-1',
       name: 'Artroscopia de Joelho',
     });
-    mockSupplierRepo.findMany.mockResolvedValue([]);
-    mockSupplierRepo.create.mockImplementation(({ name, doctorId }: any) =>
-      Promise.resolve({ id: `sup-${name}`, name, doctorId }),
-    );
     mockPendencyValidator.validateForStatus.mockResolvedValue({
       pendencies: [
         { name: 'Laudo médico', isComplete: false, isOptional: false },
@@ -148,7 +137,9 @@ describe('WhatsappFlowTools', () => {
         baseContext,
       );
 
-      expect(result).toContain('Paciente não encontrado');
+      // Mensagem deve sugerir cadastrar o paciente em vez de pedir um nome exato.
+      expect(result).toContain('não está cadastrado');
+      expect(result).toContain('create_patient');
     });
 
     it('deve retornar preview sem criar dados quando confirm=false', async () => {
@@ -880,70 +871,21 @@ describe('WhatsappFlowTools', () => {
       });
       expect(result).toContain('Hospital atualizado com sucesso');
     });
-  });
 
-  describe('add_tuss_item', () => {
-    it('deve exigir confirmação antes de mutar', async () => {
-      const result = await getTool('add_tuss_item').execute(
+    it('deve permitir remover hospital com clear=true', async () => {
+      const result = await getTool('set_hospital').execute(
         {
           surgeryRequestId: 'req-1',
-          tussCode: '30401010',
-          name: 'Artroscopia',
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('Confirme');
-      expect(mockTussItemRepo.create).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('add_opme_item', () => {
-    it('deve exigir ao menos 3 fabricantes e 3 fornecedores', async () => {
-      const result = await getTool('add_opme_item').execute(
-        {
-          surgeryRequestId: 'req-1',
-          name: 'Parafuso',
-          quantity: 2,
-          manufacturerNames: ['Fabricante 1', 'Fabricante 2'],
-          supplierNames: ['Fornecedor 1', 'Fornecedor 2'],
+          clear: true,
           confirm: true,
         },
         baseContext,
       );
 
-      expect(result).toContain('ao menos 3 fabricantes');
-      expect(mockOpmeItemRepo.create).not.toHaveBeenCalled();
-    });
-
-    it('deve adicionar item OPME e ativar hasOpme', async () => {
-      const result = await getTool('add_opme_item').execute(
-        {
-          surgeryRequestId: 'req-1',
-          name: 'Parafuso',
-          quantity: 2,
-          manufacturerNames: ['Fabricante 1', 'Fabricante 2', 'Fabricante 3'],
-          supplierNames: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockSurgeryRequestsService.setHasOpme).toHaveBeenCalledWith(
-        'req-1',
-        true,
-        'user-1',
-      );
-      expect(mockOpmeItemRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          surgeryRequestId: 'req-1',
-          name: 'Parafuso',
-          brand: 'Fabricante 1, Fabricante 2, Fabricante 3',
-          quantity: 2,
-          suppliers: expect.any(Array),
-        }),
-      );
-      expect(result).toContain('Item OPME adicionado com sucesso');
+      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
+        hospitalId: null,
+      });
+      expect(result).toContain('Hospital removido');
     });
   });
 
@@ -986,57 +928,94 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  describe('attach_document_from_whatsapp', () => {
-    it('deve bloquear quando não houver mídia no contexto', async () => {
-      const result = await getTool('attach_document_from_whatsapp').execute(
+  describe('read-only após status Pendente', () => {
+    beforeEach(() => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockSentRequest);
+    });
+
+    it('set_hospital deve recusar mutação quando SC está em Enviada', async () => {
+      const result = await getTool('set_hospital').execute(
         {
           surgeryRequestId: 'req-1',
+          hospitalId: 'hosp-1',
           confirm: true,
         },
         baseContext,
       );
 
-      expect(result).toContain('Não identifiquei mídia');
+      expect(result).toContain('histórico');
+      expect(result).toContain('Enviada');
+      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
     });
 
-    it('deve anexar documento via mídia inbound com confirm=true', async () => {
-      const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: () => 'application/pdf' },
-        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-      } as any);
-
-      mockStorageService.create.mockResolvedValue('documents/doc-1.pdf');
-      mockDocumentRepo.create.mockResolvedValue({ id: 'doc-1' });
-
-      const result = await getTool('attach_document_from_whatsapp').execute(
+    it('set_hospital com clear=true também é bloqueado fora de Pendente', async () => {
+      const result = await getTool('set_hospital').execute(
         {
           surgeryRequestId: 'req-1',
-          document_name: 'Laudo',
+          clear: true,
           confirm: true,
         },
+        baseContext,
+      );
+
+      expect(result).toContain('histórico');
+      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update_request_clinical_data deve recusar mutação fora de Pendente', async () => {
+      const result = await getTool('update_request_clinical_data').execute(
         {
-          ...baseContext,
-          inboundMedia: [
-            {
-              url: 'https://api.twilio.com/2010-04-01/media/1',
-              contentType: 'application/pdf',
-            },
-          ],
-        },
-      );
-
-      expect(mockStorageService.create).toHaveBeenCalled();
-      expect(mockDocumentRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
           surgeryRequestId: 'req-1',
-          type: 'medical_report',
-        }),
+          cidCode: 'M17.0',
+          confirm: true,
+        },
+        baseContext,
       );
-      expect(result).toContain('Documento anexado com sucesso');
 
-      fetchMock.mockRestore();
+      expect(result).toContain('histórico');
+      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update_request_admin_data deve recusar mutação fora de Pendente', async () => {
+      const result = await getTool('update_request_admin_data').execute(
+        {
+          surgeryRequestId: 'req-1',
+          healthPlanRegistration: 'REG-123',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(result).toContain('histórico');
+      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('manage_report_sections deve permitir list mas recusar create', async () => {
+      mockSurgeryRequestsService.getReportSections = jest
+        .fn()
+        .mockResolvedValue([
+          { id: 's1', title: 'Diagnóstico', description: 'desc' },
+        ]);
+
+      const listResult = await getTool('manage_report_sections').execute(
+        { surgeryRequestId: 'req-1', operation: 'list' },
+        baseContext,
+      );
+      expect(listResult).toContain('Diagnóstico');
+
+      const createResult = await getTool('manage_report_sections').execute(
+        {
+          surgeryRequestId: 'req-1',
+          operation: 'create',
+          title: 'Nova seção',
+          confirm: true,
+        },
+        baseContext,
+      );
+      expect(createResult).toContain('histórico');
+      expect(
+        mockSurgeryRequestsService.createReportSection,
+      ).not.toHaveBeenCalled();
     });
   });
 
