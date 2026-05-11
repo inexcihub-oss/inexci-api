@@ -21,23 +21,20 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy package files
-COPY package*.json ./
+COPY package.json yarn.lock ./
 
-# Install node-gyp globally (required to build sharp from source on Alpine)
-RUN npm install -g node-gyp
-
-# Install dependencies
-RUN npm install
+# Install dependencies (yarn picks the correct sharp prebuilt binary for linuxmusl)
+RUN yarn install --frozen-lockfile --network-timeout 600000
 
 # Copy source code
 COPY . .
 
 # Build application
-RUN npm run build
+RUN yarn build
 
 # Expose port
 EXPOSE 3000
 
 # Start application
-CMD ["npm", "run", "start:prod"]
+CMD ["yarn", "start:prod"]
 
