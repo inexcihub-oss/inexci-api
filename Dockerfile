@@ -11,7 +11,10 @@ RUN apk add --no-cache \
     ca-certificates \
     ttf-freefont \
     vips-dev \
-    fontconfig
+    fontconfig \
+    python3 \
+    make \
+    g++
 
 # Tell Puppeteer to use the installed Chromium instead of downloading its own
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
