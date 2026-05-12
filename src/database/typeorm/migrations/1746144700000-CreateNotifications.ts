@@ -18,7 +18,7 @@ export class CreateNotifications1746144700000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "notifications" (
-        "id"         UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"    UUID NOT NULL,
         "type"       "notification_type_enum" NOT NULL DEFAULT 'info',
         "title"      VARCHAR(255) NOT NULL,
@@ -40,7 +40,7 @@ export class CreateNotifications1746144700000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "user_notification_settings" (
-        "id"                     UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                     UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"                UUID NOT NULL,
         "push_notifications"     BOOLEAN NOT NULL DEFAULT true,
         "whatsapp_notifications" BOOLEAN NOT NULL DEFAULT true,
@@ -61,7 +61,7 @@ export class CreateNotifications1746144700000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "notification_send_logs" (
-        "id"                UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                UUID NOT NULL DEFAULT gen_random_uuid(),
         "channel"           "notification_channel_enum" NOT NULL,
         "status"            "notification_send_status_enum" NOT NULL DEFAULT 'queued',
         "to"                VARCHAR(255) NOT NULL,

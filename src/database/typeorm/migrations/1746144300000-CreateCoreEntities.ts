@@ -14,7 +14,7 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "procedures" (
-        "id"         UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "name"       VARCHAR(255) NOT NULL,
         "created_at" TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
@@ -24,7 +24,7 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "hospitals" (
-        "id"             UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"             UUID NOT NULL DEFAULT gen_random_uuid(),
         "name"           VARCHAR(150) NOT NULL,
         "cnpj"           VARCHAR(20),
         "email"          VARCHAR(100),
@@ -59,7 +59,7 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "health_plans" (
-        "id"                    UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                    UUID NOT NULL DEFAULT gen_random_uuid(),
         "name"                  VARCHAR(150) NOT NULL,
         "ans_code"              VARCHAR(20),
         "cnpj"                  VARCHAR(20),
@@ -98,7 +98,7 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "suppliers" (
-        "id"             UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"             UUID NOT NULL DEFAULT gen_random_uuid(),
         "name"           VARCHAR(150) NOT NULL,
         "cnpj"           VARCHAR(20),
         "email"          VARCHAR(100),
@@ -137,7 +137,7 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "patients" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "doctor_id"          UUID NOT NULL,
         "owner_id"           UUID NOT NULL,
         "name"               VARCHAR(100) NOT NULL,

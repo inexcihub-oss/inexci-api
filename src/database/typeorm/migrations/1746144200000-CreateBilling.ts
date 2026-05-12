@@ -16,7 +16,7 @@ export class CreateBilling1746144200000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "subscription_plans" (
-        "id"                    UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                    UUID NOT NULL DEFAULT gen_random_uuid(),
         "slug"                  VARCHAR(60) NOT NULL,
         "name"                  VARCHAR(100) NOT NULL,
         "description"           TEXT,
@@ -38,7 +38,7 @@ export class CreateBilling1746144200000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "subscriptions" (
-        "id"                          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "id"                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         "owner_id"                    UUID NOT NULL,
         "plan_id"                     UUID NOT NULL,
         "next_plan_id"                UUID,
@@ -76,7 +76,7 @@ export class CreateBilling1746144200000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "payment_methods" (
-        "id"                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "id"                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         "owner_id"            UUID NOT NULL,
         "gateway_provider"    VARCHAR(30) NOT NULL,
         "gateway_token"       VARCHAR(255) NOT NULL,
@@ -107,7 +107,7 @@ export class CreateBilling1746144200000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "invoices" (
-        "id"                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "id"                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         "subscription_id"       UUID NOT NULL,
         "owner_id"              UUID NOT NULL,
         "amount_cents"          INTEGER NOT NULL,
@@ -144,7 +144,7 @@ export class CreateBilling1746144200000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "subscription_quota_periods" (
-        "id"                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "id"                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         "subscription_id"         UUID NOT NULL,
         "period_start"            TIMESTAMPTZ NOT NULL,
         "period_end"              TIMESTAMPTZ NOT NULL,
@@ -165,7 +165,7 @@ export class CreateBilling1746144200000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "payment_gateway_events" (
-        "id"               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "id"               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         "gateway_provider" VARCHAR(30) NOT NULL,
         "event_id"         VARCHAR(200) NOT NULL,
         "event_type"       VARCHAR(60) NOT NULL,

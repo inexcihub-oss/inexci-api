@@ -15,7 +15,7 @@ export class CreateSurgeryRequests1746144400000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "surgery_requests" (
-        "id"                       UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                       UUID NOT NULL DEFAULT gen_random_uuid(),
         "doctor_id"                UUID NOT NULL,
         "owner_id"                 UUID NOT NULL,
         "created_by_id"            UUID NOT NULL,

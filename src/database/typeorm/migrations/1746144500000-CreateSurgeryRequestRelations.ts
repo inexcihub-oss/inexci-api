@@ -20,7 +20,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "surgery_request_tuss_items" (
-        "id"                  UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                  UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id"  UUID NOT NULL,
         "tuss_code"           VARCHAR(50) NOT NULL,
         "name"                VARCHAR(255) NOT NULL,
@@ -40,7 +40,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "opme_items" (
-        "id"                  UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                  UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id"  UUID NOT NULL,
         "name"                VARCHAR(75) NOT NULL,
         "brand"               VARCHAR(75),
@@ -74,7 +74,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "surgery_request_quotations" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id" UUID NOT NULL,
         "supplier_id"        UUID NOT NULL,
         "proposal_number"    VARCHAR(100),
@@ -100,7 +100,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "contestations" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id" UUID NOT NULL,
         "created_by_id"      UUID NOT NULL,
         "type"               "contestation_type_enum" NOT NULL,
@@ -123,7 +123,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "documents" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id" UUID NOT NULL,
         "created_by_id"      UUID NOT NULL,
         "type"               VARCHAR(75) NOT NULL DEFAULT 'additional_document',
@@ -151,7 +151,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "surgery_request_analyses" (
-        "id"                      UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                      UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id"      UUID NOT NULL,
         "request_number"          VARCHAR(100) NOT NULL,
         "received_at"             TIMESTAMP NOT NULL,
@@ -174,7 +174,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "surgery_request_billings" (
-        "id"                       UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                       UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id"       UUID NOT NULL,
         "created_by_id"            UUID NOT NULL,
         "invoice_protocol"         VARCHAR(100) NOT NULL,
@@ -202,7 +202,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "surgery_request_templates" (
-        "id"            UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"            UUID NOT NULL DEFAULT gen_random_uuid(),
         "doctor_id"     UUID NOT NULL,
         "owner_id"      UUID NOT NULL,
         "name"          VARCHAR(100) NOT NULL,
@@ -228,7 +228,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "surgery_request_activities" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id" UUID NOT NULL,
         "user_id"            UUID,
         "type"               "activity_type_enum" NOT NULL DEFAULT 'comment',
@@ -252,7 +252,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "report_sections" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "title"              VARCHAR(255) NOT NULL,
         "description"        TEXT,
         "order"              INTEGER NOT NULL DEFAULT 0,
@@ -271,7 +271,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "stale_notification_logs" (
-        "id"                 UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id" UUID NOT NULL,
         "stale_days"         INTEGER NOT NULL,
         "channel"            VARCHAR(20) NOT NULL DEFAULT 'in_app',

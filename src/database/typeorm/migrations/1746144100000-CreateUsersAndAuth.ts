@@ -18,7 +18,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE "users" (
-        "id"                              UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                              UUID NOT NULL DEFAULT gen_random_uuid(),
         "name"                            VARCHAR(100) NOT NULL,
         "email"                           VARCHAR(160) NOT NULL,
         "password"                        VARCHAR(60),
@@ -77,7 +77,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "refresh_tokens" (
-        "id"         UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"    UUID NOT NULL,
         "token"      VARCHAR(512) NOT NULL,
         "expires_at" TIMESTAMP NOT NULL,
@@ -99,7 +99,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "recovery_codes" (
-        "id"         UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"    UUID NOT NULL,
         "code"       VARCHAR(6) NOT NULL,
         "expires_at" TIMESTAMP,
@@ -118,7 +118,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "doctor_profiles" (
-        "id"             UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"             UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"        UUID NOT NULL,
         "crm"            VARCHAR(20) NOT NULL,
         "crm_state"      CHAR(2) NOT NULL,
@@ -139,7 +139,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "doctor_headers" (
-        "id"                UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                UUID NOT NULL DEFAULT gen_random_uuid(),
         "doctor_profile_id" UUID NOT NULL,
         "logo_url"          VARCHAR(500),
         "logo_position"     "doctor_header_logo_position_enum" NOT NULL DEFAULT 'left',
@@ -156,7 +156,7 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "user_doctor_accesses" (
-        "id"             UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"             UUID NOT NULL DEFAULT gen_random_uuid(),
         "user_id"        UUID NOT NULL,
         "doctor_user_id" UUID NOT NULL,
         "status"         "user_doctor_access_status_enum" NOT NULL DEFAULT 'active',

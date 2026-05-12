@@ -76,13 +76,21 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
     );
 
     await queryRunner.query(`
+      CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    `);
+
+    await queryRunner.query(`
+      CREATE EXTENSION IF NOT EXISTS vector;
+    `);
+
+    await queryRunner.query(`
       CREATE TABLE "ai_knowledge_chunks" (
         "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "category"   VARCHAR(50) NOT NULL,
         "title"      TEXT NOT NULL,
         "content"    TEXT NOT NULL,
         "metadata"   JSONB,
-        "embedding"  extensions.vector(1536),
+        "embedding"  vector(1536),
         "active"     BOOLEAN NOT NULL DEFAULT true,
         "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -96,12 +104,12 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
       `CREATE INDEX "idx_knowledge_embedding"
          ON "ai_knowledge_chunks"
          USING hnsw ("embedding" vector_cosine_ops)
-         WITH (lists = 100);`,
+         WITH (m = 16, ef_construction = 64);`,
     );
 
     await queryRunner.query(`
       CREATE TABLE "ai_token_usage_logs" (
-        "id"                  UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"                  UUID NOT NULL DEFAULT gen_random_uuid(),
         "message_sid"         VARCHAR(64) NOT NULL,
         "phone_hash"          VARCHAR(64) NOT NULL,
         "user_id"             UUID,
@@ -146,7 +154,7 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE "ai_pii_redaction_logs" (
-        "id"              UUID NOT NULL DEFAULT uuid_generate_v4(),
+        "id"              UUID NOT NULL DEFAULT gen_random_uuid(),
         "conversation_id" UUID,
         "message_sid"     VARCHAR(64),
         "category"        VARCHAR(40) NOT NULL,
