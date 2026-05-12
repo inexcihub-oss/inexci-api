@@ -82,7 +82,7 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
         "title"      TEXT NOT NULL,
         "content"    TEXT NOT NULL,
         "metadata"   JSONB,
-        "embedding"  vector(1536),
+        "embedding"  extensions.vector(1536),
         "active"     BOOLEAN NOT NULL DEFAULT true,
         "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -95,7 +95,7 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX "idx_knowledge_embedding"
          ON "ai_knowledge_chunks"
-         USING ivfflat ("embedding" vector_cosine_ops)
+         USING hnsw ("embedding" vector_cosine_ops)
          WITH (lists = 100);`,
     );
 
