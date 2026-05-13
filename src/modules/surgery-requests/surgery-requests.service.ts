@@ -298,6 +298,7 @@ export class SurgeryRequestsService {
       template: string;
       to?: string;
       channels?: { email?: boolean; whatsapp?: boolean };
+      oldStatus?: number;
     },
     userId: string,
   ) {

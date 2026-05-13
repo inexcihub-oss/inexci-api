@@ -61,7 +61,7 @@ export class SurgeryRequestNotificationService {
       template: string;
       to?: string;
       channels?: { email?: boolean; whatsapp?: boolean };
-      old_status?: number;
+      oldStatus?: number;
     },
     _userId: string,
   ) {
@@ -82,7 +82,7 @@ export class SurgeryRequestNotificationService {
     // Template especial: notificação ao paciente com canais selecionados pelo usuário
     if (dto.template === 'status-change-patient') {
       const previousStatus =
-        (dto.old_status as SurgeryRequestStatus | undefined) ??
+        (dto.oldStatus as SurgeryRequestStatus | undefined) ??
         (await this.surgeryRequestRepository.findPreviousStatus(id)) ??
         request.status;
 

@@ -48,5 +48,5 @@ export class NotifySurgeryRequestDto {
   @IsInt()
   @Min(1)
   @Max(9)
-  old_status?: number;
+  oldStatus?: number;
 }
