@@ -59,6 +59,9 @@ import { MessageProcessorService } from './services/orchestrator/message-process
 import { DocumentIntakeService } from './services/orchestrator/document-intake.service';
 import { AudioIntakeService } from './services/orchestrator/audio-intake.service';
 import { PiiBindingService } from './services/orchestrator/pii-binding.service';
+import { ConversationMemoryService } from './services/orchestrator/conversation-memory.service';
+import { NextStepAdvisorService } from './services/orchestrator/next-step-advisor.service';
+import { DraftContextService } from './services/orchestrator/draft-context.service';
 
 @Module({
   imports: [
@@ -127,6 +130,9 @@ import { PiiBindingService } from './services/orchestrator/pii-binding.service';
     DocumentIntakeService,
     AudioIntakeService,
     PiiBindingService,
+    ConversationMemoryService,
+    NextStepAdvisorService,
+    DraftContextService,
     AiMessageProcessor,
   ],
   exports: [AiOrchestratorService],

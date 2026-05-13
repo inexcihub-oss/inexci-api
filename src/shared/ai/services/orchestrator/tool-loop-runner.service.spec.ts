@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import OpenAI from 'openai';
+import { PiiVaultService } from '../pii-vault.service';
 import {
   ToolLoopHooks,
   ToolLoopInput,
@@ -82,6 +83,9 @@ describe('ToolLoopRunnerService', () => {
     telemetry = new OrchestratorTelemetryService(
       { create: jest.fn() } as any,
       new PhoneNormalizerService({} as any),
+      {
+        categoryCounts: jest.fn().mockReturnValue({}),
+      } as unknown as PiiVaultService,
     );
     jest.spyOn(telemetry, 'captureUsageSnapshot');
 

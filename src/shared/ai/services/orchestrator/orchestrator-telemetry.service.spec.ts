@@ -6,6 +6,7 @@ import {
 } from './orchestrator-telemetry.service';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { AiTokenUsageLogRepository } from '../../../../database/repositories/ai-token-usage-log.repository';
+import { PiiVaultService } from '../pii-vault.service';
 
 const buildCompletion = (
   overrides: Partial<OpenAI.ChatCompletion> = {},
@@ -34,15 +35,20 @@ describe('OrchestratorTelemetryService', () => {
     Pick<AiTokenUsageLogRepository, 'create'>
   >;
   let phoneNormalizer: PhoneNormalizerService;
+  let piiVault: jest.Mocked<Pick<PiiVaultService, 'categoryCounts'>>;
 
   beforeEach(() => {
     aiTokenUsageLogRepo = {
       create: jest.fn().mockResolvedValue({}),
     };
     phoneNormalizer = new PhoneNormalizerService({} as any);
+    piiVault = {
+      categoryCounts: jest.fn().mockReturnValue({}),
+    };
     service = new OrchestratorTelemetryService(
       aiTokenUsageLogRepo as unknown as AiTokenUsageLogRepository,
       phoneNormalizer,
+      piiVault as unknown as PiiVaultService,
     );
   });
 

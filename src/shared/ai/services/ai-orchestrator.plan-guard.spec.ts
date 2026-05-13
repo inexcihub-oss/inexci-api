@@ -35,6 +35,13 @@ describe('AiOrchestratorService — plan-first guard', () => {
     accessControl: { getAccessibleDoctorIds: jest.fn() },
     pendency: { validateForStatus: jest.fn() },
     surgeryRequestRepo: { findOneSimple: jest.fn() },
+    nextStepAdvisor: {
+      appendNextStep: jest
+        .fn()
+        .mockImplementation(
+          (_n: string, _a: unknown, output: string) => output,
+        ),
+    },
     aiTokenUsageLogRepo: { create: jest.fn() },
     config: {
       get: jest.fn((key: string, defaultValue?: any) => {
@@ -79,6 +86,13 @@ describe('AiOrchestratorService — plan-first guard', () => {
       cancel: jest.fn(),
       finalizeCommit: jest.fn(),
     },
+    draftContext: {
+      buildToolsForDraft: jest
+        .fn()
+        .mockResolvedValue({ tools: [], draftType: null }),
+      buildCacheKey: jest.fn().mockReturnValue('inexci:wa:v1:draft=none'),
+      evaluatePlanFirstGuard: jest.fn().mockResolvedValue(new Set()),
+    },
     documentDispatcher: {
       isEnabled: jest.fn().mockReturnValue(false),
       pickDocumentMedia: jest.fn().mockReturnValue(null),
@@ -110,8 +124,6 @@ describe('AiOrchestratorService — plan-first guard', () => {
       m.whatsapp as any,
       m.userRepo as any,
       m.accessControl as any,
-      m.pendency as any,
-      m.surgeryRequestRepo as any,
       m.config as any,
       m.whatsappMedia as any,
       m.piiVault as any,
@@ -119,7 +131,6 @@ describe('AiOrchestratorService — plan-first guard', () => {
       m.aiRedis as any,
       m.context as any,
       m.whatsappConversationRepo as any,
-      m.draft as any,
       new ResponseNormalizerService(),
       new PhoneNormalizerService(m.userRepo as any),
       new ClearContextDetectorService(),
@@ -130,6 +141,9 @@ describe('AiOrchestratorService — plan-first guard', () => {
       new OrchestratorTelemetryService(
         m.aiTokenUsageLogRepo as any,
         new PhoneNormalizerService(m.userRepo as any),
+        {
+          categoryCounts: jest.fn().mockReturnValue({}),
+        } as unknown as PiiVaultService,
       ),
       { run: jest.fn() } as any,
       {
@@ -158,13 +172,21 @@ describe('AiOrchestratorService — plan-first guard', () => {
         persistPiiBindings: jest.fn().mockResolvedValue(undefined),
         redactResidualPii: jest.fn().mockImplementation((t: string) => t),
       } as any,
+      {
+        memorizeEntities: jest.fn().mockResolvedValue(undefined),
+        resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+        readMemory: jest.fn().mockResolvedValue(null),
+        patchMemory: jest.fn().mockResolvedValue(undefined),
+      } as any,
+      m.nextStepAdvisor as any,
+      m.draftContext as any,
     );
 
   // Sub-fase 3.9 (2026-05-12): COMPLEX_MUTATION_TOOL_NAMES esvaziado.
   // O guard `evaluatePlanFirstGuard` é agora um no-op (nenhuma tool no set).
   it('evaluatePlanFirstGuard: é no-op quando COMPLEX_MUTATION_TOOL_NAMES está vazio (Sub-fase 3.9)', async () => {
     const m = baseMocks();
-    const service = buildService(m);
+    buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
       {
         id: 'call-1',
@@ -175,7 +197,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
         },
       },
     ];
-    const blocked = await (service as any).evaluatePlanFirstGuard(
+    const blocked = await m.draftContext.evaluatePlanFirstGuard(
       toolCalls,
       'conv-1',
     );
@@ -184,7 +206,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
 
   it('evaluatePlanFirstGuard: não bloqueia quando plan_actions está no mesmo turno', async () => {
     const m = baseMocks();
-    const service = buildService(m);
+    buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
       {
         id: 'call-plan',
@@ -197,7 +219,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
         function: { name: 'advance_surgery_request', arguments: '{}' },
       },
     ];
-    const blocked = await (service as any).evaluatePlanFirstGuard(
+    const blocked = await m.draftContext.evaluatePlanFirstGuard(
       toolCalls,
       'conv-1',
     );
@@ -206,14 +228,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
 
   it('evaluatePlanFirstGuard: não bloqueia quando já existe operation_draft ativo', async () => {
     const m = baseMocks();
-    m.draft.getCurrent.mockResolvedValue({
-      type: 'create_sc',
-      status: 'collecting',
-      fields: {},
-      startedAt: '',
-      updatedAt: '',
-    });
-    const service = buildService(m);
+    buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
       {
         id: 'call-mut',
@@ -221,7 +236,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
         function: { name: 'advance_surgery_request', arguments: '{}' },
       },
     ];
-    const blocked = await (service as any).evaluatePlanFirstGuard(
+    const blocked = await m.draftContext.evaluatePlanFirstGuard(
       toolCalls,
       'conv-1',
     );
@@ -230,11 +245,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
 
   it('evaluatePlanFirstGuard: desligado quando AI_USE_DRAFT_FLOWS=false', async () => {
     const m = baseMocks();
-    m.config.get.mockImplementation((key: string, def?: any) => {
-      if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
-      return def;
-    });
-    const service = buildService(m);
+    buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
       {
         id: 'call-mut',
@@ -242,7 +253,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
         function: { name: 'advance_surgery_request', arguments: '{}' },
       },
     ];
-    const blocked = await (service as any).evaluatePlanFirstGuard(
+    const blocked = await m.draftContext.evaluatePlanFirstGuard(
       toolCalls,
       'conv-1',
     );
@@ -251,7 +262,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
 
   it('evaluatePlanFirstGuard: NÃO bloqueia tool de mutação SIMPLES (advance_surgery_request)', async () => {
     const m = baseMocks();
-    const service = buildService(m);
+    buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
       {
         id: 'call-mut',
@@ -259,7 +270,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
         function: { name: 'advance_surgery_request', arguments: '{}' },
       },
     ];
-    const blocked = await (service as any).evaluatePlanFirstGuard(
+    const blocked = await m.draftContext.evaluatePlanFirstGuard(
       toolCalls,
       'conv-1',
     );

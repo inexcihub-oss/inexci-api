@@ -6,6 +6,7 @@ import { ContextStrategy } from '../conversation-context.service';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { MODEL_COST_PER_1K } from '../../constants/ai.constants';
 import { PhoneNormalizerService } from './phone-normalizer.service';
+import { PiiVaultService } from '../pii-vault.service';
 
 export interface CompletionUsageSnapshot {
   stage: string;
@@ -70,6 +71,7 @@ export class OrchestratorTelemetryService {
   constructor(
     private readonly aiTokenUsageLogRepo: AiTokenUsageLogRepository,
     private readonly phoneNormalizer: PhoneNormalizerService,
+    private readonly piiVault: PiiVaultService,
   ) {}
 
   captureUsageSnapshot(
@@ -211,5 +213,27 @@ export class OrchestratorTelemetryService {
         (s.completionTokens / 1000) * pricing.output;
     }
     return hasPricing ? Math.round(total) : null;
+  }
+
+  /**
+   * Métrica de uso do vault por sessão (T0.11). Emite um único log estruturado
+   * que pode ser raspado por agregadores (Datadog/CloudWatch) ou substituído
+   * por contador Prometheus em iteração futura.
+   */
+  logPiiVaultUsage(messageSid: string, conversationId: string): void {
+    try {
+      const counts = this.piiVault.categoryCounts(conversationId);
+      const nonZero = Object.entries(counts).filter(([, n]) => n > 0);
+      if (!nonZero.length) return;
+      const breakdown = nonZero.map(([cat, n]) => `${cat}=${n}`).join(',');
+      const total = nonZero.reduce((acc, [, n]) => acc + n, 0);
+      this.logger.log(
+        `[AI_PII_USAGE] sid=${messageSid} total=${total} ${breakdown}`,
+      );
+    } catch (err: any) {
+      this.logger.debug(
+        `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
+      );
+    }
   }
 }

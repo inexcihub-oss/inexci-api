@@ -11,6 +11,10 @@ import { ToolLoopRunnerService } from './orchestrator/tool-loop-runner.service';
 import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { AudioIntakeService } from './orchestrator/audio-intake.service';
 import { PiiBindingService } from './orchestrator/pii-binding.service';
+import { ConversationMemoryService } from './orchestrator/conversation-memory.service';
+import { NextStepAdvisorService } from './orchestrator/next-step-advisor.service';
+import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
+import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 
 describe('AiOrchestratorService (tool-calls integration)', () => {
   const queueMock = { add: jest.fn() };
@@ -46,6 +50,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   const accessControlMock = { getAccessibleDoctorIds: jest.fn() };
   const pendencyValidatorMock = { validateForStatus: jest.fn() };
   const surgeryRequestRepoMock = { findOneSimple: jest.fn() };
+  const nextStepAdvisorService = new NextStepAdvisorService(
+    surgeryRequestRepoMock as unknown as SurgeryRequestRepository,
+    pendencyValidatorMock as unknown as PendencyValidatorService,
+  );
   const aiTokenUsageLogRepoMock = { create: jest.fn() };
   const transcriptionServiceMock = { transcribe: jest.fn() };
   const whatsappMediaServiceMock = {
@@ -67,6 +75,13 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   const whatsappConversationRepoMock = {
     findOne: jest.fn().mockResolvedValue(null),
     update: jest.fn().mockResolvedValue(undefined),
+  };
+  const draftContextMock = {
+    buildToolsForDraft: jest
+      .fn()
+      .mockResolvedValue({ tools: [], draftType: null }),
+    buildCacheKey: jest.fn().mockReturnValue('inexci:wa:v1:draft=none'),
+    evaluatePlanFirstGuard: jest.fn().mockResolvedValue(new Set()),
   };
   const operationDraftServiceMock = {
     getCurrent: jest.fn().mockResolvedValue(null),
@@ -171,8 +186,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       whatsappServiceMock as any,
       userRepositoryMock as any,
       accessControlMock as any,
-      pendencyValidatorMock as any,
-      surgeryRequestRepoMock as any,
       configServiceMock as any,
       whatsappMediaServiceMock as any,
       piiVault,
@@ -180,7 +193,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       aiRedisMock as any,
       defaultContextServiceMock as any,
       whatsappConversationRepoMock as any,
-      operationDraftServiceMock as any,
       new ResponseNormalizerService(),
       new PhoneNormalizerService(userRepositoryMock as any),
       new ClearContextDetectorService(),
@@ -191,6 +203,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       new OrchestratorTelemetryService(
         aiTokenUsageLogRepoMock as any,
         new PhoneNormalizerService(userRepositoryMock as any),
+        {
+          categoryCounts: jest.fn().mockReturnValue({}),
+        } as unknown as PiiVaultService,
       ),
       new ToolLoopRunnerService(
         openaiServiceMock as any,
@@ -202,6 +217,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         new OrchestratorTelemetryService(
           aiTokenUsageLogRepoMock as any,
           new PhoneNormalizerService(userRepositoryMock as any),
+          {
+            categoryCounts: jest.fn().mockReturnValue({}),
+          } as unknown as PiiVaultService,
         ),
       ),
       new MessageProcessorService(
@@ -226,6 +244,14 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         aiRedisMock as any,
         piiRedactionLogRepoMock as any,
       ),
+      {
+        memorizeEntities: jest.fn().mockResolvedValue(undefined),
+        resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+        readMemory: jest.fn().mockResolvedValue(null),
+        patchMemory: jest.fn().mockResolvedValue(undefined),
+      } as unknown as ConversationMemoryService,
+      nextStepAdvisorService,
+      draftContextMock as any,
     );
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
@@ -941,8 +967,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         whatsappServiceMock as any,
         userRepositoryMock as any,
         accessControlMock as any,
-        pendencyValidatorMock as any,
-        surgeryRequestRepoMock as any,
         configServiceMock as any,
         whatsappMediaServiceMock as any,
         piiVaultStore,
@@ -950,7 +974,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         aiRedisMock as any,
         defaultContextServiceMock as any,
         whatsappConversationRepoMock as any,
-        operationDraftServiceMock as any,
         new ResponseNormalizerService(),
         new PhoneNormalizerService(userRepositoryMock as any),
         new ClearContextDetectorService(),
@@ -961,6 +984,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         new OrchestratorTelemetryService(
           aiTokenUsageLogRepoMock as any,
           new PhoneNormalizerService(userRepositoryMock as any),
+          {
+            categoryCounts: jest.fn().mockReturnValue({}),
+          } as unknown as PiiVaultService,
         ),
         new ToolLoopRunnerService(
           openaiServiceMock as any,
@@ -972,6 +998,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           new OrchestratorTelemetryService(
             aiTokenUsageLogRepoMock as any,
             new PhoneNormalizerService(userRepositoryMock as any),
+            {
+              categoryCounts: jest.fn().mockReturnValue({}),
+            } as unknown as PiiVaultService,
           ),
         ),
         new MessageProcessorService(
@@ -996,6 +1025,14 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           aiRedisMock as any,
           piiRedactionLogRepoMock as any,
         ),
+        {
+          memorizeEntities: jest.fn().mockResolvedValue(undefined),
+          resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+          readMemory: jest.fn().mockResolvedValue(null),
+          patchMemory: jest.fn().mockResolvedValue(undefined),
+        } as unknown as ConversationMemoryService,
+        nextStepAdvisorService,
+        draftContextMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
@@ -1126,8 +1163,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         whatsappServiceMock as any,
         userRepositoryMock as any,
         accessControlMock as any,
-        pendencyValidatorMock as any,
-        surgeryRequestRepoMock as any,
         configServiceMock as any,
         whatsappMediaServiceMock as any,
         piiVaultStore,
@@ -1135,7 +1170,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         redisAvailableMock as any,
         defaultContextServiceMock as any,
         whatsappConversationRepoMock as any,
-        operationDraftServiceMock as any,
         new ResponseNormalizerService(),
         new PhoneNormalizerService(userRepositoryMock as any),
         new ClearContextDetectorService(),
@@ -1146,6 +1180,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         new OrchestratorTelemetryService(
           aiTokenUsageLogRepoMock as any,
           new PhoneNormalizerService(userRepositoryMock as any),
+          {
+            categoryCounts: jest.fn().mockReturnValue({}),
+          } as unknown as PiiVaultService,
         ),
         new ToolLoopRunnerService(
           openaiServiceMock as any,
@@ -1157,6 +1194,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           new OrchestratorTelemetryService(
             aiTokenUsageLogRepoMock as any,
             new PhoneNormalizerService(userRepositoryMock as any),
+            {
+              categoryCounts: jest.fn().mockReturnValue({}),
+            } as unknown as PiiVaultService,
           ),
         ),
         new MessageProcessorService(
@@ -1181,6 +1221,14 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           redisAvailableMock as any,
           piiRedactionLogRepoMock as any,
         ),
+        {
+          memorizeEntities: jest.fn().mockResolvedValue(undefined),
+          resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+          readMemory: jest.fn().mockResolvedValue(null),
+          patchMemory: jest.fn().mockResolvedValue(undefined),
+        } as unknown as ConversationMemoryService,
+        nextStepAdvisorService,
+        draftContextMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {

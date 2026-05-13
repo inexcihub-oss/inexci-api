@@ -45,8 +45,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       { sendMessage: jest.fn(), sendTemplate: jest.fn() } as any,
       { findOneByPhone: jest.fn() } as any,
       { getAccessibleDoctorIds: jest.fn() } as any,
-      { validateForStatus: jest.fn() } as any,
-      { findOneSimple: jest.fn() } as any,
       { get: jest.fn() } as any,
       { isAudioMime: jest.fn(), downloadInboundAudio: jest.fn() } as any,
       new PiiVaultService() as any,
@@ -62,18 +60,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       } as any,
       { buildContext: jest.fn() } as any,
       whatsappConversationRepoMock as any,
-      {
-        getCurrent: jest.fn().mockResolvedValue(null),
-        getCurrentOfType: jest.fn().mockResolvedValue(null),
-        start: jest.fn(),
-        setField: jest.fn(),
-        setFields: jest.fn(),
-        setStatus: jest.fn(),
-        validate: jest.fn().mockResolvedValue({ isReady: false, missing: [] }),
-        getPreview: jest.fn().mockResolvedValue({ text: '', draft: null }),
-        cancel: jest.fn(),
-        finalizeCommit: jest.fn(),
-      } as any,
       new ResponseNormalizerService(),
       new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),
       new ClearContextDetectorService(),
@@ -84,6 +70,9 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       new OrchestratorTelemetryService(
         { create: jest.fn() } as any,
         new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),
+        {
+          categoryCounts: jest.fn().mockReturnValue({}),
+        } as unknown as PiiVaultService,
       ),
       { run: jest.fn() } as any,
       {
@@ -111,6 +100,26 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         loadPersistedPiiBindings: jest.fn().mockResolvedValue({}),
         persistPiiBindings: jest.fn().mockResolvedValue(undefined),
         redactResidualPii: jest.fn().mockImplementation((t: string) => t),
+      } as any,
+      {
+        memorizeEntities: jest.fn().mockResolvedValue(undefined),
+        resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+        readMemory: jest.fn().mockResolvedValue(null),
+        patchMemory: jest.fn().mockResolvedValue(undefined),
+      } as any,
+      {
+        appendNextStep: jest
+          .fn()
+          .mockImplementation(
+            (_n: string, _a: unknown, output: string) => output,
+          ),
+      } as any,
+      {
+        buildToolsForDraft: jest
+          .fn()
+          .mockResolvedValue({ tools: [], draftType: null }),
+        buildCacheKey: jest.fn().mockReturnValue('inexci:wa:v1:draft=none'),
+        evaluatePlanFirstGuard: jest.fn().mockResolvedValue(new Set()),
       } as any,
     );
   });
@@ -534,77 +543,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       );
 
       expect(hint).toBeNull();
-    });
-  });
-
-  describe('memorizeEntitiesFromToolCall', () => {
-    // Migrado em 2026-05-12 (Fase 3.3): os testes desta suíte usavam
-    // `create_procedure` (case do switch) para validar o memorize. Como a
-    // tool foi removida do registry e o case correspondente saiu junto, o
-    // novo cobaia é `set_hospital` — ela continua válida, no switch e grava
-    // entidade em `conversationMemory.surgeryRequest`.
-    //
-    // Removidos antes:
-    //  - `create_surgery_request_from_whatsapp` (Fase 3.1): substituída por
-    //    `sc_draft_*`, que mantém `fields` em `operationDraft`.
-    //  - `create_patient` (Fase 3.2): substituída por `patient_draft_*`.
-    it('grava hospital em surgeryRequest após set_hospital', async () => {
-      whatsappConversationRepoMock.findOne.mockResolvedValue({
-        id: 'conv-1',
-        conversationMemory: {},
-      });
-
-      await (service as any).memorizeEntitiesFromToolCall({
-        conversationId: 'conv-1',
-        toolName: 'set_hospital',
-        args: {
-          protocol: 'SC-0001',
-          hospital_name: 'Hospital Albert Einstein',
-        },
-        output: 'Hospital "Hospital Albert Einstein" vinculado à SC SC-0001.',
-      });
-
-      expect(whatsappConversationRepoMock.update).toHaveBeenCalled();
-      const [, patch] = whatsappConversationRepoMock.update.mock.calls[0];
-      expect(patch.conversationMemory.surgeryRequest.hospital).toBe(
-        'Hospital Albert Einstein',
-      );
-    });
-
-    it('NÃO grava quando o envelope canônico devolve status diferente de ok (preview/blocked/error)', async () => {
-      whatsappConversationRepoMock.findOne.mockResolvedValue({
-        id: 'conv-1',
-        conversationMemory: {},
-      });
-
-      // Fase 4: o gate é via envelope canônico (status !== 'ok' não memoriza).
-      // Mesmo que o switch reconhecesse `set_hospital`, o envelope de preview
-      // bloqueia a memorização — só após o commit (status:ok).
-      const previewEnvelope = JSON.stringify({
-        status: 'pending_confirmation',
-        message: 'Aguardando confirmação',
-        v: 1,
-      });
-
-      await (service as any).memorizeEntitiesFromToolCall({
-        conversationId: 'conv-1',
-        toolName: 'set_hospital',
-        args: { hospital_name: 'Hospital Albert Einstein' },
-        output: previewEnvelope,
-      });
-
-      expect(whatsappConversationRepoMock.update).not.toHaveBeenCalled();
-    });
-
-    it('ignora tools fora do mapeamento (ex.: list_patients)', async () => {
-      await (service as any).memorizeEntitiesFromToolCall({
-        conversationId: 'conv-1',
-        toolName: 'query_patients',
-        args: { search: 'Beatriz' },
-        output: 'Beatriz | id: x | telefone: ...',
-      });
-
-      expect(whatsappConversationRepoMock.update).not.toHaveBeenCalled();
     });
   });
 

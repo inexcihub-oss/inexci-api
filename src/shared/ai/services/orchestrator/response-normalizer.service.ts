@@ -3,6 +3,7 @@ import {
   MAX_RESPONSE_LENGTH as _MAX_RESPONSE_LENGTH,
   WHATSAPP_TARGET_LENGTH as _WHATSAPP_TARGET_LENGTH,
 } from '../../constants/ai.constants';
+import { collapseDuplicatedScPrefixes } from '../../tools/protocol.helpers';
 
 // Re-exports mantidos para compatibilidade com imports existentes (Fase 9).
 export const MAX_RESPONSE_LENGTH = _MAX_RESPONSE_LENGTH;
@@ -239,5 +240,49 @@ export class ResponseNormalizerService {
       .replace(/^•\s+/, '')
       .replace(/^\d{1,2}[).-]\s+/, '')
       .trim();
+  }
+
+  /**
+   * Colapsa prefixos `SC-SC-XXX` duplicados (≥ 2 repetições) em `SC-XXX`,
+   * logando aviso quando detecta a duplicação. Aplicado tanto no envio ao
+   * WhatsApp quanto no histórico para evitar que o erro se propague.
+   */
+  collapseSCPrefixes(
+    text: string,
+    conversationId: string,
+    messageSid: string,
+  ): string {
+    if (!text) return text;
+    const collapsed = collapseDuplicatedScPrefixes(text);
+    if (collapsed !== text) {
+      this.logger.warn(
+        `[AI_PROTOCOL_DUP_PREFIX] sid=${messageSid} conv=${conversationId} colapso=SC-SC->SC-`,
+      );
+    }
+    return collapsed;
+  }
+
+  /**
+   * Retorna `true` quando o texto contém uma frase determinística de pedido
+   * de confirmação (usada para decidir se deve enviar o template interativo
+   * de "Sim / Não" no WhatsApp).
+   */
+  isConfirmationPrompt(text: string): boolean {
+    if (!text) return false;
+    const normalized = (text || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return false;
+
+    return (
+      normalized.includes('confirme com "sim" para executar') ||
+      normalized.includes('responda "sim" para confirmar') ||
+      normalized.includes('responda sim para confirmar') ||
+      normalized.includes('deseja que eu execute essa acao agora') ||
+      normalized.includes('deseja confirmar')
+    );
   }
 }

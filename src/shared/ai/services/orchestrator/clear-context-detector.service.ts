@@ -99,6 +99,19 @@ export class ClearContextDetectorService {
     PendingClearContextConfirmation
   >();
 
+  /**
+   * Normaliza texto de entrada: remove acentos, converte para lowercase e
+   * colapsa espaços. Resultado idempotente — pode ser chamado múltiplas vezes.
+   */
+  normalizeText(value: string): string {
+    return (value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   isClearContextCommand(normalizedInput: string): boolean {
     if (!normalizedInput) return false;
     if (CLEAR_CONTEXT_EXACT_COMMANDS.has(normalizedInput)) return true;

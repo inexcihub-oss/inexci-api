@@ -227,4 +227,51 @@ describe('ResponseNormalizerService', () => {
       expect(result).toEqual(['Cabeçalho', '1 - a', '2 - b', 'Rodapé']);
     });
   });
+
+  describe('collapseSCPrefixes', () => {
+    it('colapsa SC-SC- duplicado em SC-', () => {
+      const result = service.collapseSCPrefixes(
+        'Solicitação SC-SC-12345 foi aprovada',
+        'conv-1',
+        'sid-1',
+      );
+      expect(result).toBe('Solicitação SC-12345 foi aprovada');
+    });
+
+    it('retorna texto original quando não há duplicação', () => {
+      const text = 'Solicitação SC-12345 foi aprovada';
+      const result = service.collapseSCPrefixes(text, 'conv-1', 'sid-1');
+      expect(result).toBe(text);
+    });
+
+    it('retorna string vazia quando texto é vazio', () => {
+      expect(service.collapseSCPrefixes('', 'conv-1', 'sid-1')).toBe('');
+    });
+  });
+
+  describe('isConfirmationPrompt', () => {
+    it('retorna true para frase canônica de confirmação', () => {
+      expect(
+        service.isConfirmationPrompt('Deseja confirmar esta operação?'),
+      ).toBe(true);
+    });
+
+    it('retorna true para variação com acentos (normalização)', () => {
+      expect(
+        service.isConfirmationPrompt(
+          'Confirme com "sim" para executar a ação.',
+        ),
+      ).toBe(true);
+    });
+
+    it('retorna false para texto comum sem pedido de confirmação', () => {
+      expect(service.isConfirmationPrompt('Olá, como posso ajudar?')).toBe(
+        false,
+      );
+    });
+
+    it('retorna false para texto vazio', () => {
+      expect(service.isConfirmationPrompt('')).toBe(false);
+    });
+  });
 });

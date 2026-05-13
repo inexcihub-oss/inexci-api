@@ -187,4 +187,20 @@ export class AudioIntakeService {
     if (transcriptionText) return transcriptionText;
     return '';
   }
+
+  /**
+   * Resolve a fonte da entrada do usuário com base na presença de texto
+   * digitado e/ou transcrição de áudio.
+   */
+  resolveInboundSource(
+    textInput: string,
+    transcriptionContext: { text: string } | null,
+  ): 'text' | 'audio' | 'text+audio' {
+    const hasText = Boolean((textInput || '').trim());
+    const hasAudio = Boolean(transcriptionContext?.text?.trim());
+
+    if (hasText && hasAudio) return 'text+audio';
+    if (hasAudio) return 'audio';
+    return 'text';
+  }
 }

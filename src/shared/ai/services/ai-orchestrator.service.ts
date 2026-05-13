@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { In } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
@@ -15,19 +14,15 @@ import { WhatsappService } from '../../whatsapp/whatsapp.service';
 import { UserRepository } from '../../../database/repositories/user.repository';
 import { AccessControlService } from '../../services/access-control.service';
 import { ToolContext } from '../tools/tool.interface';
-import { PROMPT_VERSION } from '../prompts/system-prompt';
-import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
-import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { AiPiiRedactionLogRepository } from '../../../database/repositories/ai-pii-redaction-log.repository';
 import { WhatsappMediaService } from '../../whatsapp/whatsapp-media.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
 import { DocumentIntakeService } from './orchestrator/document-intake.service';
 import { AudioIntakeService } from './orchestrator/audio-intake.service';
 import { PiiBindingService } from './orchestrator/pii-binding.service';
-import { collapseDuplicatedScPrefixes } from '../tools/protocol.helpers';
-import { parseToolResult } from '../tools/tool-result';
-import { OperationDraftService } from './operation-draft.service';
-import { OperationDraftType } from '../drafts/operation-draft.types';
+import { ConversationMemoryService } from './orchestrator/conversation-memory.service';
+import { NextStepAdvisorService } from './orchestrator/next-step-advisor.service';
+import { DraftContextService } from './orchestrator/draft-context.service';
 import {
   MAX_RESPONSE_LENGTH,
   ResponseNormalizerService,
@@ -42,59 +37,7 @@ import {
 import { ToolLoopRunnerService } from './orchestrator/tool-loop-runner.service';
 import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
-
-const MUTATION_TOOL_NAMES = new Set<string>([
-  'advance_surgery_request',
-  'set_has_opme',
-  'close_surgery_request',
-  'reschedule_surgery',
-  'confirm_receipt',
-  'update_receipt',
-  'manage_report_sections',
-  'set_hospital',
-  'add_tuss_item',
-  'add_opme_item',
-  'attach_document_from_whatsapp',
-  'create_patient_from_document',
-]);
-
-/**
- * Tools de mutação que iniciam um fluxo COMPLEXO (múltiplos campos) e
- * portanto exigem `plan_actions` antes — quando `AI_USE_DRAFT_FLOWS=true`.
- * Tools de draft (`*_draft_*`) e tools de mutação simples (avanço/encerramento,
- * confirmar data, set flags) ficam fora — não precisam de pre-planning.
- */
-// Sub-fase 3.9 (2026-05-12): todas as tools legacy de mutação complexa foram
-// removidas (3.1–3.8). O set é mantido como infraestrutura para uso futuro;
-// enquanto estiver vazio, `evaluatePlanFirstGuard` é um no-op.
-const COMPLEX_MUTATION_TOOL_NAMES = new Set<string>([]);
-
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-class SimpleCache<T> {
-  private store = new Map<string, CacheEntry<T>>();
-
-  get(key: string): T | undefined {
-    const entry = this.store.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      this.store.delete(key);
-      return undefined;
-    }
-    return entry.value;
-  }
-
-  set(key: string, value: T, ttlMs: number): void {
-    this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
-  }
-
-  delete(key: string): void {
-    this.store.delete(key);
-  }
-}
+import { SimpleCache } from '../utils/simple-cache';
 
 /**
  * Coordenador do pipeline de IA do WhatsApp; delega aos colaboradores da
@@ -104,16 +47,12 @@ class SimpleCache<T> {
  * removeu as heurísticas legadas de `pending_confirmation`
  * (`PREVIEWABLE_MUTATION_TOOLS`, `looksLikeConfirmationPreview`,
  * `looksLikeExecutedMutation`): toda decisão agora vem do envelope
- * canônico `ToolResult` via `parseToolResult` — inclusive em
- * `memorizeEntitiesFromToolCall`, que só grava quando `status === 'ok'`.
+ * canônico `ToolResult` via `parseToolResult`.
  */
 @Injectable()
 export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
   private readonly doctorIdsCache = new SimpleCache<string[]>();
-  private readonly accessibleDoctorsInfoCache = new SimpleCache<
-    Array<{ id: string; name?: string | null }>
-  >();
 
   constructor(
     private readonly openaiService: OpenaiService,
@@ -124,8 +63,6 @@ export class AiOrchestratorService {
     private readonly whatsappService: WhatsappService,
     private readonly userRepository: UserRepository,
     private readonly accessControlService: AccessControlService,
-    private readonly pendencyValidator: PendencyValidatorService,
-    private readonly surgeryRequestRepo: SurgeryRequestRepository,
     private readonly configService: ConfigService,
     private readonly whatsappMediaService: WhatsappMediaService,
     private readonly piiVault: PiiVaultService,
@@ -133,7 +70,6 @@ export class AiOrchestratorService {
     private readonly aiRedis: AiRedisService,
     private readonly contextService: ConversationContextService,
     private readonly whatsappConversationRepo: WhatsappConversationRepository,
-    private readonly operationDraftService: OperationDraftService,
     private readonly responseNormalizer: ResponseNormalizerService,
     private readonly phoneNormalizer: PhoneNormalizerService,
     private readonly clearContextDetector: ClearContextDetectorService,
@@ -144,236 +80,14 @@ export class AiOrchestratorService {
     private readonly documentIntakeService: DocumentIntakeService,
     private readonly audioIntakeService: AudioIntakeService,
     private readonly piiBindingService: PiiBindingService,
+    private readonly conversationMemory: ConversationMemoryService,
+    private readonly nextStepAdvisor: NextStepAdvisorService,
+    private readonly draftContext: DraftContextService,
   ) {}
 
   private getResponseMaxTokens(): number {
     const value = this.configService.get<number>('AI_RESPONSE_MAX_TOKENS', 450);
     return Math.max(60, Math.floor(Number(value) || 450));
-  }
-
-  /**
-   * Constrói o array de tools a ser enviado ao LLM filtrando-o pelo
-   * `operation_draft` ativo. Mantemos sempre as tools "globais" (que não
-   * são de draft) e expomos as `*_draft_*` apenas quando há um draft do
-   * tipo correspondente. Sem esse filtro, a lista total (~138 tools)
-   * estoura o limite de 128 tools por request da OpenAI.
-   */
-  private async buildToolsForCurrentDraft(conversationId: string): Promise<{
-    tools: OpenAI.ChatCompletionTool[];
-    draftType: OperationDraftType | null;
-  }> {
-    let activeDraftType: OperationDraftType | null = null;
-    try {
-      const current =
-        await this.operationDraftService.getCurrent(conversationId);
-      activeDraftType = current?.type ?? null;
-    } catch (err) {
-      this.logger.warn(
-        `[TOOLS_FILTER] falha ao consultar draft conv=${conversationId}: ${String(
-          (err as Error)?.message ?? err,
-        )}`,
-      );
-    }
-    return {
-      tools: this.toolRegistry.getToolDefinitionsForDraft(activeDraftType),
-      draftType: activeDraftType,
-    };
-  }
-
-  /**
-   * Chave de roteamento de prompt caching da OpenAI. Mantém requests com o
-   * mesmo prefixo (system + tools) na mesma réplica, maximizando o hit rate.
-   * Inclui `PROMPT_VERSION` para invalidar automaticamente o cache sempre
-   * que o prompt mudar (basta bumpar a constante em `prompts/system-prompt.ts`)
-   * e `draft=...` para evitar misturar requests com lista de tools diferente.
-   * Fase 1 do `PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.md`.
-   */
-  private buildPromptCacheKey(
-    activeDraftType: OperationDraftType | null,
-  ): string {
-    return `inexci:wa:v${PROMPT_VERSION}:draft=${activeDraftType ?? 'none'}`;
-  }
-
-  /**
-   * Lê do banco a memória mais recente da conversa (cobre escritas feitas
-   * em turnos anteriores que ainda não estão no objeto carregado na
-   * variável local).
-   */
-  private async readConversationMemory(
-    conversationId: string,
-  ): Promise<Record<string, unknown> | null> {
-    try {
-      const conv = await this.whatsappConversationRepo.findOne({
-        id: conversationId,
-      } as any);
-      return (conv?.conversationMemory as Record<string, unknown>) || null;
-    } catch (err) {
-      this.logger.debug(
-        `[PENDING_CONFIRMATION] read_failed conv=${conversationId} err=${(err as Error)?.message}`,
-      );
-      return null;
-    }
-  }
-
-  private async writeConversationMemoryPatch(
-    conversationId: string,
-    patch: Record<string, unknown>,
-  ): Promise<void> {
-    try {
-      const conv = await this.whatsappConversationRepo.findOne({
-        id: conversationId,
-      } as any);
-      if (!conv) return;
-      const memory = (conv.conversationMemory as Record<string, unknown>) || {};
-      await this.whatsappConversationRepo.update(conversationId, {
-        conversationMemory: { ...memory, ...patch } as any,
-      });
-    } catch (err) {
-      this.logger.debug(
-        `[PENDING_CONFIRMATION] write_failed conv=${conversationId} err=${(err as Error)?.message}`,
-      );
-    }
-  }
-
-  /**
-   * Memoriza entidades em `conversationMemory.filled_slots` /
-   * `surgeryRequest` para o system prompt do próximo turno injetar no
-   * bloco "SC EM CONSTRUÇÃO" e o LLM não voltar a perguntar a mesma
-   * coisa. Fase 4 do `PLANO-SANITIZACAO-CLEAN-CODE-IA`: o gate é o
-   * envelope canônico (`status !== 'ok'` não memoriza); leituras sem
-   * envelope (ex.: `query_patients`) caem no switch abaixo.
-   */
-  private async memorizeEntitiesFromToolCall(opts: {
-    conversationId: string;
-    toolName: string;
-    args: Record<string, any>;
-    output: string;
-  }): Promise<void> {
-    const { conversationId, toolName, args, output } = opts;
-
-    const parsed = parseToolResult(output);
-    if (parsed && parsed.status !== 'ok') return;
-
-    const memory = (await this.readConversationMemory(conversationId)) || {};
-    const filled: Record<string, unknown> = {
-      ...((memory as any).filled_slots || {}),
-    };
-    const surgeryRequest: Record<string, unknown> = {
-      ...((memory as any).surgeryRequest || {}),
-    };
-
-    const setIfPresent = (
-      target: Record<string, unknown>,
-      key: string,
-      value: unknown,
-    ) => {
-      if (value === null || value === undefined) return;
-      const text = String(value).trim();
-      if (!text) return;
-      target[key] = text;
-    };
-
-    switch (toolName) {
-      case 'set_hospital':
-        setIfPresent(
-          surgeryRequest,
-          'hospital',
-          args.hospitalId || args.hospital_name,
-        );
-        break;
-      case 'set_health_plan':
-        setIfPresent(
-          surgeryRequest,
-          'healthPlan',
-          args.healthPlanId || args.health_plan_name,
-        );
-        break;
-      default:
-        return;
-    }
-
-    await this.writeConversationMemoryPatch(conversationId, {
-      filled_slots: filled,
-      surgeryRequest,
-    });
-  }
-
-  /**
-   * Resolve a lista de médicos acessíveis ao usuário em `{id, name}` —
-   * usado para enriquecer o bloco "USUÁRIO ATUAL" no contexto da IA. Cache
-   * curto (5 min) para evitar consulta a cada mensagem.
-   */
-  private async resolveAccessibleDoctorsInfo(
-    accessibleDoctorIds: string[],
-  ): Promise<Array<{ id: string; name?: string | null }>> {
-    if (!accessibleDoctorIds.length) return [];
-    const cacheKey = accessibleDoctorIds.slice().sort().join(',');
-    const cached = this.accessibleDoctorsInfoCache.get(cacheKey);
-    if (cached) return cached;
-    try {
-      const doctors = await this.userRepository.findMany(
-        { id: In(accessibleDoctorIds) } as any,
-        0,
-        accessibleDoctorIds.length,
-      );
-      const info = doctors.map((d: any) => ({
-        id: d.id,
-        name: d.name ?? null,
-      }));
-      this.accessibleDoctorsInfoCache.set(cacheKey, info, 5 * 60 * 1000);
-      return info;
-    } catch (err) {
-      this.logger.debug(
-        `[USER_CONTEXT] failed_to_resolve_doctors err=${(err as Error)?.message}`,
-      );
-      return accessibleDoctorIds.map((id) => ({ id, name: null }));
-    }
-  }
-
-  /**
-   * Identifica tool_calls de mutação COMPLEXA que devem ser bloqueadas
-   * porque não há `plan_actions` no mesmo turno nem `operation_draft` ativo.
-   * Aplica-se somente quando `AI_USE_DRAFT_FLOWS=true`.
-   */
-  private async evaluatePlanFirstGuard(
-    toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
-    conversationId: string,
-  ): Promise<Set<string>> {
-    const blocked = new Set<string>();
-    if (!toolCalls?.length) return blocked;
-
-    const flagValue = String(
-      this.configService.get<string>('AI_USE_DRAFT_FLOWS', 'true'),
-    ).toLowerCase();
-    if (flagValue !== 'true' && flagValue !== '1') return blocked;
-
-    // Se o LLM já chamou plan_actions neste mesmo turno, libera todos.
-    const calledPlanActions = toolCalls.some(
-      (call) => call.function?.name === 'plan_actions',
-    );
-    if (calledPlanActions) return blocked;
-
-    // Se já existe operation_draft ativo, o plan_actions desta sessão
-    // já foi chamado em turno anterior — não exigimos novamente.
-    let draftActive = false;
-    try {
-      const current =
-        await this.operationDraftService.getCurrent(conversationId);
-      draftActive = !!current;
-    } catch (err) {
-      this.logger.warn(
-        `[PLAN_GUARD] falha ao consultar operation_draft conv=${conversationId}: ${String((err as Error)?.message ?? err)}`,
-      );
-    }
-    if (draftActive) return blocked;
-
-    for (const call of toolCalls) {
-      const name = call.function?.name;
-      if (name && COMPLEX_MUTATION_TOOL_NAMES.has(name)) {
-        blocked.add(call.id);
-      }
-    }
-    return blocked;
   }
 
   /**
@@ -404,36 +118,11 @@ export class AiOrchestratorService {
         `[AI_ASSISTANT_PII_MASK] sid=${messageSid} conv=${conversationId} ${breakdown}`,
       );
     }
-    // Colapsa prefixos `SC-` duplicados que a IA possa ter inserido por
-    // engano antes de `{{protocol_n}}` (ex.: "SC-SC-{{protocol_1}}").
-    // Aplicado no histórico para impedir que o erro se replique nos próximos
-    // turnos via contexto.
-    return this.collapseDuplicatedScInText(
+    return this.responseNormalizer.collapseSCPrefixes(
       result.text,
       conversationId,
       messageSid,
     );
-  }
-
-  /**
-   * Sanitização final aplicada ao texto JÁ detokenizado, antes do envio ao
-   * WhatsApp e da gravação no histórico. Colapsa quaisquer ocorrências de
-   * `SC-SC-XXX` (e variações com 3+ prefixos) em um único `SC-XXX`. Quando
-   * detecta a duplicação, loga um aviso para diagnóstico.
-   */
-  private collapseDuplicatedScInText(
-    text: string,
-    conversationId: string,
-    messageSid: string,
-  ): string {
-    if (!text) return text;
-    const collapsed = collapseDuplicatedScPrefixes(text);
-    if (collapsed !== text) {
-      this.logger.warn(
-        `[AI_PROTOCOL_DUP_PREFIX] sid=${messageSid} conv=${conversationId} colapso=SC-SC->SC-`,
-      );
-    }
-    return collapsed;
   }
 
   /**
@@ -446,28 +135,6 @@ export class AiOrchestratorService {
    */
   invalidateUserCacheByPhone(phone: string | null | undefined): void {
     this.messageProcessor.invalidateUserCacheByPhone(phone);
-  }
-
-  /**
-   * Métrica de uso do vault por sessão (T0.11). Emite um único log estruturado
-   * que pode ser raspado por agregadores (Datadog/CloudWatch) ou substituído
-   * por contador Prometheus em iteração futura.
-   */
-  private logPiiVaultUsage(messageSid: string, conversationId: string): void {
-    try {
-      const counts = this.piiVault.categoryCounts(conversationId);
-      const nonZero = Object.entries(counts).filter(([, n]) => n > 0);
-      if (!nonZero.length) return;
-      const breakdown = nonZero.map(([cat, n]) => `${cat}=${n}`).join(',');
-      const total = nonZero.reduce((acc, [, n]) => acc + n, 0);
-      this.logger.log(
-        `[AI_PII_USAGE] sid=${messageSid} total=${total} ${breakdown}`,
-      );
-    } catch (err: any) {
-      this.logger.debug(
-        `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
-      );
-    }
   }
 
   async enqueueInboundMessage(data: {
@@ -573,7 +240,9 @@ export class AiOrchestratorService {
             );
           }
 
-          const normalizedInput = this.normalizeIntentText(data.body);
+          const normalizedInput = this.clearContextDetector.normalizeText(
+            data.body,
+          );
 
           const clearOutcome = this.clearContextDetector.tryHandleClearContext(
             phone,
@@ -672,7 +341,7 @@ export class AiOrchestratorService {
             userInputRaw,
           );
 
-          const userSource = this.resolveInboundSource(
+          const userSource = this.audioIntakeService.resolveInboundSource(
             data.body,
             transcriptionContext,
           );
@@ -746,7 +415,9 @@ export class AiOrchestratorService {
             );
 
           const accessibleDoctorsInfo =
-            await this.resolveAccessibleDoctorsInfo(accessibleDoctorIds);
+            await this.conversationMemory.resolveDoctorsInfo(
+              accessibleDoctorIds,
+            );
 
           const built = await this.contextService.buildContext({
             conversation: updatedConv,
@@ -765,35 +436,19 @@ export class AiOrchestratorService {
           const contextBreakdown = built.breakdown;
           const contextStrategy = built.strategy;
 
-          // Interpretação determinística de resposta numérica: se o usuário só
-          // enviou "2" (e variações curtas) e a última mensagem do assistente
-          // tinha "Próximos passos" numerados, injeta um system hint imperativo
-          // dizendo qual opção foi escolhida — sem isso o LLM volta a responder
-          // "não ficou claro qual ação" mesmo com a regra no prompt.
           const numericHint =
             await this.confirmationManager.buildNumericChoiceHint(
               conversation.id,
               data.body || '',
             );
-          if (numericHint) {
-            // Insere logo após o último bloco system inicial, antes da janela
-            // recente de mensagens — assim o LLM lê o hint como configuração de
-            // turno, não como mais um item da conversa.
-            let insertAt = messages.length;
-            for (let i = 0; i < messages.length; i++) {
-              if (messages[i].role !== 'system') {
-                insertAt = i;
-                break;
-              }
-            }
-            messages.splice(insertAt, 0, {
-              role: 'system',
-              content: numericHint,
-            });
-            this.logger.log(
-              `[NUMERIC_CHOICE] sid=${data.messageSid} conv=${conversation.id} injected=true`,
+          if (numericHint)
+            this.injectSystemHint(
+              messages,
+              numericHint,
+              'NUMERIC_CHOICE',
+              data.messageSid,
+              conversation.id,
             );
-          }
 
           // Confirmação determinística de operação pendente: se o usuário disse
           // "sim/confirmo/ok" e o turno anterior gravou pending_confirmation no
@@ -806,22 +461,14 @@ export class AiOrchestratorService {
               conversation.id,
               data.body || '',
             );
-          if (confirmationHint) {
-            let insertAt = messages.length;
-            for (let i = 0; i < messages.length; i++) {
-              if (messages[i].role !== 'system') {
-                insertAt = i;
-                break;
-              }
-            }
-            messages.splice(insertAt, 0, {
-              role: 'system',
-              content: confirmationHint,
-            });
-            this.logger.log(
-              `[PENDING_CONFIRMATION] sid=${data.messageSid} conv=${conversation.id} injected=true`,
+          if (confirmationHint)
+            this.injectSystemHint(
+              messages,
+              confirmationHint,
+              'PENDING_CONFIRMATION',
+              data.messageSid,
+              conversation.id,
             );
-          }
 
           // Hint determinístico para documento pendente (Sprint 4 — fix loop):
           // se há `pending` com classification ativa, injeta no system prompt o
@@ -831,28 +478,20 @@ export class AiOrchestratorService {
           // qual ação você quer confirmar" mesmo após o usuário dizer "sim".
           const documentHint =
             await this.documentIntakeService.buildDocumentPendingHint(phone);
-          if (documentHint) {
-            let insertAt = messages.length;
-            for (let i = 0; i < messages.length; i++) {
-              if (messages[i].role !== 'system') {
-                insertAt = i;
-                break;
-              }
-            }
-            messages.splice(insertAt, 0, {
-              role: 'system',
-              content: documentHint,
-            });
-            this.logger.log(
-              `[AI_DOC_PENDING_HINT] sid=${data.messageSid} conv=${conversation.id} injected=true`,
+          if (documentHint)
+            this.injectSystemHint(
+              messages,
+              documentHint,
+              'AI_DOC_PENDING_HINT',
+              data.messageSid,
+              conversation.id,
             );
-          }
 
           // Filtra tools pelo draft ativo para não estourar o limite de 128
           // tools por request da OpenAI (temos 138 registradas). Recalculamos
           // antes de cada chamada porque `plan_actions` pode abrir um draft
           // entre iterações.
-          const initialDraftCtx = await this.buildToolsForCurrentDraft(
+          const initialDraftCtx = await this.draftContext.buildToolsForDraft(
             conversation.id,
           );
           const tools = initialDraftCtx.tools;
@@ -865,7 +504,7 @@ export class AiOrchestratorService {
             messageSid: data.messageSid,
           });
           const t0Initial = Date.now();
-          let promptCacheKey = this.buildPromptCacheKey(activeDraftType);
+          let promptCacheKey = this.draftContext.buildCacheKey(activeDraftType);
           const completion = await this.openaiService.chatCompletion({
             messages,
             tools,
@@ -916,17 +555,25 @@ export class AiOrchestratorService {
             processTimeoutMs,
             hooks: {
               evaluatePlanFirstGuard: (toolCalls, conversationId) =>
-                this.evaluatePlanFirstGuard(toolCalls, conversationId),
+                this.draftContext.evaluatePlanFirstGuard(
+                  toolCalls,
+                  conversationId,
+                ),
               memorizeEntitiesFromToolCall: (input) =>
-                this.memorizeEntitiesFromToolCall(input),
+                this.conversationMemory.memorizeEntities(input),
               appendNextStepIfNeeded: (functionName, args, output, ctx) =>
-                this.appendNextStepIfNeeded(functionName, args, output, ctx),
+                this.nextStepAdvisor.appendNextStep(
+                  functionName,
+                  args,
+                  output,
+                  ctx,
+                ),
               redactResidualPii: (msgs, ctx) =>
                 this.piiBindingService.redactResidualPii(msgs, ctx),
               buildToolsForCurrentDraft: (conversationId) =>
-                this.buildToolsForCurrentDraft(conversationId),
+                this.draftContext.buildToolsForDraft(conversationId),
               buildPromptCacheKey: (draftType) =>
-                this.buildPromptCacheKey(draftType),
+                this.draftContext.buildCacheKey(draftType),
               getResponseMaxTokens: () => this.getResponseMaxTokens(),
               getRemainingTimeoutMs: (started, total) =>
                 this.getRemainingTimeoutMs(started, total),
@@ -983,7 +630,7 @@ export class AiOrchestratorService {
           // Defesa final contra duplicação de prefixo "SC-" que pode ter sido
           // produzida pela IA (ex.: alucinação "SC-SC-{{protocol_n}}"). Garante
           // que o usuário sempre recebe "SC-468131", nunca "SC-SC-468131".
-          const safeText = this.collapseDuplicatedScInText(
+          const safeText = this.responseNormalizer.collapseSCPrefixes(
             scrubbedText,
             conversation.id,
             data.messageSid,
@@ -1031,7 +678,7 @@ export class AiOrchestratorService {
             });
 
           // T0.11 — métrica/contador de PII por categoria nesta sessão.
-          this.logPiiVaultUsage(data.messageSid, conversation.id);
+          this.telemetry.logPiiVaultUsage(data.messageSid, conversation.id);
 
           this.logger.log(
             `Resposta enviada para ${maskedPhone} (${safeText.length} chars)`,
@@ -1113,34 +760,11 @@ export class AiOrchestratorService {
     this.getRemainingTimeoutMs(startedAt, totalTimeoutMs);
   }
 
-  private normalizeIntentText(value: string): string {
-    return (value || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  private resolveInboundSource(
-    textInput: string,
-    transcriptionContext: {
-      text: string;
-    } | null,
-  ): 'text' | 'audio' | 'text+audio' {
-    const hasText = Boolean((textInput || '').trim());
-    const hasAudio = Boolean(transcriptionContext?.text?.trim());
-
-    if (hasText && hasAudio) return 'text+audio';
-    if (hasAudio) return 'audio';
-    return 'text';
-  }
-
   private async trySendInteractiveConfirmationTemplate(
     phone: string,
     finalText: string,
   ): Promise<boolean> {
-    if (!this.isConfirmationPrompt(finalText)) return false;
+    if (!this.responseNormalizer.isConfirmationPrompt(finalText)) return false;
 
     const contentSid = WHATSAPP_TEMPLATES.AI_ACTION_CONFIRMATION;
 
@@ -1159,151 +783,24 @@ export class AiOrchestratorService {
     }
   }
 
-  private isConfirmationPrompt(text: string): boolean {
-    const normalized = this.normalizeIntentText(text || '');
-    if (!normalized) return false;
-
-    return (
-      normalized.includes('confirme com "sim" para executar') ||
-      normalized.includes('responda "sim" para confirmar') ||
-      normalized.includes('responda sim para confirmar') ||
-      normalized.includes('deseja que eu execute essa acao agora') ||
-      normalized.includes('deseja confirmar')
-    );
-  }
-
-  private isSuccessfulMutationResult(output: string): boolean {
-    const text = (output || '').toLowerCase();
-    if (!text.trim()) return false;
-
-    const hasFailureSignal =
-      text.includes('erro') ||
-      text.includes('inválid') ||
-      text.includes('não encontrada') ||
-      text.includes('nao encontrada') ||
-      text.includes('permissão') ||
-      text.includes('acesso negado') ||
-      text.includes('confirme com "sim"') ||
-      text.includes('deseja confirmar');
-
-    if (hasFailureSignal) return false;
-
-    return (
-      text.includes('sucesso') ||
-      text.includes('criada') ||
-      text.includes('atualizada') ||
-      text.includes('confirmad') ||
-      text.includes('registrad') ||
-      text.includes('avançad') ||
-      text.includes('marcada')
-    );
-  }
-
-  private mapPendencyToAction(key: string): {
-    action: string;
-    minParams: string[];
-  } {
-    switch (key) {
-      case 'patient_data':
-        return {
-          action:
-            'plan_actions(intent="update_sc") + draft_update({ fields: { requestId, scope: "patient", field, value } }) + update_sc_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
-        };
-      case 'hospital_data':
-        return {
-          action: 'set_hospital',
-          minParams: ['surgeryRequestId', 'hospital_name'],
-        };
-      case 'tuss_procedures':
-        return {
-          action: 'add_tuss_item',
-          minParams: ['surgeryRequestId', 'tussCode', 'name'],
-        };
-      case 'opme_items':
-        return {
-          action: 'set_has_opme ou add_opme_item',
-          minParams: ['surgeryRequestId', 'hasOpme=true|false'],
-        };
-      case 'medical_report':
-        return {
-          action: 'manage_report_sections',
-          minParams: ['surgeryRequestId', 'operation=create', 'title'],
-        };
-      case 'schedule_dates':
-        return {
-          action:
-            'plan_actions(intent="scheduling") + draft_update({ fields: { requestId, dateOptions } }) + scheduling_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'date_options[]'],
-        };
-      case 'confirm_date':
-        return {
-          action:
-            'plan_actions(intent="scheduling") + draft_update({ fields: { requestId, confirmedDate } }) + scheduling_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'confirmed_date_index'],
-        };
-      case 'confirm_receipt':
-        return {
-          action: 'confirm_receipt',
-          minParams: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
-        };
-      default:
-        if (key.startsWith('doc_')) {
-          return {
-            action: 'attach_document_from_whatsapp',
-            minParams: ['surgeryRequestId', 'document_type?', 'confirm=true'],
-          };
-        }
-        return {
-          action: 'get_pendencies',
-          minParams: ['surgeryRequestId'],
-        };
-    }
-  }
-
-  private async appendNextStepIfNeeded(
-    toolName: string,
-    args: Record<string, any>,
-    toolOutput: string,
-    context: ToolContext,
-  ): Promise<string> {
-    if (!MUTATION_TOOL_NAMES.has(toolName)) return toolOutput;
-    if (args.confirm !== true) return toolOutput;
-    if (!this.isSuccessfulMutationResult(toolOutput)) return toolOutput;
-
-    const requestId =
-      typeof args.surgeryRequestId === 'string'
-        ? args.surgeryRequestId
-        : typeof args.id === 'string'
-          ? args.id
-          : '';
-
-    if (!requestId) return toolOutput;
-
-    try {
-      const request = await this.surgeryRequestRepo.findOneSimple({
-        id: requestId,
-      });
-      if (!request) return toolOutput;
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return toolOutput;
-      }
-
-      const validation =
-        await this.pendencyValidator.validateForStatus(requestId);
-      const pending = validation.pendencies.filter(
-        (item) => !item.isComplete && !item.isOptional,
-      );
-
-      if (!pending.length) {
-        return `${toolOutput}\n\nPróximo passo recomendado:\nA solicitação está sem pendências bloqueantes. Posso executar advance_surgery_request com confirm=true.`;
-      }
-
-      const next = pending[0];
-      const recommendation = this.mapPendencyToAction(next.key);
-      return `${toolOutput}\n\nPróximo passo recomendado:\nPendência atual: ${next.name}.\nAção recomendada: ${recommendation.action}.\nParâmetros mínimos: ${recommendation.minParams.join(', ')}.\nDeseja que eu execute essa ação agora?`;
-    } catch {
-      return toolOutput;
-    }
+  /**
+   * Insere `hint` como mensagem `system` logo após o último bloco de system
+   * prompts iniciais, antes da janela de mensagens recentes. Os três hints
+   * de contexto (numeric choice, pending confirmation, document pending)
+   * compartilham exatamente essa lógica.
+   */
+  private injectSystemHint(
+    messages: OpenAI.ChatCompletionMessageParam[],
+    hint: string,
+    tag: string,
+    messageSid: string,
+    convId: string,
+  ): void {
+    const insertAt = messages.findIndex((m) => m.role !== 'system');
+    messages.splice(insertAt === -1 ? messages.length : insertAt, 0, {
+      role: 'system',
+      content: hint,
+    });
+    this.logger.log(`[${tag}] sid=${messageSid} conv=${convId} injected=true`);
   }
 }
