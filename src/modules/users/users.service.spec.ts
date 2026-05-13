@@ -12,6 +12,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
@@ -350,13 +351,74 @@ describe('UsersService — Colaboradores e Permissões', () => {
     it('deve deletar colaborador e retornar mensagem de sucesso', async () => {
       mockUserRepository.findOne
         .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
-        .mockResolvedValueOnce({ id: 'collab-1', adminId: 'admin-1' });
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          email: 'collab@test.com',
+          adminId: 'admin-1',
+        });
       mockUserRepository.delete.mockResolvedValue(undefined);
 
       const result = await service.deleteCollaborator('collab-1', 'admin-1');
 
       expect(result).toEqual({ message: 'Colaborador desativado com sucesso' });
       expect(mockUserRepository.delete).toHaveBeenCalledWith('collab-1');
+    });
+
+    it('deve anonimizar phone no soft-delete (LGPD — minimização)', async () => {
+      const collaboratorId = 'collab-uuid-0001';
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
+        .mockResolvedValueOnce({
+          id: collaboratorId,
+          email: 'collab@test.com',
+          phone: '+5511999990000',
+          adminId: 'admin-1',
+        });
+      mockUserRepository.update.mockResolvedValue(undefined);
+      mockUserRepository.delete.mockResolvedValue(undefined);
+
+      await service.deleteCollaborator(collaboratorId, 'admin-1');
+
+      // O phone deve ser substituído pela sentinela antes do delete
+      expect(mockUserRepository.update).toHaveBeenCalledWith(
+        collaboratorId,
+        expect.objectContaining({
+          phone: `DEL${collaboratorId.slice(0, 12)}`,
+        }),
+      );
+    });
+
+    it('após soft-delete, findOneByPhone com telefone original deve retornar null', async () => {
+      // Simula: repositório só encontra usuário se phone bater exatamente
+      const originalPhone = '+5511999990001';
+      const collaboratorId = 'collab-uuid-0002';
+
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
+        .mockResolvedValueOnce({
+          id: collaboratorId,
+          email: 'collab2@test.com',
+          phone: originalPhone,
+          adminId: 'admin-1',
+        });
+
+      let storedPhone = originalPhone;
+      mockUserRepository.update.mockImplementation((_id, data) => {
+        if (data.phone !== undefined) storedPhone = data.phone;
+        return Promise.resolve(undefined);
+      });
+      mockUserRepository.delete.mockResolvedValue(undefined);
+      // findOneByPhone usa o storedPhone para simular a busca real
+      mockUserRepository.findOne.mockImplementation((where) => {
+        if (where.phone === storedPhone) return Promise.resolve(null);
+        return Promise.resolve(null);
+      });
+
+      await service.deleteCollaborator(collaboratorId, 'admin-1');
+
+      // Após anonimização, o phone armazenado é a sentinela, não o original
+      expect(storedPhone).not.toBe(originalPhone);
+      expect(storedPhone).toBe(`DEL${collaboratorId.slice(0, 12)}`);
     });
 
     it('deve lançar ForbiddenException se não é admin', async () => {
@@ -660,6 +722,34 @@ describe('UsersService — Colaboradores e Permissões', () => {
         expect.objectContaining({ logoPosition: 'right' }),
       );
       expect(result).toEqual(header);
+    });
+  });
+
+  // ─── changePassword ──────────────────────────────────────────────
+
+  describe('changePassword', () => {
+    it('deve lançar UnauthorizedException quando usuário não possui senha definida', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        password: null,
+      });
+
+      await expect(
+        service.changePassword('user-1', 'any-current', 'new-password'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        password: undefined,
+      });
+
+      await expect(
+        service.changePassword('user-1', 'any-current', 'new-password'),
+      ).rejects.toMatchObject({
+        message:
+          'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+        status: 401,
+      });
     });
   });
 

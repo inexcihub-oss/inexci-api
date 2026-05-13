@@ -171,10 +171,6 @@ export class PendencyValidatorService {
             label: 'Ao menos 1 seção de laudo preenchida',
             done: sections.length > 0,
           },
-          {
-            label: 'Assinatura do médico configurada',
-            done: !!request.doctor?.doctorProfile?.signatureUrl,
-          },
         ];
       }
 
@@ -262,7 +258,8 @@ export class PendencyValidatorService {
         return false;
 
       case 'medical_report': {
-        // Campos obrigatórios: dados do paciente + ao menos 1 seção de laudo + laudo assinado
+        // Campos obrigatórios: dados do paciente + ao menos 1 seção de laudo preenchida.
+        // A assinatura do médico é desejável para o PDF, mas não é bloqueante para o fluxo.
         const pt = request.patient;
         const patientComplete = !!(
           pt?.name &&
@@ -273,11 +270,7 @@ export class PendencyValidatorService {
           pt?.zipCode
         );
         const sections = request.reportSections ?? [];
-        return (
-          patientComplete &&
-          sections.length > 0 &&
-          !!request.doctor?.doctorProfile?.signatureUrl
-        );
+        return patientComplete && sections.length > 0;
       }
 
       // ── IN_SCHEDULING ─────────────────────────────────────────────────────
