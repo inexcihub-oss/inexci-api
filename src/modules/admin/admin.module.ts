@@ -4,11 +4,12 @@ import { AiTokenUsageLog } from '../../database/entities/ai-token-usage-log.enti
 import { NotificationSendLog } from '../../database/entities/notification-send-log.entity';
 import { AdminController } from './admin.controller';
 import { AiUsageService } from './ai-usage.service';
+import { AiEfficiencyService } from './ai-efficiency.service';
 import { NotificationLogsService } from './notification-logs.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([AiTokenUsageLog, NotificationSendLog])],
   controllers: [AdminController],
-  providers: [AiUsageService, NotificationLogsService],
+  providers: [AiUsageService, AiEfficiencyService, NotificationLogsService],
 })
 export class AdminModule {}

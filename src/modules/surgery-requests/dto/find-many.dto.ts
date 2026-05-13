@@ -6,7 +6,7 @@ export class FindManySurgeryRequestDto extends FindManySharedDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (value === 'all' || !value) return undefined;
-    return value.split(',').map((item) => parseInt(item));
+    return value.split(',').map((item: string) => parseInt(item));
   })
   status?: number[];
 }

@@ -7,5 +7,6 @@ import { HealthPlansService } from './health-plans.service';
   imports: [TypeOrmModule.forFeature([HealthPlan])],
   controllers: [HealthPlansController],
   providers: [HealthPlansService],
+  exports: [HealthPlansService],
 })
 export class HealthPlansModule {}

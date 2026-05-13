@@ -105,7 +105,7 @@ describe('AuthController', () => {
 
       const req = mockRequest({ refresh_token: 'old-rt' }) as Request;
       const res = mockResponse() as Response;
-      const result = await controller.refresh(req, undefined, res);
+      const result = await controller.refresh(req, undefined as any, res);
 
       // Should have called service with token from cookie
       expect(mockAuthService.refreshAccessToken).toHaveBeenCalledWith('old-rt');

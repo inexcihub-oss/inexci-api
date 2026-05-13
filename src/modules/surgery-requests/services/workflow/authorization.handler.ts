@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 
 import {
   SurgeryRequest,
@@ -75,7 +75,7 @@ export class AuthorizationHandler {
           {
             surgeryRequestId: id,
             type: ContestationTypeEnum.AUTHORIZATION,
-            resolvedAt: null,
+            resolvedAt: IsNull(),
           },
           { resolvedAt: new Date() },
         );
@@ -185,7 +185,7 @@ export class AuthorizationHandler {
         };
       } catch (err) {
         this.logger.warn(
-          `[contestAuthorization] Não foi possível gerar PDF para anexar ao e-mail da contestação ${id}: ${err?.message}`,
+          `[contestAuthorization] Não foi possível gerar PDF para anexar ao e-mail da contestação ${id}: ${(err as Error)?.message}`,
         );
       }
 

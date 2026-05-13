@@ -1,6 +1,7 @@
 import { buildManageTools } from './manage.tools';
 import { ToolContext } from './tool.interface';
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
+import { parseToolResult } from './tool-result';
 
 const mockTussRepository = {
   delete: jest.fn(),
@@ -21,6 +22,17 @@ const mockSurgeryRequestRepo = {
 };
 const mockSurgeryRequestsService = {
   setHasOpme: jest.fn(),
+  updateBasic: jest.fn().mockResolvedValue({}),
+  addTussItem: jest.fn().mockResolvedValue({ id: 't-new' }),
+  updateTussItem: jest.fn().mockResolvedValue({}),
+  removeTussItem: jest.fn().mockResolvedValue({}),
+};
+const mockOpmeService = {
+  create: jest.fn().mockResolvedValue({ id: 'o-new', name: 'Parafuso' }),
+  update: jest
+    .fn()
+    .mockResolvedValue({ message: 'OPME atualizado com sucesso' }),
+  delete: jest.fn().mockResolvedValue({ message: 'OPME removido com sucesso' }),
 };
 const mockActivityRepo = { create: jest.fn() };
 const mockTussItemRepo = {
@@ -45,6 +57,11 @@ const mockSupplierRepo = { findMany: jest.fn(), create: jest.fn() };
 const mockHealthPlanRepo = { findOne: jest.fn() };
 const mockStorageService = { create: jest.fn() };
 const mockConfigService = { get: jest.fn() };
+const mockTussService = {
+  findByExactCode: jest.fn(),
+  lookup: jest.fn(),
+  search: jest.fn(),
+};
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -78,6 +95,9 @@ describe('ManageTools', () => {
     mockHealthPlanRepo as any,
     mockStorageService as any,
     mockConfigService as any,
+    undefined,
+    mockTussService as any,
+    mockOpmeService as any,
   );
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
@@ -93,6 +113,15 @@ describe('ManageTools', () => {
     mockSupplierRepo.create.mockImplementation((dto: any) =>
       Promise.resolve({ id: `sup-${dto.name}`, name: dto.name }),
     );
+    // Por padrão, o catálogo TUSS confirma o código informado pelo caller.
+    // Testes específicos sobrescrevem com cenários de ambiguidade/not_found.
+    mockTussService.findByExactCode.mockImplementation((code: string) => ({
+      id: code,
+      tussCode: code,
+      name: 'Artroscopia',
+      active: true,
+    }));
+    mockTussService.lookup.mockReturnValue([]);
   });
 
   describe('manage_tuss_items', () => {
@@ -122,11 +151,11 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('Confirme');
-      expect(mockTussItemRepo.create).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.addTussItem).not.toHaveBeenCalled();
     });
 
     it('deve adicionar TUSS quando confirm=true', async () => {
-      mockTussItemRepo.create.mockResolvedValue({ id: 't-new' });
+      mockSurgeryRequestsService.addTussItem.mockResolvedValue({ id: 't-new' });
 
       const result = await getTool('manage_tuss_items').execute(
         {
@@ -140,12 +169,14 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockTussItemRepo.create).toHaveBeenCalledWith(
+      expect(mockSurgeryRequestsService.addTussItem).toHaveBeenCalledWith(
+        'req-1',
         expect.objectContaining({
           tussCode: '30401010',
           name: 'Artroscopia',
           quantity: 2,
         }),
+        'user-1',
       );
       expect(result).toContain('adicionado');
     });
@@ -172,7 +203,7 @@ describe('ManageTools', () => {
 
       expect(result).toContain('histórico');
       expect(result).toContain('Enviada');
-      expect(mockTussRepository.delete).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.removeTussItem).not.toHaveBeenCalled();
     });
 
     it('deve bloquear add quando SC não está em Pendente', async () => {
@@ -190,7 +221,7 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('histórico');
-      expect(mockTussItemRepo.create).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.addTussItem).not.toHaveBeenCalled();
     });
 
     it('deve bloquear update quando SC não está em Pendente', async () => {
@@ -215,7 +246,7 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('histórico');
-      expect(mockTussItemRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.updateTussItem).not.toHaveBeenCalled();
     });
 
     it('deve remover TUSS quando SC está em Pendente e confirm=true', async () => {
@@ -237,8 +268,149 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockTussRepository.delete).toHaveBeenCalledWith({ id: 't1' });
+      expect(mockSurgeryRequestsService.removeTussItem).toHaveBeenCalledWith(
+        't1',
+        'user-1',
+      );
       expect(result).toContain('removido');
+    });
+
+    describe('manage_tuss_items add — resolução pelo catálogo', () => {
+      it('aceita apenas tussCode e completa o nome via catálogo', async () => {
+        mockTussService.findByExactCode.mockReturnValue({
+          id: '3071315300',
+          tussCode: '3.07.13.15-3',
+          name: 'Artroscopia para diagnóstico',
+          active: true,
+        });
+        mockSurgeryRequestsService.addTussItem.mockResolvedValue({
+          id: 't-new',
+        });
+
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            tussCode: '30713153',
+            confirm: true,
+          },
+          baseContext,
+        );
+
+        expect(mockSurgeryRequestsService.addTussItem).toHaveBeenCalledWith(
+          'req-1',
+          expect.objectContaining({
+            tussCode: '3.07.13.15-3',
+            name: 'Artroscopia para diagnóstico',
+          }),
+          'user-1',
+        );
+        expect(result).toContain('Artroscopia para diagnóstico');
+      });
+
+      it('aceita apenas name e completa o código via catálogo (match único)', async () => {
+        mockTussService.findByExactCode.mockReturnValue(null);
+        mockTussService.lookup.mockReturnValue([
+          {
+            id: '3071315300',
+            tussCode: '3.07.13.15-3',
+            name: 'Artroscopia para diagnóstico',
+            active: true,
+          },
+        ]);
+        mockSurgeryRequestsService.addTussItem.mockResolvedValue({
+          id: 't-new',
+        });
+
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            name: 'artroscopia diagnostico',
+            confirm: true,
+          },
+          baseContext,
+        );
+
+        expect(mockTussService.lookup).toHaveBeenCalledWith(
+          'artroscopia diagnostico',
+          5,
+        );
+        expect(mockSurgeryRequestsService.addTussItem).toHaveBeenCalledWith(
+          'req-1',
+          expect.objectContaining({
+            tussCode: '3.07.13.15-3',
+            name: 'Artroscopia para diagnóstico',
+          }),
+          'user-1',
+        );
+        expect(result).toContain('3.07.13.15-3');
+      });
+
+      it('devolve lista de candidatos quando o nome é ambíguo', async () => {
+        mockTussService.findByExactCode.mockReturnValue(null);
+        mockTussService.lookup.mockReturnValue([
+          {
+            id: '1',
+            tussCode: '3.07.13.15-3',
+            name: 'Artroscopia A',
+            active: true,
+          },
+          {
+            id: '2',
+            tussCode: '3.07.13.16-2',
+            name: 'Artroscopia B',
+            active: true,
+          },
+        ]);
+
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            name: 'artroscopia',
+            confirm: true,
+          },
+          baseContext,
+        );
+
+        expect(mockSurgeryRequestsService.addTussItem).not.toHaveBeenCalled();
+        expect(result).toContain('mais de um código TUSS');
+        expect(result).toContain('Artroscopia A');
+        expect(result).toContain('Artroscopia B');
+      });
+
+      it('devolve mensagem amigável quando não há código nem nome', async () => {
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            confirm: true,
+          },
+          baseContext,
+        );
+
+        expect(mockSurgeryRequestsService.addTussItem).not.toHaveBeenCalled();
+        expect(result).toContain('informe ao menos `tussCode` ou `name`');
+      });
+
+      it('devolve not_found quando o código informado não existe no catálogo', async () => {
+        mockTussService.findByExactCode.mockReturnValue(null);
+        mockTussService.lookup.mockReturnValue([]);
+
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            tussCode: '99999999',
+            confirm: true,
+          },
+          baseContext,
+        );
+
+        expect(mockSurgeryRequestsService.addTussItem).not.toHaveBeenCalled();
+        expect(result).toContain('Não encontrei o código TUSS');
+      });
     });
   });
 
@@ -260,9 +432,6 @@ describe('ManageTools', () => {
     });
 
     it('deve adicionar OPME quando dados completos', async () => {
-      mockOpmeRepository.create.mockReturnValue({ id: 'o-new' });
-      mockOpmeRepository.save.mockResolvedValue({ id: 'o-new' });
-
       const result = await getTool('manage_opme_items').execute(
         {
           surgeryRequestId: 'req-1',
@@ -275,12 +444,20 @@ describe('ManageTools', () => {
         baseContext,
       );
 
+      expect(mockOpmeService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          surgeryRequestId: 'req-1',
+          name: 'Parafuso',
+          brand: 'Fab 1, Fab 2, Fab 3',
+          supplierNames: ['F1', 'F2', 'F3'],
+        }),
+        'user-1',
+      );
       expect(mockSurgeryRequestsService.setHasOpme).toHaveBeenCalledWith(
         'req-1',
         true,
         'user-1',
       );
-      expect(mockOpmeRepository.save).toHaveBeenCalled();
       expect(result).toContain('adicionado');
     });
 
@@ -344,8 +521,7 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockOpmeItemRepo.saveWithSuppliers).toHaveBeenCalled();
-      expect(mockOpmeRepository.remove).toHaveBeenCalled();
+      expect(mockOpmeService.delete).toHaveBeenCalledWith('o1', 'user-1');
       expect(result).toContain('removido');
     });
   });
@@ -647,9 +823,10 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
-        healthPlanId: null,
-      });
+      expect(mockSurgeryRequestsService.updateBasic).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'req-1', healthPlanId: null }),
+        'user-1',
+      );
       expect(result).toContain('Convênio removido');
     });
 
@@ -675,7 +852,7 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('não encontrado');
-      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.updateBasic).not.toHaveBeenCalled();
     });
 
     it('deve atualizar convênio quando encontrado', async () => {
@@ -693,9 +870,10 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
-        healthPlanId: 'hp-1',
-      });
+      expect(mockSurgeryRequestsService.updateBasic).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'req-1', healthPlanId: 'hp-1' }),
+        'user-1',
+      );
       expect(result).toContain('Convênio atualizado');
     });
 
@@ -712,7 +890,183 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('histórico');
-      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.updateBasic).not.toHaveBeenCalled();
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
+  // ----------------------------------------------------------------
+  describe('envelope ToolResult — Fase 2', () => {
+    describe('manage_tuss_items', () => {
+      it('status=pending_confirmation para add sem confirm', async () => {
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            tussCode: '30401010',
+            name: 'Artroscopia',
+          },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('manage_tuss_items');
+      });
+
+      it('status=ok após add com confirm', async () => {
+        mockSurgeryRequestsService.addTussItem.mockResolvedValue({
+          id: 't-new',
+        });
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            tussCode: '30401010',
+            name: 'Artroscopia',
+            confirm: true,
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked quando SC fora de Pendente', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(sentRequest);
+        const result = await getTool('manage_tuss_items').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'add',
+            tussCode: '30401010',
+            name: 'Artroscopia',
+            confirm: true,
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('manage_documents', () => {
+      it('status=ok para list', async () => {
+        const result = await getTool('manage_documents').execute(
+          { surgeryRequestId: 'req-1', operation: 'list' },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=pending_confirmation para remove sem confirm', async () => {
+        mockDocumentRepo.findOne.mockResolvedValue({
+          id: 'doc-1',
+          name: 'Laudo.pdf',
+          type: 'medical_report',
+          key: 'medical_report',
+        });
+        const result = await getTool('manage_documents').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'remove',
+            documentId: 'doc-1',
+          },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('manage_documents');
+      });
+
+      it('status=blocked quando não tem permissão', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce({
+          ...pendingRequest,
+          doctorId: 'doctor-outro',
+        });
+        const result = await getTool('manage_documents').execute(
+          { surgeryRequestId: 'req-1', operation: 'list' },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('manage_report_images', () => {
+      it('status=ok para list', async () => {
+        const result = await getTool('manage_report_images').execute(
+          { surgeryRequestId: 'req-1', operation: 'list' },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=pending_confirmation para remove sem confirm', async () => {
+        mockDocumentRepo.findOne.mockResolvedValue({
+          id: 'img-1',
+          name: 'Cirurgia.jpg',
+          key: 'report_images',
+        });
+        const result = await getTool('manage_report_images').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'remove',
+            imageId: 'img-1',
+          },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('manage_report_images');
+      });
+
+      it('status=blocked quando SC fora de Pendente na remoção', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(sentRequest);
+        const result = await getTool('manage_report_images').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'remove',
+            imageId: 'img-1',
+            confirm: true,
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('set_health_plan', () => {
+      it('status=pending_confirmation quando sem confirm', async () => {
+        mockHealthPlanRepo.findOne.mockResolvedValue({
+          id: 'hp-1',
+          name: 'Unimed',
+        });
+        const result = await getTool('set_health_plan').execute(
+          { surgeryRequestId: 'req-1', healthPlanId: 'hp-1' },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('set_health_plan');
+      });
+
+      it('status=ok após execução com confirm', async () => {
+        mockHealthPlanRepo.findOne.mockResolvedValue({
+          id: 'hp-1',
+          name: 'Unimed',
+        });
+        const result = await getTool('set_health_plan').execute(
+          { surgeryRequestId: 'req-1', healthPlanId: 'hp-1', confirm: true },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked quando SC fora de Pendente', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(sentRequest);
+        const result = await getTool('set_health_plan').execute(
+          { surgeryRequestId: 'req-1', healthPlanId: 'hp-1', confirm: true },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
     });
   });
 });

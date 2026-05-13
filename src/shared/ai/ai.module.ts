@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
+import { AI_TOOL } from './tools/tool.interface';
+import { aiToolsFactory, AI_TOOLS_INJECT } from './tools/ai-tools.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WhatsappConversation } from '../../database/entities/whatsapp-conversation.entity';
 import { WhatsappConversationMessage } from '../../database/entities/whatsapp-conversation-message.entity';
@@ -17,7 +19,15 @@ import { AccessControlModule } from '../services/access-control.module';
 import { SurgeryRequestsModule } from '../../modules/surgery-requests/surgery-requests.module';
 import { PendenciesModule } from '../../modules/surgery-requests/pendencies/pendencies.module';
 import { TussModule } from '../../modules/tuss/tuss.module';
+import { CidModule } from '../../modules/surgery-requests/cid/cid.module';
 import { StorageModule } from '../storage/storage.module';
+import { PatientsModule } from '../../modules/patients/patients.module';
+import { HospitalsModule } from '../../modules/hospitals/hospitals.module';
+import { HealthPlansModule } from '../../modules/health-plans/health-plans.module';
+import { ProceduresModule } from '../../modules/procedures/procedures.module';
+import { OpmeModule } from '../../modules/surgery-requests/opme/opme.module';
+import { UsersModule } from '../../modules/users/users.module';
+import { DocumentsModule } from '../../modules/surgery-requests/documents/documents.module';
 import { AiOrchestratorService } from './services/ai-orchestrator.service';
 import { OpenaiService } from './services/openai.service';
 import { ConversationService } from './services/conversation.service';
@@ -39,6 +49,16 @@ import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.
 import { OcrService } from './ocr/ocr.service';
 import { DocumentClassifierService } from './ocr/document-classifier.service';
 import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.service';
+import { ResponseNormalizerService } from './services/orchestrator/response-normalizer.service';
+import { PhoneNormalizerService } from './services/orchestrator/phone-normalizer.service';
+import { ClearContextDetectorService } from './services/orchestrator/clear-context-detector.service';
+import { ConfirmationManagerService } from './services/orchestrator/confirmation-manager.service';
+import { OrchestratorTelemetryService } from './services/orchestrator/orchestrator-telemetry.service';
+import { ToolLoopRunnerService } from './services/orchestrator/tool-loop-runner.service';
+import { MessageProcessorService } from './services/orchestrator/message-processor.service';
+import { DocumentIntakeService } from './services/orchestrator/document-intake.service';
+import { AudioIntakeService } from './services/orchestrator/audio-intake.service';
+import { PiiBindingService } from './services/orchestrator/pii-binding.service';
 
 @Module({
   imports: [
@@ -56,7 +76,15 @@ import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.se
     forwardRef(() => SurgeryRequestsModule),
     PendenciesModule,
     TussModule,
+    CidModule,
     StorageModule,
+    PatientsModule,
+    HospitalsModule,
+    HealthPlansModule,
+    ProceduresModule,
+    OpmeModule,
+    UsersModule,
+    DocumentsModule,
   ],
   providers: [
     WhatsappConversationRepository,
@@ -64,6 +92,11 @@ import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.se
     AiPiiRedactionLogRepository,
     AiTokenUsageLogRepository,
     WhatsappConversationMessageRepository,
+    {
+      provide: AI_TOOL,
+      useFactory: aiToolsFactory,
+      inject: AI_TOOLS_INJECT,
+    },
     OpenaiService,
     ConversationService,
     ConversationContextService,
@@ -84,6 +117,16 @@ import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.se
     OcrService,
     DocumentClassifierService,
     DocumentVisionFallbackService,
+    ResponseNormalizerService,
+    PhoneNormalizerService,
+    ClearContextDetectorService,
+    ConfirmationManagerService,
+    OrchestratorTelemetryService,
+    ToolLoopRunnerService,
+    MessageProcessorService,
+    DocumentIntakeService,
+    AudioIntakeService,
+    PiiBindingService,
     AiMessageProcessor,
   ],
   exports: [AiOrchestratorService],

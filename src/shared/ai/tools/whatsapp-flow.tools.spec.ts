@@ -1,22 +1,16 @@
 import { buildWhatsappFlowTools } from './whatsapp-flow.tools';
 import { ToolContext } from './tool.interface';
-import { SendMethod } from '../../constants/send-method';
 import { PiiVaultService } from '../services/pii-vault.service';
 import { EntityResolverService } from '../services/entity-resolver.service';
+import { parseToolResult } from './tool-result';
 
 const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
   update: jest.fn(),
 };
 const mockWorkflowService = {
-  confirmDate: jest.fn(),
-  updateDateOptions: jest.fn(),
   reschedule: jest.fn(),
-  markPerformed: jest.fn(),
-  invoiceRequest: jest.fn(),
   confirmReceipt: jest.fn(),
-  contestAuthorization: jest.fn(),
-  contestPayment: jest.fn(),
   updateReceipt: jest.fn(),
 };
 const mockSurgeryRequestsService = {
@@ -27,6 +21,10 @@ const mockSurgeryRequestsService = {
   deleteReportSection: jest.fn(),
   reorderReportSections: jest.fn(),
   setHasOpme: jest.fn(),
+  updateBasic: jest.fn().mockResolvedValue({}),
+};
+const mockPatientsService = {
+  create: jest.fn().mockResolvedValue({ id: 'pat-99', name: 'João da Silva' }),
 };
 const mockActivityRepo = { create: jest.fn() };
 const mockPendencyValidator = { validateForStatus: jest.fn() };
@@ -82,6 +80,8 @@ describe('WhatsappFlowTools', () => {
     mockUserRepo as any,
     undefined,
     new EntityResolverService(),
+    {},
+    mockPatientsService as any,
   );
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
@@ -100,358 +100,25 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  describe('create_surgery_request_from_whatsapp', () => {
-    it('deve pedir doctorId quando houver múltiplos médicos acessíveis', async () => {
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          procedure_name: 'Artroscopia de Joelho',
-          patient_name: 'João',
-          patient_phone: '(11) 99999-0000',
-        },
-        {
-          ...baseContext,
-          accessibleDoctorIds: ['doctor-1', 'doctor-2'],
-        },
-      );
-
-      expect(result).toContain('doctorId');
-      expect(result).toContain('doctor-1');
-    });
-
-    it('deve validar ausência de procedimento', async () => {
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          patient_name: 'João',
-          patient_phone: '(11) 99999-0000',
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('procedureId');
-    });
-
-    it('deve orientar quando paciente informado não estiver cadastrado', async () => {
-      mockPatientRepo.findMany = jest.fn().mockResolvedValue([]);
-
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          patient_name: 'João',
-          procedure_name: 'Artroscopia de Joelho',
-        },
-        baseContext,
-      );
-
-      // Mensagem deve indicar paciente não encontrado e sugerir cadastrá-lo.
-      expect(result).toContain('Não encontrei');
-      expect(result).toContain('João');
-      expect(result).toContain('create_patient');
-    });
-
-    it('deve sugerir pacientes próximos (mesmo médico) quando nome não bate exatamente', async () => {
-      // Catálogo do médico atual: pacientes com nomes que compartilham
-      // tokens com a busca, mas não correspondem exatamente.
-      mockPatientRepo.findMany = jest.fn().mockImplementation(async () => [
-        { id: 'pat-2', name: 'Beatriz Helena Santos', doctorId: 'doctor-1' },
-        { id: 'pat-3', name: 'Beatriz Souza Lima', doctorId: 'doctor-1' },
-        { id: 'pat-4', name: 'Carlos Silva', doctorId: 'doctor-1' },
-      ]);
-
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          patient_name: 'Beatriz Helena Pereira',
-          procedure_name: 'Artroscopia de Joelho',
-        },
-        baseContext,
-      );
-
-      // Como nenhum nome bate exatamente, a tool retorna sugestões com IDs.
-      expect(result).toContain('Pacientes parecidos');
-      expect(result).toContain('pat-2');
-      expect(result).toContain('pat-3');
-      expect(result).not.toContain('pat-4');
-    });
-
-    it('deve achar paciente em outro médico acessível (cross-doctor)', async () => {
-      // Cenário: usuário admin tem acesso a doctor-1 e doctor-2; quer criar SC
-      // com doctor-1, mas Beatriz só existe em doctor-2.
-      mockPatientRepo.findMany = jest.fn().mockImplementation(async (where) => {
-        const did = (where as any)?.doctorId;
-        if (did === 'doctor-1') return [];
-        // Match por In([...]) - segunda chamada cobre outros doctorIds
-        return [
-          {
-            id: 'pat-foreign-1',
-            name: 'Beatriz Helena Santos',
-            doctorId: 'doctor-2',
-          },
-        ];
-      });
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-1',
-      });
-
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          patient_name: 'Beatriz Helena',
-          procedure_name: 'Artroscopia de Joelho',
-          doctorId: 'doctor-1',
-        },
-        {
-          ...baseContext,
-          accessibleDoctorIds: ['doctor-1', 'doctor-2'],
-        },
-      );
-
-      // Deve informar que o paciente existe em outro médico, com o ID e
-      // o doctorId correto para o usuário decidir como prosseguir.
-      expect(result).toContain('outro médico');
-      expect(result).toContain('pat-foreign-1');
-      expect(result).toContain('doctor-2');
-    });
-
-    it('deve retornar preview sem criar dados quando confirm=false', async () => {
-      mockPatientRepo.findMany = jest.fn().mockResolvedValue([
-        {
-          id: 'pat-1',
-          name: 'Maria Silva',
-        },
-      ]);
-      mockHospitalRepo.findOne.mockResolvedValue({
-        id: 'hosp-1',
-        name: 'Hospital Central',
-      });
-      mockHealthPlanRepo.findOne.mockResolvedValue({
-        id: 'hp-1',
-        name: 'Unimed',
-      });
-
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          patient_name: 'Maria Silva',
-          patient_phone: '(11) 98888-7777',
-          procedure_name: 'Artroscopia de Joelho',
-          hospital_name: 'Hospital Central',
-          health_plan_name: 'Unimed',
-          priority: 3,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('Pré-visualização');
-      expect(result).toContain('Confirme');
-      expect(
-        mockSurgeryRequestsService.createSurgeryRequest,
-      ).not.toHaveBeenCalled();
-      expect(mockPatientRepo.create).not.toHaveBeenCalled();
-    });
-
-    it('deve criar solicitação com sucesso quando confirm=true e prioridade default baixa', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockImplementation((where: any) => {
-        if (where?.id === 'req-99') {
-          return Promise.resolve({
-            id: 'req-99',
-            protocol: 'SC-0099',
-            doctorId: 'doctor-1',
-          });
-        }
-        return Promise.resolve(mockRequest);
-      });
-
-      mockPatientRepo.findMany = jest.fn().mockResolvedValue([
-        {
-          id: 'pat-1',
-          name: 'Maria Silva',
-        },
-      ]);
-      mockPatientRepo.create = jest.fn().mockResolvedValue({
-        id: 'pat-1',
-        name: 'Maria Silva',
-        phone: '11988887777',
-        email: 'maria@teste.com',
-      });
-      mockHospitalRepo.findOne.mockResolvedValue({
-        id: 'hosp-1',
-        name: 'Hospital Central',
-      });
-      mockHealthPlanRepo.findOne.mockResolvedValue({
-        id: 'hp-1',
-        name: 'Unimed',
-      });
-      mockSurgeryRequestsService.createSurgeryRequest = jest
-        .fn()
-        .mockResolvedValue({
-          id: 'req-99',
-          protocol: 'SC-0099',
-        });
-
-      const result = await getTool(
-        'create_surgery_request_from_whatsapp',
-      ).execute(
-        {
-          patient_name: 'Maria Silva',
-          procedure_name: 'Artroscopia de Joelho',
-          hospital_name: 'Hospital Central',
-          health_plan_name: 'Unimed',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockPatientRepo.create).not.toHaveBeenCalled();
-      expect(mockHospitalRepo.create).not.toHaveBeenCalled();
-      expect(mockHealthPlanRepo.create).not.toHaveBeenCalled();
-      expect(
-        mockSurgeryRequestsService.createSurgeryRequest,
-      ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          doctorId: 'doctor-1',
-          patientId: 'pat-1',
-          procedureId: 'proc-1',
-          hospitalId: 'hosp-1',
-          healthPlanId: 'hp-1',
-          priority: 1,
-        }),
-        'user-1',
-      );
-      expect(result).toContain('✅');
-      expect(result).toContain('SC-0099');
-      expect(result).toContain('Paciente: Maria Silva');
-      expect(result).toContain('Pendências para passar para o próximo status');
-      expect(result).not.toContain('ID: req-99');
-    });
+  // describe('create_surgery_request_from_whatsapp', …) removido em 2026-05-12
+  // (Fase 3.1 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). A tool legacy foi
+  // excluída do registry; os cenários equivalentes (resolução por nome,
+  // ambiguidade, hospital/convênio opcional, preview/commit) já são cobertos
+  // pelo `sc-draft.tools.spec.ts`.
+  it('não expõe mais a tool legacy create_surgery_request_from_whatsapp', () => {
+    expect(
+      tools.find((t) => t.name === 'create_surgery_request_from_whatsapp'),
+    ).toBeUndefined();
   });
 
-  describe('confirm_date', () => {
-    it('deve negar acesso sem permissão', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-2',
-      });
-
-      const result = await getTool('confirm_date').execute(
-        { surgeryRequestId: 'req-1', selectedDateIndex: 0 },
-        baseContext,
-      );
-
-      expect(result).toContain('permissão');
-    });
-
-    it('deve validar selectedDateIndex inválido', async () => {
-      const result = await getTool('confirm_date').execute(
-        { surgeryRequestId: 'req-1', selectedDateIndex: 9, confirm: true },
-        baseContext,
-      );
-
-      expect(result).toContain('inválido');
-      expect(mockWorkflowService.confirmDate).not.toHaveBeenCalled();
-    });
-
-    it('deve executar com sucesso', async () => {
-      mockWorkflowService.confirmDate.mockResolvedValue(undefined);
-
-      const result = await getTool('confirm_date').execute(
-        { surgeryRequestId: 'req-1', selectedDateIndex: 1, confirm: true },
-        baseContext,
-      );
-
-      expect(mockWorkflowService.confirmDate).toHaveBeenCalledWith(
-        'req-1',
-        { selectedDateIndex: 1 },
-        'user-1',
-      );
-      expect(mockActivityRepo.create).toHaveBeenCalled();
-      expect(result).toContain('✅');
-    });
-
-    it('deve localizar solicitação por protocolo SC-XXXX', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockImplementation((where: any) => {
-        if (where?.protocol === 'SC-0042') return Promise.resolve(mockRequest);
-        return Promise.resolve(null);
-      });
-      mockWorkflowService.confirmDate.mockResolvedValue(undefined);
-
-      const result = await getTool('confirm_date').execute(
-        {
-          surgeryRequestId: 'SC-0042',
-          selectedDateIndex: 0,
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockSurgeryRequestRepo.findOneSimple).toHaveBeenCalledWith({
-        protocol: 'SC-0042',
-      });
-      expect(mockWorkflowService.confirmDate).toHaveBeenCalledWith(
-        'req-1',
-        { selectedDateIndex: 0 },
-        'user-1',
-      );
-      expect(result).toContain('✅');
-    });
-  });
-
-  describe('update_date_options', () => {
-    it('deve negar acesso sem permissão', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-2',
-      });
-
-      const result = await getTool('update_date_options').execute(
-        { surgeryRequestId: 'req-1', dateOptions: ['2026-05-10'] },
-        baseContext,
-      );
-
-      expect(result).toContain('permissão');
-    });
-
-    it('deve validar dateOptions inválido', async () => {
-      const result = await getTool('update_date_options').execute(
-        {
-          surgeryRequestId: 'req-1',
-          dateOptions: ['data-invalida'],
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('inválido');
-      expect(mockWorkflowService.updateDateOptions).not.toHaveBeenCalled();
-    });
-
-    it('deve executar com sucesso', async () => {
-      mockWorkflowService.updateDateOptions.mockResolvedValue(undefined);
-
-      const result = await getTool('update_date_options').execute(
-        {
-          surgeryRequestId: 'req-1',
-          dateOptions: ['2026-05-10', '2026-05-12'],
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockWorkflowService.updateDateOptions).toHaveBeenCalledWith(
-        'req-1',
-        { dateOptions: ['2026-05-10', '2026-05-12'] },
-        'user-1',
-      );
-      expect(result).toContain('✅');
-    });
+  // Tools legacy `confirm_date` e `update_date_options` removidas em 2026-05-12
+  // (Sub-fase 3.6 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). Os cenários
+  // equivalentes (validação de índice/data, permissão, preview/commit) agora
+  // são cobertos pelos testes de `scheduling_draft_*` em
+  // `flow-draft.tools.spec.ts`.
+  it('não expõe mais as tools legacy confirm_date e update_date_options', () => {
+    expect(tools.find((t) => t.name === 'confirm_date')).toBeUndefined();
+    expect(tools.find((t) => t.name === 'update_date_options')).toBeUndefined();
   });
 
   describe('reschedule_surgery', () => {
@@ -504,117 +171,14 @@ describe('WhatsappFlowTools', () => {
     });
   });
 
-  describe('mark_performed', () => {
-    it('deve negar acesso sem permissão', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-2',
-      });
-
-      const result = await getTool('mark_performed').execute(
-        { surgeryRequestId: 'req-1', surgeryPerformedAt: '2026-05-10' },
-        baseContext,
-      );
-
-      expect(result).toContain('permissão');
-    });
-
-    it('deve validar surgeryPerformedAt inválida', async () => {
-      const result = await getTool('mark_performed').execute(
-        {
-          surgeryRequestId: 'req-1',
-          surgeryPerformedAt: 'invalida',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('inválido');
-      expect(mockWorkflowService.markPerformed).not.toHaveBeenCalled();
-    });
-
-    it('deve executar com sucesso', async () => {
-      mockWorkflowService.markPerformed.mockResolvedValue(undefined);
-
-      const result = await getTool('mark_performed').execute(
-        {
-          surgeryRequestId: 'req-1',
-          surgeryPerformedAt: '2026-05-15',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockWorkflowService.markPerformed).toHaveBeenCalledWith(
-        'req-1',
-        { surgeryPerformedAt: '2026-05-15' },
-        'user-1',
-      );
-      expect(result).toContain('✅');
-    });
-  });
-
-  describe('invoice_request', () => {
-    it('deve negar acesso sem permissão', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-2',
-      });
-
-      const result = await getTool('invoice_request').execute(
-        {
-          surgeryRequestId: 'req-1',
-          invoiceProtocol: 'INV-1',
-          invoiceValue: 100,
-          invoiceSentAt: '2026-05-10',
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('permissão');
-    });
-
-    it('deve validar dados inválidos', async () => {
-      const result = await getTool('invoice_request').execute(
-        {
-          surgeryRequestId: 'req-1',
-          invoiceProtocol: '',
-          invoiceValue: -1,
-          invoiceSentAt: 'abc',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('inválido');
-      expect(mockWorkflowService.invoiceRequest).not.toHaveBeenCalled();
-    });
-
-    it('deve executar com sucesso', async () => {
-      mockWorkflowService.invoiceRequest.mockResolvedValue(undefined);
-
-      const result = await getTool('invoice_request').execute(
-        {
-          surgeryRequestId: 'req-1',
-          invoiceProtocol: 'INV-1',
-          invoiceValue: 1250.5,
-          invoiceSentAt: '2026-05-10',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockWorkflowService.invoiceRequest).toHaveBeenCalledWith(
-        'req-1',
-        expect.objectContaining({
-          invoiceProtocol: 'INV-1',
-          invoiceValue: 1250.5,
-          invoiceSentAt: '2026-05-10',
-        }),
-        'user-1',
-      );
-      expect(result).toContain('✅');
-    });
+  // Tool legacy `mark_performed` removida em 2026-05-12 (Sub-fase 3.7 do
+  // PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). Os cenários equivalentes
+  // (validação de data, permissão, preview/commit) — agora também com
+  // checagem de documentos pós-cirúrgicos obrigatórios — são cobertos
+  // pelos testes de `mark_performed_draft_*` em
+  // `flow-draft-transition.tools.spec.ts`.
+  it('não expõe mais a tool legacy mark_performed', () => {
+    expect(tools.find((t) => t.name === 'mark_performed')).toBeUndefined();
   });
 
   describe('confirm_receipt', () => {
@@ -669,128 +233,6 @@ describe('WhatsappFlowTools', () => {
         expect.objectContaining({
           receivedValue: 900,
           receivedAt: '2026-05-16',
-        }),
-        'user-1',
-      );
-      expect(result).toContain('✅');
-    });
-  });
-
-  describe('contest_authorization_full', () => {
-    it('deve negar acesso sem permissão', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-2',
-      });
-
-      const result = await getTool('contest_authorization_full').execute(
-        {
-          surgeryRequestId: 'req-1',
-          reason: 'Negativa incorreta',
-          method: SendMethod.DOWNLOAD,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('permissão');
-    });
-
-    it('deve validar method e dados inválidos', async () => {
-      const result = await getTool('contest_authorization_full').execute(
-        {
-          surgeryRequestId: 'req-1',
-          reason: 'Teste',
-          method: 'invalid',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('inválido');
-      expect(mockWorkflowService.contestAuthorization).not.toHaveBeenCalled();
-    });
-
-    it('deve executar com sucesso', async () => {
-      mockWorkflowService.contestAuthorization.mockResolvedValue(undefined);
-
-      const result = await getTool('contest_authorization_full').execute(
-        {
-          surgeryRequestId: 'req-1',
-          reason: 'Negativa parcial',
-          method: SendMethod.DOWNLOAD,
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockWorkflowService.contestAuthorization).toHaveBeenCalledWith(
-        'req-1',
-        expect.objectContaining({
-          reason: 'Negativa parcial',
-          method: SendMethod.DOWNLOAD,
-        }),
-        'user-1',
-      );
-      expect(result).toContain('✅');
-    });
-  });
-
-  describe('contest_payment', () => {
-    it('deve negar acesso sem permissão', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        doctorId: 'doctor-2',
-      });
-
-      const result = await getTool('contest_payment').execute(
-        {
-          surgeryRequestId: 'req-1',
-          to: 'financeiro@plano.com',
-          subject: 'Contestação',
-          message: 'Mensagem',
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('permissão');
-    });
-
-    it('deve validar dados inválidos', async () => {
-      const result = await getTool('contest_payment').execute(
-        {
-          surgeryRequestId: 'req-1',
-          to: '',
-          subject: 'x',
-          message: 'y',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('inválido');
-      expect(mockWorkflowService.contestPayment).not.toHaveBeenCalled();
-    });
-
-    it('deve executar com sucesso', async () => {
-      mockWorkflowService.contestPayment.mockResolvedValue(undefined);
-
-      const result = await getTool('contest_payment').execute(
-        {
-          surgeryRequestId: 'req-1',
-          to: 'financeiro@plano.com',
-          subject: 'Contestação de pagamento',
-          message: 'Há divergência de valor.',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockWorkflowService.contestPayment).toHaveBeenCalledWith(
-        'req-1',
-        expect.objectContaining({
-          to: 'financeiro@plano.com',
-          subject: 'Contestação de pagamento',
-          message: 'Há divergência de valor.',
         }),
         'user-1',
       );
@@ -944,9 +386,10 @@ describe('WhatsappFlowTools', () => {
         baseContext,
       );
 
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
-        hospitalId: 'hosp-1',
-      });
+      expect(mockSurgeryRequestsService.updateBasic).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'req-1', hospitalId: 'hosp-1' }),
+        'user-1',
+      );
       expect(result).toContain('Hospital atualizado com sucesso');
     });
 
@@ -966,9 +409,10 @@ describe('WhatsappFlowTools', () => {
         },
         baseContext,
       );
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
-        hospitalId: 'h-1',
-      });
+      expect(mockSurgeryRequestsService.updateBasic).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'req-1', hospitalId: 'h-1' }),
+        'user-1',
+      );
       expect(result).toContain('Hospital atualizado com sucesso');
     });
 
@@ -982,49 +426,11 @@ describe('WhatsappFlowTools', () => {
         baseContext,
       );
 
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('req-1', {
-        hospitalId: null,
-      });
+      expect(mockSurgeryRequestsService.updateBasic).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'req-1', hospitalId: null }),
+        'user-1',
+      );
       expect(result).toContain('Hospital removido');
-    });
-  });
-
-  describe('update_request_admin_data', () => {
-    it('deve validar CPF inválido', async () => {
-      const result = await getTool('update_request_admin_data').execute(
-        {
-          surgeryRequestId: 'req-1',
-          patient_cpf: '123',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('11 dígitos');
-    });
-
-    it('deve atualizar dados administrativos e do paciente', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        patientId: 'pat-1',
-      });
-
-      const result = await getTool('update_request_admin_data').execute(
-        {
-          surgeryRequestId: 'req-1',
-          healthPlanRegistration: 'REG-123',
-          patient_phone: '(11) 99999-0000',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith(
-        'req-1',
-        expect.objectContaining({ healthPlanRegistration: 'REG-123' }),
-      );
-      expect(mockPatientRepo.update).toHaveBeenCalled();
-      expect(result).toContain('Dados administrativos atualizados');
     });
   });
 
@@ -1045,7 +451,7 @@ describe('WhatsappFlowTools', () => {
 
       expect(result).toContain('histórico');
       expect(result).toContain('Enviada');
-      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.updateBasic).not.toHaveBeenCalled();
     });
 
     it('set_hospital com clear=true também é bloqueado fora de Pendente', async () => {
@@ -1059,35 +465,7 @@ describe('WhatsappFlowTools', () => {
       );
 
       expect(result).toContain('histórico');
-      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
-    });
-
-    it('update_request_clinical_data deve recusar mutação fora de Pendente', async () => {
-      const result = await getTool('update_request_clinical_data').execute(
-        {
-          surgeryRequestId: 'req-1',
-          cidCode: 'M17.0',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('histórico');
-      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
-    });
-
-    it('update_request_admin_data deve recusar mutação fora de Pendente', async () => {
-      const result = await getTool('update_request_admin_data').execute(
-        {
-          surgeryRequestId: 'req-1',
-          healthPlanRegistration: 'REG-123',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('histórico');
-      expect(mockSurgeryRequestRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgeryRequestsService.updateBasic).not.toHaveBeenCalled();
     });
 
     it('manage_report_sections deve permitir list mas recusar create', async () => {
@@ -1189,6 +567,7 @@ describe('WhatsappFlowTools', () => {
         storageService: storageService as any,
         documentRepo: documentRepo as any,
       },
+      mockPatientsService as any,
     );
 
     const attach = ocrTools.find(
@@ -1327,6 +706,8 @@ describe('WhatsappFlowTools', () => {
         mockUserRepo as any,
         undefined,
         new EntityResolverService(),
+        {},
+        mockPatientsService as any,
       );
       const tool = noDepsTools.find(
         (t) => t.name === 'attach_document_from_whatsapp',
@@ -1343,6 +724,46 @@ describe('WhatsappFlowTools', () => {
 
       expect(result).toContain('finalizado');
     });
+
+    it('envelope: status=pending_confirmation para preview', async () => {
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+        },
+        baseContext,
+      );
+      const parsed = parseToolResult(result);
+      expect(parsed?.status).toBe('pending_confirmation');
+      expect(parsed?.pending_confirmation?.tool).toBe(
+        'attach_document_from_whatsapp',
+      );
+    });
+
+    it('envelope: status=ok após confirmação', async () => {
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+          confirm: true,
+        },
+        baseContext,
+      );
+      expect(parseToolResult(result)?.status).toBe('ok');
+    });
+
+    it('envelope: status=blocked quando não tem pendência', async () => {
+      documentDispatcher.getPending.mockResolvedValueOnce(null);
+      const result = await attach.execute(
+        {
+          surgeryRequestId: 'req-1',
+          documentType: 'medical_report',
+          confirm: true,
+        },
+        baseContext,
+      );
+      expect(parseToolResult(result)?.status).toBe('blocked');
+    });
   });
 
   describe('OCR — create_patient_from_document', () => {
@@ -1350,6 +771,13 @@ describe('WhatsappFlowTools', () => {
       getPending: jest.fn(),
       clearPending: jest.fn().mockResolvedValue(undefined),
       deleteStoragePath: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const mockOcrPatientsService = {
+      create: jest.fn().mockResolvedValue({
+        id: 'pat-99',
+        name: 'João da Silva',
+      }),
     };
 
     const ocrTools = buildWhatsappFlowTools(
@@ -1368,6 +796,7 @@ describe('WhatsappFlowTools', () => {
       {
         documentDispatcher: documentDispatcher as any,
       },
+      mockOcrPatientsService as any,
     );
     const createPatient = ocrTools.find(
       (t) => t.name === 'create_patient_from_document',
@@ -1386,7 +815,7 @@ describe('WhatsappFlowTools', () => {
           return Promise.resolve(null);
         });
       mockPatientRepo.findMany.mockResolvedValue([]);
-      mockPatientRepo.create.mockResolvedValue({
+      mockOcrPatientsService.create.mockResolvedValue({
         id: 'pat-99',
         name: 'João da Silva',
       });
@@ -1400,7 +829,7 @@ describe('WhatsappFlowTools', () => {
       );
 
       expect(result).toContain('name');
-      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+      expect(mockOcrPatientsService.create).not.toHaveBeenCalled();
     });
 
     it('mostra preview quando confirm=false', async () => {
@@ -1416,7 +845,7 @@ describe('WhatsappFlowTools', () => {
       expect(result).toContain('Confirme a criação');
       expect(result).toContain('João da Silva');
       expect(result).toContain('joao@silva.com');
-      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+      expect(mockOcrPatientsService.create).not.toHaveBeenCalled();
     });
 
     it('cria paciente, limpa pendência e devolve mensagem de sucesso', async () => {
@@ -1444,16 +873,15 @@ describe('WhatsappFlowTools', () => {
         baseContext,
       );
 
-      expect(mockPatientRepo.create).toHaveBeenCalledWith(
+      expect(mockOcrPatientsService.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          doctorId: 'doctor-1',
-          ownerId: 'owner-1',
           name: 'João da Silva',
           email: 'joao@silva.com',
           phone: '11988887777',
           cpf: '52998224725',
           gender: 'M',
         }),
+        'user-1',
       );
       expect(documentDispatcher.deleteStoragePath).toHaveBeenCalledWith(
         'whatsapp-tmp/rg.jpg',
@@ -1482,7 +910,269 @@ describe('WhatsappFlowTools', () => {
       );
 
       expect(result).toContain('Já existe paciente');
-      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+      expect(mockOcrPatientsService.create).not.toHaveBeenCalled();
+    });
+
+    it('envelope: status=pending_confirmation para preview', async () => {
+      const result = await createPatient.execute(
+        {
+          name: 'Pedro Santos',
+          phone: '11977776666',
+          email: 'pedro@santos.com',
+        },
+        baseContext,
+      );
+      const parsed = parseToolResult(result);
+      expect(parsed?.status).toBe('pending_confirmation');
+      expect(parsed?.pending_confirmation?.tool).toBe(
+        'create_patient_from_document',
+      );
+    });
+
+    it('envelope: status=ok após criação com confirm', async () => {
+      const result = await createPatient.execute(
+        {
+          name: 'Pedro Santos',
+          phone: '11977776666',
+          email: 'pedro@santos.com',
+          confirm: true,
+        },
+        baseContext,
+      );
+      const parsed = parseToolResult(result);
+      expect(parsed?.status).toBe('ok');
+      expect(parsed?.affected?.[0]?.kind).toBe('patient');
+    });
+
+    it('envelope: status=blocked quando sem userId', async () => {
+      const result = await createPatient.execute(
+        { name: 'Pedro Santos', phone: '11977776666', email: 'pedro@s.com' },
+        { ...baseContext, userId: null },
+      );
+      expect(parseToolResult(result)?.status).toBe('blocked');
+    });
+  });
+
+  // Regressão Sub-fase 3.8 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
+  // `update_request_clinical_data` e `update_request_admin_data` foram removidas.
+  it('não expõe mais update_request_clinical_data nem update_request_admin_data', () => {
+    const names = tools.map((t) => t.name);
+    expect(names).not.toContain('update_request_clinical_data');
+    expect(names).not.toContain('update_request_admin_data');
+  });
+
+  // ----------------------------------------------------------------
+  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
+  // Cada tool migrada deve retornar JSON parseável com status correto.
+  // ----------------------------------------------------------------
+  describe('envelope ToolResult — Fase 2', () => {
+    describe('reschedule_surgery', () => {
+      it('status=pending_confirmation quando sem confirm', async () => {
+        const result = await getTool('reschedule_surgery').execute(
+          { surgeryRequestId: 'req-1', newDate: '2026-06-01' },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('reschedule_surgery');
+      });
+
+      it('status=ok após execução com confirm', async () => {
+        mockWorkflowService.reschedule.mockResolvedValue(undefined);
+        const result = await getTool('reschedule_surgery').execute(
+          { surgeryRequestId: 'req-1', newDate: '2026-06-01', confirm: true },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked quando sem permissão', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce({
+          ...mockRequest,
+          doctorId: 'doctor-outro',
+        });
+        const result = await getTool('reschedule_surgery').execute(
+          { surgeryRequestId: 'req-1', newDate: '2026-06-01' },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('confirm_receipt', () => {
+      it('status=pending_confirmation quando sem confirm', async () => {
+        const result = await getTool('confirm_receipt').execute(
+          {
+            surgeryRequestId: 'req-1',
+            receivedValue: 1000,
+            receivedAt: '2026-06-01',
+          },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('confirm_receipt');
+      });
+
+      it('status=ok após execução com confirm', async () => {
+        mockWorkflowService.confirmReceipt.mockResolvedValue(undefined);
+        const result = await getTool('confirm_receipt').execute(
+          {
+            surgeryRequestId: 'req-1',
+            receivedValue: 1000,
+            receivedAt: '2026-06-01',
+            confirm: true,
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked quando sem permissão', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce({
+          ...mockRequest,
+          doctorId: 'doctor-outro',
+        });
+        const result = await getTool('confirm_receipt').execute(
+          {
+            surgeryRequestId: 'req-1',
+            receivedValue: 1000,
+            receivedAt: '2026-06-01',
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('update_receipt', () => {
+      it('status=pending_confirmation quando sem confirm', async () => {
+        const result = await getTool('update_receipt').execute(
+          {
+            surgeryRequestId: 'req-1',
+            receivedValue: 1200,
+            receivedAt: '2026-06-02',
+          },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('update_receipt');
+      });
+
+      it('status=ok após execução com confirm', async () => {
+        mockWorkflowService.updateReceipt.mockResolvedValue(undefined);
+        const result = await getTool('update_receipt').execute(
+          {
+            surgeryRequestId: 'req-1',
+            receivedValue: 1200,
+            receivedAt: '2026-06-02',
+            confirm: true,
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked quando sem permissão', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce({
+          ...mockRequest,
+          doctorId: 'doctor-outro',
+        });
+        const result = await getTool('update_receipt').execute(
+          {
+            surgeryRequestId: 'req-1',
+            receivedValue: 1200,
+            receivedAt: '2026-06-02',
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('set_hospital', () => {
+      it('status=pending_confirmation quando sem confirm', async () => {
+        mockHospitalRepo.findOne.mockResolvedValueOnce({
+          id: 'hosp-1',
+          name: 'Hospital X',
+        });
+        const result = await getTool('set_hospital').execute(
+          { surgeryRequestId: 'req-1', hospitalId: 'hosp-1' },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe('set_hospital');
+      });
+
+      it('status=ok após execução com confirm', async () => {
+        mockHospitalRepo.findOne.mockResolvedValueOnce({
+          id: 'hosp-1',
+          name: 'Hospital X',
+        });
+        const result = await getTool('set_hospital').execute(
+          { surgeryRequestId: 'req-1', hospitalId: 'hosp-1', confirm: true },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked quando SC fora de Pendente', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce(
+          mockSentRequest,
+        );
+        const result = await getTool('set_hospital').execute(
+          { surgeryRequestId: 'req-1', hospitalId: 'hosp-1', confirm: true },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
+    });
+
+    describe('manage_report_sections', () => {
+      it('status=pending_confirmation para create sem confirm', async () => {
+        const result = await getTool('manage_report_sections').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'create',
+            title: 'Anamnese',
+          },
+          baseContext,
+        );
+        const parsed = parseToolResult(result);
+        expect(parsed?.status).toBe('pending_confirmation');
+        expect(parsed?.pending_confirmation?.tool).toBe(
+          'manage_report_sections',
+        );
+      });
+
+      it('status=ok para list', async () => {
+        mockSurgeryRequestsService.getReportSections = jest
+          .fn()
+          .mockResolvedValue([{ id: 's1', title: 'Anamnese' }]);
+        const result = await getTool('manage_report_sections').execute(
+          { surgeryRequestId: 'req-1', operation: 'list' },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('ok');
+      });
+
+      it('status=blocked para mutação fora de Pendente', async () => {
+        mockSurgeryRequestRepo.findOneSimple.mockResolvedValueOnce(
+          mockSentRequest,
+        );
+        const result = await getTool('manage_report_sections').execute(
+          {
+            surgeryRequestId: 'req-1',
+            operation: 'create',
+            title: 'Anamnese',
+            confirm: true,
+          },
+          baseContext,
+        );
+        expect(parseToolResult(result)?.status).toBe('blocked');
+      });
     });
   });
 });

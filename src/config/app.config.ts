@@ -67,12 +67,34 @@ export const envValidationSchema = Joi.object({
   AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
   /**
-   * Habilita a nova arquitetura de fluxos baseada em `operation_draft` +
-   * tool obrigatória `plan_actions` + tools de draft (sc_draft_*, etc.).
-   * Quando `false`, o orchestrator usa as tools legadas como `create_surgery_request_from_whatsapp`.
-   * Default true para garantir a correção do problema de alucinação.
+   * Habilita o plan-first guard: tools de mutação complexa só podem ser
+   * chamadas após `plan_actions` (que abre um `operation_draft`) ou quando
+   * já existe draft ativo. Quando `false`, o guard fica desativado e o LLM
+   * pode chamar tools de mutação complexa direto (útil apenas para
+   * rollback emergencial).
+   * Default `true` para preservar a arquitetura draft-first.
    */
   AI_USE_DRAFT_FLOWS: Joi.string().allow('').default('true'),
+  /**
+   * Modo B do draft (tools globais `draft_update`, `draft_status`,
+   * `draft_cancel`) é o único modo suportado. A flag permanece presente
+   * apenas para validação no boot — defina `false` apenas em rollback
+   * emergencial, sabendo que os setters per-type foram removidos.
+   * Fase 5 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
+   */
+  AI_DRAFT_USE_GENERIC_UPDATE: Joi.string().allow('').default('true'),
+
+  // ── Observabilidade / OpenTelemetry ─────────────────
+  /** URL do coletor OTLP (Jaeger, Tempo, Grafana Cloud). Omitir = ConsoleExporter em dev, noop em prod. */
+  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().allow('').optional(),
+  /** Fração de traces amostrados (0–1). Default automático: 1.0 em dev, 0.1 em prod. */
+  OTEL_TRACES_SAMPLER_ARG: Joi.number().min(0).max(1).optional(),
+
+  // ── RAG ─────────────────────────────────────────────
+  /** Número de resultados retornados pelo RAG (default 3). */
+  AI_RAG_TOP_K: Joi.number().default(3),
+  /** Score mínimo de similaridade coseno para incluir um chunk (default 0.65). */
+  AI_RAG_MIN_SCORE: Joi.number().default(0.65),
 
   // ── IA WhatsApp (Áudio/STT) ─────────────────────────
   AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),

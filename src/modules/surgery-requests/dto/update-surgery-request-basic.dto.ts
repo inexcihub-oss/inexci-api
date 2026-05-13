@@ -11,4 +11,12 @@ export class UpdateSurgeryRequestBasicDto {
   @Transform(({ value }) => (value ? Number(value) : undefined))
   @Type(() => Number)
   priority?: SurgeryRequestPriority;
+
+  @IsOptional()
+  @IsString()
+  hospitalId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  healthPlanId?: string | null;
 }

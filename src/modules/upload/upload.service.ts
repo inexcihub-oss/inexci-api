@@ -74,7 +74,7 @@ export class UploadService {
       };
     } catch (error) {
       throw new BadRequestException(
-        `Erro ao fazer upload do arquivo: ${error.message}`,
+        `Erro ao fazer upload do arquivo: ${(error as Error).message}`,
       );
     }
   }
@@ -118,7 +118,7 @@ export class UploadService {
       }
     } catch (error) {
       throw new BadRequestException(
-        `Erro ao deletar arquivo: ${error.message}`,
+        `Erro ao deletar arquivo: ${(error as Error).message}`,
       );
     }
   }

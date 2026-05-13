@@ -461,7 +461,7 @@ export class ConversationContextService {
 
       await this.conversationRepo.update(conversationId, {
         conversationSummary: parsed.summary || null,
-        conversationMemory: newMemory,
+        conversationMemory: newMemory as any,
         summaryUpdatedAt: new Date(),
       });
 
@@ -563,7 +563,7 @@ export class ConversationContextService {
     const memory = conversation.conversationMemory || {};
     const failures = (memory.summary_failures ?? 0) + 1;
     await this.conversationRepo.update(conversation.id, {
-      conversationMemory: { ...memory, summary_failures: failures },
+      conversationMemory: { ...memory, summary_failures: failures } as any,
     });
   }
 }

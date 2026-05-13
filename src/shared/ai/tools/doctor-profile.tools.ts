@@ -6,6 +6,9 @@ import { UserRepository } from '../../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../../database/repositories/doctor-profile.repository';
 import { StorageService } from '../../storage/storage.service';
 import { STORAGE_FOLDERS } from '../../../config/storage.config';
+import { UsersService } from '../../../modules/users/users.service';
+import { translateServiceError } from './helpers/service-error-translator';
+import { buildToolResult } from './tool-result';
 
 /**
  * Baixa uma mídia inbound do WhatsApp (Twilio) usando autenticação básica
@@ -47,6 +50,7 @@ export function buildDoctorProfileTools(
   doctorProfileRepo: DoctorProfileRepository,
   storageService: StorageService,
   configService: ConfigService,
+  usersService?: UsersService,
 ): AiTool[] {
   // ────────────────────────────────────────────────────────────────────────
   // upload_doctor_signature
@@ -63,6 +67,13 @@ export function buildDoctorProfileTools(
   // Não escrevemos a assinatura do médico A a partir do WhatsApp do
   // colaborador B mesmo que B tenha acesso ao médico A — é informação
   // pessoal do médico e exige ação dele.
+  //
+  // Migrada para o envelope canônico `ToolResult` na Fase 4 do
+  // `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`: era a única tool ainda no
+  // `PREVIEWABLE_MUTATION_TOOLS` e por isso forçava o orchestrator a
+  // manter heurísticas de string (`looksLikeConfirmationPreview` /
+  // `looksLikeExecutedMutation`). Agora segue o mesmo padrão das tools
+  // `*_draft_preview` / `*_draft_commit`.
   // ────────────────────────────────────────────────────────────────────────
   const uploadDoctorSignature: AiTool = {
     name: 'upload_doctor_signature',
@@ -92,29 +103,57 @@ export function buildDoctorProfileTools(
     } as OpenAI.ChatCompletionTool,
 
     async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
+      if (!context.userId) {
+        return buildToolResult({
+          status: 'blocked',
+          message: 'Acesso negado.',
+          displayText: 'Acesso negado.',
+        });
+      }
 
       // 1) Verifica se o usuário é médico (tem doctor_profile).
       //    `userRepo.findOne` já carrega a relação `doctorProfile`.
       const user = await userRepo.findOne({ id: context.userId });
       if (!user) {
-        return 'Não foi possível identificar o usuário no sistema.';
+        return buildToolResult({
+          status: 'error',
+          message: 'Usuário não identificado no sistema.',
+          displayText: 'Não foi possível identificar o usuário no sistema.',
+          errors: [
+            {
+              code: 'USER_NOT_FOUND',
+              message: 'context.userId não corresponde a um usuário válido.',
+            },
+          ],
+        });
       }
 
       const doctorProfile = (user as any).doctorProfile;
       if (!doctorProfile?.id) {
         // Colaborador — devolve orientação clara, sem tentar a operação.
-        return [
+        const collaboratorText = [
           'A assinatura digital pertence ao médico e SÓ pode ser cadastrada por ele mesmo, pelo próprio WhatsApp dele (ou pelo app).',
           'Como você é colaborador, peça ao médico responsável que envie a imagem da assinatura aqui no WhatsApp dele e me chame para registrar — eu cuido do resto.',
           'Se preferir, ele também pode fazer o upload diretamente no perfil dentro da plataforma web.',
         ].join('\n\n');
+        return buildToolResult({
+          status: 'blocked',
+          message:
+            'Apenas o próprio médico pode cadastrar a assinatura digital.',
+          displayText: collaboratorText,
+        });
       }
 
       // 2) Médico — precisa ter mídia (imagem) na conversa.
       const inboundMedia = context.inboundMedia || [];
       if (!inboundMedia.length) {
-        return 'Não identifiquei nenhuma imagem nesta mensagem. Envie a foto da sua assinatura pelo WhatsApp e me chame de novo para registrar.';
+        return buildToolResult({
+          status: 'needs_input',
+          message: 'Imagem da assinatura não foi enviada.',
+          displayText:
+            'Não identifiquei nenhuma imagem nesta mensagem. Envie a foto da sua assinatura pelo WhatsApp e me chame de novo para registrar.',
+          nextRequiredFields: ['signature_image'],
+        });
       }
 
       const rawIndex = args.mediaIndex;
@@ -129,7 +168,19 @@ export function buildDoctorProfileTools(
       const media = inboundMedia[mediaIndex];
       const mime = (media.contentType || '').toLowerCase();
       if (!mime.startsWith('image/')) {
-        return 'O arquivo enviado não é uma imagem. Envie uma foto/imagem (JPG, PNG, etc.) da sua assinatura.';
+        return buildToolResult({
+          status: 'blocked',
+          message: 'O arquivo enviado não é uma imagem.',
+          displayText:
+            'O arquivo enviado não é uma imagem. Envie uma foto/imagem (JPG, PNG, etc.) da sua assinatura.',
+          errors: [
+            {
+              field: 'inboundMedia',
+              code: 'INVALID_MEDIA_TYPE',
+              message: `contentType=${media.contentType ?? 'unknown'} não é image/*`,
+            },
+          ],
+        });
       }
 
       // 3) Preview / confirmação explícita.
@@ -137,7 +188,22 @@ export function buildDoctorProfileTools(
         const replacing = doctorProfile.signatureUrl
           ? ' Isso substitui a assinatura cadastrada anteriormente.'
           : '';
-        return `Sua assinatura digital será atualizada com a imagem enviada.${replacing} Confirme com "sim" para registrar.`;
+        const previewText = `Sua assinatura digital será atualizada com a imagem enviada.${replacing} Confirme com "sim" para registrar.`;
+        const pendingArgs: Record<string, unknown> = { confirm: true };
+        if (typeof rawIndex === 'number' && Number.isInteger(rawIndex)) {
+          pendingArgs.mediaIndex = mediaIndex;
+        }
+        return buildToolResult({
+          status: 'pending_confirmation',
+          message:
+            'Aguardando confirmação do usuário para atualizar a assinatura.',
+          displayText: previewText,
+          pendingConfirmation: {
+            tool: 'upload_doctor_signature',
+            args: pendingArgs,
+            description: 'atualizar sua assinatura digital',
+          },
+        });
       }
 
       // 4) Faz o upload e atualiza o doctor_profile.
@@ -166,16 +232,46 @@ export function buildDoctorProfileTools(
           }
         }
 
-        await doctorProfileRepo.update(doctorProfile.id, {
-          signatureUrl: newPath,
-        } as any);
+        try {
+          if (usersService) {
+            await usersService.updateSignatureUrl(context.userId, newPath);
+          } else {
+            await doctorProfileRepo.update(doctorProfile.id, {
+              signatureUrl: newPath,
+            } as any);
+          }
+        } catch (err) {
+          return buildToolResult({
+            status: 'error',
+            message: 'Erro ao registrar a assinatura.',
+            displayText: `Erro ao registrar a assinatura: ${translateServiceError(err)}`,
+            errors: [
+              {
+                code: 'SIGNATURE_PERSIST_FAILED',
+                message: translateServiceError(err),
+              },
+            ],
+          });
+        }
 
-        return [
+        const successText = [
           'Assinatura digital atualizada com sucesso.',
           'Ela será aplicada automaticamente nos próximos laudos gerados — não precisa anexar de novo a cada SC.',
         ].join('\n');
+        return buildToolResult({
+          status: 'ok',
+          message: 'Assinatura digital atualizada com sucesso.',
+          displayText: successText,
+          data: { signatureUrl: newPath },
+        });
       } catch (err: any) {
-        return `Erro ao registrar a assinatura: ${err?.message || 'erro desconhecido'}`;
+        const reason = err?.message || 'erro desconhecido';
+        return buildToolResult({
+          status: 'error',
+          message: 'Erro ao registrar a assinatura.',
+          displayText: `Erro ao registrar a assinatura: ${reason}`,
+          errors: [{ code: 'SIGNATURE_UPLOAD_FAILED', message: reason }],
+        });
       }
     },
   };

@@ -133,7 +133,7 @@ export class SurgeryRequestBillingService {
         const repo = manager.getRepository(SurgeryRequest);
         const billingRepo = manager.getRepository(SurgeryRequestBilling);
 
-        const invoiceValue = Number(request.billing.invoiceValue);
+        const invoiceValue = Number(request.billing!.invoiceValue);
         const receivedValue = Number(dto.receivedValue);
         const hasDivergence = receivedValue !== invoiceValue;
 

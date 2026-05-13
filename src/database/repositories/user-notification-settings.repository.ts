@@ -1,6 +1,6 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, QueryDeepPartialEntity } from 'typeorm';
 import { UserNotificationSettings } from '../entities/user-notification-settings.entity';
 import { BaseRepository } from './base.repository';
 
@@ -21,15 +21,18 @@ export class UserNotificationSettingsRepository extends BaseRepository<UserNotif
   async update(
     userId: string,
     data: Partial<UserNotificationSettings>,
-  ): Promise<UserNotificationSettings> {
-    await this.repository.update({ userId }, data);
+  ): Promise<UserNotificationSettings | null> {
+    await this.repository.update(
+      { userId },
+      data as QueryDeepPartialEntity<UserNotificationSettings>,
+    );
     return await this.findByUserId(userId);
   }
 
   async upsert(
     userId: string,
     data: Partial<UserNotificationSettings>,
-  ): Promise<UserNotificationSettings> {
+  ): Promise<UserNotificationSettings | null> {
     const existing = await this.findByUserId(userId);
     if (existing) {
       return await this.update(userId, data);

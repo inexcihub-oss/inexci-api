@@ -331,6 +331,47 @@ describe('PiiVaultService', () => {
     });
   });
 
+  describe('preprocessUserInput', () => {
+    it('tokeniza apenas dados sensíveis estruturados (CPF, telefone, e-mail)', () => {
+      const out = service.preprocessUserInput(
+        sid,
+        'Paciente Joao, CPF 529.982.247-25, tel (11) 98888-7777, email joao@x.com',
+      );
+      expect(out).toMatch(/\{\{cpf_\d+\}\}/);
+      expect(out).toMatch(/\{\{phone_\d+\}\}/);
+      expect(out).toMatch(/\{\{email_\d+\}\}/);
+      expect(out).toContain('Paciente Joao');
+      expect(out).not.toContain('529.982.247-25');
+      expect(out).not.toContain('98888-7777');
+      expect(out).not.toContain('joao@x.com');
+    });
+
+    it('NÃO transforma laudos longos (> 1500 chars) em payload_blob por padrão', () => {
+      // Comportamento esperado pós-fix: o blobThreshold padrão é Infinity.
+      // Antes (default 1500) qualquer laudo médico era reduzido a um único
+      // `{{payload_blob_n}}` e o classifier devolvia `kind=unknown`.
+      const longLaudo =
+        'Diagnóstico: artrose. ' +
+        'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(40);
+      expect(longLaudo.length).toBeGreaterThan(1500);
+
+      const out = service.preprocessUserInput(sid, longLaudo);
+      expect(out).not.toMatch(/\{\{payload_blob_\d+\}\}/);
+      expect(out).toContain('Diagnóstico: artrose');
+      expect(out).toContain('Lorem ipsum');
+    });
+
+    it('aplica payload_blob apenas quando o caller passa blobThreshold finito explicitamente', () => {
+      const longText = 'algum texto enorme '.repeat(200) + 'mais coisa final';
+      expect(longText.length).toBeGreaterThan(1500);
+
+      const out = service.preprocessUserInput(sid, longText, {
+        blobThreshold: 1500,
+      });
+      expect(out).toMatch(/^\{\{payload_blob_\d+\}\}$/);
+    });
+  });
+
   describe('categoryCounts', () => {
     it('conta corretamente tokens por categoria', () => {
       service.tokenize(sid, 'João', 'patient_name');

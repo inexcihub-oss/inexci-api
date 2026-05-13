@@ -123,12 +123,19 @@ const DOCUMENT_RESPONSE_SCHEMA = {
               properties: {
                 description: { type: 'string' },
                 qty: { type: 'number', minimum: 1 },
+                supplier: { type: ['string', 'null'] },
+                brand: { type: ['string', 'null'] },
               },
-              required: ['description', 'qty'],
+              required: ['description', 'qty', 'supplier', 'brand'],
             },
           },
+          suggestedSuppliers: {
+            type: ['array', 'null'],
+            items: { type: 'string' },
+          },
+          diagnosis: { type: ['string', 'null'] },
+          suggestedProcedureName: { type: ['string', 'null'] },
           laudoText: { type: ['string', 'null'] },
-          doctorCRM: { type: ['string', 'null'] },
           notes: { type: ['string', 'null'] },
         },
         required: [
@@ -138,8 +145,10 @@ const DOCUMENT_RESPONSE_SCHEMA = {
           'tuss',
           'cid',
           'opme',
+          'suggestedSuppliers',
+          'diagnosis',
+          'suggestedProcedureName',
           'laudoText',
-          'doctorCRM',
           'notes',
         ],
       },
@@ -155,28 +164,61 @@ const DOCUMENT_RESPONSE_SCHEMA = {
 } as const;
 
 const SYSTEM_PROMPT = [
-  'Você é um classificador VISUAL de documentos médicos brasileiros.',
-  'Você vai receber UMA imagem (geralmente fotografada por celular) que pode ser:',
-  '- Laudo médico, exame, RG/CPF, guia de autorização, fatura, comprovante.',
+  'Você é um classificador VISUAL de documentos médicos brasileiros. Você',
+  'recebe UMA imagem (laudo médico, RG/CPF, guia, exame, fatura, comprovante).',
+  'Seu papel é EXTRAIR O MÁXIMO POSSÍVEL para preencher uma solicitação',
+  'cirúrgica — quanto mais campos completos, menos perguntas o sistema fará',
+  'ao médico depois.',
   '',
-  'Sua tarefa:',
-  '1. Identificar o tipo do documento entre as categorias permitidas.',
-  '2. Extrair APENAS os campos visivelmente legíveis.',
-  '3. NÃO INVENTAR dados — preferível devolver `null` a chutar.',
-  '4. CPF, telefones e e-mails extraídos devem ser tokenizados depois pelo backend;',
-  '   aqui devolva o valor cru exatamente como aparece na imagem.',
-  '5. Se confiança < 0.7, descrever a dúvida em `ambiguity`.',
-  '6. `qty` em OPME é inteiro positivo; se incerto, retorne `1`.',
+  'REGRAS GERAIS:',
+  '1. Identifique `kind` entre as categorias permitidas.',
+  '2. Extraia TODO campo visivelmente legível. Se está escrito, registre.',
+  '3. NÃO INVENTAR — devolva `null` em vez de chutar.',
+  '4. CPF/telefones/e-mails: devolva o valor cru, o backend tokeniza.',
+  '5. Confiança < 0.7 → preencha `ambiguity`.',
+  '',
+  'COMO LER UM LAUDO/SOLICITAÇÃO CIRÚRGICA TÍPICO BR:',
+  '',
+  'Cabeçalho: clínica + médicos. NÃO precisa extrair CRM (o sistema já sabe',
+  'quem é o médico solicitante).',
+  '',
+  '"Paciente: <NOME>" → `patient.name`. "Plano:" / "Convênio:" →',
+  '`healthPlan.name`. "Hospital:" → `hospital`.',
+  '',
+  'DIAGNÓSTICO: "Diagnóstico:", "DH:", "Hipótese:" → `diagnosis` (texto',
+  'livre, ex.: "Hérnia discal cervical C5-C6 com compressão radicular"). Só',
+  'preencha `cid` se houver código CID escrito (ex.: "M50.1") — não invente.',
+  '',
+  'PROCEDIMENTO SUGERIDO: "Indicado procedimento cirúrgico com X" /',
+  '"Procedimento proposto:" → `suggestedProcedureName` (nome da cirurgia,',
+  'ex.: "Artrodese cervical anterior C5-C6 e C4-C5"). É o NOME, não o TUSS.',
+  '',
+  'TUSS: "Códigos solicitados:" / "TUSS:" — cada linha vira um item de',
+  '`tuss` com `code` + `description`.',
+  '',
+  'OPME: "MATERIAL:" / "OPME:" — cada linha tem qty + descrição.',
+  '"02 CAGES STAND ALONE" vira `{description: "CAGES STAND ALONE", qty: 2}`.',
+  '',
+  'FORNECEDORES: "SUGIRO AS EMPRESAS:" / "Fornecedores:" — liste nomes em',
+  '`suggestedSuppliers` (ex.: ["SINTEX", "VITALITY"]). Quando houver marca',
+  'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), use `opme[].brand`.',
+  '',
+  'LAUDO CLÍNICO COMPLETO: o texto narrativo entre "Diagnóstico" e "Códigos',
+  'solicitados" (queixa, exame, RNM, indicação) vai INTEIRO em `laudoText`.',
+  'Não trunque, não resuma — copie literal.',
   '',
   'Mapeamento `kind` → `suggestedDocumentType`:',
-  '- `medical_report` → `medical_report`',
+  '- `medical_report` / `surgery_request` → `medical_report`',
   '- `exam_report` → `exam_report`',
   '- `identity_document` → `personal_document`',
   '- `authorization_guide` → `authorization_guide`',
   '- `invoice` → `invoice_protocol`',
   '- `receipt` → `receipt_document`',
-  '- `surgery_request` → `medical_report`',
   '- `unknown` → `additional_document`',
+  '',
+  'IMPORTANTE: laudos cirúrgicos brasileiros (com diagnóstico + procedimento',
+  'sugerido + códigos TUSS + OPME + assinatura) → classifique como',
+  '`surgery_request`.',
 ].join('\n');
 
 export interface VisionFallbackInput {
@@ -457,24 +499,49 @@ export class DocumentVisionFallbackService {
 
     if (Array.isArray(raw?.opme) && raw.opme.length) {
       const opme = raw.opme
-        .map((item: any) => ({
-          description:
-            typeof item?.description === 'string'
-              ? item.description.trim()
-              : '',
-          qty: Number.isFinite(Number(item?.qty))
-            ? Math.max(1, Math.floor(Number(item?.qty)))
-            : 1,
-        }))
+        .map((item: any) => {
+          const entry: any = {
+            description:
+              typeof item?.description === 'string'
+                ? item.description.trim()
+                : '',
+            qty: Number.isFinite(Number(item?.qty))
+              ? Math.max(1, Math.floor(Number(item?.qty)))
+              : 1,
+          };
+          if (typeof item?.supplier === 'string' && item.supplier.trim()) {
+            entry.supplier = item.supplier.trim();
+          }
+          if (typeof item?.brand === 'string' && item.brand.trim()) {
+            entry.brand = item.brand.trim();
+          }
+          return entry;
+        })
         .filter((item: any) => item.description);
       if (opme.length) out.opme = opme;
     }
 
+    if (
+      Array.isArray(raw?.suggestedSuppliers) &&
+      raw.suggestedSuppliers.length
+    ) {
+      const suppliers = raw.suggestedSuppliers
+        .map((s: any) => (typeof s === 'string' ? s.trim() : ''))
+        .filter((s: string) => s.length > 0);
+      if (suppliers.length) out.suggestedSuppliers = suppliers;
+    }
+
+    if (typeof raw?.diagnosis === 'string' && raw.diagnosis.trim()) {
+      out.diagnosis = raw.diagnosis.trim();
+    }
+    if (
+      typeof raw?.suggestedProcedureName === 'string' &&
+      raw.suggestedProcedureName.trim()
+    ) {
+      out.suggestedProcedureName = raw.suggestedProcedureName.trim();
+    }
     if (typeof raw?.laudoText === 'string' && raw.laudoText.trim()) {
       out.laudoText = raw.laudoText.trim();
-    }
-    if (typeof raw?.doctorCRM === 'string' && raw.doctorCRM.trim()) {
-      out.doctorCRM = raw.doctorCRM.trim();
     }
     if (typeof raw?.notes === 'string' && raw.notes.trim()) {
       out.notes = raw.notes.trim();

@@ -238,11 +238,18 @@ export class SurgeryRequestMutationService {
   async updateBasic(data: UpdateSurgeryRequestBasicDto, userId: string) {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
+    if (!data.id) {
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    }
 
     await this.findWithAccess(data.id, userId);
 
     const updateData: Partial<SurgeryRequest> = {};
     if (data.priority !== undefined) updateData.priority = data.priority;
+    if (data.hospitalId !== undefined)
+      updateData.hospitalId = data.hospitalId ?? null;
+    if (data.healthPlanId !== undefined)
+      updateData.healthPlanId = data.healthPlanId ?? null;
 
     await this.surgeryRequestRepository.update(data.id, updateData);
 
@@ -295,9 +302,9 @@ export class SurgeryRequestMutationService {
       };
       entity = repo.save
         ? await repo.save(payload)
-        : await (repo as any).create(payload);
+        : await repo.create!(payload);
     }
-    return entity;
+    return entity!;
   }
 
   private async resolveHospital(
@@ -318,8 +325,8 @@ export class SurgeryRequestMutationService {
       };
       entity = repo.save
         ? await repo.save(payload)
-        : await (repo as any).create(payload);
+        : await repo.create!(payload);
     }
-    return entity;
+    return entity!;
   }
 }

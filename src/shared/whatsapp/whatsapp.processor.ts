@@ -58,9 +58,8 @@ export class WhatsappProcessor {
       );
     }
 
-    this.twilioWhatsappFrom = this.configService.get<string>(
-      'TWILIO_WHATSAPP_FROM',
-    );
+    this.twilioWhatsappFrom =
+      this.configService.get<string>('TWILIO_WHATSAPP_FROM') ?? '';
   }
 
   @Process('send-whatsapp')

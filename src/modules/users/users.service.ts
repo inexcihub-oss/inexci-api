@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -87,7 +88,7 @@ export class UsersService {
 
     const [total, resp] = await Promise.all([
       this.userRepository.total(where),
-      this.userRepository.findMany(where, query.skip, query.take),
+      this.userRepository.findMany(where, query.skip ?? 0, query.take ?? 20),
     ]);
 
     return { total, records: resp };
@@ -380,6 +381,11 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
     // Verifica senha atual
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+      );
+    }
     const isPasswordValid = await bcrypt.compare(
       currentPassword,
       user.password,
@@ -653,7 +659,7 @@ export class UsersService {
       } else if (!data.isDoctor && hasProfile) {
         // Remover doctorProfile
         await this.doctorProfileRepository.delete(
-          collaborator.doctorProfile.id,
+          collaborator.doctorProfile!.id,
         );
       } else if (data.isDoctor && hasProfile) {
         // Atualizar doctorProfile
@@ -665,7 +671,7 @@ export class UsersService {
           profileUpdates.specialty = data.specialty;
         if (Object.keys(profileUpdates).length > 0) {
           await this.doctorProfileRepository.update(
-            collaborator.doctorProfile.id,
+            collaborator.doctorProfile!.id,
             profileUpdates,
           );
         }
@@ -685,7 +691,7 @@ export class UsersService {
         if (data.specialty !== undefined)
           profileUpdates.specialty = data.specialty;
         await this.doctorProfileRepository.update(
-          collaborator.doctorProfile.id,
+          collaborator.doctorProfile!.id,
           profileUpdates,
         );
       }
@@ -708,11 +714,14 @@ export class UsersService {
     if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
-    // Anonimiza email e telefone antes do soft-delete para liberar as constraints únicas,
-    // preservando o valor original como histórico no próprio campo.
+    // Anonimiza dados pessoais antes do soft-delete (LGPD — princípio de minimização).
+    // email: libera a constraint unique para permitir re-cadastro com mesmo endereço.
+    // phone: quebra o match no findOneByPhone, impedindo que um ex-colaborador continue
+    //        sendo identificado pelo sistema (incluindo o assistente WhatsApp). A sentinela
+    //        usa os 12 primeiros chars do UUID para unicidade sem ultrapassar varchar(15).
     await this.userRepository.update(collaboratorId, {
       email: `deleted_${collaborator.email}_${collaboratorId}`,
-      phone: null,
+      phone: `DEL${collaboratorId.slice(0, 12)}`,
     });
     await this.userRepository.delete(collaboratorId);
     return { message: 'Colaborador desativado com sucesso' };
@@ -950,5 +959,16 @@ export class UsersService {
       throw new ForbiddenException('Apenas médicos podem remover cabeçalho');
     await this.doctorHeaderRepository.removeByDoctorProfileId(profile.id);
     return { message: 'Cabeçalho removido com sucesso' };
+  }
+
+  // ============ ASSINATURA DIGITAL ============
+
+  async updateSignatureUrl(userId: string, signatureUrl: string) {
+    const profile = await this.doctorProfileRepository.findByUserId(userId);
+    if (!profile)
+      throw new ForbiddenException(
+        'Apenas médicos podem atualizar a assinatura digital.',
+      );
+    await this.doctorProfileRepository.update(profile.id, { signatureUrl });
   }
 }

@@ -47,6 +47,27 @@ export class DocumentsService {
     };
   }
 
+  async createFromPath(data: {
+    surgeryRequestId: string;
+    storagePath: string;
+    type: string;
+    name: string;
+    key: string;
+    contentType: string;
+    createdById: string;
+  }): Promise<Document> {
+    const newDocument = await this.documentRepository.create({
+      surgeryRequestId: data.surgeryRequestId,
+      createdById: data.createdById,
+      key: data.key,
+      name: data.name,
+      type: data.type,
+      uri: data.storagePath,
+    });
+
+    return newDocument;
+  }
+
   async delete(data: DeleteDocumentDto) {
     const document = await this.documentRepository.findOneSimple({
       id: data.id,

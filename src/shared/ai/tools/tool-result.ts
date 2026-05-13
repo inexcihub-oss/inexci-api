@@ -33,6 +33,11 @@ export interface ToolResultPendingConfirmation {
   description: string;
 }
 
+export interface ToolResultAffected {
+  kind: string;
+  id: string;
+}
+
 export interface ToolResult<T = unknown> {
   status: ToolResultStatus;
   data?: T;
@@ -51,6 +56,11 @@ export interface ToolResult<T = unknown> {
   display_text?: string;
   errors?: ToolResultError[];
   /**
+   * Entidades afetadas pela operação (status `ok`).
+   * Usado pelo orchestrator para telemetria e pelo LLM para compor mensagens.
+   */
+  affected?: ToolResultAffected[];
+  /**
    * Versão do envelope. Reservado para evolução futura.
    */
   v?: 1;
@@ -64,6 +74,7 @@ export interface BuildToolResultOptions<T> {
   pendingConfirmation?: ToolResultPendingConfirmation;
   displayText?: string;
   errors?: ToolResultError[];
+  affected?: ToolResultAffected[];
 }
 
 export function buildToolResult<T = unknown>(
@@ -83,6 +94,7 @@ export function buildToolResult<T = unknown>(
   }
   if (opts.displayText) payload.display_text = opts.displayText;
   if (opts.errors && opts.errors.length) payload.errors = opts.errors;
+  if (opts.affected && opts.affected.length) payload.affected = opts.affected;
   return JSON.stringify(payload);
 }
 

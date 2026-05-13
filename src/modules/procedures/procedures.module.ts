@@ -7,5 +7,6 @@ import { ProceduresController } from './procedures.controller';
   imports: [TypeOrmModule.forFeature([Procedure])],
   controllers: [ProceduresController],
   providers: [ProceduresService],
+  exports: [ProceduresService],
 })
 export class ProceduresModule {}

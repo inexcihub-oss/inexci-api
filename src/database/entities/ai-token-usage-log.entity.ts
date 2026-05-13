@@ -67,6 +67,21 @@ export class AiTokenUsageLog {
     totalTokens: number;
     model?: string;
     latencyMs?: number;
+    /**
+     * Tokens reaproveitados via prompt caching da OpenAI
+     * (`usage.prompt_tokens_details.cached_tokens`). Permite medir o hit
+     * rate por chamada — alvo da Fase 1 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.
+     */
+    cachedTokens?: number;
+    /**
+     * Valor enviado em `prompt_cache_key` para esta chamada (ou `none` quando
+     * não foi enviado). Permite cruzar hit rate por draft/versão de prompt.
+     */
+    cacheKey?: string;
+    /** Quantidade de tool definitions enviadas no request. */
+    toolsCount?: number;
+    /** Draft ativo no início da chamada (ou `null` quando não havia draft). */
+    draftType?: string | null;
   }>;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

@@ -54,6 +54,16 @@ export interface DocumentClassificationCidItem {
 export interface DocumentClassificationOpmeItem {
   description: string;
   qty: number;
+  /**
+   * Fornecedor/distribuidor sugerido (ex.: `SINTEX`, `VITALITY`, `GUSMED`)
+   * — laudos brasileiros costumam listar isso após "SUGIRO AS EMPRESAS:".
+   */
+  supplier?: string;
+  /**
+   * Marca/fabricante (ex.: `DIVA/NOVA SPINE`, `ROI-C / HIGHRIDGE MEDICAL`)
+   * — em geral aparece entre parênteses, ao lado do fornecedor.
+   */
+  brand?: string;
 }
 
 export interface DocumentClassificationExtracted {
@@ -63,8 +73,26 @@ export interface DocumentClassificationExtracted {
   tuss?: DocumentClassificationTussItem[];
   cid?: DocumentClassificationCidItem[];
   opme?: DocumentClassificationOpmeItem[];
+  /**
+   * Lista geral de fornecedores sugeridos no documento, quando o laudo
+   * agrupa empresas em vez de associar 1:1 com cada material. Ex.:
+   * ["SINTEX", "VITALITY", "GUSMED"].
+   */
+  suggestedSuppliers?: string[];
+  /**
+   * Diagnóstico clínico em texto livre (ex.: "Hérnia discal cervical
+   * médio-foraminal C5-C6 e C4-C5 com compressão radicular e medular").
+   * Pode ser usado para sugerir CID e popular `surgery_request.notes`.
+   */
+  diagnosis?: string;
+  /**
+   * Nome do procedimento sugerido pelo médico no documento, em texto livre
+   * (ex.: "Artrodese cervical anterior C5-C6 e C4-C5"). Não é o código TUSS:
+   * é o nome do procedimento cirúrgico. Usado para sugerir o `procedure_name`
+   * ao popular o draft de SC.
+   */
+  suggestedProcedureName?: string;
   laudoText?: string;
-  doctorCRM?: string;
   notes?: string;
 }
 

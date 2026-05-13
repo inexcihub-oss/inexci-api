@@ -1,17 +1,20 @@
+import { ConflictException } from '@nestjs/common';
 import { buildCadastroDraftTools } from './cadastro-draft.tools';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { ToolContext } from './tool.interface';
 import { parseToolResult } from './tool-result';
 
-describe('cadastro draft tools', () => {
+describe('cadastro draft tools (preview + commit)', () => {
   let conv: any;
   let mockConvRepo: any;
   let draftService: OperationDraftService;
   let mockPatientRepo: any;
-  let mockHospitalRepo: any;
-  let mockHealthPlanRepo: any;
   let mockProcedureRepo: any;
   let mockUserRepo: any;
+  let mockPatientsService: any;
+  let mockHospitalsService: any;
+  let mockHealthPlansService: any;
+  let mockProceduresService: any;
   let tools: ReturnType<typeof buildCadastroDraftTools>;
 
   const context: ToolContext = {
@@ -35,34 +38,10 @@ describe('cadastro draft tools', () => {
 
     mockPatientRepo = {
       findMany: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation(async (data: any) => ({
-        id: 'new-pat',
-        ...data,
-      })),
-    };
-    mockHospitalRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-      findMany: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation(async (data: any) => ({
-        id: 'new-h',
-        ...data,
-      })),
-    };
-    mockHealthPlanRepo = {
-      findOne: jest.fn().mockResolvedValue(null),
-      findMany: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation(async (data: any) => ({
-        id: 'new-hp',
-        ...data,
-      })),
     };
     mockProcedureRepo = {
       findOne: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockImplementation(async (data: any) => ({
-        id: 'new-pro',
-        ...data,
-      })),
     };
     mockUserRepo = {
       findOne: jest
@@ -70,40 +49,81 @@ describe('cadastro draft tools', () => {
         .mockResolvedValue({ id: 'user-1', ownerId: 'owner-1' }),
     };
 
+    mockPatientsService = {
+      create: jest.fn().mockImplementation(async (data: any) => ({
+        id: 'new-pat',
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+      })),
+    };
+    mockHospitalsService = {
+      create: jest.fn().mockImplementation(async (data: any) => ({
+        id: 'new-h',
+        name: data.name,
+      })),
+    };
+    mockHealthPlansService = {
+      create: jest.fn().mockImplementation(async (data: any) => ({
+        id: 'new-hp',
+        name: data.name,
+      })),
+    };
+    mockProceduresService = {
+      create: jest.fn().mockImplementation(async (data: any) => ({
+        id: 'new-pro',
+        name: data.name,
+      })),
+    };
+
     tools = buildCadastroDraftTools({
       draftService,
       patientRepo: mockPatientRepo,
-      hospitalRepo: mockHospitalRepo,
-      healthPlanRepo: mockHealthPlanRepo,
       procedureRepo: mockProcedureRepo,
       userRepo: mockUserRepo,
+      patientsService: mockPatientsService,
+      hospitalsService: mockHospitalsService,
+      healthPlansService: mockHealthPlansService,
+      proceduresService: mockProceduresService,
     });
   });
 
-  describe('create_patient', () => {
-    it('guarda bloqueia uso sem draft ativo', async () => {
-      const raw = await getTool('patient_draft_set_name').execute(
-        { name: 'João da Silva' },
-        context,
-      );
-      const parsed = parseToolResult<any>(raw);
-      expect(parsed?.status).toBe('blocked');
-    });
+  it('expõe apenas preview e commit por entidade (setters/status/cancel migrados para draft_update/draft_status/draft_cancel)', () => {
+    expect(tools.map((t) => t.name)).toEqual([
+      'patient_draft_preview',
+      'patient_draft_commit',
+      'hospital_draft_preview',
+      'hospital_draft_commit',
+      'health_plan_draft_preview',
+      'health_plan_draft_commit',
+      'procedure_draft_preview',
+      'procedure_draft_commit',
+    ]);
+  });
 
-    it('fluxo completo: set name/phone → preview → commit cria paciente', async () => {
+  describe('create_patient', () => {
+    it('preview bloqueia quando faltam campos obrigatórios', async () => {
       await draftService.start({
         conversationId: 'conv-1',
         type: 'create_patient',
       });
+      const raw = await getTool('patient_draft_preview').execute({}, context);
+      const parsed = parseToolResult<any>(raw);
+      expect(['needs_input', 'blocked']).toContain(parsed?.status);
+    });
 
-      await getTool('patient_draft_set_name').execute(
-        { name: 'João da Silva' },
-        context,
-      );
-      await getTool('patient_draft_set_phone').execute(
-        { phone: '(11) 91234-5678' },
-        context,
-      );
+    it('fluxo completo: setFields → preview → commit cria paciente', async () => {
+      await draftService.start({
+        conversationId: 'conv-1',
+        type: 'create_patient',
+      });
+      await draftService.setFields('conv-1', 'create_patient', {
+        name: 'João da Silva',
+        phone: '11912345678',
+        doctorId: 'doctor-1',
+        doctorLabel: 'Dra. Maria',
+      });
+
       const previewRaw = await getTool('patient_draft_preview').execute(
         {},
         context,
@@ -118,7 +138,7 @@ describe('cadastro draft tools', () => {
       expect(parseToolResult<any>(noConfirm)?.status).toBe(
         'pending_confirmation',
       );
-      expect(mockPatientRepo.create).not.toHaveBeenCalled();
+      expect(mockPatientsService.create).not.toHaveBeenCalled();
 
       const commitRaw = await getTool('patient_draft_commit').execute(
         { confirm: true },
@@ -127,15 +147,13 @@ describe('cadastro draft tools', () => {
       const commitParsed = parseToolResult<any>(commitRaw);
       expect(commitParsed?.status).toBe('ok');
       expect(commitParsed?.data.name).toBe('João da Silva');
-      expect(mockPatientRepo.create).toHaveBeenCalledWith(
+      expect(mockPatientsService.create).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'João da Silva',
           phone: '11912345678',
-          doctorId: 'doctor-1',
-          ownerId: 'owner-1',
         }),
+        'user-1',
       );
-      // Draft foi limpo (não há parent).
       expect(conv.operationDraft).toBeNull();
     });
 
@@ -144,18 +162,17 @@ describe('cadastro draft tools', () => {
         conversationId: 'conv-1',
         type: 'create_patient',
       });
-      await getTool('patient_draft_set_name').execute({ name: 'Ana' }, context);
-      await getTool('patient_draft_set_phone').execute(
-        { phone: '11912345678' },
-        context,
-      );
-      await getTool('patient_draft_set_cpf').execute(
-        { cpf: '52998224725' }, // CPF válido fictício
-        context,
-      );
+      await draftService.setFields('conv-1', 'create_patient', {
+        name: 'Ana',
+        phone: '11912345678',
+        cpf: '52998224725',
+        doctorId: 'doctor-1',
+        doctorLabel: 'Dra. Maria',
+      });
       mockPatientRepo.findMany.mockResolvedValueOnce([
         { id: 'existing-pat', name: 'Ana Existing', cpf: '52998224725' },
       ]);
+
       const raw = await getTool('patient_draft_commit').execute(
         { confirm: true },
         context,
@@ -164,18 +181,42 @@ describe('cadastro draft tools', () => {
       expect(parsed?.status).toBe('blocked');
       expect(parsed?.data.existingPatientId).toBe('existing-pat');
     });
+
+    it('translada erro de service em ToolResult error', async () => {
+      await draftService.start({
+        conversationId: 'conv-1',
+        type: 'create_patient',
+      });
+      await draftService.setFields('conv-1', 'create_patient', {
+        name: 'Carla',
+        phone: '11912345678',
+        doctorId: 'doctor-1',
+        doctorLabel: 'Dra. Maria',
+      });
+      mockPatientsService.create.mockRejectedValueOnce(
+        new ConflictException('telefone já cadastrado'),
+      );
+
+      const raw = await getTool('patient_draft_commit').execute(
+        { confirm: true },
+        context,
+      );
+      const parsed = parseToolResult<any>(raw);
+      expect(parsed?.status).toBe('error');
+      expect(parsed?.message).toMatch(/telefone já cadastrado/i);
+    });
   });
 
   describe('create_hospital', () => {
-    it('fluxo: start → set name → preview → commit', async () => {
+    it('fluxo completo: setFields → preview → commit cria hospital', async () => {
       await draftService.start({
         conversationId: 'conv-1',
         type: 'create_hospital',
       });
-      await getTool('hospital_draft_set_name').execute(
-        { name: 'Hospital Novo' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'create_hospital', {
+        name: 'Hospital Beneficência Portuguesa',
+      });
+
       const previewRaw = await getTool('hospital_draft_preview').execute(
         {},
         context,
@@ -188,134 +229,71 @@ describe('cadastro draft tools', () => {
         { confirm: true },
         context,
       );
-      const commit = parseToolResult<any>(commitRaw);
-      expect(commit?.status).toBe('ok');
-      expect(mockHospitalRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Hospital Novo', ownerId: 'owner-1' }),
+      const commitParsed = parseToolResult<any>(commitRaw);
+      expect(commitParsed?.status).toBe('ok');
+      expect(mockHospitalsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Hospital Beneficência Portuguesa' }),
+        'user-1',
       );
-    });
-
-    it('reaproveita cadastro existente quando nome normalizado já existe', async () => {
-      await draftService.start({
-        conversationId: 'conv-1',
-        type: 'create_hospital',
-      });
-      await getTool('hospital_draft_set_name').execute(
-        { name: 'Hospital Já Existe' },
-        context,
-      );
-      mockHospitalRepo.findOne.mockResolvedValueOnce({
-        id: 'h-exist',
-        name: 'Hospital Já Existe',
-        ownerId: 'owner-1',
-      });
-      const commitRaw = await getTool('hospital_draft_commit').execute(
-        { confirm: true },
-        context,
-      );
-      const commit = parseToolResult<any>(commitRaw);
-      expect(commit?.status).toBe('ok');
-      expect(commit?.data.reused).toBe(true);
-      expect(mockHospitalRepo.create).not.toHaveBeenCalled();
     });
   });
 
   describe('create_health_plan', () => {
-    it('fluxo completo', async () => {
+    it('fluxo completo: setFields → preview → commit cria convênio', async () => {
       await draftService.start({
         conversationId: 'conv-1',
         type: 'create_health_plan',
       });
-      await getTool('health_plan_draft_set_name').execute(
-        { name: 'Convênio X' },
+      await draftService.setFields('conv-1', 'create_health_plan', {
+        name: 'Unimed Recife',
+      });
+
+      const previewRaw = await getTool('health_plan_draft_preview').execute(
+        {},
         context,
       );
-      const commit = parseToolResult<any>(
-        await getTool('health_plan_draft_commit').execute(
-          { confirm: true },
-          context,
-        ),
+      expect(parseToolResult<any>(previewRaw)?.status).toBe(
+        'pending_confirmation',
       );
-      expect(commit?.status).toBe('ok');
-      expect(mockHealthPlanRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Convênio X', ownerId: 'owner-1' }),
+
+      const commitRaw = await getTool('health_plan_draft_commit').execute(
+        { confirm: true },
+        context,
+      );
+      expect(parseToolResult<any>(commitRaw)?.status).toBe('ok');
+      expect(mockHealthPlansService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Unimed Recife' }),
+        'user-1',
       );
     });
   });
 
   describe('create_procedure', () => {
-    it('fluxo completo cria procedimento global', async () => {
+    it('fluxo completo: setFields → preview → commit cria procedimento', async () => {
       await draftService.start({
         conversationId: 'conv-1',
         type: 'create_procedure',
       });
-      await getTool('procedure_draft_set_name').execute(
-        { name: 'Procedimento Novo' },
-        context,
-      );
-      const commit = parseToolResult<any>(
-        await getTool('procedure_draft_commit').execute(
-          { confirm: true },
-          context,
-        ),
-      );
-      expect(commit?.status).toBe('ok');
-      expect(mockProcedureRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Procedimento Novo' }),
-      );
-    });
-  });
-
-  describe('sub-drafts', () => {
-    it('quando aberto dentro de create_sc, ao commitar restaura o pai e popula patientId', async () => {
-      // Pai: create_sc com hospital já preenchido.
-      const parent = await draftService.start({
-        conversationId: 'conv-1',
-        type: 'create_sc',
-      });
-      await draftService.setFields(conv.id, 'create_sc', {
-        hospitalId: 'h-1',
-        hospitalLabel: 'Hospital X',
+      await draftService.setFields('conv-1', 'create_procedure', {
+        name: 'Artroplastia total de quadril',
       });
 
-      // Abrir sub-draft create_patient apontando para o pai.
-      const parentSnapshot = await draftService.getCurrentOfType(
-        conv.id,
-        'create_sc',
-      );
-      await draftService.start({
-        conversationId: 'conv-1',
-        type: 'create_patient',
-        parent: {
-          type: 'create_sc',
-          returnField: 'patientId',
-          snapshot: parentSnapshot,
-        },
-      });
-
-      await getTool('patient_draft_set_name').execute(
-        { name: 'João da Silva' },
+      const previewRaw = await getTool('procedure_draft_preview').execute(
+        {},
         context,
       );
-      await getTool('patient_draft_set_phone').execute(
-        { phone: '11912345678' },
+      expect(parseToolResult<any>(previewRaw)?.status).toBe(
+        'pending_confirmation',
+      );
+
+      const commitRaw = await getTool('procedure_draft_commit').execute(
+        { confirm: true },
         context,
       );
-      const commit = parseToolResult<any>(
-        await getTool('patient_draft_commit').execute(
-          { confirm: true },
-          context,
-        ),
+      expect(parseToolResult<any>(commitRaw)?.status).toBe('ok');
+      expect(mockProceduresService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Artroplastia total de quadril' }),
       );
-      expect(commit?.status).toBe('ok');
-
-      // Após commit, draft ativo deve voltar a ser create_sc com patientId preenchido.
-      const restored = await draftService.getCurrent(conv.id);
-      expect(restored?.type).toBe('create_sc');
-      expect((restored?.fields as any).patientId).toBe('new-pat');
-      expect((restored?.fields as any).patientLabel).toBe('João da Silva');
-      // Hospital previamente preenchido foi preservado.
-      expect((restored?.fields as any).hospitalId).toBe('h-1');
     });
   });
 });

@@ -493,7 +493,9 @@ describe('PendencyTools', () => {
       expect(result).toMatch(
         /Ficha da sala.*\[anexado\]|\[anexado\].*Ficha da sala/i,
       );
-      expect(result).toMatch(/pode prosseguir com `mark_performed`/i);
+      expect(result).toMatch(
+        /pode prosseguir com `plan_actions\(intent="mark_performed"\)`/i,
+      );
       // Há ainda o opcional (surgery_images) faltando — deve avisar.
       expect(result).toMatch(/opcionais ainda não anexados/i);
     });

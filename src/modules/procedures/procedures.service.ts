@@ -11,7 +11,7 @@ export class ProceduresService {
 
   async findAll(query: FindManyProcedureDto) {
     const [records, total] = await Promise.all([
-      this.procedureRepository.findMany({}, query.skip, query.take),
+      this.procedureRepository.findMany({}, query.skip ?? 0, query.take ?? 20),
       this.procedureRepository.total({}),
     ]);
 
@@ -35,7 +35,7 @@ export class ProceduresService {
     if (!procedure) {
       throw new NotFoundException('Procedimento não encontrado');
     }
-    return this.procedureRepository.update(id, data);
+    return (await this.procedureRepository.update(id, data))!;
   }
 
   async delete(id: string): Promise<void> {

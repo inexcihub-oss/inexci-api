@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { RagService } from './rag.service';
 import { EmbeddingService } from './embedding.service';
 import { DataSource } from 'typeorm';
@@ -12,6 +13,10 @@ const mockDataSource = {
   query: jest.fn(),
 };
 
+const mockConfigService = {
+  get: jest.fn((_key: string, defaultVal: unknown) => defaultVal),
+};
+
 describe('RagService', () => {
   let service: RagService;
 
@@ -21,6 +26,7 @@ describe('RagService', () => {
         RagService,
         { provide: EmbeddingService, useValue: mockEmbeddingService },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

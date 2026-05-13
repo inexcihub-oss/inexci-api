@@ -1,5 +1,6 @@
 import { buildDoctorProfileTools } from './doctor-profile.tools';
 import { ToolContext } from './tool.interface';
+import { parseToolResult } from './tool-result';
 
 const mockUserRepo = { findOne: jest.fn() };
 const mockDoctorProfileRepo = { update: jest.fn() };
@@ -27,25 +28,23 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('rejeita quando contexto não tem userId', async () => {
+  it('rejeita quando contexto não tem userId — envelope blocked', async () => {
     const tool = getTool('upload_doctor_signature');
-    const result = await tool.execute(
+    const raw = await tool.execute(
       {},
       { ...baseContext, userId: undefined as any },
     );
-    expect(result).toContain('Acesso negado');
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('blocked');
+    expect(parsed!.display_text).toContain('Acesso negado');
   });
 
-  // Cenário Gap 1: COLABORADOR (sem doctor_profile) tenta subir assinatura.
-  // Não pode tentar upload — devolve mensagem orientando a falar com o médico.
-  it('colaborador (sem doctor_profile) NÃO sobe assinatura — recebe orientação', async () => {
-    mockUserRepo.findOne.mockResolvedValue({
-      id: 'user-1',
-      doctorProfile: null,
-    });
+  it('usuário inexistente devolve envelope error', async () => {
+    mockUserRepo.findOne.mockResolvedValue(null);
 
     const tool = getTool('upload_doctor_signature');
-    const result = await tool.execute(
+    const raw = await tool.execute(
       { confirm: true },
       {
         ...baseContext,
@@ -53,33 +52,65 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       },
     );
 
-    expect(result).toMatch(/S[ÓO] pode ser cadastrada por ele mesmo/i);
-    expect(result).toMatch(/pe[çc]a ao m[ée]dico/i);
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('error');
+    expect(parsed!.errors?.[0]?.code).toBe('USER_NOT_FOUND');
+  });
+
+  // Cenário Gap 1: COLABORADOR (sem doctor_profile) tenta subir assinatura.
+  // Não pode tentar upload — devolve envelope blocked com orientação.
+  it('colaborador (sem doctor_profile) NÃO sobe assinatura — envelope blocked com orientação', async () => {
+    mockUserRepo.findOne.mockResolvedValue({
+      id: 'user-1',
+      doctorProfile: null,
+    });
+
+    const tool = getTool('upload_doctor_signature');
+    const raw = await tool.execute(
+      { confirm: true },
+      {
+        ...baseContext,
+        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+      },
+    );
+
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('blocked');
+    expect(parsed!.display_text).toMatch(
+      /S[ÓO] pode ser cadastrada por ele mesmo/i,
+    );
+    expect(parsed!.display_text).toMatch(/pe[çc]a ao m[ée]dico/i);
     expect(mockStorageService.create).not.toHaveBeenCalled();
     expect(mockDoctorProfileRepo.update).not.toHaveBeenCalled();
   });
 
-  it('médico sem mídia anexada recebe instrução para enviar a imagem', async () => {
+  it('médico sem mídia anexada devolve envelope needs_input', async () => {
     mockUserRepo.findOne.mockResolvedValue({
       id: 'user-1',
       doctorProfile: { id: 'dp-1', signatureUrl: null },
     });
 
     const tool = getTool('upload_doctor_signature');
-    const result = await tool.execute({ confirm: true }, baseContext);
+    const raw = await tool.execute({ confirm: true }, baseContext);
 
-    expect(result).toMatch(/nenhuma imagem/i);
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('needs_input');
+    expect(parsed!.next_required_fields).toEqual(['signature_image']);
+    expect(parsed!.display_text).toMatch(/nenhuma imagem/i);
     expect(mockStorageService.create).not.toHaveBeenCalled();
   });
 
-  it('médico com arquivo NÃO-imagem recebe erro de validação', async () => {
+  it('médico com arquivo NÃO-imagem devolve envelope blocked', async () => {
     mockUserRepo.findOne.mockResolvedValue({
       id: 'user-1',
       doctorProfile: { id: 'dp-1', signatureUrl: null },
     });
 
     const tool = getTool('upload_doctor_signature');
-    const result = await tool.execute(
+    const raw = await tool.execute(
       { confirm: true },
       {
         ...baseContext,
@@ -89,18 +120,22 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       },
     );
 
-    expect(result).toMatch(/não é uma imagem/i);
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('blocked');
+    expect(parsed!.display_text).toMatch(/não é uma imagem/i);
+    expect(parsed!.errors?.[0]?.code).toBe('INVALID_MEDIA_TYPE');
     expect(mockStorageService.create).not.toHaveBeenCalled();
   });
 
-  it('médico sem confirm recebe preview (sem persistência)', async () => {
+  it('médico sem confirm devolve envelope pending_confirmation com pendingConfirmation', async () => {
     mockUserRepo.findOne.mockResolvedValue({
       id: 'user-1',
       doctorProfile: { id: 'dp-1', signatureUrl: null },
     });
 
     const tool = getTool('upload_doctor_signature');
-    const result = await tool.execute(
+    const raw = await tool.execute(
       {},
       {
         ...baseContext,
@@ -108,12 +143,46 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       },
     );
 
-    expect(result).toMatch(/Confirme com "sim"/i);
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('pending_confirmation');
+    expect(parsed!.display_text).toMatch(/Confirme com "sim"/i);
+    expect(parsed!.pending_confirmation).toEqual({
+      tool: 'upload_doctor_signature',
+      args: { confirm: true },
+      description: 'atualizar sua assinatura digital',
+    });
     expect(mockStorageService.create).not.toHaveBeenCalled();
     expect(mockDoctorProfileRepo.update).not.toHaveBeenCalled();
   });
 
-  it('médico com confirm=true sobe a assinatura, atualiza doctorProfile e remove a antiga', async () => {
+  it('preview com mediaIndex explícito propaga o índice no pendingConfirmation', async () => {
+    mockUserRepo.findOne.mockResolvedValue({
+      id: 'user-1',
+      doctorProfile: { id: 'dp-1', signatureUrl: null },
+    });
+
+    const tool = getTool('upload_doctor_signature');
+    const raw = await tool.execute(
+      { mediaIndex: 1 },
+      {
+        ...baseContext,
+        inboundMedia: [
+          { url: 'https://a', contentType: 'image/png' },
+          { url: 'https://b', contentType: 'image/png' },
+        ] as any,
+      },
+    );
+
+    const parsed = parseToolResult(raw);
+    expect(parsed!.status).toBe('pending_confirmation');
+    expect(parsed!.pending_confirmation?.args).toEqual({
+      mediaIndex: 1,
+      confirm: true,
+    });
+  });
+
+  it('médico com confirm=true sobe assinatura, atualiza doctorProfile, remove a antiga e devolve envelope ok', async () => {
     mockUserRepo.findOne.mockResolvedValue({
       id: 'user-1',
       doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/old.png' },
@@ -129,7 +198,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     } as any);
 
     const tool = getTool('upload_doctor_signature');
-    const result = await tool.execute(
+    const raw = await tool.execute(
       { confirm: true },
       {
         ...baseContext,
@@ -146,8 +215,13 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(mockDoctorProfileRepo.update).toHaveBeenCalledWith('dp-1', {
       signatureUrl: 'signatures/new.png',
     });
-    expect(result).toMatch(/atualizada com sucesso/i);
-    expect(result).toMatch(/pr[óo]ximos laudos/i);
+
+    const parsed = parseToolResult<{ signatureUrl: string }>(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('ok');
+    expect(parsed!.display_text).toMatch(/atualizada com sucesso/i);
+    expect(parsed!.display_text).toMatch(/pr[óo]ximos laudos/i);
+    expect(parsed!.data?.signatureUrl).toBe('signatures/new.png');
 
     fetchMock.mockRestore();
   });
@@ -183,6 +257,36 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     );
 
     expect(mockStorageService.delete).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it('falha de download do Twilio devolve envelope error', async () => {
+    mockUserRepo.findOne.mockResolvedValue({
+      id: 'user-1',
+      doctorProfile: { id: 'dp-1', signatureUrl: null },
+    });
+
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: false,
+      status: 502,
+    } as any);
+
+    const tool = getTool('upload_doctor_signature');
+    const raw = await tool.execute(
+      { confirm: true },
+      {
+        ...baseContext,
+        inboundMedia: [
+          { url: 'https://api.twilio.com/m/1', contentType: 'image/png' },
+        ] as any,
+      },
+    );
+
+    const parsed = parseToolResult(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.status).toBe('error');
+    expect(parsed!.errors?.[0]?.code).toBe('SIGNATURE_UPLOAD_FAILED');
+
     fetchMock.mockRestore();
   });
 });

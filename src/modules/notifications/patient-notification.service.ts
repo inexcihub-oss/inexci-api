@@ -11,14 +11,14 @@ import {
 export interface PatientNotificationContext {
   request: {
     id: string;
-    protocol?: string;
+    protocol?: string | null;
     patient?: {
-      name?: string;
-      email?: string;
-      phone?: string;
-    };
-    hospital?: { name?: string };
-    createdBy?: { name?: string };
+      name?: string | null;
+      email?: string | null;
+      phone?: string | null;
+    } | null;
+    hospital?: { name?: string | null } | null;
+    createdBy?: { name?: string | null } | null;
   };
   oldStatus: SurgeryRequestStatus;
   newStatus: SurgeryRequestStatus;

@@ -25,8 +25,9 @@ function mapPendencyToRecommendedAction(key: string): {
   switch (key) {
     case 'patient_data':
       return {
-        action: 'update_patient_data',
-        minParams: ['surgeryRequestId', 'name|cpf|phone|birthDate'],
+        action:
+          'plan_actions(intent="update_sc") + update_sc_draft_set_request + update_sc_draft_set_scope(scope="patient") + update_sc_draft_set_field + update_sc_draft_commit',
+        minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
       };
     case 'hospital_data':
       return {
@@ -50,13 +51,15 @@ function mapPendencyToRecommendedAction(key: string): {
       };
     case 'schedule_dates':
       return {
-        action: 'update_date_options',
-        minParams: ['surgeryRequestId', 'dateOptions[]'],
+        action:
+          'plan_actions(intent="scheduling") + scheduling_draft_set_request + scheduling_draft_set_date_options + scheduling_draft_commit',
+        minParams: ['surgery_request_id_or_protocol', 'date_options[]'],
       };
     case 'confirm_date':
       return {
-        action: 'confirm_date',
-        minParams: ['surgeryRequestId', 'selectedDateIndex'],
+        action:
+          'plan_actions(intent="scheduling") + scheduling_draft_set_request + scheduling_draft_set_confirmed_date + scheduling_draft_commit',
+        minParams: ['surgery_request_id_or_protocol', 'confirmed_date_index'],
       };
     case 'confirm_receipt':
       return {
@@ -248,7 +251,7 @@ export function buildPendencyTools(
     const lines: string[] = [
       `*${STAGE_LABEL.create}*`,
       'Mínimo absoluto para registrar a SC no sistema (status inicial: Pendente):',
-      '- Paciente (já cadastrado ou criado na hora com create_patient).',
+      '- Paciente (já cadastrado ou criado na hora pelo fluxo `plan_actions(intent="create_patient")` + `patient_draft_*`).',
       '- Procedimento (escolhido do catálogo da clínica).',
       '- Prioridade (Baixa, Média, Alta ou Urgente).',
     ];
@@ -373,8 +376,10 @@ export function buildPendencyTools(
   // Fonte de verdade: `config/post-surgery-documents.config.ts`. O endpoint
   // `/mark-performed` hoje não bloqueia rigidamente na ausência desses
   // documentos, mas operacionalmente eles são esperados — esta tool
-  // existe para que a IA possa orientar proativamente o usuário em vez
-  // de chamar `mark_performed` direto.
+  // existe para que a IA possa orientar proativamente o usuário antes de
+  // iniciar o fluxo `plan_actions(intent="mark_performed")` +
+  // `mark_performed_draft_*` (que também valida docs no `_check_docs`,
+  // `_preview` e `_commit`).
   // ────────────────────────────────────────────────────────────────────────
   const listPostSurgeryRequiredDocs: AiTool = {
     name: 'list_post_surgery_required_docs',
@@ -383,7 +388,7 @@ export function buildPendencyTools(
       function: {
         name: 'list_post_surgery_required_docs',
         description:
-          'Lista os documentos pós-cirúrgicos esperados antes de marcar uma SC como Realizada (mark_performed) e mostra, para cada um, se já está anexado à SC. Use SEMPRE antes de chamar mark_performed para confirmar que o pacote pós-cirúrgico está completo. Aceita ID UUID, protocolo (SC-XXXX ou XXXX) ou nome do paciente.',
+          'Lista os documentos pós-cirúrgicos esperados antes de marcar uma SC como Realizada (intent "mark_performed") e mostra, para cada um, se já está anexado à SC. Use SEMPRE antes de iniciar `plan_actions(intent="mark_performed")` para confirmar que o pacote pós-cirúrgico está completo. Aceita ID UUID, protocolo (SC-XXXX ou XXXX) ou nome do paciente.',
         parameters: {
           type: 'object',
           properties: {
@@ -467,7 +472,7 @@ export function buildPendencyTools(
 
       if (missingRequired === 0) {
         lines.push(
-          'Todos os documentos obrigatórios já estão anexados — pode prosseguir com `mark_performed` informando a data da cirurgia.',
+          'Todos os documentos obrigatórios já estão anexados — pode prosseguir com `plan_actions(intent="mark_performed")` + `mark_performed_draft_*` informando a data da cirurgia.',
         );
         if (missingOptional > 0) {
           lines.push(
@@ -476,7 +481,7 @@ export function buildPendencyTools(
         }
       } else {
         lines.push(
-          `Faltam ${missingRequired} documento(s) obrigatório(s). Peça para o usuário enviar os arquivos pelo WhatsApp e use \`manage_documents\` (operation=attach, type=<tipo do documento>) para registrar antes de chamar \`mark_performed\`.`,
+          `Faltam ${missingRequired} documento(s) obrigatório(s). Peça para o usuário enviar os arquivos pelo WhatsApp e use \`manage_documents\` (operation=attach, type=<tipo do documento>) para registrar antes de iniciar \`plan_actions(intent="mark_performed")\`.`,
         );
       }
 

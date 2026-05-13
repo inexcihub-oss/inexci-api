@@ -12,6 +12,8 @@ export interface RequestContext {
   requestId: string;
   userId?: string | null;
   tenantId?: string | null;
+  /** W3C trace-id do span ativo quando a requisição foi iniciada. Propagado via Bull para correlação de logs. */
+  traceId?: string | null;
 }
 
 export const requestContextStorage = new AsyncLocalStorage<RequestContext>();

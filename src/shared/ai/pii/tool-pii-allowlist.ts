@@ -14,8 +14,9 @@ import { PiiCategory } from '../services/pii-vault.service';
  */
 export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   // ---------- Leitura ----------
-  get_surgery_request_status: ['protocol', 'date'],
-  list_surgery_requests: ['protocol'],
+  // `query_surgery_requests` unifica as antigas `get_surgery_request_status` e
+  // `list_surgery_requests` (Fase 4.2 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
+  query_surgery_requests: ['protocol', 'date'],
   get_pendencies: ['protocol'],
   // Apenas configuração estática (PENDENCIES_CONFIG) — nenhuma PII envolvida.
   get_workflow_requirements: [],
@@ -28,16 +29,41 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   // Nomes de paciente/médico/hospital/convênio NÃO são mais tokenizados em
   // saídas de tools de lookup — são dados de negócio do próprio owner_id
   // (não PII de terceiro). Continuamos tokenizando CPF/telefone/email/data.
-  get_patient_info: ['cpf', 'phone', 'email', 'birth_date'],
-  list_patients: ['phone'],
-  create_patient: ['patient_name', 'cpf', 'phone', 'email', 'birth_date'],
-  // Tools dedicadas para cadastro do catálogo de SC (substituíram a antiga
-  // `create_sc_catalog_record`). Cada uma tokeniza apenas a categoria
-  // estritamente necessária ao seu preview/retorno.
-  create_hospital: ['hospital_name'],
-  create_health_plan: ['health_plan_name'],
-  create_procedure: [],
+  // `query_patients` unifica as antigas `get_patient_info` e `list_patients`
+  // (Fase 4.1 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
+  query_patients: ['cpf', 'phone', 'email', 'birth_date'],
+  // Tools legacy removidas em 2026-05-12 (Fases 3.2 a 3.6 do
+  // PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
+  //   - `create_patient` (Fase 3.2): substituída por `create_patient_from_document`
+  //     (OCR) e pelos `patient_draft_*`.
+  //   - `create_hospital`, `create_health_plan`, `create_procedure` (Fase 3.3):
+  //     substituídas pelos `hospital_draft_*`, `health_plan_draft_*` e
+  //     `procedure_draft_*`.
+  //   - `invoice_request` (Fase 3.4): substituída pelos `invoice_draft_*`.
+  //   - `contest_authorization_full`, `contest_payment` (Fase 3.5):
+  //     substituídas pelos `contestation_draft_*` (com `contestationType`
+  //     "AUTHORIZATION" | "PAYMENT" no commit roteando ao workflow correto).
+  //   - `confirm_date`, `update_date_options` (Fase 3.6): substituídas pelos
+  //     `scheduling_draft_*` (`scheduling_draft_set_request` +
+  //     `_set_date_options`/`_set_confirmed_date` + `_preview` + `_commit`).
+  //   - `mark_performed` (Fase 3.7): substituída pelos `mark_performed_draft_*`
+  //     (`mark_performed_draft_set_request` + `_set_performed_at` +
+  //     `_check_docs` + `_preview` + `_commit`). O draft adiciona checagem
+  //     obrigatória de docs pós-cirúrgicos antes do avanço de status.
+  //   - `update_request_clinical_data`, `update_request_admin_data` (Fase 3.8):
+  //     substituídas por `update_sc_draft_*` (scope=clinical/admin).
+  //   - `update_patient_data` (Fase 3.8): substituída por
+  //     `update_sc_draft_*` (scope=patient).
+  //   - `update_surgery_request_data` (Fase 3.8): substituída por
+  //     `update_sc_draft_*` (scope=admin, campo priority).
+  // Nenhuma allowlist é necessária para os `*_draft_*` — eles não tokenizam
+  // nada (o LLM só vê dados em claro no preview gerado pelo
+  // `OperationDraftService.getPreview`, que roda fora do tool registry).
   search_procedures: [],
+  // Catálogo TUSS é estático (arquivo `src/utils/tuss.json`) — sem PII.
+  search_tuss_codes: [],
+  // Catálogo CID-10 é estático (arquivo `src/utils/cid.json`) — sem PII.
+  search_cid_codes: [],
   // Catálogo é puramente leitura: nomes de paciente/médico/hospital/convênio
   // em claro permitem que o LLM identifique matches por similaridade.
   list_sc_creation_catalog: [],
@@ -46,20 +72,12 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   advance_surgery_request: ['protocol'],
   set_has_opme: ['protocol'],
   close_surgery_request: ['protocol'],
-  confirm_date: ['protocol', 'date'],
-  update_date_options: ['protocol', 'date'],
   reschedule_surgery: ['protocol', 'date'],
-  mark_performed: ['protocol', 'date'],
-  invoice_request: ['protocol'],
   confirm_receipt: ['protocol', 'date'],
-  contest_authorization_full: ['protocol'],
-  contest_payment: ['protocol'],
   update_receipt: ['protocol', 'date'],
   manage_report_sections: ['protocol'],
 
   // ---------- Mutação: dados ----------
-  update_surgery_request_data: ['protocol'],
-  update_patient_data: ['protocol'],
   set_hospital: ['protocol'],
   set_health_plan: ['protocol'],
 
@@ -69,19 +87,13 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   manage_documents: ['protocol'],
   manage_report_images: ['protocol'],
 
-  // Conteúdo clínico longo NÃO ecoa para a IA: apenas placeholders genéricos.
-  update_request_clinical_data: ['protocol'],
-  update_request_admin_data: ['protocol'],
-
-  create_surgery_request_from_whatsapp: ['protocol'],
-
   // ---------- OCR de documentos no WhatsApp (Sprint 3 do plano OCR) ----------
   // attach: só ID/protocolo da SC. Os dados do documento já vivem no storage
   // e no `documents` — a tool não tokeniza nenhum conteúdo do paciente.
   attach_document_from_whatsapp: ['protocol'],
-  // create_patient_from_document espelha a allowlist de `create_patient`:
-  // o usuário fornece dados pessoais para cadastro e a tool só ecoa de volta
-  // o nome do paciente (tokenizado).
+  // create_patient_from_document tokeniza patient_name, cpf, phone, email e
+  // birth_date: o usuário fornece dados pessoais para cadastro e a tool só
+  // ecoa de volta o nome do paciente (tokenizado).
   create_patient_from_document: [
     'patient_name',
     'cpf',

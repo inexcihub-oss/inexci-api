@@ -67,7 +67,7 @@ export class PendencyValidatorService {
   /**
    * Carrega a solicitação com todas as relações necessárias para avaliação.
    */
-  private loadRequest(id: string): Promise<SurgeryRequest> {
+  private loadRequest(id: string): Promise<SurgeryRequest | null> {
     return this.surgeryRequestRepository.findOne({
       where: { id },
       relations: [

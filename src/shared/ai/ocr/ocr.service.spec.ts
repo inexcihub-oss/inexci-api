@@ -155,6 +155,37 @@ describe('OcrService', () => {
     ]);
   });
 
+  it('REGRESSION: extractAndTokenize NÃO transforma laudo grande em payload_blob', async () => {
+    // Bug observado em prod: laudos médicos de PDF (frequentemente
+    // > 1500 chars) saíam como UM ÚNICO `{{payload_blob_1}}`, fazendo o
+    // classifier text-only devolver `kind=unknown, confidence=0.5,
+    // extracted={}`. O fix foi remover o `payload_blob` automático do
+    // PII Vault — apenas dados sensíveis estruturados (CPF/telefone/
+    // email) seguem sendo tokenizados.
+    const longLaudo =
+      'Paciente Jean Pierre Pereira Proximo, CPF 529.982.247-25. ' +
+      'Diagnóstico: artrose cervical em 2 níveis. Indicação: artrodese cervical. ' +
+      'Procedimento proposto: descompressão e fusão cervical anterior. ' +
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(40);
+    expect(longLaudo.length).toBeGreaterThan(1500);
+    getTextMock.mockResolvedValueOnce({ text: longLaudo, total: 1 });
+
+    const result = await service.extractAndTokenize(
+      {
+        buffer: Buffer.from('%PDF fake'),
+        mimeType: 'application/pdf',
+      },
+      'session-regression',
+    );
+
+    expect(result.text).toContain('Jean Pierre Pereira Proximo');
+    expect(result.tokenizedText).toContain('Jean Pierre Pereira Proximo');
+    expect(result.tokenizedText).toContain('artrodese cervical');
+    expect(result.tokenizedText).not.toMatch(/\{\{payload_blob_\d+\}\}/);
+    expect(result.tokenizedText).toMatch(/\{\{cpf_\d+\}\}/);
+    expect(result.tokenizedText).not.toContain('529.982.247-25');
+  });
+
   it('extrai PDF nativo via text-layer quando há texto suficiente', async () => {
     const longText = 'Relatório de cirurgia '.repeat(20);
     getTextMock.mockResolvedValueOnce({ text: longText, total: 3 });

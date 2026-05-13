@@ -45,8 +45,8 @@ export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
     return this.repository.save(entity);
   }
 
-  async update(id: string, data: QueryDeepPartialEntity<T>): Promise<T | null> {
-    await this.repository.update(id, data);
+  async update(id: string, data: DeepPartial<T>): Promise<T | null> {
+    await this.repository.update(id, data as QueryDeepPartialEntity<T>);
     return this.findOne({ id } as FindOptionsWhere<T>);
   }
 
