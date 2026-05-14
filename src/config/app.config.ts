@@ -58,31 +58,14 @@ export const envValidationSchema = Joi.object({
     .default('text-embedding-3-small'),
   OPENAI_REQUEST_TIMEOUT_MS: Joi.number().default(25000),
   AI_SESSION_TIMEOUT_MINUTES: Joi.number().default(30),
-  AI_MAX_RECENT_MESSAGES: Joi.number().default(10),
-  AI_SUMMARY_TRIGGER_EVERY_MESSAGES: Joi.number().default(5),
-  AI_SUMMARY_MAX_TOKENS: Joi.number().default(450),
-  AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2200),
+  AI_MAX_RECENT_MESSAGES: Joi.number().default(6),
+  AI_SUMMARY_TRIGGER_EVERY_MESSAGES: Joi.number().default(3),
+  AI_SUMMARY_MAX_TOKENS: Joi.number().default(550),
+  AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2600),
   AI_RESPONSE_MAX_TOKENS: Joi.number().default(450),
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
   AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
-  /**
-   * Habilita o plan-first guard: tools de mutação complexa só podem ser
-   * chamadas após `plan_actions` (que abre um `operation_draft`) ou quando
-   * já existe draft ativo. Quando `false`, o guard fica desativado e o LLM
-   * pode chamar tools de mutação complexa direto (útil apenas para
-   * rollback emergencial).
-   * Default `true` para preservar a arquitetura draft-first.
-   */
-  AI_USE_DRAFT_FLOWS: Joi.string().allow('').default('true'),
-  /**
-   * Modo B do draft (tools globais `draft_update`, `draft_status`,
-   * `draft_cancel`) é o único modo suportado. A flag permanece presente
-   * apenas para validação no boot — defina `false` apenas em rollback
-   * emergencial, sabendo que os setters per-type foram removidos.
-   * Fase 5 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
-   */
-  AI_DRAFT_USE_GENERIC_UPDATE: Joi.string().allow('').default('true'),
 
   // ── Observabilidade / OpenTelemetry ─────────────────
   /** URL do coletor OTLP (Jaeger, Tempo, Grafana Cloud). Omitir = ConsoleExporter em dev, noop em prod. */

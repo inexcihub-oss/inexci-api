@@ -305,15 +305,20 @@ describe('ToolLoopRunnerService', () => {
     toolExecutor.executeMany.mockResolvedValue([
       { toolCallId: 'a', output: 'r' },
     ]);
+    // MAX_TOOL_ITERATIONS = 5 → o follow-up final ainda devolve tool_calls,
+    // o que faz o loop atingir o teto. Cada `mockResolvedValueOnce` cobre
+    // uma das 5 chamadas de follow-up.
     openaiService.chatCompletion
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('b')])))
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('c')])))
-      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('d')])));
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('d')])))
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('e')])))
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('f')])));
 
     const warnSpy = jest.spyOn(Logger.prototype, 'warn');
     const result = await runner.run(buildInput(initial));
 
-    expect(openaiService.chatCompletion).toHaveBeenCalledTimes(3);
+    expect(openaiService.chatCompletion).toHaveBeenCalledTimes(5);
     expect(result.loopLimitReached).toBe(true);
     expect(result.responseMessage.tool_calls).toBeDefined();
     expect(warnSpy).toHaveBeenCalledWith(

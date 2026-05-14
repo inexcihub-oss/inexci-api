@@ -12,7 +12,17 @@ import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { buildToolResult } from '../../tools/tool-result';
 import { inexciTracer, SpanStatusCode } from '../../../observability/tracer';
 
-const MAX_TOOL_ITERATIONS = 3;
+/**
+ * Máximo de iterações de tool calls por turno do orchestrator.
+ *
+ * Subido de 3 → 5 em 2026-05-13 porque fluxos de criação de SC a partir de
+ * documento (`plan_actions` → `query_patients` → `draft_update` ×3 →
+ * `sc_draft_preview` → `sc_draft_commit`) frequentemente exigem 5+
+ * iterações sequenciais (cada `draft_update` depende do anterior). Com 3, o
+ * limite era estourado antes de o LLM chegar ao preview e o usuário recebia
+ * mensagens genéricas ("Não consegui completar a operação neste turno").
+ */
+const MAX_TOOL_ITERATIONS = 5;
 
 /**
  * Hooks que delegam responsabilidades específicas do orchestrator que ainda

@@ -62,6 +62,10 @@ const mockTussService = {
   lookup: jest.fn(),
   search: jest.fn(),
 };
+const mockDocumentsService = {
+  createFromPath: jest.fn().mockResolvedValue({ id: 'doc-new' }),
+  delete: jest.fn().mockResolvedValue(undefined),
+};
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -95,9 +99,10 @@ describe('ManageTools', () => {
     mockHealthPlanRepo as any,
     mockStorageService as any,
     mockConfigService as any,
+    mockOpmeService as any,
+    mockDocumentsService as any,
     undefined,
     mockTussService as any,
-    mockOpmeService as any,
   );
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
@@ -597,7 +602,7 @@ describe('ManageTools', () => {
       );
 
       expect(mockStorageService.create).toHaveBeenCalled();
-      expect(mockDocumentRepo.create).toHaveBeenCalledWith(
+      expect(mockDocumentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'medical_report',
           key: 'medical_report',
@@ -628,7 +633,7 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('manage_report_images');
-      expect(mockDocumentRepository.delete).not.toHaveBeenCalled();
+      expect(mockDocumentsService.delete).not.toHaveBeenCalled();
     });
 
     it('deve remover documento quando confirm=true', async () => {
@@ -650,7 +655,11 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockDocumentRepository.delete).toHaveBeenCalledWith({ id: 'd1' });
+      expect(mockDocumentsService.delete).toHaveBeenCalledWith({
+        id: 'd1',
+        key: 'doctorRequest',
+        surgeryRequestId: 'req-1',
+      });
       expect(result).toContain('removido');
     });
   });
@@ -726,7 +735,7 @@ describe('ManageTools', () => {
         },
       );
 
-      expect(mockDocumentRepo.create).toHaveBeenCalledWith(
+      expect(mockDocumentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           key: 'report_images',
           type: 'exam_image',
@@ -756,7 +765,7 @@ describe('ManageTools', () => {
       );
 
       expect(result).toContain('Imagem do laudo não encontrada');
-      expect(mockDocumentRepository.delete).not.toHaveBeenCalled();
+      expect(mockDocumentsService.delete).not.toHaveBeenCalled();
     });
 
     it('deve remover imagem do laudo quando confirm=true', async () => {
@@ -777,7 +786,11 @@ describe('ManageTools', () => {
         baseContext,
       );
 
-      expect(mockDocumentRepository.delete).toHaveBeenCalledWith({ id: 'd2' });
+      expect(mockDocumentsService.delete).toHaveBeenCalledWith({
+        id: 'd2',
+        key: 'report_images',
+        surgeryRequestId: 'req-1',
+      });
       expect(result).toContain('removida');
     });
 
@@ -808,7 +821,7 @@ describe('ManageTools', () => {
         baseContext,
       );
       expect(removeResult).toContain('histórico');
-      expect(mockDocumentRepository.delete).not.toHaveBeenCalled();
+      expect(mockDocumentsService.delete).not.toHaveBeenCalled();
     });
   });
 

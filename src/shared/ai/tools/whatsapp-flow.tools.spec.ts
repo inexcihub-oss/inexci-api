@@ -72,6 +72,7 @@ describe('WhatsappFlowTools', () => {
     mockWorkflowService as any,
     mockSurgeryRequestsService as any,
     mockActivityRepo as any,
+    { documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any },
     mockPendencyValidator as any,
     mockPatientRepo as any,
     mockHospitalRepo as any,
@@ -80,7 +81,6 @@ describe('WhatsappFlowTools', () => {
     mockUserRepo as any,
     undefined,
     new EntityResolverService(),
-    {},
     mockPatientsService as any,
   );
 
@@ -548,12 +548,26 @@ describe('WhatsappFlowTools', () => {
         type: 'medical_report',
       }),
     };
+    const documentsService = {
+      createFromPath: jest.fn().mockResolvedValue({
+        id: 'doc-99',
+        name: 'Laudo Joao.pdf',
+        type: 'medical_report',
+      }),
+      delete: jest.fn().mockResolvedValue(undefined),
+    };
 
     const ocrTools = buildWhatsappFlowTools(
       mockSurgeryRequestRepo as any,
       mockWorkflowService as any,
       mockSurgeryRequestsService as any,
       mockActivityRepo as any,
+      {
+        documentDispatcher: documentDispatcher as any,
+        storageService: storageService as any,
+        documentRepo: documentRepo as any,
+        documentsService: documentsService as any,
+      },
       mockPendencyValidator as any,
       mockPatientRepo as any,
       mockHospitalRepo as any,
@@ -562,11 +576,6 @@ describe('WhatsappFlowTools', () => {
       mockUserRepo as any,
       undefined,
       new EntityResolverService(),
-      {
-        documentDispatcher: documentDispatcher as any,
-        storageService: storageService as any,
-        documentRepo: documentRepo as any,
-      },
       mockPatientsService as any,
     );
 
@@ -600,7 +609,7 @@ describe('WhatsappFlowTools', () => {
       );
 
       expect(result).toContain('documentType');
-      expect(documentRepo.create).not.toHaveBeenCalled();
+      expect(documentsService.createFromPath).not.toHaveBeenCalled();
     });
 
     it('mostra preview quando confirm=false', async () => {
@@ -614,7 +623,7 @@ describe('WhatsappFlowTools', () => {
 
       expect(result).toContain('Pré-visualização');
       expect(result).toContain('Laudo médico');
-      expect(documentRepo.create).not.toHaveBeenCalled();
+      expect(documentsService.createFromPath).not.toHaveBeenCalled();
       expect(storageService.move).not.toHaveBeenCalled();
     });
 
@@ -649,14 +658,14 @@ describe('WhatsappFlowTools', () => {
         'whatsapp-tmp/abc-laudo.pdf',
         expect.any(String),
       );
-      expect(documentRepo.create).toHaveBeenCalledWith(
+      expect(documentsService.createFromPath).toHaveBeenCalledWith(
         expect.objectContaining({
           surgeryRequestId: 'req-1',
           createdById: 'user-1',
           type: 'medical_report',
           key: 'medical_report',
           name: 'Laudo do Joao',
-          uri: 'documents/abc-laudo.pdf',
+          storagePath: 'documents/abc-laudo.pdf',
         }),
       );
       expect(mockActivityRepo.create).toHaveBeenCalledWith(
@@ -698,6 +707,9 @@ describe('WhatsappFlowTools', () => {
         mockWorkflowService as any,
         mockSurgeryRequestsService as any,
         mockActivityRepo as any,
+        {
+          documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+        },
         mockPendencyValidator as any,
         mockPatientRepo as any,
         mockHospitalRepo as any,
@@ -706,7 +718,6 @@ describe('WhatsappFlowTools', () => {
         mockUserRepo as any,
         undefined,
         new EntityResolverService(),
-        {},
         mockPatientsService as any,
       );
       const tool = noDepsTools.find(
@@ -785,6 +796,10 @@ describe('WhatsappFlowTools', () => {
       mockWorkflowService as any,
       mockSurgeryRequestsService as any,
       mockActivityRepo as any,
+      {
+        documentDispatcher: documentDispatcher as any,
+        documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+      },
       mockPendencyValidator as any,
       mockPatientRepo as any,
       mockHospitalRepo as any,
@@ -793,12 +808,8 @@ describe('WhatsappFlowTools', () => {
       mockUserRepo as any,
       undefined,
       new EntityResolverService(),
-      {
-        documentDispatcher: documentDispatcher as any,
-      },
       mockOcrPatientsService as any,
-    );
-    const createPatient = ocrTools.find(
+    );    const createPatient = ocrTools.find(
       (t) => t.name === 'create_patient_from_document',
     )!;
 

@@ -308,6 +308,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .select([
         'surgeryRequest.id',
         'surgeryRequest.status',
+        'surgeryRequest.doctorId',
+        'surgeryRequest.ownerId',
         'surgeryRequest.healthPlanId',
         'surgeryRequest.hospitalId',
         'surgeryRequest.createdAt',

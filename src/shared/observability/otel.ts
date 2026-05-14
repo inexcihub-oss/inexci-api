@@ -14,8 +14,6 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
-  ConsoleSpanExporter,
-  SimpleSpanProcessor,
   BatchSpanProcessor,
   NoopSpanProcessor,
   ParentBasedSampler,
@@ -44,8 +42,6 @@ export function initOtel(): void {
     spanProcessor = new BatchSpanProcessor(
       new OTLPTraceExporter({ url: endpoint }),
     );
-  } else if (!isProd) {
-    spanProcessor = new SimpleSpanProcessor(new ConsoleSpanExporter());
   } else {
     spanProcessor = new NoopSpanProcessor();
   }

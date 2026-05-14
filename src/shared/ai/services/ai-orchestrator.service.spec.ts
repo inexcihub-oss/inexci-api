@@ -64,10 +64,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     get: jest.fn((key: string, defaultValue?: any) => {
       if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
       if (key === 'AI_AUDIO_ENABLED') return 'true';
-      // Mantém testes legados rodando sob comportamento pré-guard:
-      // o guard de `plan_actions` é exercido em spec dedicado
-      // (`ai-orchestrator.plan-guard.spec.ts`).
-      if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
       return defaultValue;
     }),
   };
@@ -167,7 +163,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       (key: string, defaultValue?: any) => {
         if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
         if (key === 'AI_AUDIO_ENABLED') return 'true';
-        if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
         return defaultValue;
       },
     );
@@ -1955,7 +1950,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   // ============================================================
   // Fase 5 — MAX_TOOL_ITERATIONS (loop limit)
   // ============================================================
-  describe('loop limit (MAX_TOOL_ITERATIONS = 3)', () => {
+  describe('loop limit (MAX_TOOL_ITERATIONS = 5)', () => {
     const persistentToolCall: OpenAI.ChatCompletionMessageToolCall = {
       id: 'call-loop',
       type: 'function',
@@ -1971,12 +1966,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     };
 
     it('loga [AI_LOOP_LIMIT] e envia mensagem amigável quando esgota iterações', async () => {
-      // Initial + 3 followups all return tool_calls → loop esgota.
-      openaiServiceMock.chatCompletion
-        .mockResolvedValueOnce(loopResponse) // initial
-        .mockResolvedValueOnce(loopResponse) // followup 1
-        .mockResolvedValueOnce(loopResponse) // followup 2
-        .mockResolvedValueOnce(loopResponse); // followup 3 (loop exausto)
+      // Sempre devolve tool_calls → o loop esgota independente do número de
+      // iterações (initial + 5 followups). `mockResolvedValue` (sem `Once`)
+      // cobre todas as chamadas.
+      openaiServiceMock.chatCompletion.mockResolvedValue(loopResponse);
 
       toolExecutorMock.executeMany.mockResolvedValue([
         { toolCallId: 'call-loop', output: 'ok' },
@@ -1999,7 +1992,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       );
       expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
         '+5511999999999',
-        expect.stringContaining('reformular'),
+        expect.stringContaining('Vou parar por aqui'),
       );
 
       warnSpy.mockRestore();

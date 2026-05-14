@@ -33,10 +33,10 @@ export function buildManageTools(
   healthPlanRepo: HealthPlanRepository,
   storageService: StorageService,
   configService: ConfigService,
+  opmeService: OpmeService,
+  documentsService: DocumentsService,
   entityResolver?: EntityResolverService,
   tussService?: TussService,
-  opmeService?: OpmeService,
-  documentsService?: DocumentsService,
 ): AiTool[] {
   const deps: ManageToolDeps = {
     surgeryRequestRepo,

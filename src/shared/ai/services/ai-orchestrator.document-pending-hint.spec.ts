@@ -229,12 +229,14 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
     expect(hint).toContain('SINTEX');
     expect(hint).toContain('Fornecedores sugeridos: SINTEX, VITALITY, GUSMED');
     expect(hint).toContain('Laudo (texto completo');
-    expect(hint).toContain('draft_update({ fields: { procedure_name } })');
-    expect(hint).toContain(
-      'draft_update({ fields: { health_plan_name, hospital_name? } })',
-    );
-    expect(hint).toContain('draft_update({ fields: { notes } })');
-    expect(hint).toContain('find_patient_by_name');
+    expect(hint).toContain('draft_update({ fields: { procedure_name');
+    expect(hint).toContain('health_plan_name');
+    expect(hint).toContain('draft_update({ fields: { notes');
+    // A tool correta é `query_patients` (a antiga `find_patient_by_name` não
+    // existe — referenciá-la fazia o LLM tentar uma tool inexistente, que
+    // virava "Estou enfrentando um problema técnico para buscar o paciente").
+    expect(hint).toContain('query_patients');
+    expect(hint).not.toContain('find_patient_by_name');
     expect(hint).toContain('NUNCA fragmente');
     expect(hint).not.toContain('CRM');
   });

@@ -293,7 +293,7 @@ export class ConversationContextService {
       ragBlock = null;
       usage = computeUsage();
     }
-    while (usage.used > budget && trimmedRecent.length > 1) {
+    while (usage.used > budget && trimmedRecent.length > 3) {
       trimmedRecent.shift();
       usage = computeUsage();
     }
@@ -410,6 +410,7 @@ export class ConversationContextService {
       'Receba: (1) resumo anterior, (2) memória estruturada, (3) últimas mensagens.',
       'Atualize sem perder fatos confirmados, removendo redundâncias e mantendo incertezas como perguntas em aberto.',
       'Se houver tokens no formato {{categoria_n}} (PII pseudonimizada), preserve-os EXATAMENTE como estão. Não tente substituir, decifrar ou inventar valores reais.',
+      'IMPORTANTE: se o usuário estiver no meio de uma ação (criando SC, contestando, agendando, enviando para análise etc.), registre no campo "pending_action" da memória um objeto com: "type" (ex: "create_sc", "advance_status", "update_opme"), "description" (o que o usuário quer fazer em uma frase), e "missing_data" (lista dos dados ainda não fornecidos). Se não houver ação pendente, omita o campo.',
       'Saída em JSON estrito com chaves "summary" (string) e "memory" (objeto). Sem texto fora do JSON.',
     ].join(' ');
 

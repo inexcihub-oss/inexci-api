@@ -27,6 +27,7 @@ export function buildWhatsappFlowTools(
   workflowService: SurgeryRequestWorkflowService,
   surgeryRequestsService: SurgeryRequestsService,
   activityRepo: SurgeryRequestActivityRepository,
+  documentDeps: WhatsappFlowDocumentDeps,
   pendencyValidator?: PendencyValidatorService,
   patientRepo?: PatientRepository,
   hospitalRepo?: HospitalRepository,
@@ -35,7 +36,6 @@ export function buildWhatsappFlowTools(
   userRepo?: UserRepository,
   tussService?: TussService,
   entityResolver?: EntityResolverService,
-  documentDeps: WhatsappFlowDocumentDeps = {},
   patientsService?: PatientsService,
 ): AiTool[] {
   const deps: WhatsappFlowToolDeps = {

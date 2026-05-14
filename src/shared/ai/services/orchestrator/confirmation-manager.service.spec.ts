@@ -251,6 +251,28 @@ describe('ConfirmationManagerService', () => {
       expect(conversationRepoMock.update).not.toHaveBeenCalled();
     });
 
+    // Regressão 2026-05-14: tools de leitura como `query_surgery_requests`
+    // devolvem string crua (não envelope ToolResult), e o
+    // `trackPendingConfirmation` logava warning `envelope_missing` em toda
+    // consulta, poluindo o log. Solução: pular cedo se não for confirmável.
+    it('NÃO loga warning envelope_missing quando tool de leitura devolve string crua', async () => {
+      const warnSpy = jest
+        .spyOn((service as any).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await service.trackPendingConfirmation({
+        conversationId: 'conv-1',
+        toolName: 'query_surgery_requests',
+        args: {},
+        output: 'Suas solicitações por status:\n\n*Pendente*\nSC-0042 — Maria',
+      });
+
+      expect(warnSpy).not.toHaveBeenCalled();
+      expect(conversationRepoMock.update).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
     it('grava pending quando ToolResult.status === pending_confirmation (caminho moderno)', async () => {
       conversationRepoMock.findOne.mockResolvedValue({
         id: 'conv-1',

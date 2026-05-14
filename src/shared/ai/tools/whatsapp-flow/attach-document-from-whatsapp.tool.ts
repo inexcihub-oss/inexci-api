@@ -57,10 +57,9 @@ export function buildAttachDocumentFromWhatsappTool(
       const {
         documentDispatcher,
         storageService,
-        documentRepo,
         documentsService,
       } = documentDeps;
-      if (!documentDispatcher || !storageService || !documentRepo) {
+      if (!documentDispatcher || !storageService) {
         return buildToolResult({
           status: 'blocked',
           message:
@@ -150,26 +149,15 @@ export function buildAttachDocumentFromWhatsappTool(
 
       let document: any;
       try {
-        if (documentsService) {
-          document = await documentsService.createFromPath({
-            surgeryRequestId: auth.request.id,
-            createdById: context.userId as string,
-            type: documentType,
-            key: documentType,
-            name: documentName,
-            storagePath: finalPath,
-            contentType: pending.contentType,
-          });
-        } else {
-          document = await documentRepo.create({
-            surgeryRequestId: auth.request.id,
-            createdById: context.userId as string,
-            type: documentType,
-            key: documentType,
-            name: documentName,
-            uri: finalPath,
-          } as any);
-        }
+        document = await documentsService.createFromPath({
+          surgeryRequestId: auth.request.id,
+          createdById: context.userId as string,
+          type: documentType,
+          key: documentType,
+          name: documentName,
+          storagePath: finalPath,
+          contentType: pending.contentType,
+        });
       } catch (err: any) {
         return buildToolResult({
           status: 'error',

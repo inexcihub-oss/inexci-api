@@ -26,6 +26,6 @@ export interface ManageToolDeps {
   configService: ConfigService;
   entityResolver?: EntityResolverService;
   tussService?: TussService;
-  opmeService?: OpmeService;
-  documentsService?: DocumentsService;
+  opmeService: OpmeService;
+  documentsService: DocumentsService;
 }

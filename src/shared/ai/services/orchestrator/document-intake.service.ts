@@ -26,8 +26,17 @@ export class DocumentIntakeService {
 
   /**
    * Processa mídia de documento inbound (image/pdf) ou resposta a intent
-   * pendente. Retorna `true` quando o turno deve ser encerrado sem passar
-   * pelo LLM.
+   * pendente.
+   *
+   * Retorna `{ handled: true }` quando o turno deve ser encerrado sem passar
+   * pelo LLM. Retorna `{ handled: false }` para deixar o orchestrator
+   * continuar normalmente.
+   *
+   * Caso especial — bypass de assinatura: quando a imagem é reconhecida como
+   * upload de assinatura digital, retorna `{ handled: false, syntheticBody }`
+   * com um texto sintético que será usado como body pelo orchestrator (evita
+   * o guard "Não consegui identificar texto" quando a imagem é enviada sem
+   * caption).
    *
    * Pipeline (Sprint 1–3):
    * - Mídia nova → staging no Supabase tmp, salva pendência por telefone e
@@ -50,9 +59,9 @@ export class DocumentIntakeService {
       category: 'audio' | 'image' | 'pdf' | 'other';
       durationSeconds: number | null;
     }>;
-  }): Promise<boolean> {
+  }): Promise<{ handled: boolean; syntheticBody?: string }> {
     if (!this.documentDispatcher.isEnabled()) {
-      return false;
+      return { handled: false };
     }
 
     // 1) Tem mídia inbound de documento? Faz staging + intent prompt.
@@ -60,6 +69,29 @@ export class DocumentIntakeService {
       opts.media as any,
     );
     if (incomingDocMedia) {
+      // Bypass para upload de assinatura: a tool `upload_doctor_signature`
+      // precisa receber a imagem como `inboundMedia`. Verificamos tanto a
+      // caption atual quanto o histórico recente da conversa (cobre o caso em
+      // que o usuário avisou que mandaria a assinatura num turno anterior e
+      // enviou a imagem sem texto no turno seguinte).
+      // PDFs nunca são assinaturas — bypass só se for imagem.
+      if (
+        incomingDocMedia.category === 'image' &&
+        (await this.hasSignatureUploadIntent({
+          body: opts.body,
+          conversationId: opts.conversationId,
+          messageSid: opts.messageSid,
+          phone: opts.phone,
+        }))
+      ) {
+        // Se a imagem veio sem caption, sintetizamos um body para o LLM não
+        // cair no guard "Não consegui identificar texto na sua mensagem".
+        const syntheticBody = opts.body.trim()
+          ? undefined
+          : 'Quero fazer upload da minha assinatura digital.';
+        return { handled: false, syntheticBody };
+      }
+
       const existingPending = await this.documentDispatcher.getPending(
         opts.phone,
       );
@@ -83,7 +115,7 @@ export class DocumentIntakeService {
             outcome.failureReason || 'UNKNOWN',
           ),
         );
-        return true;
+        return { handled: true };
       }
 
       if (outcome.status === 'staged') {
@@ -91,20 +123,20 @@ export class DocumentIntakeService {
           opts.phone,
           this.documentDispatcher.buildIntentPromptMessage(),
         );
-        return true;
+        return { handled: true };
       }
 
-      return false;
+      return { handled: false };
     }
 
     // 2) Não tem mídia nova — verifica se há pendência ativa de turno
     //    anterior e se a mensagem é uma intent reconhecida.
     const pending = await this.documentDispatcher.getPending(opts.phone);
-    if (!pending) return false;
+    if (!pending) return { handled: false };
 
     const intent = this.documentDispatcher.parseIntent(opts.body);
     if (!intent) {
-      return false;
+      return { handled: false };
     }
 
     if (intent === 'cancel') {
@@ -117,7 +149,7 @@ export class DocumentIntakeService {
         opts.phone,
         'Tudo bem, descartei o arquivo enviado. Se quiser, é só mandar de novo quando precisar.',
       );
-      return true;
+      return { handled: true };
     }
 
     this.logger.log(
@@ -141,7 +173,7 @@ export class DocumentIntakeService {
           cachedSummary,
         );
       }
-      return true;
+      return { handled: true };
     }
 
     // Texto livre que casou com a intent E já tem classificação válida no
@@ -155,7 +187,7 @@ export class DocumentIntakeService {
       this.logger.log(
         `[AI_DOC_INTENT] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} intent=${intent} reused_classification=true delegated_to_llm=true`,
       );
-      return false;
+      return { handled: false };
     }
 
     const outcome = await this.documentProcessor.processPendingDocument({
@@ -180,7 +212,7 @@ export class DocumentIntakeService {
           errorMsg,
         );
       }
-      return true;
+      return { handled: true };
     }
 
     await this.whatsappService.sendMessage(opts.phone, outcome.userSummary);
@@ -191,7 +223,86 @@ export class DocumentIntakeService {
         outcome.userSummary,
       );
     }
-    return true;
+    return { handled: true };
+  }
+
+  /**
+   * Retorna `true` quando há evidência (na caption atual ou em mensagens
+   * recentes da conversa) de que o usuário quer fazer upload da assinatura
+   * digital, e NÃO de outro tipo de documento (RG, laudo, guia, etc.).
+   *
+   * Verifica em dois passos:
+   * 1. Caption da mensagem atual — rápida e sem I/O extra.
+   * 2. Últimas 3 mensagens do usuário na conversa — cobre o caso em que o
+   *    usuário disse "vou mandar minha assinatura" num turno anterior e enviou
+   *    a imagem sem texto no turno seguinte.
+   */
+  private async hasSignatureUploadIntent(opts: {
+    body: string;
+    conversationId?: string;
+    messageSid: string;
+    phone: string;
+  }): Promise<boolean> {
+    const signatureRe = /assinatura/i;
+    // Palavras que indicam outro tipo de documento — evita falso bypass
+    const otherDocRe =
+      /\b(identidade|rg\b|cpf\b|passaporte|laudo|guia|exame|certid[aã]o|prontu[aá]rio|nota\s*fiscal|receita|relat[oó]rio)\b/i;
+
+    const caption = (opts.body || '').trim();
+
+    // 1) Caption explicitamente indica outro tipo de documento → não bypassa
+    if (otherDocRe.test(caption)) return false;
+
+    // 2) Caption menciona "assinatura" → bypassa
+    if (signatureRe.test(caption)) {
+      this.logger.log(
+        `[AI_DOC] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} bypassed=signature_upload source=caption`,
+      );
+      return true;
+    }
+
+    // 3) Sem match na caption — verifica histórico recente da conversa
+    if (!opts.conversationId) return false;
+    try {
+      const recent = await this.conversationService.loadRecentForLlm(
+        opts.conversationId,
+        8,
+      );
+      // Analisa as últimas 3 mensagens do USUÁRIO (cobre "vou mandar minha
+      // assinatura" sem foto seguido pela foto no turno seguinte)
+      const recentUserMsgs = recent.filter((m) => m.role === 'user').slice(-3);
+      const hasRecentSignatureIntent = recentUserMsgs.some(
+        (m) => signatureRe.test(m.content) && !otherDocRe.test(m.content),
+      );
+      if (hasRecentSignatureIntent) {
+        this.logger.log(
+          `[AI_DOC] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} bypassed=signature_upload source=conversation_history`,
+        );
+        return true;
+      }
+
+      // 4) Cobre o caso simétrico: o ASSISTENTE acabou de pedir a foto
+      //    da assinatura (ex.: "envie a imagem da sua assinatura aqui no
+      //    chat") e o usuário responde mandando a imagem sem caption.
+      //    Sem isso, o pipeline genérico mostra "1=anexar / 2=criar SC /
+      //    3=cadastrar paciente" — confundindo totalmente o usuário.
+      const lastAssistantMsg = [...recent]
+        .reverse()
+        .find((m) => m.role === 'assistant');
+      if (
+        lastAssistantMsg &&
+        signatureRe.test(lastAssistantMsg.content) &&
+        !otherDocRe.test(lastAssistantMsg.content)
+      ) {
+        this.logger.log(
+          `[AI_DOC] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} bypassed=signature_upload source=last_assistant_message`,
+        );
+        return true;
+      }
+    } catch {
+      // Falha não-crítica: continua com o pipeline normal de documento
+    }
+    return false;
   }
 
   /**
@@ -290,21 +401,22 @@ export class DocumentIntakeService {
               return [
                 '- A intenção declarada é **criar uma nova SC** e o documento trouxe DADOS SUFICIENTES (paciente + procedimento/TUSS + contexto).',
                 '- **MODO AUTO-CRIAR ATIVADO**: NÃO pergunte "posso seguir?" / "qual o nome do paciente?" / "qual o procedimento?". Os dados já estão acima. Vá DIRETO para o draft:',
-                '  1. `plan_actions({ operation: "create_sc" })` para abrir o rascunho.',
-                '  2. Resolva o paciente: `find_patient_by_name` com o nome acima. Se já existir, use `draft_update({ fields: { patientId } })`. Se NÃO existir, chame `create_patient_from_document({ confirm: true })` (pode usar telefone/e-mail extraídos; se faltarem, pergunte só esses dois).',
-                '  3. `draft_update({ fields: { procedure_name } })` com o **procedimento sugerido** acima.',
-                '  4. `draft_update({ fields: { health_plan_name, hospital_name? } })` com o convênio (e hospital, se houver) listado acima.',
-                '  5. `draft_update({ fields: { notes } })` colando o LAUDO INTEIRO (use o `laudoText` listado acima).',
+                '  1. `plan_actions({ intent: "create_sc" })` para abrir o rascunho.',
+                '  2. Resolva o paciente: chame `query_patients({ patient_name_or_id: "<nome acima>", match_mode: "fuzzy" })`. Se a tool retornar um único match → use `draft_update({ fields: { patientId: "<id>" } })`. Se retornar lista ambígua → mostre ao usuário e peça desempate. Se NÃO encontrar nada → chame `create_patient_from_document({ confirm: true })` (use telefone/e-mail extraídos; se faltarem os obrigatórios, pergunte só esses dois).',
+                '  3. `draft_update({ fields: { procedure_name: "<sugerido acima>" } })`.',
+                '  4. `draft_update({ fields: { health_plan_name: "...", hospital_name: "..." } })` com o convênio (e hospital, se houver) listado acima.',
+                '  5. `draft_update({ fields: { notes: "<laudoText acima>" } })` colando o LAUDO INTEIRO.',
                 '  6. Se houver TUSS ou OPME nos dados acima, registre via tools `manage_tuss_items` / `manage_opme_items` (após o commit da SC) ou cole no `notes` se preferir.',
                 '  7. `sc_draft_preview` → mostre ao usuário o resumo de UMA vez. Aí sim peça confirmação final ("posso salvar?").',
                 '  8. Após confirmação, `sc_draft_commit`.',
                 '- NUNCA fragmente em perguntas separadas para cada campo quando os dados já estão extraídos. NUNCA responda "não ficou claro qual ação você quer confirmar" enquanto este hint estiver ativo.',
+                '- Se alguma tool falhar com erro técnico, NÃO repasse o erro cru ao usuário; tente seguir adiante com o que conseguiu coletar e peça ajuda apenas para o que ficou faltando.',
               ].join('\n');
             }
             return [
               '- A intenção declarada é **criar uma nova SC** a partir deste documento, mas faltam alguns dados-chave.',
-              '- Quando o usuário confirmar (sim/pode/vai), use o fluxo de rascunho: `plan_actions` → `draft_update({ fields: { patientId | patient_name, procedure_name, hospital_name?, health_plan_name? } })` — usando os DADOS EXTRAÍDOS acima como base e completando com o que vier do usuário.',
-              '- Se faltar paciente cadastrado, ofereça criar via `create_patient_from_document` antes de continuar a SC.',
+              '- Quando o usuário confirmar (sim/pode/vai), use o fluxo de rascunho: `plan_actions({ intent: "create_sc" })` → `draft_update({ fields: { patientId | patient_name, procedure_name, hospital_name?, health_plan_name? } })` — usando os DADOS EXTRAÍDOS acima como base e completando com o que vier do usuário.',
+              '- Para resolver o paciente pelo nome, chame `query_patients({ patient_name_or_id: "<nome>", match_mode: "fuzzy" })`. Se não existir, ofereça criar via `create_patient_from_document` antes de continuar a SC.',
               '- Se faltar hospital/convênio/procedimento no catálogo, abra um sub-draft com `plan_actions(intent="create_hospital"|"create_health_plan"|"create_procedure")` e preencha o sub-draft com `draft_update` antes do draft pai.',
               '- Cole o `laudoText` (se houver) em `draft_update({ fields: { notes } })`.',
               '- Quando o draft estiver completo, chame `sc_draft_preview` e `sc_draft_commit`.',
@@ -328,7 +440,7 @@ export class DocumentIntakeService {
 
       return [
         'CONTEXTO DETERMINÍSTICO — DOCUMENTO PENDENTE:',
-        `- O usuário enviou um documento classificado como **${cls.kind}** (confiança ${(cls.confidence * 100).toFixed(0)}%; tipo sugerido: ${cls.suggestedDocumentType}).`,
+        `- O usuário enviou um documento classificado como **${cls.kind}** (tipo sugerido: ${cls.suggestedDocumentType}). NÃO mencione "confiança" / "porcentagem" / "score" do classificador para o usuário.`,
         '- Dados extraídos (já tokenizados pela camada PII — preserve placeholders `{{categoria_n}}` ao chamar tools):',
         dataBlock,
         intentInstruction + ambiguityNote,

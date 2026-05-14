@@ -117,13 +117,21 @@ export class OpenaiService {
         ? params.model.trim()
         : this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
 
+    const maxTokens = params.maxTokens ?? this.defaultMaxTokens;
+    // Modelos o1/o3/o4 e GPT-5+ têm restrições de API vs gpt-4.x:
+    //   - exigem max_completion_tokens em vez de max_tokens
+    //   - não aceitam temperature customizada (apenas o default 1)
+    const isNewGenModel = /^(o\d|gpt-5)/.test(effectiveModel);
+
     const requestBody: OpenAI.ChatCompletionCreateParams = {
       model: effectiveModel,
       messages: params.messages,
       tools: params.tools?.length ? params.tools : undefined,
       tool_choice: params.tools?.length ? 'auto' : undefined,
-      temperature: params.temperature ?? 0.3,
-      max_tokens: params.maxTokens ?? this.defaultMaxTokens,
+      ...(!isNewGenModel && { temperature: params.temperature ?? 0.3 }),
+      ...(isNewGenModel
+        ? { max_completion_tokens: maxTokens }
+        : { max_tokens: maxTokens }),
       response_format: params.responseFormat,
     };
 

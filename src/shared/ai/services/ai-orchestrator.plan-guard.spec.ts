@@ -44,10 +44,7 @@ describe('AiOrchestratorService — plan-first guard', () => {
     },
     aiTokenUsageLogRepo: { create: jest.fn() },
     config: {
-      get: jest.fn((key: string, defaultValue?: any) => {
-        if (key === 'AI_USE_DRAFT_FLOWS') return 'true';
-        return defaultValue;
-      }),
+      get: jest.fn((_key: string, defaultValue?: any) => defaultValue),
     },
     transcription: { transcribe: jest.fn() },
     whatsappMedia: {
@@ -183,89 +180,12 @@ describe('AiOrchestratorService — plan-first guard', () => {
     );
 
   // Sub-fase 3.9 (2026-05-12): COMPLEX_MUTATION_TOOL_NAMES esvaziado.
-  // O guard `evaluatePlanFirstGuard` é agora um no-op (nenhuma tool no set).
-  it('evaluatePlanFirstGuard: é no-op quando COMPLEX_MUTATION_TOOL_NAMES está vazio (Sub-fase 3.9)', async () => {
+  it('evaluatePlanFirstGuard: é no-op — sempre retorna set vazio', async () => {
     const m = baseMocks();
     buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
       {
         id: 'call-1',
-        type: 'function',
-        function: {
-          name: 'advance_surgery_request',
-          arguments: '{}',
-        },
-      },
-    ];
-    const blocked = await m.draftContext.evaluatePlanFirstGuard(
-      toolCalls,
-      'conv-1',
-    );
-    expect(blocked.size).toBe(0);
-  });
-
-  it('evaluatePlanFirstGuard: não bloqueia quando plan_actions está no mesmo turno', async () => {
-    const m = baseMocks();
-    buildService(m);
-    const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
-      {
-        id: 'call-plan',
-        type: 'function',
-        function: { name: 'plan_actions', arguments: '{}' },
-      },
-      {
-        id: 'call-mut',
-        type: 'function',
-        function: { name: 'advance_surgery_request', arguments: '{}' },
-      },
-    ];
-    const blocked = await m.draftContext.evaluatePlanFirstGuard(
-      toolCalls,
-      'conv-1',
-    );
-    expect(blocked.size).toBe(0);
-  });
-
-  it('evaluatePlanFirstGuard: não bloqueia quando já existe operation_draft ativo', async () => {
-    const m = baseMocks();
-    buildService(m);
-    const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
-      {
-        id: 'call-mut',
-        type: 'function',
-        function: { name: 'advance_surgery_request', arguments: '{}' },
-      },
-    ];
-    const blocked = await m.draftContext.evaluatePlanFirstGuard(
-      toolCalls,
-      'conv-1',
-    );
-    expect(blocked.size).toBe(0);
-  });
-
-  it('evaluatePlanFirstGuard: desligado quando AI_USE_DRAFT_FLOWS=false', async () => {
-    const m = baseMocks();
-    buildService(m);
-    const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
-      {
-        id: 'call-mut',
-        type: 'function',
-        function: { name: 'advance_surgery_request', arguments: '{}' },
-      },
-    ];
-    const blocked = await m.draftContext.evaluatePlanFirstGuard(
-      toolCalls,
-      'conv-1',
-    );
-    expect(blocked.size).toBe(0);
-  });
-
-  it('evaluatePlanFirstGuard: NÃO bloqueia tool de mutação SIMPLES (advance_surgery_request)', async () => {
-    const m = baseMocks();
-    buildService(m);
-    const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [
-      {
-        id: 'call-mut',
         type: 'function',
         function: { name: 'advance_surgery_request', arguments: '{}' },
       },

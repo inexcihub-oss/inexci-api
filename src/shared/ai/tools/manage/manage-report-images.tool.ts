@@ -192,33 +192,22 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
           );
 
           let created: any;
-          if (documentsService) {
-            try {
-              created = await documentsService.createFromPath({
-                surgeryRequestId: auth.request.id,
-                storagePath: path,
-                type: REPORT_IMAGE_TYPE,
-                name: computedName,
-                key: REPORT_IMAGE_KEY,
-                contentType:
-                  media.contentType || downloaded.contentType || 'image/jpeg',
-                createdById: context.userId as string,
-              });
-            } catch (err) {
-              return buildToolResult({
-                status: 'error',
-                message: `Erro ao anexar imagem: ${translateServiceError(err)}`,
-              });
-            }
-          } else {
-            created = await documentRepo.create({
+          try {
+            created = await documentsService.createFromPath({
               surgeryRequestId: auth.request.id,
-              createdById: context.userId as string,
+              storagePath: path,
               type: REPORT_IMAGE_TYPE,
-              key: REPORT_IMAGE_KEY,
               name: computedName,
-              uri: path,
-            } as any);
+              key: REPORT_IMAGE_KEY,
+              contentType:
+                media.contentType || downloaded.contentType || 'image/jpeg',
+              createdById: context.userId as string,
+            });
+          } catch (err) {
+            return buildToolResult({
+              status: 'error',
+              message: `Erro ao anexar imagem: ${translateServiceError(err)}`,
+            });
           }
 
           await activityRepo.create({
@@ -280,7 +269,11 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      await documentRepo.getRepository().delete({ id: imageId });
+      await documentsService.delete({
+        id: imageId,
+        key: REPORT_IMAGE_KEY,
+        surgeryRequestId: auth.request.id,
+      });
 
       await activityRepo.create({
         surgeryRequestId: auth.request.id,

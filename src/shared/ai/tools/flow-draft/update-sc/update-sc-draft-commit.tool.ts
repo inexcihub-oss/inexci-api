@@ -10,7 +10,6 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
     draftService,
     surgeryRequestRepo,
     activityRepo,
-    patientRepo,
     patientsService,
     surgeryRequestsService,
   } = deps;
@@ -21,7 +20,7 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
       function: {
         name: 'update_sc_draft_commit',
         description:
-          'Aplica a atualização após confirmação (`confirm=true`). Roteia por `scope`: clinical/admin → `surgeryRequestRepo.update`; patient → `patientRepo.update`.',
+          'Aplica a atualização após confirmação (`confirm=true`). Roteia por `scope`: clinical/admin → `surgeryRequestsService.update`; patient → `patientsService.update`.',
         parameters: {
           type: 'object',
           properties: { confirm: { type: 'boolean' } },
@@ -72,15 +71,11 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
               message: 'Não foi possível localizar o paciente vinculado.',
             });
           }
-          if (patientsService) {
-            await patientsService.update(
-              request.patientId,
-              f.changes as any,
-              context.userId,
-            );
-          } else {
-            await patientRepo.update(request.patientId, f.changes as any);
-          }
+          await patientsService.update(
+            request.patientId,
+            f.changes as any,
+            context.userId,
+          );
         } else {
           const changes = (f.changes ?? {}) as Record<string, any>;
 
@@ -117,28 +112,18 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
             }
           }
 
-          if (Object.keys(dto).length > 1 && surgeryRequestsService) {
+          if (Object.keys(dto).length > 1) {
             try {
-              await surgeryRequestsService.update(dto as any, context.userId!);
+              await surgeryRequestsService.update(
+                { ...dto, ...extraChanges } as any,
+                context.userId!,
+              );
             } catch (err) {
               return buildToolResult({
                 status: 'error',
                 message: `Erro ao atualizar: ${translateServiceError(err)}`,
               });
             }
-          } else if (Object.keys(dto).length > 1) {
-            // Fallback: sem service disponível, usa repo diretamente
-            await surgeryRequestRepo.update(
-              f.surgeryRequestId!,
-              f.changes as any,
-            );
-          }
-
-          if (Object.keys(extraChanges).length > 0) {
-            await surgeryRequestRepo.update(
-              f.surgeryRequestId!,
-              extraChanges as any,
-            );
           }
         }
         await activityRepo.create({

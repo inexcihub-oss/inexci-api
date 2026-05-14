@@ -140,19 +140,6 @@ export class WhatsappDocumentProcessorService {
       this.logger.log(
         `[AI_DOC_OCR] sid=${messageSid} phone=${phoneMasked} source=${ocrResult.source} pages=${ocrResult.pagesProcessed}/${ocrResult.pageCount} confidence=${ocrResult.confidence.toFixed(2)} duration_ms=${ocrResult.durationMs} chars=${(ocrResult.text ?? '').length}`,
       );
-      // Dump completo do texto OCR (já tokenizado pelo PII Vault — seguro
-      // para logar). Pedido explícito do operador para diagnosticar PDFs
-      // que caem no caminho `unknown`. Truncamos em 4 KB para não estourar
-      // o transporte de log; full text ainda fica em memória durante o
-      // turno e é persistido em `pending.ocrTokenizedText` para auditoria.
-      const tokenized = ocrResult.tokenizedText ?? '';
-      const safeOcrDump =
-        tokenized.length > 4000
-          ? `${tokenized.slice(0, 4000)}…[+${tokenized.length - 4000} chars truncados]`
-          : tokenized;
-      this.logger.log(
-        `[AI_DOC_OCR_TEXT] sid=${messageSid} phone=${phoneMasked} text="""${safeOcrDump}"""`,
-      );
       if (ocrResult.warnings?.length) {
         this.logger.log(
           `[AI_DOC_OCR_WARNINGS] sid=${messageSid} phone=${phoneMasked} warnings=${ocrResult.warnings.join('|')}`,
@@ -410,21 +397,19 @@ export class WhatsappDocumentProcessorService {
     const kindLabel = this.kindLabel(classification.kind);
     lines.push(`Identifiquei o documento como: *${kindLabel}*.`);
 
-    if (classification.confidence > 0) {
-      const pct = Math.round(classification.confidence * 100);
-      lines.push(`Confiança: ${pct}%.`);
-    }
+    // Confidence é usada apenas internamente (gate do Vision fallback,
+    // logs, métricas). Não a expomos ao usuário para não poluir a UX.
 
     const extracted = classification.extracted;
     const datapoints: string[] = [];
     if (extracted.patient?.name)
       datapoints.push(`Paciente: ${extracted.patient.name}`);
-    if (extracted.patient?.cpf)
-      datapoints.push(`CPF: ${extracted.patient.cpf}`);
+    // CPF, telefone e e-mail chegam tokenizados pelo PII Vault
+    // (ex.: {{cpf_3}}) — nunca os incluímos na mensagem visível ao usuário.
+    // Eles ficam disponíveis no hint interno (buildDocumentPendingHint) para
+    // que o LLM os repasse às tools de cadastro/draft.
     if (extracted.patient?.birthDate)
       datapoints.push(`Nascimento: ${extracted.patient.birthDate}`);
-    if (extracted.patient?.phone)
-      datapoints.push(`Telefone: ${extracted.patient.phone}`);
     if (extracted.hospital) datapoints.push(`Hospital: ${extracted.hospital}`);
     if (extracted.healthPlan?.name)
       datapoints.push(`Convênio: ${extracted.healthPlan.name}`);

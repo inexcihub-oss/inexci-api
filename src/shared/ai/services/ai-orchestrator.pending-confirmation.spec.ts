@@ -256,7 +256,36 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       expect(patch.conversationMemory.pending_confirmation).toBeNull();
     });
 
-    it('quando output não é envelope, loga warning e NÃO mexe no pending', async () => {
+    it('quando tool confirmável devolve output não-envelope, loga warning e NÃO mexe no pending', async () => {
+      const warnSpy = jest
+        .spyOn(
+          (service as any).confirmationManager.logger as { warn: () => void },
+          'warn',
+        )
+        .mockImplementation(() => undefined);
+
+      // `upload_doctor_signature` é confirmable (está em TOOL_DISPLAY_LABELS)
+      // mas, hipoteticamente, devolve string crua — caminho de regressão
+      // que justifica o warning.
+      await (service as any).confirmationManager.trackPendingConfirmation({
+        conversationId: 'conv-1',
+        toolName: 'upload_doctor_signature',
+        args: {},
+        output: 'qualquer coisa em texto livre',
+      });
+
+      expect(whatsappConversationRepoMock.update).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('envelope_missing'),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    // Tools de leitura (`query_patients`, `query_surgery_requests`,
+    // `get_pendencies`, `search_*`) devolvem string crua de propósito —
+    // não devem disparar o warning `envelope_missing`.
+    it('tool de leitura com output não-envelope NÃO loga warning', async () => {
       const warnSpy = jest
         .spyOn(
           (service as any).confirmationManager.logger as { warn: () => void },
@@ -268,13 +297,11 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         conversationId: 'conv-1',
         toolName: 'query_patients',
         args: {},
-        output: 'qualquer coisa em texto livre',
+        output: 'lista de pacientes em texto livre',
       });
 
+      expect(warnSpy).not.toHaveBeenCalled();
       expect(whatsappConversationRepoMock.update).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('envelope_missing'),
-      );
 
       warnSpy.mockRestore();
     });

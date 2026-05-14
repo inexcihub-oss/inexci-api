@@ -1,7 +1,6 @@
 import { DraftContextService } from './draft-context.service';
 import { OperationDraftService } from '../operation-draft.service';
 import { ToolRegistryService } from '../tool-registry.service';
-import { ConfigService } from '@nestjs/config';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { PROMPT_VERSION } from '../../prompts/system-prompt';
 
@@ -22,7 +21,6 @@ describe('DraftContextService', () => {
   let toolRegistry: jest.Mocked<
     Pick<ToolRegistryService, 'getToolDefinitionsForDraft'>
   >;
-  let configService: jest.Mocked<Pick<ConfigService, 'get'>>;
 
   beforeEach(() => {
     operationDraftService = {
@@ -31,47 +29,15 @@ describe('DraftContextService', () => {
     toolRegistry = {
       getToolDefinitionsForDraft: jest.fn().mockReturnValue([]),
     };
-    configService = {
-      get: jest.fn().mockImplementation((key: string, def: unknown) => {
-        if (key === 'AI_USE_DRAFT_FLOWS') return 'true';
-        return def;
-      }),
-    };
     service = new DraftContextService(
       operationDraftService as unknown as OperationDraftService,
       toolRegistry as unknown as ToolRegistryService,
-      configService as unknown as ConfigService,
     );
   });
 
   describe('evaluatePlanFirstGuard', () => {
-    it('retorna set vazio quando plan_actions foi chamado no mesmo turno', async () => {
-      const toolCalls = [makeToolCall('c1', 'plan_actions')];
-      const result = await service.evaluatePlanFirstGuard(toolCalls, 'conv-1');
-      expect(result.size).toBe(0);
-    });
-
-    it('retorna set vazio quando COMPLEX_MUTATION_TOOL_NAMES está vazio (sub-fase 3.9)', async () => {
+    it('sempre retorna set vazio (guard no-op)', async () => {
       const toolCalls = [makeToolCall('c1', 'any_mutation_tool')];
-      const result = await service.evaluatePlanFirstGuard(toolCalls, 'conv-1');
-      expect(result.size).toBe(0);
-    });
-
-    it('retorna set vazio quando AI_USE_DRAFT_FLOWS não é true', async () => {
-      configService.get.mockImplementation((key: string, def: unknown) => {
-        if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
-        return def;
-      });
-      const toolCalls = [makeToolCall('c1', 'advance_surgery_request')];
-      const result = await service.evaluatePlanFirstGuard(toolCalls, 'conv-1');
-      expect(result.size).toBe(0);
-    });
-
-    it('retorna set vazio quando draft ativo já existe (plan_actions foi chamado antes)', async () => {
-      operationDraftService.getCurrent.mockResolvedValue({
-        type: 'sc_create' as OperationDraftType,
-      } as any);
-      const toolCalls = [makeToolCall('c1', 'advance_surgery_request')];
       const result = await service.evaluatePlanFirstGuard(toolCalls, 'conv-1');
       expect(result.size).toBe(0);
     });

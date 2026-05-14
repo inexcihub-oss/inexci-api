@@ -196,35 +196,24 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
           );
 
           let created: any;
-          if (documentsService) {
-            try {
-              created = await documentsService.createFromPath({
-                surgeryRequestId: auth.request.id,
-                storagePath: path,
-                type: detectedType,
-                name: computedName,
-                key: computedKey,
-                contentType:
-                  media.contentType ||
-                  downloaded.contentType ||
-                  'application/octet-stream',
-                createdById: context.userId as string,
-              });
-            } catch (err) {
-              return buildToolResult({
-                status: 'error',
-                message: `Erro ao anexar documento: ${translateServiceError(err)}`,
-              });
-            }
-          } else {
-            created = await documentRepo.create({
+          try {
+            created = await documentsService.createFromPath({
               surgeryRequestId: auth.request.id,
-              createdById: context.userId as string,
+              storagePath: path,
               type: detectedType,
-              key: computedKey,
               name: computedName,
-              uri: path,
-            } as any);
+              key: computedKey,
+              contentType:
+                media.contentType ||
+                downloaded.contentType ||
+                'application/octet-stream',
+              createdById: context.userId as string,
+            });
+          } catch (err) {
+            return buildToolResult({
+              status: 'error',
+              message: `Erro ao anexar documento: ${translateServiceError(err)}`,
+            });
           }
 
           await activityRepo.create({
@@ -289,7 +278,11 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      await documentRepo.getRepository().delete({ id: documentId });
+      await documentsService.delete({
+        id: documentId,
+        key: doc.key,
+        surgeryRequestId: auth.request.id,
+      });
 
       await activityRepo.create({
         surgeryRequestId: auth.request.id,

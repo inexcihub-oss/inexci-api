@@ -20,7 +20,7 @@ export interface WhatsappFlowDocumentDeps {
   documentDispatcher?: WhatsappDocumentDispatcherService;
   storageService?: StorageService;
   documentRepo?: DocumentRepository;
-  documentsService?: DocumentsService;
+  documentsService: DocumentsService;
 }
 
 export interface WhatsappFlowToolDeps {

@@ -26,6 +26,7 @@ function makeDeps(overrides: Partial<Record<string, any>> = {}) {
   };
   const conversationService = {
     appendMessage: jest.fn().mockResolvedValue(undefined),
+    loadRecentForLlm: jest.fn().mockResolvedValue([]),
     ...overrides.conversationService,
   };
   const phoneNormalizer = {
@@ -45,7 +46,7 @@ function makeDeps(overrides: Partial<Record<string, any>> = {}) {
 
 describe('DocumentIntakeService', () => {
   describe('processInboundDocumentIfNeeded', () => {
-    it('retorna false quando pipeline de documentos está desabilitado', async () => {
+    it('retorna handled=false quando pipeline de documentos está desabilitado', async () => {
       const deps = makeDeps({
         documentDispatcher: { isEnabled: jest.fn().mockReturnValue(false) },
       });
@@ -63,10 +64,10 @@ describe('DocumentIntakeService', () => {
         messageSid: 'sid',
         userId: 'user-1',
       });
-      expect(result).toBe(false);
+      expect(result.handled).toBe(false);
     });
 
-    it('retorna false quando não há mídia nova nem pendência ativa', async () => {
+    it('retorna handled=false quando não há mídia nova nem pendência ativa', async () => {
       const deps = makeDeps();
       const svc = new DocumentIntakeService(
         deps.documentDispatcher as any,
@@ -82,7 +83,7 @@ describe('DocumentIntakeService', () => {
         messageSid: 'sid',
         userId: 'user-1',
       });
-      expect(result).toBe(false);
+      expect(result.handled).toBe(false);
     });
 
     it('encerra o turno enviando prompt de intent quando documento é staged', async () => {
@@ -119,7 +120,7 @@ describe('DocumentIntakeService', () => {
         messageSid: 'sid',
         userId: 'user-1',
       });
-      expect(result).toBe(true);
+      expect(result.handled).toBe(true);
       expect(deps.whatsappService.sendMessage).toHaveBeenCalledWith(
         '+5511999999999',
         '1=anexar / 2=criar SC',
@@ -157,7 +158,7 @@ describe('DocumentIntakeService', () => {
         messageSid: 'sid',
         userId: 'user-1',
       });
-      expect(result).toBe(true);
+      expect(result.handled).toBe(true);
       expect(deps.documentDispatcher.clearPending).toHaveBeenCalled();
       expect(deps.whatsappService.sendMessage).toHaveBeenCalledWith(
         '+5511999999999',
@@ -203,7 +204,7 @@ describe('DocumentIntakeService', () => {
         userId: 'user-1',
         conversationId: 'conv-1',
       });
-      expect(result).toBe(true);
+      expect(result.handled).toBe(true);
       expect(deps.whatsappService.sendMessage).toHaveBeenCalledWith(
         '+5511999999999',
         'Paciente identificado: João da Silva.',
@@ -260,7 +261,220 @@ describe('DocumentIntakeService', () => {
         userId: 'user-1',
       });
       // Se o processor retornou ok+summary, encerra o turno.
-      expect(result).toBe(true);
+      expect(result.handled).toBe(true);
+    });
+
+    describe('bypass de assinatura', () => {
+      it('bypassa pipeline quando caption menciona "assinatura"', async () => {
+        const deps = makeDeps({
+          documentDispatcher: {
+            isEnabled: jest.fn().mockReturnValue(true),
+            pickDocumentMedia: jest.fn().mockReturnValue({
+              url: 'http://img',
+              contentType: 'image/jpeg',
+              category: 'image',
+            }),
+            getPending: jest.fn().mockResolvedValue(null),
+          },
+        });
+        const svc = new DocumentIntakeService(
+          deps.documentDispatcher as any,
+          deps.documentProcessor as any,
+          deps.whatsappService as any,
+          deps.conversationService as any,
+          deps.phoneNormalizer as any,
+        );
+        const result = await svc.processInboundDocumentIfNeeded({
+          phone: '+5511999999999',
+          body: 'Essa é minha assinatura',
+          normalizedInput: 'essa e minha assinatura',
+          messageSid: 'sid',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+        });
+        expect(result.handled).toBe(false);
+        // Sem caption, não deve precisar de syntheticBody
+        expect(result.syntheticBody).toBeUndefined();
+        // Pipeline de staging não deve ter sido chamado
+        expect(
+          deps.documentDispatcher.stageInboundDocument,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('bypassa pipeline e injeta syntheticBody quando imagem chega sem caption mas histórico menciona assinatura', async () => {
+        const deps = makeDeps({
+          documentDispatcher: {
+            isEnabled: jest.fn().mockReturnValue(true),
+            pickDocumentMedia: jest.fn().mockReturnValue({
+              url: 'http://img',
+              contentType: 'image/jpeg',
+              category: 'image',
+            }),
+            getPending: jest.fn().mockResolvedValue(null),
+          },
+          conversationService: {
+            appendMessage: jest.fn().mockResolvedValue(undefined),
+            loadRecentForLlm: jest.fn().mockResolvedValue([
+              { role: 'user', content: 'Vou te mandar minha assinatura agora' },
+              {
+                role: 'assistant',
+                content: 'Pode enviar! Assim que receber faço o upload.',
+              },
+            ]),
+          },
+        });
+        const svc = new DocumentIntakeService(
+          deps.documentDispatcher as any,
+          deps.documentProcessor as any,
+          deps.whatsappService as any,
+          deps.conversationService as any,
+          deps.phoneNormalizer as any,
+        );
+        const result = await svc.processInboundDocumentIfNeeded({
+          phone: '+5511999999999',
+          body: '', // sem caption
+          normalizedInput: '',
+          messageSid: 'sid',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+        });
+        expect(result.handled).toBe(false);
+        expect(result.syntheticBody).toBe(
+          'Quero fazer upload da minha assinatura digital.',
+        );
+        expect(
+          deps.documentDispatcher.stageInboundDocument,
+        ).not.toHaveBeenCalled();
+      });
+
+      // Regressão 2026-05-14: Carlos perguntou "pendências da SC pendente",
+      // assistente respondeu "envie a foto da sua assinatura". Carlos
+      // mandou a foto sem caption. Como o histórico do USUÁRIO não tinha
+      // "assinatura" (só do assistente), o pipeline genérico engajava e
+      // mostrava "1=anexar SC / 2=criar SC / 3=cadastrar paciente",
+      // confundindo. Agora o último turno do assistente também conta.
+      it('bypassa quando última msg do assistente pediu a assinatura e foto chega sem caption', async () => {
+        const deps = makeDeps({
+          documentDispatcher: {
+            isEnabled: jest.fn().mockReturnValue(true),
+            pickDocumentMedia: jest.fn().mockReturnValue({
+              url: 'http://img',
+              contentType: 'image/jpeg',
+              category: 'image',
+            }),
+            getPending: jest.fn().mockResolvedValue(null),
+          },
+          conversationService: {
+            appendMessage: jest.fn().mockResolvedValue(undefined),
+            loadRecentForLlm: jest.fn().mockResolvedValue([
+              { role: 'user', content: 'Pendências da SC pendente' },
+              {
+                role: 'assistant',
+                content:
+                  'Falta apenas a assinatura digital do médico. Envie a foto da sua assinatura aqui no WhatsApp para eu registrar.',
+              },
+            ]),
+          },
+        });
+        const svc = new DocumentIntakeService(
+          deps.documentDispatcher as any,
+          deps.documentProcessor as any,
+          deps.whatsappService as any,
+          deps.conversationService as any,
+          deps.phoneNormalizer as any,
+        );
+        const result = await svc.processInboundDocumentIfNeeded({
+          phone: '+5511999999999',
+          body: '', // sem caption
+          normalizedInput: '',
+          messageSid: 'sid',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+        });
+        expect(result.handled).toBe(false);
+        expect(result.syntheticBody).toBe(
+          'Quero fazer upload da minha assinatura digital.',
+        );
+        expect(
+          deps.documentDispatcher.stageInboundDocument,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('NÃO bypassa pipeline quando caption menciona outro tipo de documento', async () => {
+        const deps = makeDeps({
+          documentDispatcher: {
+            isEnabled: jest.fn().mockReturnValue(true),
+            pickDocumentMedia: jest.fn().mockReturnValue({
+              url: 'http://img',
+              contentType: 'image/jpeg',
+              category: 'image',
+            }),
+            getPending: jest.fn().mockResolvedValue(null),
+            stageInboundDocument: jest
+              .fn()
+              .mockResolvedValue({ status: 'staged' }),
+            buildIntentPromptMessage: jest.fn().mockReturnValue('1/2/3'),
+            clearPending: jest.fn(),
+            deleteStoragePath: jest.fn(),
+          },
+        });
+        const svc = new DocumentIntakeService(
+          deps.documentDispatcher as any,
+          deps.documentProcessor as any,
+          deps.whatsappService as any,
+          deps.conversationService as any,
+          deps.phoneNormalizer as any,
+        );
+        const result = await svc.processInboundDocumentIfNeeded({
+          phone: '+5511999999999',
+          body: 'Aqui meu RG',
+          normalizedInput: 'aqui meu rg',
+          messageSid: 'sid',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+        });
+        // RG deve ir pelo pipeline normal
+        expect(result.handled).toBe(true);
+        expect(deps.documentDispatcher.stageInboundDocument).toHaveBeenCalled();
+      });
+
+      it('NÃO bypassa pipeline quando mídia é PDF (PDFs nunca são assinatura)', async () => {
+        const deps = makeDeps({
+          documentDispatcher: {
+            isEnabled: jest.fn().mockReturnValue(true),
+            pickDocumentMedia: jest.fn().mockReturnValue({
+              url: 'http://doc.pdf',
+              contentType: 'application/pdf',
+              category: 'pdf',
+            }),
+            getPending: jest.fn().mockResolvedValue(null),
+            stageInboundDocument: jest
+              .fn()
+              .mockResolvedValue({ status: 'staged' }),
+            buildIntentPromptMessage: jest.fn().mockReturnValue('1/2/3'),
+            clearPending: jest.fn(),
+            deleteStoragePath: jest.fn(),
+          },
+        });
+        const svc = new DocumentIntakeService(
+          deps.documentDispatcher as any,
+          deps.documentProcessor as any,
+          deps.whatsappService as any,
+          deps.conversationService as any,
+          deps.phoneNormalizer as any,
+        );
+        const result = await svc.processInboundDocumentIfNeeded({
+          phone: '+5511999999999',
+          body: 'minha assinatura',
+          normalizedInput: 'minha assinatura',
+          messageSid: 'sid',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+        });
+        // PDF deve sempre ir pelo pipeline, mesmo que caption mencione assinatura
+        expect(result.handled).toBe(true);
+        expect(deps.documentDispatcher.stageInboundDocument).toHaveBeenCalled();
+      });
     });
   });
 

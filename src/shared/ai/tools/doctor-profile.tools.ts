@@ -7,6 +7,7 @@ import { DoctorProfileRepository } from '../../../database/repositories/doctor-p
 import { StorageService } from '../../storage/storage.service';
 import { STORAGE_FOLDERS } from '../../../config/storage.config';
 import { UsersService } from '../../../modules/users/users.service';
+import { WhatsappDocumentDispatcherService } from '../services/whatsapp-document-dispatcher.service';
 import { translateServiceError } from './helpers/service-error-translator';
 import { buildToolResult } from './tool-result';
 
@@ -51,6 +52,7 @@ export function buildDoctorProfileTools(
   storageService: StorageService,
   configService: ConfigService,
   usersService?: UsersService,
+  documentDispatcher?: WhatsappDocumentDispatcherService,
 ): AiTool[] {
   // ────────────────────────────────────────────────────────────────────────
   // upload_doctor_signature
@@ -112,24 +114,34 @@ export function buildDoctorProfileTools(
       }
 
       // 1) Verifica se o usuário é médico (tem doctor_profile).
-      //    `userRepo.findOne` já carrega a relação `doctorProfile`.
-      const user = await userRepo.findOne({ id: context.userId });
-      if (!user) {
-        return buildToolResult({
-          status: 'error',
-          message: 'Usuário não identificado no sistema.',
-          displayText: 'Não foi possível identificar o usuário no sistema.',
-          errors: [
-            {
-              code: 'USER_NOT_FOUND',
-              message: 'context.userId não corresponde a um usuário válido.',
-            },
-          ],
-        });
-      }
-
-      const doctorProfile = (user as any).doctorProfile;
+      //    Consultamos o `doctorProfileRepo` direto em vez de inferir da
+      //    relação `userRepo.findOne`. Motivo: `userRepo.findOne` usa um
+      //    `select` (objeto whitelist) sem `doctorProfile: true`, então no
+      //    TypeORM 0.3 a relação volta `null` mesmo para médicos — fazendo
+      //    a tool recusar o upload achando que o usuário é colaborador
+      //    (regressão observada em 2026-05-14 com o Dr. Carlos Mendonça).
+      const doctorProfile = await doctorProfileRepo.findByUserId(
+        context.userId,
+      );
       if (!doctorProfile?.id) {
+        // Confirma que o usuário existe antes de tratar como colaborador,
+        // só pra dar uma mensagem decente quando o context.userId está
+        // bagunçado.
+        const user = await userRepo.findOne({ id: context.userId });
+        if (!user) {
+          return buildToolResult({
+            status: 'error',
+            message: 'Usuário não identificado no sistema.',
+            displayText: 'Não foi possível identificar o usuário no sistema.',
+            errors: [
+              {
+                code: 'USER_NOT_FOUND',
+                message:
+                  'context.userId não corresponde a um usuário válido.',
+              },
+            ],
+          });
+        }
         // Colaborador — devolve orientação clara, sem tentar a operação.
         const collaboratorText = [
           'A assinatura digital pertence ao médico e SÓ pode ser cadastrada por ele mesmo, pelo próprio WhatsApp dele (ou pelo app).',
@@ -144,9 +156,55 @@ export function buildDoctorProfileTools(
         });
       }
 
-      // 2) Médico — precisa ter mídia (imagem) na conversa.
+      // 2) Médico — precisa ter mídia (imagem). A foto pode estar:
+      //    a) na MENSAGEM ATUAL (`context.inboundMedia`), OU
+      //    b) no STAGING do `documentDispatcher` (foto enviada num turno
+      //       anterior, ainda dentro do TTL — ex.: usuário mandou a foto,
+      //       respondeu "configurar minha assinatura" no turno seguinte).
+      //    Sem essa fallback a IA pedia eternamente "envie a foto" mesmo
+      //    quando ela já estava no Supabase tmp (regressão 2026-05-14).
       const inboundMedia = context.inboundMedia || [];
-      if (!inboundMedia.length) {
+      const rawIndex = args.mediaIndex;
+
+      type ResolvedMedia =
+        | { source: 'inbound'; url: string; contentType: string | null; index: number }
+        | {
+            source: 'staging';
+            storagePath: string;
+            contentType: string;
+            index: 0;
+          };
+
+      let resolvedMedia: ResolvedMedia | null = null;
+
+      if (inboundMedia.length > 0) {
+        const idx =
+          typeof rawIndex === 'number' &&
+          Number.isInteger(rawIndex) &&
+          rawIndex >= 0 &&
+          rawIndex < inboundMedia.length
+            ? rawIndex
+            : 0;
+        const m = inboundMedia[idx];
+        resolvedMedia = {
+          source: 'inbound',
+          url: m.url,
+          contentType: m.contentType ?? null,
+          index: idx,
+        };
+      } else if (documentDispatcher && context.phone) {
+        const pending = await documentDispatcher.getPending(context.phone);
+        if (pending && pending.kind === 'image') {
+          resolvedMedia = {
+            source: 'staging',
+            storagePath: pending.storagePath,
+            contentType: pending.contentType,
+            index: 0,
+          };
+        }
+      }
+
+      if (!resolvedMedia) {
         return buildToolResult({
           status: 'needs_input',
           message: 'Imagem da assinatura não foi enviada.',
@@ -156,17 +214,7 @@ export function buildDoctorProfileTools(
         });
       }
 
-      const rawIndex = args.mediaIndex;
-      const mediaIndex =
-        typeof rawIndex === 'number' &&
-        Number.isInteger(rawIndex) &&
-        rawIndex >= 0 &&
-        rawIndex < inboundMedia.length
-          ? rawIndex
-          : 0;
-
-      const media = inboundMedia[mediaIndex];
-      const mime = (media.contentType || '').toLowerCase();
+      const mime = (resolvedMedia.contentType || '').toLowerCase();
       if (!mime.startsWith('image/')) {
         return buildToolResult({
           status: 'blocked',
@@ -177,7 +225,7 @@ export function buildDoctorProfileTools(
             {
               field: 'inboundMedia',
               code: 'INVALID_MEDIA_TYPE',
-              message: `contentType=${media.contentType ?? 'unknown'} não é image/*`,
+              message: `contentType=${resolvedMedia.contentType ?? 'unknown'} não é image/*`,
             },
           ],
         });
@@ -188,10 +236,18 @@ export function buildDoctorProfileTools(
         const replacing = doctorProfile.signatureUrl
           ? ' Isso substitui a assinatura cadastrada anteriormente.'
           : '';
-        const previewText = `Sua assinatura digital será atualizada com a imagem enviada.${replacing} Confirme com "sim" para registrar.`;
+        const sourceHint =
+          resolvedMedia.source === 'staging'
+            ? ' (usando a imagem que você acabou de enviar)'
+            : '';
+        const previewText = `Sua assinatura digital será atualizada com a imagem enviada${sourceHint}.${replacing} Confirme com "sim" para registrar.`;
         const pendingArgs: Record<string, unknown> = { confirm: true };
-        if (typeof rawIndex === 'number' && Number.isInteger(rawIndex)) {
-          pendingArgs.mediaIndex = mediaIndex;
+        if (
+          resolvedMedia.source === 'inbound' &&
+          typeof rawIndex === 'number' &&
+          Number.isInteger(rawIndex)
+        ) {
+          pendingArgs.mediaIndex = resolvedMedia.index;
         }
         return buildToolResult({
           status: 'pending_confirmation',
@@ -208,18 +264,34 @@ export function buildDoctorProfileTools(
 
       // 4) Faz o upload e atualiza o doctor_profile.
       try {
-        const downloaded = await downloadInboundMedia(media.url, configService);
-        const newPath = await storageService.create(
-          {
-            originalname: `signature-${doctorProfile.id}.${
-              mime.includes('png') ? 'png' : 'jpg'
-            }`,
-            mimetype:
-              media.contentType || downloaded.contentType || 'image/png',
-            buffer: downloaded.buffer,
-          } as any,
-          STORAGE_FOLDERS.SIGNATURES,
-        );
+        let newPath: string;
+        if (resolvedMedia.source === 'inbound') {
+          const downloaded = await downloadInboundMedia(
+            resolvedMedia.url,
+            configService,
+          );
+          newPath = await storageService.create(
+            {
+              originalname: `signature-${doctorProfile.id}.${
+                mime.includes('png') ? 'png' : 'jpg'
+              }`,
+              mimetype:
+                resolvedMedia.contentType ||
+                downloaded.contentType ||
+                'image/png',
+              buffer: downloaded.buffer,
+            } as any,
+            STORAGE_FOLDERS.SIGNATURES,
+          );
+        } else {
+          // Staging: arquivo já está no Supabase em whatsapp-tmp/. Movemos
+          // para a pasta de assinaturas (rename no bucket — sem download
+          // + re-upload) e limpamos a pendência depois.
+          newPath = await storageService.move(
+            resolvedMedia.storagePath,
+            STORAGE_FOLDERS.SIGNATURES,
+          );
+        }
 
         // 5) Apaga a assinatura anterior (best-effort) — só se for um path
         //    interno do storage (não uma URL externa) e diferente da nova.
@@ -252,6 +324,16 @@ export function buildDoctorProfileTools(
               },
             ],
           });
+        }
+
+        // Limpa a pendência do staging (best-effort) — o arquivo já foi
+        // movido pra pasta definitiva.
+        if (resolvedMedia.source === 'staging' && documentDispatcher) {
+          try {
+            await documentDispatcher.clearPending(context.phone);
+          } catch {
+            // best-effort
+          }
         }
 
         const successText = [

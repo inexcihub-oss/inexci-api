@@ -10,7 +10,8 @@ describe('flow-draft tools (preview + commit)', () => {
   let mockSurgeryRequestRepo: any;
   let mockWorkflowService: any;
   let mockActivityRepo: any;
-  let mockPatientRepo: any;
+  let mockPatientsService: any;
+  let mockSurgeryRequestsService: any;
   let tools: ReturnType<typeof buildFlowDraftTools>;
 
   const context: ToolContext = {
@@ -52,7 +53,10 @@ describe('flow-draft tools (preview + commit)', () => {
     mockActivityRepo = {
       create: jest.fn().mockResolvedValue(undefined),
     };
-    mockPatientRepo = {
+    mockPatientsService = {
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    mockSurgeryRequestsService = {
       update: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -61,7 +65,8 @@ describe('flow-draft tools (preview + commit)', () => {
       surgeryRequestRepo: mockSurgeryRequestRepo,
       workflowService: mockWorkflowService,
       activityRepo: mockActivityRepo,
-      patientRepo: mockPatientRepo,
+      patientsService: mockPatientsService,
+      surgeryRequestsService: mockSurgeryRequestsService,
     });
   });
 
@@ -329,7 +334,7 @@ describe('flow-draft tools (preview + commit)', () => {
   });
 
   describe('update_sc', () => {
-    it('admin: aceita priority e commita via surgeryRequestRepo.update', async () => {
+    it('admin: aceita priority e commita via surgeryRequestsService.update', async () => {
       await draftService.start({ conversationId: 'conv-1', type: 'update_sc' });
       await draftService.setFields('conv-1', 'update_sc', {
         surgeryRequestId: 'sc-1',
@@ -353,13 +358,17 @@ describe('flow-draft tools (preview + commit)', () => {
         ),
       );
       expect(commit?.status).toBe('ok');
-      expect(mockSurgeryRequestRepo.update).toHaveBeenCalledWith('sc-1', {
-        priority: 3,
-        healthPlanProtocol: 'XYZ-123',
-      });
+      expect(mockSurgeryRequestsService.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'sc-1',
+          priority: 3,
+          healthPlanProtocol: 'XYZ-123',
+        }),
+        'user-1',
+      );
     });
 
-    it('patient: roteia para patientRepo.update', async () => {
+    it('patient: roteia para patientsService.update', async () => {
       await draftService.start({ conversationId: 'conv-1', type: 'update_sc' });
       await draftService.setFields('conv-1', 'update_sc', {
         surgeryRequestId: 'sc-1',
@@ -375,9 +384,11 @@ describe('flow-draft tools (preview + commit)', () => {
         ),
       );
       expect(commit?.status).toBe('ok');
-      expect(mockPatientRepo.update).toHaveBeenCalledWith('pat-1', {
-        phone: '11912345678',
-      });
+      expect(mockPatientsService.update).toHaveBeenCalledWith(
+        'pat-1',
+        { phone: '11912345678' },
+        'user-1',
+      );
     });
 
     it('commit sem confirm retorna pending_confirmation', async () => {

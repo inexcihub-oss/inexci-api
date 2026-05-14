@@ -10,8 +10,8 @@ import {
 import { User } from './user.entity';
 
 export enum NotificationType {
-  NEW_SURGERY_REQUEST = 'newSurgeryRequest',
-  STATUS_UPDATE = 'statusUpdate',
+  NEW_SURGERY_REQUEST = 'new_surgery_request',
+  STATUS_UPDATE = 'status_update',
   PENDENCY = 'pendency',
   EXPIRING_DOCUMENT = 'expiring_document',
   ACTION_BY_USER = 'action_by_user',

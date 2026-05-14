@@ -280,7 +280,7 @@ export class AiOrchestratorService {
             return;
           }
 
-          const documentHandled =
+          const docIntakeResult =
             await this.documentIntakeService.processInboundDocumentIfNeeded({
               phone,
               body: data.body || '',
@@ -291,7 +291,11 @@ export class AiOrchestratorService {
               ownerId,
               conversationId: conversation.id,
             });
-          if (documentHandled) return;
+          if (docIntakeResult.handled) return;
+          // syntheticBody é injetado quando a imagem veio sem caption mas o
+          // contexto da conversa indica upload de assinatura: evita o guard
+          // "Não consegui identificar texto" e dá input real ao LLM.
+          const effectiveBody = docIntakeResult.syntheticBody ?? data.body;
 
           const hasInboundAudio =
             this.audioIntakeService.isAudioEnabled() &&
@@ -313,11 +317,11 @@ export class AiOrchestratorService {
           const transcriptionContext = audioProcessing.transcription;
 
           const userInputRaw = this.audioIntakeService.buildUserInputForAi({
-            textInput: data.body,
+            textInput: effectiveBody,
             transcriptionText: transcriptionContext?.text || null,
           });
 
-          const hasTypedText = Boolean((data.body || '').trim());
+          const hasTypedText = Boolean((effectiveBody || '').trim());
           if (audioProcessing.failed && !hasTypedText) {
             const failureMessage =
               this.audioIntakeService.buildAudioFailureUserMessage(
@@ -342,7 +346,7 @@ export class AiOrchestratorService {
           );
 
           const userSource = this.audioIntakeService.resolveInboundSource(
-            data.body,
+            effectiveBody,
             transcriptionContext,
           );
 
@@ -439,7 +443,7 @@ export class AiOrchestratorService {
           const numericHint =
             await this.confirmationManager.buildNumericChoiceHint(
               conversation.id,
-              data.body || '',
+              effectiveBody || '',
             );
           if (numericHint)
             this.injectSystemHint(
@@ -459,7 +463,7 @@ export class AiOrchestratorService {
           const confirmationHint =
             await this.confirmationManager.buildPendingConfirmationHint(
               conversation.id,
-              data.body || '',
+              effectiveBody || '',
             );
           if (confirmationHint)
             this.injectSystemHint(
@@ -585,10 +589,21 @@ export class AiOrchestratorService {
           promptCacheKey = loopResult.promptCacheKey;
           const loopLimitReached = loopResult.loopLimitReached;
 
-          let finalText = loopLimitReached
-            ? 'Não consegui completar a operação neste turno. Por favor, tente reformular sua solicitação ou envie-a em partes menores.'
-            : responseMessage.content ||
-              'Desculpe, não consegui processar sua solicitação.';
+          // Quando o loop de tools estoura o limite, ainda tentamos aproveitar
+          // qualquer conteúdo textual que o LLM tenha produzido na última
+          // iteração — ele costuma ser mais útil ao usuário do que uma
+          // mensagem genérica. Só caímos no fallback se o `content` final
+          // estiver vazio.
+          const trimmedContent = responseMessage.content?.trim() ?? '';
+          let finalText: string;
+          if (loopLimitReached && !trimmedContent) {
+            finalText =
+              'Vou parar por aqui pra não te deixar esperando. Me diga em poucas palavras o próximo passo (ou o que ficou faltando) e a gente continua daí.';
+          } else {
+            finalText =
+              trimmedContent ||
+              'Posso te ajudar com algo específico? Me diga em poucas palavras o que precisa que eu sigo daí.';
+          }
 
           finalText = this.responseNormalizer.normalizeWhatsappText(finalText);
 

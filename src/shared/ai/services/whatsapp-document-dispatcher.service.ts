@@ -227,18 +227,21 @@ export class WhatsappDocumentDispatcherService {
 
   /**
    * Mensagem do "intent gate" enviada ao usuário após o documento ser
-   * staged. Implementação por TEXTO (sem template Twilio); o usuário
-   * responde 1, 2 ou 3.
+   * staged. Texto livre, conversacional: sugere as opções mais comuns mas
+   * deixa claro que o usuário pode descrever outra coisa. As opções
+   * numeradas continuam funcionando porque `parseIntent` reconhece tanto
+   * dígitos quanto verbos ("anexar", "criar SC", "cadastrar paciente",
+   * "cancelar").
    */
   buildIntentPromptMessage(): string {
     return [
-      'Recebi seu arquivo. O que você quer fazer com ele?',
+      'Recebi seu arquivo, posso te ajudar a usá-lo. Algumas formas comuns:',
       '',
-      '1 — Anexar a uma solicitação cirúrgica existente',
-      '2 — Criar uma nova solicitação cirúrgica a partir dele',
-      '3 — Cadastrar um paciente novo a partir dele',
+      '1 - Anexar a uma solicitação cirúrgica existente',
+      '2 - Criar uma nova solicitação cirúrgica a partir dele',
+      '3 - Cadastrar um paciente novo com esses dados',
       '',
-      'Responda 1, 2 ou 3 (ou diga "cancelar" para descartar).',
+      'Pode responder com o número, com o que prefere fazer ou pedir outra coisa que eu te ajudo. Se preferir descartar, é só dizer "cancelar".',
     ].join('\n');
   }
 

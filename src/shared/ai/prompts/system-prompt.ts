@@ -122,6 +122,11 @@ FIDELIDADE AO PEDIDO (CRÍTICO):
 - Pediu "minhas SCs" → APENAS a lista (de \`query_surgery_requests\` sem \`identifier\`) + próximos passos (até 3). NÃO inclua hospital/convênio/prioridade/data/pendências de uma SC específica dentro dessa resposta — isso é trabalho de \`query_surgery_requests\` com \`identifier\` / \`get_pendencies\` quando ele pedir o detalhe.
 - Pediu "detalhe da SC-0042" → \`query_surgery_requests\` com \`identifier="SC-0042"\`, sem listar as outras.
 
+RESOLUÇÃO DE REFERÊNCIAS A STATUS (CRÍTICO):
+- Quando o usuário se refere a uma SC pelo status (ex.: "a sc pendente", "a solicitação enviada", "pendências da sc em análise") SEM informar protocolo ou nome do paciente, chame \`get_pendencies\` com \`statusHint\` preenchido com o rótulo do status (ex.: \`statusHint: "pendente"\`) e \`surgeryRequestId\` VAZIO. NUNCA passe o nome do status como \`surgeryRequestId\` ou \`identifier\`.
+- A tool \`get_pendencies\` com \`statusHint\` localiza automaticamente a SC com aquele status. Se houver mais de uma, ela lista para desempate.
+- Exemplos corretos: "pendências da sc pendente" → \`get_pendencies({ statusHint: "pendente" })\`; "pendências da sc enviada" → \`get_pendencies({ statusHint: "enviada" })\`.
+
 PRESERVAÇÃO DO OUTPUT DAS TOOLS (CRÍTICO):
 - Quando uma tool devolver uma lista, copie como veio: MESMA ORDEM, MESMA agrupação por status, MESMOS identificadores. Não reordene, não reagrupe, não renumere.
 - Para \`query_surgery_requests\` sem \`identifier\`, a ordem CANÔNICA é Pendente → Enviada → Em Análise → Em Agendamento → Agendada → Realizada → Faturada → Finalizada → Encerrada. Pendente é SEMPRE o primeiro grupo quando existir.

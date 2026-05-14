@@ -437,7 +437,10 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
   describe('upload_doctor_signature', () => {
     const buildTools = () => {
       const userRepo = { findOne: jest.fn() };
-      const doctorProfileRepo = { update: jest.fn() };
+      const doctorProfileRepo = {
+        update: jest.fn(),
+        findByUserId: jest.fn(),
+      };
       const storageService = {
         create: jest.fn().mockResolvedValue('signatures/new.png'),
         delete: jest.fn(),
@@ -450,7 +453,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         configService as any,
       );
       const tool = tools.find((t) => t.name === 'upload_doctor_signature')!;
-      return { tool, userRepo };
+      return { tool, userRepo, doctorProfileRepo };
     };
 
     const ctx: ToolContext = {
@@ -461,7 +464,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
     };
 
     it('todos os caminhos devolvem JSON parseável via parseToolResult', async () => {
-      const { tool, userRepo } = buildTools();
+      const { tool, userRepo, doctorProfileRepo } = buildTools();
 
       // 1) Sem userId → blocked
       const noUser = await tool.execute(
@@ -472,6 +475,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(noUser)!.status).toBe('blocked');
 
       // 2) Usuário inexistente → error
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce(null);
       userRepo.findOne.mockResolvedValueOnce(null);
       const missing = await tool.execute(
         { confirm: true },
@@ -484,6 +488,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(missing)!.status).toBe('error');
 
       // 3) Colaborador (sem doctor profile) → blocked
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce(null);
       userRepo.findOne.mockResolvedValueOnce({
         id: 'user-1',
         doctorProfile: null,
@@ -499,18 +504,18 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(collaborator)!.status).toBe('blocked');
 
       // 4) Sem mídia → needs_input
-      userRepo.findOne.mockResolvedValueOnce({
-        id: 'user-1',
-        doctorProfile: { id: 'dp-1', signatureUrl: null },
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce({
+        id: 'dp-1',
+        signatureUrl: null,
       });
       const noMedia = await tool.execute({ confirm: true }, ctx);
       expect(parseToolResult(noMedia)).not.toBeNull();
       expect(parseToolResult(noMedia)!.status).toBe('needs_input');
 
       // 5) Mídia que não é imagem → blocked
-      userRepo.findOne.mockResolvedValueOnce({
-        id: 'user-1',
-        doctorProfile: { id: 'dp-1', signatureUrl: null },
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce({
+        id: 'dp-1',
+        signatureUrl: null,
       });
       const nonImage = await tool.execute(
         { confirm: true },
@@ -525,9 +530,9 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(nonImage)!.status).toBe('blocked');
 
       // 6) Preview (sem confirm) → pending_confirmation com pending_confirmation
-      userRepo.findOne.mockResolvedValueOnce({
-        id: 'user-1',
-        doctorProfile: { id: 'dp-1', signatureUrl: null },
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce({
+        id: 'dp-1',
+        signatureUrl: null,
       });
       const preview = await tool.execute(
         {},
@@ -544,9 +549,9 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       );
 
       // 7) Sucesso (confirm:true) → ok
-      userRepo.findOne.mockResolvedValueOnce({
-        id: 'user-1',
-        doctorProfile: { id: 'dp-1', signatureUrl: null },
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce({
+        id: 'dp-1',
+        signatureUrl: null,
       });
       const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
         ok: true,
@@ -568,9 +573,9 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       fetchMock.mockRestore();
 
       // 8) Falha de download → error
-      userRepo.findOne.mockResolvedValueOnce({
-        id: 'user-1',
-        doctorProfile: { id: 'dp-1', signatureUrl: null },
+      doctorProfileRepo.findByUserId.mockResolvedValueOnce({
+        id: 'dp-1',
+        signatureUrl: null,
       });
       const failFetch = jest
         .spyOn(global, 'fetch' as any)

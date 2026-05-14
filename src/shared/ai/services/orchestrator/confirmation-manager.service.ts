@@ -281,6 +281,14 @@ export class ConfirmationManagerService {
   }): Promise<void> {
     const { conversationId, toolName, args, output } = opts;
 
+    // Tools de leitura (ex.: `query_surgery_requests`, `query_patients`,
+    // `get_pendencies`, `search_*`) não participam do ciclo de confirmação
+    // e devolvem string crua de propósito. Pular cedo evita o warn
+    // `envelope_missing` poluir o log a cada consulta.
+    if (!this.isMutationConfirmableTool(toolName)) {
+      return;
+    }
+
     const parsed = parseToolResult(output);
     if (!parsed) {
       this.logger.warn(
@@ -462,9 +470,11 @@ export class ConfirmationManagerService {
         `- A última mensagem que você enviou terminou com uma lista de "Próximos passos" numerada.`,
         `- O usuário respondeu "${rawInput.trim()}", o que significa que ele escolheu a OPÇÃO ${digit}: "${chosenText}".`,
         '- AGORA EXECUTE essa opção, sem voltar a perguntar qual ação ele quer:',
-        '  • Se a opção requer um dado adicional (ex.: protocolo da SC), faça APENAS UMA pergunta curta e objetiva pedindo SÓ esse dado.',
-        '  • Se você pode executá-la direto (chamando uma tool), execute imediatamente.',
-        '- PROIBIDO responder "não ficou claro qual ação", "não entendi", "pode me explicar melhor" ou variações. A escolha JÁ está clara.',
+        '  • ANTES de pedir QUALQUER dado adicional, RELEIA o histórico recente desta conversa. Se a SC, o paciente, o protocolo ou outro identificador já foi mencionado nos turnos anteriores (mesmo que pelo nome do paciente), USE-O DIRETAMENTE — NUNCA peça de novo.',
+        '  • Em particular: se o usuário acabou de perguntar sobre as pendências/dados de UMA SC específica (por nome do paciente, protocolo, etc.) e está agora escolhendo uma opção que age sobre essa MESMA SC, considere a SC já identificada — chame a tool sem pedir o protocolo de novo.',
+        '  • Se você pode executá-la direto (chamando uma tool), execute imediatamente. Se a tool exigir o ID/protocolo da SC e você sabe quem é o paciente, chame primeiro `query_surgery_requests({ identifier: "<nome ou protocolo do paciente>" })` para resolver o ID antes de prosseguir.',
+        '  • Só faça UMA pergunta curta e objetiva ao usuário se, depois de reler o histórico, AINDA faltar um dado essencial que ele realmente não forneceu.',
+        '- PROIBIDO responder "não ficou claro qual ação", "não entendi", "pode me explicar melhor", "informe o protocolo" (quando ele já foi mencionado), ou variações. A escolha JÁ está clara.',
       ].join('\n');
     } catch (err) {
       this.logger.debug(
