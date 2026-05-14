@@ -59,8 +59,11 @@ interface ClassifierUsageSnapshot {
 }
 
 const VISION_TRIGGER_OCR_MIN_CHARS = 30;
-const VISION_TRIGGER_OCR_MIN_CONFIDENCE = 0.5;
-const VISION_TRIGGER_CLASSIFIER_MIN_CONFIDENCE = 0.5;
+const VISION_TRIGGER_OCR_MIN_CONFIDENCE = 0.6;
+// Limiar inclusivo: classifier que devolve confidence == 0.5 (caso clássico
+// "não sei, chuto meio-termo") cai no fallback. Sem isso o pipeline fica
+// preso em "Documento (tipo não identificado) — Confiança: 50%".
+const VISION_TRIGGER_CLASSIFIER_MAX_CONFIDENCE = 0.6;
 
 /**
  * Orquestra o pipeline pesado quando o usuário declara intent sobre uma
@@ -137,6 +140,11 @@ export class WhatsappDocumentProcessorService {
       this.logger.log(
         `[AI_DOC_OCR] sid=${messageSid} phone=${phoneMasked} source=${ocrResult.source} pages=${ocrResult.pagesProcessed}/${ocrResult.pageCount} confidence=${ocrResult.confidence.toFixed(2)} duration_ms=${ocrResult.durationMs} chars=${(ocrResult.text ?? '').length}`,
       );
+      if (ocrResult.warnings?.length) {
+        this.logger.log(
+          `[AI_DOC_OCR_WARNINGS] sid=${messageSid} phone=${phoneMasked} warnings=${ocrResult.warnings.join('|')}`,
+        );
+      }
     }
 
     const ocrText = ocrResult?.text?.trim() ?? '';
@@ -158,6 +166,13 @@ export class WhatsappDocumentProcessorService {
         });
         classification = result.classification;
         usageSnapshots.push({ stage: 'doc_classifier', ...result.usage });
+        try {
+          this.logger.log(
+            `[AI_DOC_CLASSIFIER_RESULT] sid=${messageSid} phone=${phoneMasked} stage=text_only kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} extracted=${JSON.stringify(classification.extracted ?? {})}`,
+          );
+        } catch {
+          /* JSON.stringify nunca deve falhar aqui, mas guardamos por segurança. */
+        }
       } catch (err: any) {
         classifierError = err?.message || 'classifier indisponível';
         this.logger.warn(
@@ -166,14 +181,45 @@ export class WhatsappDocumentProcessorService {
       }
     }
 
+    // Sinais que disparam Vision fallback:
+    //  1. confidence baixa (<= threshold; inclusivo para pegar o "0.5" clássico).
+    //  2. classifier devolveu `unknown` mesmo com confidence alta —
+    //     significa que o LLM viu o texto mas não conseguiu classificar
+    //     (PDF escaneado, OCR com ruído, layout não convencional).
+    //  3. `extracted` totalmente vazio — sem nome de paciente, hospital,
+    //     TUSS, CID, OPME, nem CRM. Sem nada útil é equivalente a "unknown"
+    //     para o fluxo, então tentamos Vision para ver se ele pega algo.
     const classifierConfidenceLow =
       !!classification &&
-      classification.confidence < VISION_TRIGGER_CLASSIFIER_MIN_CONFIDENCE;
+      classification.confidence <= VISION_TRIGGER_CLASSIFIER_MAX_CONFIDENCE;
+    const classifierKindUnknown =
+      !!classification && classification.kind === 'unknown';
+    const classifierExtractedEmpty =
+      !!classification && this.isExtractedEffectivelyEmpty(classification);
 
+    const isPdf =
+      (pending.contentType || '').toLowerCase() === 'application/pdf';
+    const isImage = this.visionFallback?.isSupportedImageMime(
+      pending.contentType,
+    );
+
+    const visionEnabled = !!this.visionFallback?.isEnabled();
     const shouldTryVisionFallback =
-      this.visionFallback?.isEnabled() &&
-      this.visionFallback.isSupportedImageMime(pending.contentType) &&
-      (ocrUnusable || classifierError || classifierConfidenceLow);
+      visionEnabled &&
+      (isImage || isPdf) &&
+      (ocrUnusable ||
+        classifierError ||
+        classifierConfidenceLow ||
+        classifierKindUnknown ||
+        classifierExtractedEmpty);
+
+    this.logger.log(
+      `[AI_DOC_PIPELINE_SIGNALS] sid=${messageSid} phone=${phoneMasked} ` +
+        `vision_enabled=${visionEnabled} mime_supported=${!!isImage || !!isPdf} ` +
+        `ocr_unusable=${ocrUnusable} classifier_error=${!!classifierError} ` +
+        `classifier_confidence_low=${classifierConfidenceLow} classifier_kind_unknown=${classifierKindUnknown} classifier_extracted_empty=${classifierExtractedEmpty} ` +
+        `=> will_try_vision=${shouldTryVisionFallback}`,
+    );
 
     if (shouldTryVisionFallback && this.visionFallback) {
       const reason = ocrUnusable
@@ -184,31 +230,60 @@ export class WhatsappDocumentProcessorService {
           : 'ocr_exception'
         : classifierError
           ? 'classifier_failed'
-          : 'classifier_confidence_low';
+          : classifierConfidenceLow
+            ? 'classifier_confidence_low'
+            : classifierKindUnknown
+              ? 'classifier_kind_unknown'
+              : 'classifier_extracted_empty';
 
       this.logger.log(
         `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} reason=${reason} mime=${pending.contentType}`,
       );
 
-      try {
-        const visionResult = await this.visionFallback.classifyImage({
-          imageBuffer: buffer,
-          imageMimeType: pending.contentType,
-          intent,
-          conversationId,
-          messageSid,
-        });
-        classification = visionResult.classification;
-        usedVisionFallback = true;
-        usageSnapshots.push({
-          stage: 'doc_vision_fallback',
-          ...visionResult.usage,
-        });
-        classifierError = null;
-      } catch (err: any) {
-        this.logger.warn(
-          `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} status=vision_failed reason=${err?.message || 'erro'}`,
-        );
+      // Para PDFs, rasterizamos a primeira página antes de mandar pro
+      // Vision (que aceita só imagens). PDFs com mais páginas ainda têm o
+      // classifier text-only do `getText` cobrindo o conteúdo todo — o
+      // Vision aqui só compensa OCR ruim na primeira página.
+      let visionImageBuffer: Buffer | null = buffer;
+      let visionMimeType = pending.contentType;
+      if (isPdf) {
+        visionImageBuffer = await this.ocr.rasterizeFirstPdfPage(buffer);
+        visionMimeType = 'image/png';
+        if (!visionImageBuffer) {
+          this.logger.warn(
+            `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} status=vision_failed reason=pdf_rasterize_failed`,
+          );
+        }
+      }
+
+      if (visionImageBuffer) {
+        try {
+          const visionResult = await this.visionFallback.classifyImage({
+            imageBuffer: visionImageBuffer,
+            imageMimeType: visionMimeType,
+            intent,
+            conversationId,
+            messageSid,
+          });
+          classification = visionResult.classification;
+          usedVisionFallback = true;
+          usageSnapshots.push({
+            stage: 'doc_vision_fallback',
+            ...visionResult.usage,
+          });
+          classifierError = null;
+          try {
+            this.logger.log(
+              `[AI_DOC_CLASSIFIER_RESULT] sid=${messageSid} phone=${phoneMasked} stage=vision_fallback kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} extracted=${JSON.stringify(classification.extracted ?? {})}`,
+            );
+          } catch {
+            /* ignore */
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} status=vision_failed reason=${err?.message || 'erro'}`,
+          );
+        }
       }
     }
 
@@ -322,29 +397,59 @@ export class WhatsappDocumentProcessorService {
     const kindLabel = this.kindLabel(classification.kind);
     lines.push(`Identifiquei o documento como: *${kindLabel}*.`);
 
-    if (classification.confidence > 0) {
-      const pct = Math.round(classification.confidence * 100);
-      lines.push(`Confiança: ${pct}%.`);
-    }
+    // Confidence é usada apenas internamente (gate do Vision fallback,
+    // logs, métricas). Não a expomos ao usuário para não poluir a UX.
 
     const extracted = classification.extracted;
     const datapoints: string[] = [];
     if (extracted.patient?.name)
       datapoints.push(`Paciente: ${extracted.patient.name}`);
-    if (extracted.patient?.cpf)
-      datapoints.push(`CPF: ${extracted.patient.cpf}`);
+    // CPF, telefone e e-mail chegam tokenizados pelo PII Vault
+    // (ex.: {{cpf_3}}) — nunca os incluímos na mensagem visível ao usuário.
+    // Eles ficam disponíveis no hint interno (buildDocumentPendingHint) para
+    // que o LLM os repasse às tools de cadastro/draft.
     if (extracted.patient?.birthDate)
       datapoints.push(`Nascimento: ${extracted.patient.birthDate}`);
-    if (extracted.patient?.phone)
-      datapoints.push(`Telefone: ${extracted.patient.phone}`);
     if (extracted.hospital) datapoints.push(`Hospital: ${extracted.hospital}`);
     if (extracted.healthPlan?.name)
       datapoints.push(`Convênio: ${extracted.healthPlan.name}`);
-    if (extracted.doctorCRM) datapoints.push(`CRM: ${extracted.doctorCRM}`);
-    if (extracted.tuss?.length)
-      datapoints.push(`TUSS: ${extracted.tuss.map((t) => t.code).join(', ')}`);
+    if (extracted.diagnosis)
+      datapoints.push(`Diagnóstico: ${extracted.diagnosis}`);
+    if (extracted.suggestedProcedureName)
+      datapoints.push(
+        `Procedimento sugerido: ${extracted.suggestedProcedureName}`,
+      );
+    if (extracted.tuss?.length) {
+      datapoints.push(
+        `TUSS (${extracted.tuss.length}): ${extracted.tuss
+          .map((t) => `${t.code}${t.description ? ` — ${t.description}` : ''}`)
+          .join('; ')}`,
+      );
+    }
     if (extracted.cid?.length)
       datapoints.push(`CID: ${extracted.cid.map((c) => c.code).join(', ')}`);
+    if (extracted.opme?.length) {
+      const opmeLines = extracted.opme.map((o) => {
+        const supplierBits = [o.supplier, o.brand].filter(Boolean).join(' / ');
+        const suffix = supplierBits ? ` [${supplierBits}]` : '';
+        return `${o.qty}× ${o.description}${suffix}`;
+      });
+      datapoints.push(
+        `OPME (${extracted.opme.length}): ${opmeLines.join('; ')}`,
+      );
+    }
+    if (extracted.suggestedSuppliers?.length) {
+      datapoints.push(
+        `Fornecedores sugeridos: ${extracted.suggestedSuppliers.join(', ')}`,
+      );
+    }
+    if (extracted.laudoText) {
+      const preview =
+        extracted.laudoText.length > 220
+          ? `${extracted.laudoText.slice(0, 220)}…`
+          : extracted.laudoText;
+      datapoints.push(`Laudo (trecho): "${preview}"`);
+    }
 
     if (datapoints.length) {
       lines.push('');
@@ -357,7 +462,41 @@ export class WhatsappDocumentProcessorService {
       lines.push(`Atenção: ${classification.ambiguity}`);
     }
 
+    // Quando o classifier (texto OU vision) não conseguiu extrair nada
+    // acionável, encerramos o turno com um pedido objetivo em vez de
+    // prometer "vou abrir uma SC" — assim o usuário sabe que precisa
+    // digitar os dados manualmente.
+    const isEmpty = this.isExtractedEffectivelyEmpty(classification);
+
     lines.push('');
+    if (isEmpty) {
+      switch (intent) {
+        case 'attach':
+          lines.push(
+            'Não consegui extrair dados úteis desse arquivo automaticamente. Me diga o protocolo da SC (ex.: SC-1234) onde anexar — eu junto o arquivo mesmo sem extrair os campos.',
+          );
+          break;
+        case 'create_sc':
+          lines.push(
+            'Não consegui extrair dados úteis desse arquivo automaticamente. Para começar a SC, me diga pelo menos o nome do paciente — eu sigo daí.',
+          );
+          break;
+        case 'create_patient':
+          lines.push(
+            'Não consegui extrair dados úteis desse arquivo automaticamente. Para cadastrar o paciente, me diga o nome completo, telefone e e-mail.',
+          );
+          break;
+      }
+      return lines.join('\n');
+    }
+
+    // Sinaliza ao usuário se temos dados RICOS o bastante para já avançar
+    // sem confirmação intermediária. O LLM, com o `buildDocumentPendingHint`
+    // injetado no system prompt, vai começar o draft IMEDIATAMENTE no
+    // próximo turno (ou já no mesmo) e o usuário só confirma o commit final.
+    const hasRichScData =
+      intent === 'create_sc' && this.hasRichSurgeryRequestData(classification);
+
     switch (intent) {
       case 'attach':
         lines.push(
@@ -365,9 +504,15 @@ export class WhatsappDocumentProcessorService {
         );
         break;
       case 'create_sc':
-        lines.push(
-          'Vou abrir uma nova solicitação cirúrgica usando esses dados como base. Posso seguir? (responda "sim" para começar o rascunho).',
-        );
+        if (hasRichScData) {
+          lines.push(
+            'Já vou montar a solicitação cirúrgica com TODOS esses dados (paciente, convênio, procedimento, TUSS, OPME e laudo). Te mostro o resumo final antes de salvar — se algo estiver errado, é só me corrigir.',
+          );
+        } else {
+          lines.push(
+            'Vou abrir uma nova solicitação cirúrgica usando esses dados como base. Posso seguir? (responda "sim" para começar o rascunho).',
+          );
+        }
         break;
       case 'create_patient':
         lines.push(
@@ -377,6 +522,58 @@ export class WhatsappDocumentProcessorService {
     }
 
     return lines.join('\n');
+  }
+
+  /**
+   * Detecta documentos com dados suficientes para POPULAR uma SC sem
+   * perguntar nada além da confirmação final. Critério: paciente
+   * identificado + (procedimento sugerido OU pelo menos 1 TUSS) + (algum
+   * contexto extra: convênio OU OPME OU diagnóstico OU laudo).
+   * Usado para mudar o tom da mensagem ao usuário (de "Posso seguir?"
+   * para "Já vou montar tudo") e ativar o caminho rápido no hint do LLM.
+   */
+  private hasRichSurgeryRequestData(
+    classification: DocumentClassification,
+  ): boolean {
+    const e = classification.extracted ?? {};
+    const hasPatient = !!(e.patient?.name && e.patient.name.length > 1);
+    const hasProcedure =
+      !!e.suggestedProcedureName || (e.tuss?.length ?? 0) > 0;
+    const hasContext =
+      !!e.healthPlan?.name ||
+      (e.opme?.length ?? 0) > 0 ||
+      !!e.diagnosis ||
+      !!e.laudoText;
+    return hasPatient && hasProcedure && hasContext;
+  }
+
+  /**
+   * Considera o resultado do classifier como "vazio" se ele não trouxe
+   * nenhum dado clínico/pessoal acionável. Sem essa heurística o pipeline
+   * aceitava classificações como `kind=medical_report, extracted={}` —
+   * pareciam OK no log mas o LLM não tinha nada para popular o draft.
+   */
+  private isExtractedEffectivelyEmpty(
+    classification: DocumentClassification,
+  ): boolean {
+    const e = classification.extracted ?? {};
+    const hasPatient = !!(
+      e.patient?.name ||
+      e.patient?.cpf ||
+      e.patient?.birthDate ||
+      e.patient?.phone ||
+      e.patient?.rg
+    );
+    const hasContext = !!(
+      e.hospital ||
+      e.healthPlan?.name ||
+      e.diagnosis ||
+      e.suggestedProcedureName ||
+      (e.tuss?.length ?? 0) > 0 ||
+      (e.cid?.length ?? 0) > 0 ||
+      (e.opme?.length ?? 0) > 0
+    );
+    return !hasPatient && !hasContext;
   }
 
   private kindLabel(kind: DocumentClassification['kind']): string {

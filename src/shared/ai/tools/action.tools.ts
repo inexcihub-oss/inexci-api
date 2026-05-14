@@ -6,10 +6,9 @@ import { SurgeryRequestWorkflowService } from '../../../modules/surgery-requests
 import { SurgeryRequestMutationService } from '../../../modules/surgery-requests/services/surgery-request-mutation.service';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
-import { SurgeryRequestPriority } from '../../../database/entities/surgery-request.entity';
-import { PatientRepository } from '../../../database/repositories/patient.repository';
 import { detokenizeArg } from '../pii/tool-pii-helpers';
 import { buildProtocolCandidates } from './protocol.helpers';
+import { buildToolResult } from './tool-result';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -84,7 +83,6 @@ export function buildActionTools(
   mutationService: SurgeryRequestMutationService,
   pendencyValidator: PendencyValidatorService,
   activityRepo: SurgeryRequestActivityRepository,
-  patientRepo: PatientRepository,
 ): AiTool[] {
   /**
    * Mapa de transições que exigem fluxo guiado com draft. Quando o usuário
@@ -420,19 +418,38 @@ export function buildActionTools(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
+      if (!context.userId) {
+        return buildToolResult({
+          status: 'blocked',
+          message: 'Acesso negado.',
+        });
+      }
 
       const auth = await resolveAuthorizedRequest(
         surgeryRequestRepo,
         args.surgeryRequestId,
         context,
       );
-      if (!auth.request) return auth.error as string;
+      if (!auth.request) {
+        return buildToolResult({
+          status: 'blocked',
+          message: auth.error as string,
+        });
+      }
       const request = auth.request;
       const requestId = request.id as string;
 
       if (!args.confirm) {
-        return `Atenção: você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${args.reason}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
+        const preview = `Atenção: você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${args.reason}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
+        return buildToolResult({
+          status: 'pending_confirmation',
+          message: preview,
+          pendingConfirmation: {
+            tool: 'close_surgery_request',
+            args: { ...args, confirm: true },
+            description: 'encerrar a solicitação cirúrgica',
+          },
+        });
       }
 
       try {
@@ -447,225 +464,19 @@ export function buildActionTools(
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação encerrada. Motivo: "${args.reason}".`,
         });
-        return `Solicitação ${request.protocol} encerrada com sucesso.`;
+        return buildToolResult({
+          status: 'ok',
+          message: `Solicitação ${request.protocol} encerrada com sucesso.`,
+          affected: [{ kind: 'surgery_request', id: requestId }],
+        });
       } catch (err: any) {
-        return `Erro ao encerrar: ${err?.message || 'erro desconhecido'}`;
+        return buildToolResult({
+          status: 'error',
+          message: `Erro ao encerrar: ${err?.message || 'erro desconhecido'}`,
+        });
       }
     },
   };
 
-  const PRIORITY_LABELS: Record<number, string> = {
-    1: 'Baixa',
-    2: 'Média',
-    3: 'Alta',
-    4: 'Urgente',
-  };
-
-  const updateSurgeryRequestData: AiTool = {
-    name: 'update_surgery_request_data',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'update_surgery_request_data',
-        description:
-          'Atualiza dados básicos de uma solicitação cirúrgica: prioridade. IMPORTANTE: sempre confirme com o usuário antes de executar.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: {
-              type: 'string',
-              description:
-                'Identificador da solicitação. Aceita UUID, protocolo (SC-XXXX) ou apenas o número do protocolo (XXXX).',
-            },
-            priority: {
-              type: 'number',
-              description:
-                'Prioridade da SC. Aceita os números 1, 2, 3 ou 4 (1=Baixa, 2=Média, 3=Alta, 4=Urgente). IMPORTANTE: ao FALAR sobre prioridades com o usuário, mostre apenas o NOME (Baixa, Média, Alta ou Urgente) — nunca exiba o código numérico.',
-            },
-            confirm: {
-              type: 'boolean',
-              description:
-                'Se true, aplica as alterações. Se false/omitido, apenas mostra o preview.',
-            },
-          },
-          required: ['surgeryRequestId'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const auth = await resolveAuthorizedRequest(
-        surgeryRequestRepo,
-        args.surgeryRequestId,
-        context,
-      );
-      if (!auth.request) return auth.error as string;
-      const request = auth.request;
-      const requestId = request.id as string;
-
-      if (
-        args.priority !== undefined &&
-        ![1, 2, 3, 4].includes(args.priority as number)
-      ) {
-        return 'Prioridade inválida. As opções válidas são: Baixa, Média, Alta ou Urgente.';
-      }
-
-      const changes: string[] = [];
-      if (args.priority !== undefined) {
-        changes.push(`Prioridade: ${PRIORITY_LABELS[args.priority as number]}`);
-      }
-
-      if (!changes.length) {
-        return 'Nenhuma alteração especificada. Informe ao menos a prioridade.';
-      }
-
-      if (!args.confirm) {
-        return `Você deseja atualizar a solicitação *${request.protocol}* com:\n${changes.map((c) => `• ${c}`).join('\n')}\n\nConfirme com "sim".`;
-      }
-
-      await mutationService.updateBasic(
-        {
-          id: requestId,
-          priority: args.priority as SurgeryRequestPriority | undefined,
-        },
-        context.userId,
-      );
-
-      await activityRepo.create({
-        surgeryRequestId: requestId,
-        userId: context.userId,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Dados atualizados: ${changes.join(', ')}.`,
-      });
-
-      return `Solicitação *${request.protocol}* atualizada:\n${changes.map((c) => `• ${c}`).join('\n')}`;
-    },
-  };
-
-  const updatePatientData: AiTool = {
-    name: 'update_patient_data',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'update_patient_data',
-        description:
-          'Atualiza dados cadastrais do paciente vinculado a uma solicitação (nome, data de nascimento, CPF, telefone, endereço e CEP). Requer confirmação explícita.',
-        parameters: {
-          type: 'object',
-          properties: {
-            surgeryRequestId: {
-              type: 'string',
-              description:
-                'ID/Protocolo da solicitação (UUID, SC-XXXX ou XXXX)',
-            },
-            name: { type: 'string', description: 'Nome do paciente' },
-            birthDate: {
-              type: 'string',
-              description: 'Data de nascimento no formato YYYY-MM-DD',
-            },
-            cpf: { type: 'string', description: 'CPF do paciente' },
-            phone: { type: 'string', description: 'Telefone do paciente' },
-            address: { type: 'string', description: 'Endereço do paciente' },
-            zipCode: { type: 'string', description: 'CEP do paciente' },
-            confirm: {
-              type: 'boolean',
-              description:
-                'Se true, aplica as alterações. Se false/omitido, apenas mostra preview.',
-            },
-          },
-          required: ['surgeryRequestId'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const auth = await resolveAuthorizedRequest(
-        surgeryRequestRepo,
-        args.surgeryRequestId,
-        context,
-      );
-      if (!auth.request) return auth.error as string;
-
-      const request = auth.request;
-      if (!request.patientId) {
-        return 'Não foi possível localizar o paciente vinculado a esta solicitação.';
-      }
-
-      const updates: Record<string, any> = {};
-      const changes: string[] = [];
-
-      if (args.name !== undefined) {
-        const v = String(detokenizeArg(context, args.name) ?? '').trim();
-        if (!v) return 'Parâmetro inválido: `name` não pode ser vazio.';
-        updates.name = v;
-        changes.push(`Nome: ${v}`);
-      }
-
-      if (args.birthDate !== undefined) {
-        const raw = String(detokenizeArg(context, args.birthDate) ?? '').trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-          return 'Parâmetro inválido: `birthDate` deve estar em YYYY-MM-DD.';
-        }
-        updates.birthDate = raw;
-        changes.push(`Data de nascimento: ${raw}`);
-      }
-
-      if (args.cpf !== undefined) {
-        const v = String(detokenizeArg(context, args.cpf) ?? '').trim();
-        if (!v) return 'Parâmetro inválido: `cpf` não pode ser vazio.';
-        updates.cpf = v;
-        changes.push(`CPF: ${v}`);
-      }
-
-      if (args.phone !== undefined) {
-        const v = String(detokenizeArg(context, args.phone) ?? '').trim();
-        if (!v) return 'Parâmetro inválido: `phone` não pode ser vazio.';
-        updates.phone = v;
-        changes.push(`Telefone: ${v}`);
-      }
-
-      if (args.address !== undefined) {
-        const v = String(detokenizeArg(context, args.address) ?? '').trim();
-        if (!v) return 'Parâmetro inválido: `address` não pode ser vazio.';
-        updates.address = v;
-        changes.push(`Endereço: ${v}`);
-      }
-
-      if (args.zipCode !== undefined) {
-        const v = String(detokenizeArg(context, args.zipCode) ?? '').trim();
-        if (!v) return 'Parâmetro inválido: `zipCode` não pode ser vazio.';
-        updates.zipCode = v;
-        changes.push(`CEP: ${v}`);
-      }
-
-      if (!changes.length) {
-        return 'Nenhuma alteração informada. Envie ao menos um campo para atualizar.';
-      }
-
-      if (!args.confirm) {
-        return `A solicitação ${request.protocol} terá os dados do paciente atualizados com:\n${changes.map((c) => `• ${c}`).join('\n')}\n\nConfirme com "sim" para executar.`;
-      }
-
-      await patientRepo.update(request.patientId, updates);
-
-      await activityRepo.create({
-        surgeryRequestId: request.id,
-        userId: context.userId,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Dados do paciente atualizados: ${changes.join(', ')}.`,
-      });
-
-      return `Dados do paciente da solicitação ${request.protocol} atualizados com sucesso.`;
-    },
-  };
-
-  return [
-    advanceSurgeryRequest,
-    setHasOpme,
-    closeSurgeryRequest,
-    updateSurgeryRequestData,
-    updatePatientData,
-  ];
+  return [advanceSurgeryRequest, setHasOpme, closeSurgeryRequest];
 }

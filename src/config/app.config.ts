@@ -58,21 +58,26 @@ export const envValidationSchema = Joi.object({
     .default('text-embedding-3-small'),
   OPENAI_REQUEST_TIMEOUT_MS: Joi.number().default(25000),
   AI_SESSION_TIMEOUT_MINUTES: Joi.number().default(30),
-  AI_MAX_RECENT_MESSAGES: Joi.number().default(10),
-  AI_SUMMARY_TRIGGER_EVERY_MESSAGES: Joi.number().default(5),
-  AI_SUMMARY_MAX_TOKENS: Joi.number().default(450),
-  AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2200),
+  AI_MAX_RECENT_MESSAGES: Joi.number().default(6),
+  AI_SUMMARY_TRIGGER_EVERY_MESSAGES: Joi.number().default(3),
+  AI_SUMMARY_MAX_TOKENS: Joi.number().default(550),
+  AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2600),
   AI_RESPONSE_MAX_TOKENS: Joi.number().default(450),
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
   AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
-  /**
-   * Habilita a nova arquitetura de fluxos baseada em `operation_draft` +
-   * tool obrigatória `plan_actions` + tools de draft (sc_draft_*, etc.).
-   * Quando `false`, o orchestrator usa as tools legadas como `create_surgery_request_from_whatsapp`.
-   * Default true para garantir a correção do problema de alucinação.
-   */
-  AI_USE_DRAFT_FLOWS: Joi.string().allow('').default('true'),
+
+  // ── Observabilidade / OpenTelemetry ─────────────────
+  /** URL do coletor OTLP (Jaeger, Tempo, Grafana Cloud). Omitir = ConsoleExporter em dev, noop em prod. */
+  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().allow('').optional(),
+  /** Fração de traces amostrados (0–1). Default automático: 1.0 em dev, 0.1 em prod. */
+  OTEL_TRACES_SAMPLER_ARG: Joi.number().min(0).max(1).optional(),
+
+  // ── RAG ─────────────────────────────────────────────
+  /** Número de resultados retornados pelo RAG (default 3). */
+  AI_RAG_TOP_K: Joi.number().default(3),
+  /** Score mínimo de similaridade coseno para incluir um chunk (default 0.65). */
+  AI_RAG_MIN_SCORE: Joi.number().default(0.65),
 
   // ── IA WhatsApp (Áudio/STT) ─────────────────────────
   AI_AUDIO_ENABLED: Joi.string().allow('').default('true'),

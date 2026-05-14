@@ -4,6 +4,7 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -176,6 +177,64 @@ describe('AuthService', () => {
         service.validateUser('notfound@example.com', 'any-password'),
       ).rejects.toThrow(HttpException);
     });
+
+    it('should throw UnauthorizedException (401) when user has no password', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        password: null,
+      });
+
+      await expect(
+        service.validateUser('test@example.com', 'any-password'),
+      ).rejects.toThrow(UnauthorizedException);
+
+      mockUserRepository.findOne.mockResolvedValue({
+        ...mockUser,
+        password: undefined,
+      });
+
+      await expect(
+        service.validateUser('test@example.com', 'any-password'),
+      ).rejects.toMatchObject({
+        message:
+          'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+        status: 401,
+      });
+    });
+  });
+
+  // ─── changePasswordAuthenticated ────────────────────────────────
+
+  describe('changePasswordAuthenticated', () => {
+    it('should throw UnauthorizedException when user has no password defined', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        password: null,
+      });
+
+      await expect(
+        service.changePasswordAuthenticated(
+          { currentPassword: 'any', newPassword: 'new123' },
+          'user-1',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        password: null,
+      });
+
+      await expect(
+        service.changePasswordAuthenticated(
+          { currentPassword: 'any', newPassword: 'new123' },
+          'user-1',
+        ),
+      ).rejects.toMatchObject({
+        message:
+          'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+        status: 401,
+      });
+    });
   });
 
   // ─── register ───────────────────────────────────────────────────
@@ -338,10 +397,10 @@ describe('AuthService', () => {
         password: '123456',
       });
 
-      expect(result.user.id).toBe('user-1');
-      expect(result.user.email).toBe('test@example.com');
-      expect(result.access_token).toBe('mock-jwt-token');
-      expect(result.user.isDoctor).toBe(false);
+      expect(result!.user.id).toBe('user-1');
+      expect(result!.user.email).toBe('test@example.com');
+      expect(result!.access_token).toBe('mock-jwt-token');
+      expect(result!.user.isDoctor).toBe(false);
     });
   });
 

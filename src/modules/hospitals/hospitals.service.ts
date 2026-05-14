@@ -69,7 +69,7 @@ export class HospitalsService {
     const hospital = await this.hospitalRepository.findOne({ id });
     if (!hospital) throw new NotFoundException('Hospital não encontrado');
     await this.accessControlService.assertSameOwner(userId, hospital.ownerId);
-    return this.hospitalRepository.update(id, data);
+    return (await this.hospitalRepository.update(id, data))!;
   }
 
   async delete(id: string, userId: string): Promise<void> {

@@ -7,6 +7,7 @@ import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
@@ -52,6 +53,7 @@ export class SurgeryRequestsService {
     private readonly accessControlService: AccessControlService,
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
+    private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     // ── Sub-services ───────────────────────────────────────────────────────
     private readonly mutationService: SurgeryRequestMutationService,
     private readonly workflowService: SurgeryRequestWorkflowService,
@@ -88,7 +90,11 @@ export class SurgeryRequestsService {
 
     const [total, records] = await Promise.all([
       this.surgeryRequestRepository.total(where),
-      this.surgeryRequestRepository.findMany(where, query.skip, query.take),
+      this.surgeryRequestRepository.findMany(
+        where,
+        query.skip ?? 0,
+        query.take ?? 20,
+      ),
     ]);
 
     return { total, records };
@@ -148,6 +154,62 @@ export class SurgeryRequestsService {
 
   setHasOpme(id: string, hasOpme: boolean, userId: string) {
     return this.mutationService.setHasOpme(id, hasOpme, userId);
+  }
+
+  // ============================================================
+  // ITENS TUSS
+  // ============================================================
+
+  async addTussItem(
+    surgeryRequestId: string,
+    data: { tussCode: string; name: string; quantity: number },
+    userId: string,
+  ) {
+    const where = await this.buildAccessWhere({ id: surgeryRequestId }, userId);
+    const request = await this.surgeryRequestRepository.findOneSimple(where);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+    return this.tussItemRepository.create({
+      surgeryRequestId,
+      tussCode: data.tussCode,
+      name: data.name,
+      quantity: data.quantity,
+    });
+  }
+
+  async updateTussItem(
+    tussItemId: string,
+    data: { tussCode?: string; name?: string; quantity?: number },
+    userId: string,
+  ) {
+    const item = await this.tussItemRepository.findOne({ id: tussItemId });
+    if (!item) throw new NotFoundException('Item TUSS não encontrado.');
+
+    const where = await this.buildAccessWhere(
+      { id: item.surgeryRequestId },
+      userId,
+    );
+    const request = await this.surgeryRequestRepository.findOneSimple(where);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+    return this.tussItemRepository.update(tussItemId, data);
+  }
+
+  async removeTussItem(tussItemId: string, userId: string) {
+    const item = await this.tussItemRepository.findOne({ id: tussItemId });
+    if (!item) throw new NotFoundException('Item TUSS não encontrado.');
+
+    const where = await this.buildAccessWhere(
+      { id: item.surgeryRequestId },
+      userId,
+    );
+    const request = await this.surgeryRequestRepository.findOneSimple(where);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+    return this.tussItemRepository.deleteById(tussItemId);
   }
 
   // ============================================================
@@ -236,6 +298,7 @@ export class SurgeryRequestsService {
       template: string;
       to?: string;
       channels?: { email?: boolean; whatsapp?: boolean };
+      oldStatus?: number;
     },
     userId: string,
   ) {

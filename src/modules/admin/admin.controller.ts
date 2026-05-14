@@ -4,6 +4,10 @@ import { Roles } from '../../shared/decorators/roles.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 import { AiUsageService, AiUsageReportRow } from './ai-usage.service';
 import {
+  AiEfficiencyService,
+  AiEfficiencyReport,
+} from './ai-efficiency.service';
+import {
   NotificationLogsService,
   NotificationLogQuery,
   NotificationLogStatsRow,
@@ -18,6 +22,11 @@ class AiUsageQueryDto {
   from?: string;
   to?: string;
   groupBy?: 'user' | 'model' | 'day';
+}
+
+class AiEfficiencyQueryDto {
+  from?: string;
+  to?: string;
 }
 
 class NotificationLogsQueryDto {
@@ -36,6 +45,7 @@ class NotificationLogsQueryDto {
 export class AdminController {
   constructor(
     private readonly aiUsageService: AiUsageService,
+    private readonly aiEfficiencyService: AiEfficiencyService,
     private readonly notificationLogsService: NotificationLogsService,
   ) {}
 
@@ -51,6 +61,27 @@ export class AdminController {
       from: query.from,
       to: query.to,
       groupBy: query.groupBy,
+    });
+  }
+
+  /**
+   * Métricas agregadas de eficiência da IA do WhatsApp: tokens médios,
+   * latência p50/p95, hit rate de prompt caching, distribuição de
+   * iterations por turno e custo médio. Fase 0 do
+   * `PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.md`.
+   */
+  @Get('ai-efficiency/report')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Relatório de eficiência da IA do WhatsApp (latência, cache, iterations)',
+  })
+  async getAiEfficiencyReport(
+    @Query() query: AiEfficiencyQueryDto,
+  ): Promise<AiEfficiencyReport> {
+    return this.aiEfficiencyService.getReport({
+      from: query.from,
+      to: query.to,
     });
   }
 

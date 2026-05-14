@@ -121,12 +121,19 @@ const DOCUMENT_RESPONSE_SCHEMA = {
               properties: {
                 description: { type: 'string' },
                 qty: { type: 'number', minimum: 1 },
+                supplier: { type: ['string', 'null'] },
+                brand: { type: ['string', 'null'] },
               },
-              required: ['description', 'qty'],
+              required: ['description', 'qty', 'supplier', 'brand'],
             },
           },
+          suggestedSuppliers: {
+            type: ['array', 'null'],
+            items: { type: 'string' },
+          },
+          diagnosis: { type: ['string', 'null'] },
+          suggestedProcedureName: { type: ['string', 'null'] },
           laudoText: { type: ['string', 'null'] },
-          doctorCRM: { type: ['string', 'null'] },
           notes: { type: ['string', 'null'] },
         },
         required: [
@@ -136,8 +143,10 @@ const DOCUMENT_RESPONSE_SCHEMA = {
           'tuss',
           'cid',
           'opme',
+          'suggestedSuppliers',
+          'diagnosis',
+          'suggestedProcedureName',
           'laudoText',
-          'doctorCRM',
           'notes',
         ],
       },
@@ -154,18 +163,71 @@ const DOCUMENT_RESPONSE_SCHEMA = {
 
 const SYSTEM_PROMPT = [
   'Você é um classificador de documentos médicos brasileiros (laudos, guias',
-  'de autorização, RG/CPF, exames, faturas, comprovantes). Sua tarefa é:',
+  'de autorização, RG/CPF, exames, faturas, comprovantes). Seu papel é EXTRAIR',
+  'O MÁXIMO POSSÍVEL de informação útil para preencher uma solicitação',
+  'cirúrgica — quanto mais campos completos, menos perguntas o sistema fará',
+  'ao médico depois.',
   '',
-  '1. Identificar o tipo do documento entre as categorias permitidas.',
-  '2. Extrair APENAS os campos que estão claramente legíveis no texto.',
-  '3. NÃO INVENTAR ou inferir dados que não estão escritos.',
-  '4. Devolver placeholders no formato `{{categoria_n}}` exatamente como',
-  '   recebidos — eles representam dados sensíveis do paciente que já foram',
-  '   tokenizados pela camada de privacidade. NUNCA "expanda" um placeholder',
-  '   nem invente um número/CPF/telefone real.',
-  '5. Se a confiança for baixa (< 0.7), descrever a dúvida em `ambiguity`.',
-  '6. Sempre devolver `null` (não string vazia) para campos ausentes.',
-  '7. `qty` em OPME é inteiro positivo; se incerto, retorne `1`.',
+  'REGRAS GERAIS:',
+  '1. Identifique o `kind` do documento entre as categorias permitidas.',
+  '2. Extraia TODO campo que estiver claramente legível. Se está escrito,',
+  '   coloque na resposta — não seja conservador.',
+  '3. NÃO invente: se não está no texto, retorne `null`.',
+  '4. Devolva placeholders no formato `{{categoria_n}}` exatamente como',
+  '   recebidos (são PII tokenizada). NUNCA expanda um placeholder.',
+  '5. Se confiança < 0.7, descreva a dúvida em `ambiguity`.',
+  '6. Sempre `null` (não string vazia) para ausentes.',
+  '',
+  'COMO LER UM LAUDO/SOLICITAÇÃO CIRÚRGICA TÍPICO BRASILEIRO:',
+  '',
+  'Cabeçalho — geralmente tem o nome da clínica e os médicos. NÃO precisa',
+  'extrair CRM (o sistema já sabe quem é o médico solicitante).',
+  '',
+  '"Paciente: <NOME>" → `extracted.patient.name`. Pode aparecer também como',
+  '"Pcte:", "Nome:", "Nome do paciente:".',
+  '"Plano: <NOME>" / "Convênio: <NOME>" → `extracted.healthPlan.name`.',
+  '"Hospital: <NOME>" / "Clínica:" → `extracted.hospital`.',
+  '',
+  'DIAGNÓSTICO E QUADRO CLÍNICO:',
+  '"Diagnóstico:" / "Diagnostico:" / "Hipótese diagnóstica:" / "DH:" →',
+  '`extracted.diagnosis` (texto livre, ex.: "Hérnia discal cervical C5-C6 e',
+  'C4-C5 com compressão radicular"). Se houver código CID escrito no',
+  'documento (ex.: "M50.1") use `extracted.cid`; CASO CONTRÁRIO, deixe',
+  '`cid: null` — NÃO invente CID a partir do texto.',
+  '',
+  'PROCEDIMENTO SUGERIDO:',
+  '"Indicado procedimento cirúrgico com X" / "Procedimento proposto:" /',
+  '"Cirurgia indicada:" / "Tratamento proposto:" → `extracted.suggestedProcedureName`',
+  '(texto livre curto, ex.: "Artrodese cervical anterior C5-C6 e C4-C5"). É',
+  'o NOME da cirurgia, NÃO o código TUSS.',
+  '',
+  'CÓDIGOS TUSS:',
+  '"Códigos solicitados:" / "TUSS:" / "Código:" — cada linha vira um item de',
+  '`extracted.tuss` com `code` (ex.: "3.07.15.091" ou "30715091") e',
+  '`description` (descrição na mesma linha). Se a mesma descrição aparece',
+  'várias vezes com códigos diferentes, mantenha cada uma.',
+  '',
+  'OPME (Órteses, Próteses, Materiais Especiais):',
+  '"MATERIAL:" / "OPME:" / "Materiais necessários:" — cada linha geralmente',
+  'tem quantidade + descrição. Exemplo: "02 CAGES STAND ALONE" vira',
+  '`{description: "CAGES STAND ALONE", qty: 2}`. "01 KIT BIPOLAR" vira',
+  '`{description: "KIT BIPOLAR", qty: 1}`. Quando a quantidade não estiver',
+  'explícita, use `qty: 1`.',
+  '',
+  'FORNECEDORES OPME:',
+  '"SUGIRO AS EMPRESAS:" / "Fornecedores sugeridos:" / "Distribuidores:" —',
+  'liste cada empresa em `extracted.suggestedSuppliers` (apenas o NOME da',
+  'distribuidora, ex.: ["SINTEX", "VITALITY", "GUSMED"]). Se o documento',
+  'associar empresa direto a um material específico, preencha também',
+  '`opme[].supplier` no item correspondente. Se houver MARCA/fabricante',
+  'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), coloque a marca em',
+  '`opme[].brand` quando puder associar; senão deixe `null`.',
+  '',
+  'LAUDO CLÍNICO COMPLETO:',
+  'O texto narrativo entre "Diagnóstico" e "Códigos solicitados" (queixa,',
+  'exame neurológico, RNM, indicação cirúrgica, justificativa) deve ir',
+  '**INTEIRO** em `extracted.laudoText`. Não trunque, não resuma — copie',
+  'literal. Esse texto vai virar o "laudoText" da SC.',
   '',
   'Regras de mapeamento `kind` → `suggestedDocumentType`:',
   '- `medical_report` → `medical_report`',
@@ -176,6 +238,11 @@ const SYSTEM_PROMPT = [
   '- `receipt` → `receipt_document`',
   '- `surgery_request` → `medical_report`',
   '- `unknown` → `additional_document`',
+  '',
+  'IMPORTANTE: laudos cirúrgicos brasileiros (com diagnóstico + procedimento',
+  'sugerido + códigos TUSS + OPME + assinatura de médico) devem ser',
+  'classificados como `surgery_request` (não `medical_report`), porque vão',
+  'virar uma solicitação cirúrgica no sistema.',
 ].join('\n');
 
 @Injectable()
@@ -240,10 +307,38 @@ export class DocumentClassifierService {
     const model = this.getModel();
     const userPrompt = this.buildUserPrompt(trimmed, opts.intent);
 
+    // Salvaguarda contra regressão do `payload_blob`: se o texto tokenizado
+    // veio reduzido a um único placeholder gigante (bug onde
+    // `preprocessUserInput` engolia laudos > 1500 chars), o classifier não
+    // tem como inferir nada — devolve cedo com aviso explícito em vez de
+    // queimar tokens da OpenAI.
+    if (this.isBlobPlaceholderOnly(trimmed)) {
+      this.logger.warn(
+        `[AI_DOC_CLASSIFY] sid=${opts.messageSid ?? '-'} model=${model} blob_only_input=true input_len=${trimmed.length}`,
+      );
+      return {
+        classification: this.buildEmptyClassification(
+          startedAt,
+          'texto degenerou em payload_blob — desabilite o blobThreshold no caminho OCR',
+        ),
+        usage: {
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          model,
+          latencyMs: Date.now() - startedAt,
+        },
+      };
+    }
+
     const response = await this.openai.chatCompletion({
       model,
       temperature: 0,
-      maxTokens: 800,
+      // 2500 tokens dá folga para JSONs reais de laudo (TUSS + CID + OPME +
+      // patient + laudoText). 800 truncava respostas em laudos bem
+      // preenchidos, fazendo o JSON parse falhar e o pipeline cair em
+      // "classifier_failed".
+      maxTokens: 2500,
       timeoutMs: 30000,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -316,6 +411,20 @@ export class DocumentClassifierService {
       'gpt-4o-mini',
     );
     return (raw && raw.trim()) || 'gpt-4o-mini';
+  }
+
+  /**
+   * Retorna `true` quando o texto enviado consiste essencialmente em UM
+   * placeholder de `{{payload_blob_n}}` — sintoma do bug do PII Vault em
+   * que o blobThreshold engolia laudos inteiros. Mantemos a heurística
+   * permissiva (umas 60 chars de "ruído" toleradas) porque o tokenizador
+   * pode adicionar quebras/espaços ao redor.
+   */
+  private isBlobPlaceholderOnly(text: string): boolean {
+    const blobMatches = text.match(/\{\{payload_blob_\d+\}\}/g) ?? [];
+    if (blobMatches.length !== 1) return false;
+    const stripped = text.replace(/\{\{payload_blob_\d+\}\}/g, '').trim();
+    return stripped.length < 60;
   }
 
   private buildEmptyClassification(
@@ -432,25 +541,51 @@ export class DocumentClassifierService {
 
     if (Array.isArray(raw?.opme) && raw.opme.length) {
       const opme = raw.opme
-        .map((item: any) => ({
-          description:
-            typeof item?.description === 'string'
-              ? item.description.trim()
-              : '',
-          qty: Number.isFinite(Number(item?.qty))
-            ? Math.max(1, Math.floor(Number(item?.qty)))
-            : 1,
-        }))
+        .map((item: any) => {
+          const entry: any = {
+            description:
+              typeof item?.description === 'string'
+                ? item.description.trim()
+                : '',
+            qty: Number.isFinite(Number(item?.qty))
+              ? Math.max(1, Math.floor(Number(item?.qty)))
+              : 1,
+          };
+          if (typeof item?.supplier === 'string' && item.supplier.trim()) {
+            entry.supplier = item.supplier.trim();
+          }
+          if (typeof item?.brand === 'string' && item.brand.trim()) {
+            entry.brand = item.brand.trim();
+          }
+          return entry;
+        })
         .filter((item: any) => item.description);
       if (opme.length) out.opme = opme;
     }
 
-    if (typeof raw?.laudoText === 'string' && raw.laudoText.trim()) {
-      out.laudoText = raw.laudoText.trim();
+    if (
+      Array.isArray(raw?.suggestedSuppliers) &&
+      raw.suggestedSuppliers.length
+    ) {
+      const suppliers = raw.suggestedSuppliers
+        .map((s: any) => (typeof s === 'string' ? s.trim() : ''))
+        .filter((s: string) => s.length > 0);
+      if (suppliers.length) out.suggestedSuppliers = suppliers;
     }
 
-    if (typeof raw?.doctorCRM === 'string' && raw.doctorCRM.trim()) {
-      out.doctorCRM = raw.doctorCRM.trim();
+    if (typeof raw?.diagnosis === 'string' && raw.diagnosis.trim()) {
+      out.diagnosis = raw.diagnosis.trim();
+    }
+
+    if (
+      typeof raw?.suggestedProcedureName === 'string' &&
+      raw.suggestedProcedureName.trim()
+    ) {
+      out.suggestedProcedureName = raw.suggestedProcedureName.trim();
+    }
+
+    if (typeof raw?.laudoText === 'string' && raw.laudoText.trim()) {
+      out.laudoText = raw.laudoText.trim();
     }
 
     if (typeof raw?.notes === 'string' && raw.notes.trim()) {

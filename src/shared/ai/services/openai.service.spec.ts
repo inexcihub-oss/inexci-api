@@ -136,4 +136,69 @@ describe('OpenaiService', () => {
       expect.objectContaining({ timeout: 90000 }),
     );
   });
+
+  describe('prompt caching (Fase 1)', () => {
+    it('propaga `cacheKey` como `prompt_cache_key` no body do request', async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+      });
+
+      await service.chatCompletion({
+        messages: [{ role: 'user', content: 'Olá' }],
+        cacheKey: 'inexci:wa:v2.1.2:draft=create_sc',
+      });
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt_cache_key: 'inexci:wa:v2.1.2:draft=create_sc',
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('omite `prompt_cache_key` quando `cacheKey` não é informado', async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+      });
+
+      await service.chatCompletion({
+        messages: [{ role: 'user', content: 'Olá' }],
+      });
+
+      const body = mockCreate.mock.calls[0][0];
+      expect(body).not.toHaveProperty('prompt_cache_key');
+    });
+
+    it('omite `prompt_cache_key` quando `cacheKey` é string vazia ou só espaços', async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+      });
+
+      await service.chatCompletion({
+        messages: [{ role: 'user', content: 'Olá' }],
+        cacheKey: '   ',
+      });
+
+      const body = mockCreate.mock.calls[0][0];
+      expect(body).not.toHaveProperty('prompt_cache_key');
+    });
+
+    it('faz trim em `cacheKey` antes de enviar', async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+      });
+
+      await service.chatCompletion({
+        messages: [{ role: 'user', content: 'Olá' }],
+        cacheKey: '  inexci:wa:v2.1.2:draft=invoice  ',
+      });
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt_cache_key: 'inexci:wa:v2.1.2:draft=invoice',
+        }),
+        expect.any(Object),
+      );
+    });
+  });
 });

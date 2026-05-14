@@ -301,26 +301,45 @@ export class RagBootstrapService implements OnModuleInit {
       } as Record<string, any>,
     }));
 
-    await this.ingestionService.replaceCategory('faq', faq);
-    await this.ingestionService.replaceCategory('workflow', workflow);
-    await this.ingestionService.replaceCategory('glossary', glossary);
+    await this.ingestionService.replaceCategory('faq', faq, {
+      maxTokens: 300,
+      overlapTokens: 30,
+    });
+    await this.ingestionService.replaceCategory('workflow', workflow, {
+      maxTokens: 500,
+      overlapTokens: 60,
+    });
+    await this.ingestionService.replaceCategory('glossary', glossary, {
+      maxTokens: 400,
+      overlapTokens: 40,
+    });
     await this.ingestionService.replaceCategory(
       'whatsapp-capabilities',
       whatsappCapabilities,
+      { maxTokens: 300, overlapTokens: 30 },
     );
     await this.ingestionService.replaceCategory(
       'faq-candidates',
       faqCandidates,
+      { maxTokens: 300, overlapTokens: 30 },
     );
-    await this.ingestionService.replaceCategory('whatsapp-gap', whatsappGaps);
-    await this.ingestionService.replaceCategory('pendencies', pendencies);
+    await this.ingestionService.replaceCategory('whatsapp-gap', whatsappGaps, {
+      maxTokens: 300,
+      overlapTokens: 30,
+    });
+    await this.ingestionService.replaceCategory('pendencies', pendencies, {
+      maxTokens: 400,
+      overlapTokens: 50,
+    });
     await this.ingestionService.replaceCategory(
       'assistant-limitations',
       assistantLimitations,
+      { maxTokens: 300, overlapTokens: 30 },
     );
     await this.ingestionService.replaceCategory(
       'whatsapp-intents',
       whatsappIntents,
+      { maxTokens: 300, overlapTokens: 30 },
     );
   }
 
@@ -336,9 +355,17 @@ export class RagBootstrapService implements OnModuleInit {
         title: item.question,
         content: `Pergunta: ${item.question}\nResposta: ${item.answer}`,
       })),
+      { maxTokens: 300, overlapTokens: 30 },
     );
 
-    await this.ingestionService.replaceCategory('workflow', WORKFLOW_SEED);
-    await this.ingestionService.replaceCategory('glossary', GLOSSARY_SEED);
+    await this.ingestionService.replaceCategory('workflow', WORKFLOW_SEED, {
+      maxTokens: 500,
+      overlapTokens: 60,
+    });
+
+    await this.ingestionService.replaceCategory('glossary', GLOSSARY_SEED, {
+      maxTokens: 400,
+      overlapTokens: 40,
+    });
   }
 }

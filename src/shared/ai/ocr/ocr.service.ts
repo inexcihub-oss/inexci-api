@@ -9,6 +9,7 @@ import {
   OcrResult,
   OcrUnsupportedMimeError,
 } from './ocr.types';
+import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
 
 /**
  * Limite mínimo de caracteres "úteis" extraídos via text-layer do PDF para
@@ -17,6 +18,39 @@ import {
  * imagens).
  */
 const MIN_NATIVE_PDF_TEXT_CHARS = 100;
+
+/**
+ * Subconjunto da API pública do `pdf-parse@2` utilizado neste serviço.
+ * Tipagem explícita evita `any` na instanciação e nas chamadas de método,
+ * satisfazendo o strict mode sem depender de `@types/pdf-parse`.
+ */
+interface PdfParseTextResult {
+  text: string;
+  total?: number;
+  numpages?: number;
+}
+
+interface PdfParseScreenshotPage {
+  pageNumber?: number;
+  data?: Buffer;
+}
+
+interface PdfParseScreenshotResult {
+  pages?: PdfParseScreenshotPage[];
+}
+
+interface PdfParseInstance {
+  getText(): Promise<PdfParseTextResult>;
+  getScreenshot(opts: {
+    scale?: number;
+    first?: number;
+    imageBuffer?: boolean;
+    imageDataUrl?: boolean;
+  }): Promise<PdfParseScreenshotResult>;
+  destroy?(): Promise<void>;
+}
+
+type PdfParseCtor = new (opts: { data: Buffer }) => PdfParseInstance;
 
 /**
  * Escala de rasterização. Maior = melhor OCR, mais memória/CPU.
@@ -87,18 +121,81 @@ export class OcrService implements OnModuleDestroy {
   /**
    * Caminho preferido: extrai e já tokeniza CPF/telefone/email via
    * `PiiVaultService.preprocessUserInput`. Garante que nada de PII estruturada
-   * vaza para o LLM externo (LGPD).
+   * vaza para o LLM externo (LGPD). Texto do laudo flui inteiro — sem
+   * `payload_blob` — para o classificador conseguir extrair os campos.
    */
   async extractAndTokenize(
     input: OcrInput,
     sessionId: string,
   ): Promise<OcrResult & { tokenizedText: string }> {
-    const result = await this.extract(input);
-    const tokenizedText = this.piiVault.preprocessUserInput(
-      sessionId,
-      result.text,
+    return inexciTracer.startActiveSpan(
+      'ocr.extractAndTokenize',
+      async (span) => {
+        span.setAttribute('ocr.mime', input.mimeType);
+        span.setAttribute('ocr.size_bytes', input.buffer.length);
+        const t0 = Date.now();
+        try {
+          const result = await this.extract(input);
+          span.setAttribute('ocr.source', result.source);
+          span.setAttribute('ocr.pages', result.pages.length);
+          span.setAttribute('ocr.duration_ms', Date.now() - t0);
+          span.setAttribute('ocr.text_length', result.text.length);
+          const tokenizedText = this.piiVault.preprocessUserInput(
+            sessionId,
+            result.text,
+          );
+          span.setStatus({ code: SpanStatusCode.OK });
+          return { ...result, tokenizedText };
+        } catch (e: any) {
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+          throw e;
+        } finally {
+          span.end();
+        }
+      },
     );
-    return { ...result, tokenizedText };
+  }
+
+  /**
+   * Rasteriza a primeira página de um PDF como PNG. Usado pelo Vision
+   * fallback quando o classifier text-only é insuficiente em PDFs (gpt-4o
+   * Vision aceita só imagens). Retorna `null` se a lib não estiver
+   * disponível ou se o PDF estiver corrompido.
+   */
+  async rasterizeFirstPdfPage(buffer: Buffer): Promise<Buffer | null> {
+    const PDFParseCtor = await this.loadPdfParseCtor();
+    if (!PDFParseCtor) return null;
+
+    let parser: PdfParseInstance | undefined;
+    try {
+      parser = new PDFParseCtor({ data: buffer });
+      const screenshot = await parser.getScreenshot({
+        scale: PDF_RASTER_SCALE,
+        first: 1,
+        imageBuffer: true,
+        imageDataUrl: false,
+      });
+      const screenshotPages = Array.isArray(screenshot?.pages)
+        ? screenshot.pages
+        : [];
+      const firstPage = screenshotPages[0];
+      const data: Buffer | undefined = firstPage?.data;
+      return data ?? null;
+    } catch (err: any) {
+      this.logger.warn(
+        `[AI_DOC_OCR] rasterizeFirstPdfPage falhou: ${err?.message || 'erro desconhecido'}`,
+      );
+      return null;
+    } finally {
+      try {
+        if (parser && typeof parser.destroy === 'function') {
+          await parser.destroy();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -177,7 +274,7 @@ export class OcrService implements OnModuleDestroy {
     let nativeText = '';
 
     // Tentativa 1: extração via text-layer (PDFs nativos).
-    let parser: any;
+    let parser: PdfParseInstance | undefined;
     try {
       parser = new PDFParseCtor({ data: input.buffer });
       const textResult = await parser.getText();
@@ -258,12 +355,12 @@ export class OcrService implements OnModuleDestroy {
   }
 
   private async rasterizeAndOcrPdf(
-    PDFParseCtor: any,
+    PDFParseCtor: PdfParseCtor,
     buffer: Buffer,
     warnings: string[],
   ): Promise<OcrPageResult[]> {
     const pages: OcrPageResult[] = [];
-    let parser: any;
+    let parser: PdfParseInstance | undefined;
     try {
       parser = new PDFParseCtor({ data: buffer });
       const screenshot = await parser.getScreenshot({
@@ -337,10 +434,15 @@ export class OcrService implements OnModuleDestroy {
    * carregamento (ex.: lib nativa ausente em ambientes de teste) seja
    * tratada como warning e não derrube o boot da app.
    */
-  private async loadPdfParseCtor(): Promise<any | null> {
+  private async loadPdfParseCtor(): Promise<PdfParseCtor | null> {
     try {
-      const mod: any = await import('pdf-parse');
-      return mod?.PDFParse ?? mod?.default?.PDFParse ?? null;
+      const mod = await import('pdf-parse');
+      const ctor =
+        (mod as unknown as { PDFParse?: PdfParseCtor })?.PDFParse ??
+        (mod as unknown as { default?: { PDFParse?: PdfParseCtor } })?.default
+          ?.PDFParse ??
+        null;
+      return ctor;
     } catch (err: any) {
       this.logger.warn(
         `[AI_DOC_OCR] pdf-parse indisponível: ${err?.message || 'erro'}`,

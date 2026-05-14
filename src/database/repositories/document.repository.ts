@@ -18,7 +18,7 @@ export class DocumentRepository extends BaseRepository<Document> {
     const document = this.repository.create(data);
     const saved = await this.repository.save(document);
 
-    return await this.repository.findOne({
+    return (await this.repository.findOne({
       where: { id: saved.id },
       relations: ['creator'],
       select: {
@@ -28,7 +28,7 @@ export class DocumentRepository extends BaseRepository<Document> {
           name: true,
         },
       },
-    });
+    }))!;
   }
 
   async findOneSimple(

@@ -1,5 +1,6 @@
 import { buildActionTools } from './action.tools';
 import { ToolContext } from './tool.interface';
+import { parseToolResult } from './tool-result';
 
 const mockSurgeryRequestRepo = { findOneSimple: jest.fn(), findOne: jest.fn() };
 const mockWorkflowService = {
@@ -34,7 +35,6 @@ const mockPendencyValidator = {
   }),
 };
 const mockActivityRepo = { create: jest.fn() };
-const mockPatientRepo = { update: jest.fn() };
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -57,7 +57,6 @@ describe('ActionTools', () => {
     mockMutationService as any,
     mockPendencyValidator as any,
     mockActivityRepo as any,
-    mockPatientRepo as any,
   );
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
@@ -363,106 +362,55 @@ describe('ActionTools', () => {
     });
   });
 
-  describe('update_surgery_request_data', () => {
-    it('deve mostrar preview sem confirm', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
-
-      const tool = getTool('update_surgery_request_data');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1', priority: 4 },
-        baseContext,
-      );
-
-      expect(result).toContain('Urgente');
-      expect(result).toContain('Confirme');
-      expect(mockMutationService.updateBasic).not.toHaveBeenCalled();
-    });
-
-    it('deve atualizar com confirm=true e logar atividade', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
-      mockMutationService.updateBasic.mockResolvedValue(undefined);
-
-      const tool = getTool('update_surgery_request_data');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1', priority: 3, confirm: true },
-        baseContext,
-      );
-
-      expect(mockMutationService.updateBasic).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'req-1', priority: 3 }),
-        'user-1',
-      );
-      expect(mockActivityRepo.create).toHaveBeenCalled();
-      expect(result).not.toMatch(/[\p{Extended_Pictographic}]/u);
-    });
-
-    it('deve rejeitar prioridade inválida', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
-
-      const tool = getTool('update_surgery_request_data');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1', priority: 99, confirm: true },
-        baseContext,
-      );
-
-      expect(result).toContain('inválida');
-    });
-
-    it('deve retornar erro se nenhuma alteração especificada', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
-
-      const tool = getTool('update_surgery_request_data');
-      const result = await tool.execute(
-        { surgeryRequestId: 'req-1' },
-        baseContext,
-      );
-
-      expect(result).toContain('Nenhuma alteração');
-    });
+  // Regressão Sub-fase 3.8 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
+  // `update_surgery_request_data` e `update_patient_data` foram removidas.
+  it('não expõe mais update_surgery_request_data nem update_patient_data', () => {
+    const names = tools.map((t) => t.name);
+    expect(names).not.toContain('update_surgery_request_data');
+    expect(names).not.toContain('update_patient_data');
   });
 
-  describe('update_patient_data', () => {
-    it('deve mostrar preview sem confirm', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        patientId: 'pat-1',
-      });
-
-      const tool = getTool('update_patient_data');
+  // ----------------------------------------------------------------
+  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
+  // ----------------------------------------------------------------
+  describe('envelope ToolResult — close_surgery_request', () => {
+    it('status=pending_confirmation quando sem confirm', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
+      const tool = getTool('close_surgery_request');
       const result = await tool.execute(
-        { surgeryRequestId: 'SC-0042', phone: '(11) 99999-9999' },
+        { surgeryRequestId: 'req-1', reason: 'Paciente desistiu' },
         baseContext,
       );
-
-      expect(result).toContain('Confirme');
-      expect(mockPatientRepo.update).not.toHaveBeenCalled();
+      const parsed = parseToolResult(result);
+      expect(parsed?.status).toBe('pending_confirmation');
+      expect(parsed?.pending_confirmation?.tool).toBe('close_surgery_request');
+      expect(parsed?.message).toContain('não pode ser desfeita');
     });
 
-    it('deve atualizar dados do paciente com confirm=true', async () => {
-      mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
-        if (where?.protocol === 'SC-0042') {
-          return { ...mockRequest, patientId: 'pat-1' };
-        }
-        return null;
-      });
-      mockPatientRepo.update.mockResolvedValue({ id: 'pat-1' });
-
-      const tool = getTool('update_patient_data');
+    it('status=ok após encerramento com confirm', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);
+      mockWorkflowService.closeSurgeryRequest.mockResolvedValue(undefined);
+      const tool = getTool('close_surgery_request');
       const result = await tool.execute(
         {
-          surgeryRequestId: 'SC-0042',
-          phone: '(11) 99999-9999',
-          zipCode: '01310-100',
+          surgeryRequestId: 'req-1',
+          reason: 'Paciente desistiu',
           confirm: true,
         },
         baseContext,
       );
+      const parsed = parseToolResult(result);
+      expect(parsed?.status).toBe('ok');
+      expect(parsed?.affected?.[0]?.kind).toBe('surgery_request');
+    });
 
-      expect(mockPatientRepo.update).toHaveBeenCalledWith('pat-1', {
-        phone: '(11) 99999-9999',
-        zipCode: '01310-100',
-      });
-      expect(result).toContain('atualizados com sucesso');
+    it('status=blocked quando sem userId (acesso negado)', async () => {
+      const tool = getTool('close_surgery_request');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-1', reason: 'teste' },
+        { ...baseContext, userId: null },
+      );
+      expect(parseToolResult(result)?.status).toBe('blocked');
     });
   });
 });

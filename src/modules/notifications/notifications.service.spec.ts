@@ -74,13 +74,14 @@ describe('NotificationsService', () => {
         userId: 'user-1',
         type: NotificationType.INFO,
       }),
-      createBulk: jest
-        .fn()
-        .mockImplementation((items) =>
-          Promise.resolve(
-            items.map((item, i) => ({ id: `notif-${i}`, ...item })),
-          ),
+      createBulk: jest.fn().mockImplementation((items: any[]) =>
+        Promise.resolve(
+          items.map((item: any, i: number) => ({
+            id: `notif-${i}`,
+            ...item,
+          })),
         ),
+      ),
       findByUserId: jest.fn().mockResolvedValue([]),
       countUnread: jest.fn().mockResolvedValue(0),
       markAsRead: jest.fn().mockResolvedValue(undefined),
@@ -351,7 +352,9 @@ describe('NotificationsService', () => {
       // Deve criar bulk vazio ou não chamar createBulk
       const bulkCall = mockNotificationRepository.createBulk.mock.calls[0];
       if (bulkCall) {
-        expect(bulkCall[0].find((n) => n.userId === 'admin-1')).toBeUndefined();
+        expect(
+          bulkCall[0].find((n: any) => n.userId === 'admin-1'),
+        ).toBeUndefined();
       }
     });
 
@@ -366,8 +369,8 @@ describe('NotificationsService', () => {
       await service.notifyAdminsOfAction('collab-1', 'Ação', 'Mensagem');
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      expect(items.some((n) => n.userId === 'admin-1')).toBe(true);
-      expect(items.some((n) => n.userId === 'admin-2')).toBe(true);
+      expect(items.some((n: any) => n.userId === 'admin-1')).toBe(true);
+      expect(items.some((n: any) => n.userId === 'admin-2')).toBe(true);
     });
 
     it('não chama createBulk se não há admins outros que o ator', async () => {
@@ -433,7 +436,7 @@ describe('NotificationsService', () => {
 
       expect(mockNotificationRepository.createBulk).toHaveBeenCalled();
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.userId);
+      const recipientIds = items.map((n: any) => n.userId);
       expect(recipientIds).toContain('doctor-1');
       expect(recipientIds).toContain('admin-1');
     });
@@ -449,7 +452,7 @@ describe('NotificationsService', () => {
       );
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.userId);
+      const recipientIds = items.map((n: any) => n.userId);
       expect(recipientIds).not.toContain(actorId);
     });
 
@@ -478,7 +481,7 @@ describe('NotificationsService', () => {
       );
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.userId);
+      const recipientIds = items.map((n: any) => n.userId);
       expect(recipientIds).toContain('activity-user-1');
     });
 
@@ -493,9 +496,9 @@ describe('NotificationsService', () => {
       );
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
-      const recipientIds = items.map((n) => n.userId);
+      const recipientIds = items.map((n: any) => n.userId);
       const doctorOccurrences = recipientIds.filter(
-        (id) => id === 'doctor-1',
+        (id: string) => id === 'doctor-1',
       ).length;
       expect(doctorOccurrences).toBe(1);
     });
@@ -512,7 +515,7 @@ describe('NotificationsService', () => {
 
       const [items] = mockNotificationRepository.createBulk.mock.calls[0];
       expect(
-        items.every((n) => n.type === NotificationType.STATUS_UPDATE),
+        items.every((n: any) => n.type === NotificationType.STATUS_UPDATE),
       ).toBe(true);
     });
 

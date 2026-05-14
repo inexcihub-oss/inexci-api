@@ -2,6 +2,19 @@ import OpenAI from 'openai';
 import { AiOrchestratorService } from './ai-orchestrator.service';
 import { PiiVaultService } from './pii-vault.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
+import { ResponseNormalizerService } from './orchestrator/response-normalizer.service';
+import { PhoneNormalizerService } from './orchestrator/phone-normalizer.service';
+import { ClearContextDetectorService } from './orchestrator/clear-context-detector.service';
+import { ConfirmationManagerService } from './orchestrator/confirmation-manager.service';
+import { OrchestratorTelemetryService } from './orchestrator/orchestrator-telemetry.service';
+import { ToolLoopRunnerService } from './orchestrator/tool-loop-runner.service';
+import { MessageProcessorService } from './orchestrator/message-processor.service';
+import { AudioIntakeService } from './orchestrator/audio-intake.service';
+import { PiiBindingService } from './orchestrator/pii-binding.service';
+import { ConversationMemoryService } from './orchestrator/conversation-memory.service';
+import { NextStepAdvisorService } from './orchestrator/next-step-advisor.service';
+import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
+import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 
 describe('AiOrchestratorService (tool-calls integration)', () => {
   const queueMock = { add: jest.fn() };
@@ -17,9 +30,18 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     shouldRefreshSummary: jest.fn().mockResolvedValue(false),
     updateSummaryAndMemory: jest.fn().mockResolvedValue(undefined),
   };
-  const toolRegistryMock = { getToolDefinitions: jest.fn() };
+  const toolRegistryMock = {
+    getToolDefinitions: jest.fn(),
+    getToolDefinitionsForDraft: jest.fn(),
+  };
   const toolExecutorMock = { executeMany: jest.fn() };
-  const ragServiceMock = { search: jest.fn(), formatContext: jest.fn() };
+  const ragServiceMock = {
+    search: jest.fn(),
+    formatContext: jest.fn(),
+    computeMetrics: jest
+      .fn()
+      .mockReturnValue({ hitsCount: 0, topScore: 0, avgScore: 0 }),
+  };
   const whatsappServiceMock = {
     sendMessage: jest.fn(),
     sendTemplate: jest.fn(),
@@ -28,6 +50,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   const accessControlMock = { getAccessibleDoctorIds: jest.fn() };
   const pendencyValidatorMock = { validateForStatus: jest.fn() };
   const surgeryRequestRepoMock = { findOneSimple: jest.fn() };
+  const nextStepAdvisorService = new NextStepAdvisorService(
+    surgeryRequestRepoMock as unknown as SurgeryRequestRepository,
+    pendencyValidatorMock as unknown as PendencyValidatorService,
+  );
   const aiTokenUsageLogRepoMock = { create: jest.fn() };
   const transcriptionServiceMock = { transcribe: jest.fn() };
   const whatsappMediaServiceMock = {
@@ -38,10 +64,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     get: jest.fn((key: string, defaultValue?: any) => {
       if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
       if (key === 'AI_AUDIO_ENABLED') return 'true';
-      // Mantém testes legados rodando sob comportamento pré-guard:
-      // o guard de `plan_actions` é exercido em spec dedicado
-      // (`ai-orchestrator.plan-guard.spec.ts`).
-      if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
       return defaultValue;
     }),
   };
@@ -49,6 +71,13 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   const whatsappConversationRepoMock = {
     findOne: jest.fn().mockResolvedValue(null),
     update: jest.fn().mockResolvedValue(undefined),
+  };
+  const draftContextMock = {
+    buildToolsForDraft: jest
+      .fn()
+      .mockResolvedValue({ tools: [], draftType: null }),
+    buildCacheKey: jest.fn().mockReturnValue('inexci:wa:v1:draft=none'),
+    evaluatePlanFirstGuard: jest.fn().mockResolvedValue(new Set()),
   };
   const operationDraftServiceMock = {
     getCurrent: jest.fn().mockResolvedValue(null),
@@ -83,6 +112,37 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       .fn()
       .mockResolvedValue({ status: 'ok', userSummary: 'resumo do documento' }),
   };
+  const documentIntakeMock = {
+    processInboundDocumentIfNeeded: jest.fn().mockResolvedValue(false),
+    buildDocumentPendingHint: jest.fn().mockResolvedValue(null),
+  };
+  const audioIntakeMock = {
+    processInboundAudioIfNeeded: jest.fn().mockResolvedValue({
+      hasAudio: false,
+      failed: false,
+      transcription: null,
+    }),
+    buildUserInputForAi: jest
+      .fn()
+      .mockImplementation(
+        ({
+          textInput,
+          transcriptionText,
+        }: {
+          textInput: string;
+          transcriptionText: string | null;
+        }) => textInput || transcriptionText || '',
+      ),
+    buildAudioFailureUserMessage: jest
+      .fn()
+      .mockReturnValue('falha ao transcrever'),
+    isAudioEnabled: jest.fn().mockReturnValue(true),
+  };
+  const piiBindingMock = {
+    loadPersistedPiiBindings: jest.fn().mockResolvedValue({}),
+    persistPiiBindings: jest.fn().mockResolvedValue(undefined),
+    redactResidualPii: jest.fn().mockImplementation((text: string) => text),
+  };
   const aiRedisMock = {
     isAvailable: false,
     checkRateLimit: jest.fn().mockResolvedValue(true),
@@ -103,7 +163,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       (key: string, defaultValue?: any) => {
         if (key === 'AI_PROCESS_TIMEOUT_MS') return 90000;
         if (key === 'AI_AUDIO_ENABLED') return 'true';
-        if (key === 'AI_USE_DRAFT_FLOWS') return 'false';
         return defaultValue;
       },
     );
@@ -114,7 +173,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     piiRedactionLogRepoMock.create.mockResolvedValue(undefined);
 
     service = new AiOrchestratorService(
-      queueMock as any,
       openaiServiceMock as any,
       conversationServiceMock as any,
       toolRegistryMock as any,
@@ -123,20 +181,72 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       whatsappServiceMock as any,
       userRepositoryMock as any,
       accessControlMock as any,
-      pendencyValidatorMock as any,
-      surgeryRequestRepoMock as any,
-      aiTokenUsageLogRepoMock as any,
       configServiceMock as any,
-      transcriptionServiceMock as any,
       whatsappMediaServiceMock as any,
       piiVault,
       piiRedactionLogRepoMock as any,
       aiRedisMock as any,
       defaultContextServiceMock as any,
       whatsappConversationRepoMock as any,
-      operationDraftServiceMock as any,
-      documentDispatcherMock as any,
-      documentProcessorMock as any,
+      new ResponseNormalizerService(),
+      new PhoneNormalizerService(userRepositoryMock as any),
+      new ClearContextDetectorService(),
+      new ConfirmationManagerService(
+        whatsappConversationRepoMock as any,
+        conversationServiceMock as any,
+      ),
+      new OrchestratorTelemetryService(
+        aiTokenUsageLogRepoMock as any,
+        new PhoneNormalizerService(userRepositoryMock as any),
+        {
+          categoryCounts: jest.fn().mockReturnValue({}),
+        } as unknown as PiiVaultService,
+      ),
+      new ToolLoopRunnerService(
+        openaiServiceMock as any,
+        toolExecutorMock as any,
+        new ConfirmationManagerService(
+          whatsappConversationRepoMock as any,
+          conversationServiceMock as any,
+        ),
+        new OrchestratorTelemetryService(
+          aiTokenUsageLogRepoMock as any,
+          new PhoneNormalizerService(userRepositoryMock as any),
+          {
+            categoryCounts: jest.fn().mockReturnValue({}),
+          } as unknown as PiiVaultService,
+        ),
+      ),
+      new MessageProcessorService(
+        queueMock as any,
+        configServiceMock as any,
+        aiRedisMock as any,
+        whatsappServiceMock as any,
+        openaiServiceMock as any,
+        ragServiceMock as any,
+        piiVault as any,
+        new PhoneNormalizerService(userRepositoryMock as any),
+        new ResponseNormalizerService(),
+      ),
+      documentIntakeMock as any,
+      new AudioIntakeService(
+        whatsappMediaServiceMock as any,
+        transcriptionServiceMock as any,
+        configServiceMock as any,
+      ),
+      new PiiBindingService(
+        piiVault,
+        aiRedisMock as any,
+        piiRedactionLogRepoMock as any,
+      ),
+      {
+        memorizeEntities: jest.fn().mockResolvedValue(undefined),
+        resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+        readMemory: jest.fn().mockResolvedValue(null),
+        patchMemory: jest.fn().mockResolvedValue(undefined),
+      } as unknown as ConversationMemoryService,
+      nextStepAdvisorService,
+      draftContextMock as any,
     );
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
@@ -189,6 +299,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     ragServiceMock.search.mockResolvedValue([]);
     ragServiceMock.formatContext.mockResolvedValue('');
     toolRegistryMock.getToolDefinitions.mockReturnValue([]);
+    toolRegistryMock.getToolDefinitionsForDraft.mockReturnValue([]);
     pendencyValidatorMock.validateForStatus.mockResolvedValue({
       pendencies: [],
     });
@@ -223,7 +334,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       id: 'call-1',
       type: 'function',
       function: {
-        name: 'confirm_date',
+        name: 'advance_surgery_request',
         arguments: JSON.stringify({ surgeryRequestId: 'req-1' }),
       },
     };
@@ -336,11 +447,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     expect(whatsappMediaServiceMock.downloadInboundAudio).toHaveBeenCalled();
     expect(transcriptionServiceMock.transcribe).toHaveBeenCalled();
-    expect(ragServiceMock.search).toHaveBeenCalledWith(
-      'texto transcrito',
-      3,
-      0.65,
-    );
+    expect(ragServiceMock.search).toHaveBeenCalledWith('texto transcrito');
     expect(conversationServiceMock.appendMessage).toHaveBeenCalledWith(
       'conv-1',
       'user',
@@ -390,29 +497,19 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     expect(audioCall?.[0]).toBe('+5511888888888');
   });
 
-  it('deve reescrever e normalizar resposta mal formatada para WhatsApp', async () => {
-    openaiServiceMock.chatCompletion
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: '# Status\n- item técnico\n```json\n{"ok":true}\n```',
-              tool_calls: null,
-            },
+  // Fase 4 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA): rewriteForWhatsappQuality
+  // removida. normalizeWhatsappText agora sanitiza diretamente sem LLM.
+  it('deve normalizar resposta mal formatada via normalizeWhatsappText (sem rewrite LLM)', async () => {
+    openaiServiceMock.chatCompletion.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            content: '# Status\n- item técnico\n```json\n{"ok":true}\n```',
+            tool_calls: null,
           },
-        ],
-      })
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content:
-                'Atualizei sua solicitação.\n- Próximo passo: revisar pendências.',
-              tool_calls: null,
-            },
-          },
-        ],
-      });
+        },
+      ],
+    });
 
     await service.processMessage({
       from: 'whatsapp:+5511888888888',
@@ -421,10 +518,12 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       mediaUrl: null,
     });
 
-    expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(2);
+    // Apenas 1 chamada ao LLM (sem segundo call de rewrite).
+    expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(1);
+    // normalizeWhatsappText: strip code block → strip header # → convert bullet.
     expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
       '+5511888888888',
-      'Atualizei sua solicitação.\n1 - Próximo passo: revisar pendências.',
+      'Status\n1 - item técnico',
     );
   });
 
@@ -584,7 +683,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       id: 'call-next',
       type: 'function',
       function: {
-        name: 'update_request_admin_data',
+        name: 'confirm_receipt',
         arguments: JSON.stringify({
           surgeryRequestId: 'req-1',
           confirm: true,
@@ -610,8 +709,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     toolExecutorMock.executeMany.mockResolvedValue([
       {
         toolCallId: 'call-next',
-        output:
-          'Dados administrativos atualizados com sucesso na solicitação SC-0042.',
+        output: 'Recebimento confirmado na solicitação SC-0042.',
       },
     ]);
 
@@ -628,7 +726,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     await service.processMessage({
       from: 'whatsapp:+5511999999999',
-      body: 'atualizar dados administrativos',
+      body: 'confirmar recebimento',
       messageSid: 'SM7',
       mediaUrl: null,
     });
@@ -639,7 +737,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     );
 
     expect(toolMessage.content).toContain('Próximo passo recomendado');
-    expect(toolMessage.content).toContain('update_patient_data');
+    expect(toolMessage.content).toContain('update_sc_draft');
   });
 
   it('deve pedir confirmação antes de limpar contexto', async () => {
@@ -856,7 +954,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       // com `{{protocol_1}}` cru (exatamente o que o usuário viu).
       const piiVaultStore = new PiiVaultService();
       service = new AiOrchestratorService(
-        queueMock as any,
         openaiServiceMock as any,
         conversationServiceMock as any,
         toolRegistryMock as any,
@@ -865,27 +962,79 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         whatsappServiceMock as any,
         userRepositoryMock as any,
         accessControlMock as any,
-        pendencyValidatorMock as any,
-        surgeryRequestRepoMock as any,
-        aiTokenUsageLogRepoMock as any,
         configServiceMock as any,
-        transcriptionServiceMock as any,
         whatsappMediaServiceMock as any,
         piiVaultStore,
         piiRedactionLogRepoMock as any,
         aiRedisMock as any,
         defaultContextServiceMock as any,
         whatsappConversationRepoMock as any,
-        operationDraftServiceMock as any,
-        documentDispatcherMock as any,
-        documentProcessorMock as any,
+        new ResponseNormalizerService(),
+        new PhoneNormalizerService(userRepositoryMock as any),
+        new ClearContextDetectorService(),
+        new ConfirmationManagerService(
+          whatsappConversationRepoMock as any,
+          conversationServiceMock as any,
+        ),
+        new OrchestratorTelemetryService(
+          aiTokenUsageLogRepoMock as any,
+          new PhoneNormalizerService(userRepositoryMock as any),
+          {
+            categoryCounts: jest.fn().mockReturnValue({}),
+          } as unknown as PiiVaultService,
+        ),
+        new ToolLoopRunnerService(
+          openaiServiceMock as any,
+          toolExecutorMock as any,
+          new ConfirmationManagerService(
+            whatsappConversationRepoMock as any,
+            conversationServiceMock as any,
+          ),
+          new OrchestratorTelemetryService(
+            aiTokenUsageLogRepoMock as any,
+            new PhoneNormalizerService(userRepositoryMock as any),
+            {
+              categoryCounts: jest.fn().mockReturnValue({}),
+            } as unknown as PiiVaultService,
+          ),
+        ),
+        new MessageProcessorService(
+          queueMock as any,
+          configServiceMock as any,
+          aiRedisMock as any,
+          whatsappServiceMock as any,
+          openaiServiceMock as any,
+          ragServiceMock as any,
+          piiVault as any,
+          new PhoneNormalizerService(userRepositoryMock as any),
+          new ResponseNormalizerService(),
+        ),
+        documentIntakeMock as any,
+        new AudioIntakeService(
+          whatsappMediaServiceMock as any,
+          transcriptionServiceMock as any,
+          configServiceMock as any,
+        ),
+        new PiiBindingService(
+          piiVaultStore,
+          aiRedisMock as any,
+          piiRedactionLogRepoMock as any,
+        ),
+        {
+          memorizeEntities: jest.fn().mockResolvedValue(undefined),
+          resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+          readMemory: jest.fn().mockResolvedValue(null),
+          patchMemory: jest.fn().mockResolvedValue(undefined),
+        } as unknown as ConversationMemoryService,
+        nextStepAdvisorService,
+        draftContextMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
         id: 'call-list',
         type: 'function',
         function: {
-          name: 'list_surgery_requests',
+          name: 'query_surgery_requests',
           arguments: JSON.stringify({}),
         },
       };
@@ -1001,7 +1150,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       };
 
       service = new AiOrchestratorService(
-        queueMock as any,
         openaiServiceMock as any,
         conversationServiceMock as any,
         toolRegistryMock as any,
@@ -1010,27 +1158,79 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         whatsappServiceMock as any,
         userRepositoryMock as any,
         accessControlMock as any,
-        pendencyValidatorMock as any,
-        surgeryRequestRepoMock as any,
-        aiTokenUsageLogRepoMock as any,
         configServiceMock as any,
-        transcriptionServiceMock as any,
         whatsappMediaServiceMock as any,
         piiVaultStore,
         piiRedactionLogRepoMock as any,
         redisAvailableMock as any,
         defaultContextServiceMock as any,
         whatsappConversationRepoMock as any,
-        operationDraftServiceMock as any,
-        documentDispatcherMock as any,
-        documentProcessorMock as any,
+        new ResponseNormalizerService(),
+        new PhoneNormalizerService(userRepositoryMock as any),
+        new ClearContextDetectorService(),
+        new ConfirmationManagerService(
+          whatsappConversationRepoMock as any,
+          conversationServiceMock as any,
+        ),
+        new OrchestratorTelemetryService(
+          aiTokenUsageLogRepoMock as any,
+          new PhoneNormalizerService(userRepositoryMock as any),
+          {
+            categoryCounts: jest.fn().mockReturnValue({}),
+          } as unknown as PiiVaultService,
+        ),
+        new ToolLoopRunnerService(
+          openaiServiceMock as any,
+          toolExecutorMock as any,
+          new ConfirmationManagerService(
+            whatsappConversationRepoMock as any,
+            conversationServiceMock as any,
+          ),
+          new OrchestratorTelemetryService(
+            aiTokenUsageLogRepoMock as any,
+            new PhoneNormalizerService(userRepositoryMock as any),
+            {
+              categoryCounts: jest.fn().mockReturnValue({}),
+            } as unknown as PiiVaultService,
+          ),
+        ),
+        new MessageProcessorService(
+          queueMock as any,
+          configServiceMock as any,
+          aiRedisMock as any,
+          whatsappServiceMock as any,
+          openaiServiceMock as any,
+          ragServiceMock as any,
+          piiVault as any,
+          new PhoneNormalizerService(userRepositoryMock as any),
+          new ResponseNormalizerService(),
+        ),
+        documentIntakeMock as any,
+        new AudioIntakeService(
+          whatsappMediaServiceMock as any,
+          transcriptionServiceMock as any,
+          configServiceMock as any,
+        ),
+        new PiiBindingService(
+          piiVaultStore,
+          redisAvailableMock as any,
+          piiRedactionLogRepoMock as any,
+        ),
+        {
+          memorizeEntities: jest.fn().mockResolvedValue(undefined),
+          resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
+          readMemory: jest.fn().mockResolvedValue(null),
+          patchMemory: jest.fn().mockResolvedValue(undefined),
+        } as unknown as ConversationMemoryService,
+        nextStepAdvisorService,
+        draftContextMock as any,
       );
 
       const tool: OpenAI.ChatCompletionMessageToolCall = {
         id: 'call-list',
         type: 'function',
         function: {
-          name: 'list_surgery_requests',
+          name: 'query_surgery_requests',
           arguments: JSON.stringify({}),
         },
       };
@@ -1089,7 +1289,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         id: 'call-list',
         type: 'function',
         function: {
-          name: 'list_surgery_requests',
+          name: 'query_surgery_requests',
           arguments: JSON.stringify({}),
         },
       };
@@ -1450,142 +1650,12 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     );
   });
 
-  describe('Plano Tokens (Fase 4) — slot-filling', () => {
-    it('slot-filling bloqueia create_surgery_request_from_whatsapp quando faltar slot e pergunta o slot', async () => {
-      // Memória já tem `patient` confirmado de um turno anterior; a tool é
-      // chamada sem `procedureId` nem `procedure_name`, então o slot-filling
-      // intercepta e devolve a pergunta determinística sobre procedimento.
-      conversationServiceMock.getOrCreateConversation.mockResolvedValue({
-        id: 'conv-1',
-        phone: '+5511999999999',
-        userId: 'user-1',
-        messagesHistory: [],
-        conversationMemory: { filled_slots: { patient: 'p-1' } },
-      });
-
-      openaiServiceMock.chatCompletion.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call-create',
-                  type: 'function',
-                  function: {
-                    name: 'create_surgery_request_from_whatsapp',
-                    arguments: JSON.stringify({
-                      patientId: 'p-1',
-                    }),
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      });
-
-      await service.processMessage({
-        from: 'whatsapp:+5511999999999',
-        body: 'criar SC',
-        messageSid: 'SM-SLOT-1',
-        mediaUrl: null,
-      });
-
-      expect(toolExecutorMock.executeMany).not.toHaveBeenCalled();
-      const sentBody = (
-        whatsappServiceMock.sendMessage as jest.Mock
-      ).mock.calls.at(-1)?.[1] as string;
-      expect(sentBody).toMatch(/procedimento/i);
-    });
-
-    it('slot-filling não bloqueia tool não-mutativa de criação', async () => {
-      openaiServiceMock.chatCompletion
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call-1',
-                    type: 'function',
-                    function: {
-                      name: 'confirm_date',
-                      arguments: JSON.stringify({
-                        surgeryRequestId: 'req-1',
-                      }),
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          choices: [{ message: { content: 'Ok', tool_calls: null } }],
-        });
-      toolExecutorMock.executeMany.mockResolvedValue([
-        { toolCallId: 'call-1', output: 'ok' },
-      ]);
-
-      await service.processMessage({
-        from: 'whatsapp:+5511999999999',
-        body: 'confirmar',
-        messageSid: 'SM-SLOT-2',
-        mediaUrl: null,
-      });
-
-      expect(toolExecutorMock.executeMany).toHaveBeenCalled();
-    });
-
-    it('slot-filling NÃO bloqueia quando todos os campos foram fornecidos', async () => {
-      // Para criar uma SC só é exigido paciente + procedimento (CRIAR ≠ ENVIAR).
-      // Hospital, convênio e TUSS são opcionais nesse momento; o teste passa
-      // patientId + procedure_name (aliases reais da tool) e espera que o
-      // slot-filling deixe a chamada seguir.
-      openaiServiceMock.chatCompletion
-        .mockResolvedValueOnce({
-          choices: [
-            {
-              message: {
-                content: null,
-                tool_calls: [
-                  {
-                    id: 'call-create',
-                    type: 'function',
-                    function: {
-                      name: 'create_surgery_request_from_whatsapp',
-                      arguments: JSON.stringify({
-                        patientId: 'p-1',
-                        procedure_name: 'Artroscopia de Joelho',
-                      }),
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          choices: [
-            { message: { content: 'SC criada com sucesso', tool_calls: null } },
-          ],
-        });
-      toolExecutorMock.executeMany.mockResolvedValue([
-        { toolCallId: 'call-create', output: 'criada' },
-      ]);
-
-      await service.processMessage({
-        from: 'whatsapp:+5511999999999',
-        body: 'criar SC com tudo',
-        messageSid: 'SM-SLOT-3',
-        mediaUrl: null,
-      });
-
-      expect(toolExecutorMock.executeMany).toHaveBeenCalled();
-    });
-  });
+  // describe('Plano Tokens (Fase 4) — slot-filling') removido em 2026-05-12
+  // (Fase 3.1 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). O slot-filling
+  // determinístico saiu do orchestrator junto com a tool legacy
+  // `create_surgery_request_from_whatsapp`. A validação de campos
+  // obrigatórios da criação de SC agora vive dentro do fluxo `sc_draft_*`
+  // (coberto por `sc-draft.tools.spec.ts`).
 
   describe('Resposta numérica determinística', () => {
     /**
@@ -1874,6 +1944,278 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         60,
       );
       (aiRedisMock as any).isAvailable = false;
+    });
+  });
+
+  // ============================================================
+  // Fase 5 — MAX_TOOL_ITERATIONS (loop limit)
+  // ============================================================
+  describe('loop limit (MAX_TOOL_ITERATIONS = 5)', () => {
+    const persistentToolCall: OpenAI.ChatCompletionMessageToolCall = {
+      id: 'call-loop',
+      type: 'function',
+      function: {
+        name: 'advance_surgery_request',
+        arguments: JSON.stringify({ surgeryRequestId: 'req-1' }),
+      },
+    };
+    const loopResponse = {
+      choices: [
+        { message: { content: null, tool_calls: [persistentToolCall] } },
+      ],
+    };
+
+    it('loga [AI_LOOP_LIMIT] e envia mensagem amigável quando esgota iterações', async () => {
+      // Sempre devolve tool_calls → o loop esgota independente do número de
+      // iterações (initial + 5 followups). `mockResolvedValue` (sem `Once`)
+      // cobre todas as chamadas.
+      openaiServiceMock.chatCompletion.mockResolvedValue(loopResponse);
+
+      toolExecutorMock.executeMany.mockResolvedValue([
+        { toolCallId: 'call-loop', output: 'ok' },
+      ]);
+
+      const warnSpy = jest.spyOn(
+        (service as any).toolLoopRunner.logger,
+        'warn',
+      );
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'teste loop',
+        messageSid: 'SM-LOOP',
+        mediaUrl: null,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[AI_LOOP_LIMIT]'),
+      );
+      expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        expect.stringContaining('Vou parar por aqui'),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('NÃO loga [AI_LOOP_LIMIT] quando o loop termina normalmente antes do limite', async () => {
+      openaiServiceMock.chatCompletion
+        .mockResolvedValueOnce({
+          choices: [
+            { message: { content: null, tool_calls: [persistentToolCall] } },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'Pronto.', tool_calls: null } }],
+        });
+
+      toolExecutorMock.executeMany.mockResolvedValue([
+        { toolCallId: 'call-loop', output: 'ok' },
+      ]);
+
+      const warnSpy = jest.spyOn(
+        (service as any).toolLoopRunner.logger,
+        'warn',
+      );
+
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'teste normal',
+        messageSid: 'SM-NOLOOP',
+        mediaUrl: null,
+      });
+
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('[AI_LOOP_LIMIT]'),
+      );
+      expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        'Pronto.',
+      );
+
+      warnSpy.mockRestore();
+    });
+  });
+
+  // ============================================================
+  // Fase 4 — normalizeWhatsappText (sanitizador sem rewrite LLM)
+  // ============================================================
+  describe('normalizeWhatsappText (delegado a ResponseNormalizerService)', () => {
+    const norm = (text: string) =>
+      (service as any).responseNormalizer.normalizeWhatsappText(text);
+
+    it('remove bloco de código (``` ... ```)', () => {
+      const input = 'Aqui está:\n```json\n{"status": "ok"}\n```\nPronte.';
+      const result = norm(input);
+      expect(result).not.toContain('```');
+      expect(result).not.toContain('{');
+      expect(result).toContain('Aqui está');
+      expect(result).toContain('Pronte');
+    });
+
+    it('strip JSON-like inline e loga warning', () => {
+      const input = 'Resultado: {"status":"ok","id":"SC-001"} tudo certo.';
+      const result = norm(input);
+      expect(result).not.toContain('{');
+      expect(result).toContain('tudo certo');
+    });
+
+    it('remove **negrito** mantendo o texto', () => {
+      expect(norm('Texto **importante** aqui.')).toBe('Texto importante aqui.');
+    });
+
+    it('remove __sublinhado__ mantendo o texto', () => {
+      expect(norm('Texto __sublinhado__ aqui.')).toBe('Texto sublinhado aqui.');
+    });
+
+    it('remove cabeçalhos Markdown (#, ##)', () => {
+      expect(norm('## Título\nConteúdo')).toBe('Título\nConteúdo');
+      expect(norm('# H1\nTexto')).toBe('H1\nTexto');
+    });
+
+    it('remove link Markdown [texto](url) mantendo só o texto', () => {
+      expect(norm('Veja [aqui](https://inexci.com.br) os detalhes.')).toBe(
+        'Veja aqui os detalhes.',
+      );
+    });
+
+    it('remove linhas de tabela Markdown (|...|)', () => {
+      const input = '| SC | Status |\n| --- | --- |\n| SC-001 | Pendente |';
+      const result = norm(input);
+      expect(result).not.toContain('|');
+    });
+
+    it('remove emojis (MAX_EMOJIS_PER_RESPONSE = 0)', () => {
+      const result = norm('Pronto ✅ tudo certo 📅.');
+      expect(result).not.toMatch(/[\p{Extended_Pictographic}]/u);
+      expect(result).toContain('Pronto');
+      expect(result).toContain('tudo certo');
+    });
+
+    it('colapsa múltiplas linhas em branco consecutivas em uma só', () => {
+      const input = 'Linha 1\n\n\n\nLinha 2';
+      const result = norm(input);
+      expect(result).not.toMatch(/\n{3,}/);
+    });
+
+    it('trunca em 850 chars com sufixo quando exceder WHATSAPP_TARGET_LENGTH', () => {
+      const longText = 'A'.repeat(900);
+      const result = norm(longText);
+      expect(result.length).toBeLessThanOrEqual(850);
+      expect(result).toContain('Acesse a plataforma para mais detalhes');
+    });
+
+    it('converte listas com bullet em opções numeradas', () => {
+      const input = '• criar SC\n• ver pacientes\n• encerrar';
+      const result = norm(input);
+      expect(result).toContain('1 - criar SC');
+      expect(result).toContain('2 - ver pacientes');
+      expect(result).toContain('3 - encerrar');
+    });
+
+    it('retorna fallback para texto vazio', () => {
+      expect(norm('')).toContain('não consegui processar');
+    });
+  });
+
+  // ============================================================
+  // Fase 6 — RAG sob demanda (skip para inputs triviais)
+  // ============================================================
+  describe('Fase 6 — RAG sob demanda: skip para inputs triviais', () => {
+    const defaultOpenaiResponse = {
+      choices: [{ message: { content: 'ok', tool_calls: null } }],
+    };
+
+    beforeEach(() => {
+      openaiServiceMock.chatCompletion.mockResolvedValue(defaultOpenaiResponse);
+    });
+
+    it('NÃO chama ragService.search quando input tem menos de 15 caracteres', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'oi',
+        messageSid: 'SM-RAG-SHORT',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('NÃO chama ragService.search quando input é confirmação ("sim")', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'sim',
+        messageSid: 'SM-RAG-SIM',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('NÃO chama ragService.search quando input é confirmação ("confirmo")', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'confirmo',
+        messageSid: 'SM-RAG-CONFIRMO',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('NÃO chama ragService.search quando input é cancelamento ("não")', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'não',
+        messageSid: 'SM-RAG-NAO',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('NÃO chama ragService.search quando input é cancelamento ("cancelar")', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'cancelar',
+        messageSid: 'SM-RAG-CANCELAR',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('NÃO chama ragService.search quando input é número isolado "1"', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: '1',
+        messageSid: 'SM-RAG-NUM1',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('NÃO chama ragService.search quando input é número isolado "2"', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: '2',
+        messageSid: 'SM-RAG-NUM2',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).not.toHaveBeenCalled();
+    });
+
+    it('CHAMA ragService.search quando input é uma pergunta substantiva (≥15 chars)', async () => {
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'quero criar uma solicitacao cirurgica para o paciente joao',
+        messageSid: 'SM-RAG-QUERY',
+        mediaUrl: null,
+      });
+
+      expect(ragServiceMock.search).toHaveBeenCalledWith(expect.any(String));
     });
   });
 });

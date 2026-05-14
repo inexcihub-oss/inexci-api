@@ -95,6 +95,25 @@ export class OperationDraftService {
    * Atualiza um campo do draft. Cria o draft se ainda não existir e
    * `autoStartType` foi informado.
    */
+  /**
+   * Versão sem tipagem estrita de `setField` — uso exclusivo de
+   * `draft-generic.tools.ts`, onde o campo já foi validado contra
+   * `VALID_FIELDS_BY_TYPE` em runtime.
+   */
+  async setFieldUntyped(
+    conversationId: string,
+    type: OperationDraftType,
+    field: string,
+    value: unknown,
+  ): Promise<void> {
+    await this.setField(
+      conversationId,
+      type,
+      field as keyof DraftFieldsByType[typeof type] & string,
+      value,
+    );
+  }
+
   async setField<T extends OperationDraftType>(
     conversationId: string,
     type: T,

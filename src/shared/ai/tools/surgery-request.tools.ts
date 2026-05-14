@@ -71,170 +71,43 @@ export function buildSurgeryRequestTools(
   surgeryRequestRepo: SurgeryRequestRepository,
   pendencyValidator?: PendencyValidatorService,
 ): AiTool[] {
-  const getSurgeryRequestStatus: AiTool = {
-    name: 'get_surgery_request_status',
+  /**
+   * `query_surgery_requests` substitui `get_surgery_request_status` +
+   * `list_surgery_requests` (removidas em Mai/2026 — Fase 4.2 do
+   * PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
+   *
+   * - Com `identifier` → detalhe completo da SC (status, prioridade,
+   *   paciente, hospital, convênio, CID, data, pendências).
+   * - Sem `identifier` → lista todas as SCs, opcionalmente filtradas por status.
+   *
+   * ⚠️ bypass justificado: acessa o repositório diretamente pois a lógica
+   * é exclusivamente de leitura e constrói um payload simplificado para o LLM.
+   */
+  const querySurgeryRequests: AiTool = {
+    name: 'query_surgery_requests',
     definition: {
       type: 'function',
       function: {
-        name: 'get_surgery_request_status',
+        name: 'query_surgery_requests',
         description:
-          'Busca o status e detalhes resumidos de uma solicitação cirúrgica (status, prioridade, paciente, hospital, convênio, CID, matrícula, plano/apartamento, data e pendências). Aceita ID UUID ou número de protocolo (ex: SC-0042) ou nome do paciente.',
+          'Consulta solicitações cirúrgicas. Sem `identifier` lista todas as SCs do usuário agrupadas por status (Pendente → Encerrada), até 200. Com `identifier` retorna o detalhe completo de uma SC (status, prioridade, paciente, hospital, convênio, CID, data e pendências). Aceita UUID, protocolo (SC-XXXX) ou nome do paciente.',
         parameters: {
           type: 'object',
           properties: {
             identifier: {
               type: 'string',
               description:
-                'ID UUID, número do protocolo (SC-XXXX) ou nome do paciente',
+                'UUID, protocolo (SC-XXXX) ou nome do paciente para buscar uma SC específica. Omitir para listar todas.',
             },
-          },
-          required: ['identifier'],
-        },
-      },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId)
-        return 'Você precisa estar cadastrado para consultar solicitações.';
-
-      const { identifier } = args as { identifier: string };
-      const resolvedRequest = await resolveRequestByIdentifier(
-        surgeryRequestRepo,
-        identifier,
-        context,
-      );
-
-      let request = resolvedRequest;
-      if (resolvedRequest?.id) {
-        const fullRequest = await surgeryRequestRepo.findOne({
-          id: resolvedRequest.id,
-        });
-        if (fullRequest) request = fullRequest as any;
-      }
-
-      if (!request) {
-        return 'Não encontrei essa solicitação. Verifique o número do protocolo ou o nome do paciente e tente novamente.';
-      }
-
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
-      }
-
-      const status = STATUS_LABELS[request.status] || String(request.status);
-      const priority =
-        PRIORITY_LABELS[request.priority as any] || String(request.priority);
-      const TOOL = 'get_surgery_request_status';
-      // Vault armazena o protocol SEM prefixo "SC-"; prefixamos no template
-      // (`SC-${protocolToken}`) para evitar duplicação `SC-SC-` quando a IA
-      // copia o padrão.
-      const protocolToken = tokenizePii(
-        context,
-        TOOL,
-        'protocol',
-        stripScPrefix(request.protocol),
-      );
-      const protocolDisplay = `SC-${protocolToken}`;
-      // Após a refatoração de drafts: nomes de paciente/hospital/convênio
-      // ficam em claro nas saídas de tools de leitura (PII de negócio do
-      // próprio `owner_id`, não de terceiros). CPF/telefone/email/datas
-      // continuam tokenizados.
-      const patientToken = String(
-        (request as any).patient?.name || request.patientId || 'Não informado',
-      );
-      const hospitalToken = (request as any).hospital?.name
-        ? String((request as any).hospital.name)
-        : 'Não definido';
-      const healthPlanToken = (request as any).healthPlan?.name
-        ? String((request as any).healthPlan.name)
-        : 'Não definido';
-      const surgeryDateRaw = request.surgeryDate || request.dateCall;
-      const surgeryDateToken = surgeryDateRaw
-        ? tokenizePii(
-            context,
-            TOOL,
-            'date',
-            new Date(surgeryDateRaw).toLocaleDateString('pt-BR'),
-          )
-        : 'Não agendada';
-
-      const cidLabel = (request as any).cidCode
-        ? String((request as any).cidCode)
-        : 'Não informado';
-      const registrationLabel = (request as any).healthPlanRegistration
-        ? String((request as any).healthPlanRegistration)
-        : 'Não informada';
-      const planTypeLabel = (request as any).healthPlanType
-        ? String((request as any).healthPlanType)
-        : 'Não informado';
-
-      let pendencyLines: string[] = [];
-      if (pendencyValidator && request.id) {
-        try {
-          const validation = await pendencyValidator.validateForStatus(
-            request.id,
-          );
-          const blockingPending = validation.pendencies.filter(
-            (p) => !p.isComplete && !p.isOptional,
-          );
-
-          if (!blockingPending.length) {
-            pendencyLines = [
-              'Próximo passo: sem bloqueios para avançar de etapa.',
-            ];
-          } else {
-            const actions = blockingPending.flatMap((p) => {
-              const undone = (p.checkItems || []).filter((item) => !item.done);
-              if (!undone.length) return [`• ${p.name}`];
-              return [
-                `• ${p.name}`,
-                ...undone.map((item) => `  - ${item.label}`),
-              ];
-            });
-
-            pendencyLines = ['Para avançar de etapa, faça:', ...actions];
-          }
-        } catch {
-          pendencyLines = [
-            'Próximo passo: consulte as pendências para avançar a etapa.',
-          ];
-        }
-      }
-
-      return [
-        `*Solicitação ${protocolDisplay}*`,
-        `Status: ${status}`,
-        `Prioridade: ${priority}`,
-        `Paciente: ${patientToken}`,
-        `Hospital: ${hospitalToken}`,
-        `Convênio: ${healthPlanToken}`,
-        `Matrícula: ${registrationLabel}`,
-        `Plano/Apartamento: ${planTypeLabel}`,
-        `CID: ${cidLabel}`,
-        `Data da cirurgia: ${surgeryDateToken}`,
-        ...pendencyLines,
-      ].join('\n');
-    },
-  };
-
-  const listSurgeryRequests: AiTool = {
-    name: 'list_surgery_requests',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'list_surgery_requests',
-        description:
-          'Lista TODAS as solicitações cirúrgicas acessíveis ao usuário, agrupadas e ordenadas por status (Pendente → Encerrada). Por padrão traz até 200 SCs (todas, na maioria dos casos). Aceita filtro opcional por status.',
-        parameters: {
-          type: 'object',
-          properties: {
             status: {
               type: 'string',
               description:
-                'Status para filtrar (opcional): pendente, enviada, em_analise, em_agendamento, agendada, realizada, faturada, finalizada, encerrada',
+                'Filtro de status para listagem (opcional): pendente, enviada, em_analise, em_agendamento, agendada, realizada, faturada, finalizada, encerrada.',
             },
             limit: {
               type: 'number',
               description:
-                'Quantidade máxima de resultados (padrão: 50, máximo: 200). Use o padrão para listagens completas.',
+                'Quantidade máxima de resultados na listagem (padrão 50, máximo 200).',
             },
           },
           required: [],
@@ -245,6 +118,127 @@ export function buildSurgeryRequestTools(
       if (!context.userId)
         return 'Você precisa estar cadastrado para consultar solicitações.';
 
+      const identifierRaw = (args as any).identifier;
+
+      // ── Detalhe de uma SC específica ────────────────────────────────────────
+      if (identifierRaw) {
+        const resolvedRequest = await resolveRequestByIdentifier(
+          surgeryRequestRepo,
+          identifierRaw,
+          context,
+        );
+
+        let request = resolvedRequest;
+        if (resolvedRequest?.id) {
+          const fullRequest = await surgeryRequestRepo.findOne({
+            id: resolvedRequest.id,
+          });
+          if (fullRequest) request = fullRequest as any;
+        }
+
+        if (!request) {
+          return 'Não encontrei essa solicitação. Verifique o número do protocolo ou o nome do paciente e tente novamente.';
+        }
+
+        if (!context.accessibleDoctorIds.includes(request.doctorId)) {
+          return 'Você não tem permissão para acessar essa solicitação.';
+        }
+
+        const statusLabel =
+          STATUS_LABELS[request.status] || String(request.status);
+        const priority =
+          PRIORITY_LABELS[request.priority as any] || String(request.priority);
+        const TOOL = 'query_surgery_requests';
+        // Vault armazena o protocol SEM prefixo "SC-"; prefixamos no template
+        // para evitar duplicação "SC-SC-" quando a IA copia o padrão.
+        const protocolToken = tokenizePii(
+          context,
+          TOOL,
+          'protocol',
+          stripScPrefix(request.protocol),
+        );
+        const protocolDisplay = `SC-${protocolToken}`;
+        // Nomes de paciente/hospital/convênio ficam em claro nas saídas de
+        // tools de leitura (PII de negócio do próprio owner_id).
+        const patientLabel = String(
+          (request as any).patient?.name ||
+            request.patientId ||
+            'Não informado',
+        );
+        const hospitalLabel = (request as any).hospital?.name
+          ? String((request as any).hospital.name)
+          : 'Não definido';
+        const healthPlanLabel = (request as any).healthPlan?.name
+          ? String((request as any).healthPlan.name)
+          : 'Não definido';
+        const surgeryDateRaw = request.surgeryDate || request.dateCall;
+        const surgeryDateToken = surgeryDateRaw
+          ? tokenizePii(
+              context,
+              TOOL,
+              'date',
+              new Date(surgeryDateRaw).toLocaleDateString('pt-BR'),
+            )
+          : 'Não agendada';
+        const cidLabel = (request as any).cidCode
+          ? String((request as any).cidCode)
+          : 'Não informado';
+        const registrationLabel = (request as any).healthPlanRegistration
+          ? String((request as any).healthPlanRegistration)
+          : 'Não informada';
+        const planTypeLabel = (request as any).healthPlanType
+          ? String((request as any).healthPlanType)
+          : 'Não informado';
+
+        let pendencyLines: string[] = [];
+        if (pendencyValidator && request.id) {
+          try {
+            const validation = await pendencyValidator.validateForStatus(
+              request.id,
+            );
+            const blockingPending = validation.pendencies.filter(
+              (p) => !p.isComplete && !p.isOptional,
+            );
+            if (!blockingPending.length) {
+              pendencyLines = [
+                'Próximo passo: sem bloqueios para avançar de etapa.',
+              ];
+            } else {
+              const actions = blockingPending.flatMap((p) => {
+                const undone = (p.checkItems || []).filter(
+                  (item) => !item.done,
+                );
+                if (!undone.length) return [`• ${p.name}`];
+                return [
+                  `• ${p.name}`,
+                  ...undone.map((item) => `  - ${item.label}`),
+                ];
+              });
+              pendencyLines = ['Para avançar de etapa, faça:', ...actions];
+            }
+          } catch {
+            pendencyLines = [
+              'Próximo passo: consulte as pendências para avançar a etapa.',
+            ];
+          }
+        }
+
+        return [
+          `*Solicitação ${protocolDisplay}*`,
+          `Status: ${statusLabel}`,
+          `Prioridade: ${priority}`,
+          `Paciente: ${patientLabel}`,
+          `Hospital: ${hospitalLabel}`,
+          `Convênio: ${healthPlanLabel}`,
+          `Matrícula: ${registrationLabel}`,
+          `Plano/Apartamento: ${planTypeLabel}`,
+          `CID: ${cidLabel}`,
+          `Data da cirurgia: ${surgeryDateToken}`,
+          ...pendencyLines,
+        ].join('\n');
+      }
+
+      // ── Listagem ────────────────────────────────────────────────────────────
       const STATUS_MAP: Record<string, number> = {
         pendente: 1,
         enviada: 2,
@@ -269,8 +263,6 @@ export function buildSurgeryRequestTools(
         return 'Nenhum médico acessível encontrado.';
       }
 
-      // BUG histórico: usar `accessibleDoctorIds[0]` escondia SCs de
-      // colaboradores com acesso a múltiplos médicos. Listar de TODOS.
       const where: any = { doctorId: In(context.accessibleDoctorIds) as any };
       if (statusNum) where.status = statusNum as SurgeryRequestStatus;
 
@@ -282,11 +274,7 @@ export function buildSurgeryRequestTools(
           : 'Nenhuma solicitação encontrada.';
       }
 
-      const TOOL = 'list_surgery_requests';
-
-      // Agrupa por status. Iterar depois sobre a ordem CANÔNICA do workflow
-      // (1..9) garante "Pendente → Enviada → Em Análise → ..." mesmo que a
-      // query tenha trazido os registros embaralhados.
+      const TOOL = 'query_surgery_requests';
       const groups = new Map<number, any[]>();
       for (const request of requests) {
         const status = Number(request?.status) || 0;
@@ -294,7 +282,6 @@ export function buildSurgeryRequestTools(
         bucket.push(request);
         groups.set(status, bucket);
       }
-
       // Desempate dentro de cada grupo: createdAt mais recente primeiro.
       for (const items of groups.values()) {
         items.sort((a: any, b: any) => {
@@ -307,13 +294,12 @@ export function buildSurgeryRequestTools(
       const sections: string[] = [];
       // Ordem fixa do workflow — não depende da ordem de inserção no Map.
       const ORDERED_STATUSES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-      for (const status of ORDERED_STATUSES) {
-        const items = groups.get(status);
+      for (const statusCode of ORDERED_STATUSES) {
+        const items = groups.get(statusCode);
         if (!items?.length) continue;
-        const label = STATUS_LABELS[status] || `Status ${status}`;
+        const label = STATUS_LABELS[statusCode] || `Status ${statusCode}`;
         // Sem bullet/numeração: a SC já tem protocolo (SC-XXXX) como
-        // identificador natural — qualquer prefixo numérico vira ruído e
-        // induz o usuário a responder "1" achando que abre a SC.
+        // identificador natural.
         const itemLines = items.map((r: any) => {
           const protocolToken = tokenizePii(
             context,
@@ -333,5 +319,10 @@ export function buildSurgeryRequestTools(
     },
   };
 
-  return [getSurgeryRequestStatus, listSurgeryRequests];
+  // Tools legacy removidas:
+  //  - `get_surgery_request_status` + `list_surgery_requests` (2026-05-12,
+  //    Fase 4.2 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST): unificadas
+  //    em `query_surgery_requests`.
+
+  return [querySurgeryRequests];
 }

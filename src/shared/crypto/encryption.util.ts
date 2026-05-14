@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 
-function getKey(): Buffer {
+function getKey(): Buffer | null {
   const key = process.env.DB_ENCRYPTION_KEY;
   if (!key) return null;
   const buf = Buffer.from(key, 'hex');

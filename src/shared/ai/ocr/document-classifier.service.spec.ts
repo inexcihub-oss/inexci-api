@@ -66,7 +66,6 @@ describe('DocumentClassifierService', () => {
           cid: null,
           opme: null,
           laudoText: 'Paciente com lesão de menisco medial direito.',
-          doctorCRM: 'CRM-MG 123456',
           notes: null,
         },
       }),
@@ -101,7 +100,6 @@ describe('DocumentClassifierService', () => {
     });
     expect(result.extracted.hospital).toBe('Hospital São Lucas');
     expect(result.extracted.laudoText).toContain('menisco');
-    expect(result.extracted.doctorCRM).toBe('CRM-MG 123456');
     expect(result.model).toBe('gpt-4o-mini');
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
@@ -121,7 +119,6 @@ describe('DocumentClassifierService', () => {
           cid: [],
           opme: [],
           laudoText: null,
-          doctorCRM: null,
           notes: null,
         },
       }),
@@ -155,12 +152,19 @@ describe('DocumentClassifierService', () => {
           ],
           cid: [{ code: 'M23.2' }, { code: '   ' }],
           opme: [
-            { description: 'Âncora 5mm', qty: 2 },
-            { description: '', qty: 3 },
-            { description: 'Parafuso interferência', qty: 'um' as any },
+            { description: 'Âncora 5mm', qty: 2, supplier: null, brand: null },
+            { description: '', qty: 3, supplier: null, brand: null },
+            {
+              description: 'Parafuso interferência',
+              qty: 'um' as any,
+              supplier: null,
+              brand: null,
+            },
           ],
+          suggestedSuppliers: null,
+          diagnosis: null,
+          suggestedProcedureName: null,
           laudoText: null,
-          doctorCRM: null,
           notes: null,
         },
       }),
@@ -179,6 +183,95 @@ describe('DocumentClassifierService', () => {
     expect(result.extracted.healthPlan).toEqual({ name: 'Unimed' });
   });
 
+  it('extrai diagnóstico, procedimento sugerido, OPME com supplier/brand e fornecedores', async () => {
+    // Caso real do laudo do Jean Pierre — o classifier deve devolver TUDO
+    // que aparece estruturado no documento.
+    openai.chatCompletion.mockResolvedValueOnce(
+      buildLlmResponse({
+        kind: 'surgery_request',
+        confidence: 0.95,
+        suggestedDocumentType: 'medical_report',
+        ambiguity: null,
+        extracted: {
+          patient: {
+            name: 'Jean Pierre Pereira Proximo',
+            cpf: null,
+            birthDate: null,
+            rg: null,
+            motherName: null,
+            address: null,
+            phone: null,
+          },
+          hospital: null,
+          healthPlan: {
+            name: 'Bradesco',
+            planId: null,
+            validity: null,
+          },
+          tuss: [
+            {
+              code: '3.07.15.091',
+              description: 'Descompressão medular e/ou cauda equina',
+            },
+            {
+              code: '3.07.15.024',
+              description: 'Artrodese de coluna via anterior C5-C6',
+            },
+          ],
+          cid: null,
+          opme: [
+            {
+              description: 'CAGES STAND ALONE',
+              qty: 2,
+              supplier: 'SINTEX',
+              brand: 'DIVA/NOVA SPINE',
+            },
+            {
+              description: 'ANCORAS',
+              qty: 4,
+              supplier: null,
+              brand: null,
+            },
+          ],
+          suggestedSuppliers: ['SINTEX', 'VITALITY', 'GUSMED'],
+          diagnosis:
+            'Hérnia discal cervical médio-foraminal C5-C6 e C4-C5 com compressão radicular e medular',
+          suggestedProcedureName: 'Artrodese cervical anterior C5-C6 e C4-C5',
+          laudoText:
+            'Paciente com queixa de dor radicular braquial à esquerda incapacitante. RNM cervical com Hérnia discal cervical médio-foraminal C5-C6 e C4-C5 com compressão radicular e medular. Indicado procedimento cirúrgico com artrodese cervical.',
+          notes: null,
+        },
+      }),
+    );
+
+    const result = await service.classify({
+      text: 'laudo do jean pierre — texto completo com mais de 60 chars',
+      intent: 'create_sc',
+    });
+
+    expect(result.kind).toBe('surgery_request');
+    expect(result.extracted.diagnosis).toContain('Hérnia discal cervical');
+    expect(result.extracted.suggestedProcedureName).toBe(
+      'Artrodese cervical anterior C5-C6 e C4-C5',
+    );
+    expect(result.extracted.suggestedSuppliers).toEqual([
+      'SINTEX',
+      'VITALITY',
+      'GUSMED',
+    ]);
+    expect(result.extracted.opme).toEqual([
+      {
+        description: 'CAGES STAND ALONE',
+        qty: 2,
+        supplier: 'SINTEX',
+        brand: 'DIVA/NOVA SPINE',
+      },
+      { description: 'ANCORAS', qty: 4 },
+    ]);
+    expect(result.extracted.tuss).toHaveLength(2);
+    expect(result.extracted.laudoText).toContain('RNM cervical');
+  });
+
   it('propaga erro quando o LLM devolve JSON inválido', async () => {
     openai.chatCompletion.mockResolvedValueOnce({
       choices: [{ message: { content: 'isto não é json' } }],
@@ -187,5 +280,52 @@ describe('DocumentClassifierService', () => {
     await expect(service.classify({ text: 'algum texto' })).rejects.toThrow(
       /Resposta do classificador não é JSON válido/,
     );
+  });
+
+  it('curto-circuita quando o input degenerou em payload_blob (proteção contra regressão do PII Vault)', async () => {
+    const result = await service.classify({
+      text: '   {{payload_blob_3}}   ',
+    });
+
+    // Não chegou a chamar a OpenAI — economiza tokens.
+    expect(openai.chatCompletion).not.toHaveBeenCalled();
+    expect(result.kind).toBe('unknown');
+    expect(result.confidence).toBe(0);
+    expect(result.ambiguity).toContain('payload_blob');
+  });
+
+  it('usa maxTokens 2500 (cobre laudos com TUSS/CID/OPME completos)', async () => {
+    openai.chatCompletion.mockResolvedValueOnce(
+      buildLlmResponse({
+        kind: 'medical_report',
+        confidence: 0.9,
+        suggestedDocumentType: 'medical_report',
+        ambiguity: null,
+        extracted: {
+          patient: {
+            name: null,
+            cpf: null,
+            birthDate: null,
+            rg: null,
+            motherName: null,
+            address: null,
+            phone: null,
+          },
+          hospital: null,
+          healthPlan: null,
+          tuss: null,
+          cid: null,
+          opme: null,
+          laudoText: null,
+          notes: null,
+        },
+      }),
+    );
+
+    await service.classify({
+      text: 'Texto qualquer com mais de 60 chars para evitar curto-circuito de blob.',
+    });
+    const callArgs = openai.chatCompletion.mock.calls[0][0];
+    expect(callArgs.maxTokens).toBe(2500);
   });
 });

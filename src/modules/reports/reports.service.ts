@@ -101,17 +101,17 @@ export class ReportsService {
     let totalByStatus = rawStatus;
     let totalByHospital = rawHospital;
 
-    totalByHealthPlan = totalByHealthPlan.map((item) => {
+    totalByHealthPlan = totalByHealthPlan.map((item: any) => {
       item.total = parseInt(item.total);
       return item;
     });
 
-    totalByStatus = totalByStatus.map((item) => {
+    totalByStatus = totalByStatus.map((item: any) => {
       item.total = parseInt(item.total);
       return item;
     });
 
-    totalByHospital = totalByHospital.map((item) => {
+    totalByHospital = totalByHospital.map((item: any) => {
       item.total = parseInt(item.total);
       return item;
     });

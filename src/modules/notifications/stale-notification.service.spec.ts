@@ -97,8 +97,8 @@ describe('StaleNotificationService', () => {
         name: 'Creator',
       },
     ]);
-    mockUserRepository.findOne.mockImplementation(({ id }) => {
-      const users = {
+    mockUserRepository.findOne.mockImplementation(({ id }: { id: string }) => {
+      const users: Record<string, any> = {
         'admin-1': {
           id: 'admin-1',
           email: 'admin@test.com',

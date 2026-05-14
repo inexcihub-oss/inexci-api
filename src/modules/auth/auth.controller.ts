@@ -74,6 +74,7 @@ export class AuthController {
       const { refresh_token, ...body } = result;
       return body;
     }
+    return null;
   }
 
   @Get('me')

@@ -219,11 +219,19 @@ export class PiiVaultService {
   /**
    * Pré-processador de input livre (texto do usuário, OCR de documento, etc.):
    * substitui CPF/telefone/email por placeholders ANTES de o conteúdo entrar
-   * no histórico ou ir para a OpenAI. Blocos muito longos viram `payload_blob`.
+   * no histórico ou ir para a OpenAI.
    *
-   * Extraído do `AiOrchestratorService` para que outros pontos de entrada
-   * (ex.: OCR de documentos) possam reaproveitar a mesma lógica de
-   * tokenização sem duplicar regex/decisões de produto.
+   * Apenas dados sensíveis estruturados (CPF, telefone, e-mail) são
+   * tokenizados. Texto de laudo, descrição de procedimento, observações
+   * clínicas e qualquer conteúdo médico fluem **inteiros** ao LLM —
+   * laudos podem ter qualquer tamanho e precisamos do conteúdo completo
+   * para o classificador de documentos extrair patient/hospital/TUSS/CID.
+   *
+   * O parâmetro `blobThreshold` existe como opt-in defensivo (caller que
+   * realmente queira limitar input gigante pode passar um número finito);
+   * por padrão é `Infinity` — sem `payload_blob`. Antes era `1500` por
+   * default e isso engolia laudos médicos inteiros num único placeholder,
+   * fazendo o pipeline OCR devolver `kind=unknown, confidence=0.5`.
    */
   preprocessUserInput(
     sessionId: string,
@@ -245,8 +253,8 @@ export class PiiVaultService {
       this.tokenize(sessionId, match, 'email'),
     );
 
-    const threshold = options?.blobThreshold ?? 1500;
-    if (out.length > threshold) {
+    const threshold = options?.blobThreshold ?? Number.POSITIVE_INFINITY;
+    if (Number.isFinite(threshold) && out.length > threshold) {
       out = this.tokenize(sessionId, out, 'payload_blob');
     }
 

@@ -48,7 +48,7 @@ export class SuppliersService {
     const supplier = await this.supplierRepository.findOne({ id });
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
-    return this.supplierRepository.update(id, data);
+    return (await this.supplierRepository.update(id, data))!;
   }
 
   async create(data: CreateSupplierDto, userId: string): Promise<Supplier> {

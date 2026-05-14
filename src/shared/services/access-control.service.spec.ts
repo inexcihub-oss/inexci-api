@@ -7,11 +7,9 @@ import { UserRole } from '../../database/entities/user.entity';
 
 describe('AccessControlService', () => {
   let service: AccessControlService;
-  let userRepository: jest.Mocked<Partial<UserRepository>>;
-  let doctorProfileRepository: jest.Mocked<Partial<DoctorProfileRepository>>;
-  let userDoctorAccessRepository: jest.Mocked<
-    Partial<UserDoctorAccessRepository>
-  >;
+  let userRepository: { [K: string]: jest.Mock };
+  let doctorProfileRepository: { [K: string]: jest.Mock };
+  let userDoctorAccessRepository: { [K: string]: jest.Mock };
 
   beforeEach(async () => {
     userRepository = {

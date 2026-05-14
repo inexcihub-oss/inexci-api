@@ -15,8 +15,8 @@ export interface NotificationPayload {
   type: NotificationType;
   title: string;
   message: string;
-  link?: string;
-  metadata?: Record<string, any>;
+  link?: string | null;
+  metadata?: Record<string, any> | null;
   createdAt: Date;
 }
 

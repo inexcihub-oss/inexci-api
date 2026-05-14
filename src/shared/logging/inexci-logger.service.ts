@@ -1,4 +1,5 @@
 import { ConsoleLogger, Injectable, LogLevel, Scope } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 import { getRequestContext } from './request-context';
 
 const NEST_LEVEL_RANK: Record<LogLevel, number> = {
@@ -108,6 +109,9 @@ export class InexciLogger extends ConsoleLogger {
       return;
     }
 
+    const activeSpanCtx = trace.getActiveSpan()?.spanContext();
+    const traceId = activeSpanCtx?.traceId ?? ctx?.traceId ?? null;
+
     const payload: Record<string, unknown> = {
       timestamp: now,
       level,
@@ -117,6 +121,7 @@ export class InexciLogger extends ConsoleLogger {
     if (ctx?.requestId) payload.requestId = ctx.requestId;
     if (ctx?.userId) payload.userId = ctx.userId;
     if (ctx?.tenantId) payload.tenantId = ctx.tenantId;
+    if (traceId) payload.traceId = traceId;
     if (stack) payload.stack = stack;
 
     const line = this.safeStringify(payload);
@@ -135,15 +140,20 @@ export class InexciLogger extends ConsoleLogger {
   ): void {
     const color = LEVEL_COLOR[level] || ANSI.reset;
     const ctxLabel = context ?? this.context;
+    const activeSpanCtx = trace.getActiveSpan()?.spanContext();
+    const traceId = activeSpanCtx?.traceId ?? ctx?.traceId;
     const reqTag = ctx?.requestId
       ? `${ANSI.gray}[${ctx.requestId.slice(0, 8)}]${ANSI.reset} `
+      : '';
+    const traceTag = traceId
+      ? `${ANSI.gray}[t:${traceId.slice(0, 8)}]${ANSI.reset} `
       : '';
     const userTag = ctx?.userId
       ? `${ANSI.magenta}[userId: ${ctx.userId}]${ANSI.reset} `
       : '';
     const ctxTag = ctxLabel ? `${ANSI.cyan}[${ctxLabel}]${ANSI.reset} ` : '';
     const head = `${ANSI.gray}${timestamp}${ANSI.reset} ${color}${ANSI.bold}${level.toUpperCase().padEnd(7)}${ANSI.reset}`;
-    const line = `${head} ${reqTag}${userTag}${ctxTag}${message}`;
+    const line = `${head} ${reqTag}${traceTag}${userTag}${ctxTag}${message}`;
     const stream =
       level === 'error' || level === 'warn' ? process.stderr : process.stdout;
     stream.write(line + '\n');

@@ -5,6 +5,7 @@ import {
   FindOptionsWhere,
   DataSource,
   EntityManager,
+  QueryDeepPartialEntity,
 } from 'typeorm';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
@@ -307,6 +308,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .select([
         'surgeryRequest.id',
         'surgeryRequest.status',
+        'surgeryRequest.doctorId',
+        'surgeryRequest.ownerId',
         'surgeryRequest.healthPlanId',
         'surgeryRequest.hospitalId',
         'surgeryRequest.createdAt',
@@ -361,8 +364,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async update(
     id: string,
     data: Partial<SurgeryRequest>,
-  ): Promise<SurgeryRequest> {
-    await this.repository.update(id, data);
+  ): Promise<SurgeryRequest | null> {
+    await this.repository.update(
+      id,
+      data as QueryDeepPartialEntity<SurgeryRequest>,
+    );
     return await this.repository.findOne({ where: { id } });
   }
 

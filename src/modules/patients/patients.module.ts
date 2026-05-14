@@ -15,5 +15,6 @@ import { MailModule } from 'src/shared/mail/mail.module';
   ],
   controllers: [PatientsController],
   providers: [PatientsService],
+  exports: [PatientsService],
 })
 export class PatientsModule {}

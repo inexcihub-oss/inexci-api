@@ -5,6 +5,7 @@ import {
   Logger,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -75,6 +76,11 @@ export class AuthService {
     );
 
     if (user && password) {
+      if (!user.password) {
+        throw new UnauthorizedException(
+          'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+        );
+      }
       const isValid = await bcrypt.compare(password, user.password);
 
       if (!isValid) {
@@ -260,11 +266,13 @@ export class AuthService {
         pending_consents: pendingConsents,
       };
     }
+    return null;
   }
 
   async me(userId: string) {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
-    const doctorProfile = user?.doctorProfile || null;
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+    const doctorProfile = user.doctorProfile ?? null;
 
     return {
       id: user.id,
@@ -386,6 +394,11 @@ export class AuthService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
     // Verifica se a senha atual está correta
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
+      );
+    }
     const isPasswordValid = await bcrypt.compare(
       data.currentPassword,
       user.password,

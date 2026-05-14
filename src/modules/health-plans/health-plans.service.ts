@@ -76,7 +76,7 @@ export class HealthPlansService {
     if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
     await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
     this.logger.log(`Convênio atualizado: id=${id}`);
-    return this.healthPlanRepository.update(id, data);
+    return (await this.healthPlanRepository.update(id, data))!;
   }
 
   async delete(id: string, userId: string): Promise<void> {

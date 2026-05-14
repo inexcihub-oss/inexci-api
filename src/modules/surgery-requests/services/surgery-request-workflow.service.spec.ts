@@ -71,18 +71,14 @@ function createMockManager() {
 
 describe('SurgeryRequestWorkflowService', () => {
   let service: SurgeryRequestWorkflowService;
-  let surgeryRequestRepository: jest.Mocked<Partial<SurgeryRequestRepository>>;
-  let mailService: jest.Mocked<Partial<MailService>>;
-  let pdfGenerationService: jest.Mocked<Partial<PdfGenerationService>>;
-  let notificationService: jest.Mocked<
-    Partial<SurgeryRequestNotificationService>
-  >;
-  let pdfAssemblyService: jest.Mocked<
-    Partial<SurgeryRequestPdfAssemblyService>
-  >;
-  let billingService: jest.Mocked<Partial<SurgeryRequestBillingService>>;
-  let reportSectionRepo: jest.Mocked<Partial<Repository<ReportSection>>>;
-  let contestationRepository: jest.Mocked<Partial<ContestationRepository>>;
+  let surgeryRequestRepository: { [K: string]: jest.Mock };
+  let mailService: { [K: string]: jest.Mock };
+  let pdfGenerationService: { [K: string]: jest.Mock };
+  let notificationService: { [K: string]: jest.Mock };
+  let pdfAssemblyService: { [K: string]: jest.Mock };
+  let billingService: { [K: string]: jest.Mock };
+  let reportSectionRepo: { [K: string]: jest.Mock };
+  let contestationRepository: { [K: string]: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {

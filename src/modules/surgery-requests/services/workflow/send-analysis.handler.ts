@@ -135,7 +135,7 @@ export class SendAnalysisHandler {
       void this.pdfGenerationService.scheduleGeneration(id, userId);
     } catch (err) {
       this.logger.warn(
-        `Falha ao agendar geração de PDF para solicitação ${id}: ${err?.message}`,
+        `Falha ao agendar geração de PDF para solicitação ${id}: ${(err as Error)?.message}`,
       );
     }
 
@@ -160,7 +160,7 @@ export class SendAnalysisHandler {
         };
       } catch (err) {
         this.logger.warn(
-          `[sendRequest] Não foi possível gerar PDF para anexar ao e-mail da solicitação ${id}: ${err?.message}`,
+          `[sendRequest] Não foi possível gerar PDF para anexar ao e-mail da solicitação ${id}: ${(err as Error)?.message}`,
         );
       }
 

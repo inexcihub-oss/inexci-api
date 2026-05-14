@@ -8,24 +8,24 @@ import {
 
 describe('tool-pii-allowlist', () => {
   describe('TOOL_PII_ALLOWLIST', () => {
-    it('get_surgery_request_status NÃO tokeniza patient_name/hospital_name (PII de negócio fica em claro após refatoração de draft)', () => {
-      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).not.toContain(
+    it('query_surgery_requests NÃO tokeniza patient_name/hospital_name (PII de negócio fica em claro após refatoração de draft)', () => {
+      expect(TOOL_PII_ALLOWLIST.query_surgery_requests).not.toContain(
         'patient_name',
       );
-      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).not.toContain(
+      expect(TOOL_PII_ALLOWLIST.query_surgery_requests).not.toContain(
         'hospital_name',
       );
-      expect(TOOL_PII_ALLOWLIST.get_surgery_request_status).toContain(
-        'protocol',
-      );
+      expect(TOOL_PII_ALLOWLIST.query_surgery_requests).toContain('protocol');
     });
 
-    it('NÃO permite conteúdo clínico longo em update_request_clinical_data', () => {
-      const allowed = TOOL_PII_ALLOWLIST.update_request_clinical_data;
-      expect(allowed).not.toContain('medical_report');
-      expect(allowed).not.toContain('patient_history');
-      expect(allowed).not.toContain('diagnosis');
-      expect(allowed).not.toContain('surgery_description');
+    // Regressão Sub-fase 3.8: tools legacy de update removidas — nenhuma allowlist.
+    it('update_request_clinical_data, update_request_admin_data, update_patient_data e update_surgery_request_data não têm entrada na allowlist', () => {
+      expect(
+        TOOL_PII_ALLOWLIST['update_request_clinical_data'],
+      ).toBeUndefined();
+      expect(TOOL_PII_ALLOWLIST['update_request_admin_data']).toBeUndefined();
+      expect(TOOL_PII_ALLOWLIST['update_patient_data']).toBeUndefined();
+      expect(TOOL_PII_ALLOWLIST['update_surgery_request_data']).toBeUndefined();
     });
 
     it('manage_documents só pode tokenizar protocol (sem nome de paciente)', () => {
@@ -42,11 +42,19 @@ describe('tool-pii-allowlist', () => {
       expect(TOOL_PII_ALLOWLIST.set_health_plan).toEqual(['protocol']);
       expect(TOOL_PII_ALLOWLIST.set_hospital).toEqual(['protocol']);
     });
+
+    it('search_tuss_codes não tokeniza nada (catálogo público)', () => {
+      expect(TOOL_PII_ALLOWLIST.search_tuss_codes).toEqual([]);
+    });
+
+    it('search_cid_codes não tokeniza nada (catálogo público)', () => {
+      expect(TOOL_PII_ALLOWLIST.search_cid_codes).toEqual([]);
+    });
   });
 
   describe('isCategoryAllowedForTool', () => {
-    it('retorna true para combinação válida (cpf em get_patient_info)', () => {
-      expect(isCategoryAllowedForTool('get_patient_info', 'cpf')).toBe(true);
+    it('retorna true para combinação válida (cpf em query_patients)', () => {
+      expect(isCategoryAllowedForTool('query_patients', 'cpf')).toBe(true);
     });
 
     it('retorna false para combinação inválida', () => {
@@ -71,7 +79,7 @@ describe('tool-pii-allowlist', () => {
   describe('assertCategoryAllowed', () => {
     it('não lança quando categoria é permitida', () => {
       expect(() =>
-        assertCategoryAllowed('get_surgery_request_status', 'protocol'),
+        assertCategoryAllowed('query_surgery_requests', 'protocol'),
       ).not.toThrow();
     });
 

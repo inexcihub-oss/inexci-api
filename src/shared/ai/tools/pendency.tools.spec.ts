@@ -71,6 +71,173 @@ describe('PendencyTools', () => {
       expect(result).toContain('Parâmetros mínimos');
     });
 
+    // Regressão 2026-05-14: o medical_report era recomendado SEMPRE como
+    // `manage_report_sections` (criar seção), mesmo quando paciente e
+    // seções já estavam OK e só faltava a assinatura do médico — fazendo
+    // a IA dizer "Recomendo criar a seção do laudo" para o Dr. Carlos.
+    it('medical_report com APENAS assinatura faltando → recomenda upload_doctor_signature', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-sign',
+        protocol: 'SC-686721',
+        status: 1,
+        doctorId: 'doctor-1',
+      });
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'medical_report',
+            name: 'Laudo Médico',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [
+              { label: 'Nome do paciente', done: true },
+              { label: 'Data de nascimento', done: true },
+              { label: 'CPF', done: true },
+              { label: 'Telefone', done: true },
+              { label: 'Endereço', done: true },
+              { label: 'CEP', done: true },
+              { label: 'Ao menos 1 seção de laudo preenchida', done: true },
+              { label: 'Assinatura do médico configurada', done: false },
+            ],
+          },
+        ],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-sign' },
+        baseContext,
+      );
+
+      // Caminho especial: mensagem ULTRA-direta — instrui o LLM a NÃO
+      // mencionar "criar seção" ou "completar laudo médico". A mensagem
+      // CONTÉM "criar seção" entre aspas como instrução negativa ao LLM,
+      // então não checamos a substring solta.
+      expect(result).toContain('PENDÊNCIA ÚNICA');
+      expect(result).toContain('assinatura digital do médico');
+      expect(result).toContain('upload_doctor_signature');
+      expect(result).not.toMatch(/manage_report_sections/);
+      expect(result).toMatch(/NÃO sugira "criar seção do laudo"/);
+    });
+
+    it('medical_report com APENAS seções faltando → recomenda manage_report_sections', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-sec',
+        protocol: 'SC-686722',
+        status: 1,
+        doctorId: 'doctor-1',
+      });
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'medical_report',
+            name: 'Laudo Médico',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [
+              { label: 'Nome do paciente', done: true },
+              { label: 'Data de nascimento', done: true },
+              { label: 'CPF', done: true },
+              { label: 'Telefone', done: true },
+              { label: 'Endereço', done: true },
+              { label: 'CEP', done: true },
+              { label: 'Ao menos 1 seção de laudo preenchida', done: false },
+              { label: 'Assinatura do médico configurada', done: true },
+            ],
+          },
+        ],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-sec' },
+        baseContext,
+      );
+
+      expect(result).toContain('manage_report_sections');
+      expect(result).not.toMatch(/upload_doctor_signature/);
+    });
+
+    it('medical_report com seções E assinatura faltando → recomenda os dois', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-mix',
+        protocol: 'SC-686723',
+        status: 1,
+        doctorId: 'doctor-1',
+      });
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'medical_report',
+            name: 'Laudo Médico',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [
+              { label: 'Nome do paciente', done: true },
+              { label: 'Data de nascimento', done: true },
+              { label: 'CPF', done: true },
+              { label: 'Telefone', done: true },
+              { label: 'Endereço', done: true },
+              { label: 'CEP', done: true },
+              { label: 'Ao menos 1 seção de laudo preenchida', done: false },
+              { label: 'Assinatura do médico configurada', done: false },
+            ],
+          },
+        ],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-mix' },
+        baseContext,
+      );
+
+      expect(result).toContain('manage_report_sections');
+      expect(result).toContain('upload_doctor_signature');
+    });
+
+    it('opme_items com APENAS o flag faltando → recomenda set_has_opme', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-opme',
+        protocol: 'SC-700000',
+        status: 1,
+        doctorId: 'doctor-1',
+      });
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'opme_items',
+            name: 'Itens OPME',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [
+              {
+                label: 'Indicar se há ou não OPME nesta solicitação',
+                done: false,
+              },
+            ],
+          },
+        ],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-opme' },
+        baseContext,
+      );
+
+      expect(result).toContain('set_has_opme');
+      expect(result).not.toMatch(/add_opme_item/);
+    });
+
     it('deve retornar mensagem positiva se sem pendências', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
@@ -310,6 +477,84 @@ describe('PendencyTools', () => {
       expect(detokenized).not.toContain('SC-SC-468131');
     });
 
+    // Regressão: 2026-05-14 — usuário disse "pendências da sc pendente" após o
+    // LLM ter listado as SCs por status. O LLM passava "pendente" como
+    // surgeryRequestId (identifier), o lookup falhava e retornava
+    // "Solicitação não encontrada". Correção: detectar identifier que é rótulo
+    // de status e redirecionar para a lógica de statusHint.
+    it('quando surgeryRequestId é rótulo de status ("pendente"), usa statusHint automaticamente', async () => {
+      const pendingSc = {
+        id: 'req-pending-1',
+        protocol: '686721',
+        status: 1,
+        doctorId: 'doctor-1',
+        patient: { name: 'Patrícia Gonçalves Ferraz' },
+      };
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([pendingSc]);
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Pendente',
+        canAdvance: false,
+        pendencies: [
+          {
+            key: 'hospital_data',
+            name: 'Hospital',
+            isComplete: false,
+            isOptional: false,
+            checkItems: [],
+          },
+        ],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { surgeryRequestId: 'pendente' },
+        baseContext,
+      );
+
+      expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 1 }),
+        0,
+        20,
+      );
+      expect(mockPendencyValidator.validateForStatus).toHaveBeenCalledWith(
+        'req-pending-1',
+      );
+      expect(result).not.toContain('Solicitação não encontrada');
+      expect(result).toContain('Para avançar, faça:');
+    });
+
+    it('quando identifier é rótulo de status ("enviada"), usa statusHint automaticamente', async () => {
+      const sentSc = {
+        id: 'req-sent-1',
+        protocol: '759710',
+        status: 2,
+        doctorId: 'doctor-1',
+        patient: { name: 'Eduardo Luiz Teixeira' },
+      };
+      mockSurgeryRequestRepo.findMany.mockResolvedValue([sentSc]);
+      mockPendencyValidator.validateForStatus.mockResolvedValue({
+        statusLabel: 'Enviada',
+        canAdvance: true,
+        pendencies: [],
+      });
+
+      const tool = getTool('get_pendencies');
+      const result = await tool.execute(
+        { identifier: 'enviada' },
+        baseContext,
+      );
+
+      expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 2 }),
+        0,
+        20,
+      );
+      expect(mockPendencyValidator.validateForStatus).toHaveBeenCalledWith(
+        'req-sent-1',
+      );
+      expect(result).toContain('não tem pendências');
+    });
+
     it('deve tentar localizar por nome do paciente quando não achar por id/protocolo', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(null);
       mockSurgeryRequestRepo.findMany.mockResolvedValue([
@@ -493,7 +738,9 @@ describe('PendencyTools', () => {
       expect(result).toMatch(
         /Ficha da sala.*\[anexado\]|\[anexado\].*Ficha da sala/i,
       );
-      expect(result).toMatch(/pode prosseguir com `mark_performed`/i);
+      expect(result).toMatch(
+        /pode prosseguir com `plan_actions\(intent="mark_performed"\)`/i,
+      );
       // Há ainda o opcional (surgery_images) faltando — deve avisar.
       expect(result).toMatch(/opcionais ainda não anexados/i);
     });

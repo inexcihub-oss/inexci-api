@@ -1,6 +1,6 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository, FindOptionsWhere, QueryDeepPartialEntity } from 'typeorm';
 import { RecoveryCode } from '../entities/recovery-code.entity';
 import { BaseRepository } from './base.repository';
 
@@ -17,8 +17,11 @@ export class RecoveryCodeRepository extends BaseRepository<RecoveryCode> {
   async updateByWhere(
     where: FindOptionsWhere<RecoveryCode>,
     data: Partial<RecoveryCode>,
-  ): Promise<RecoveryCode> {
-    await this.repository.update(where, data);
+  ): Promise<RecoveryCode | null> {
+    await this.repository.update(
+      where,
+      data as QueryDeepPartialEntity<RecoveryCode>,
+    );
     return await this.repository.findOne({ where });
   }
 

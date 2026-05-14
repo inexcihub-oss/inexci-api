@@ -1,3 +1,8 @@
+// OTel deve ser inicializado ANTES do bootstrap para que os instrumentors
+// se registrem antes de qualquer módulo Nest ser instanciado.
+import { initOtel } from './shared/observability/otel';
+initOtel();
+
 import * as dayjs from 'dayjs';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';

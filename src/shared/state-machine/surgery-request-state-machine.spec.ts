@@ -44,7 +44,7 @@ describe('SurgeryRequestStateMachine', () => {
     });
 
     it('should block when patientId is missing', () => {
-      const req = makeRequest({ patientId: null });
+      const req = makeRequest({ patientId: null as any });
       const pendencies = sm.getBlockingPendencies(
         req,
         SurgeryRequestStatus.SENT,
@@ -72,7 +72,7 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('should return multiple pendencies at once', () => {
       const req = makeRequest({
-        patientId: null,
+        patientId: null as any,
         hospitalId: null,
         tussItems: [] as any,
       });
@@ -280,7 +280,7 @@ describe('SurgeryRequestStateMachine', () => {
     });
 
     it('should throw BadRequestException with pendencies for invalid transition', () => {
-      const req = makeRequest({ patientId: null });
+      const req = makeRequest({ patientId: null as any });
       try {
         sm.assertCanTransition(req, SurgeryRequestStatus.SENT);
         fail('Expected BadRequestException');

@@ -4,7 +4,7 @@ import { ToolContext } from './tool.interface';
 import { parseToolResult } from './tool-result';
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
 
-describe('flow-draft-transition tools (Fase 6.5)', () => {
+describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
   let conv: any;
   let mockConvRepo: any;
   let draftService: OperationDraftService;
@@ -79,6 +79,20 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
     });
   });
 
+  it('expõe apenas preview/commit por transição (mais check_docs no mark_performed)', () => {
+    expect(tools.map((t) => t.name)).toEqual([
+      'send_sc_draft_preview',
+      'send_sc_draft_commit',
+      'start_analysis_draft_preview',
+      'start_analysis_draft_commit',
+      'accept_authorization_draft_preview',
+      'accept_authorization_draft_commit',
+      'mark_performed_draft_check_docs',
+      'mark_performed_draft_preview',
+      'mark_performed_draft_commit',
+    ]);
+  });
+
   describe('send_sc (PENDING → SENT)', () => {
     beforeEach(async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(
@@ -87,15 +101,13 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
       await draftService.start({ conversationId: 'conv-1', type: 'send_sc' });
     });
 
-    it('fluxo completo: download → preview → commit', async () => {
-      await getTool('send_sc_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('send_sc_draft_set_method').execute(
-        { method: 'download' },
-        context,
-      );
+    it('fluxo completo: setFields → preview → commit (download)', async () => {
+      await draftService.setFields('conv-1', 'send_sc', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        method: 'download',
+      });
+
       const previewRaw = await getTool('send_sc_draft_preview').execute(
         {},
         context,
@@ -118,14 +130,11 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
     });
 
     it('email exige `to` e `subject`', async () => {
-      await getTool('send_sc_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('send_sc_draft_set_method').execute(
-        { method: 'email' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'send_sc', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        method: 'email',
+      });
       const previewRaw = await getTool('send_sc_draft_preview').execute(
         {},
         context,
@@ -152,14 +161,11 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
           },
         ],
       });
-      await getTool('send_sc_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('send_sc_draft_set_method').execute(
-        { method: 'download' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'send_sc', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        method: 'download',
+      });
       const previewRaw = await getTool('send_sc_draft_preview').execute(
         {},
         context,
@@ -170,14 +176,11 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
     });
 
     it('commit falha se a SC saiu do status PENDING', async () => {
-      await getTool('send_sc_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('send_sc_draft_set_method').execute(
-        { method: 'download' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'send_sc', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        method: 'download',
+      });
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(
         makeSc(SurgeryRequestStatus.SENT),
       );
@@ -202,19 +205,14 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
       });
     });
 
-    it('fluxo completo: request + número + data → commit', async () => {
-      await getTool('start_analysis_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('start_analysis_draft_set_request_number').execute(
-        { request_number: 'OPE-99' },
-        context,
-      );
-      await getTool('start_analysis_draft_set_received_at').execute(
-        { received_at: '2026-02-01' },
-        context,
-      );
+    it('fluxo completo: setFields + commit dispara startAnalysis', async () => {
+      await draftService.setFields('conv-1', 'start_analysis', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        requestNumber: 'OPE-99',
+        receivedAt: '2026-02-01',
+      });
+
       const commitRaw = await getTool('start_analysis_draft_commit').execute(
         { confirm: true },
         context,
@@ -232,10 +230,10 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
     });
 
     it('preview pede campos faltantes', async () => {
-      await getTool('start_analysis_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'start_analysis', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+      });
       const previewRaw = await getTool('start_analysis_draft_preview').execute(
         {},
         context,
@@ -248,22 +246,14 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
     });
 
     it('cotação opcional vinculada ao slot 1', async () => {
-      await getTool('start_analysis_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('start_analysis_draft_set_request_number').execute(
-        { request_number: 'OPE-99' },
-        context,
-      );
-      await getTool('start_analysis_draft_set_received_at').execute(
-        { received_at: '2026-02-01' },
-        context,
-      );
-      await getTool('start_analysis_draft_set_quotation').execute(
-        { slot: 1, number: 'COT-1', received_at: '2026-02-02' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'start_analysis', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        requestNumber: 'OPE-99',
+        receivedAt: '2026-02-01',
+        quotation1Number: 'COT-1',
+        quotation1ReceivedAt: '2026-02-02',
+      });
       await getTool('start_analysis_draft_commit').execute(
         { confirm: true },
         context,
@@ -291,14 +281,11 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
     });
 
     it('fluxo completo: 2 datas → commit', async () => {
-      await getTool('accept_authorization_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('accept_authorization_draft_set_date_options').execute(
-        { date_options: ['2026-03-01', '2026-03-08'] },
-        context,
-      );
+      await draftService.setFields('conv-1', 'accept_authorization', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        dateOptions: ['2026-03-01', '2026-03-08'],
+      });
       const commitRaw = await getTool(
         'accept_authorization_draft_commit',
       ).execute({ confirm: true }, context);
@@ -311,43 +298,6 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
         }),
         'user-1',
       );
-    });
-
-    it('rejeita lista vazia ou maior que 3', async () => {
-      await getTool('accept_authorization_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      const empty = await getTool(
-        'accept_authorization_draft_set_date_options',
-      ).execute({ date_options: [] }, context);
-      expect(parseToolResult<any>(empty)?.status).toBe('error');
-
-      const tooMany = await getTool(
-        'accept_authorization_draft_set_date_options',
-      ).execute(
-        {
-          date_options: [
-            '2026-03-01',
-            '2026-03-02',
-            '2026-03-03',
-            '2026-03-04',
-          ],
-        },
-        context,
-      );
-      expect(parseToolResult<any>(tooMany)?.status).toBe('error');
-    });
-
-    it('rejeita data em formato inválido', async () => {
-      await getTool('accept_authorization_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      const bad = await getTool(
-        'accept_authorization_draft_set_date_options',
-      ).execute({ date_options: ['01/03/2026'] }, context);
-      expect(parseToolResult<any>(bad)?.status).toBe('error');
     });
   });
 
@@ -366,10 +316,10 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
       mockDocumentRepo.findMany.mockResolvedValue([
         { id: 'd1', key: 'surgery_room' },
       ]);
-      await getTool('mark_performed_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'mark_performed', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+      });
       const raw = await getTool('mark_performed_draft_check_docs').execute(
         {},
         context,
@@ -383,16 +333,23 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
       );
     });
 
+    it('check_docs sem surgeryRequestId pede draft_update', async () => {
+      const raw = await getTool('mark_performed_draft_check_docs').execute(
+        {},
+        context,
+      );
+      const result = parseToolResult<any>(raw);
+      expect(result?.status).toBe('needs_input');
+      expect(result?.message).toMatch(/draft_update/);
+    });
+
     it('preview bloqueia quando documentos obrigatórios faltam', async () => {
       mockDocumentRepo.findMany.mockResolvedValue([]);
-      await getTool('mark_performed_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('mark_performed_draft_set_performed_at').execute(
-        { performed_at: '2026-04-01' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'mark_performed', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        surgeryPerformedAt: '2026-04-01',
+      });
       const previewRaw = await getTool('mark_performed_draft_preview').execute(
         {},
         context,
@@ -408,14 +365,11 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
         { id: 'd1', key: 'surgery_room' },
         { id: 'd2', key: 'surgery_auth_document' },
       ]);
-      await getTool('mark_performed_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('mark_performed_draft_set_performed_at').execute(
-        { performed_at: '2026-04-01' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'mark_performed', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        surgeryPerformedAt: '2026-04-01',
+      });
       const commitRaw = await getTool('mark_performed_draft_commit').execute(
         { confirm: true },
         context,
@@ -433,14 +387,11 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
       mockDocumentRepo.findMany.mockResolvedValue([
         { id: 'd1', key: 'surgery_room' },
       ]);
-      await getTool('mark_performed_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      await getTool('mark_performed_draft_set_performed_at').execute(
-        { performed_at: '2026-04-01' },
-        context,
-      );
+      await draftService.setFields('conv-1', 'mark_performed', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        surgeryPerformedAt: '2026-04-01',
+      });
       const commitRaw = await getTool('mark_performed_draft_commit').execute(
         { confirm: true },
         context,
@@ -448,42 +399,6 @@ describe('flow-draft-transition tools (Fase 6.5)', () => {
       const commit = parseToolResult<any>(commitRaw);
       expect(commit?.status).toBe('blocked');
       expect(mockWorkflowService.markPerformed).not.toHaveBeenCalled();
-    });
-
-    it('rejeita data inválida em performed_at', async () => {
-      await getTool('mark_performed_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      const raw = await getTool(
-        'mark_performed_draft_set_performed_at',
-      ).execute({ performed_at: 'ontem' }, context);
-      expect(parseToolResult<any>(raw)?.status).toBe('error');
-    });
-  });
-
-  describe('guarda de tipo de draft', () => {
-    it('block quando não há draft ativo', async () => {
-      const raw = await getTool('send_sc_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      const result = parseToolResult<any>(raw);
-      expect(result?.status).toBe('blocked');
-    });
-
-    it('block quando o draft ativo é de outro tipo', async () => {
-      await draftService.start({
-        conversationId: 'conv-1',
-        type: 'start_analysis',
-      });
-      const raw = await getTool('send_sc_draft_set_request').execute(
-        { surgery_request_id_or_protocol: 'SC-0001' },
-        context,
-      );
-      const result = parseToolResult<any>(raw);
-      expect(result?.status).toBe('blocked');
-      expect(result?.message).toMatch(/start_analysis/);
     });
   });
 });

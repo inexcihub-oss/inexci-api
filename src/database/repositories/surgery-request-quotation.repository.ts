@@ -26,7 +26,7 @@ export class SurgeryRequestQuotationRepository extends BaseRepository<SurgeryReq
     const quotation = this.repository.create(data);
     const saved = await this.repository.save(quotation);
 
-    return await this.repository.findOne({
+    return (await this.repository.findOne({
       where: { id: saved.id },
       relations: ['supplier'],
       select: {
@@ -38,6 +38,6 @@ export class SurgeryRequestQuotationRepository extends BaseRepository<SurgeryReq
           phone: true,
         },
       },
-    });
+    }))!;
   }
 }

@@ -21,7 +21,7 @@ describe('SurgeryRequestTools', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  describe('get_surgery_request_status', () => {
+  describe('query_surgery_requests — detalhe (com identifier)', () => {
     it('deve buscar por protocolo e retornar status formatado', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
@@ -36,7 +36,7 @@ describe('SurgeryRequestTools', () => {
         patient: { name: 'João Silva' },
       });
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
       expect(result).toContain('SC-0042');
@@ -48,7 +48,7 @@ describe('SurgeryRequestTools', () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(null);
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-9999' }, baseContext);
 
       expect(result).toContain('Não encontrei');
@@ -68,7 +68,7 @@ describe('SurgeryRequestTools', () => {
         patient: { name: 'Carlos' },
       });
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute(
         { identifier: 'SC-664980?' },
         baseContext,
@@ -101,7 +101,7 @@ describe('SurgeryRequestTools', () => {
         },
       );
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: '664980' }, baseContext);
 
       expect(result).toContain('Solicitação SC-664980');
@@ -114,7 +114,7 @@ describe('SurgeryRequestTools', () => {
         doctorId: 'other-doctor',
       });
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-0001' }, baseContext);
 
       expect(result).toContain('permissão');
@@ -163,7 +163,7 @@ describe('SurgeryRequestTools', () => {
         pendencyValidatorMock as any,
       );
       const tool = toolsWithPendency.find(
-        (t) => t.name === 'get_surgery_request_status',
+        (t) => t.name === 'query_surgery_requests',
       )!;
       const result = await tool.execute(
         { identifier: 'SC-664980' },
@@ -179,7 +179,7 @@ describe('SurgeryRequestTools', () => {
     });
 
     it('deve retornar erro se userId for null', async () => {
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute(
         { identifier: 'SC-0001' },
         { ...baseContext, userId: null },
@@ -203,7 +203,7 @@ describe('SurgeryRequestTools', () => {
 
       const piiVault = new PiiVaultService();
       piiVault.startSession('conv-1');
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute(
         { identifier: 'SC-0042' },
         { ...baseContext, piiVault },
@@ -219,14 +219,14 @@ describe('SurgeryRequestTools', () => {
     });
   });
 
-  describe('list_surgery_requests', () => {
+  describe('query_surgery_requests — listagem (sem identifier)', () => {
     it('deve listar solicitações formatadas', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([
         { protocol: '0001', status: 1, patient: { name: 'Maria' } },
         { protocol: 'SC-0002', status: 3, patient: { name: 'José' } },
       ]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
       expect(result).toContain('SC-0001');
@@ -242,7 +242,7 @@ describe('SurgeryRequestTools', () => {
         { protocol: '0011', status: 3, patient: { name: 'Lucas' } },
       ]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
       expect(result).toContain('por status');
@@ -266,7 +266,7 @@ describe('SurgeryRequestTools', () => {
     it('deve retornar mensagem quando não há solicitações', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
       expect(result).toContain('Nenhuma');
@@ -275,7 +275,7 @@ describe('SurgeryRequestTools', () => {
     it('deve limitar a 200 resultados no máximo (clamp do limit alto)', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       await tool.execute({ limit: 5000 }, baseContext);
 
       expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
@@ -288,7 +288,7 @@ describe('SurgeryRequestTools', () => {
     it('deve usar 50 como limit padrão quando o usuário não informa', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       await tool.execute({}, baseContext);
 
       expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
@@ -305,7 +305,7 @@ describe('SurgeryRequestTools', () => {
     it('lista SCs de TODOS os médicos acessíveis ao usuário (não só do primeiro)', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       await tool.execute(
         {},
         { ...baseContext, accessibleDoctorIds: ['doctor-1', 'doctor-2'] },
@@ -332,7 +332,7 @@ describe('SurgeryRequestTools', () => {
         { protocol: '0030', status: 3, patient: { name: 'J' } },
       ]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
       const order = [
@@ -351,7 +351,7 @@ describe('SurgeryRequestTools', () => {
     });
   });
 
-  describe('get_surgery_request_status (campos enriquecidos)', () => {
+  describe('query_surgery_requests — campos enriquecidos no detalhe', () => {
     it('deve incluir CID, matrícula e plano quando preenchidos', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
@@ -371,7 +371,7 @@ describe('SurgeryRequestTools', () => {
         healthPlanType: 'Apartamento',
       });
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
       expect(result).toContain('CID: M75.1');
@@ -395,7 +395,7 @@ describe('SurgeryRequestTools', () => {
         patient: { name: 'João' },
       });
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
       expect(result).toContain('CID: Não informado');
@@ -419,34 +419,34 @@ describe('SurgeryRequestTools', () => {
         patient: { name: 'João' },
       });
 
-      const tool = getTool('get_surgery_request_status');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
       expect(result).not.toContain('📋');
     });
   });
 
-  describe('list_surgery_requests (sem emoji)', () => {
+  describe('query_surgery_requests — sem emoji na listagem', () => {
     it('NÃO deve incluir emoji de prancheta no cabeçalho', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([
         { protocol: '0001', status: 1, patient: { name: 'Maria' } },
       ]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
       expect(result).not.toContain('📋');
     });
   });
 
-  describe('list_surgery_requests (sem numeração nem bullet)', () => {
+  describe('query_surgery_requests — sem numeração nem bullet na listagem', () => {
     it('NÃO deve numerar nem usar bullet — usar SC-XXXX direto', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([
         { protocol: '0001', status: 1, patient: { name: 'Maria' } },
         { protocol: '0002', status: 1, patient: { name: 'José' } },
       ]);
 
-      const tool = getTool('list_surgery_requests');
+      const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
       // Não deve aparecer prefixo de bullet ou numeração antes do "SC-"

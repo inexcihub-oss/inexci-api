@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import {
+  inexciTracer,
+  SpanStatusCode,
+} from '../../../shared/observability/tracer';
 
 @Injectable()
 export class OpenaiService {
@@ -42,8 +46,52 @@ export class OpenaiService {
      * Compatível com o param `response_format` do Chat Completions da OpenAI.
      */
     responseFormat?: OpenAI.ChatCompletionCreateParams['response_format'];
+    /**
+     * Chave de roteamento de prompt caching (ver
+     * https://platform.openai.com/docs/guides/prompt-caching). Quando enviada,
+     * a OpenAI direciona requests com a mesma chave para a mesma réplica,
+     * aumentando o hit rate do cache de prefixo. Use uma chave estável que
+     * agrupe prompts com o mesmo prefixo (ex.: `inexci:wa:v2.1.2:draft=create_sc`).
+     *
+     * O SDK 4.104 ainda não tipa esse campo — propagamos via cast `as any`,
+     * já que a API HTTP aceita normalmente.
+     */
+    cacheKey?: string;
   }): Promise<OpenAI.ChatCompletion> {
-    return this.chatCompletionWithRetry(params);
+    return inexciTracer.startActiveSpan(
+      'openai.chatCompletion',
+      async (span) => {
+        const model =
+          params.model ??
+          this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
+        span.setAttribute('ai.model', model);
+        span.setAttribute('ai.tools.count', params.tools?.length ?? 0);
+        if (params.cacheKey) span.setAttribute('ai.cache.key', params.cacheKey);
+        try {
+          const result = await this.chatCompletionWithRetry(params);
+          const usage = result.usage;
+          if (usage) {
+            span.setAttribute('ai.usage.prompt_tokens', usage.prompt_tokens);
+            span.setAttribute(
+              'ai.usage.completion_tokens',
+              usage.completion_tokens,
+            );
+            span.setAttribute('ai.usage.total_tokens', usage.total_tokens);
+            const cached =
+              (usage as any).prompt_tokens_details?.cached_tokens ?? 0;
+            if (cached) span.setAttribute('ai.usage.cached_tokens', cached);
+          }
+          span.setStatus({ code: SpanStatusCode.OK });
+          return result;
+        } catch (e: any) {
+          span.recordException(e);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+          throw e;
+        } finally {
+          span.end();
+        }
+      },
+    );
   }
 
   private async chatCompletionWithRetry(
@@ -55,6 +103,7 @@ export class OpenaiService {
       timeoutMs?: number;
       model?: string;
       responseFormat?: OpenAI.ChatCompletionCreateParams['response_format'];
+      cacheKey?: string;
     },
     retries = 1,
   ): Promise<OpenAI.ChatCompletion> {
@@ -68,19 +117,36 @@ export class OpenaiService {
         ? params.model.trim()
         : this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
 
+    const maxTokens = params.maxTokens ?? this.defaultMaxTokens;
+    // Modelos o1/o3/o4 e GPT-5+ têm restrições de API vs gpt-4.x:
+    //   - exigem max_completion_tokens em vez de max_tokens
+    //   - não aceitam temperature customizada (apenas o default 1)
+    const isNewGenModel = /^(o\d|gpt-5)/.test(effectiveModel);
+
+    const requestBody: OpenAI.ChatCompletionCreateParams = {
+      model: effectiveModel,
+      messages: params.messages,
+      tools: params.tools?.length ? params.tools : undefined,
+      tool_choice: params.tools?.length ? 'auto' : undefined,
+      ...(!isNewGenModel && { temperature: params.temperature ?? 0.3 }),
+      ...(isNewGenModel
+        ? { max_completion_tokens: maxTokens }
+        : { max_tokens: maxTokens }),
+      response_format: params.responseFormat,
+    };
+
+    const trimmedCacheKey = params.cacheKey?.trim();
+    if (trimmedCacheKey) {
+      // O campo `prompt_cache_key` ainda não está tipado no SDK 4.x, mas a
+      // API HTTP da OpenAI aceita desde out/2024. Usar `as any` aqui evita
+      // bumpar o SDK só para isso.
+      (requestBody as any).prompt_cache_key = trimmedCacheKey;
+    }
+
     try {
-      return await this.client.chat.completions.create(
-        {
-          model: effectiveModel,
-          messages: params.messages,
-          tools: params.tools?.length ? params.tools : undefined,
-          tool_choice: params.tools?.length ? 'auto' : undefined,
-          temperature: params.temperature ?? 0.3,
-          max_tokens: params.maxTokens ?? this.defaultMaxTokens,
-          response_format: params.responseFormat,
-        },
-        { timeout: effectiveTimeoutMs },
-      );
+      return await this.client.chat.completions.create(requestBody, {
+        timeout: effectiveTimeoutMs,
+      });
     } catch (error: any) {
       const isRetryable =
         error?.status === 500 ||

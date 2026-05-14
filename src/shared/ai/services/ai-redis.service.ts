@@ -47,23 +47,34 @@ export class AiRedisService implements OnModuleDestroy {
     return this.redis?.status === 'ready';
   }
 
+  /**
+   * Retorna o client Redis se estiver pronto, ou `null` caso contrário.
+   * Concentra o narrowing em um único ponto para que callers fiquem
+   * compatíveis com `strictNullChecks`.
+   */
+  private getClient(): IORedis | null {
+    return this.redis?.status === 'ready' ? this.redis : null;
+  }
+
   // T32: Rate limit via INCR + EXPIRE
   async checkRateLimit(
     phone: string,
     max: number,
     windowSec: number,
   ): Promise<boolean> {
-    if (!this.isAvailable) return true; // fallback: sem limite
+    const client = this.getClient();
+    if (!client) return true; // fallback: sem limite
     const key = `${KEY_PREFIX}rl:${phone}`;
-    const count = await this.redis.incr(key);
-    if (count === 1) await this.redis.expire(key, windowSec);
+    const count = await client.incr(key);
+    if (count === 1) await client.expire(key, windowSec);
     return count <= max;
   }
 
   // T33: Cache genérico com TTL
   async cacheGet<T>(key: string): Promise<T | null> {
-    if (!this.isAvailable) return null;
-    const raw = await this.redis.get(`${KEY_PREFIX}${key}`);
+    const client = this.getClient();
+    if (!client) return null;
+    const raw = await client.get(`${KEY_PREFIX}${key}`);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as T;
@@ -73,8 +84,9 @@ export class AiRedisService implements OnModuleDestroy {
   }
 
   async cacheSet(key: string, value: any, ttlSeconds: number): Promise<void> {
-    if (!this.isAvailable) return;
-    await this.redis.set(
+    const client = this.getClient();
+    if (!client) return;
+    await client.set(
       `${KEY_PREFIX}${key}`,
       JSON.stringify(value),
       'EX',
@@ -83,19 +95,22 @@ export class AiRedisService implements OnModuleDestroy {
   }
 
   async cacheDelete(key: string): Promise<void> {
-    if (!this.isAvailable) return;
-    await this.redis.del(`${KEY_PREFIX}${key}`);
+    const client = this.getClient();
+    if (!client) return;
+    await client.del(`${KEY_PREFIX}${key}`);
   }
 
   // T34: Flags com TTL nativo
   async setFlag(key: string, ttlSeconds: number): Promise<void> {
-    if (!this.isAvailable) return;
-    await this.redis.set(`${KEY_PREFIX}${key}`, '1', 'EX', ttlSeconds);
+    const client = this.getClient();
+    if (!client) return;
+    await client.set(`${KEY_PREFIX}${key}`, '1', 'EX', ttlSeconds);
   }
 
   async hasFlag(key: string): Promise<boolean> {
-    if (!this.isAvailable) return false;
-    const val = await this.redis.get(`${KEY_PREFIX}${key}`);
+    const client = this.getClient();
+    if (!client) return false;
+    const val = await client.get(`${KEY_PREFIX}${key}`);
     return val !== null;
   }
 }
