@@ -27,6 +27,7 @@ import { AiTool } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { WhatsappDocumentDispatcherService } from '../services/whatsapp-document-dispatcher.service';
+import { ConversationMemoryService } from '../services/orchestrator/conversation-memory.service';
 
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
@@ -109,6 +110,7 @@ export interface AllToolsDeps {
   opmeService: OpmeService;
   documentsService: DocumentsService;
   documentDispatcher: WhatsappDocumentDispatcherService;
+  conversationMemory: ConversationMemoryService;
 }
 
 // ─── Fábrica principal ────────────────────────────────────────────────────────
@@ -154,6 +156,7 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
     opmeService,
     documentsService,
     documentDispatcher,
+    conversationMemory,
   } = deps;
 
   return [
@@ -164,6 +167,8 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       surgeryRequestRepo,
       surgeryRequestsService,
       activityRepo,
+      opmeService,
+      tussService,
     }),
     ...buildCadastroDraftTools({
       draftService,
@@ -190,6 +195,7 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       activityRepo,
       documentRepo,
       pendencyValidator,
+      storageService,
     }),
     ...buildSurgeryRequestTools(surgeryRequestRepo, pendencyValidator),
     ...buildPendencyTools(pendencyValidator, surgeryRequestRepo, documentRepo),
@@ -200,6 +206,7 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       configService,
       usersService,
       documentDispatcher,
+      conversationMemory,
     ),
     ...buildGeneralTools(patientsService, entityResolver),
     ...buildCatalogTools(procedureRepo, entityResolver),
@@ -304,6 +311,7 @@ export function aiToolsFactory(
   opmeService: OpmeService,
   documentsService: DocumentsService,
   documentDispatcher: WhatsappDocumentDispatcherService,
+  conversationMemory: ConversationMemoryService,
 ): AiTool[] {
   return buildAllAiTools({
     draftService,
@@ -337,6 +345,7 @@ export function aiToolsFactory(
     opmeService,
     documentsService,
     documentDispatcher,
+    conversationMemory,
   });
 }
 
@@ -379,4 +388,5 @@ export const AI_TOOLS_INJECT: InjectionToken[] = [
   OpmeService,
   DocumentsService,
   WhatsappDocumentDispatcherService,
+  ConversationMemoryService,
 ];

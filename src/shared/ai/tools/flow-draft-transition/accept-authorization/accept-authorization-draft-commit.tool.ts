@@ -51,16 +51,17 @@ export function buildAcceptAuthorizationDraftCommitTool(
         });
       }
       const f = v.draft.fields;
-      const statusError = await assertCurrentStatusIs(
+      const status = await assertCurrentStatusIs(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.IN_ANALYSIS,
       );
-      if (statusError) return statusError;
+      if (status.error) return status.error;
+      const surgeryRequestId = status.resolvedId!;
 
       try {
         await workflowService.acceptAuthorization(
-          f.surgeryRequestId!,
+          surgeryRequestId,
           {
             dateOptions: f.dateOptions!,
             notifyPatient: f.notifyPatient,
@@ -68,18 +69,18 @@ export function buildAcceptAuthorizationDraftCommitTool(
           context.userId,
         );
         await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
+          surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Autorização aceita via draft. ${f.dateOptions!.length} data(s) proposta(s).`,
         });
         await draftService.finalizeCommit(context.conversationId, {
-          id: f.surgeryRequestId,
+          id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
-          message: `Autorização aceita para a solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId}.`,
+          message: `Autorização aceita para a solicitação ${f.surgeryRequestLabel ?? surgeryRequestId}.`,
         });
       } catch (err: any) {
         return buildToolResult({

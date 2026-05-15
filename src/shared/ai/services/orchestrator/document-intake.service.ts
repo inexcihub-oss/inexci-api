@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { WhatsappDocumentDispatcherService } from '../whatsapp-document-dispatcher.service';
 import { WhatsappDocumentProcessorService } from '../whatsapp-document-processor.service';
 import { WhatsappService } from '../../../whatsapp/whatsapp.service';
 import { ConversationService } from '../conversation.service';
 import { PhoneNormalizerService } from './phone-normalizer.service';
+import { ConversationMemoryService } from './conversation-memory.service';
+import { OperationDraftService } from '../operation-draft.service';
 
 /**
  * Gerencia o pipeline de documentos inbound do WhatsApp (imagens e PDFs):
@@ -22,6 +24,9 @@ export class DocumentIntakeService {
     private readonly whatsappService: WhatsappService,
     private readonly conversationService: ConversationService,
     private readonly phoneNormalizer: PhoneNormalizerService,
+    private readonly conversationMemory: ConversationMemoryService,
+    @Optional()
+    private readonly draftService?: OperationDraftService,
   ) {}
 
   /**
@@ -119,6 +124,49 @@ export class DocumentIntakeService {
       }
 
       if (outcome.status === 'staged') {
+        // SHORT-CIRCUIT: se há um draft `create_sc` ativo nesta conversa,
+        // pular o menu "1=anexar / 2=criar SC / 3=cadastrar paciente". O
+        // contexto é claro: o documento veio durante a criação. Processa
+        // direto como `intent=create_sc` (pré-preenche o draft).
+        const activeDraft = opts.conversationId
+          ? await this.draftService
+              ?.getCurrent(opts.conversationId)
+              .catch(() => null)
+          : null;
+        if (activeDraft?.type === 'create_sc') {
+          this.logger.log(
+            `[AI_DOC_INTENT] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} short_circuit=create_sc reason=active_draft`,
+          );
+          const pending = await this.documentDispatcher.getPending(opts.phone);
+          if (pending) {
+            const procOutcome =
+              await this.documentProcessor.processPendingDocument({
+                phone: opts.phone,
+                pending,
+                intent: 'create_sc',
+                conversationId: opts.conversationId ?? opts.phone,
+                messageSid: opts.messageSid,
+                userId: opts.userId,
+                ownerId: opts.ownerId ?? null,
+              });
+            if (procOutcome.status === 'ok' && procOutcome.userSummary) {
+              await this.whatsappService.sendMessage(
+                opts.phone,
+                procOutcome.userSummary,
+              );
+              if (opts.conversationId) {
+                await this.conversationService.appendMessage(
+                  opts.conversationId,
+                  'assistant',
+                  procOutcome.userSummary,
+                );
+              }
+              return { handled: true };
+            }
+            // Se falhou o processamento, cai no menu padrão.
+          }
+        }
+
         await this.whatsappService.sendMessage(
           opts.phone,
           this.documentDispatcher.buildIntentPromptMessage(),
@@ -250,6 +298,27 @@ export class DocumentIntakeService {
 
     const caption = (opts.body || '').trim();
 
+    // 0) ESTADO ESTRUTURADO — fonte primária. Se o orchestrator marcou
+    //    `awaitingMedia: signature` no turno anterior (ex.: usuário escolheu
+    //    "1 - Enviar foto da assinatura digital" do menu), aceitamos a
+    //    próxima imagem como assinatura sem depender de regex em texto.
+    //    Funciona mesmo quando o usuário envia a foto SEM legenda.
+    if (opts.conversationId) {
+      try {
+        const awaiting = await this.conversationMemory.getAwaitingMedia(
+          opts.conversationId,
+        );
+        if (awaiting?.kind === 'signature' && !otherDocRe.test(caption)) {
+          this.logger.log(
+            `[AI_DOC] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} bypassed=signature_upload source=awaiting_media_state`,
+          );
+          return true;
+        }
+      } catch {
+        // não-crítico — segue com as heurísticas legadas abaixo
+      }
+    }
+
     // 1) Caption explicitamente indica outro tipo de documento → não bypassa
     if (otherDocRe.test(caption)) return false;
 
@@ -370,7 +439,7 @@ export class DocumentIntakeService {
         );
       if (extracted.laudoText)
         dataLines.push(
-          `  - Laudo (texto completo, copie para draft_update({ fields: { notes } })): "${extracted.laudoText.replace(/"/g, "'").slice(0, 600)}${extracted.laudoText.length > 600 ? '…[truncado para o hint, original disponível em pending.classification.extracted.laudoText]' : ''}"`,
+          `  - Laudo (texto completo, copie via draft_update(create_sc, notes, "<texto>")): "${extracted.laudoText.replace(/"/g, "'").slice(0, 600)}${extracted.laudoText.length > 600 ? '…[truncado para o hint, original disponível em pending.classification.extracted.laudoText]' : ''}"`,
         );
 
       const dataBlock = dataLines.length
@@ -402,23 +471,28 @@ export class DocumentIntakeService {
                 '- A intenção declarada é **criar uma nova SC** e o documento trouxe DADOS SUFICIENTES (paciente + procedimento/TUSS + contexto).',
                 '- **MODO AUTO-CRIAR ATIVADO**: NÃO pergunte "posso seguir?" / "qual o nome do paciente?" / "qual o procedimento?". Os dados já estão acima. Vá DIRETO para o draft:',
                 '  1. `plan_actions({ intent: "create_sc" })` para abrir o rascunho.',
-                '  2. Resolva o paciente: chame `query_patients({ patient_name_or_id: "<nome acima>", match_mode: "fuzzy" })`. Se a tool retornar um único match → use `draft_update({ fields: { patientId: "<id>" } })`. Se retornar lista ambígua → mostre ao usuário e peça desempate. Se NÃO encontrar nada → chame `create_patient_from_document({ confirm: true })` (use telefone/e-mail extraídos; se faltarem os obrigatórios, pergunte só esses dois).',
-                '  3. `draft_update({ fields: { procedure_name: "<sugerido acima>" } })`.',
-                '  4. `draft_update({ fields: { health_plan_name: "...", hospital_name: "..." } })` com o convênio (e hospital, se houver) listado acima.',
-                '  5. `draft_update({ fields: { notes: "<laudoText acima>" } })` colando o LAUDO INTEIRO.',
-                '  6. Se houver TUSS ou OPME nos dados acima, registre via tools `manage_tuss_items` / `manage_opme_items` (após o commit da SC) ou cole no `notes` se preferir.',
-                '  7. `sc_draft_preview` → mostre ao usuário o resumo de UMA vez. Aí sim peça confirmação final ("posso salvar?").',
-                '  8. Após confirmação, `sc_draft_commit`.',
+                '  2. Resolva o paciente: chame `query_patients({ patient_name_or_id: "<nome acima>", match_mode: "fuzzy" })`. Se a tool retornar um único match → `draft_update({ draft_type: "create_sc", field: "patientId", value: "<UUID>" })`. Se retornar lista ambígua → mostre ao usuário e peça desempate. Se NÃO encontrar nada → chame `create_patient_from_document({ confirm: true })` (use telefone/e-mail extraídos; se faltarem os obrigatórios, pergunte só esses dois).',
+                '  3. Resolva o procedimento: chame `search_procedures({ query: "<nome sugerido>" })`. Se houver match, grave `draft_update({ draft_type: "create_sc", field: "procedureId", value: "<UUID>" })`. Se NÃO houver, abra um sub-draft de cadastro: `plan_actions({ intent: "create_procedure" })` → preencha `name` → commit. Ao commitar o sub-draft, o sistema retoma o draft de SC e preenche `procedureId` automaticamente.',
+                '  4. Resolva (se possível) hospital e convênio do mesmo jeito (fuzzy lookup → grave o ID). Hospital e convênio são OPCIONAIS — se não encontrar match e o usuário não quiser cadastrar agora, siga sem.',
+                '  5. Prioridade: assuma `LOW` se o usuário não disser nada. Grave `draft_update({ draft_type: "create_sc", field: "priority", value: "LOW" })`. NÃO pergunte ao usuário sobre prioridade quando ele não citou.',
+                '  6. Médico responsável: NÃO pergunte. Se você for médico OU se houver só 1 médico acessível, o sistema preenche automaticamente; se houver vários e nenhum default for possível, AÍ SIM peça desempate.',
+                '  7. Cole o laudo: `draft_update({ draft_type: "create_sc", field: "notes", value: "<laudoText acima>" })`.',
+                '  8. Cole TUSS no draft (não chame `manage_tuss_items` ainda): `draft_update({ draft_type: "create_sc", field: "tussItems", value: [{ "code": "3.07.15.091", "description": "Descompressão medular..." }, ...] })` usando os códigos+descrições já extraídos.',
+                '  9. Cole OPME no draft (não chame `manage_opme_items` ainda): `draft_update({ draft_type: "create_sc", field: "opmeItems", value: [{ "description": "Cage Stand Alone", "qty": 2, "supplier": "SINTEX", "brand": "DIVA/NOVA SPINE" }, ...] })`.',
+                '  10. Chame `sc_draft_preview` → mostre ao usuário o resumo final (com paciente, procedimento, hospital/convênio se houver, prioridade, número de TUSS, número de OPME e existência de laudo). Aí sim peça confirmação ("posso salvar?").',
+                '  11. UMA ÚNICA chamada `sc_draft_commit({ confirm: true })` cria a SC E persiste laudo + TUSS + OPME de uma vez. Não chame mais `manage_tuss_items` / `manage_opme_items` em seguida — só faça isso se o usuário pedir um ajuste depois.',
                 '- NUNCA fragmente em perguntas separadas para cada campo quando os dados já estão extraídos. NUNCA responda "não ficou claro qual ação você quer confirmar" enquanto este hint estiver ativo.',
                 '- Se alguma tool falhar com erro técnico, NÃO repasse o erro cru ao usuário; tente seguir adiante com o que conseguiu coletar e peça ajuda apenas para o que ficou faltando.',
               ].join('\n');
             }
             return [
               '- A intenção declarada é **criar uma nova SC** a partir deste documento, mas faltam alguns dados-chave.',
-              '- Quando o usuário confirmar (sim/pode/vai), use o fluxo de rascunho: `plan_actions({ intent: "create_sc" })` → `draft_update({ fields: { patientId | patient_name, procedure_name, hospital_name?, health_plan_name? } })` — usando os DADOS EXTRAÍDOS acima como base e completando com o que vier do usuário.',
+              '- Quando o usuário confirmar (sim/pode/vai), use o fluxo de rascunho: `plan_actions({ intent: "create_sc" })` → grave os campos um por um com `draft_update({ draft_type: "create_sc", field: "<nome>", value: <valor> })` — usando os DADOS EXTRAÍDOS acima como base e completando com o que vier do usuário.',
               '- Para resolver o paciente pelo nome, chame `query_patients({ patient_name_or_id: "<nome>", match_mode: "fuzzy" })`. Se não existir, ofereça criar via `create_patient_from_document` antes de continuar a SC.',
-              '- Se faltar hospital/convênio/procedimento no catálogo, abra um sub-draft com `plan_actions(intent="create_hospital"|"create_health_plan"|"create_procedure")` e preencha o sub-draft com `draft_update` antes do draft pai.',
-              '- Cole o `laudoText` (se houver) em `draft_update({ fields: { notes } })`.',
+              '- Para o procedimento, chame `search_procedures`. Se faltar no catálogo, abra um sub-draft `plan_actions({ intent: "create_procedure" })` → preencha `name` → commit; o draft pai recebe o ID automaticamente.',
+              '- Hospital e convênio são OPCIONAIS — se não encontrar match, prossiga sem.',
+              '- Prioridade: assuma `LOW` se o usuário não disser nada (não pergunte).',
+              '- Cole o `laudoText` (se houver) em `draft_update({ draft_type: "create_sc", field: "notes", value: "<texto>" })`.',
               '- Quando o draft estiver completo, chame `sc_draft_preview` e `sc_draft_commit`.',
               '- NUNCA responda "não ficou claro qual ação você quer confirmar" enquanto este hint estiver ativo: a ação JÁ está clara — é criar a SC.',
             ].join('\n');

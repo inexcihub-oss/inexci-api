@@ -56,16 +56,17 @@ export function buildMarkPerformedDraftCommitTool(
         });
       }
       const f = v.draft.fields;
-      const statusError = await assertCurrentStatusIs(
+      const status = await assertCurrentStatusIs(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.SCHEDULED,
       );
-      if (statusError) return statusError;
+      if (status.error) return status.error;
+      const surgeryRequestId = status.resolvedId!;
 
       const docs = await checkPostSurgeryDocuments(
         documentRepo,
-        f.surgeryRequestId!,
+        surgeryRequestId,
       );
       if (docs.missing.length > 0) {
         return buildToolResult({
@@ -76,23 +77,23 @@ export function buildMarkPerformedDraftCommitTool(
 
       try {
         await workflowService.markPerformed(
-          f.surgeryRequestId!,
+          surgeryRequestId,
           { surgeryPerformedAt: f.surgeryPerformedAt! } as any,
           context.userId,
         );
         await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
+          surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Cirurgia marcada como realizada via draft em ${f.surgeryPerformedAt}.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
-          id: f.surgeryRequestId,
+          id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
-          message: `Solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId} marcada como realizada com sucesso.`,
+          message: `Solicitação ${f.surgeryRequestLabel ?? surgeryRequestId} marcada como realizada com sucesso.`,
         });
       } catch (err: any) {
         return buildToolResult({

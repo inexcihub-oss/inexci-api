@@ -14,9 +14,11 @@ import {
 import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { DocumentRepository } from 'src/database/repositories/document.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
+import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -42,6 +44,8 @@ export class SendAnalysisHandler {
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
     private readonly quotaService: QuotaService,
+    private readonly documentRepository: DocumentRepository,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
@@ -145,23 +149,61 @@ export class SendAnalysisHandler {
     const hospitalName = request.hospital?.name ?? '';
 
     if (dto.method === SendMethod.EMAIL && dto.to) {
-      let pdfAttachment:
-        | { filename: string; content: Buffer; contentType: string }
-        | undefined;
+      const mailAttachments: Array<{
+        filename: string;
+        content: Buffer;
+        contentType: string;
+      }> = [];
+
       try {
         const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
           request,
           userId,
         );
-        pdfAttachment = {
+        mailAttachments.push({
           filename: `solicitacao-${request.protocol ?? id}.pdf`,
           content: Buffer.from(pdf, 'base64'),
           contentType: 'application/pdf',
-        };
+        });
       } catch (err) {
         this.logger.warn(
           `[sendRequest] Não foi possível gerar PDF para anexar ao e-mail da solicitação ${id}: ${(err as Error)?.message}`,
         );
+      }
+
+      // Resolve documentos extras pedidos pelo cliente (IDs em
+      // `documents.id`). Best-effort: anexos que falharem ao baixar são
+      // ignorados (com warn), o e-mail é enviado mesmo assim.
+      if (dto.attachments && dto.attachments.length > 0) {
+        const docs = await Promise.all(
+          dto.attachments.map((docId) =>
+            this.documentRepository.findOne({ id: docId }),
+          ),
+        );
+        for (const doc of docs) {
+          if (!doc?.uri) continue;
+          if (doc.surgeryRequestId !== id) {
+            this.logger.warn(
+              `[sendRequest] anexo ${doc.id} ignorado: pertence a outra SC (${doc.surgeryRequestId})`,
+            );
+            continue;
+          }
+          try {
+            const buffer = await this.storageService.download(doc.uri);
+            if (!buffer) continue;
+            const fileName =
+              doc.name || doc.uri.split('/').pop() || `documento-${doc.id}`;
+            mailAttachments.push({
+              filename: fileName,
+              content: buffer,
+              contentType: 'application/octet-stream',
+            });
+          } catch (err) {
+            this.logger.warn(
+              `[sendRequest] Falha ao baixar anexo ${doc.id}: ${(err as Error)?.message}`,
+            );
+          }
+        }
       }
 
       await this.mailService.sendSurgeryRequestSent(
@@ -173,7 +215,10 @@ export class SendAnalysisHandler {
           healthPlanName,
           doctorName,
         },
-        pdfAttachment ? [pdfAttachment] : undefined,
+        mailAttachments.length > 0 ? mailAttachments : undefined,
+      );
+      this.logger.log(
+        `[AI_SEND_SC] id=${id} method=email to=${dto.to} attachments=${mailAttachments.length}`,
       );
       return { sent: true, method: SendMethod.EMAIL };
     }

@@ -6,8 +6,7 @@ import { SurgeryRequestWorkflowService } from '../../../modules/surgery-requests
 import { SurgeryRequestMutationService } from '../../../modules/surgery-requests/services/surgery-request-mutation.service';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
-import { detokenizeArg } from '../pii/tool-pii-helpers';
-import { buildProtocolCandidates } from './protocol.helpers';
+import { resolveAuthorizedRequest as resolveAuthorizedRequestImpl } from './_helpers/resolve-surgery-request';
 import { buildToolResult } from './tool-result';
 
 const STATUS_LABELS: Record<number, string> = {
@@ -32,50 +31,13 @@ const NEXT_STATUS: Record<number, number> = {
   7: 8,
 };
 
-function sanitizeIdentifier(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-export async function resolveAuthorizedRequest(
-  surgeryRequestRepo: SurgeryRequestRepository,
-  identifierRaw: unknown,
-  context: ToolContext,
-): Promise<{ request: any | null; error: string | null }> {
-  const detokenized = detokenizeArg(context, identifierRaw as any);
-  const identifier = sanitizeIdentifier(detokenized ?? identifierRaw);
-  if (!identifier) {
-    return {
-      request: null,
-      error: 'Parâmetro inválido: informe a solicitação.',
-    };
-  }
-
-  let request = null;
-  if (identifier.match(/^[0-9a-f-]{36}$/i)) {
-    request = await surgeryRequestRepo.findOneSimple({ id: identifier });
-  }
-
-  if (!request) {
-    for (const candidate of buildProtocolCandidates(identifier)) {
-      request = await surgeryRequestRepo.findOneSimple({ protocol: candidate });
-      if (request) break;
-    }
-  }
-
-  if (!request) {
-    return { request: null, error: 'Solicitação não encontrada.' };
-  }
-
-  if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-    return {
-      request: null,
-      error: 'Você não tem permissão para acessar essa solicitação.',
-    };
-  }
-
-  return { request, error: null };
-}
+/**
+ * Re-exporta o helper compartilhado para manter compatibilidade com imports
+ * existentes. A implementação real vive em `_helpers/resolve-surgery-request`
+ * para ser reutilizada por helpers de transição que também precisam aceitar
+ * tanto UUID quanto protocolo (SC-XXXX).
+ */
+export const resolveAuthorizedRequest = resolveAuthorizedRequestImpl;
 
 export function buildActionTools(
   surgeryRequestRepo: SurgeryRequestRepository,

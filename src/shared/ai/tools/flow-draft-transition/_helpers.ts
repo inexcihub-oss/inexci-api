@@ -9,6 +9,7 @@ import {
 } from '../../../../config/post-surgery-documents.config';
 import { buildToolResult } from '../tool-result';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
+import { resolveSurgeryRequest } from '../_helpers/resolve-surgery-request';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -48,30 +49,49 @@ export async function guardDraft(
   return null;
 }
 
+export interface AssertStatusResult {
+  /** Payload `blocked`/`error` pronto para retornar à tool. Null quando OK. */
+  error: string | null;
+  /** UUID real da SC quando resolvida (mesmo que `surgeryRequestId` tenha vindo como protocolo `SC-XXXX`). */
+  resolvedId: string | null;
+}
+
 /**
  * Valida que a SC apontada pelo draft está no status esperado para a
- * transição. Retorna `null` se ok ou um payload `blocked` se a SC já
- * mudou de status ou não pode receber essa transição.
+ * transição. Retorna `{ error, resolvedId }` — `error` preenchido quando a
+ * SC não existe ou está em outro status; `resolvedId` traz o UUID real (útil
+ * quando o `surgeryRequestId` veio como protocolo SC-XXXX).
+ *
+ * Aceita tanto UUID quanto protocolo (`SC-XXXXXX`). Antes desta versão, se o
+ * LLM gravasse o protocolo (formato amigável) no `surgeryRequestId` do draft,
+ * a busca falhava com "Solicitação não encontrada" e o usuário ficava em
+ * loop no WhatsApp.
  */
 export async function assertCurrentStatusIs(
   surgeryRequestRepo: SurgeryRequestRepository,
   surgeryRequestId: string,
   expected: SurgeryRequestStatus,
-): Promise<string | null> {
-  const sc = await surgeryRequestRepo.findOneSimple({ id: surgeryRequestId });
+): Promise<AssertStatusResult> {
+  const sc = await resolveSurgeryRequest(surgeryRequestRepo, surgeryRequestId);
   if (!sc) {
-    return buildToolResult({
-      status: 'error',
-      message: 'Solicitação não encontrada.',
-    });
+    return {
+      error: buildToolResult({
+        status: 'error',
+        message: 'Solicitação não encontrada.',
+      }),
+      resolvedId: null,
+    };
   }
   if (sc.status !== expected) {
-    return buildToolResult({
-      status: 'blocked',
-      message: `A solicitação ${sc.protocol ?? sc.id} está no status "${STATUS_LABELS[sc.status] ?? sc.status}", não em "${STATUS_LABELS[expected]}". Essa transição não é mais válida.`,
-    });
+    return {
+      error: buildToolResult({
+        status: 'blocked',
+        message: `A solicitação ${sc.protocol ?? sc.id} está no status "${STATUS_LABELS[sc.status] ?? sc.status}", não em "${STATUS_LABELS[expected]}". Essa transição não é mais válida.`,
+      }),
+      resolvedId: sc.id,
+    };
   }
-  return null;
+  return { error: null, resolvedId: sc.id };
 }
 
 /**

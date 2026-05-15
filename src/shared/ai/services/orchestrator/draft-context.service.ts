@@ -40,7 +40,6 @@ export class DraftContextService {
     return `inexci:wa:v${PROMPT_VERSION}:draft=${activeDraftType ?? 'none'}`;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async evaluatePlanFirstGuard(
     _toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
     _conversationId: string,

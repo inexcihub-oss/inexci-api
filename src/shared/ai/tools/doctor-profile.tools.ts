@@ -8,6 +8,7 @@ import { StorageService } from '../../storage/storage.service';
 import { STORAGE_FOLDERS } from '../../../config/storage.config';
 import { UsersService } from '../../../modules/users/users.service';
 import { WhatsappDocumentDispatcherService } from '../services/whatsapp-document-dispatcher.service';
+import { ConversationMemoryService } from '../services/orchestrator/conversation-memory.service';
 import { translateServiceError } from './helpers/service-error-translator';
 import { buildToolResult } from './tool-result';
 
@@ -53,6 +54,7 @@ export function buildDoctorProfileTools(
   configService: ConfigService,
   usersService?: UsersService,
   documentDispatcher?: WhatsappDocumentDispatcherService,
+  conversationMemory?: ConversationMemoryService,
 ): AiTool[] {
   // ────────────────────────────────────────────────────────────────────────
   // upload_doctor_signature
@@ -136,8 +138,7 @@ export function buildDoctorProfileTools(
             errors: [
               {
                 code: 'USER_NOT_FOUND',
-                message:
-                  'context.userId não corresponde a um usuário válido.',
+                message: 'context.userId não corresponde a um usuário válido.',
               },
             ],
           });
@@ -167,7 +168,12 @@ export function buildDoctorProfileTools(
       const rawIndex = args.mediaIndex;
 
       type ResolvedMedia =
-        | { source: 'inbound'; url: string; contentType: string | null; index: number }
+        | {
+            source: 'inbound';
+            url: string;
+            contentType: string | null;
+            index: number;
+          }
         | {
             source: 'staging';
             storagePath: string;
@@ -205,11 +211,27 @@ export function buildDoctorProfileTools(
       }
 
       if (!resolvedMedia) {
+        // Registra a expectativa estruturada: a próxima imagem que esse
+        // usuário enviar pelo WhatsApp será tratada como a foto da
+        // assinatura, mesmo sem caption. Sem isso, o pipeline genérico de
+        // documento (1=anexar / 2=criar SC / 3=cadastrar paciente)
+        // interceptaria a foto antes do LLM ter chance de chamar esta tool
+        // de novo. Best-effort — falha não impede o fluxo.
+        if (conversationMemory && context.conversationId) {
+          try {
+            await conversationMemory.setAwaitingMedia(
+              context.conversationId,
+              'signature',
+            );
+          } catch {
+            // best-effort: o LLM ainda pode pedir a foto sem estado
+          }
+        }
         return buildToolResult({
           status: 'needs_input',
           message: 'Imagem da assinatura não foi enviada.',
           displayText:
-            'Não identifiquei nenhuma imagem nesta mensagem. Envie a foto da sua assinatura pelo WhatsApp e me chame de novo para registrar.',
+            'Me envie a foto da sua assinatura aqui no WhatsApp e eu registro pra você. Assim que receber, faço o upload e confirmo.',
           nextRequiredFields: ['signature_image'],
         });
       }
@@ -233,6 +255,19 @@ export function buildDoctorProfileTools(
 
       // 3) Preview / confirmação explícita.
       if (!args.confirm) {
+        // Mantém a expectativa registrada (a foto pode vir do staging ou
+        // do inbound atual — em ambos os casos, o próximo turno deve
+        // continuar tratando assinatura como contexto principal).
+        if (conversationMemory && context.conversationId) {
+          try {
+            await conversationMemory.setAwaitingMedia(
+              context.conversationId,
+              'signature',
+            );
+          } catch {
+            // best-effort
+          }
+        }
         const replacing = doctorProfile.signatureUrl
           ? ' Isso substitui a assinatura cadastrada anteriormente.'
           : '';

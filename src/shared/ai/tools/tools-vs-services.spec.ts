@@ -317,6 +317,17 @@ describe('tools vs services — sc_draft_commit', () => {
       findOneSimple: jest
         .fn()
         .mockResolvedValue({ id: 'sc-1', protocol: 'SC-0001' }),
+      findOneWithRelations: jest.fn().mockResolvedValue({
+        id: 'sc-1',
+        protocol: 'SC-0001',
+        patient: { id: 'pat-1', name: 'Beatriz Helena' },
+        procedure: { id: 'pro-1', name: 'Artroplastia' },
+        hospital: null,
+        healthPlan: null,
+        tussItems: [],
+        opmeItems: [],
+        reportSections: [],
+      }),
       findOne: jest.fn().mockResolvedValue({ id: 'sc-1', protocol: 'SC-0001' }),
     };
 

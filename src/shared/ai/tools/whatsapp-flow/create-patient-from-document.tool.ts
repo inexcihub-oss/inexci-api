@@ -308,8 +308,8 @@ export function buildCreatePatientFromDocumentTool(
       return buildToolResult({
         status: 'ok',
         message: [
-          `✅ Paciente ${nameToken} cadastrado com sucesso a partir do documento.`,
-          'Posso abrir uma solicitação cirúrgica para esse paciente agora? (responda "sim" para começar).',
+          `Paciente ${nameToken} cadastrado com sucesso a partir do documento.`,
+          'Posso já abrir a solicitação cirúrgica com todos os dados extraídos do documento (procedimento, TUSS, OPME e laudo)? Responda "sim" para criar agora.',
         ].join('\n'),
         affected: [{ kind: 'patient', id: created.id }],
       });

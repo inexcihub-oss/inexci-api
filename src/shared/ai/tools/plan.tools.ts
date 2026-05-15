@@ -130,30 +130,38 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
       let nextRequiredFields: string[] = [];
 
       let openedAsSubdraft = false;
+      let protectedCreateScActive = false;
       if (draftType && COMPLEX_INTENTS.includes(intent)) {
         const current = await draftService.getCurrent(context.conversationId);
-        // Sub-draft: se já há um `create_sc` ativo e o intent é um dos
-        // cadastros que podem alimentá-lo, abrimos o sub-draft preservando
-        // o draft pai em `parent.snapshot`. Ao commitar, o pai é restaurado
-        // automaticamente com o ID do novo registro.
         const subdraftReturnField = SUBDRAFT_RETURN_FIELD[intent];
-        if (
-          current &&
-          current.type === 'create_sc' &&
-          draftType !== 'create_sc' &&
-          subdraftReturnField
-        ) {
-          await draftService.start({
-            conversationId: context.conversationId,
-            type: draftType,
-            parent: {
-              type: current.type,
-              returnField: subdraftReturnField,
-              snapshot: current,
-            },
-          });
-          draftStarted = true;
-          openedAsSubdraft = true;
+
+        // GUARD: enquanto houver `create_sc` ativo, NÃO derrubamos o draft
+        // pai para abrir drafts não-relacionados (update_sc, send_sc,
+        // invoice, etc.). Esses intents foram historicamente disparados
+        // quando o usuário disse coisas como "quero adicionar hospital e
+        // convênio" — o LLM rotulava como `update_sc` e o código apagava
+        // o `create_sc` em curso. A nova regra:
+        //   - Se o intent é um cadastro (paciente/hospital/convênio/
+        //     procedimento) → abre como sub-draft (comportamento clássico).
+        //   - Se o intent é `create_sc` → retoma o existente (não recria).
+        //   - Caso contrário → mantém o `create_sc` e devolve um sinal
+        //     `protected_create_sc_active` para o LLM se reorientar.
+        if (current && current.type === 'create_sc') {
+          if (draftType !== 'create_sc' && subdraftReturnField) {
+            await draftService.start({
+              conversationId: context.conversationId,
+              type: draftType,
+              parent: {
+                type: current.type,
+                returnField: subdraftReturnField,
+                snapshot: current,
+              },
+            });
+            draftStarted = true;
+            openedAsSubdraft = true;
+          } else if (draftType !== 'create_sc') {
+            protectedCreateScActive = true;
+          }
         } else if (!current || current.type !== draftType) {
           await draftService.start({
             conversationId: context.conversationId,
@@ -161,25 +169,31 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
           });
           draftStarted = true;
         }
+
+        const effectiveType = protectedCreateScActive ? 'create_sc' : draftType;
         const validation = await draftService.validate(
           context.conversationId,
-          draftType,
+          effectiveType,
         );
         nextRequiredFields = validation.missing;
       }
 
       const data: PlanActionsData = {
         intent,
-        draft_type: draftType,
+        draft_type: protectedCreateScActive ? 'create_sc' : draftType,
         draft_started: draftStarted,
         opened_as_subdraft: openedAsSubdraft,
         next_required_fields: nextRequiredFields,
         plan_steps,
         mentioned_entities,
       };
+      if (protectedCreateScActive) {
+        (data as any).protected_create_sc_active = true;
+      }
 
-      const message =
-        draftType && COMPLEX_INTENTS.includes(intent)
+      const message = protectedCreateScActive
+        ? `Há um rascunho de criação de SC ATIVO — NÃO abri o draft "${intent}" para não destruir o trabalho em curso. Continue preenchendo o draft create_sc atual (ex.: usuário pediu hospital/convênio? grave no draft via draft_update). Se o usuário REALMENTE quiser abandonar a criação, peça confirmação e use draft_cancel antes. Próximos campos do create_sc: ${nextRequiredFields.join(', ') || '(nenhum pendente)'}.`
+        : draftType && COMPLEX_INTENTS.includes(intent)
           ? draftStarted
             ? `Rascunho de ${labelFor(intent)} iniciado. Próximos campos: ${nextRequiredFields.join(', ') || '(nenhum pendente)'}.`
             : `Rascunho de ${labelFor(intent)} retomado. Próximos campos: ${nextRequiredFields.join(', ') || '(nenhum pendente)'}.`

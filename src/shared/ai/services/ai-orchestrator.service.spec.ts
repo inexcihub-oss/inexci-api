@@ -1950,7 +1950,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   // ============================================================
   // Fase 5 — MAX_TOOL_ITERATIONS (loop limit)
   // ============================================================
-  describe('loop limit (MAX_TOOL_ITERATIONS = 5)', () => {
+  describe('loop limit (MAX_TOOL_ITERATIONS = 8)', () => {
     const persistentToolCall: OpenAI.ChatCompletionMessageToolCall = {
       id: 'call-loop',
       type: 'function',
@@ -1965,9 +1965,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       ],
     };
 
-    it('loga [AI_LOOP_LIMIT] e envia mensagem amigável quando esgota iterações', async () => {
+    it('loga [AI_LOOP_LIMIT] e envia mensagem contextual quando esgota iterações', async () => {
       // Sempre devolve tool_calls → o loop esgota independente do número de
-      // iterações (initial + 5 followups). `mockResolvedValue` (sem `Once`)
+      // iterações (initial + 8 followups). `mockResolvedValue` (sem `Once`)
       // cobre todas as chamadas.
       openaiServiceMock.chatCompletion.mockResolvedValue(loopResponse);
 
@@ -1990,7 +1990,17 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('[AI_LOOP_LIMIT]'),
       );
+      // Após Fase 1 do PLANO-CORRECAO-IA-WHATSAPP-FLUXOS-COMPLETOS, o
+      // fallback é contextual com base na última tool pendente. Para
+      // `advance_surgery_request`, a mensagem cai no ramo genérico
+      // "dificuldade técnica para concluir essa ação" — não no antigo
+      // "Vou parar por aqui" (removido).
       expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        expect.stringContaining('dificuldade técnica'),
+      );
+      // Também garante que o texto antigo não vaza mais.
+      expect(whatsappServiceMock.sendMessage).not.toHaveBeenCalledWith(
         '+5511999999999',
         expect.stringContaining('Vou parar por aqui'),
       );

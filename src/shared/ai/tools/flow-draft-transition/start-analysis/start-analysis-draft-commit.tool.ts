@@ -51,16 +51,17 @@ export function buildStartAnalysisDraftCommitTool(
         });
       }
       const f = v.draft.fields;
-      const statusError = await assertCurrentStatusIs(
+      const status = await assertCurrentStatusIs(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.SENT,
       );
-      if (statusError) return statusError;
+      if (status.error) return status.error;
+      const surgeryRequestId = status.resolvedId!;
 
       try {
         await workflowService.startAnalysis(
-          f.surgeryRequestId!,
+          surgeryRequestId,
           {
             requestNumber: f.requestNumber!,
             receivedAt: f.receivedAt!,
@@ -76,18 +77,18 @@ export function buildStartAnalysisDraftCommitTool(
           context.userId,
         );
         await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
+          surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Análise iniciada via draft. Nº operadora: ${f.requestNumber}.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
-          id: f.surgeryRequestId,
+          id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
-          message: `Análise da solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId} iniciada com sucesso.`,
+          message: `Análise da solicitação ${f.surgeryRequestLabel ?? surgeryRequestId} iniciada com sucesso.`,
         });
       } catch (err: any) {
         return buildToolResult({

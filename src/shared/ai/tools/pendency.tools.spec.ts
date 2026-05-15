@@ -539,10 +539,7 @@ describe('PendencyTools', () => {
       });
 
       const tool = getTool('get_pendencies');
-      const result = await tool.execute(
-        { identifier: 'enviada' },
-        baseContext,
-      );
+      const result = await tool.execute({ identifier: 'enviada' }, baseContext);
 
       expect(mockSurgeryRequestRepo.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ status: 2 }),

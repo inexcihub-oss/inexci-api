@@ -15,14 +15,17 @@ import { inexciTracer, SpanStatusCode } from '../../../observability/tracer';
 /**
  * Máximo de iterações de tool calls por turno do orchestrator.
  *
- * Subido de 3 → 5 em 2026-05-13 porque fluxos de criação de SC a partir de
- * documento (`plan_actions` → `query_patients` → `draft_update` ×3 →
- * `sc_draft_preview` → `sc_draft_commit`) frequentemente exigem 5+
- * iterações sequenciais (cada `draft_update` depende do anterior). Com 3, o
- * limite era estourado antes de o LLM chegar ao preview e o usuário recebia
- * mensagens genéricas ("Não consegui completar a operação neste turno").
+ * Histórico:
+ *  - 3 → 5 (2026-05-13): fluxos de criação de SC via draft (`plan_actions` →
+ *    `query_patients` → `draft_update` ×3 → `sc_draft_preview` →
+ *    `sc_draft_commit`) precisavam de pelo menos 5 iterações sequenciais.
+ *  - 5 → 8 (2026-05-14): fluxos de criação de SC a partir de documento
+ *    chegam a 6-7 iterações (resolução do paciente + sub-draft de procedimento
+ *    + draft_update do laudo/TUSS/OPME + preview + commit). Com 5, em fluxos
+ *    longos o limite era atingido e o usuário recebia a mensagem genérica
+ *    "Vou parar por aqui" sem nenhum contexto.
  */
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 8;
 
 /**
  * Hooks que delegam responsabilidades específicas do orchestrator que ainda
@@ -78,6 +81,12 @@ export interface ToolLoopResult {
   loopLimitReached: boolean;
   activeDraftType: OperationDraftType | null;
   promptCacheKey: string;
+  /**
+   * Nome da última tool que o LLM tentou chamar quando o loop estourou. Útil
+   * para o orchestrator escolher uma mensagem de fallback contextual em vez
+   * de "Vou parar por aqui" genérico.
+   */
+  pendingToolNames: string[];
 }
 
 /**
@@ -288,10 +297,14 @@ export class ToolLoopRunnerService {
       ); // fim startActiveSpan iteration
     }
 
+    const pendingToolNames: string[] = (responseMessage.tool_calls ?? [])
+      .map((c) => c.function?.name)
+      .filter((n): n is string => !!n);
+
     if (iterations === 0 && responseMessage.tool_calls?.length) {
       loopLimitReached = true;
       this.logger.warn(
-        `[AI_LOOP_LIMIT] sid=${messageSid} conv=${conversationId} iterations=${MAX_TOOL_ITERATIONS} pending_tools=${responseMessage.tool_calls.length} reason=max_iterations_reached`,
+        `[AI_LOOP_LIMIT] sid=${messageSid} conv=${conversationId} iterations=${MAX_TOOL_ITERATIONS} pending_tools=${responseMessage.tool_calls.length} pending_names=${pendingToolNames.join(',')} reason=max_iterations_reached`,
       );
     }
 
@@ -300,6 +313,7 @@ export class ToolLoopRunnerService {
       loopLimitReached,
       activeDraftType,
       promptCacheKey,
+      pendingToolNames,
     };
   }
 }

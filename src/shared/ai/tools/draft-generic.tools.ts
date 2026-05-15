@@ -34,6 +34,8 @@ const VALID_FIELDS_BY_TYPE: Record<
     priority: 'string',
     preferredDates: 'string[]',
     notes: 'any',
+    tussItems: 'any',
+    opmeItems: 'any',
   },
   create_patient: {
     name: 'string',
@@ -91,6 +93,7 @@ const VALID_FIELDS_BY_TYPE: Record<
     subject: 'any',
     message: 'any',
     notifyPatient: 'boolean',
+    attachments: 'string[]',
   },
   start_analysis: {
     surgeryRequestId: 'string',

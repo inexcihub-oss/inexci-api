@@ -4,6 +4,7 @@ import { SurgeryRequestActivityRepository } from '../../../../database/repositor
 import { DocumentRepository } from '../../../../database/repositories/document.repository';
 import { SurgeryRequestWorkflowService } from '../../../../modules/surgery-requests/services/surgery-request-workflow.service';
 import { PendencyValidatorService } from '../../../../modules/surgery-requests/pendencies/pendency-validator.service';
+import { StorageService } from '../../../storage/storage.service';
 
 export interface FlowDraftTransitionDeps {
   draftService: OperationDraftService;
@@ -12,4 +13,10 @@ export interface FlowDraftTransitionDeps {
   activityRepo: SurgeryRequestActivityRepository;
   documentRepo: DocumentRepository;
   pendencyValidator: PendencyValidatorService;
+  /**
+   * Opcional. Necessário apenas para `send_sc_draft_commit` quando
+   * `method=download`: faz upload temporário do PDF gerado no Supabase e
+   * devolve uma signed URL para o usuário baixar via WhatsApp.
+   */
+  storageService?: StorageService;
 }

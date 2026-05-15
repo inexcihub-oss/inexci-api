@@ -134,9 +134,7 @@ function mapPendencyToRecommendedAction(
       if (missingSignature) actions.push('upload_doctor_signature');
       return {
         action:
-          actions.length > 0
-            ? actions.join(' + ')
-            : 'manage_report_sections',
+          actions.length > 0 ? actions.join(' + ') : 'manage_report_sections',
         minParams: ['surgeryRequestId', 'ver sub-itens pendentes acima'],
       };
     }
@@ -296,8 +294,7 @@ export function buildPendencyTools(
       const identifierAsStatus = identifier
         ? resolveStatusFromHint(identifier)
         : null;
-      const effectiveIdentifier =
-        identifierAsStatus !== null ? '' : identifier;
+      const effectiveIdentifier = identifierAsStatus !== null ? '' : identifier;
       const statusHintOverride =
         identifierAsStatus !== null ? identifierAsStatus : null;
 
@@ -322,11 +319,8 @@ export function buildPendencyTools(
         // WHERE — não precisa filtrar de novo no JS. (Filtrar por `r.doctorId`
         // depois quebrava quando o select do repositório não incluía a coluna
         // — bug 2026-05-14.)
-        const accessible = (await surgeryRequestRepo.findMany(
-          filterWhere,
-          0,
-          20,
-        )) || [];
+        const accessible =
+          (await surgeryRequestRepo.findMany(filterWhere, 0, 20)) || [];
 
         if (accessible.length === 0) {
           const statusLabel = statusFromHint

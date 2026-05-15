@@ -299,30 +299,40 @@ describe('ToolLoopRunnerService', () => {
     expect(toolMsg.content).toBe('enriched');
   });
 
-  it('runs up to MAX_TOOL_ITERATIONS and signals loopLimitReached', async () => {
+  it('runs up to MAX_TOOL_ITERATIONS and signals loopLimitReached with pending tool names', async () => {
     const tc = (id: string) => buildToolCall(id, 'noop');
     const initial = buildAssistantMessage([tc('a')]);
     toolExecutor.executeMany.mockResolvedValue([
       { toolCallId: 'a', output: 'r' },
     ]);
-    // MAX_TOOL_ITERATIONS = 5 → o follow-up final ainda devolve tool_calls,
-    // o que faz o loop atingir o teto. Cada `mockResolvedValueOnce` cobre
-    // uma das 5 chamadas de follow-up.
+    // MAX_TOOL_ITERATIONS = 8 → todas as 8 chamadas de follow-up ainda
+    // devolvem tool_calls, fazendo o loop atingir o teto. A última tool
+    // pendente é a do `tc('i')` (a 8ª iteração) que volta no follow-up final.
     openaiService.chatCompletion
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('b')])))
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('c')])))
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('d')])))
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('e')])))
-      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('f')])));
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('f')])))
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('g')])))
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('h')])))
+      .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('i')])));
 
     const warnSpy = jest.spyOn(Logger.prototype, 'warn');
     const result = await runner.run(buildInput(initial));
 
-    expect(openaiService.chatCompletion).toHaveBeenCalledTimes(5);
+    expect(openaiService.chatCompletion).toHaveBeenCalledTimes(8);
     expect(result.loopLimitReached).toBe(true);
     expect(result.responseMessage.tool_calls).toBeDefined();
+    // Last tool pending (i.e. the one that the LLM was still trying to call
+    // when the loop limit was hit). Used by the orchestrator to build the
+    // contextual fallback message.
+    expect(result.pendingToolNames).toEqual(['noop']);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[AI_LOOP_LIMIT]'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('pending_names=noop'),
     );
     warnSpy.mockRestore();
   });

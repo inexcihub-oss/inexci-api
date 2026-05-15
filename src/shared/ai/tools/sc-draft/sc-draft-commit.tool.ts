@@ -13,6 +13,8 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
     surgeryRequestRepo,
     surgeryRequestsService,
     activityRepo,
+    opmeService,
+    tussService,
   } = deps;
   return {
     name: 'sc_draft_commit',
@@ -82,7 +84,7 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
             doctorId,
             patientId: fields.patientId!,
             procedureId: fields.procedureId!,
-            priority: enumKeyToPriority(fields.priority!),
+            priority: enumKeyToPriority(fields.priority ?? 'LOW'),
             hospitalId: fields.hospitalId ?? undefined,
             healthPlanId: fields.healthPlanId ?? undefined,
           },
@@ -95,9 +97,147 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           content:
             '[WhatsApp IA] Solicitação criada via rascunho estruturado (sc_draft).',
         });
-        const persisted = await surgeryRequestRepo.findOneSimple({
-          id: created.id,
-        } as any);
+
+        // ── Pós-create: popula laudo / TUSS / OPME quando o draft trouxe
+        // esses dados (tipicamente vindos do classificador de documentos).
+        // Tudo é best-effort: falhas individuais não derrubam a criação
+        // da SC; apenas registramos em `warnings` para a mensagem final.
+        const warnings: string[] = [];
+
+        if (fields.notes && typeof fields.notes === 'string') {
+          try {
+            await surgeryRequestsService.createReportSection(
+              created.id,
+              { title: 'Laudo', description: fields.notes },
+              context.userId,
+            );
+          } catch (err: any) {
+            warnings.push(`laudo (${err?.message || 'erro'})`);
+          }
+        }
+
+        const tussList = Array.isArray(fields.tussItems)
+          ? fields.tussItems
+          : [];
+        let tussAdded = 0;
+        for (const item of tussList) {
+          const code = item?.code;
+          if (!code) continue;
+          let name = item.description;
+          if (!name && tussService) {
+            try {
+              const matches = tussService.lookup(code, 1);
+              if (matches?.[0]?.name) name = matches[0].name;
+            } catch {
+              // catálogo indisponível — segue sem descrição
+            }
+          }
+          if (!name) {
+            warnings.push(`TUSS ${code} (descrição não resolvida)`);
+            continue;
+          }
+          try {
+            await surgeryRequestsService.addTussItem(
+              created.id,
+              { tussCode: code, name, quantity: 1 },
+              context.userId,
+            );
+            tussAdded += 1;
+          } catch (err: any) {
+            warnings.push(`TUSS ${code} (${err?.message || 'erro'})`);
+          }
+        }
+
+        const opmeList = Array.isArray(fields.opmeItems)
+          ? fields.opmeItems
+          : [];
+        let opmeAdded = 0;
+        for (const item of opmeList) {
+          const name = item?.description;
+          if (!name) continue;
+          // OPME na plataforma exige >=3 fabricantes e >=3 fornecedores.
+          // Quando o documento traz apenas 1 fornecedor/marca, ainda
+          // criamos o item com placeholders "a definir" — o usuário
+          // refina pela interface depois.
+          const supplierBase = item.supplier ? [item.supplier] : ['A definir'];
+          const brandBase = item.brand ? [item.brand] : ['A definir'];
+          const supplierNames = [
+            ...supplierBase,
+            'A definir',
+            'A definir',
+          ].slice(0, Math.max(3, supplierBase.length));
+          const manufacturerNames = [
+            ...brandBase,
+            'A definir',
+            'A definir',
+          ].slice(0, Math.max(3, brandBase.length));
+          if (!opmeService) {
+            warnings.push(`OPME ${name} (serviço indisponível)`);
+            continue;
+          }
+          try {
+            await opmeService.create(
+              {
+                surgeryRequestId: created.id,
+                name,
+                brand: manufacturerNames.join(', '),
+                quantity: typeof item.qty === 'number' ? item.qty : 1,
+                supplierNames,
+              },
+              context.userId,
+            );
+            opmeAdded += 1;
+          } catch (err: any) {
+            warnings.push(`OPME ${name} (${err?.message || 'erro'})`);
+          }
+        }
+
+        if (opmeAdded > 0) {
+          try {
+            await surgeryRequestsService.setHasOpme(
+              created.id,
+              true,
+              context.userId,
+            );
+          } catch {
+            // não-crítico
+          }
+        }
+
+        // Recarrega a SC com TODAS as relações reais (procedure, hospital,
+        // healthPlan, patient, tussItems, opmeItems, reportSections). Usar
+        // labels do draft para o `displayText` causou bugs no passado
+        // (mensagem "criada com hospital Bradesco" enquanto o banco não
+        // tinha hospital algum). A regra agora é: SÓ mostra ao usuário o
+        // que de fato foi persistido.
+        const repoWithRelations = surgeryRequestRepo as unknown as {
+          findOneWithRelations(
+            where: { id: string },
+            relations: string[],
+          ): Promise<{
+            id: string;
+            protocol?: string | null;
+            patient?: { id?: string; name?: string } | null;
+            procedure?: { id?: string; name?: string } | null;
+            hospital?: { id?: string; name?: string } | null;
+            healthPlan?: { id?: string; name?: string } | null;
+            tussItems?: unknown[];
+            opmeItems?: unknown[];
+            reportSections?: unknown[];
+          } | null>;
+        };
+        const persisted = await repoWithRelations.findOneWithRelations(
+          { id: created.id },
+          [
+            'patient',
+            'procedure',
+            'hospital',
+            'healthPlan',
+            'tussItems',
+            'opmeItems',
+            'reportSections',
+          ],
+        );
         const protocol = formatScProtocolForDisplay(
           persisted?.protocol ?? created.protocol,
         );
@@ -107,24 +247,71 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           label: protocol,
         });
 
+        const linesOk: string[] = [
+          'Solicitação cirúrgica criada com sucesso!',
+          `• Protocolo: ${protocol}`,
+        ];
+        if (persisted?.patient?.name)
+          linesOk.push(`• Paciente: ${persisted.patient.name}`);
+        if (persisted?.procedure?.name)
+          linesOk.push(`• Procedimento: ${persisted.procedure.name}`);
+
+        const persistedTussCount = Array.isArray(persisted?.tussItems)
+          ? persisted.tussItems.length
+          : 0;
+        const persistedOpmeCount = Array.isArray(persisted?.opmeItems)
+          ? persisted.opmeItems.length
+          : 0;
+        const persistedReportCount = Array.isArray(persisted?.reportSections)
+          ? persisted.reportSections.length
+          : 0;
+
+        // O que foi efetivamente salvo (sem mentir).
+        if (persisted?.hospital?.name)
+          linesOk.push(`• Hospital: ${persisted.hospital.name}`);
+        if (persisted?.healthPlan?.name)
+          linesOk.push(`• Convênio: ${persisted.healthPlan.name}`);
+        if (persistedTussCount > 0)
+          linesOk.push(
+            `• TUSS: ${persistedTussCount} item${persistedTussCount > 1 ? 's' : ''}`,
+          );
+        if (persistedOpmeCount > 0)
+          linesOk.push(
+            `• OPME: ${persistedOpmeCount} item${persistedOpmeCount > 1 ? 's' : ''}`,
+          );
+        if (persistedReportCount > 0)
+          linesOk.push(`• Laudo: ${persistedReportCount} seção(ões)`);
+
+        // O que ficou faltando (transparência total).
+        const pendingForSend: string[] = [];
+        if (!persisted?.hospital?.id) pendingForSend.push('hospital');
+        if (!persisted?.healthPlan?.id) pendingForSend.push('convênio');
+        if (persistedTussCount === 0) pendingForSend.push('TUSS');
+        if (persistedOpmeCount === 0) pendingForSend.push('OPME');
+        if (persistedReportCount === 0) pendingForSend.push('laudo');
+
+        let pendingBlock = '';
+        if (pendingForSend.length > 0) {
+          pendingBlock = `\n\nFaltam para conseguir enviar para análise: ${pendingForSend.join(', ')}. Quer que eu te ajude a completar agora?`;
+        }
+
+        const warningBlock = warnings.length
+          ? `\n\n⚠ Não consegui registrar: ${warnings.join('; ')}.`
+          : '';
+
         return buildToolResult({
           status: 'ok',
-          data: { id: created.id, protocol },
+          data: {
+            id: created.id,
+            protocol,
+            persistedCounts: {
+              tuss: persistedTussCount,
+              opme: persistedOpmeCount,
+              reportSections: persistedReportCount,
+            },
+          },
           message: `Solicitação ${protocol} criada com sucesso.`,
-          displayText: [
-            'Solicitação cirúrgica criada com sucesso!',
-            `• Protocolo: ${protocol}`,
-            fields.patientLabel ? `• Paciente: ${fields.patientLabel}` : null,
-            fields.procedureLabel
-              ? `• Procedimento: ${fields.procedureLabel}`
-              : null,
-            fields.hospitalLabel ? `• Hospital: ${fields.hospitalLabel}` : null,
-            fields.healthPlanLabel
-              ? `• Convênio: ${fields.healthPlanLabel}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join('\n'),
+          displayText: linesOk.join('\n') + warningBlock + pendingBlock,
         });
       } catch (err: any) {
         return buildToolResult({

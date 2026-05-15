@@ -54,11 +54,8 @@ export function buildAttachDocumentFromWhatsappTool(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
-      const {
-        documentDispatcher,
-        storageService,
-        documentsService,
-      } = documentDeps;
+      const { documentDispatcher, storageService, documentsService } =
+        documentDeps;
       if (!documentDispatcher || !storageService) {
         return buildToolResult({
           status: 'blocked',

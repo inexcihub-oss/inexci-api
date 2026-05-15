@@ -28,15 +28,32 @@ export async function autoFillDoctorIfSingle(
   context: ToolContext,
 ): Promise<void> {
   const accessible = context.accessibleDoctorIds || [];
-  if (accessible.length !== 1) return;
+  if (accessible.length === 0) return;
   const current = await draftService.getCurrentOfType(
     context.conversationId,
     'create_sc',
   );
   if (!current || current.fields.doctorId) return;
-  const doctor = await userRepo.findOne({ id: accessible[0] } as any);
+
+  // 1) Único médico acessível → auto-preenche.
+  // 2) Múltiplos médicos acessíveis, MAS o próprio usuário é um deles
+  //    (i.e. o usuário do WhatsApp é médico) → assume "self" como
+  //    default, evitando a pergunta "qual médico responsável?" no caso
+  //    típico do médico falando da própria conta. O LLM ainda pode
+  //    sobrescrever via `draft_update(create_sc, doctorId, …)` se o
+  //    usuário esclarecer.
+  let pick: string | null = null;
+  if (accessible.length === 1) {
+    pick = accessible[0];
+  } else if (context.userId && accessible.includes(context.userId)) {
+    pick = context.userId;
+  } else {
+    return;
+  }
+
+  const doctor = await userRepo.findOne({ id: pick } as any);
   await draftService.setFields(context.conversationId, 'create_sc', {
-    doctorId: accessible[0],
+    doctorId: pick,
     doctorLabel: doctor?.name ?? undefined,
   });
 }

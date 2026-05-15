@@ -38,6 +38,7 @@ import { ToolLoopRunnerService } from './orchestrator/tool-loop-runner.service';
 import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
 import { SimpleCache } from '../utils/simple-cache';
+import { OperationDraftType } from '../drafts/operation-draft.types';
 
 /**
  * Coordenador do pipeline de IA do WhatsApp; delega aos colaboradores da
@@ -103,6 +104,48 @@ export class AiOrchestratorService {
    * Placeholders válidos do vault (`{{categoria_n}}`) são preservados pois as
    * regexes de CPF/telefone/email não casam com chaves duplas.
    */
+  /**
+   * Mensagem de fallback quando o loop de tools estoura sem texto produzido.
+   *
+   * Em vez do antigo "Vou parar por aqui pra não te deixar esperando",
+   * tentamos dar uma dica do que estava em andamento, usando a última tool
+   * pendente ou o tipo de draft ativo. Isso reduz a sensação de "bot quebrou"
+   * e dá ao usuário um próximo passo concreto.
+   */
+  private buildLoopLimitFallback(
+    pendingToolNames: string[],
+    activeDraftType: OperationDraftType | null,
+  ): string {
+    const lastTool = pendingToolNames[pendingToolNames.length - 1] ?? '';
+
+    if (lastTool.startsWith('send_sc_draft') || activeDraftType === 'send_sc') {
+      return 'Tive uma dificuldade técnica para concluir o envio da solicitação. Posso tentar de novo? Se preferir, me diga o método (e-mail ou download).';
+    }
+    if (lastTool.startsWith('sc_draft') || activeDraftType === 'create_sc') {
+      return 'Tive uma dificuldade técnica para finalizar a criação da solicitação. Me diga se quer que eu tente de novo ou se prefere ajustar algum dado antes.';
+    }
+    if (lastTool.startsWith('invoice_draft') || activeDraftType === 'invoice') {
+      return 'Tive uma dificuldade técnica para registrar a fatura. Quer que eu tente novamente?';
+    }
+    if (
+      lastTool.startsWith('contestation_draft') ||
+      activeDraftType === 'contestation'
+    ) {
+      return 'Tive uma dificuldade técnica para registrar a contestação. Quer que eu tente de novo?';
+    }
+    if (
+      lastTool.startsWith('scheduling_draft') ||
+      activeDraftType === 'scheduling'
+    ) {
+      return 'Tive uma dificuldade técnica para registrar o agendamento. Posso tentar de novo?';
+    }
+    if (lastTool === 'upload_doctor_signature') {
+      return 'Não consegui concluir o upload da assinatura agora. Me envie a foto novamente e eu registro.';
+    }
+
+    return 'Tive uma dificuldade técnica para concluir essa ação. Me diga em poucas palavras o que precisa e eu sigo daí.';
+  }
+
   private sanitizeAssistantOutputForHistory(
     text: string,
     conversationId: string,
@@ -588,17 +631,22 @@ export class AiOrchestratorService {
           activeDraftType = loopResult.activeDraftType;
           promptCacheKey = loopResult.promptCacheKey;
           const loopLimitReached = loopResult.loopLimitReached;
+          const pendingToolNames = loopResult.pendingToolNames;
 
           // Quando o loop de tools estoura o limite, ainda tentamos aproveitar
           // qualquer conteúdo textual que o LLM tenha produzido na última
           // iteração — ele costuma ser mais útil ao usuário do que uma
           // mensagem genérica. Só caímos no fallback se o `content` final
-          // estiver vazio.
+          // estiver vazio. Nesse caso, escolhemos a frase de acordo com a
+          // última tool pendente: assim o usuário vê "Estou tendo dificuldade
+          // para concluir o envio…" em vez do genérico "Vou parar por aqui".
           const trimmedContent = responseMessage.content?.trim() ?? '';
           let finalText: string;
           if (loopLimitReached && !trimmedContent) {
-            finalText =
-              'Vou parar por aqui pra não te deixar esperando. Me diga em poucas palavras o próximo passo (ou o que ficou faltando) e a gente continua daí.';
+            finalText = this.buildLoopLimitFallback(
+              pendingToolNames,
+              activeDraftType,
+            );
           } else {
             finalText =
               trimmedContent ||

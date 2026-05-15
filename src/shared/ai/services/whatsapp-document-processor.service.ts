@@ -13,6 +13,7 @@ import {
   PendingDocumentRequest,
   WhatsappDocumentDispatcherService,
 } from './whatsapp-document-dispatcher.service';
+import { OperationDraftService } from './operation-draft.service';
 
 export interface ProcessPendingDocumentInput {
   phone: string;
@@ -95,6 +96,8 @@ export class WhatsappDocumentProcessorService {
     private readonly visionFallback?: DocumentVisionFallbackService,
     @Optional()
     private readonly aiTokenUsageLogRepo?: AiTokenUsageLogRepository,
+    @Optional()
+    private readonly draftService?: OperationDraftService,
   ) {}
 
   async processPendingDocument(
@@ -325,6 +328,25 @@ export class WhatsappDocumentProcessorService {
       `[AI_DOC_PIPELINE_OK] sid=${messageSid} phone=${phoneMasked} kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} vision_fallback=${usedVisionFallback}`,
     );
 
+    // Pré-preenche o draft `create_sc` direto a partir da classificação,
+    // sem depender do LLM seguir 11 passos de prompt. Isso garante que
+    // notes/tussItems/opmeItems já estejam no draft no momento do commit
+    // — corrige o bug de "SC criada vazia" reportado pelo usuário.
+    if (intent === 'create_sc' && this.draftService) {
+      try {
+        await this.prefillCreateScDraftFromClassification({
+          conversationId,
+          classification,
+          messageSid,
+          phoneMasked,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `[AI_DOC_PREFILL] sid=${messageSid} phone=${phoneMasked} status=failed reason=${err?.message || 'erro'}`,
+        );
+      }
+    }
+
     const userSummary = this.buildUserSummary(intent, classification);
     return {
       status: 'ok',
@@ -332,6 +354,88 @@ export class WhatsappDocumentProcessorService {
       userSummary,
       usedVisionFallback,
     };
+  }
+
+  /**
+   * Pré-preenche o draft `create_sc` ativo (cria um novo, se não existir)
+   * com os dados estruturados extraídos do documento — laudo, TUSS, OPME,
+   * labels de paciente/hospital/convênio/procedimento e prioridade default
+   * (`LOW`). IDs reais (patientId, procedureId, hospitalId, healthPlanId)
+   * NÃO são preenchidos aqui — ficam para o LLM resolver via tools de
+   * lookup. Mas as labels já no draft permitem que o `sc_draft_preview`
+   * mostre algo útil mesmo se o LLM ainda não chamou nenhuma tool.
+   */
+  private async prefillCreateScDraftFromClassification(opts: {
+    conversationId: string;
+    classification: DocumentClassification;
+    messageSid: string;
+    phoneMasked: string;
+  }): Promise<void> {
+    if (!this.draftService) return;
+    const { conversationId, classification } = opts;
+    const extracted = classification.extracted || {};
+
+    // Abre o draft (idempotente: retoma o existente).
+    const current = await this.draftService.getCurrent(conversationId);
+    if (!current || current.type !== 'create_sc') {
+      await this.draftService.start({
+        conversationId,
+        type: 'create_sc',
+      });
+    }
+
+    const patch: Record<string, unknown> = {};
+    const isUsable = (v: unknown): v is string =>
+      typeof v === 'string' &&
+      !!v.trim() &&
+      !['null', 'undefined', 'n/a'].includes(v.trim().toLowerCase());
+
+    if (isUsable(extracted.patient?.name)) {
+      patch.patientLabel = extracted.patient!.name;
+    }
+    if (isUsable(extracted.suggestedProcedureName)) {
+      patch.procedureLabel = extracted.suggestedProcedureName;
+    }
+    if (isUsable(extracted.hospital)) {
+      patch.hospitalLabel = extracted.hospital;
+    }
+    if (isUsable(extracted.healthPlan?.name)) {
+      patch.healthPlanLabel = extracted.healthPlan!.name;
+    }
+    if (isUsable(extracted.laudoText)) {
+      patch.notes = extracted.laudoText;
+    }
+    if (Array.isArray(extracted.tuss) && extracted.tuss.length > 0) {
+      patch.tussItems = extracted.tuss
+        .filter((t: any) => t?.code)
+        .map((t: any) => ({
+          code: String(t.code),
+          description: isUsable(t.description) ? t.description : undefined,
+        }));
+    }
+    if (Array.isArray(extracted.opme) && extracted.opme.length > 0) {
+      patch.opmeItems = extracted.opme
+        .filter((o: any) => o?.description)
+        .map((o: any) => ({
+          description: String(o.description),
+          qty: typeof o.qty === 'number' && o.qty > 0 ? o.qty : 1,
+          supplier: isUsable(o.supplier) ? o.supplier : undefined,
+          brand: isUsable(o.brand) ? o.brand : undefined,
+        }));
+    }
+    // Prioridade default: LOW. Não sobrescreve se o LLM já gravou outra.
+    const refreshed = await this.draftService.getCurrent(conversationId);
+    if (refreshed && refreshed.type === 'create_sc') {
+      const existing = refreshed.fields as Record<string, unknown>;
+      if (!existing.priority) patch.priority = 'LOW';
+    }
+
+    if (Object.keys(patch).length === 0) return;
+    await this.draftService.setFields(conversationId, 'create_sc', patch);
+
+    this.logger.log(
+      `[AI_DOC_PREFILL] sid=${opts.messageSid} phone=${opts.phoneMasked} status=ok keys=${Object.keys(patch).join(',')} tuss=${Array.isArray(patch.tussItems) ? (patch.tussItems as unknown[]).length : 0} opme=${Array.isArray(patch.opmeItems) ? (patch.opmeItems as unknown[]).length : 0} laudo=${typeof patch.notes === 'string' ? patch.notes.length : 0}`,
+    );
   }
 
   private async persistUsageSnapshots(
@@ -402,20 +506,39 @@ export class WhatsappDocumentProcessorService {
 
     const extracted = classification.extracted;
     const datapoints: string[] = [];
-    if (extracted.patient?.name)
-      datapoints.push(`Paciente: ${extracted.patient.name}`);
+
+    // O classifier pode retornar valores não-úteis ("null", "undefined",
+    // strings vazias) quando o documento não tem aquele campo. Filtramos
+    // tudo isso para não vazar "Hospital: null" para o usuário.
+    const isUsable = (v: unknown): v is string => {
+      if (typeof v !== 'string') return false;
+      const trimmed = v.trim();
+      if (!trimmed) return false;
+      const lower = trimmed.toLowerCase();
+      return (
+        lower !== 'null' &&
+        lower !== 'undefined' &&
+        lower !== 'n/a' &&
+        lower !== 'nao informado' &&
+        lower !== 'não informado'
+      );
+    };
+
+    if (isUsable(extracted.patient?.name))
+      datapoints.push(`Paciente: ${extracted.patient!.name}`);
     // CPF, telefone e e-mail chegam tokenizados pelo PII Vault
     // (ex.: {{cpf_3}}) — nunca os incluímos na mensagem visível ao usuário.
     // Eles ficam disponíveis no hint interno (buildDocumentPendingHint) para
     // que o LLM os repasse às tools de cadastro/draft.
-    if (extracted.patient?.birthDate)
-      datapoints.push(`Nascimento: ${extracted.patient.birthDate}`);
-    if (extracted.hospital) datapoints.push(`Hospital: ${extracted.hospital}`);
-    if (extracted.healthPlan?.name)
-      datapoints.push(`Convênio: ${extracted.healthPlan.name}`);
-    if (extracted.diagnosis)
+    if (isUsable(extracted.patient?.birthDate))
+      datapoints.push(`Nascimento: ${extracted.patient!.birthDate}`);
+    if (isUsable(extracted.hospital))
+      datapoints.push(`Hospital: ${extracted.hospital}`);
+    if (isUsable(extracted.healthPlan?.name))
+      datapoints.push(`Convênio: ${extracted.healthPlan!.name}`);
+    if (isUsable(extracted.diagnosis))
       datapoints.push(`Diagnóstico: ${extracted.diagnosis}`);
-    if (extracted.suggestedProcedureName)
+    if (isUsable(extracted.suggestedProcedureName))
       datapoints.push(
         `Procedimento sugerido: ${extracted.suggestedProcedureName}`,
       );

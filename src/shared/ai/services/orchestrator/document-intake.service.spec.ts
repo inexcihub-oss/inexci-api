@@ -35,12 +35,19 @@ function makeDeps(overrides: Partial<Record<string, any>> = {}) {
       .mockImplementation((p: string) => p.slice(-4).padStart(p.length, '*')),
     ...overrides.phoneNormalizer,
   };
+  const conversationMemory = {
+    getAwaitingMedia: jest.fn().mockResolvedValue(null),
+    setAwaitingMedia: jest.fn().mockResolvedValue(undefined),
+    clearAwaitingMedia: jest.fn().mockResolvedValue(undefined),
+    ...overrides.conversationMemory,
+  };
   return {
     documentDispatcher,
     documentProcessor,
     whatsappService,
     conversationService,
     phoneNormalizer,
+    conversationMemory,
   };
 }
 
@@ -56,6 +63,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -75,6 +83,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -112,6 +121,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -150,6 +160,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -195,6 +206,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -250,6 +262,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       // Com pendência expirada, o intent=attach ainda chama o processor
       // (não há reuso de cache).
@@ -283,6 +296,7 @@ describe('DocumentIntakeService', () => {
           deps.whatsappService as any,
           deps.conversationService as any,
           deps.phoneNormalizer as any,
+          deps.conversationMemory as any,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -329,6 +343,7 @@ describe('DocumentIntakeService', () => {
           deps.whatsappService as any,
           deps.conversationService as any,
           deps.phoneNormalizer as any,
+          deps.conversationMemory as any,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -382,6 +397,7 @@ describe('DocumentIntakeService', () => {
           deps.whatsappService as any,
           deps.conversationService as any,
           deps.phoneNormalizer as any,
+          deps.conversationMemory as any,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -424,6 +440,7 @@ describe('DocumentIntakeService', () => {
           deps.whatsappService as any,
           deps.conversationService as any,
           deps.phoneNormalizer as any,
+          deps.conversationMemory as any,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -462,6 +479,7 @@ describe('DocumentIntakeService', () => {
           deps.whatsappService as any,
           deps.conversationService as any,
           deps.phoneNormalizer as any,
+          deps.conversationMemory as any,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -487,6 +505,7 @@ describe('DocumentIntakeService', () => {
         deps.whatsappService as any,
         deps.conversationService as any,
         deps.phoneNormalizer as any,
+        deps.conversationMemory as any,
       );
       const msg = svc.buildDocumentReminderMessage('attach', {
         classification: { kind: 'laudo' },

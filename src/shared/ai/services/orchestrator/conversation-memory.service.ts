@@ -7,6 +7,26 @@ import { SimpleCache } from '../../utils/simple-cache';
 
 const DOCTORS_INFO_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
+/** Tipos de mídia que o orchestrator pode estar "esperando" do usuário. */
+export type AwaitingMediaKind = 'signature';
+
+/**
+ * Estado estruturado de "expectativa de mídia": dizemos explicitamente que
+ * estamos esperando a próxima imagem/PDF do usuário ser de um certo tipo
+ * (ex.: a foto da assinatura digital do médico após ele escolher a opção
+ * "Enviar foto da assinatura"). Substitui detecção por regex/texto solto.
+ *
+ * `expiresAt` em ms epoch — quando ultrapassa, ignoramos a expectativa.
+ */
+export interface AwaitingMediaState {
+  kind: AwaitingMediaKind;
+  since: number;
+  expiresAt: number;
+}
+
+/** Default: 10 min para o usuário enviar a mídia após declarar a intenção. */
+const AWAITING_MEDIA_TTL_MS = 10 * 60 * 1000;
+
 /**
  * Gerencia a memória persistida de cada conversa WhatsApp
  * (`conversationMemory` JSONB) e o cache de informações dos médicos
@@ -123,6 +143,14 @@ export class ConversationMemoryService {
           args.healthPlanId || args.health_plan_name,
         );
         break;
+      case 'upload_doctor_signature':
+        // Upload de assinatura concluído com sucesso → limpa a expectativa
+        // de mídia (caso o orchestrator a tenha marcado quando o usuário
+        // escolheu "1 - Enviar foto da assinatura digital").
+        if (args.confirm === true) {
+          await this.clearAwaitingMedia(conversationId);
+        }
+        return;
       default:
         return;
     }
@@ -131,6 +159,72 @@ export class ConversationMemoryService {
       filled_slots: filled,
       surgeryRequest,
     });
+  }
+
+  /**
+   * Marca que o orchestrator está aguardando o próximo upload do usuário
+   * para um tipo específico (ex.: assinatura digital). Esse estado evita
+   * que o pipeline genérico de documento (com prompt "1=anexar / 2=criar
+   * SC / 3=cadastrar paciente") interfira quando o usuário acabou de
+   * declarar "vou mandar minha assinatura".
+   */
+  async setAwaitingMedia(
+    conversationId: string,
+    kind: AwaitingMediaKind,
+    ttlMs: number = AWAITING_MEDIA_TTL_MS,
+  ): Promise<void> {
+    const now = Date.now();
+    await this.patchMemory(conversationId, {
+      awaitingMedia: {
+        kind,
+        since: now,
+        expiresAt: now + ttlMs,
+      } satisfies AwaitingMediaState,
+    });
+  }
+
+  /**
+   * Lê o estado de expectativa de mídia. Retorna `null` quando não há
+   * expectativa registrada OU quando ela já expirou (também limpa a flag
+   * expirada para manter a memória enxuta).
+   */
+  async getAwaitingMedia(
+    conversationId: string,
+  ): Promise<AwaitingMediaState | null> {
+    const memory = await this.readMemory(conversationId);
+    const raw = memory?.awaitingMedia as AwaitingMediaState | undefined;
+    if (!raw || typeof raw !== 'object') return null;
+    if (typeof raw.expiresAt !== 'number' || raw.expiresAt <= Date.now()) {
+      // Best-effort cleanup; falha silenciosamente se update der erro.
+      await this.clearAwaitingMedia(conversationId);
+      return null;
+    }
+    return raw;
+  }
+
+  /**
+   * Remove a expectativa de mídia (após upload bem-sucedido, cancelamento
+   * explícito ou expiração).
+   */
+  async clearAwaitingMedia(conversationId: string): Promise<void> {
+    try {
+      const conv = await this.whatsappConversationRepo.findOne({
+        id: conversationId,
+      } as any);
+      if (!conv) return;
+      const memory = {
+        ...((conv.conversationMemory as Record<string, unknown>) || {}),
+      };
+      if (!('awaitingMedia' in memory)) return;
+      delete (memory as Record<string, unknown>).awaitingMedia;
+      await this.whatsappConversationRepo.update(conversationId, {
+        conversationMemory: memory as any,
+      });
+    } catch (err) {
+      this.logger.debug(
+        `[AWAITING_MEDIA] clear_failed conv=${conversationId} err=${(err as Error)?.message}`,
+      );
+    }
   }
 
   /**

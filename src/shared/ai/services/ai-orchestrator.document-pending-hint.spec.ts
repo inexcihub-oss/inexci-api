@@ -45,6 +45,11 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
         resetConversationHistory: jest.fn(),
       } as any,
       new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),
+      {
+        getAwaitingMedia: jest.fn().mockResolvedValue(null),
+        setAwaitingMedia: jest.fn().mockResolvedValue(undefined),
+        clearAwaitingMedia: jest.fn().mockResolvedValue(undefined),
+      } as any,
     );
   });
 
@@ -229,9 +234,10 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
     expect(hint).toContain('SINTEX');
     expect(hint).toContain('Fornecedores sugeridos: SINTEX, VITALITY, GUSMED');
     expect(hint).toContain('Laudo (texto completo');
-    expect(hint).toContain('draft_update({ fields: { procedure_name');
-    expect(hint).toContain('health_plan_name');
-    expect(hint).toContain('draft_update({ fields: { notes');
+    expect(hint).toContain('draft_update({ draft_type: "create_sc"');
+    expect(hint).toContain('"procedureId"');
+    expect(hint).toContain('"notes"');
+    expect(hint).not.toContain('draft_update({ fields:');
     // A tool correta é `query_patients` (a antiga `find_patient_by_name` não
     // existe — referenciá-la fazia o LLM tentar uma tool inexistente, que
     // virava "Estou enfrentando um problema técnico para buscar o paciente").

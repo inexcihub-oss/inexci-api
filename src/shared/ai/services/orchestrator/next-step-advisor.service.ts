@@ -108,7 +108,7 @@ export class NextStepAdvisorService {
       case 'patient_data':
         return {
           action:
-            'plan_actions(intent="update_sc") + draft_update({ fields: { requestId, scope: "patient", field, value } }) + update_sc_draft_commit',
+            'plan_actions(intent="update_sc") + draft_update(update_sc, surgeryRequestId, ...) + draft_update(update_sc, scope, "patient") + draft_update(update_sc, changes, {...}) + update_sc_draft_commit',
           minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
         };
       case 'hospital_data':
@@ -134,13 +134,13 @@ export class NextStepAdvisorService {
       case 'schedule_dates':
         return {
           action:
-            'plan_actions(intent="scheduling") + draft_update({ fields: { requestId, dateOptions } }) + scheduling_draft_commit',
+            'plan_actions(intent="scheduling") + draft_update(scheduling, surgeryRequestId, ...) + draft_update(scheduling, dateOptions, [...]) + scheduling_draft_commit',
           minParams: ['surgery_request_id_or_protocol', 'date_options[]'],
         };
       case 'confirm_date':
         return {
           action:
-            'plan_actions(intent="scheduling") + draft_update({ fields: { requestId, confirmedDate } }) + scheduling_draft_commit',
+            'plan_actions(intent="scheduling") + draft_update(scheduling, surgeryRequestId, ...) + draft_update(scheduling, confirmedDate, ...) + scheduling_draft_commit',
           minParams: ['surgery_request_id_or_protocol', 'confirmed_date_index'],
         };
       case 'confirm_receipt':

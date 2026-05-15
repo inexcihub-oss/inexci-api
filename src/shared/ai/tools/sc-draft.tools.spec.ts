@@ -41,6 +41,17 @@ describe('sc-draft tools (preview + commit)', () => {
         id: 'sc-new',
         protocol: '0042',
       }),
+      findOneWithRelations: jest.fn().mockResolvedValue({
+        id: 'sc-new',
+        protocol: '0042',
+        patient: { id: 'pat-1', name: 'Beatriz Helena Santos' },
+        procedure: { id: 'pro-1', name: 'Artroplastia total do joelho' },
+        hospital: { id: 'h-1', name: 'Hospital Central' },
+        healthPlan: { id: 'hp-1', name: 'Convênio Alpha' },
+        tussItems: [],
+        opmeItems: [],
+        reportSections: [],
+      }),
     };
     mockSurgeryRequestsService = {
       createSurgeryRequest: jest.fn().mockResolvedValue({

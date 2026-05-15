@@ -144,7 +144,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(parsed).not.toBeNull();
     expect(parsed!.status).toBe('needs_input');
     expect(parsed!.next_required_fields).toEqual(['signature_image']);
-    expect(parsed!.display_text).toMatch(/nenhuma imagem/i);
+    expect(parsed!.display_text).toMatch(/envie a foto da sua assinatura/i);
     expect(mockStorageService.create).not.toHaveBeenCalled();
   });
 

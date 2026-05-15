@@ -10,8 +10,13 @@ import { assertCurrentStatusIs } from '../_helpers';
 export function buildSendScDraftCommitTool(
   deps: FlowDraftTransitionDeps,
 ): AiTool {
-  const { draftService, workflowService, activityRepo, surgeryRequestRepo } =
-    deps;
+  const {
+    draftService,
+    workflowService,
+    activityRepo,
+    surgeryRequestRepo,
+    storageService,
+  } = deps;
   return {
     name: 'send_sc_draft_commit',
     definition: {
@@ -49,16 +54,17 @@ export function buildSendScDraftCommitTool(
         });
       }
       const f = v.draft.fields;
-      const statusError = await assertCurrentStatusIs(
+      const status = await assertCurrentStatusIs(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.PENDING,
       );
-      if (statusError) return statusError;
+      if (status.error) return status.error;
+      const surgeryRequestId = status.resolvedId!;
 
       try {
-        await workflowService.sendRequest(
-          f.surgeryRequestId!,
+        const sendResult = await workflowService.sendRequest(
+          surgeryRequestId,
           {
             method:
               f.method === 'email' ? SendMethod.EMAIL : SendMethod.DOWNLOAD,
@@ -70,18 +76,62 @@ export function buildSendScDraftCommitTool(
           context.userId,
         );
         await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
+          surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
           content: `[WhatsApp IA] Solicitação enviada para análise via draft (${f.method}).`,
         });
         await draftService.finalizeCommit(context.conversationId, {
-          id: f.surgeryRequestId,
+          id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
+
+        const label = f.surgeryRequestLabel ?? surgeryRequestId;
+
+        if (f.method === 'email') {
+          return buildToolResult({
+            status: 'ok',
+            message: `Solicitação ${label} enviada por e-mail para ${f.to} com sucesso.`,
+            displayText: `Solicitação ${label} enviada por e-mail para ${f.to}. O PDF do laudo foi anexado ao envio.`,
+          });
+        }
+
+        // DOWNLOAD: tenta subir o PDF retornado pelo handler para o
+        // Supabase e devolver uma signed URL ao usuário. Quando o upload
+        // falha, ainda confirmamos a transição (ela já aconteceu) e
+        // pedimos ao usuário para baixar pela plataforma.
+        const pdfPayload = sendResult as
+          | { pdf?: string; protocol?: string }
+          | undefined;
+        if (pdfPayload?.pdf && storageService) {
+          try {
+            const pdfBuffer = Buffer.from(pdfPayload.pdf, 'base64');
+            const fileName = `solicitacao-${pdfPayload.protocol ?? label ?? surgeryRequestId}.pdf`;
+            const path = await storageService.uploadBuffer(
+              pdfBuffer,
+              'whatsapp-downloads',
+              fileName,
+              'application/pdf',
+            );
+            const url = await storageService.getSignedUrl(path);
+            return buildToolResult({
+              status: 'ok',
+              message: `Solicitação ${label} marcada como enviada. Link de download gerado.`,
+              displayText: `Solicitação ${label} pronta para download. Link válido por 1 hora: ${url}`,
+            });
+          } catch (uploadErr: any) {
+            // Não-crítico: a transição já aconteceu. Apenas avisamos.
+            return buildToolResult({
+              status: 'ok',
+              message: `Solicitação ${label} enviada. Falha ao subir o PDF para link temporário: ${uploadErr?.message || 'erro desconhecido'}.`,
+              displayText: `Solicitação ${label} foi enviada para análise, mas não consegui gerar o link de download agora. Você pode baixar o PDF direto pela plataforma na página da solicitação.`,
+            });
+          }
+        }
+
         return buildToolResult({
           status: 'ok',
-          message: `Solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId} enviada para análise com sucesso.`,
+          message: `Solicitação ${label} enviada para análise com sucesso.`,
         });
       } catch (err: any) {
         return buildToolResult({

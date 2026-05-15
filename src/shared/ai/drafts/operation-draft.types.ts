@@ -38,7 +38,32 @@ export interface CreateScDraftFields {
   healthPlanLabel?: string | null;
   priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   preferredDates?: string[];
+  /**
+   * Texto do laudo. Quando preenchido, `sc_draft_commit` cria
+   * automaticamente uma `report_section` na SC com este conteúdo.
+   */
   notes?: string | null;
+  /**
+   * Itens TUSS a serem gravados na SC logo após a criação. Vêm
+   * tipicamente do classificador de documento ou de `search_tuss_codes`.
+   * Cada item precisa de `code` (TUSS oficial); `description` é opcional
+   * (a tool resolve no catálogo se faltar).
+   */
+  tussItems?: Array<{
+    code: string;
+    description?: string;
+  }>;
+  /**
+   * Itens OPME a serem gravados na SC logo após a criação. Vêm
+   * tipicamente do classificador de documento ou de uma interação
+   * dedicada. `description` é obrigatório; `qty` default 1.
+   */
+  opmeItems?: Array<{
+    description: string;
+    qty?: number;
+    supplier?: string;
+    brand?: string;
+  }>;
 }
 
 export interface CreatePatientDraftFields {
@@ -132,6 +157,13 @@ export interface SendScDraftFields {
   subject?: string;
   message?: string;
   notifyPatient?: boolean;
+  /**
+   * Quando `method = 'email'`: IDs de documentos da SC (`documents.id`)
+   * que devem ser anexados ao e-mail ALÉM do PDF da SC (gerado
+   * automaticamente). O backend resolve cada ID para `documents.filePath`,
+   * baixa do Storage e anexa ao envio.
+   */
+  attachments?: string[];
 }
 
 /**

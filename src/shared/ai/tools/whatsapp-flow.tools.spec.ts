@@ -72,7 +72,9 @@ describe('WhatsappFlowTools', () => {
     mockWorkflowService as any,
     mockSurgeryRequestsService as any,
     mockActivityRepo as any,
-    { documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any },
+    {
+      documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+    },
     mockPendencyValidator as any,
     mockPatientRepo as any,
     mockHospitalRepo as any,
@@ -708,7 +710,10 @@ describe('WhatsappFlowTools', () => {
         mockSurgeryRequestsService as any,
         mockActivityRepo as any,
         {
-          documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+          documentsService: {
+            createFromPath: jest.fn(),
+            delete: jest.fn(),
+          } as any,
         },
         mockPendencyValidator as any,
         mockPatientRepo as any,
@@ -798,7 +803,10 @@ describe('WhatsappFlowTools', () => {
       mockActivityRepo as any,
       {
         documentDispatcher: documentDispatcher as any,
-        documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+        documentsService: {
+          createFromPath: jest.fn(),
+          delete: jest.fn(),
+        } as any,
       },
       mockPendencyValidator as any,
       mockPatientRepo as any,
@@ -809,7 +817,8 @@ describe('WhatsappFlowTools', () => {
       undefined,
       new EntityResolverService(),
       mockOcrPatientsService as any,
-    );    const createPatient = ocrTools.find(
+    );
+    const createPatient = ocrTools.find(
       (t) => t.name === 'create_patient_from_document',
     )!;
 
