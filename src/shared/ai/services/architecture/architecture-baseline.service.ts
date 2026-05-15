@@ -12,7 +12,9 @@ export interface AiArchitectureBaseline {
 
 @Injectable()
 export class ArchitectureBaselineService {
-  constructor(@Optional() @Inject(AI_TOOL) private readonly allTools: unknown[] = []) {}
+  constructor(
+    @Optional() @Inject(AI_TOOL) private readonly allTools: unknown[] = [],
+  ) {}
 
   snapshot(corePrompt: string): AiArchitectureBaseline {
     return {

@@ -1,4 +1,7 @@
-import { PlannerOutput, RuntimeState } from '../contracts/agentic-architecture.contracts';
+import {
+  PlannerOutput,
+  RuntimeState,
+} from '../contracts/agentic-architecture.contracts';
 
 export const CORE_SYSTEM_PROMPT_VERSION = '1.0.0';
 

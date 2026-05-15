@@ -21,11 +21,16 @@ export class MemoryProjectionService {
       recurringEntities: {
         patients: this.collectLabels(filled, ['patient', 'patientLabel']),
         hospitals: this.collectLabels(filled, ['hospital', 'hospitalLabel']),
-        healthPlans: this.collectLabels(filled, ['healthPlan', 'healthPlanLabel']),
+        healthPlans: this.collectLabels(filled, [
+          'healthPlan',
+          'healthPlanLabel',
+        ]),
         procedures: this.collectLabels(filled, ['procedure', 'procedureLabel']),
       },
       recurrentGoals: this.compactStrings([
-        typeof memory?.last_user_goal === 'string' ? memory.last_user_goal : null,
+        typeof memory?.last_user_goal === 'string'
+          ? memory.last_user_goal
+          : null,
       ]),
       durableFacts: [
         ...this.compactStrings(memory?.confirmed_facts as string[] | undefined),
@@ -39,12 +44,15 @@ export class MemoryProjectionService {
   ): ShortTermContextSnapshot {
     return {
       version: '1.0',
-      activeTopic:
-        typeof memory?.intent === 'string' ? memory.intent : null,
+      activeTopic: typeof memory?.intent === 'string' ? memory.intent : null,
       pendingAction:
-        typeof memory?.last_user_goal === 'string' ? memory.last_user_goal : null,
+        typeof memory?.last_user_goal === 'string'
+          ? memory.last_user_goal
+          : null,
       latestUserGoal:
-        typeof memory?.last_user_goal === 'string' ? memory.last_user_goal : null,
+        typeof memory?.last_user_goal === 'string'
+          ? memory.last_user_goal
+          : null,
       relevantEvents: [
         ...this.compactStrings(memory?.open_questions as string[] | undefined),
         ...this.compactStrings(memory?.pending_actions as string[] | undefined),
@@ -66,7 +74,9 @@ export class MemoryProjectionService {
       .slice(0, 3);
   }
 
-  private compactStrings(values: Array<string | null | undefined> | undefined): string[] {
+  private compactStrings(
+    values: Array<string | null | undefined> | undefined,
+  ): string[] {
     return (values || []).filter(
       (value): value is string => typeof value === 'string' && !!value.trim(),
     );

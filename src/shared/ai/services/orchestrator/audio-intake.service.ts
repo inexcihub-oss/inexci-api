@@ -101,7 +101,10 @@ export class AudioIntakeService {
         }));
 
       if (!cached && this.audioPipeline) {
-        await this.audioPipeline.setCachedTranscription(fingerprint, transcription);
+        await this.audioPipeline.setCachedTranscription(
+          fingerprint,
+          transcription,
+        );
       }
 
       this.logger.log(

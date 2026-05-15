@@ -33,6 +33,11 @@ export interface CompletionUsageSnapshot {
   toolsCount?: number;
   /** Draft ativo no início da chamada (ou `null` quando não havia draft). */
   draftType?: OperationDraftType | null;
+  tier?: string | null;
+  operation?: string | null;
+  plannerIntent?: string | null;
+  retrievalMode?: string | null;
+  extractionSource?: string | null;
   /** Breakdown por bloco do contexto montado (apenas no estágio inicial). */
   contextBreakdown?: {
     system_tokens: number;
@@ -62,6 +67,11 @@ export interface CaptureUsageExtra {
   toolsCount?: number;
   draftType?: OperationDraftType | null;
   rag?: CompletionUsageSnapshot['rag'];
+  tier?: string | null;
+  operation?: string | null;
+  plannerIntent?: string | null;
+  retrievalMode?: string | null;
+  extractionSource?: string | null;
 }
 
 /**
@@ -105,6 +115,13 @@ export class OrchestratorTelemetryService {
         ? { toolsCount: extra.toolsCount }
         : {}),
       ...(extra && 'draftType' in extra ? { draftType: extra.draftType } : {}),
+      ...(extra?.tier ? { tier: extra.tier } : {}),
+      ...(extra?.operation ? { operation: extra.operation } : {}),
+      ...(extra?.plannerIntent ? { plannerIntent: extra.plannerIntent } : {}),
+      ...(extra?.retrievalMode ? { retrievalMode: extra.retrievalMode } : {}),
+      ...(extra?.extractionSource
+        ? { extractionSource: extra.extractionSource }
+        : {}),
       ...(extra?.breakdown ? { contextBreakdown: extra.breakdown } : {}),
       ...(extra?.strategy ? { contextStrategy: extra.strategy } : {}),
       ...(extra?.rag ? { rag: extra.rag } : {}),
@@ -180,6 +197,7 @@ export class OrchestratorTelemetryService {
     );
 
     const model = snapshots[0]?.model ?? null;
+    const initial = snapshots[0];
 
     const costCents = this.estimateCostCents(snapshots);
 
@@ -195,6 +213,12 @@ export class OrchestratorTelemetryService {
         totalTokens: totals.total,
         callsCount: snapshots.length,
         model,
+        tier: initial?.tier ?? null,
+        toolsInvoked: [],
+        plannerIntent: initial?.plannerIntent ?? null,
+        draftType: initial?.draftType ?? null,
+        extractionSource: initial?.extractionSource ?? null,
+        retrievalMode: initial?.retrievalMode ?? null,
         latencyMs: totals.latency || null,
         costEstimateCents: costCents,
         breakdown: snapshots,

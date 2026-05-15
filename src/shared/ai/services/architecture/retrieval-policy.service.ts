@@ -34,7 +34,10 @@ export class RetrievalPolicyService {
         reason: 'control_input',
       };
     }
-    if (input.runtimeState.pendingConfirmation || input.runtimeState.pendingDocument) {
+    if (
+      input.runtimeState.pendingConfirmation ||
+      input.runtimeState.pendingDocument
+    ) {
       return {
         shouldQuery: false,
         rewrittenQuery: normalized,
@@ -42,7 +45,8 @@ export class RetrievalPolicyService {
       };
     }
 
-    const category = input.planner.retrievalCategory || this.inferCategory(normalized);
+    const category =
+      input.planner.retrievalCategory || this.inferCategory(normalized);
     const shouldQuery =
       input.planner.needsRetrieval ||
       normalized.length >= 20 ||

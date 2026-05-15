@@ -2,12 +2,12 @@ import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
-import { SurgeryRequestWorkflowService } from '../../../modules/surgery-requests/services/surgery-request-workflow.service';
 import { SurgeryRequestMutationService } from '../../../modules/surgery-requests/services/surgery-request-mutation.service';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
 import { resolveAuthorizedRequest as resolveAuthorizedRequestImpl } from './_helpers/resolve-surgery-request';
 import { buildToolResult } from './tool-result';
+import { WorkflowEngineService } from '../services/workflow-engine.service';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -41,7 +41,7 @@ export const resolveAuthorizedRequest = resolveAuthorizedRequestImpl;
 
 export function buildActionTools(
   surgeryRequestRepo: SurgeryRequestRepository,
-  workflowService: SurgeryRequestWorkflowService,
+  workflowService: WorkflowEngineService,
   mutationService: SurgeryRequestMutationService,
   pendencyValidator: PendencyValidatorService,
   activityRepo: SurgeryRequestActivityRepository,

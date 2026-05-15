@@ -53,8 +53,7 @@ export class DraftContextService {
       this.toolPolicy?.evaluatePlanFirstGuard({
         toolCalls,
         activeDraftType: current?.type ?? null,
-      }) ??
-      new Set<string>()
+      }) ?? new Set<string>()
     );
   }
 }

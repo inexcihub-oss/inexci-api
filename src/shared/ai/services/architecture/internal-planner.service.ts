@@ -21,13 +21,15 @@ export class InternalPlannerService {
         semanticInput,
         workflow: runtimeState.activeWorkflow,
         intent: 'confirm_pending_action',
-        nextBestAction: 'Retomar a confirmacao pendente e executar a mesma operacao.',
+        nextBestAction:
+          'Retomar a confirmacao pendente e executar a mesma operacao.',
         toolCandidate: runtimeState.pendingConfirmation.tool,
         missingFields: [],
         needsRetrieval: false,
         needsVision: false,
         confidence: 0.99,
-        fallbackPlan: 'Se a confirmacao falhar, reexibir o preview da operacao pendente.',
+        fallbackPlan:
+          'Se a confirmacao falhar, reexibir o preview da operacao pendente.',
       });
     }
 
@@ -58,7 +60,9 @@ export class InternalPlannerService {
             ? `Coletar o proximo campo obrigatorio do draft ${runtimeState.activeDraft}.`
             : `Preparar preview ou commit do draft ${runtimeState.activeDraft}.`,
         toolCandidate:
-          runtimeState.missingFields.length > 0 ? 'draft_update' : 'draft_status',
+          runtimeState.missingFields.length > 0
+            ? 'draft_update'
+            : 'draft_status',
         missingFields: runtimeState.missingFields,
         needsRetrieval: false,
         needsVision: false,
@@ -68,7 +72,14 @@ export class InternalPlannerService {
       });
     }
 
-    if (this.matchesAny(lower, ['criar solicitação', 'criar solicitacao', 'nova sc', 'criar sc'])) {
+    if (
+      this.matchesAny(lower, [
+        'criar solicitação',
+        'criar solicitacao',
+        'nova sc',
+        'criar sc',
+      ])
+    ) {
       return this.workflowPlan('create_sc', semanticInput, 'plan_actions');
     }
     if (this.matchesAny(lower, ['agendar', 'agendamento'])) {
@@ -80,18 +91,22 @@ export class InternalPlannerService {
     if (this.matchesAny(lower, ['contest', 'contestação', 'contestacao'])) {
       return this.workflowPlan('contestation', semanticInput, 'plan_actions');
     }
-    if (this.matchesAny(lower, ['pendencia', 'status', 'protocolo', 'minhas sc'])) {
+    if (
+      this.matchesAny(lower, ['pendencia', 'status', 'protocolo', 'minhas sc'])
+    ) {
       return this.buildPlan({
         semanticInput,
         workflow: 'search',
         intent: 'lookup_surgery_request',
-        nextBestAction: 'Consultar ou listar as solicitacoes cirurgicas relevantes.',
+        nextBestAction:
+          'Consultar ou listar as solicitacoes cirurgicas relevantes.',
         toolCandidate: 'query_surgery_requests',
         missingFields: [],
         needsRetrieval: false,
         needsVision: false,
         confidence: 0.8,
-        fallbackPlan: 'Se faltar identificador, listar opcoes para o usuario escolher.',
+        fallbackPlan:
+          'Se faltar identificador, listar opcoes para o usuario escolher.',
       });
     }
     if (this.matchesAny(lower, ['como', 'posso', 'ajuda', 'duvida'])) {
@@ -106,15 +121,20 @@ export class InternalPlannerService {
         retrievalCategory: 'faq',
         needsVision: false,
         confidence: 0.76,
-        fallbackPlan: 'Se a base nao trouxer contexto suficiente, responder de forma conservadora.',
+        fallbackPlan:
+          'Se a base nao trouxer contexto suficiente, responder de forma conservadora.',
       });
     }
 
     return this.buildPlan({
       semanticInput,
-      workflow: runtimeState.activeWorkflow === 'idle' ? 'unknown' : runtimeState.activeWorkflow,
+      workflow:
+        runtimeState.activeWorkflow === 'idle'
+          ? 'unknown'
+          : runtimeState.activeWorkflow,
       intent: 'unknown',
-      nextBestAction: 'Esclarecer a intencao do usuario com a menor pergunta possivel.',
+      nextBestAction:
+        'Esclarecer a intencao do usuario com a menor pergunta possivel.',
       toolCandidate: null,
       missingFields: runtimeState.missingFields,
       needsRetrieval: semanticInput.normalizedText.length >= 15,

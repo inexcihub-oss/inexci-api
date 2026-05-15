@@ -156,8 +156,9 @@ export class WhatsappDocumentProcessorService {
           intent,
           cachedExtraction.classification,
         ),
-        usedVisionFallback:
-          cachedExtraction.reasons.includes('vision_fallback_used'),
+        usedVisionFallback: cachedExtraction.reasons.includes(
+          'vision_fallback_used',
+        ),
       };
     }
 
@@ -249,14 +250,14 @@ export class WhatsappDocumentProcessorService {
 
     const visionEnabled = !!this.visionFallback?.isEnabled?.();
     const shouldTryVisionFallback = this.documentIntelligence
-      ? this.documentIntelligence.shouldTryVisionFallback?.({
+      ? (this.documentIntelligence.shouldTryVisionFallback?.({
           ocrUnusable,
           classifierError: Boolean(classifierError),
           classifierConfidenceLow,
           classifierKindUnknown,
           classifierExtractedEmpty,
           isVisionSupported: visionEnabled && Boolean(isImage || isPdf),
-        }) ?? false
+        }) ?? false)
       : visionEnabled &&
         Boolean(isImage || isPdf) &&
         (ocrUnusable ||
@@ -374,21 +375,23 @@ export class WhatsappDocumentProcessorService {
     await this.dispatcher.savePending(phone, updatedPending);
 
     if (this.documentIntelligence) {
-      const extractionResult = this.documentIntelligence.buildExtractionResult?.({
-        fingerprint,
-        classification,
-        ocrConfidence: ocrResult?.confidence ?? null,
-        textLength: ocrResult?.text?.length ?? 0,
-        usedVisionFallback,
-        reasons: [
-          ...(ocrUnusable ? ['ocr_unusable'] : []),
-          ...(classifierError ? ['classifier_error'] : []),
-          ...(classifierConfidenceLow ? ['classifier_confidence_low'] : []),
-          ...(classifierKindUnknown ? ['classifier_kind_unknown'] : []),
-          ...(classifierExtractedEmpty ? ['classifier_extracted_empty'] : []),
-          ...(usedVisionFallback ? ['vision_fallback_used'] : []),
-        ],
-      });
+      const extractionResult =
+        this.documentIntelligence.buildExtractionResult?.({
+          fingerprint,
+          classification,
+          ocrConfidence: ocrResult?.confidence ?? null,
+          textLength: ocrResult?.text?.length ?? 0,
+          usedVisionFallback,
+          rawText: ocrResult?.text ?? '',
+          reasons: [
+            ...(ocrUnusable ? ['ocr_unusable'] : []),
+            ...(classifierError ? ['classifier_error'] : []),
+            ...(classifierConfidenceLow ? ['classifier_confidence_low'] : []),
+            ...(classifierKindUnknown ? ['classifier_kind_unknown'] : []),
+            ...(classifierExtractedEmpty ? ['classifier_extracted_empty'] : []),
+            ...(usedVisionFallback ? ['vision_fallback'] : []),
+          ],
+        });
       if (extractionResult) {
         await this.documentIntelligence.setCachedExtraction?.(
           fingerprint,

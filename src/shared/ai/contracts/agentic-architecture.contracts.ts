@@ -19,7 +19,13 @@ export type RuntimeWorkflow =
   | 'search'
   | 'unknown';
 
-export type RuntimeStepStatus = 'collecting' | 'ready' | 'waiting' | 'executing' | 'completed' | 'error';
+export type RuntimeStepStatus =
+  | 'collecting'
+  | 'ready'
+  | 'waiting'
+  | 'executing'
+  | 'completed'
+  | 'error';
 
 export interface RuntimeStepState {
   key: string;
@@ -118,7 +124,20 @@ export interface SemanticInputEnvelope {
   normalizedText: string;
   rawText?: string | null;
   entities: Array<{
-    type: 'patient' | 'hospital' | 'health_plan' | 'procedure' | 'cid' | 'tuss' | 'email' | 'phone' | 'date' | 'unknown';
+    type:
+      | 'patient'
+      | 'hospital'
+      | 'health_plan'
+      | 'procedure'
+      | 'cid'
+      | 'tuss'
+      | 'email'
+      | 'phone'
+      | 'date'
+      | 'cpf'
+      | 'crm'
+      | 'money'
+      | 'unknown';
     value: string;
     confidence: number;
   }>;

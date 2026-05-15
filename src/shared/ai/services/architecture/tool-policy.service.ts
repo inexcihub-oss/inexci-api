@@ -71,7 +71,8 @@ export class ToolPolicyService {
     if (toolName === 'plan_actions') return intent === 'unknown' ? 100 : 70;
     if (intent && toolName.includes(intent)) return 90;
     if (toolName === 'draft_update') return 80;
-    if (toolName.startsWith('query_') || toolName.startsWith('search_')) return 60;
+    if (toolName.startsWith('query_') || toolName.startsWith('search_'))
+      return 60;
     return 10;
   }
 }

@@ -22,6 +22,14 @@ export class AiKnowledgeChunk {
   @Column({ type: 'text' })
   content: string;
 
+  @Column({
+    name: 'content_tsv',
+    type: 'tsvector',
+    nullable: true,
+    select: false,
+  })
+  contentTsv: string | null;
+
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 

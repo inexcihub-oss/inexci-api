@@ -13,6 +13,14 @@ interface CachedAudioTranscription {
   transcription: TranscriptionResult;
 }
 
+const MEDICAL_GLOSSARY_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bcid\s+dez\b/gi, 'CID-10'],
+  [/\btus\b/gi, 'TUSS'],
+  [/\bcrm\b/gi, 'CRM'],
+  [/\bopm e\b/gi, 'OPME'],
+  [/\bartrodese\b/gi, 'artrodese'],
+];
+
 @Injectable()
 export class AudioPipelineService {
   constructor(
@@ -48,7 +56,7 @@ export class AudioPipelineService {
     fingerprint: string;
     transcription: TranscriptionResult;
   }): AudioCompressionResult {
-    const normalized = (input.transcription.text || '').replace(/\s+/g, ' ').trim();
+    const normalized = this.normalizeTranscript(input.transcription.text || '');
     const entities = this.extractEntities(normalized);
     const semanticTranscript = this.compressText(normalized);
     const inferredIntent = this.inferIntent(normalized);
@@ -141,11 +149,27 @@ export class AudioPipelineService {
     };
 
     pushMatches('email', /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, 0.95);
-    pushMatches('phone', /\b\d{10,13}\b/g, 0.9);
+    pushMatches('phone', /(?:\+55\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}-?\d{4}/g, 0.9);
+    pushMatches('cpf', /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, 0.92);
+    pushMatches('crm', /\bCRM[-\s:]?[A-Z]{0,2}\s?\d{4,8}\b/gi, 0.84);
     pushMatches('cid', /\b[A-Z]\d{2}(?:\.\d)?\b/g, 0.85);
     pushMatches('tuss', /\b\d{8,9}\b/g, 0.75);
+    pushMatches(
+      'date',
+      /\b(?:\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})\b/g,
+      0.8,
+    );
+    pushMatches('money', /\bR\$\s?\d[\d.,]*/g, 0.8);
 
     return entities.slice(0, 12);
+  }
+
+  private normalizeTranscript(text: string): string {
+    let normalized = text.replace(/\s+/g, ' ').trim();
+    for (const [pattern, replacement] of MEDICAL_GLOSSARY_REPLACEMENTS) {
+      normalized = normalized.replace(pattern, replacement);
+    }
+    return normalized;
   }
 
   private buildCacheKey(fingerprint: string): string {
@@ -153,10 +177,16 @@ export class AudioPipelineService {
   }
 
   private getCacheTtlSeconds(): number {
-    return this.configService.get<number>('AI_AUDIO_CACHE_TTL_SECONDS', 24 * 60 * 60);
+    return this.configService.get<number>(
+      'AI_AUDIO_CACHE_TTL_SECONDS',
+      24 * 60 * 60,
+    );
   }
 
   private getCompressionThresholdChars(): number {
-    return this.configService.get<number>('AI_AUDIO_COMPRESSION_MAX_CHARS', 240);
+    return this.configService.get<number>(
+      'AI_AUDIO_COMPRESSION_MAX_CHARS',
+      240,
+    );
   }
 }

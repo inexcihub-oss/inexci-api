@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from '../services/openai.service';
+import { ModelGatewayService } from '../services/model-gateway.service';
 import { PiiVaultService } from '../services/pii-vault.service';
 import {
   DocumentClassification,
@@ -259,7 +260,7 @@ export class DocumentVisionFallbackService {
   private readonly logger = new Logger(DocumentVisionFallbackService.name);
 
   constructor(
-    private readonly openai: OpenaiService,
+    private readonly modelGateway: ModelGatewayService | OpenaiService,
     private readonly configService: ConfigService,
     private readonly piiVault: PiiVaultService,
   ) {}
@@ -304,7 +305,7 @@ export class DocumentVisionFallbackService {
       } as any,
     ];
 
-    const response = await this.openai.chatCompletion({
+    const response = await this.chatCompletion({
       model,
       temperature: 0,
       maxTokens: 800,
@@ -380,6 +381,37 @@ export class DocumentVisionFallbackService {
       'gpt-4o',
     );
     return (raw && raw.trim()) || 'gpt-4o';
+  }
+
+  private chatCompletion(
+    params: {
+      model: string;
+      messages: OpenAI.ChatCompletionMessageParam[];
+      temperature: number;
+      maxTokens: number;
+      timeoutMs: number;
+      responseFormat: OpenAI.ChatCompletionCreateParams['response_format'];
+    },
+  ) {
+    if (this.modelGateway instanceof ModelGatewayService) {
+      return this.modelGateway.chatCompletion({
+        tier: 'vision',
+        operation: 'document_vision_fallback',
+        messages: params.messages,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens,
+        timeoutMs: params.timeoutMs,
+        responseFormat: params.responseFormat,
+      });
+    }
+    return this.modelGateway.chatCompletion({
+      model: params.model,
+      messages: params.messages,
+      temperature: params.temperature,
+      maxTokens: params.maxTokens,
+      timeoutMs: params.timeoutMs,
+      responseFormat: params.responseFormat,
+    });
   }
 
   /**

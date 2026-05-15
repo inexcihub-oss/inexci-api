@@ -157,7 +157,8 @@ export class RuntimeStateService {
     draft: WhatsappConversation['operationDraft'],
   ): string[] {
     if (!draft) return [];
-    const required = REQUIRED_FIELDS_BY_TYPE[draft.type as OperationDraftType] || [];
+    const required =
+      REQUIRED_FIELDS_BY_TYPE[draft.type as OperationDraftType] || [];
     const fields = ((draft.fields as Record<string, unknown>) || {}) ?? {};
     return required.filter((field) => {
       const value = fields[field];
