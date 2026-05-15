@@ -62,6 +62,26 @@ import { PiiBindingService } from './services/orchestrator/pii-binding.service';
 import { ConversationMemoryService } from './services/orchestrator/conversation-memory.service';
 import { NextStepAdvisorService } from './services/orchestrator/next-step-advisor.service';
 import { DraftContextService } from './services/orchestrator/draft-context.service';
+import { ModelTierConfigService } from './gateway/model-tier.config';
+import { ModelGatewayService } from './gateway/model-gateway.service';
+import { OperationalStateBuilder } from './state/operational-state.builder';
+import { PromptComposer } from './prompts/prompt-composer';
+import { DeterministicIntentClassifier } from './planner/deterministic-intent-classifier';
+import { PlannerLlmService } from './planner/planner-llm.service';
+import { PlannerService } from './planner/planner.service';
+import { ToolSubsetSelector } from './planner/tool-subset-selector';
+import { SttCacheService } from './stt/stt-cache.service';
+import { AudioEntityExtractor } from './stt/audio-entity-extractor';
+import { AudioExtractorService } from './stt/audio-extractor.service';
+import { AiDocCache } from '../../database/entities/ai-doc-cache.entity';
+import { AiDocCacheRepository } from '../../database/repositories/ai-doc-cache.repository';
+import { DocCacheService } from './ocr/doc-cache.service';
+import { DocumentExtractionEngine } from './ocr/document-extraction.engine';
+import { AiPersistentMemory } from '../../database/entities/ai-persistent-memory.entity';
+import { AiPersistentMemoryRepository } from '../../database/repositories/ai-persistent-memory.repository';
+import { PersistentMemoryService } from './memory/persistent-memory.service';
+import { RecentMessageSelector } from './memory/recent-message-selector';
+import { WorkflowEngineService } from './workflow/workflow-engine.service';
 
 @Module({
   imports: [
@@ -72,6 +92,8 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
       SurgeryRequestActivity,
       AiPiiRedactionLog,
       AiTokenUsageLog,
+      AiDocCache,
+      AiPersistentMemory,
     ]),
     RagModule,
     WhatsappModule,
@@ -101,6 +123,24 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
       inject: AI_TOOLS_INJECT,
     },
     OpenaiService,
+    ModelTierConfigService,
+    ModelGatewayService,
+    OperationalStateBuilder,
+    PromptComposer,
+    DeterministicIntentClassifier,
+    PlannerLlmService,
+    PlannerService,
+    ToolSubsetSelector,
+    SttCacheService,
+    AudioEntityExtractor,
+    AudioExtractorService,
+    AiDocCacheRepository,
+    DocCacheService,
+    DocumentExtractionEngine,
+    AiPersistentMemoryRepository,
+    PersistentMemoryService,
+    RecentMessageSelector,
+    WorkflowEngineService,
     ConversationService,
     ConversationContextService,
     ConversationCleanupService,
@@ -135,6 +175,20 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     DraftContextService,
     AiMessageProcessor,
   ],
-  exports: [AiOrchestratorService],
+  exports: [
+    AiOrchestratorService,
+    ModelGatewayService,
+    ModelTierConfigService,
+    OperationalStateBuilder,
+    PromptComposer,
+    PlannerService,
+    ToolSubsetSelector,
+    AudioExtractorService,
+    DocCacheService,
+    DocumentExtractionEngine,
+    PersistentMemoryService,
+    RecentMessageSelector,
+    WorkflowEngineService,
+  ],
 })
 export class AiModule {}

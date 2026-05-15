@@ -7,6 +7,7 @@ import { EmbeddingService } from './embedding.service';
 import { IngestionService } from './ingestion.service';
 import { OpenaiService } from '../ai/services/openai.service';
 import { RagBootstrapService } from './rag-bootstrap.service';
+import { RagHybridSearchService } from './rag-hybrid-search.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([AiKnowledgeChunk])],
@@ -16,8 +17,14 @@ import { RagBootstrapService } from './rag-bootstrap.service';
     EmbeddingService,
     IngestionService,
     RagService,
+    RagHybridSearchService,
     RagBootstrapService,
   ],
-  exports: [RagService, EmbeddingService, IngestionService],
+  exports: [
+    RagService,
+    RagHybridSearchService,
+    EmbeddingService,
+    IngestionService,
+  ],
 })
 export class RagModule {}

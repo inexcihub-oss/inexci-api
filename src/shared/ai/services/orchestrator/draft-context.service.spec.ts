@@ -36,14 +36,78 @@ describe('DraftContextService', () => {
   });
 
   describe('evaluatePlanFirstGuard', () => {
-    it('sempre retorna set vazio (guard no-op)', async () => {
-      const toolCalls = [makeToolCall('c1', 'any_mutation_tool')];
+    it('retorna set vazio quando toolCalls está vazio', async () => {
+      const result = await service.evaluatePlanFirstGuard([], 'conv-1');
+      expect(result.size).toBe(0);
+    });
+
+    it('não bloqueia tools fora de draft (advance, set_*, manage_*)', async () => {
+      operationDraftService.getCurrent.mockResolvedValue(null);
+      const toolCalls = [
+        makeToolCall('c1', 'advance_surgery_request'),
+        makeToolCall('c2', 'set_has_opme'),
+        makeToolCall('c3', 'manage_documents'),
+      ];
       const result = await service.evaluatePlanFirstGuard(toolCalls, 'conv-1');
       expect(result.size).toBe(0);
     });
 
-    it('retorna set vazio quando toolCalls está vazio', async () => {
-      const result = await service.evaluatePlanFirstGuard([], 'conv-1');
+    it('não bloqueia plan_actions nunca', async () => {
+      operationDraftService.getCurrent.mockResolvedValue(null);
+      const result = await service.evaluatePlanFirstGuard(
+        [makeToolCall('c1', 'plan_actions')],
+        'conv-1',
+      );
+      expect(result.size).toBe(0);
+    });
+
+    it('bloqueia *_draft_commit quando NÃO há draft ativo (retorna call.id)', async () => {
+      operationDraftService.getCurrent.mockResolvedValue(null);
+      const result = await service.evaluatePlanFirstGuard(
+        [makeToolCall('call-1', 'sc_draft_commit')],
+        'conv-1',
+      );
+      expect(result.has('call-1')).toBe(true);
+    });
+
+    it('bloqueia *_draft_preview quando draft ativo é de OUTRO tipo', async () => {
+      operationDraftService.getCurrent.mockResolvedValue({
+        type: 'create_sc' as OperationDraftType,
+      } as any);
+      const result = await service.evaluatePlanFirstGuard(
+        [makeToolCall('call-1', 'invoice_draft_preview')],
+        'conv-1',
+      );
+      expect(result.has('call-1')).toBe(true);
+    });
+
+    it('NÃO bloqueia *_draft_commit quando draft ativo é do tipo correto', async () => {
+      operationDraftService.getCurrent.mockResolvedValue({
+        type: 'create_sc' as OperationDraftType,
+      } as any);
+      const result = await service.evaluatePlanFirstGuard(
+        [makeToolCall('c1', 'sc_draft_commit')],
+        'conv-1',
+      );
+      expect(result.size).toBe(0);
+    });
+
+    it('quando getCurrent falha, NÃO bloqueia (falha-segura)', async () => {
+      operationDraftService.getCurrent.mockRejectedValue(new Error('db down'));
+      const result = await service.evaluatePlanFirstGuard(
+        [makeToolCall('c1', 'sc_draft_commit')],
+        'conv-1',
+      );
+      expect(result.size).toBe(0);
+    });
+
+    it('options.enabled=false desliga o guard (compat com AI_PLANNER_V3=false)', async () => {
+      operationDraftService.getCurrent.mockResolvedValue(null);
+      const result = await service.evaluatePlanFirstGuard(
+        [makeToolCall('c1', 'sc_draft_commit')],
+        'conv-1',
+        { enabled: false },
+      );
       expect(result.size).toBe(0);
     });
   });

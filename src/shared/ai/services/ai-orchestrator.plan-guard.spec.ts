@@ -179,8 +179,11 @@ describe('AiOrchestratorService — plan-first guard', () => {
       m.draftContext as any,
     );
 
-  // Sub-fase 3.9 (2026-05-12): COMPLEX_MUTATION_TOOL_NAMES esvaziado.
-  it('evaluatePlanFirstGuard: é no-op — sempre retorna set vazio', async () => {
+  // Fase 3 do Blueprint v3 (2026-05-14): guard reativado em
+  // `DraftContextService.evaluatePlanFirstGuard`. Aqui apenas validamos
+  // a interação contratual com o mock — o comportamento concreto é
+  // testado em `services/orchestrator/draft-context.service.spec.ts`.
+  it('orchestrator chama draftContext.evaluatePlanFirstGuard como contrato', async () => {
     const m = baseMocks();
     buildService(m);
     const toolCalls: OpenAI.ChatCompletionMessageToolCall[] = [

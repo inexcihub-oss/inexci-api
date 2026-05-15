@@ -10,6 +10,7 @@ import {
   ConversationMemory,
 } from '../../../database/entities/whatsapp-conversation.entity';
 import { SYSTEM_PROMPT } from '../prompts/system-prompt';
+import { mergeConversationMemory } from '../memory/conversation-memory-merger';
 
 const SUMMARY_FAILURE_LIMIT = 3;
 
@@ -454,8 +455,16 @@ export class ConversationContextService {
         return;
       }
 
+      // Fase 6 do Blueprint v3 — `conversationMemory` é PATCH-ONLY:
+      // o LLM nunca pode reescrevê-la inteiramente (perderia
+      // `pending_confirmation`, `awaitingMedia` etc. mantidos por
+      // handlers determinísticos). O parser do summary ainda devolve
+      // `parsed.memory`, mas usamos como **patch** sobre a memória atual.
+      const baseMemory = (conv.conversationMemory ??
+        {}) as ConversationMemory;
+      const patch = (parsed.memory ?? {}) as Partial<ConversationMemory>;
       const newMemory: ConversationMemory = {
-        ...(parsed.memory || {}),
+        ...mergeConversationMemory(baseMemory, patch),
         last_updated_at: new Date().toISOString(),
         summary_failures: 0,
       };
