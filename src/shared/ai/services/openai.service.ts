@@ -63,7 +63,10 @@ export class OpenaiService {
       async (span) => {
         const model =
           params.model ??
-          this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
+          this.configService.get<string>(
+            'OPENAI_ORCHESTRATION_MODEL',
+            this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
+          );
         span.setAttribute('ai.model', model);
         span.setAttribute('ai.tools.count', params.tools?.length ?? 0);
         if (params.cacheKey) span.setAttribute('ai.cache.key', params.cacheKey);
@@ -115,7 +118,10 @@ export class OpenaiService {
     const effectiveModel =
       params.model && params.model.trim().length > 0
         ? params.model.trim()
-        : this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
+        : this.configService.get<string>(
+            'OPENAI_ORCHESTRATION_MODEL',
+            this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
+          );
 
     const maxTokens = params.maxTokens ?? this.defaultMaxTokens;
     // Modelos o1/o3/o4 e GPT-5+ têm restrições de API vs gpt-4.x:

@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { AiTokenUsageLogRepository } from '../../../database/repositories/ai-token-usage-log.repository';
 import { hashPhone } from '../../crypto/phone-hash.util';
 import { StorageService } from '../../storage/storage.service';
@@ -9,6 +10,7 @@ import {
 } from '../ocr/document-classifier.types';
 import { DocumentClassifierService } from '../ocr/document-classifier.service';
 import { DocumentVisionFallbackService } from '../ocr/document-vision-fallback.service';
+import { DocumentIntelligenceService } from './architecture/document-intelligence.service';
 import {
   PendingDocumentRequest,
   WhatsappDocumentDispatcherService,
@@ -98,6 +100,8 @@ export class WhatsappDocumentProcessorService {
     private readonly aiTokenUsageLogRepo?: AiTokenUsageLogRepository,
     @Optional()
     private readonly draftService?: OperationDraftService,
+    @Optional()
+    private readonly documentIntelligence?: DocumentIntelligenceService,
   ) {}
 
   async processPendingDocument(
@@ -117,6 +121,43 @@ export class WhatsappDocumentProcessorService {
         status: 'storage_missing',
         errorMessage:
           'Não consegui mais acessar o arquivo enviado (pode ter expirado). Por favor, reenvie.',
+      };
+    }
+
+    const fingerprint =
+      this.documentIntelligence?.buildFingerprint?.(
+        buffer,
+        pending.contentType,
+        intent,
+      ) ??
+      createHash('sha256')
+        .update(buffer)
+        .update('|')
+        .update(pending.contentType || '')
+        .update('|')
+        .update(intent)
+        .digest('hex');
+    const cachedExtraction = this.documentIntelligence
+      ? await this.documentIntelligence.getCachedExtraction?.(fingerprint)
+      : null;
+    if (cachedExtraction?.classification) {
+      const updatedPending: PendingDocumentRequest = {
+        ...pending,
+        intent,
+        classification: cachedExtraction.classification,
+        classifiedAt: Date.now(),
+      };
+      await this.dispatcher.savePending(phone, updatedPending);
+
+      return {
+        status: 'ok',
+        classification: cachedExtraction.classification,
+        userSummary: this.buildUserSummary(
+          intent,
+          cachedExtraction.classification,
+        ),
+        usedVisionFallback:
+          cachedExtraction.reasons.includes('vision_fallback_used'),
       };
     }
 
@@ -202,19 +243,27 @@ export class WhatsappDocumentProcessorService {
 
     const isPdf =
       (pending.contentType || '').toLowerCase() === 'application/pdf';
-    const isImage = this.visionFallback?.isSupportedImageMime(
+    const isImage = this.visionFallback?.isSupportedImageMime?.(
       pending.contentType,
     );
 
-    const visionEnabled = !!this.visionFallback?.isEnabled();
-    const shouldTryVisionFallback =
-      visionEnabled &&
-      (isImage || isPdf) &&
-      (ocrUnusable ||
-        classifierError ||
-        classifierConfidenceLow ||
-        classifierKindUnknown ||
-        classifierExtractedEmpty);
+    const visionEnabled = !!this.visionFallback?.isEnabled?.();
+    const shouldTryVisionFallback = this.documentIntelligence
+      ? this.documentIntelligence.shouldTryVisionFallback?.({
+          ocrUnusable,
+          classifierError: Boolean(classifierError),
+          classifierConfidenceLow,
+          classifierKindUnknown,
+          classifierExtractedEmpty,
+          isVisionSupported: visionEnabled && Boolean(isImage || isPdf),
+        }) ?? false
+      : visionEnabled &&
+        Boolean(isImage || isPdf) &&
+        (ocrUnusable ||
+          Boolean(classifierError) ||
+          classifierConfidenceLow ||
+          classifierKindUnknown ||
+          classifierExtractedEmpty);
 
     this.logger.log(
       `[AI_DOC_PIPELINE_SIGNALS] sid=${messageSid} phone=${phoneMasked} ` +
@@ -323,6 +372,30 @@ export class WhatsappDocumentProcessorService {
       ocrTokenizedText: ocrResult?.tokenizedText ?? '',
     };
     await this.dispatcher.savePending(phone, updatedPending);
+
+    if (this.documentIntelligence) {
+      const extractionResult = this.documentIntelligence.buildExtractionResult?.({
+        fingerprint,
+        classification,
+        ocrConfidence: ocrResult?.confidence ?? null,
+        textLength: ocrResult?.text?.length ?? 0,
+        usedVisionFallback,
+        reasons: [
+          ...(ocrUnusable ? ['ocr_unusable'] : []),
+          ...(classifierError ? ['classifier_error'] : []),
+          ...(classifierConfidenceLow ? ['classifier_confidence_low'] : []),
+          ...(classifierKindUnknown ? ['classifier_kind_unknown'] : []),
+          ...(classifierExtractedEmpty ? ['classifier_extracted_empty'] : []),
+          ...(usedVisionFallback ? ['vision_fallback_used'] : []),
+        ],
+      });
+      if (extractionResult) {
+        await this.documentIntelligence.setCachedExtraction?.(
+          fingerprint,
+          extractionResult,
+        );
+      }
+    }
 
     this.logger.log(
       `[AI_DOC_PIPELINE_OK] sid=${messageSid} phone=${phoneMasked} kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} vision_fallback=${usedVisionFallback}`,

@@ -7,6 +7,11 @@ import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { MODEL_COST_PER_1K } from '../../constants/ai.constants';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { PiiVaultService } from '../pii-vault.service';
+import {
+  PlannerOutput,
+  RuntimeState,
+} from '../../contracts/agentic-architecture.contracts';
+import { RetrievalDecision } from '../architecture/retrieval-policy.service';
 
 export interface CompletionUsageSnapshot {
   stage: string;
@@ -235,5 +240,17 @@ export class OrchestratorTelemetryService {
         `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
       );
     }
+  }
+
+  logArchitectureDecision(input: {
+    messageSid: string;
+    phone: string;
+    runtimeState: RuntimeState;
+    planner: PlannerOutput;
+    retrieval: RetrievalDecision;
+  }): void {
+    this.logger.log(
+      `[AI_ARCHITECTURE] sid=${input.messageSid} phone=${this.phoneNormalizer.maskPhone(input.phone)} workflow=${input.runtimeState.activeWorkflow} draft=${input.runtimeState.activeDraft ?? 'none'} planner_intent=${input.planner.intent} planner_tool=${input.planner.toolCandidate ?? 'none'} planner_confidence=${input.planner.confidence} retrieval=${input.retrieval.shouldQuery} retrieval_reason=${input.retrieval.reason} retrieval_category=${input.retrieval.category ?? 'none'} risk_flags=${input.runtimeState.riskFlags.map((flag) => flag.code).join(',') || 'none'}`,
+    );
   }
 }

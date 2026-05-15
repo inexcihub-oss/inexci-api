@@ -53,6 +53,8 @@ export const envValidationSchema = Joi.object({
   // ── OpenAI / IA conversa ─────────────────────────────
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   OPENAI_MODEL: Joi.string().allow('').default('gpt-4o'),
+  OPENAI_ORCHESTRATION_MODEL: Joi.string().allow('').default('gpt-5-mini'),
+  OPENAI_PREPROCESSING_MODEL: Joi.string().allow('').default('gpt-5-nano'),
   OPENAI_EMBEDDING_MODEL: Joi.string()
     .allow('')
     .default('text-embedding-3-small'),
@@ -64,6 +66,10 @@ export const envValidationSchema = Joi.object({
   AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2600),
   AI_RESPONSE_MAX_TOKENS: Joi.number().default(450),
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
+  AI_ARCHITECTURE_RUNTIME_ENABLED: Joi.string().allow('').default('true'),
+  AI_ARCHITECTURE_PLANNER_ENABLED: Joi.string().allow('').default('true'),
+  AI_ARCHITECTURE_CONTEXT_ENABLED: Joi.string().allow('').default('true'),
+  AI_ARCHITECTURE_TELEMETRY_ENABLED: Joi.string().allow('').default('true'),
   AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
@@ -90,6 +96,8 @@ export const envValidationSchema = Joi.object({
   AI_AUDIO_DEBUG_PERSIST: Joi.string().allow('').default('false'),
   AI_AUDIO_DEBUG_DIR: Joi.string().allow('').default('/tmp/inexci-audio-debug'),
   AI_AUDIO_DEBUG_RETENTION_HOURS: Joi.number().default(24),
+  AI_AUDIO_CACHE_TTL_SECONDS: Joi.number().default(24 * 60 * 60),
+  AI_AUDIO_COMPRESSION_MAX_CHARS: Joi.number().default(240),
   AI_TRANSCRIPTION_PROVIDER: Joi.string()
     .valid('faster_whisper', 'openai')
     .default('faster_whisper'),
@@ -116,6 +124,7 @@ export const envValidationSchema = Joi.object({
   AI_DOC_TMP_RETENTION_HOURS: Joi.number().default(1),
   AI_DOC_OCR_LANG: Joi.string().allow('').default('por'),
   AI_DOC_CLASSIFIER_MODEL: Joi.string().allow('').default('gpt-4o-mini'),
+  AI_DOC_CACHE_TTL_SECONDS: Joi.number().default(24 * 60 * 60),
   AI_DOC_VISION_FALLBACK_ENABLED: Joi.string().allow('').default('true'),
   AI_DOC_VISION_FALLBACK_MODEL: Joi.string().allow('').default('gpt-4o'),
 

@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TranscriptionService } from '../../transcription/transcription.service';
+import { AudioPipelineService } from '../architecture/audio-pipeline.service';
 import {
   InboundWhatsappMedia,
   WhatsappMediaService,
@@ -25,6 +26,7 @@ export interface AudioProcessingResult {
   transcription:
     | (Awaited<ReturnType<TranscriptionService['transcribe']>> & {
         downloadedMedia: { url: string; sizeBytes: number };
+        fingerprint: string;
       })
     | null;
 }
@@ -44,6 +46,7 @@ export class AudioIntakeService {
     private readonly whatsappMediaService: WhatsappMediaService,
     private readonly transcriptionService: TranscriptionService,
     private readonly configService: ConfigService,
+    @Optional() private readonly audioPipeline?: AudioPipelineService,
   ) {}
 
   isAudioEnabled(): boolean {
@@ -79,17 +82,30 @@ export class AudioIntakeService {
       const downloaded = await this.whatsappMediaService.downloadInboundAudio(
         audioMedia as InboundWhatsappMedia,
       );
+      const fingerprint = this.audioPipeline
+        ? this.audioPipeline.buildFingerprint(downloaded.buffer)
+        : 'legacy-audio';
 
-      const transcription = await this.transcriptionService.transcribe({
-        audioBuffer: downloaded.buffer,
-        mimeType: downloaded.mimeType,
-        durationSeconds: downloaded.durationSeconds || null,
-        fileName: downloaded.fileName,
-        language: 'pt',
-      });
+      const cached = this.audioPipeline
+        ? await this.audioPipeline.getCachedTranscription(fingerprint)
+        : null;
+
+      const transcription =
+        cached ??
+        (await this.transcriptionService.transcribe({
+          audioBuffer: downloaded.buffer,
+          mimeType: downloaded.mimeType,
+          durationSeconds: downloaded.durationSeconds || null,
+          fileName: downloaded.fileName,
+          language: 'pt',
+        }));
+
+      if (!cached && this.audioPipeline) {
+        await this.audioPipeline.setCachedTranscription(fingerprint, transcription);
+      }
 
       this.logger.log(
-        `[AI_STT] status=success sid=${data.messageSid} provider=${transcription.provider} bytes=${downloaded.sizeBytes} latencyMs=${transcription.latencyMs} fallback=${Boolean(transcription.fallbackUsed)}`,
+        `[AI_STT] status=success sid=${data.messageSid} provider=${transcription.provider} bytes=${downloaded.sizeBytes} latencyMs=${transcription.latencyMs} fallback=${Boolean(transcription.fallbackUsed)} cache_hit=${Boolean(cached)}`,
       );
 
       return {
@@ -101,6 +117,7 @@ export class AudioIntakeService {
             url: audioMedia.url,
             sizeBytes: downloaded.sizeBytes,
           },
+          fingerprint,
         },
       };
     } catch (error) {

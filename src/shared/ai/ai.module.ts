@@ -62,6 +62,15 @@ import { PiiBindingService } from './services/orchestrator/pii-binding.service';
 import { ConversationMemoryService } from './services/orchestrator/conversation-memory.service';
 import { NextStepAdvisorService } from './services/orchestrator/next-step-advisor.service';
 import { DraftContextService } from './services/orchestrator/draft-context.service';
+import { AudioPipelineService } from './services/architecture/audio-pipeline.service';
+import { ArchitectureBaselineService } from './services/architecture/architecture-baseline.service';
+import { ContextAssemblerService } from './services/architecture/context-assembler.service';
+import { DocumentIntelligenceService } from './services/architecture/document-intelligence.service';
+import { InternalPlannerService } from './services/architecture/internal-planner.service';
+import { MemoryProjectionService } from './services/architecture/memory-projection.service';
+import { RetrievalPolicyService } from './services/architecture/retrieval-policy.service';
+import { RuntimeStateService } from './services/architecture/runtime-state.service';
+import { ToolPolicyService } from './services/architecture/tool-policy.service';
 
 @Module({
   imports: [
@@ -133,6 +142,15 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     ConversationMemoryService,
     NextStepAdvisorService,
     DraftContextService,
+    AudioPipelineService,
+    ArchitectureBaselineService,
+    ContextAssemblerService,
+    DocumentIntelligenceService,
+    InternalPlannerService,
+    MemoryProjectionService,
+    RetrievalPolicyService,
+    RuntimeStateService,
+    ToolPolicyService,
     AiMessageProcessor,
   ],
   exports: [AiOrchestratorService],

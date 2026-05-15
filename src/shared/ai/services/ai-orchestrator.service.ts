@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
@@ -39,6 +39,13 @@ import { MessageProcessorService } from './orchestrator/message-processor.servic
 import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
 import { SimpleCache } from '../utils/simple-cache';
 import { OperationDraftType } from '../drafts/operation-draft.types';
+import { WhatsappDocumentDispatcherService } from './whatsapp-document-dispatcher.service';
+import { AudioPipelineService } from './architecture/audio-pipeline.service';
+import { RuntimeStateService } from './architecture/runtime-state.service';
+import { InternalPlannerService } from './architecture/internal-planner.service';
+import { RetrievalPolicyService } from './architecture/retrieval-policy.service';
+import { ContextAssemblerService } from './architecture/context-assembler.service';
+import { DocumentIntelligenceService } from './architecture/document-intelligence.service';
 
 /**
  * Coordenador do pipeline de IA do WhatsApp; delega aos colaboradores da
@@ -84,11 +91,34 @@ export class AiOrchestratorService {
     private readonly conversationMemory: ConversationMemoryService,
     private readonly nextStepAdvisor: NextStepAdvisorService,
     private readonly draftContext: DraftContextService,
+    @Optional()
+    private readonly documentDispatcher?: WhatsappDocumentDispatcherService,
+    @Optional()
+    private readonly audioPipeline?: AudioPipelineService,
+    @Optional()
+    private readonly runtimeStateService?: RuntimeStateService,
+    @Optional()
+    private readonly internalPlanner?: InternalPlannerService,
+    @Optional()
+    private readonly retrievalPolicy?: RetrievalPolicyService,
+    @Optional()
+    private readonly contextAssembler?: ContextAssemblerService,
+    @Optional()
+    private readonly documentIntelligence?: DocumentIntelligenceService,
   ) {}
 
   private getResponseMaxTokens(): number {
     const value = this.configService.get<number>('AI_RESPONSE_MAX_TOKENS', 450);
     return Math.max(60, Math.floor(Number(value) || 450));
+  }
+
+  private isFeatureEnabled(key: string, defaultValue = true): boolean {
+    const raw = String(
+      this.configService.get<string>(key, defaultValue ? 'true' : 'false'),
+    )
+      .trim()
+      .toLowerCase();
+    return raw === 'true' || raw === '1';
   }
 
   /**
@@ -358,11 +388,42 @@ export class AiOrchestratorService {
           const audioProcessing =
             await this.audioIntakeService.processInboundAudioIfNeeded(data);
           const transcriptionContext = audioProcessing.transcription;
+          const audioCompression =
+            transcriptionContext &&
+            this.audioPipeline &&
+            this.isFeatureEnabled('AI_ARCHITECTURE_RUNTIME_ENABLED')
+            ? this.audioPipeline.compressTranscription({
+                fingerprint: transcriptionContext.fingerprint,
+                transcription: transcriptionContext,
+              })
+            : null;
 
-          const userInputRaw = this.audioIntakeService.buildUserInputForAi({
-            textInput: effectiveBody,
-            transcriptionText: transcriptionContext?.text || null,
-          });
+          const userInputRaw = this.audioPipeline
+            ? this.audioPipeline.buildUserInput({
+                textInput: effectiveBody || '',
+                compression: audioCompression,
+              })
+            : this.audioIntakeService.buildUserInputForAi({
+                textInput: effectiveBody,
+                transcriptionText: transcriptionContext?.text || null,
+              });
+          const semanticInput = this.audioPipeline
+            ? this.audioPipeline.toSemanticInput(
+                effectiveBody || '',
+                audioCompression,
+              )
+            : {
+                version: '1.0' as const,
+                source: (transcriptionContext ? 'audio' : 'text') as
+                  | 'audio'
+                  | 'text',
+                normalizedText: userInputRaw,
+                rawText: transcriptionContext?.text || effectiveBody || null,
+                entities: [],
+                confidence: transcriptionContext?.confidence ?? 0.7,
+                missingSegments: [],
+                hints: [],
+              };
 
           const hasTypedText = Boolean((effectiveBody || '').trim());
           if (audioProcessing.failed && !hasTypedText) {
@@ -426,31 +487,143 @@ export class AiOrchestratorService {
             },
           );
 
-          // RAG opera sobre a versão tokenizada (a base é pública, sem PII).
-          // Skip para inputs triviais (confirmações, números soltos, comandos de
-          // limpeza) — nesses casos o RAG não agrega valor e só adiciona latência.
-          const shouldQueryRag =
-            userInputForAi.trim().length >= 15 &&
-            !this.clearContextDetector.isConfirmationInput(normalizedInput) &&
-            !this.clearContextDetector.isCancelConfirmationInput(
-              normalizedInput,
-            ) &&
-            !/^[0-9]{1,2}$/.test(normalizedInput) &&
-            !this.clearContextDetector.isClearContextCommand(normalizedInput);
+          const pendingDocument = this.documentDispatcher
+            ? await this.documentDispatcher.getPending(phone)
+            : null;
+          const pendingDocumentState =
+            this.documentIntelligence &&
+            this.isFeatureEnabled('AI_ARCHITECTURE_RUNTIME_ENABLED')
+            ? this.documentIntelligence.buildPendingDocumentState({
+                pending: pendingDocument,
+                fingerprint: pendingDocument?.classification
+                  ? `pending:${pendingDocument.messageSid}`
+                  : null,
+              })
+            : null;
+          const awaitingMedia =
+            typeof (this.conversationMemory as any).getAwaitingMedia ===
+            'function'
+              ? await (this.conversationMemory as any).getAwaitingMedia(
+                  conversation.id,
+                )
+              : null;
+          const runtimeState =
+            this.runtimeStateService &&
+            this.isFeatureEnabled('AI_ARCHITECTURE_RUNTIME_ENABLED')
+            ? this.runtimeStateService.build({
+                conversation,
+                userId,
+                ownerId,
+                pendingDocument: pendingDocumentState,
+                pendingMedia: awaitingMedia
+                  ? {
+                      kind: awaitingMedia.kind,
+                      expiresAt: awaitingMedia.expiresAt,
+                    }
+                  : null,
+                audioCompression,
+              })
+            : {
+                version: '1.0' as const,
+                conversationId: conversation.id,
+                userId,
+                ownerId,
+                activeWorkflow: 'idle' as const,
+                activeDraft: conversation.operationDraft?.type ?? null,
+                currentStep: null,
+                filledFields: {},
+                missingFields: [],
+                lastTool: null,
+                lastToolResult: null,
+                pendingConfirmation:
+                  ((conversation.conversationMemory || {})
+                    .pending_confirmation as any) ??
+                  null,
+                pendingDocument: pendingDocumentState,
+                pendingMedia: awaitingMedia
+                  ? {
+                      kind: awaitingMedia.kind,
+                      expiresAt: awaitingMedia.expiresAt,
+                    }
+                  : null,
+                multimodalContext: null,
+                riskFlags: [],
+              };
+          const plannerOutput =
+            this.internalPlanner &&
+            this.isFeatureEnabled('AI_ARCHITECTURE_PLANNER_ENABLED')
+            ? this.internalPlanner.plan({
+                normalizedInput,
+                semanticInput,
+                runtimeState,
+              })
+            : {
+                version: '1.0' as const,
+                intent: 'unknown',
+                workflow: runtimeState.activeWorkflow,
+                entitiesDetected: semanticInput.entities,
+                missingFields: runtimeState.missingFields,
+                nextBestAction: 'Responder com o menor proximo passo necessario.',
+                toolCandidate: null,
+                needsRetrieval: userInputForAi.trim().length >= 15,
+                retrievalCategory: null,
+                needsVision: false,
+                confidence: 0.5,
+                fallbackPlan: 'Pedir contexto adicional ao usuario.',
+              };
+          const retrievalDecision =
+            this.retrievalPolicy &&
+            this.isFeatureEnabled('AI_ARCHITECTURE_PLANNER_ENABLED')
+            ? this.retrievalPolicy.decide({
+                normalizedInput,
+                userInput: userInputForAi,
+                planner: plannerOutput,
+                runtimeState,
+              })
+            : {
+                shouldQuery:
+                  userInputForAi.trim().length >= 15 &&
+                  !this.clearContextDetector.isConfirmationInput(normalizedInput) &&
+                  !this.clearContextDetector.isCancelConfirmationInput(
+                    normalizedInput,
+                  ) &&
+                  !/^[0-9]{1,2}$/.test(normalizedInput) &&
+                  !this.clearContextDetector.isClearContextCommand(normalizedInput),
+                rewrittenQuery: userInputForAi,
+                category: undefined,
+                reason: 'legacy_fallback',
+              };
+          if (
+            this.isFeatureEnabled('AI_ARCHITECTURE_TELEMETRY_ENABLED') &&
+            this.telemetry.logArchitectureDecision
+          ) {
+            this.telemetry.logArchitectureDecision({
+              messageSid: data.messageSid,
+              phone,
+              runtimeState,
+              planner: plannerOutput,
+              retrieval: retrievalDecision,
+            });
+          }
 
-          if (!shouldQueryRag) {
+          if (!retrievalDecision.shouldQuery) {
             this.logger.debug(
-              `[RAG] sid=${data.messageSid} skipped=true reason=trivial_input`,
+              `[RAG] sid=${data.messageSid} skipped=true reason=${retrievalDecision.reason}`,
             );
           }
 
-          const ragResults = shouldQueryRag
-            ? ((await this.ragService.search(userInputForAi)) ?? [])
+          const ragResults = retrievalDecision.shouldQuery
+            ? ((await (retrievalDecision.category
+                ? this.ragService.search(retrievalDecision.rewrittenQuery, {
+                    category: retrievalDecision.category,
+                  })
+                : this.ragService.search(retrievalDecision.rewrittenQuery))) ??
+              [])
             : [];
-          const ragMetrics = shouldQueryRag
+          const ragMetrics = retrievalDecision.shouldQuery
             ? this.ragService.computeMetrics(ragResults)
             : null;
-          const ragContext = shouldQueryRag
+          const ragContext = retrievalDecision.shouldQuery
             ? await this.ragService.formatContext(ragResults)
             : null;
 
@@ -466,19 +639,39 @@ export class AiOrchestratorService {
               accessibleDoctorIds,
             );
 
-          const built = await this.contextService.buildContext({
-            conversation: updatedConv,
-            ragContext: ragContext || null,
-            userInfo: {
-              id: userId,
-              name: user?.name ?? null,
-              role: user?.role ?? null,
-              isDoctor:
-                Boolean(user?.doctorProfile?.id) || Boolean(user?.isDoctor),
-              ownerId,
-              accessibleDoctors: accessibleDoctorsInfo,
-            },
-          });
+          const built =
+            this.contextAssembler &&
+            this.isFeatureEnabled('AI_ARCHITECTURE_CONTEXT_ENABLED')
+            ? await this.contextAssembler.buildContext({
+                conversation: updatedConv,
+                ragContext: ragContext || null,
+                userInfo: {
+                  id: userId,
+                  name: user?.name ?? null,
+                  role: user?.role ?? null,
+                  isDoctor:
+                    Boolean(user?.doctorProfile?.id) || Boolean(user?.isDoctor),
+                  ownerId,
+                  accessibleDoctors: accessibleDoctorsInfo,
+                },
+                runtimeState,
+                planner: plannerOutput,
+                audioCompression,
+                pendingDocument: pendingDocumentState,
+              })
+            : await this.contextService.buildContext({
+                conversation: updatedConv,
+                ragContext: ragContext || null,
+                userInfo: {
+                  id: userId,
+                  name: user?.name ?? null,
+                  role: user?.role ?? null,
+                  isDoctor:
+                    Boolean(user?.doctorProfile?.id) || Boolean(user?.isDoctor),
+                  ownerId,
+                  accessibleDoctors: accessibleDoctorsInfo,
+                },
+              });
           const messages: OpenAI.ChatCompletionMessageParam[] = built.messages;
           const contextBreakdown = built.breakdown;
           const contextStrategy = built.strategy;
