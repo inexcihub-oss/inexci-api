@@ -289,6 +289,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         pendenciesCount: number;
         completedCount: number;
         totalPendencies: number;
+        hasIncompletePayment: boolean;
       }
     >
   > {
@@ -300,6 +301,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoin('surgeryRequest.healthPlan', 'healthPlan')
       .leftJoin('surgeryRequest.hospital', 'hospital')
       .leftJoin('surgeryRequest.procedure', 'procedure')
+      .leftJoin('surgeryRequest.billing', 'billing')
       .leftJoin('surgeryRequest.documents', 'documents')
       .where(where)
       .orderBy('surgeryRequest.createdAt', 'DESC')
@@ -330,6 +332,9 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'hospital.name',
         'procedure.id',
         'procedure.name',
+        'billing.id',
+        'billing.invoiceValue',
+        'billing.receivedValue',
         'documents.id',
         'documents.type',
       ])
@@ -340,18 +345,67 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .addGroupBy('healthPlan.id')
       .addGroupBy('hospital.id')
       .addGroupBy('procedure.id')
+      .addGroupBy('billing.id')
       .addGroupBy('documents.id');
 
     const results = await queryBuilder.getRawAndEntities();
 
+    const getRawNumber = (row: Record<string, unknown>, keys: string[]) => {
+      for (const key of keys) {
+        const value = row[key];
+        if (value == null) continue;
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+      }
+      return NaN;
+    };
+
+    const getRawId = (row: Record<string, unknown>) => {
+      const value =
+        row.surgeryRequest_id ??
+        row.surgery_request_id ??
+        row.surgeryrequest_id;
+      return value != null ? String(value) : null;
+    };
+
+    const hasIncompletePaymentById = new Map<string, boolean>();
+
+    for (const rawRow of results.raw as Record<string, unknown>[]) {
+      const id = getRawId(rawRow);
+      if (!id) continue;
+
+      const invoiceValue = getRawNumber(rawRow, [
+        'billing_invoice_value',
+        'billing_invoiceValue',
+      ]);
+      const receivedValue = getRawNumber(rawRow, [
+        'billing_received_value',
+        'billing_receivedValue',
+      ]);
+
+      const hasIncompletePayment =
+        Number.isFinite(invoiceValue) &&
+        Number.isFinite(receivedValue) &&
+        receivedValue < invoiceValue;
+
+      if (hasIncompletePayment) {
+        hasIncompletePaymentById.set(id, true);
+      } else if (!hasIncompletePaymentById.has(id)) {
+        hasIncompletePaymentById.set(id, false);
+      }
+    }
+
     return results.entities.map((entity) => {
       const pendencies = this.calculatePendencies(entity);
+      const hasIncompletePayment =
+        hasIncompletePaymentById.get(entity.id) ?? false;
 
       return {
         ...entity,
         pendenciesCount: pendencies.pendingCount,
         completedCount: pendencies.completedCount,
         totalPendencies: pendencies.totalCount,
+        hasIncompletePayment,
       };
     });
   }

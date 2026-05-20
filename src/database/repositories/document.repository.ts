@@ -36,4 +36,14 @@ export class DocumentRepository extends BaseRepository<Document> {
   ): Promise<Document | null> {
     return await this.repository.findOne({ where });
   }
+
+  async existsByUriAndOwner(uri: string, ownerId: string): Promise<boolean> {
+    const count = await this.repository
+      .createQueryBuilder('doc')
+      .innerJoin('doc.surgeryRequest', 'sr')
+      .where('doc.uri = :uri', { uri })
+      .andWhere('sr.ownerId = :ownerId', { ownerId })
+      .getCount();
+    return count > 0;
+  }
 }
