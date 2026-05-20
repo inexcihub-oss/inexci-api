@@ -442,6 +442,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   ): Promise<SurgeryRequest | null> {
     return this.findOneWithRelations(where, [
       'createdBy',
+      'doctor',
+      'doctor.doctorProfile',
       'patient',
       'hospital',
       'healthPlan',

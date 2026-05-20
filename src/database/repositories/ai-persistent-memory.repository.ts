@@ -43,6 +43,8 @@ export class AiPersistentMemoryRepository {
     value: unknown;
     confidence?: number | null;
   }): Promise<void> {
+    const serializedValue = JSON.stringify(input.value ?? null);
+
     await this.repo
       .createQueryBuilder()
       .insert()
@@ -51,7 +53,7 @@ export class AiPersistentMemoryRepository {
         userId: input.userId,
         scope: input.scope,
         key: input.key,
-        value: input.value,
+        value: () => ':memory_value::jsonb',
         confidence: input.confidence ?? null,
         lastUsedAt: new Date(),
         useCount: 1,
@@ -60,6 +62,7 @@ export class AiPersistentMemoryRepository {
         ['value', 'confidence', 'last_used_at', 'use_count'],
         ['user_id', 'scope', 'key'],
       )
+      .setParameter('memory_value', serializedValue)
       .setParameter('use_count_inc', 1)
       .execute();
 
