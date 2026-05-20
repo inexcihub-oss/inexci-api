@@ -48,7 +48,7 @@ export const envValidationSchema = Joi.object({
 
   // ── Security (criptografia / hash) ───────────────────
   DB_ENCRYPTION_KEY: Joi.string().allow('').default(''),
-  PHONE_HASH_SALT: Joi.string().allow('').default('inexci-default-salt'),
+  PHONE_HASH_SALT: Joi.string().min(32).required(),
 
   // ── OpenAI / IA conversa ─────────────────────────────
   OPENAI_API_KEY: Joi.string().allow('').default(''),

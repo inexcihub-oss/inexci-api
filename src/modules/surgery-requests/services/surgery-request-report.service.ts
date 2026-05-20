@@ -1,12 +1,19 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import * as sanitizeHtml from 'sanitize-html';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { CreateReportSectionDto } from '../dto/create-report-section.dto';
 import { UpdateReportSectionDto } from '../dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from '../dto/reorder-report-sections.dto';
 import { SurgeryRequestPdfAssemblyService } from './surgery-request-pdf-assembly.service';
+
+const SECTION_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ['b', 'i', 'u', 'strong', 'em', 'p', 'br', 'ul', 'ol', 'li'],
+  allowedAttributes: {},
+  disallowedTagsMode: 'discard',
+};
 
 @Injectable()
 export class SurgeryRequestReportService {
@@ -37,8 +44,10 @@ export class SurgeryRequestReportService {
     });
     const section = this.reportSectionRepository.create({
       surgeryRequestId: id,
-      title: dto.title,
-      description: dto.description ?? null,
+      title: sanitizeHtml(dto.title, SECTION_SANITIZE_OPTIONS),
+      description: dto.description
+        ? sanitizeHtml(dto.description, SECTION_SANITIZE_OPTIONS)
+        : null,
       order: count,
     });
     return this.reportSectionRepository.save(section);
@@ -54,8 +63,13 @@ export class SurgeryRequestReportService {
       where: { id: sectionId },
     });
     if (!section) throw new NotFoundException('Seção não encontrada');
-    if (dto.title !== undefined) section.title = dto.title;
-    if (dto.description !== undefined) section.description = dto.description;
+    if (dto.title !== undefined)
+      section.title = sanitizeHtml(dto.title, SECTION_SANITIZE_OPTIONS);
+    if (dto.description !== undefined)
+      section.description =
+        dto.description !== null
+          ? sanitizeHtml(dto.description, SECTION_SANITIZE_OPTIONS)
+          : null;
     return this.reportSectionRepository.save(section);
   }
 

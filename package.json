@@ -150,6 +150,9 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/../test/unit-setup.ts"
+    ],
     "maxWorkers": 2
   }
 }

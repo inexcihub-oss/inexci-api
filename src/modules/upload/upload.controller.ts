@@ -17,6 +17,10 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
+import {
+  AuthenticatedUser,
+  CurrentUser,
+} from '../../shared/decorators/current-user.decorator';
 
 @ApiTags('Upload')
 @ApiBearerAuth()
@@ -51,11 +55,14 @@ export class UploadController {
    */
   @Get('signed-url')
   @ApiOperation({ summary: 'Gerar URL assinada para arquivo armazenado' })
-  async getSignedUrl(@Query('path') filePath: string) {
+  async getSignedUrl(
+    @Query('path') filePath: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     if (!filePath) {
       throw new BadRequestException('O parâmetro "path" é obrigatório');
     }
-    const result = await this.uploadService.getSignedUrl(filePath);
+    const result = await this.uploadService.getSignedUrl(filePath, user.ownerId);
     return { data: result };
   }
 
