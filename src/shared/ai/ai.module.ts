@@ -68,6 +68,10 @@ import { PiiBindingService } from './services/orchestrator/pii-binding.service';
 import { ConversationMemoryService } from './services/orchestrator/conversation-memory.service';
 import { NextStepAdvisorService } from './services/orchestrator/next-step-advisor.service';
 import { DraftContextService } from './services/orchestrator/draft-context.service';
+import { SessionBootstrapService } from './services/orchestrator/session-bootstrap.service';
+import { InputPipelineService } from './services/orchestrator/input-pipeline.service';
+import { ContextPipelineService } from './services/orchestrator/context-pipeline.service';
+import { ResponseDispatchService } from './services/orchestrator/response-dispatch.service';
 import { AudioPipelineService } from './services/architecture/audio-pipeline.service';
 import { ArchitectureBaselineService } from './services/architecture/architecture-baseline.service';
 import { ContextAssemblerService } from './services/architecture/context-assembler.service';
@@ -163,6 +167,10 @@ import { WorkflowEngineService } from './services/workflow-engine.service';
     ConversationMemoryService,
     NextStepAdvisorService,
     DraftContextService,
+    SessionBootstrapService,
+    InputPipelineService,
+    ContextPipelineService,
+    ResponseDispatchService,
     AudioPipelineService,
     ArchitectureBaselineService,
     ContextAssemblerService,

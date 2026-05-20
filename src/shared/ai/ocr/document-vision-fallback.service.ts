@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from '../services/openai.service';
@@ -260,6 +260,7 @@ export class DocumentVisionFallbackService {
   private readonly logger = new Logger(DocumentVisionFallbackService.name);
 
   constructor(
+    @Inject(ModelGatewayService)
     private readonly modelGateway: ModelGatewayService | OpenaiService,
     private readonly configService: ConfigService,
     private readonly piiVault: PiiVaultService,
@@ -383,16 +384,14 @@ export class DocumentVisionFallbackService {
     return (raw && raw.trim()) || 'gpt-4o';
   }
 
-  private chatCompletion(
-    params: {
-      model: string;
-      messages: OpenAI.ChatCompletionMessageParam[];
-      temperature: number;
-      maxTokens: number;
-      timeoutMs: number;
-      responseFormat: OpenAI.ChatCompletionCreateParams['response_format'];
-    },
-  ) {
+  private chatCompletion(params: {
+    model: string;
+    messages: OpenAI.ChatCompletionMessageParam[];
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+    responseFormat: OpenAI.ChatCompletionCreateParams['response_format'];
+  }) {
     if (this.modelGateway instanceof ModelGatewayService) {
       return this.modelGateway.chatCompletion({
         tier: 'vision',

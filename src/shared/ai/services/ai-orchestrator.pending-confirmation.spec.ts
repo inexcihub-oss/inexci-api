@@ -1,26 +1,15 @@
-import { AiOrchestratorService } from './ai-orchestrator.service';
-import { PiiVaultService } from './pii-vault.service';
-import { ResponseNormalizerService } from './orchestrator/response-normalizer.service';
-import { PhoneNormalizerService } from './orchestrator/phone-normalizer.service';
-import { ClearContextDetectorService } from './orchestrator/clear-context-detector.service';
 import { ConfirmationManagerService } from './orchestrator/confirmation-manager.service';
-import { OrchestratorTelemetryService } from './orchestrator/orchestrator-telemetry.service';
-import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { AudioIntakeService } from './orchestrator/audio-intake.service';
 
 /**
- * Testes focados na nova camada de "pending_confirmation": o orchestrator
+ * Testes focados na nova camada de "pending_confirmation": o ConfirmationManagerService
  * grava no conversation_memory quando uma tool de mutação retorna preview
  * (confirm:false) e, no turno seguinte, traduz determinísticamente um
  * "sim/confirmo/ok" do usuário em chamada da MESMA tool com confirm:true,
  * sem depender do LLM lembrar do contexto.
- *
- * Acessamos as funções privadas via `as any` para testá-las isoladamente —
- * a integração via fluxo de turno é coberta pelos testes principais do
- * orchestrator.
  */
-describe('AiOrchestratorService — pending_confirmation', () => {
-  let service: AiOrchestratorService;
+describe('ConfirmationManagerService — pending_confirmation', () => {
+  let confirmationManager: ConfirmationManagerService;
   const whatsappConversationRepoMock = {
     findOne: jest.fn(),
     update: jest.fn().mockResolvedValue(undefined),
@@ -28,99 +17,9 @@ describe('AiOrchestratorService — pending_confirmation', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AiOrchestratorService(
-      { chatCompletion: jest.fn() } as any,
-      {
-        getOrCreateConversation: jest.fn(),
-        appendMessage: jest.fn(),
-        resetConversationHistory: jest.fn(),
-        loadRecentForLlm: jest.fn(),
-      } as any,
-      {
-        getToolDefinitions: jest.fn().mockReturnValue([]),
-        getToolDefinitionsForDraft: jest.fn().mockReturnValue([]),
-      } as any,
-      { executeMany: jest.fn() } as any,
-      { search: jest.fn(), formatContext: jest.fn() } as any,
-      { sendMessage: jest.fn(), sendTemplate: jest.fn() } as any,
-      { findOneByPhone: jest.fn() } as any,
-      { getAccessibleDoctorIds: jest.fn() } as any,
-      { get: jest.fn() } as any,
-      { isAudioMime: jest.fn(), downloadInboundAudio: jest.fn() } as any,
-      new PiiVaultService() as any,
-      { create: jest.fn() } as any,
-      {
-        isAvailable: false,
-        checkRateLimit: jest.fn(),
-        cacheGet: jest.fn(),
-        cacheSet: jest.fn(),
-        cacheDelete: jest.fn(),
-        setFlag: jest.fn(),
-        hasFlag: jest.fn(),
-      } as any,
-      { buildContext: jest.fn() } as any,
+    confirmationManager = new ConfirmationManagerService(
       whatsappConversationRepoMock as any,
-      new ResponseNormalizerService(),
-      new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),
-      new ClearContextDetectorService(),
-      new ConfirmationManagerService(
-        whatsappConversationRepoMock as any,
-        { loadRecentForLlm: jest.fn() } as any,
-      ),
-      new OrchestratorTelemetryService(
-        { create: jest.fn() } as any,
-        new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),
-        {
-          categoryCounts: jest.fn().mockReturnValue({}),
-        } as unknown as PiiVaultService,
-      ),
-      { run: jest.fn() } as any,
-      {
-        enqueueInboundMessage: jest.fn(),
-        runPreflight: jest.fn(),
-        invalidateUserCacheByPhone: jest.fn(),
-      } as any,
-      {
-        processInboundDocumentIfNeeded: jest.fn().mockResolvedValue(false),
-        buildDocumentPendingHint: jest.fn().mockResolvedValue(null),
-      } as any,
-      {
-        processInboundAudioIfNeeded: jest.fn().mockResolvedValue({
-          hasAudio: false,
-          failed: false,
-          transcription: null,
-        }),
-        buildUserInputForAi: jest
-          .fn()
-          .mockImplementation(({ textInput }: any) => textInput || ''),
-        buildAudioFailureUserMessage: jest.fn().mockReturnValue('falha'),
-        isAudioEnabled: jest.fn().mockReturnValue(true),
-      } as any,
-      {
-        loadPersistedPiiBindings: jest.fn().mockResolvedValue({}),
-        persistPiiBindings: jest.fn().mockResolvedValue(undefined),
-        redactResidualPii: jest.fn().mockImplementation((t: string) => t),
-      } as any,
-      {
-        memorizeEntities: jest.fn().mockResolvedValue(undefined),
-        resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
-        readMemory: jest.fn().mockResolvedValue(null),
-        patchMemory: jest.fn().mockResolvedValue(undefined),
-      } as any,
-      {
-        appendNextStep: jest
-          .fn()
-          .mockImplementation(
-            (_n: string, _a: unknown, output: string) => output,
-          ),
-      } as any,
-      {
-        buildToolsForDraft: jest
-          .fn()
-          .mockResolvedValue({ tools: [], draftType: null }),
-        buildCacheKey: jest.fn().mockReturnValue('inexci:wa:v1:draft=none'),
-        evaluatePlanFirstGuard: jest.fn().mockResolvedValue(new Set()),
-      } as any,
+      { loadRecentForLlm: jest.fn() } as any,
     );
   });
 
@@ -146,9 +45,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       'quero sim',
     ];
     it.each(cases)('"%s" → afirmativo', (input) => {
-      const result = (
-        service as any
-      ).confirmationManager.parseAffirmativeConfirmation(input);
+      const result = confirmationManager.parseAffirmativeConfirmation(input);
       expect(result).toBe(true);
     });
 
@@ -156,17 +53,13 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       const longInput =
         'Sim, mas antes preciso te perguntar uma coisa sobre o procedimento e o convênio';
       expect(
-        (service as any).confirmationManager.parseAffirmativeConfirmation(
-          longInput,
-        ),
+        confirmationManager.parseAffirmativeConfirmation(longInput),
       ).toBe(false);
     });
 
     it('frases ambíguas não são confirmação', () => {
       expect(
-        (service as any).confirmationManager.parseAffirmativeConfirmation(
-          'gostaria de criar uma SC',
-        ),
+        confirmationManager.parseAffirmativeConfirmation('gostaria de criar uma SC'),
       ).toBe(false);
     });
   });
@@ -175,9 +68,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
     it.each(['não', 'nao', 'cancela', 'esquece', 'desiste', 'pare'])(
       '"%s" → negativo',
       (input) => {
-        const result = (
-          service as any
-        ).confirmationManager.parseNegativeConfirmation(input);
+        const result = confirmationManager.parseNegativeConfirmation(input);
         expect(result).toBe(true);
       },
     );
@@ -207,7 +98,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'upload_doctor_signature',
         args: { confirm: false },
@@ -244,7 +135,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'upload_doctor_signature',
         args: { confirm: true },
@@ -259,7 +150,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
     it('quando tool confirmável devolve output não-envelope, loga warning e NÃO mexe no pending', async () => {
       const warnSpy = jest
         .spyOn(
-          (service as any).confirmationManager.logger as { warn: () => void },
+          (confirmationManager as any).logger as { warn: () => void },
           'warn',
         )
         .mockImplementation(() => undefined);
@@ -267,7 +158,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       // `upload_doctor_signature` é confirmable (está em TOOL_DISPLAY_LABELS)
       // mas, hipoteticamente, devolve string crua — caminho de regressão
       // que justifica o warning.
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'upload_doctor_signature',
         args: {},
@@ -288,12 +179,12 @@ describe('AiOrchestratorService — pending_confirmation', () => {
     it('tool de leitura com output não-envelope NÃO loga warning', async () => {
       const warnSpy = jest
         .spyOn(
-          (service as any).confirmationManager.logger as { warn: () => void },
+          (confirmationManager as any).logger as { warn: () => void },
           'warn',
         )
         .mockImplementation(() => undefined);
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'query_patients',
         args: {},
@@ -329,7 +220,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'sc_draft_preview',
         args: {},
@@ -357,7 +248,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'invoice_draft_preview',
         args: {},
@@ -384,7 +275,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'sc_draft_commit',
         args: { confirm: false },
@@ -418,7 +309,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'sc_draft_commit',
         args: { confirm: true },
@@ -436,7 +327,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'query_patients',
         args: {},
@@ -455,7 +346,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         v: 1,
       });
 
-      await (service as any).confirmationManager.trackPendingConfirmation({
+      await confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'sc_draft_set_patient',
         args: {},
@@ -485,9 +376,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         },
       });
 
-      const hint = await (
-        service as any
-      ).confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
+      const hint = await confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
 
       expect(hint).toContain('CONFIRMAÇÃO DETERMINÍSTICA');
       expect(hint).toContain('upload_doctor_signature');
@@ -500,9 +389,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         conversationMemory: {},
       });
 
-      const hint = await (
-        service as any
-      ).confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
+      const hint = await confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
       expect(hint).toBeNull();
     });
 
@@ -519,9 +406,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         },
       });
 
-      const hint = await (
-        service as any
-      ).confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
+      const hint = await confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
       expect(hint).toBeNull();
       // O orchestrator deve ter agendado a limpeza.
       expect(whatsappConversationRepoMock.update).toHaveBeenCalled();
@@ -540,9 +425,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         },
       });
 
-      const hint = await (
-        service as any
-      ).confirmationManager.buildPendingConfirmationHint('conv-1', 'Não');
+      const hint = await confirmationManager.buildPendingConfirmationHint('conv-1', 'Não');
 
       expect(hint).toContain('CANCELAMENTO DETERMINÍSTICO');
       expect(hint).toContain('atualizar sua assinatura digital');
@@ -562,9 +445,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         },
       });
 
-      const hint = await (
-        service as any
-      ).confirmationManager.buildPendingConfirmationHint(
+      const hint = await confirmationManager.buildPendingConfirmationHint(
         'conv-1',
         'na verdade, quero mudar a foto',
       );

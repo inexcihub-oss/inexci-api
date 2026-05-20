@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from '../services/openai.service';
@@ -251,6 +251,7 @@ export class DocumentClassifierService {
   private readonly logger = new Logger(DocumentClassifierService.name);
 
   constructor(
+    @Inject(ModelGatewayService)
     private readonly modelGateway: ModelGatewayService | OpenaiService,
     private readonly configService: ConfigService,
   ) {}
@@ -410,16 +411,14 @@ export class DocumentClassifierService {
     return (raw && raw.trim()) || 'gpt-4o-mini';
   }
 
-  private chatCompletion(
-    params: {
-      model: string;
-      messages: OpenAI.ChatCompletionMessageParam[];
-      temperature: number;
-      maxTokens: number;
-      timeoutMs: number;
-      responseFormat: OpenAI.ChatCompletionCreateParams['response_format'];
-    },
-  ) {
+  private chatCompletion(params: {
+    model: string;
+    messages: OpenAI.ChatCompletionMessageParam[];
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+    responseFormat: OpenAI.ChatCompletionCreateParams['response_format'];
+  }) {
     if (this.modelGateway instanceof ModelGatewayService) {
       return this.modelGateway.chatCompletion({
         tier: 'cheap',

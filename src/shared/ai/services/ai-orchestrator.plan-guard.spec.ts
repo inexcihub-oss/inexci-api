@@ -1,12 +1,9 @@
 import OpenAI from 'openai';
 import { AiOrchestratorService } from './ai-orchestrator.service';
 import { PiiVaultService } from './pii-vault.service';
-import { ResponseNormalizerService } from './orchestrator/response-normalizer.service';
 import { PhoneNormalizerService } from './orchestrator/phone-normalizer.service';
-import { ClearContextDetectorService } from './orchestrator/clear-context-detector.service';
 import { ConfirmationManagerService } from './orchestrator/confirmation-manager.service';
 import { OrchestratorTelemetryService } from './orchestrator/orchestrator-telemetry.service';
-import { MessageProcessorService } from './orchestrator/message-processor.service';
 
 describe('AiOrchestratorService — plan-first guard', () => {
   const baseMocks = () => ({
@@ -113,28 +110,17 @@ describe('AiOrchestratorService — plan-first guard', () => {
 
   const buildService = (m: ReturnType<typeof baseMocks>) =>
     new AiOrchestratorService(
-      m.openai as any,
-      m.conversation as any,
-      m.toolRegistry as any,
-      m.toolExecutor as any,
-      m.rag as any,
-      m.whatsapp as any,
-      m.userRepo as any,
-      m.accessControl as any,
       m.config as any,
-      m.whatsappMedia as any,
+      m.openai as any,
       m.piiVault as any,
-      m.piiRedaction as any,
-      m.aiRedis as any,
+      {
+        loadPersistedPiiBindings: jest.fn().mockResolvedValue({}),
+        persistPiiBindings: jest.fn().mockResolvedValue(undefined),
+        redactResidualPii: jest.fn().mockResolvedValue(undefined),
+      } as any,
+      m.conversation as any,
       m.context as any,
-      m.whatsappConversationRepo as any,
-      new ResponseNormalizerService(),
       new PhoneNormalizerService(m.userRepo as any),
-      new ClearContextDetectorService(),
-      new ConfirmationManagerService(
-        m.whatsappConversationRepo as any,
-        m.conversation as any,
-      ),
       new OrchestratorTelemetryService(
         m.aiTokenUsageLogRepo as any,
         new PhoneNormalizerService(m.userRepo as any),
@@ -148,35 +134,11 @@ describe('AiOrchestratorService — plan-first guard', () => {
         runPreflight: jest.fn(),
         invalidateUserCacheByPhone: jest.fn(),
       } as any,
-      {
-        processInboundDocumentIfNeeded: jest.fn().mockResolvedValue(false),
-        buildDocumentPendingHint: jest.fn().mockResolvedValue(null),
-      } as any,
-      {
-        processInboundAudioIfNeeded: jest.fn().mockResolvedValue({
-          hasAudio: false,
-          failed: false,
-          transcription: null,
-        }),
-        buildUserInputForAi: jest
-          .fn()
-          .mockImplementation(({ textInput }: any) => textInput || ''),
-        buildAudioFailureUserMessage: jest.fn().mockReturnValue('falha'),
-        isAudioEnabled: jest.fn().mockReturnValue(true),
-      } as any,
-      {
-        loadPersistedPiiBindings: jest.fn().mockResolvedValue({}),
-        persistPiiBindings: jest.fn().mockResolvedValue(undefined),
-        redactResidualPii: jest.fn().mockImplementation((t: string) => t),
-      } as any,
-      {
-        memorizeEntities: jest.fn().mockResolvedValue(undefined),
-        resolveDoctorsInfo: jest.fn().mockResolvedValue([]),
-        readMemory: jest.fn().mockResolvedValue(null),
-        patchMemory: jest.fn().mockResolvedValue(undefined),
-      } as any,
-      m.nextStepAdvisor as any,
-      m.draftContext as any,
+      null as any,
+      null as any,
+      null as any,
+      null as any,
+      m.whatsapp as any,
     );
 
   // Sub-fase 3.9 (2026-05-12): COMPLEX_MUTATION_TOOL_NAMES esvaziado.
