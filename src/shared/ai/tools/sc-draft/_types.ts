@@ -5,6 +5,9 @@ import { SurgeryRequestsService } from '../../../../modules/surgery-requests/sur
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { OpmeService } from '../../../../modules/surgery-requests/opme/opme.service';
 import { TussService } from '../../../../modules/tuss/tuss.service';
+import { HospitalRepository } from '../../../../database/repositories/hospital.repository';
+import { HealthPlanRepository } from '../../../../database/repositories/health-plan.repository';
+import { EntityResolverService } from '../../services/entity-resolver.service';
 
 /**
  * Dependências mínimas das tools `sc_draft_preview` e `sc_draft_commit`.
@@ -24,4 +27,7 @@ export interface ScDraftToolDeps {
   activityRepo: SurgeryRequestActivityRepository;
   opmeService?: OpmeService;
   tussService?: TussService;
+  hospitalRepo?: HospitalRepository;
+  healthPlanRepo?: HealthPlanRepository;
+  entityResolver?: EntityResolverService;
 }

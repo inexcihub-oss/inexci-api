@@ -63,6 +63,9 @@ interface ClassifierUsageSnapshot {
 
 const VISION_TRIGGER_OCR_MIN_CHARS = 30;
 const VISION_TRIGGER_OCR_MIN_CONFIDENCE = 0.6;
+// Limite conservador para mensagens freeform no WhatsApp via Twilio.
+// Mantemos margem abaixo de 1600 para evitar rejeição no provider.
+const WHATSAPP_SAFE_BODY_MAX_CHARS = 1400;
 // Limiar inclusivo: classifier que devolve confidence == 0.5 (caso clássico
 // "não sei, chuto meio-termo") cai no fallback. Sem isso o pipeline fica
 // preso em "Documento (tipo não identificado) — Confiança: 50%".
@@ -686,7 +689,7 @@ export class WhatsappDocumentProcessorService {
           );
           break;
       }
-      return lines.join('\n');
+      return this.toWhatsappSafeBody(lines.join('\n'));
     }
 
     // Sinaliza ao usuário se temos dados RICOS o bastante para já avançar
@@ -720,7 +723,19 @@ export class WhatsappDocumentProcessorService {
         break;
     }
 
-    return lines.join('\n');
+    return this.toWhatsappSafeBody(lines.join('\n'));
+  }
+
+  private toWhatsappSafeBody(text: string): string {
+    const normalized = (text || '').trim();
+    if (normalized.length <= WHATSAPP_SAFE_BODY_MAX_CHARS) {
+      return normalized;
+    }
+
+    const suffix =
+      '\n\n[Resumo reduzido para caber no WhatsApp. Se quiser, eu te envio os detalhes em partes.]';
+    const keep = Math.max(200, WHATSAPP_SAFE_BODY_MAX_CHARS - suffix.length);
+    return `${normalized.slice(0, keep).trimEnd()}${suffix}`;
   }
 
   /**

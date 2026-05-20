@@ -828,4 +828,53 @@ describe('WhatsappDocumentProcessorService', () => {
     expect(result.userSummary).toContain('Posso seguir?');
     expect(result.userSummary).not.toContain('Já vou montar');
   });
+
+  it('trunca userSummary longo para evitar erro de limite do WhatsApp', async () => {
+    classifier.classifyWithUsage.mockResolvedValueOnce({
+      classification: {
+        kind: 'surgery_request',
+        confidence: 0.94,
+        suggestedDocumentType: 'medical_report',
+        extracted: {
+          patient: { name: 'Paciente Muito Longo de Teste' },
+          diagnosis: 'Diagnóstico '.repeat(60),
+          suggestedProcedureName: 'Procedimento '.repeat(50),
+          tuss: Array.from({ length: 40 }, (_, i) => ({
+            code: `3.07.${String(100 + i)}`,
+            description: `Descrição extensa ${i} `.repeat(6),
+          })),
+          opme: Array.from({ length: 20 }, (_, i) => ({
+            description: `Item OPME ${i} `.repeat(8),
+            qty: 1,
+            supplier: `Fornecedor ${i}`,
+            brand: `Marca ${i}`,
+          })),
+          laudoText: 'Trecho longo de laudo '.repeat(200),
+        },
+        durationMs: 70,
+        model: 'gpt-4o-mini',
+      },
+      usage: {
+        promptTokens: 500,
+        completionTokens: 200,
+        totalTokens: 700,
+        model: 'gpt-4o-mini',
+        latencyMs: 70,
+      },
+    });
+
+    const result = await service.processPendingDocument({
+      phone: '+5511988887777',
+      pending: buildPending(),
+      intent: 'create_sc',
+      conversationId: 'conv-long',
+      messageSid: 'SM-LONG',
+    });
+
+    expect(result.status).toBe('ok');
+    expect((result.userSummary ?? '').length).toBeLessThanOrEqual(1400);
+    expect(result.userSummary).toContain(
+      'Resumo reduzido para caber no WhatsApp',
+    );
+  });
 });

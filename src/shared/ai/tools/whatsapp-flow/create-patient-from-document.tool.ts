@@ -290,13 +290,11 @@ export function buildCreatePatientFromDocumentTool(
         });
       }
 
-      if (documentDispatcher && context.phone) {
-        const pending = await documentDispatcher.getPending(context.phone);
-        if (pending) {
-          await documentDispatcher.deleteStoragePath(pending.storagePath);
-          await documentDispatcher.clearPending(context.phone);
-        }
-      }
+      // Mantém a pendência ativa para preservar o contexto do documento
+      // (ex.: usuário cria o paciente e em seguida pede para criar a SC
+      // com o MESMO arquivo). A limpeza ocorre por TTL ou quando um novo
+      // documento chega na conversa.
+      void documentDispatcher;
 
       const nameToken = tokenizePii(
         context,
@@ -309,7 +307,7 @@ export function buildCreatePatientFromDocumentTool(
         status: 'ok',
         message: [
           `Paciente ${nameToken} cadastrado com sucesso a partir do documento.`,
-          'Posso já abrir a solicitação cirúrgica com todos os dados extraídos do documento (procedimento, TUSS, OPME e laudo)? Responda "sim" para criar agora.',
+          'Posso continuar e abrir a solicitação cirúrgica com os dados do mesmo documento (procedimento, convênio, TUSS, OPME e laudo)? Responda "sim" para seguir.',
         ].join('\n'),
         affected: [{ kind: 'patient', id: created.id }],
       });

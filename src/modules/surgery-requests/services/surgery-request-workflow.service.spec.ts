@@ -38,6 +38,11 @@ function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
     hospitalId: 'hospital-1',
     healthPlanId: 'hp-1',
     createdBy: { id: 'user-1', name: 'Dr. Test' },
+    doctor: {
+      id: 'doctor-1',
+      name: 'Dr. Test',
+      doctorProfile: { signatureUrl: 'https://example.com/signature.png' },
+    },
     patient: { id: 'patient-1', name: 'Paciente Test' },
     hospital: { id: 'hospital-1', name: 'Hospital Test' },
     healthPlan: { id: 'hp-1', name: 'Plano Test' },

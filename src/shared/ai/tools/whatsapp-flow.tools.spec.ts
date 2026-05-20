@@ -868,7 +868,7 @@ describe('WhatsappFlowTools', () => {
       expect(mockOcrPatientsService.create).not.toHaveBeenCalled();
     });
 
-    it('cria paciente, limpa pendência e devolve mensagem de sucesso', async () => {
+    it('cria paciente, preserva pendência e devolve mensagem de sucesso', async () => {
       documentDispatcher.getPending.mockResolvedValueOnce({
         storagePath: 'whatsapp-tmp/rg.jpg',
         contentType: 'image/jpeg',
@@ -903,12 +903,8 @@ describe('WhatsappFlowTools', () => {
         }),
         'user-1',
       );
-      expect(documentDispatcher.deleteStoragePath).toHaveBeenCalledWith(
-        'whatsapp-tmp/rg.jpg',
-      );
-      expect(documentDispatcher.clearPending).toHaveBeenCalledWith(
-        baseContext.phone,
-      );
+      expect(documentDispatcher.deleteStoragePath).not.toHaveBeenCalled();
+      expect(documentDispatcher.clearPending).not.toHaveBeenCalled();
       expect(result).toContain('cadastrado com sucesso');
       expect(result).toContain('solicitação cirúrgica');
     });

@@ -22,3 +22,5 @@ export { WhatsappConversationRepository } from './whatsapp-conversation.reposito
 export { AiKnowledgeChunkRepository } from './ai-knowledge-chunk.repository';
 export { AiTokenUsageLogRepository } from './ai-token-usage-log.repository';
 export { AiPiiRedactionLogRepository } from './ai-pii-redaction-log.repository';
+export { AiPersistentMemoryRepository } from './ai-persistent-memory.repository';
+export { AiDocCacheRepository } from './ai-doc-cache.repository';

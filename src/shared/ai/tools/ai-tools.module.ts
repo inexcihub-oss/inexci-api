@@ -169,6 +169,9 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       activityRepo,
       opmeService,
       tussService,
+      hospitalRepo,
+      healthPlanRepo,
+      entityResolver,
     }),
     ...buildCadastroDraftTools({
       draftService,

@@ -84,6 +84,13 @@ export class SendAnalysisHandler {
       );
     }
 
+    const doctorSignature = request.doctor?.doctorProfile?.signatureUrl?.trim();
+    if (!doctorSignature) {
+      throw new BadRequestException(
+        'É necessário configurar a assinatura do médico para enviar a solicitação',
+      );
+    }
+
     // Consome cota mensal de solicitações cirúrgicas. Bloqueia se a
     // assinatura estiver suspensa, cancelada ou se o limite do plano
     // foi atingido. A unidade de cota é o ENVIO (PENDING → SENT) — rascunhos
