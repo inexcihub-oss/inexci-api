@@ -220,6 +220,24 @@ export interface SurgeryRequestLaudoPdfData {
   customHeader?: CustomHeaderData | null;
 }
 
+const ALLOWED_URL_HOSTS = [
+  'supabase.co',
+  'supabasestorage.app',
+  'amazonaws.com',
+];
+
+function isAllowedHost(url: string): boolean {
+  try {
+    const { hostname, protocol } = new URL(url);
+    if (protocol !== 'https:') return false;
+    return ALLOWED_URL_HOSTS.some(
+      (h) => hostname === h || hostname.endsWith(`.${h}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
@@ -286,6 +304,12 @@ export class PdfService {
   private fetchAsDataUri(url: string, depth = 0): Promise<string | null> {
     if (depth > 10) {
       this.logger.warn(`fetchAsDataUri: muitos redirects para ${url}`);
+      return Promise.resolve(null);
+    }
+    if (!isAllowedHost(url)) {
+      this.logger.warn(
+        `fetchAsDataUri: SSRF bloqueado — host não permitido: ${url.substring(0, 80)}`,
+      );
       return Promise.resolve(null);
     }
     return new Promise((resolve) => {
@@ -645,6 +669,10 @@ export class PdfService {
         ],
       });
       const page = await browser.newPage();
+      await page.setExtraHTTPHeaders({
+        'Content-Security-Policy':
+          "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:;",
+      });
       await page.setContent(html, { waitUntil: 'networkidle2' });
       const pdf = await page.pdf({
         format: 'A4',

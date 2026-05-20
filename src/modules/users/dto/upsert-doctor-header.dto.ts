@@ -1,8 +1,8 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 
 export class UpsertDoctorHeaderDto {
   @IsOptional()
-  @IsString()
+  @IsUrl({ protocols: ['https'], require_tld: true })
   @MaxLength(500)
   logoUrl?: string | null;
 

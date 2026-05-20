@@ -3,6 +3,7 @@ import { UserRole } from 'src/database/entities/user.entity';
 
 export interface AuthenticatedUser {
   userId: string;
+  ownerId: string | null;
   role: UserRole;
 }
 

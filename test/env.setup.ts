@@ -45,6 +45,9 @@ if (!process.env.SUPABASE_BUCKET) {
 if (!process.env.DASHBOARD_URL) {
   process.env.DASHBOARD_URL = 'http://localhost:3001';
 }
+if (!process.env.PHONE_HASH_SALT) {
+  process.env.PHONE_HASH_SALT = 'test-salt-e2e-inexci-xxxxxxxxxxxxxxxx!!';
+}
 if (!process.env.MAIL_USER) {
   process.env.MAIL_USER = 'test@test.com';
 }

