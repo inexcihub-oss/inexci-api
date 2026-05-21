@@ -9,7 +9,7 @@ import * as http from 'http';
 
 export interface CustomHeaderData {
   logoUrl?: string | null;
-  logoPosition: 'left' | 'right';
+  logoPosition: 'left' | 'center' | 'right';
   contentHtml?: string | null;
 }
 
@@ -136,6 +136,7 @@ export interface ContestAuthorizationPdfData {
   today: string;
   // Texto da contestação (redigido pelo médico)
   reason: string;
+  message?: string;
   // Paciente
   patientName?: string;
   patientBirthDate?: string;
@@ -157,6 +158,8 @@ export interface ContestAuthorizationPdfData {
     name: string;
     requestedQuantity: number;
     authorizedQuantity?: number | null;
+    fabricantesText?: string;
+    fornecedoresText?: string;
   }>;
   // Anexos (data URIs ou signed URLs)
   attachments?: string[];
@@ -198,6 +201,8 @@ export interface SurgeryRequestLaudoPdfData {
   opmeItems?: Array<{
     name: string;
     quantity: number;
+    fabricantesText?: string;
+    fornecedoresText?: string;
   }>;
   // Fabricantes/Fornecedores
   fabricantesText?: string;

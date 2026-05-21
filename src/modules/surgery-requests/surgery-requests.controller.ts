@@ -464,23 +464,23 @@ export class SurgeryRequestsController {
   }
 
   /**
-   * Gera o PDF do laudo médico e retorna como download
-   * GET /surgery-requests/:id/report-pdf
+   * Gera o PDF do Laudo Médico usando o mesmo template da pré-visualização
+   * GET /surgery-requests/:id/medical-report-pdf
    */
-  @Get(':id/report-pdf')
-  @ApiOperation({ summary: 'Gerar PDF do laudo' })
-  async getReportPdf(
+  @Get(':id/medical-report-pdf')
+  @ApiOperation({ summary: 'Gerar PDF do laudo médico (template de laudo)' })
+  async getMedicalReportPdf(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
     @Res() res: Response,
   ) {
-    const buffer = await this.surgeryRequestsService.generateReportPdf(
+    const buffer = await this.surgeryRequestsService.generateMedicalReportPdf(
       id,
       user.userId,
     );
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="laudo-${id}.pdf"`,
+      'Content-Disposition': `inline; filename="laudo-medico-${id}.pdf"`,
       'Content-Length': buffer.length,
     });
     res.status(HttpStatus.OK).end(buffer);
@@ -510,7 +510,7 @@ export class SurgeryRequestsController {
   @Get('templates')
   @ApiOperation({ summary: 'Listar templates' })
   getTemplates(@CurrentUser() user: AuthenticatedUser) {
-    return this.surgeryRequestsService.getTemplates(user.userId);
+    return this.surgeryRequestsService.getTemplates(user.userId, user.ownerId);
   }
 
   /**
@@ -523,7 +523,11 @@ export class SurgeryRequestsController {
     @Body() dto: { name: string; templateData: object },
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.createTemplate(dto, user.userId);
+    return this.surgeryRequestsService.createTemplate(
+      dto,
+      user.userId,
+      user.ownerId,
+    );
   }
 
   /**
@@ -536,7 +540,11 @@ export class SurgeryRequestsController {
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.deleteTemplate(id, user.userId);
+    return this.surgeryRequestsService.deleteTemplate(
+      id,
+      user.userId,
+      user.ownerId,
+    );
   }
 
   /**
@@ -550,7 +558,12 @@ export class SurgeryRequestsController {
     @Body() dto: { name?: string; templateData?: object },
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.updateTemplate(id, dto, user.userId);
+    return this.surgeryRequestsService.updateTemplate(
+      id,
+      dto,
+      user.userId,
+      user.ownerId,
+    );
   }
 
   @Post('templates/:id/increment-usage')
@@ -559,6 +572,10 @@ export class SurgeryRequestsController {
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.incrementTemplateUsage(id, user.userId);
+    return this.surgeryRequestsService.incrementTemplateUsage(
+      id,
+      user.userId,
+      user.ownerId,
+    );
   }
 }

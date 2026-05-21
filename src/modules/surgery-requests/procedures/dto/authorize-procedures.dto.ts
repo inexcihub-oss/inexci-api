@@ -5,6 +5,8 @@ import {
   ValidateNested,
   IsString,
   IsNotEmpty,
+  IsOptional,
+  IsUUID,
 } from 'class-validator';
 
 export class AuthorizeProcedureDto {
@@ -15,6 +17,13 @@ export class AuthorizeProcedureDto {
   @Type(() => Number)
   authorizedQuantity: number;
 }
+
+export class AuthorizeOpmeItemDto extends AuthorizeProcedureDto {
+  @IsOptional()
+  @IsUUID('4')
+  selectedSupplierId?: string;
+}
+
 export class AuthorizeProceduresDto {
   @IsString()
   @IsNotEmpty()
@@ -27,6 +36,6 @@ export class AuthorizeProceduresDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => AuthorizeProcedureDto)
-  opmeItems: AuthorizeProcedureDto[];
+  @Type(() => AuthorizeOpmeItemDto)
+  opmeItems: AuthorizeOpmeItemDto[];
 }

@@ -5,7 +5,7 @@
  * ao gateway.
  */
 
-export type GatewayProviderId = 'asaas' | 'stripe';
+export type GatewayProviderId = 'stripe';
 
 /** Status normalizado de uma assinatura no gateway. */
 export type GatewaySubscriptionStatus =
@@ -117,24 +117,13 @@ export interface CreateCustomerInput {
 
 export interface TokenizeCardInput {
   customerId: string;
-  /** Numero do cart\u00e3o (sem espa\u00e7os). */
-  number: string;
+  /** PaymentMethod ID criado pelo Stripe.js no frontend (pm_xxx). */
+  paymentMethodId: string;
+  brand: string;
+  last4: string;
   holderName: string;
-  expiryMonth: string;
-  expiryYear: string;
-  ccv: string;
-  holderInfo: {
-    name: string;
-    email: string;
-    cpfCnpj: string;
-    postalCode: string;
-    addressNumber: string;
-    addressComplement?: string | null;
-    phone?: string | null;
-    mobilePhone?: string | null;
-  };
-  /** IP do usu\u00e1rio que enviou os dados (para anti-fraude do gateway). */
-  remoteIp: string;
+  expMonth: number;
+  expYear: number;
 }
 
 export interface CreateSubscriptionInput {

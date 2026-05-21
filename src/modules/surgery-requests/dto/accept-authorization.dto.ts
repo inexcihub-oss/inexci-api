@@ -16,9 +16,9 @@ export class AcceptAuthorizationDto {
   @IsBoolean()
   notifyPatient?: boolean;
 
-  /** Mínimo 1 data, máximo 3 opções */
+  /** Exatamente 3 datas obrigatórias */
   @IsArray()
-  @ArrayMinSize(1)
+  @ArrayMinSize(3)
   @ArrayMaxSize(3)
   @IsDateString({}, { each: true })
   dateOptions: string[];

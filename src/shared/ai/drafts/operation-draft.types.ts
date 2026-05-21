@@ -119,7 +119,7 @@ export interface SchedulingDraftFields {
   surgeryRequestLabel?: string;
   /**
    * Quando o agendamento exige sugerir opções (status IN_SCHEDULING),
-   * preenche `dateOptions` com 1 a 3 datas.
+   * preenche `dateOptions` com exatamente 3 datas obrigatórias.
    */
   dateOptions?: string[];
   /**
@@ -196,7 +196,7 @@ export interface StartAnalysisDraftFields {
 export interface AcceptAuthorizationDraftFields {
   surgeryRequestId?: string;
   surgeryRequestLabel?: string;
-  /** Entre 1 e 3 datas (ISO). */
+  /** Exatamente 3 datas (ISO). */
   dateOptions?: string[];
   notifyPatient?: boolean;
 }

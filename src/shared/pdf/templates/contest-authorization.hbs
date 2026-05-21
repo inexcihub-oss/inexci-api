@@ -178,15 +178,21 @@
         width: 22.22%;
       }
 
-      /* Materials table: 3 columns with specific widths */
+      /* Materials table: 5 columns with specific widths */
       .col-material {
-        width: 48.38%;
+        width: 28%;
+      }
+      .col-mat-brand {
+        width: 24%;
+      }
+      .col-mat-supplier {
+        width: 24%;
       }
       .col-mat-req {
-        width: 25.81%;
+        width: 12%;
       }
       .col-mat-auth {
-        width: 25.81%;
+        width: 12%;
       }
 
       /* ── Attachments grid ─────────────────────────────── */
@@ -285,21 +291,29 @@
 
       /* ── Cabeçalho Customizado ────────────────────────── */
       .custom-header {
-        position: relative;
         display: flex;
-        align-items: center;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
         margin-bottom: 20px;
       }
-      .custom-header--right {
-        flex-direction: row-reverse;
+      .custom-header-logo-wrap {
+        display: flex;
+      }
+      .custom-header--left .custom-header-logo-wrap {
+        justify-content: flex-start;
+      }
+      .custom-header--center .custom-header-logo-wrap {
+        justify-content: center;
+      }
+      .custom-header--right .custom-header-logo-wrap {
+        justify-content: flex-end;
       }
       .custom-header-logo {
         max-height: 80px;
         max-width: 200px;
         object-fit: contain;
         flex-shrink: 0;
-        position: relative;
-        z-index: 1;
       }
       .custom-header-content {
         font-size: 11px;
@@ -310,13 +324,6 @@
       .custom-header-content p {
         margin: 0 0 4px 0;
       }
-      .custom-header-content--overlay {
-        position: absolute;
-        left: 0;
-        right: 0;
-        text-align: center;
-        pointer-events: none;
-      }
     </style>
   </head>
   <body>
@@ -325,23 +332,18 @@
     {{#if customHeader}}
       <div class='custom-header custom-header--{{customHeader.logoPosition}}'>
         {{#if customHeader.logoUrl}}
-          <img
-            class='custom-header-logo'
-            src='{{customHeader.logoUrl}}'
-            alt='Logo'
-          />
+          <div class='custom-header-logo-wrap'>
+            <img
+              class='custom-header-logo'
+              src='{{customHeader.logoUrl}}'
+              alt='Logo'
+            />
+          </div>
         {{/if}}
         {{#if customHeader.contentHtml}}
-          {{#if customHeader.logoUrl}}
-            <div
-              class='custom-header-content custom-header-content--overlay'
-            >{{{customHeader.contentHtml}}}</div>
-          {{else}}
-            <div
-              class='custom-header-content'
-              style='flex:1'
-            >{{{customHeader.contentHtml}}}</div>
-          {{/if}}
+          <div
+            class='custom-header-content'
+          >{{{customHeader.contentHtml}}}</div>
         {{/if}}
       </div>
     {{else}}
@@ -462,12 +464,16 @@
         <table class='data-table'>
           <colgroup>
             <col class='col-material' />
+            <col class='col-mat-brand' />
+            <col class='col-mat-supplier' />
             <col class='col-mat-req' />
             <col class='col-mat-auth' />
           </colgroup>
           <thead>
             <tr>
               <th>Material</th>
+              <th>Fabricante(s)</th>
+              <th>Fornecedor(es)</th>
               <th>Qntd. Solicitada</th>
               <th>Qntd. Autorizada</th>
             </tr>
@@ -476,6 +482,12 @@
             {{#each opmeItems}}
               <tr>
                 <td>{{this.name}}</td>
+                <td>{{#if
+                    this.fabricantesText
+                  }}{{this.fabricantesText}}{{else}}—{{/if}}</td>
+                <td>{{#if
+                    this.fornecedoresText
+                  }}{{this.fornecedoresText}}{{else}}—{{/if}}</td>
                 <td>{{this.requestedQuantity}}</td>
                 <td>{{#if
                     (isDefined this.authorizedQuantity)

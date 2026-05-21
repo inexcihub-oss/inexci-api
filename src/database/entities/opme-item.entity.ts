@@ -32,6 +32,9 @@ export class OpmeItem {
   @Column({ name: 'authorized_quantity', type: 'int', nullable: true })
   authorizedQuantity: number | null;
 
+  @Column({ name: 'selected_supplier_id', type: 'uuid', nullable: true })
+  selectedSupplierId: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
@@ -52,4 +55,11 @@ export class OpmeItem {
     inverseJoinColumn: { name: 'supplier_id', referencedColumnName: 'id' },
   })
   suppliers: Supplier[];
+
+  @ManyToOne(() => Supplier, (supplier) => supplier.selectedOpmeItems, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'selected_supplier_id' })
+  selectedSupplier: Supplier | null;
 }

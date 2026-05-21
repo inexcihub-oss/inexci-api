@@ -77,6 +77,9 @@ export class ProceduresService {
       data.opmeItems.map((item) =>
         this.opmeItemRepository.update(item.id, {
           authorizedQuantity: item.authorizedQuantity,
+          ...(item.selectedSupplierId !== undefined && {
+            selectedSupplierId: item.selectedSupplierId,
+          }),
         }),
       ),
     );

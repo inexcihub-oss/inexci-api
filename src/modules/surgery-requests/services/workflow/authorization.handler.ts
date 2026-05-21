@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, IsNull } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 
 import {
   SurgeryRequest,
@@ -18,6 +18,7 @@ import {
   SurgeryRequestActivity,
   ActivityType,
 } from 'src/database/entities/surgery-request-activity.entity';
+import { Document } from 'src/database/entities/document.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { ContestationRepository } from 'src/database/repositories/contestation.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
@@ -140,12 +141,27 @@ export class AuthorizationHandler {
       );
     }
 
-    await this.contestationRepository.create({
+    const contestation = await this.contestationRepository.create({
       surgeryRequestId: id,
       createdById: userId,
       type: ContestationTypeEnum.AUTHORIZATION,
       reason: dto.reason,
     });
+
+    const attachmentPaths = (dto.attachments ?? [])
+      .map((path) => path?.trim())
+      .filter((path): path is string => !!path);
+
+    if (attachmentPaths.length > 0) {
+      const documentRepo = this.dataSource.getRepository(Document);
+      await documentRepo.update(
+        {
+          surgeryRequestId: id,
+          uri: In(attachmentPaths),
+        },
+        { contestationId: contestation.id },
+      );
+    }
 
     const patientName = request.patient?.name ?? 'Paciente';
     const requestId = request.protocol ?? id;
@@ -167,14 +183,25 @@ export class AuthorizationHandler {
       content: 'Autorização contestada.',
     });
 
+    if (dto.message?.trim()) {
+      await activityRepo.save({
+        surgeryRequestId: id,
+        userId: userId,
+        type: ActivityType.SYSTEM,
+        content: `Mensagem da contestação: ${dto.message.trim()}`,
+      });
+    }
+
     if (dto.method === SendMethod.EMAIL && dto.to) {
       let pdfAttachment:
         | { filename: string; content: string; contentType: string }
         | undefined;
       try {
+        const requestWithLatestData =
+          await this.surgeryRequestRepository.findOneWithAllRelations({ id });
         const pdfBuffer =
           await this.pdfAssemblyService.generateContestAuthorizationPdf(
-            request,
+            requestWithLatestData ?? request,
             id,
             userId,
           );

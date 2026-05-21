@@ -31,6 +31,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bodyParser: true,
     bufferLogs: true,
+    rawBody: true,
   });
 
   // Logger custom — JSON em produção, pretty colorido em dev. Honra LOG_LEVEL

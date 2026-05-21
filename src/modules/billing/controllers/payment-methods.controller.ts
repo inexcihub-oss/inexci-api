@@ -3,8 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
-  Ip,
   Param,
   Post,
 } from '@nestjs/common';
@@ -44,18 +42,8 @@ export class PaymentMethodsController {
   async add(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SavePaymentMethodDto,
-    @Ip() ip: string,
-    @Headers('x-forwarded-for') xff?: string,
   ) {
-    const remoteIp = (xff?.split(',')[0]?.trim() || ip || '0.0.0.0').replace(
-      /^::ffff:/,
-      '',
-    );
-    const saved = await this.paymentMethodService.addCard(
-      user.userId,
-      dto,
-      remoteIp,
-    );
+    const saved = await this.paymentMethodService.addCard(user.userId, dto);
     return {
       id: saved.id,
       brand: saved.brand,

@@ -111,7 +111,10 @@ export function buildListScCreationCatalogTool(
               limit,
             )
           : Promise.resolve([] as any[]),
-        surgeryRequestsService.getTemplates(context.userId as string),
+        surgeryRequestsService.getTemplates(
+          context.userId as string,
+          ownerIdForLookup,
+        ),
       ]);
 
       const categoryMap: Record<string, { label: string; items: any[] }> = {

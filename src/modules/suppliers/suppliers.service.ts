@@ -11,6 +11,7 @@ import { SupplierRepository } from 'src/database/repositories/supplier.repositor
 import { FindOptionsWhere } from 'typeorm';
 import { Supplier } from 'src/database/entities/supplier.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 
 @Injectable()
 export class SuppliersService {
@@ -18,6 +19,7 @@ export class SuppliersService {
   constructor(
     private readonly supplierRepository: SupplierRepository,
     private readonly accessControlService: AccessControlService,
+    private readonly opmeItemRepository: OpmeItemRepository,
   ) {}
 
   async findAll(query: FindManySupplierDto, userId: string) {
@@ -33,11 +35,36 @@ export class SuppliersService {
     return { total, records };
   }
 
-  async findById(id: string, userId: string): Promise<Supplier> {
+  async findById(
+    id: string,
+    userId: string,
+  ): Promise<
+    Supplier & {
+      suppliedSurgeryRequests: Array<{
+        surgeryRequestId: string;
+        surgeryRequestProtocol: string | null;
+        patientName: string | null;
+        opmeItemId: string;
+        opmeItemName: string;
+        authorizedQuantity: number | null;
+        quantity: number;
+        updatedAt: Date;
+      }>;
+    }
+  > {
     const supplier = await this.supplierRepository.findByIdWithQuotations(id);
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
-    return supplier;
+
+    const suppliedSurgeryRequests =
+      await this.opmeItemRepository.findSuppliedSurgeryRequestsBySupplierId(
+        supplier.id,
+      );
+
+    return {
+      ...supplier,
+      suppliedSurgeryRequests,
+    };
   }
 
   async update(
