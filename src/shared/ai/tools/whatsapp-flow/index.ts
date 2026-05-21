@@ -1,7 +1,6 @@
 import { AiTool } from '../tool.interface';
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../../database/repositories/surgery-request-activity.repository';
-import { SurgeryRequestWorkflowService } from '../../../../modules/surgery-requests/services/surgery-request-workflow.service';
 import { SurgeryRequestsService } from '../../../../modules/surgery-requests/surgery-requests.service';
 import { PatientRepository } from '../../../../database/repositories/patient.repository';
 import { HospitalRepository } from '../../../../database/repositories/hospital.repository';
@@ -21,10 +20,11 @@ import { buildSetHospitalTool } from './set-hospital.tool';
 import { buildListScCreationCatalogTool } from './list-sc-creation-catalog.tool';
 import { buildAttachDocumentFromWhatsappTool } from './attach-document-from-whatsapp.tool';
 import { buildCreatePatientFromDocumentTool } from './create-patient-from-document.tool';
+import { WorkflowEngineService } from '../../services/workflow-engine.service';
 
 export function buildWhatsappFlowTools(
   surgeryRequestRepo: SurgeryRequestRepository,
-  workflowService: SurgeryRequestWorkflowService,
+  workflowService: WorkflowEngineService,
   surgeryRequestsService: SurgeryRequestsService,
   activityRepo: SurgeryRequestActivityRepository,
   documentDeps: WhatsappFlowDocumentDeps,

@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import OpenAI from 'openai';
 import { OperationDraftService } from '../operation-draft.service';
 import { ToolRegistryService } from '../tool-registry.service';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { PROMPT_VERSION } from '../../prompts/system-prompt';
+import { ToolPolicyService } from '../architecture/tool-policy.service';
 
 @Injectable()
 export class DraftContextService {
@@ -12,6 +13,7 @@ export class DraftContextService {
   constructor(
     private readonly operationDraftService: OperationDraftService,
     private readonly toolRegistry: ToolRegistryService,
+    @Optional() private readonly toolPolicy?: ToolPolicyService,
   ) {}
 
   async buildToolsForDraft(conversationId: string): Promise<{
@@ -41,9 +43,17 @@ export class DraftContextService {
   }
 
   async evaluatePlanFirstGuard(
-    _toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
-    _conversationId: string,
+    toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
+    conversationId: string,
   ): Promise<Set<string>> {
-    return new Set<string>();
+    const current = await this.operationDraftService
+      .getCurrent(conversationId)
+      .catch(() => null);
+    return (
+      this.toolPolicy?.evaluatePlanFirstGuard({
+        toolCalls,
+        activeDraftType: current?.type ?? null,
+      }) ?? new Set<string>()
+    );
   }
 }

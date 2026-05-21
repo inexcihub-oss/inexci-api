@@ -43,7 +43,6 @@ import { DoctorProfileRepository } from '../../../database/repositories/doctor-p
 import { SupplierRepository } from '../../../database/repositories/supplier.repository';
 
 import { SurgeryRequestsService } from '../../../modules/surgery-requests/surgery-requests.service';
-import { SurgeryRequestWorkflowService } from '../../../modules/surgery-requests/services/surgery-request-workflow.service';
 import { SurgeryRequestMutationService } from '../../../modules/surgery-requests/services/surgery-request-mutation.service';
 import { SurgeryRequestNotificationService } from '../../../modules/surgery-requests/services/surgery-request-notification.service';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
@@ -75,6 +74,7 @@ import { buildNotificationTools } from './notification.tools';
 import { buildWhatsappFlowTools } from './whatsapp-flow.tools';
 import { buildManageTools } from './manage.tools';
 import { buildDraftGenericTools } from './draft-generic.tools';
+import { WorkflowEngineService } from '../services/workflow-engine.service';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -90,7 +90,7 @@ export interface AllToolsDeps {
   hospitalsService: HospitalsService;
   healthPlansService: HealthPlansService;
   proceduresService: ProceduresService;
-  workflowService: SurgeryRequestWorkflowService;
+  workflowService: WorkflowEngineService;
   documentRepo: DocumentRepository;
   pendencyValidator: PendencyValidatorService;
   doctorProfileRepo: DoctorProfileRepository;
@@ -169,6 +169,9 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       activityRepo,
       opmeService,
       tussService,
+      hospitalRepo,
+      healthPlanRepo,
+      entityResolver,
     }),
     ...buildCadastroDraftTools({
       draftService,
@@ -291,7 +294,7 @@ export function aiToolsFactory(
   hospitalsService: HospitalsService,
   healthPlansService: HealthPlansService,
   proceduresService: ProceduresService,
-  workflowService: SurgeryRequestWorkflowService,
+  workflowService: WorkflowEngineService,
   documentRepo: DocumentRepository,
   pendencyValidator: PendencyValidatorService,
   doctorProfileRepo: DoctorProfileRepository,
@@ -368,7 +371,7 @@ export const AI_TOOLS_INJECT: InjectionToken[] = [
   HospitalsService,
   HealthPlansService,
   ProceduresService,
-  SurgeryRequestWorkflowService,
+  WorkflowEngineService,
   DocumentRepository,
   PendencyValidatorService,
   DoctorProfileRepository,

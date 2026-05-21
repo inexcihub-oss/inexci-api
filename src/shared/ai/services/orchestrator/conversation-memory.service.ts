@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { In } from 'typeorm';
 import { WhatsappConversationRepository } from '../../../../database/repositories/whatsapp-conversation.repository';
 import { UserRepository } from '../../../../database/repositories/user.repository';
 import { parseToolResult } from '../../tools/tool-result';
 import { SimpleCache } from '../../utils/simple-cache';
+import { PersistentMemoryService } from '../memory/persistent-memory.service';
 
 const DOCTORS_INFO_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
@@ -45,6 +46,7 @@ export class ConversationMemoryService {
   constructor(
     private readonly whatsappConversationRepo: WhatsappConversationRepository,
     private readonly userRepository: UserRepository,
+    @Optional() private readonly persistentMemory?: PersistentMemoryService,
   ) {}
 
   /**
@@ -83,7 +85,7 @@ export class ConversationMemoryService {
       if (!conv) return;
       const memory = (conv.conversationMemory as Record<string, unknown>) || {};
       await this.whatsappConversationRepo.update(conversationId, {
-        conversationMemory: { ...memory, ...patch } as any,
+        conversationMemory: this.mergeConversationMemory(memory, patch) as any,
       });
     } catch (err) {
       this.logger.debug(
@@ -159,6 +161,27 @@ export class ConversationMemoryService {
       filled_slots: filled,
       surgeryRequest,
     });
+
+    if (toolName === 'set_hospital') {
+      await this.persistentMemory?.remember?.({
+        userId: (await this.resolveConversationUserId(conversationId)) || null,
+        scope: 'entity',
+        key: 'last_hospital',
+        value: {
+          hospital: surgeryRequest.hospital,
+        },
+      });
+    }
+    if (toolName === 'set_health_plan') {
+      await this.persistentMemory?.remember?.({
+        userId: (await this.resolveConversationUserId(conversationId)) || null,
+        scope: 'entity',
+        key: 'last_health_plan',
+        value: {
+          healthPlan: surgeryRequest.healthPlan,
+        },
+      });
+    }
   }
 
   /**
@@ -261,5 +284,41 @@ export class ConversationMemoryService {
       );
       return accessibleDoctorIds.map((id) => ({ id, name: null }));
     }
+  }
+
+  private mergeConversationMemory(
+    current: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const next: Record<string, unknown> = { ...current };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) continue;
+      const currentValue = next[key];
+      if (
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        currentValue &&
+        typeof currentValue === 'object' &&
+        !Array.isArray(currentValue)
+      ) {
+        next[key] = this.mergeConversationMemory(
+          currentValue as Record<string, unknown>,
+          value as Record<string, unknown>,
+        );
+        continue;
+      }
+      next[key] = value;
+    }
+    return next;
+  }
+
+  private async resolveConversationUserId(
+    conversationId: string,
+  ): Promise<string | null> {
+    const conv = await this.whatsappConversationRepo.findOne({
+      id: conversationId,
+    } as any);
+    return conv?.userId ?? null;
   }
 }

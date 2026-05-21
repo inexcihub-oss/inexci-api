@@ -1,7 +1,14 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import OpenAI from 'openai';
 import { AiTool, AI_TOOL, ToolContext } from '../tools/tool.interface';
 import { OperationDraftType } from '../drafts/operation-draft.types';
+import { ToolSubsetSelectorService } from './planner/tool-subset-selector.service';
 
 /**
  * Mapa de prefixos (até `_draft_`) para o tipo de draft correspondente.
@@ -100,7 +107,11 @@ export class ToolRegistryService implements OnModuleInit {
     OpenAI.ChatCompletionTool[]
   >();
 
-  constructor(@Inject(AI_TOOL) allTools: AiTool[]) {
+  constructor(
+    @Inject(AI_TOOL) allTools: AiTool[],
+    @Optional()
+    private readonly toolSubsetSelector?: ToolSubsetSelectorService,
+  ) {
     for (const tool of allTools) {
       this.tools.set(tool.name, tool);
     }
@@ -130,6 +141,10 @@ export class ToolRegistryService implements OnModuleInit {
     return Array.from(this.tools.values()).map((t) => t.definition);
   }
 
+  getAllTools(): AiTool[] {
+    return Array.from(this.tools.values());
+  }
+
   /**
    * Retorna apenas as tools relevantes para o estado atual do draft.
    * - Tools que não são de draft (não contêm `_draft_` no nome) são sempre
@@ -157,6 +172,30 @@ export class ToolRegistryService implements OnModuleInit {
     const computed = this.computeDefinitionsForDraft(activeDraftType);
     this.definitionsCache.set(key, computed);
     return computed;
+  }
+
+  getToolDefinitionsForIntent(input: {
+    activeDraftType: OperationDraftType | null;
+    intent: string;
+    requiresConfirmation?: boolean;
+  }): OpenAI.ChatCompletionTool[] {
+    const all = this.getAllTools().filter((tool) => {
+      const draftType = detectDraftType(tool.name);
+      if (GLOBAL_DRAFT_TOOL_NAMES.has(tool.name)) {
+        return input.activeDraftType !== null;
+      }
+      if (draftType === null) return true;
+      return !!input.activeDraftType && draftType === input.activeDraftType;
+    });
+
+    return (
+      this.toolSubsetSelector?.select({
+        tools: all,
+        intent: input.intent,
+        activeDraftType: input.activeDraftType,
+        requiresConfirmation: input.requiresConfirmation ?? false,
+      }) ?? all.map((tool) => tool.definition)
+    );
   }
 
   /**

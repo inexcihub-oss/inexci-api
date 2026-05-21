@@ -9,7 +9,11 @@ import { WhatsappConversationMessageRepository } from '../../database/repositori
 import { SurgeryRequestActivity } from '../../database/entities/surgery-request-activity.entity';
 import { AiPiiRedactionLog } from '../../database/entities/ai-pii-redaction-log.entity';
 import { AiTokenUsageLog } from '../../database/entities/ai-token-usage-log.entity';
+import { AiPersistentMemory } from '../../database/entities/ai-persistent-memory.entity';
+import { AiDocCache } from '../../database/entities/ai-doc-cache.entity';
 import { AiTokenUsageLogRepository } from '../../database/repositories/ai-token-usage-log.repository';
+import { AiPersistentMemoryRepository } from '../../database/repositories/ai-persistent-memory.repository';
+import { AiDocCacheRepository } from '../../database/repositories/ai-doc-cache.repository';
 import { WhatsappConversationRepository } from '../../database/repositories/whatsapp-conversation.repository';
 import { SurgeryRequestActivityRepository } from '../../database/repositories/surgery-request-activity.repository';
 import { AiPiiRedactionLogRepository } from '../../database/repositories/ai-pii-redaction-log.repository';
@@ -30,6 +34,7 @@ import { UsersModule } from '../../modules/users/users.module';
 import { DocumentsModule } from '../../modules/surgery-requests/documents/documents.module';
 import { AiOrchestratorService } from './services/ai-orchestrator.service';
 import { OpenaiService } from './services/openai.service';
+import { ModelGatewayService } from './services/model-gateway.service';
 import { ConversationService } from './services/conversation.service';
 import { ConversationContextService } from './services/conversation-context.service';
 import { ConversationCleanupService } from './services/conversation-cleanup.service';
@@ -49,6 +54,7 @@ import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.
 import { OcrService } from './ocr/ocr.service';
 import { DocumentClassifierService } from './ocr/document-classifier.service';
 import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.service';
+import { DocumentExtractionEngineService } from './ocr/parsers/document-extraction-engine.service';
 import { ResponseNormalizerService } from './services/orchestrator/response-normalizer.service';
 import { PhoneNormalizerService } from './services/orchestrator/phone-normalizer.service';
 import { ClearContextDetectorService } from './services/orchestrator/clear-context-detector.service';
@@ -62,6 +68,28 @@ import { PiiBindingService } from './services/orchestrator/pii-binding.service';
 import { ConversationMemoryService } from './services/orchestrator/conversation-memory.service';
 import { NextStepAdvisorService } from './services/orchestrator/next-step-advisor.service';
 import { DraftContextService } from './services/orchestrator/draft-context.service';
+import { SessionBootstrapService } from './services/orchestrator/session-bootstrap.service';
+import { InputPipelineService } from './services/orchestrator/input-pipeline.service';
+import { ContextPipelineService } from './services/orchestrator/context-pipeline.service';
+import { ResponseDispatchService } from './services/orchestrator/response-dispatch.service';
+import { AudioPipelineService } from './services/architecture/audio-pipeline.service';
+import { ArchitectureBaselineService } from './services/architecture/architecture-baseline.service';
+import { ContextAssemblerService } from './services/architecture/context-assembler.service';
+import { DocumentIntelligenceService } from './services/architecture/document-intelligence.service';
+import { InternalPlannerService } from './services/architecture/internal-planner.service';
+import { MemoryProjectionService } from './services/architecture/memory-projection.service';
+import { RetrievalPolicyService } from './services/architecture/retrieval-policy.service';
+import { RuntimeStateService } from './services/architecture/runtime-state.service';
+import { ToolPolicyService } from './services/architecture/tool-policy.service';
+import { PromptComposerService } from './services/context/prompt-composer.service';
+import { RecentMessageSelectorService } from './services/context/recent-message-selector.service';
+import { PersistentMemoryService } from './services/memory/persistent-memory.service';
+import { DeterministicIntentClassifierService } from './services/planner/deterministic-intent-classifier.service';
+import { PlannerLlmService } from './services/planner/planner-llm.service';
+import { PlannerService } from './services/planner/planner.service';
+import { ToolSubsetSelectorService } from './services/planner/tool-subset-selector.service';
+import { RagHybridSearchService } from './services/rag/rag-hybrid-search.service';
+import { WorkflowEngineService } from './services/workflow-engine.service';
 
 @Module({
   imports: [
@@ -72,6 +100,8 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
       SurgeryRequestActivity,
       AiPiiRedactionLog,
       AiTokenUsageLog,
+      AiPersistentMemory,
+      AiDocCache,
     ]),
     RagModule,
     WhatsappModule,
@@ -94,6 +124,8 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     SurgeryRequestActivityRepository,
     AiPiiRedactionLogRepository,
     AiTokenUsageLogRepository,
+    AiPersistentMemoryRepository,
+    AiDocCacheRepository,
     WhatsappConversationMessageRepository,
     {
       provide: AI_TOOL,
@@ -101,6 +133,7 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
       inject: AI_TOOLS_INJECT,
     },
     OpenaiService,
+    ModelGatewayService,
     ConversationService,
     ConversationContextService,
     ConversationCleanupService,
@@ -120,6 +153,7 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     OcrService,
     DocumentClassifierService,
     DocumentVisionFallbackService,
+    DocumentExtractionEngineService,
     ResponseNormalizerService,
     PhoneNormalizerService,
     ClearContextDetectorService,
@@ -133,6 +167,28 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     ConversationMemoryService,
     NextStepAdvisorService,
     DraftContextService,
+    SessionBootstrapService,
+    InputPipelineService,
+    ContextPipelineService,
+    ResponseDispatchService,
+    AudioPipelineService,
+    ArchitectureBaselineService,
+    ContextAssemblerService,
+    DocumentIntelligenceService,
+    InternalPlannerService,
+    MemoryProjectionService,
+    RetrievalPolicyService,
+    RuntimeStateService,
+    ToolPolicyService,
+    PromptComposerService,
+    RecentMessageSelectorService,
+    PersistentMemoryService,
+    DeterministicIntentClassifierService,
+    PlannerLlmService,
+    PlannerService,
+    ToolSubsetSelectorService,
+    RagHybridSearchService,
+    WorkflowEngineService,
     AiMessageProcessor,
   ],
   exports: [AiOrchestratorService],

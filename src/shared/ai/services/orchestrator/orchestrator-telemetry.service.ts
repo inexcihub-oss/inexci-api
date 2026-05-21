@@ -7,6 +7,11 @@ import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { MODEL_COST_PER_1K } from '../../constants/ai.constants';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { PiiVaultService } from '../pii-vault.service';
+import {
+  PlannerOutput,
+  RuntimeState,
+} from '../../contracts/agentic-architecture.contracts';
+import { RetrievalDecision } from '../architecture/retrieval-policy.service';
 
 export interface CompletionUsageSnapshot {
   stage: string;
@@ -28,6 +33,11 @@ export interface CompletionUsageSnapshot {
   toolsCount?: number;
   /** Draft ativo no início da chamada (ou `null` quando não havia draft). */
   draftType?: OperationDraftType | null;
+  tier?: string | null;
+  operation?: string | null;
+  plannerIntent?: string | null;
+  retrievalMode?: string | null;
+  extractionSource?: string | null;
   /** Breakdown por bloco do contexto montado (apenas no estágio inicial). */
   contextBreakdown?: {
     system_tokens: number;
@@ -57,6 +67,11 @@ export interface CaptureUsageExtra {
   toolsCount?: number;
   draftType?: OperationDraftType | null;
   rag?: CompletionUsageSnapshot['rag'];
+  tier?: string | null;
+  operation?: string | null;
+  plannerIntent?: string | null;
+  retrievalMode?: string | null;
+  extractionSource?: string | null;
 }
 
 /**
@@ -100,6 +115,13 @@ export class OrchestratorTelemetryService {
         ? { toolsCount: extra.toolsCount }
         : {}),
       ...(extra && 'draftType' in extra ? { draftType: extra.draftType } : {}),
+      ...(extra?.tier ? { tier: extra.tier } : {}),
+      ...(extra?.operation ? { operation: extra.operation } : {}),
+      ...(extra?.plannerIntent ? { plannerIntent: extra.plannerIntent } : {}),
+      ...(extra?.retrievalMode ? { retrievalMode: extra.retrievalMode } : {}),
+      ...(extra?.extractionSource
+        ? { extractionSource: extra.extractionSource }
+        : {}),
       ...(extra?.breakdown ? { contextBreakdown: extra.breakdown } : {}),
       ...(extra?.strategy ? { contextStrategy: extra.strategy } : {}),
       ...(extra?.rag ? { rag: extra.rag } : {}),
@@ -175,6 +197,7 @@ export class OrchestratorTelemetryService {
     );
 
     const model = snapshots[0]?.model ?? null;
+    const initial = snapshots[0];
 
     const costCents = this.estimateCostCents(snapshots);
 
@@ -190,6 +213,12 @@ export class OrchestratorTelemetryService {
         totalTokens: totals.total,
         callsCount: snapshots.length,
         model,
+        tier: initial?.tier ?? null,
+        toolsInvoked: [],
+        plannerIntent: initial?.plannerIntent ?? null,
+        draftType: initial?.draftType ?? null,
+        extractionSource: initial?.extractionSource ?? null,
+        retrievalMode: initial?.retrievalMode ?? null,
         latencyMs: totals.latency || null,
         costEstimateCents: costCents,
         breakdown: snapshots,
@@ -235,5 +264,17 @@ export class OrchestratorTelemetryService {
         `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
       );
     }
+  }
+
+  logArchitectureDecision(input: {
+    messageSid: string;
+    phone: string;
+    runtimeState: RuntimeState;
+    planner: PlannerOutput;
+    retrieval: RetrievalDecision;
+  }): void {
+    this.logger.log(
+      `[AI_ARCHITECTURE] sid=${input.messageSid} phone=${this.phoneNormalizer.maskPhone(input.phone)} workflow=${input.runtimeState.activeWorkflow} draft=${input.runtimeState.activeDraft ?? 'none'} planner_intent=${input.planner.intent} planner_tool=${input.planner.toolCandidate ?? 'none'} planner_confidence=${input.planner.confidence} retrieval=${input.retrieval.shouldQuery} retrieval_reason=${input.retrieval.reason} retrieval_category=${input.retrieval.category ?? 'none'} risk_flags=${input.runtimeState.riskFlags.map((flag) => flag.code).join(',') || 'none'}`,
+    );
   }
 }

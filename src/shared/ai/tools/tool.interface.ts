@@ -49,9 +49,44 @@ export interface AiToolCacheConfig {
   invalidatesOn?: string[];
 }
 
+export type AiToolCategory =
+  | 'planning'
+  | 'query'
+  | 'mutation'
+  | 'draft'
+  | 'utility';
+
+export type AiToolDeterminismLevel = 'pure' | 'idempotent' | 'mutating';
+
+export type AiToolEstimatedCost = 'free' | 'cheap' | 'standard' | 'expensive';
+
+export interface AiToolRateLimit {
+  window: string;
+  max: number;
+}
+
+export interface AiToolSpec {
+  category: AiToolCategory;
+  draftAffinity?: string | null;
+  determinismLevel: AiToolDeterminismLevel;
+  requiresConfirmation?: boolean;
+  estimatedCost: AiToolEstimatedCost;
+  rateLimit?: AiToolRateLimit | null;
+}
+
+export const DEFAULT_TOOL_SPEC: AiToolSpec = {
+  category: 'mutation',
+  draftAffinity: null,
+  determinismLevel: 'mutating',
+  requiresConfirmation: false,
+  estimatedCost: 'standard',
+  rateLimit: null,
+};
+
 export interface AiTool {
   name: string;
   definition: OpenAI.ChatCompletionTool;
+  spec?: Partial<AiToolSpec>;
   /**
    * Quando presente, o `ToolExecutorService` aplica cache automático ao
    * resultado desta tool. Tools sem este campo nunca são cacheadas.

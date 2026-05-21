@@ -139,6 +139,25 @@ const AFFIRMATIVE_PHRASES = new Set<string>([
   'prosseguir',
   'prossiga',
   'prossiga por favor',
+  // retry phrases — when user says "try again" after an error, treat as
+  // affirmative so the deterministic hint re-executes the pending tool
+  // using the preserved draft (avoids data loss from LLM reconstruction)
+  'tente novamente',
+  'tenta novamente',
+  'tente de novo',
+  'tenta de novo',
+  'tentar novamente',
+  'tentar de novo',
+  'pode tentar novamente',
+  'pode tentar de novo',
+  'tente outra vez',
+  'tenta outra vez',
+  'repita',
+  'repita por favor',
+  'repita a operacao',
+  'repita a operação',
+  'crie',
+  'criar',
 ]);
 
 const NEGATIVE_PHRASES = new Set<string>([

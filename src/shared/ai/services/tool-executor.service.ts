@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ToolRegistryService } from './tool-registry.service';
 import { AiRedisService } from './ai-redis.service';
 import { ToolContext } from '../tools/tool.interface';
+import { buildToolResult, parseToolResult } from '../tools/tool-result';
 
 /**
  * Payload emitido nos eventos de telemetria de tools.
@@ -32,6 +33,8 @@ interface MemCacheEntry {
   value: string;
   expiresAt: number;
 }
+
+const MAX_TOOL_OUTPUT_CHARS = 10_000;
 
 @Injectable()
 export class ToolExecutorService {
@@ -108,11 +111,16 @@ export class ToolExecutorService {
             args,
             context,
           );
-          await this.setCached(cacheKey, output, cacheConfig.ttlSeconds);
+          const normalizedOutput = this.normalizeToolOutput(output);
+          await this.setCached(
+            cacheKey,
+            normalizedOutput,
+            cacheConfig.ttlSeconds,
+          );
           this.logger.debug(
             `[TOOL_CACHE] stored tool=${fn.name} owner=${context.ownerId ?? 'anon'} ttl=${cacheConfig.ttlSeconds}s`,
           );
-          results.push({ toolCallId: call.id, output });
+          results.push({ toolCallId: call.id, output: normalizedOutput });
           this.eventEmitter?.emit('tool_succeeded', {
             ...telemetryBase,
             durationMs: Date.now() - startMs,
@@ -126,7 +134,10 @@ export class ToolExecutorService {
             args,
             context,
           );
-          results.push({ toolCallId: call.id, output });
+          results.push({
+            toolCallId: call.id,
+            output: this.normalizeToolOutput(output),
+          });
           this.eventEmitter?.emit('tool_succeeded', {
             ...telemetryBase,
             durationMs: Date.now() - startMs,
@@ -154,7 +165,17 @@ export class ToolExecutorService {
         } satisfies ToolTelemetryEvent);
         results.push({
           toolCallId: call.id,
-          output: `Erro ao executar ação: ${error.message}`,
+          output: buildToolResult({
+            status: 'error',
+            summary: `Falha na execução de ${fn.name}`,
+            message: `Erro ao executar ação: ${error.message}`,
+            errors: [
+              {
+                code: 'TOOL_EXECUTION_ERROR',
+                message: error.message,
+              },
+            ],
+          }),
         });
       }
     }
@@ -261,5 +282,49 @@ export class ToolExecutorService {
         this.invalidationIndex.set(trigger, existing);
       }
     }
+  }
+
+  private normalizeToolOutput(output: string): string {
+    if (output.length <= MAX_TOOL_OUTPUT_CHARS) return output;
+
+    const parsed = parseToolResult(output);
+    if (parsed) {
+      return buildToolResult({
+        status: parsed.status,
+        summary:
+          parsed.summary ||
+          parsed.message ||
+          'Resultado truncado para caber no orçamento do contexto.',
+        data: {
+          ...(parsed.data && typeof parsed.data === 'object'
+            ? parsed.data
+            : {}),
+          truncated: true,
+        },
+        nextRequiredFields: parsed.next_required_fields,
+        pendingConfirmation: parsed.pending_confirmation,
+        displayText: parsed.display_text,
+        errors: parsed.errors,
+        affected: parsed.affected,
+        nextRecommended: parsed.next_recommended,
+        telemetry: {
+          ...(parsed.telemetry || {}),
+          truncated: true,
+        },
+      });
+    }
+
+    return buildToolResult({
+      status: 'ok',
+      summary: 'Resultado truncado para caber no orçamento do contexto.',
+      data: {
+        preview: output.slice(0, MAX_TOOL_OUTPUT_CHARS),
+        truncated: true,
+        originalChars: output.length,
+      },
+      telemetry: {
+        truncated: true,
+      },
+    });
   }
 }

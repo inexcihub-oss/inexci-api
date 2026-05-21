@@ -65,6 +65,8 @@ export class DocumentIntakeService {
       durationSeconds: number | null;
     }>;
   }): Promise<{ handled: boolean; syntheticBody?: string }> {
+    void this.draftService;
+
     if (!this.documentDispatcher.isEnabled()) {
       return { handled: false };
     }
@@ -124,49 +126,6 @@ export class DocumentIntakeService {
       }
 
       if (outcome.status === 'staged') {
-        // SHORT-CIRCUIT: se há um draft `create_sc` ativo nesta conversa,
-        // pular o menu "1=anexar / 2=criar SC / 3=cadastrar paciente". O
-        // contexto é claro: o documento veio durante a criação. Processa
-        // direto como `intent=create_sc` (pré-preenche o draft).
-        const activeDraft = opts.conversationId
-          ? await this.draftService
-              ?.getCurrent(opts.conversationId)
-              .catch(() => null)
-          : null;
-        if (activeDraft?.type === 'create_sc') {
-          this.logger.log(
-            `[AI_DOC_INTENT] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} short_circuit=create_sc reason=active_draft`,
-          );
-          const pending = await this.documentDispatcher.getPending(opts.phone);
-          if (pending) {
-            const procOutcome =
-              await this.documentProcessor.processPendingDocument({
-                phone: opts.phone,
-                pending,
-                intent: 'create_sc',
-                conversationId: opts.conversationId ?? opts.phone,
-                messageSid: opts.messageSid,
-                userId: opts.userId,
-                ownerId: opts.ownerId ?? null,
-              });
-            if (procOutcome.status === 'ok' && procOutcome.userSummary) {
-              await this.whatsappService.sendMessage(
-                opts.phone,
-                procOutcome.userSummary,
-              );
-              if (opts.conversationId) {
-                await this.conversationService.appendMessage(
-                  opts.conversationId,
-                  'assistant',
-                  procOutcome.userSummary,
-                );
-              }
-              return { handled: true };
-            }
-            // Se falhou o processamento, cai no menu padrão.
-          }
-        }
-
         await this.whatsappService.sendMessage(
           opts.phone,
           this.documentDispatcher.buildIntentPromptMessage(),
@@ -181,6 +140,59 @@ export class DocumentIntakeService {
     //    anterior e se a mensagem é uma intent reconhecida.
     const pending = await this.documentDispatcher.getPending(opts.phone);
     if (!pending) return { handled: false };
+
+    // 2.a) Perguntas diretas sobre conteúdo do documento (ex.: "quais OPMEs?",
+    // "qual convênio?", "qual procedimento?"). Nesse caso tentamos responder
+    // sem exigir que o usuário passe pelo menu 1/2/3.
+    const directQuestion = this.detectDirectDocumentQuestion(
+      opts.normalizedInput || opts.body || '',
+    );
+    if (directQuestion) {
+      let classifiedPending = pending;
+      if (!classifiedPending.classification) {
+        const outcome = await this.documentProcessor.processPendingDocument({
+          phone: opts.phone,
+          pending,
+          intent: 'create_sc',
+          conversationId: opts.conversationId ?? opts.phone,
+          messageSid: opts.messageSid,
+          userId: opts.userId,
+          ownerId: opts.ownerId ?? null,
+        });
+        if (outcome.status !== 'ok' || !outcome.classification) {
+          const errorMsg =
+            outcome.errorMessage ||
+            'Não consegui extrair os dados específicos desse documento agora. Tente reenviar uma versão mais nítida.';
+          await this.whatsappService.sendMessage(opts.phone, errorMsg);
+          if (opts.conversationId) {
+            await this.conversationService.appendMessage(
+              opts.conversationId,
+              'assistant',
+              errorMsg,
+            );
+          }
+          return { handled: true };
+        }
+        const refreshed = await this.documentDispatcher.getPending(opts.phone);
+        if (refreshed) classifiedPending = refreshed;
+      }
+
+      const reply = this.buildDirectDocumentAnswer(
+        directQuestion,
+        classifiedPending.classification,
+      );
+      if (reply) {
+        await this.whatsappService.sendMessage(opts.phone, reply);
+        if (opts.conversationId) {
+          await this.conversationService.appendMessage(
+            opts.conversationId,
+            'assistant',
+            reply,
+          );
+        }
+        return { handled: true };
+      }
+    }
 
     const intent = this.documentDispatcher.parseIntent(opts.body);
     if (!intent) {
@@ -473,6 +485,7 @@ export class DocumentIntakeService {
                 '  1. `plan_actions({ intent: "create_sc" })` para abrir o rascunho.',
                 '  2. Resolva o paciente: chame `query_patients({ patient_name_or_id: "<nome acima>", match_mode: "fuzzy" })`. Se a tool retornar um único match → `draft_update({ draft_type: "create_sc", field: "patientId", value: "<UUID>" })`. Se retornar lista ambígua → mostre ao usuário e peça desempate. Se NÃO encontrar nada → chame `create_patient_from_document({ confirm: true })` (use telefone/e-mail extraídos; se faltarem os obrigatórios, pergunte só esses dois).',
                 '  3. Resolva o procedimento: chame `search_procedures({ query: "<nome sugerido>" })`. Se houver match, grave `draft_update({ draft_type: "create_sc", field: "procedureId", value: "<UUID>" })`. Se NÃO houver, abra um sub-draft de cadastro: `plan_actions({ intent: "create_procedure" })` → preencha `name` → commit. Ao commitar o sub-draft, o sistema retoma o draft de SC e preenche `procedureId` automaticamente.',
+                '     IMPORTANTE: em `create_procedure` NÃO existe campo `description` — use só `name`.',
                 '  4. Resolva (se possível) hospital e convênio do mesmo jeito (fuzzy lookup → grave o ID). Hospital e convênio são OPCIONAIS — se não encontrar match e o usuário não quiser cadastrar agora, siga sem.',
                 '  5. Prioridade: assuma `LOW` se o usuário não disser nada. Grave `draft_update({ draft_type: "create_sc", field: "priority", value: "LOW" })`. NÃO pergunte ao usuário sobre prioridade quando ele não citou.',
                 '  6. Médico responsável: NÃO pergunte. Se você for médico OU se houver só 1 médico acessível, o sistema preenche automaticamente; se houver vários e nenhum default for possível, AÍ SIM peça desempate.',
@@ -481,6 +494,8 @@ export class DocumentIntakeService {
                 '  9. Cole OPME no draft (não chame `manage_opme_items` ainda): `draft_update({ draft_type: "create_sc", field: "opmeItems", value: [{ "description": "Cage Stand Alone", "qty": 2, "supplier": "SINTEX", "brand": "DIVA/NOVA SPINE" }, ...] })`.',
                 '  10. Chame `sc_draft_preview` → mostre ao usuário o resumo final (com paciente, procedimento, hospital/convênio se houver, prioridade, número de TUSS, número de OPME e existência de laudo). Aí sim peça confirmação ("posso salvar?").',
                 '  11. UMA ÚNICA chamada `sc_draft_commit({ confirm: true })` cria a SC E persiste laudo + TUSS + OPME de uma vez. Não chame mais `manage_tuss_items` / `manage_opme_items` em seguida — só faça isso se o usuário pedir um ajuste depois.',
+                '- Se faltarem múltiplos dados/entidades (ex.: paciente + convênio + procedimento), peça tudo em UMA mensagem consolidada. Não fragmente em perguntas separadas por campo.',
+                '- Ao pedir dados obrigatórios para criar paciente (telefone/e-mail) e o usuário responder só com os valores, interprete como autorização para criar e continue o fluxo sem confirmação redundante.',
                 '- NUNCA fragmente em perguntas separadas para cada campo quando os dados já estão extraídos. NUNCA responda "não ficou claro qual ação você quer confirmar" enquanto este hint estiver ativo.',
                 '- Se alguma tool falhar com erro técnico, NÃO repasse o erro cru ao usuário; tente seguir adiante com o que conseguiu coletar e peça ajuda apenas para o que ficou faltando.',
               ].join('\n');
@@ -490,6 +505,8 @@ export class DocumentIntakeService {
               '- Quando o usuário confirmar (sim/pode/vai), use o fluxo de rascunho: `plan_actions({ intent: "create_sc" })` → grave os campos um por um com `draft_update({ draft_type: "create_sc", field: "<nome>", value: <valor> })` — usando os DADOS EXTRAÍDOS acima como base e completando com o que vier do usuário.',
               '- Para resolver o paciente pelo nome, chame `query_patients({ patient_name_or_id: "<nome>", match_mode: "fuzzy" })`. Se não existir, ofereça criar via `create_patient_from_document` antes de continuar a SC.',
               '- Para o procedimento, chame `search_procedures`. Se faltar no catálogo, abra um sub-draft `plan_actions({ intent: "create_procedure" })` → preencha `name` → commit; o draft pai recebe o ID automaticamente.',
+              '- Em `create_procedure`, NÃO peça `description`: o cadastro aceita apenas `name`.',
+              '- Se faltarem vários campos/entidades, peça tudo em UMA única mensagem consolidada (checklist), incluindo quais dados mínimos são necessários para cada criação (ex.: paciente precisa de telefone + e-mail).',
               '- Hospital e convênio são OPCIONAIS — se não encontrar match, prossiga sem.',
               '- Prioridade: assuma `LOW` se o usuário não disser nada (não pergunte).',
               '- Cole o `laudoText` (se houver) em `draft_update({ draft_type: "create_sc", field: "notes", value: "<texto>" })`.',
@@ -558,5 +575,105 @@ export class DocumentIntakeService {
         break;
     }
     return lines.join('\n');
+  }
+
+  private detectDirectDocumentQuestion(
+    input: string,
+  ):
+    | 'opme'
+    | 'tuss'
+    | 'health_plan'
+    | 'hospital'
+    | 'patient'
+    | 'procedure'
+    | 'diagnosis'
+    | 'laudo'
+    | null {
+    const text = (input || '').toLowerCase();
+    if (!text.trim()) return null;
+
+    if (/\bopme\b|opmes/.test(text)) return 'opme';
+    if (/\btuss\b|codigo tuss|c[oó]digo tuss/.test(text)) return 'tuss';
+    if (/conv[eê]nio|plano de sa[uú]de|operadora/.test(text))
+      return 'health_plan';
+    if (/\bhospital\b/.test(text)) return 'hospital';
+    if (/\bpaciente\b|nome do paciente/.test(text)) return 'patient';
+    if (/procedimento/.test(text)) return 'procedure';
+    if (/diagn[oó]stico/.test(text)) return 'diagnosis';
+    if (/\blaudo\b|relat[oó]rio/.test(text)) return 'laudo';
+    return null;
+  }
+
+  private buildDirectDocumentAnswer(
+    question:
+      | 'opme'
+      | 'tuss'
+      | 'health_plan'
+      | 'hospital'
+      | 'patient'
+      | 'procedure'
+      | 'diagnosis'
+      | 'laudo',
+    classification?: any,
+  ): string | null {
+    const extracted = classification?.extracted || {};
+    switch (question) {
+      case 'opme': {
+        const opmes = Array.isArray(extracted.opme) ? extracted.opme : [];
+        if (!opmes.length) {
+          return 'Não encontrei OPMEs explícitas nesse documento.';
+        }
+        return [
+          `Encontrei ${opmes.length} OPME(s) no documento:`,
+          ...opmes.map((o: any) => {
+            const qty =
+              typeof o?.qty === 'number' && Number.isFinite(o.qty) ? o.qty : 1;
+            const supplier = [o?.supplier, o?.brand]
+              .filter(Boolean)
+              .join(' / ');
+            return `${qty}x ${o?.description || 'OPME sem descrição'}${supplier ? ` (${supplier})` : ''}`;
+          }),
+        ].join('\n');
+      }
+      case 'tuss': {
+        const tuss = Array.isArray(extracted.tuss) ? extracted.tuss : [];
+        if (!tuss.length) {
+          return 'Não encontrei códigos TUSS explícitos nesse documento.';
+        }
+        return [
+          `Encontrei ${tuss.length} item(ns) TUSS:`,
+          ...tuss.map(
+            (t: any) =>
+              `${t?.code || '-'}${t?.description ? ` — ${t.description}` : ''}`,
+          ),
+        ].join('\n');
+      }
+      case 'health_plan':
+        return extracted.healthPlan?.name
+          ? `Convênio identificado: ${extracted.healthPlan.name}.`
+          : 'Não encontrei convênio explícito nesse documento.';
+      case 'hospital':
+        return extracted.hospital
+          ? `Hospital identificado: ${extracted.hospital}.`
+          : 'Não encontrei hospital explícito nesse documento.';
+      case 'patient':
+        return extracted.patient?.name
+          ? `Paciente identificado: ${extracted.patient.name}.`
+          : 'Não encontrei nome de paciente com confiança suficiente nesse documento.';
+      case 'procedure':
+        return extracted.suggestedProcedureName
+          ? `Procedimento sugerido no documento: ${extracted.suggestedProcedureName}.`
+          : 'Não encontrei procedimento cirúrgico explícito nesse documento.';
+      case 'diagnosis':
+        return extracted.diagnosis
+          ? `Diagnóstico encontrado: ${extracted.diagnosis}.`
+          : 'Não encontrei diagnóstico explícito nesse documento.';
+      case 'laudo':
+        return extracted.laudoText
+          ? `Trecho do laudo:\n${String(extracted.laudoText).slice(0, 700)}${String(extracted.laudoText).length > 700 ? '…' : ''}`
+          : 'Não encontrei texto de laudo extraível nesse documento.';
+      default:
+        return null;
+    }
   }
 }

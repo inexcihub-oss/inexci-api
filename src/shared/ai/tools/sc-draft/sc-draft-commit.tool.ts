@@ -15,6 +15,9 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
     activityRepo,
     opmeService,
     tussService,
+    hospitalRepo,
+    healthPlanRepo,
+    entityResolver,
   } = deps;
   return {
     name: 'sc_draft_commit',
@@ -47,11 +50,27 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
             'Para criar a SC, chame esta tool com `confirm=true` após receber confirmação do usuário.',
         });
       }
-      await autoFillDoctorIfSingle(draftService, userRepo, context);
-      const validation = await draftService.validate(
-        context.conversationId,
-        'create_sc',
-      );
+      try {
+        await autoFillDoctorIfSingle(draftService, userRepo, context);
+      } catch (err: any) {
+        return buildToolResult({
+          status: 'error',
+          message: `Erro ao preparar rascunho: ${err?.message || 'erro desconhecido'}`,
+          errors: [{ code: 'AUTOFILL_FAILED', message: String(err?.message ?? err) }],
+        });
+      }
+
+      let validation;
+      try {
+        validation = await draftService.validate(context.conversationId, 'create_sc');
+      } catch (err: any) {
+        return buildToolResult({
+          status: 'error',
+          message: `Erro ao validar rascunho: ${err?.message || 'erro desconhecido'}`,
+          errors: [{ code: 'VALIDATE_FAILED', message: String(err?.message ?? err) }],
+        });
+      }
+
       if (!validation.isReady || !validation.draft) {
         return buildToolResult({
           status: 'blocked',
@@ -79,14 +98,36 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
       }
 
       try {
+        const requestingUser = await userRepo
+          .findOne({ id: context.userId } as any)
+          .catch(() => null);
+        const ownerId = requestingUser?.ownerId ?? null;
+
+        const hospitalResolution = await resolveCatalogEntityId({
+          explicitId: fields.hospitalId,
+          label: fields.hospitalLabel,
+          ownerId,
+          kindLabel: 'hospital',
+          repo: hospitalRepo,
+          entityResolver,
+        });
+        const healthPlanResolution = await resolveCatalogEntityId({
+          explicitId: fields.healthPlanId,
+          label: fields.healthPlanLabel,
+          ownerId,
+          kindLabel: 'convênio',
+          repo: healthPlanRepo,
+          entityResolver,
+        });
+
         const created = await surgeryRequestsService.createSurgeryRequest(
           {
             doctorId,
             patientId: fields.patientId!,
             procedureId: fields.procedureId!,
             priority: enumKeyToPriority(fields.priority ?? 'LOW'),
-            hospitalId: fields.hospitalId ?? undefined,
-            healthPlanId: fields.healthPlanId ?? undefined,
+            hospitalId: hospitalResolution.id ?? undefined,
+            healthPlanId: healthPlanResolution.id ?? undefined,
           },
           context.userId,
         );
@@ -103,6 +144,13 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
         // Tudo é best-effort: falhas individuais não derrubam a criação
         // da SC; apenas registramos em `warnings` para a mensagem final.
         const warnings: string[] = [];
+
+        if (hospitalResolution.warning) {
+          warnings.push(hospitalResolution.warning);
+        }
+        if (healthPlanResolution.warning) {
+          warnings.push(healthPlanResolution.warning);
+        }
 
         if (fields.notes && typeof fields.notes === 'string') {
           try {
@@ -323,5 +371,91 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
         });
       }
     },
+  };
+}
+
+async function resolveCatalogEntityId(opts: {
+  explicitId: unknown;
+  label: unknown;
+  ownerId: string | null;
+  kindLabel: 'hospital' | 'convênio';
+  repo?: {
+    findByOwnerId(
+      ownerId: string,
+    ): Promise<Array<{ id: string; name: string }>>;
+    findMany(
+      where: any,
+      skip?: number,
+      take?: number,
+    ): Promise<Array<{ id: string; name: string }>>;
+  };
+  entityResolver?: {
+    resolve<T>(opts: {
+      query: string;
+      candidates: T[];
+      getName: (item: T) => string;
+      getId: (item: T) => string;
+    }): {
+      status: 'resolved' | 'ambiguous' | 'not_found' | 'error';
+      resolved?: { id: string };
+      candidates: Array<{ label: string }>;
+    };
+  };
+}): Promise<{ id?: string; warning?: string }> {
+  const explicitId =
+    typeof opts.explicitId === 'string' ? opts.explicitId.trim() : '';
+  if (explicitId) return { id: explicitId };
+
+  const label = typeof opts.label === 'string' ? opts.label.trim() : '';
+  if (!label || !opts.repo) return {};
+
+  let candidates: Array<{ id: string; name: string }> = [];
+  try {
+    candidates = opts.ownerId
+      ? await opts.repo.findByOwnerId(opts.ownerId)
+      : await opts.repo.findMany({} as any, 0, 200);
+  } catch {
+    return {
+      warning: `${opts.kindLabel} (${label}) não pôde ser resolvido automaticamente`,
+    };
+  }
+
+  if (!candidates.length) {
+    return {
+      warning: `${opts.kindLabel} (${label}) não encontrado no catálogo`,
+    };
+  }
+
+  if (opts.entityResolver) {
+    const resolved = opts.entityResolver.resolve({
+      query: label,
+      candidates,
+      getName: (c) => c.name,
+      getId: (c) => c.id,
+    });
+    if (resolved.status === 'resolved' && resolved.resolved?.id) {
+      return { id: resolved.resolved.id };
+    }
+    if (resolved.status === 'ambiguous') {
+      const sample = resolved.candidates
+        .slice(0, 3)
+        .map((c) => c.label)
+        .join(', ');
+      return {
+        warning: `${opts.kindLabel} (${label}) ambíguo no catálogo${sample ? `: ${sample}` : ''}`,
+      };
+    }
+    return {
+      warning: `${opts.kindLabel} (${label}) não encontrado no catálogo`,
+    };
+  }
+
+  const exact = candidates.find(
+    (c) => (c.name || '').trim().toLowerCase() === label.toLowerCase(),
+  );
+  if (exact) return { id: exact.id };
+
+  return {
+    warning: `${opts.kindLabel} (${label}) não encontrado no catálogo`,
   };
 }

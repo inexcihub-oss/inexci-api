@@ -1,6 +1,6 @@
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../../database/repositories/surgery-request-activity.repository';
-import { SurgeryRequestWorkflowService } from '../../../../modules/surgery-requests/services/surgery-request-workflow.service';
+import { WorkflowEngineService } from '../../services/workflow-engine.service';
 import { SurgeryRequestsService } from '../../../../modules/surgery-requests/surgery-requests.service';
 import { PatientRepository } from '../../../../database/repositories/patient.repository';
 import { HospitalRepository } from '../../../../database/repositories/hospital.repository';
@@ -25,7 +25,7 @@ export interface WhatsappFlowDocumentDeps {
 
 export interface WhatsappFlowToolDeps {
   surgeryRequestRepo: SurgeryRequestRepository;
-  workflowService: SurgeryRequestWorkflowService;
+  workflowService: WorkflowEngineService;
   surgeryRequestsService: SurgeryRequestsService;
   activityRepo: SurgeryRequestActivityRepository;
   pendencyValidator?: PendencyValidatorService;

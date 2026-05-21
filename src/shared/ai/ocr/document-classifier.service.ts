@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from '../services/openai.service';
+import { ModelGatewayService } from '../services/model-gateway.service';
 import {
   DocumentClassification,
   DocumentClassificationIntent,
@@ -250,7 +251,8 @@ export class DocumentClassifierService {
   private readonly logger = new Logger(DocumentClassifierService.name);
 
   constructor(
-    private readonly openai: OpenaiService,
+    @Inject(ModelGatewayService)
+    private readonly modelGateway: ModelGatewayService | OpenaiService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -331,13 +333,9 @@ export class DocumentClassifierService {
       };
     }
 
-    const response = await this.openai.chatCompletion({
+    const response = await this.chatCompletion({
       model,
       temperature: 0,
-      // 2500 tokens dá folga para JSONs reais de laudo (TUSS + CID + OPME +
-      // patient + laudoText). 800 truncava respostas em laudos bem
-      // preenchidos, fazendo o JSON parse falhar e o pipeline cair em
-      // "classifier_failed".
       maxTokens: 2500,
       timeoutMs: 30000,
       messages: [
@@ -411,6 +409,35 @@ export class DocumentClassifierService {
       'gpt-4o-mini',
     );
     return (raw && raw.trim()) || 'gpt-4o-mini';
+  }
+
+  private chatCompletion(params: {
+    model: string;
+    messages: OpenAI.ChatCompletionMessageParam[];
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+    responseFormat: OpenAI.ChatCompletionCreateParams['response_format'];
+  }) {
+    if (this.modelGateway instanceof ModelGatewayService) {
+      return this.modelGateway.chatCompletion({
+        tier: 'cheap',
+        operation: 'document_classifier',
+        messages: params.messages,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens,
+        timeoutMs: params.timeoutMs,
+        responseFormat: params.responseFormat,
+      });
+    }
+    return this.modelGateway.chatCompletion({
+      model: params.model,
+      messages: params.messages,
+      temperature: params.temperature,
+      maxTokens: params.maxTokens,
+      timeoutMs: params.timeoutMs,
+      responseFormat: params.responseFormat,
+    });
   }
 
   /**

@@ -31,6 +31,7 @@ export interface ToolResultPendingConfirmation {
   tool: string;
   args: Record<string, unknown>;
   description: string;
+  expires_at?: string | null;
 }
 
 export interface ToolResultAffected {
@@ -41,6 +42,7 @@ export interface ToolResultAffected {
 export interface ToolResult<T = unknown> {
   status: ToolResultStatus;
   data?: T;
+  summary?: string;
   next_required_fields?: string[];
   pending_confirmation?: ToolResultPendingConfirmation;
   /**
@@ -55,6 +57,13 @@ export interface ToolResult<T = unknown> {
    */
   display_text?: string;
   errors?: ToolResultError[];
+  next_recommended?: string[];
+  telemetry?: {
+    duration_ms?: number;
+    db_queries?: number;
+    cache_hit?: boolean;
+    truncated?: boolean;
+  };
   /**
    * Entidades afetadas pela operação (status `ok`).
    * Usado pelo orchestrator para telemetria e pelo LLM para compor mensagens.
@@ -69,12 +78,15 @@ export interface ToolResult<T = unknown> {
 export interface BuildToolResultOptions<T> {
   status: ToolResultStatus;
   message?: string;
+  summary?: string;
   data?: T;
   nextRequiredFields?: string[];
   pendingConfirmation?: ToolResultPendingConfirmation;
   displayText?: string;
   errors?: ToolResultError[];
   affected?: ToolResultAffected[];
+  nextRecommended?: string[];
+  telemetry?: ToolResult<T>['telemetry'];
 }
 
 export function buildToolResult<T = unknown>(
@@ -85,6 +97,7 @@ export function buildToolResult<T = unknown>(
     v: 1,
   };
   if (opts.message) payload.message = opts.message;
+  if (opts.summary) payload.summary = opts.summary;
   if (opts.data !== undefined) payload.data = opts.data;
   if (opts.nextRequiredFields && opts.nextRequiredFields.length) {
     payload.next_required_fields = opts.nextRequiredFields;
@@ -95,7 +108,48 @@ export function buildToolResult<T = unknown>(
   if (opts.displayText) payload.display_text = opts.displayText;
   if (opts.errors && opts.errors.length) payload.errors = opts.errors;
   if (opts.affected && opts.affected.length) payload.affected = opts.affected;
+  if (opts.nextRecommended && opts.nextRecommended.length) {
+    payload.next_recommended = opts.nextRecommended;
+  }
+  if (opts.telemetry) payload.telemetry = opts.telemetry;
   return JSON.stringify(payload);
+}
+
+export function buildPaginatedToolResult<T>(opts: {
+  items: T[];
+  total: number;
+  limit: number;
+  summary: string;
+  nextCursor?: string | null;
+}): string {
+  let items = opts.items;
+  let truncated = items.length < opts.total;
+  let payload = {
+    items,
+    total: opts.total,
+    truncated,
+    next_cursor: opts.nextCursor ?? null,
+  };
+
+  while (JSON.stringify(payload).length > 10_000 && items.length > 1) {
+    items = items.slice(0, Math.max(1, Math.floor(items.length * 0.75)));
+    truncated = true;
+    payload = {
+      items,
+      total: opts.total,
+      truncated,
+      next_cursor: opts.nextCursor ?? null,
+    };
+  }
+
+  return buildToolResult({
+    status: 'ok',
+    summary: opts.summary,
+    data: payload,
+    telemetry: {
+      truncated,
+    },
+  });
 }
 
 export interface BuildLookupResultOptions<T> {

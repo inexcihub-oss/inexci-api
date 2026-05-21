@@ -59,6 +59,47 @@ export class AiTokenUsageLog {
   @Column({ name: 'cost_estimate_cents', type: 'int', nullable: true })
   costEstimateCents: number | null;
 
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  tier: string | null;
+
+  @Column({
+    name: 'tools_invoked',
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+  })
+  toolsInvoked: Array<{
+    name: string;
+    durationMs?: number;
+    cacheHit?: boolean;
+  }>;
+
+  @Column({
+    name: 'planner_intent',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  plannerIntent: string | null;
+
+  @Column({ name: 'draft_type', type: 'varchar', length: 64, nullable: true })
+  draftType: string | null;
+
+  @Column({
+    name: 'extraction_source',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  extractionSource: string | null;
+
+  @Column({
+    name: 'retrieval_mode',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  retrievalMode: string | null;
+
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   breakdown: Array<{
     stage: string;
@@ -82,6 +123,8 @@ export class AiTokenUsageLog {
     toolsCount?: number;
     /** Draft ativo no início da chamada (ou `null` quando não havia draft). */
     draftType?: string | null;
+    tier?: string | null;
+    operation?: string | null;
   }>;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

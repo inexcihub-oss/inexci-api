@@ -42,6 +42,14 @@ describe('ConfirmationManagerService', () => {
       'beleza',
       'show',
       'quero sim',
+      // retry phrases
+      'tente novamente',
+      'Tente novamente',
+      'tenta novamente',
+      'tente de novo',
+      'tentar novamente',
+      'crie',
+      'criar',
     ])('aceita "%s"', (input) => {
       expect(service.parseAffirmativeConfirmation(input)).toBe(true);
     });

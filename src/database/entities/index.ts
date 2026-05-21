@@ -55,6 +55,8 @@ import { WhatsappConversationMessage } from './whatsapp-conversation-message.ent
 import { AiKnowledgeChunk } from './ai-knowledge-chunk.entity';
 import { AiTokenUsageLog } from './ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from './ai-pii-redaction-log.entity';
+import { AiPersistentMemory } from './ai-persistent-memory.entity';
+import { AiDocCache } from './ai-doc-cache.entity';
 
 // Re-exportar tudo
 // USUÁRIOS E ACESSO
@@ -119,6 +121,8 @@ export { WhatsappConversationMessage };
 export { AiKnowledgeChunk };
 export { AiTokenUsageLog };
 export { AiPiiRedactionLog };
+export { AiPersistentMemory };
+export { AiDocCache };
 
 // Array apenas com classes de entidade (sem enums) para TypeORM
 export const ENTITIES = [
@@ -159,4 +163,6 @@ export const ENTITIES = [
   AiKnowledgeChunk,
   AiTokenUsageLog,
   AiPiiRedactionLog,
+  AiPersistentMemory,
+  AiDocCache,
 ];

@@ -11,6 +11,9 @@ describe('sc-draft tools (preview + commit)', () => {
   let mockSurgeryRequestRepo: any;
   let mockSurgeryRequestsService: any;
   let mockActivityRepo: any;
+  let mockHospitalRepo: any;
+  let mockHealthPlanRepo: any;
+  let mockEntityResolver: any;
   let tools: ReturnType<typeof buildScDraftTools>;
 
   const context: ToolContext = {
@@ -32,9 +35,11 @@ describe('sc-draft tools (preview + commit)', () => {
     };
     draftService = new OperationDraftService(mockConvRepo);
     mockUserRepo = {
-      findOne: jest
-        .fn()
-        .mockResolvedValue({ id: 'doctor-1', name: 'Dra. Maria Andrade' }),
+      findOne: jest.fn().mockResolvedValue({
+        id: 'doctor-1',
+        name: 'Dra. Maria Andrade',
+        ownerId: 'owner-1',
+      }),
     };
     mockSurgeryRequestRepo = {
       findOneSimple: jest.fn().mockResolvedValue({
@@ -62,6 +67,41 @@ describe('sc-draft tools (preview + commit)', () => {
     mockActivityRepo = {
       create: jest.fn().mockResolvedValue(undefined),
     };
+    mockHospitalRepo = {
+      findByOwnerId: jest
+        .fn()
+        .mockResolvedValue([{ id: 'h-1', name: 'Hospital Central' }]),
+      findMany: jest.fn().mockResolvedValue([]),
+    };
+    mockHealthPlanRepo = {
+      findByOwnerId: jest
+        .fn()
+        .mockResolvedValue([{ id: 'hp-1', name: 'Convênio Alpha' }]),
+      findMany: jest.fn().mockResolvedValue([]),
+    };
+    mockEntityResolver = {
+      resolve: jest.fn().mockImplementation(({ query, candidates }: any) => {
+        const match = (candidates || []).find(
+          (c: any) =>
+            String(c.name).toLowerCase() === String(query).toLowerCase(),
+        );
+        if (match) {
+          return {
+            status: 'resolved',
+            resolved: { id: match.id, label: match.name },
+            candidates: [],
+            query,
+            message: 'ok',
+          };
+        }
+        return {
+          status: 'not_found',
+          candidates: [],
+          query,
+          message: 'not_found',
+        };
+      }),
+    };
 
     tools = buildScDraftTools({
       draftService,
@@ -69,6 +109,9 @@ describe('sc-draft tools (preview + commit)', () => {
       surgeryRequestRepo: mockSurgeryRequestRepo,
       surgeryRequestsService: mockSurgeryRequestsService,
       activityRepo: mockActivityRepo,
+      hospitalRepo: mockHospitalRepo,
+      healthPlanRepo: mockHealthPlanRepo,
+      entityResolver: mockEntityResolver,
     });
   });
 
@@ -180,6 +223,34 @@ describe('sc-draft tools (preview + commit)', () => {
       mockSurgeryRequestsService.createSurgeryRequest,
     ).toHaveBeenCalledWith(
       expect.objectContaining({ doctorId: 'doctor-1' }),
+      'user-1',
+    );
+  });
+
+  it('sc_draft_commit resolve hospital/convênio por label quando IDs não vieram no draft', async () => {
+    await draftService.start({ conversationId: 'conv-1', type: 'create_sc' });
+    await draftService.setFields('conv-1', 'create_sc', {
+      patientId: 'pat-1',
+      procedureId: 'pro-1',
+      priority: 'MEDIUM',
+      hospitalLabel: 'Hospital Central',
+      healthPlanLabel: 'Convênio Alpha',
+    });
+
+    const raw = await getTool('sc_draft_commit').execute(
+      { confirm: true },
+      context,
+    );
+    const parsed = parseToolResult<any>(raw);
+
+    expect(parsed?.status).toBe('ok');
+    expect(
+      mockSurgeryRequestsService.createSurgeryRequest,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hospitalId: 'h-1',
+        healthPlanId: 'hp-1',
+      }),
       'user-1',
     );
   });
