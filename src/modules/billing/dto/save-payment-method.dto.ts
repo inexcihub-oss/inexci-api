@@ -1,83 +1,39 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Length,
-  Matches,
-} from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, Length, Max, Min } from 'class-validator';
 
 /**
- * Dados de cart\u00e3o + holder enviados pelo frontend para o backend
- * tokenizar via gateway.
- *
- * IMPORTANTE: o backend NUNCA persiste o n\u00famero/CVV do cart\u00e3o; usa-os
- * apenas durante a chamada de tokeniza\u00e7\u00e3o e descarta em seguida.
+ * Dados enviados pelo frontend após o Stripe.js ter criado o PaymentMethod.
+ * O backend nunca recebe dados brutos do cartão — apenas o ID tokenizado.
  */
 export class SavePaymentMethodDto {
-  // ── Cart\u00e3o ──
-  @ApiProperty({ example: '4111111111111111' })
+  @ApiProperty({ example: 'pm_1ABC123' })
   @IsString()
-  @Matches(/^\d{13,19}$/, {
-    message: 'N\u00famero do cart\u00e3o inv\u00e1lido',
-  })
-  number: string;
+  @IsNotEmpty()
+  paymentMethodId: string;
 
   @ApiProperty({ example: 'MARCOS S OLIVEIRA' })
   @IsString()
   @IsNotEmpty()
   holderName: string;
 
-  @ApiProperty({ example: '12' })
-  @IsString()
-  @Matches(/^(0[1-9]|1[0-2])$/)
-  expiryMonth: string;
-
-  @ApiProperty({ example: '2030' })
-  @IsString()
-  @Matches(/^\d{4}$/)
-  expiryYear: string;
-
-  @ApiProperty({ example: '123' })
-  @IsString()
-  @Matches(/^\d{3,4}$/)
-  ccv: string;
-
-  // ── Holder info (obrigat\u00f3rio para anti-fraude do gateway) ──
-  @ApiProperty()
+  @ApiProperty({ example: 'visa' })
   @IsString()
   @IsNotEmpty()
-  holderInfoName: string;
+  brand: string;
 
-  @ApiProperty()
-  @IsEmail()
-  holderInfoEmail: string;
-
-  @ApiProperty({ example: '12345678901' })
+  @ApiProperty({ example: '4242' })
   @IsString()
-  @Matches(/^\d{11}|\d{14}$/, {
-    message: 'CPF ou CNPJ inv\u00e1lido',
-  })
-  holderInfoCpfCnpj: string;
+  @Length(4, 4)
+  last4: string;
 
-  @ApiProperty({ example: '01310-100' })
-  @IsString()
-  @Length(8, 9)
-  holderInfoPostalCode: string;
+  @ApiProperty({ example: 12 })
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  expMonth: number;
 
-  @ApiProperty()
-  @IsString()
-  @IsNotEmpty()
-  holderInfoAddressNumber: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  holderInfoAddressComplement?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  holderInfoPhone?: string;
+  @ApiProperty({ example: 2030 })
+  @IsInt()
+  @Min(2024)
+  expYear: number;
 }

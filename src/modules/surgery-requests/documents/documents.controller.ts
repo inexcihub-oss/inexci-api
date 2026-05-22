@@ -32,7 +32,7 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Enviar documento' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }),
+    FileInterceptor('document', { limits: { fileSize: 1 * 1024 * 1024 } }),
   )
   create(
     @Body() data: CreateDocumentDto,

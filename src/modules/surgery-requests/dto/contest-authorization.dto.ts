@@ -20,7 +20,7 @@ export class ContestAuthorizationDto {
   @IsString()
   subject?: string;
 
-  @ValidateIf((o) => o.method === SendMethod.EMAIL)
+  @IsOptional()
   @IsString()
   message?: string;
 

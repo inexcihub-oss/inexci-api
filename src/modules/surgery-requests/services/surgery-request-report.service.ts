@@ -107,16 +107,12 @@ export class SurgeryRequestReportService {
     return this.getReportSections(id, _userId);
   }
 
-  async generateReportPdf(id: string, userId: string): Promise<Buffer> {
+  async generateMedicalReportPdf(id: string, userId: string): Promise<Buffer> {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
     );
     if (!request) throw new NotFoundException('Solicitação não encontrada');
 
-    const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
-      request,
-      userId,
-    );
-    return Buffer.from(pdf, 'base64');
+    return this.pdfAssemblyService.generateMedicalReportPdf(request, userId);
   }
 }

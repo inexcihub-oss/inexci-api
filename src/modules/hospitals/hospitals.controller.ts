@@ -24,6 +24,7 @@ import { HospitalsService } from './hospitals.service';
 import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
 import { UpdateHospitalDto } from './dto/update-hospital.dto';
+import { BulkDeleteHospitalsDto } from './dto/bulk-delete-hospitals.dto';
 
 @ApiTags('Hospitais')
 @ApiBearerAuth()
@@ -66,5 +67,15 @@ export class HospitalsController {
   @ApiOperation({ summary: 'Excluir hospital (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.hospitalsService.delete(id, user.userId);
+  }
+
+  @Post('bulk-delete')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir hospitais em lote (soft delete)' })
+  bulkDelete(
+    @Body() data: BulkDeleteHospitalsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.hospitalsService.bulkDelete(data.ids, user.userId);
   }
 }

@@ -8,7 +8,7 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -188,5 +188,31 @@ export class PatientsService {
     if (!patient) throw new NotFoundException('Paciente não encontrado');
     await this.accessControlService.assertSameOwner(userId, patient.ownerId);
     await this.patientRepository.delete(id);
+  }
+
+  async bulkDelete(
+    ids: string[],
+    userId: string,
+  ): Promise<{ deleted: number }> {
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const uniqueIds = [...new Set(ids)];
+
+    const patients = await this.patientRepository.findMany({
+      id: In(uniqueIds),
+      ownerId,
+    });
+
+    if (patients.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'Um ou mais pacientes não foram encontrados.',
+      );
+    }
+
+    await this.patientRepository.getRepository().softDelete(uniqueIds);
+    this.logger.log(
+      `Pacientes soft-deleted em lote: total=${uniqueIds.length}`,
+    );
+
+    return { deleted: uniqueIds.length };
   }
 }

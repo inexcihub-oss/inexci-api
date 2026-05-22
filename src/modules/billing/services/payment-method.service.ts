@@ -20,17 +20,18 @@ import { SavePaymentMethodDto } from '../dto/save-payment-method.dto';
 import { SubscriptionService } from './subscription.service';
 
 /**
- * Servi\u00e7o de m\u00e9todos de pagamento.
+ * Serviço de métodos de pagamento.
  *
- * Fluxo de cadastro de cart\u00e3o:
- * 1. Garante que existe um customer no gateway para o owner (cria se n\u00e3o
- *    existir, reaproveita se j\u00e1 existir em outro PM).
- * 2. Tokeniza o cart\u00e3o no gateway.
- * 3. Salva o PaymentMethod local (token + metadados de exibi\u00e7\u00e3o).
+ * Fluxo de cadastro de cartão:
+ * 1. Garante que existe um customer no gateway para o owner (cria se não
+ *    existir, reaproveita se já existir em outro PM).
+ * 2. Vincula o PaymentMethod criado pelo Stripe.js ao customer.
+ * 3. Salva o PaymentMethod local (token + metadados de exibição).
  * 4. Aciona `SubscriptionService.onPaymentMethodAdded` para criar/atualizar
- *    a subscription no gateway (encerrando trial ou suspens\u00e3o).
+ *    a subscription no gateway (encerrando trial ou suspensão).
  *
- * IMPORTANTE: dados sens\u00edveis (n\u00famero/CVV) JAMAIS s\u00e3o persistidos.
+ * IMPORTANTE: dados sensíveis (número/CVV) JAMAIS chegam ao backend — o
+ * Stripe.js tokeniza no frontend e envia apenas o pm_xxx.
  */
 @Injectable()
 export class PaymentMethodService {
@@ -52,13 +53,12 @@ export class PaymentMethodService {
   async addCard(
     userId: string,
     dto: SavePaymentMethodDto,
-    remoteIp: string,
   ): Promise<PaymentMethod> {
     const owner = await this.assertOwner(userId);
     const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
       throw new NotFoundException(
-        'Sua conta n\u00e3o possui uma assinatura. Contate o suporte.',
+        'Sua conta não possui uma assinatura. Contate o suporte.',
       );
     }
 
@@ -67,36 +67,25 @@ export class PaymentMethodService {
     if (!gatewayCustomerId) {
       const customer = await this.gateway.createCustomer({
         ownerId: owner.id,
-        name: dto.holderInfoName || owner.name,
-        email: dto.holderInfoEmail || owner.email,
-        cpfCnpj: dto.holderInfoCpfCnpj,
-        phone: dto.holderInfoPhone || owner.phone || null,
+        name: owner.name,
+        email: owner.email,
+        phone: owner.phone || null,
       });
       gatewayCustomerId = customer.id;
     }
 
-    // 2. Tokeniza
+    // 2. Vincula o PaymentMethod ao customer no Stripe
     const tokenized = await this.gateway.tokenizeCard({
       customerId: gatewayCustomerId,
-      number: dto.number.replace(/\s/g, ''),
+      paymentMethodId: dto.paymentMethodId,
+      brand: dto.brand,
+      last4: dto.last4,
       holderName: dto.holderName,
-      expiryMonth: dto.expiryMonth,
-      expiryYear: dto.expiryYear,
-      ccv: dto.ccv,
-      holderInfo: {
-        name: dto.holderInfoName,
-        email: dto.holderInfoEmail,
-        cpfCnpj: dto.holderInfoCpfCnpj,
-        postalCode: dto.holderInfoPostalCode,
-        addressNumber: dto.holderInfoAddressNumber,
-        addressComplement: dto.holderInfoAddressComplement || null,
-        phone: dto.holderInfoPhone || null,
-        mobilePhone: dto.holderInfoPhone || null,
-      },
-      remoteIp,
+      expMonth: dto.expMonth,
+      expYear: dto.expYear,
     });
 
-    // 3. Marca anteriores como n\u00e3o-default e salva o novo
+    // 3. Marca anteriores como não-default e salva o novo
     await this.paymentMethodRepo.clearDefaultsForOwner(owner.id);
     const saved = await this.paymentMethodRepo.create({
       ownerId: owner.id,
@@ -126,11 +115,11 @@ export class PaymentMethodService {
     const owner = await this.assertOwner(userId);
     const pm = await this.paymentMethodRepo.findOne({ id: paymentMethodId });
     if (!pm || pm.ownerId !== owner.id) {
-      throw new NotFoundException('Cart\u00e3o n\u00e3o encontrado');
+      throw new NotFoundException('Cartão não encontrado');
     }
     await this.paymentMethodRepo.delete(paymentMethodId);
 
-    // Se o PM removido era o default da subscription, limpa o v\u00ednculo.
+    // Se o PM removido era o default da subscription, limpa o vínculo.
     const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (subscription?.defaultPaymentMethodId === paymentMethodId) {
       await this.subscriptionRepo.update(subscription.id, {
@@ -141,10 +130,10 @@ export class PaymentMethodService {
 
   private async assertOwner(userId: string) {
     const user = await this.userRepo.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usu\u00e1rio n\u00e3o encontrado');
+    if (!user) throw new NotFoundException('Usuário não encontrado');
     if (user.id !== user.ownerId) {
       throw new ForbiddenException(
-        'Apenas o admin da conta pode gerenciar m\u00e9todos de pagamento',
+        'Apenas o admin da conta pode gerenciar métodos de pagamento',
       );
     }
     return user;

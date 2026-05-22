@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Headers,
-  Ip,
-  Param,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import {
@@ -44,18 +35,8 @@ export class PaymentMethodsController {
   async add(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SavePaymentMethodDto,
-    @Ip() ip: string,
-    @Headers('x-forwarded-for') xff?: string,
   ) {
-    const remoteIp = (xff?.split(',')[0]?.trim() || ip || '0.0.0.0').replace(
-      /^::ffff:/,
-      '',
-    );
-    const saved = await this.paymentMethodService.addCard(
-      user.userId,
-      dto,
-      remoteIp,
-    );
+    const saved = await this.paymentMethodService.addCard(user.userId, dto);
     return {
       id: saved.id,
       brand: saved.brand,

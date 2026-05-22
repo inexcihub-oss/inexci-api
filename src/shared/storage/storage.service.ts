@@ -83,7 +83,9 @@ export class StorageService {
     try {
       const { data, error } = await this.supabase.storage
         .from(this.bucket)
-        .createSignedUrl(filePath, 3600); // expira em 1 hora
+        // `download: false` explicita comportamento inline (abrir no navegador)
+        // em vez de forçar download do arquivo.
+        .createSignedUrl(filePath, 3600, { download: false }); // expira em 1 hora
 
       if (error || !data?.signedUrl) {
         throw new BadRequestException(

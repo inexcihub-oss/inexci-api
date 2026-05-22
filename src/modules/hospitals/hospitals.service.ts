@@ -8,7 +8,7 @@ import { FindManyHospitalDto } from './dto/find-many-hospital.dto';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
 import { UpdateHospitalDto } from './dto/update-hospital.dto';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { Hospital } from 'src/database/entities/hospital.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
@@ -77,5 +77,31 @@ export class HospitalsService {
     if (!hospital) throw new NotFoundException('Hospital não encontrado');
     await this.accessControlService.assertSameOwner(userId, hospital.ownerId);
     await this.hospitalRepository.delete(id);
+  }
+
+  async bulkDelete(
+    ids: string[],
+    userId: string,
+  ): Promise<{ deleted: number }> {
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const uniqueIds = [...new Set(ids)];
+
+    const hospitals = await this.hospitalRepository.findMany({
+      id: In(uniqueIds),
+      ownerId,
+    });
+
+    if (hospitals.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'Um ou mais hospitais não foram encontrados.',
+      );
+    }
+
+    await this.hospitalRepository.getRepository().softDelete(uniqueIds);
+    this.logger.log(
+      `Hospitais soft-deleted em lote: total=${uniqueIds.length}`,
+    );
+
+    return { deleted: uniqueIds.length };
   }
 }

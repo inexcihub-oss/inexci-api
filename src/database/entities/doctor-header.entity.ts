@@ -23,10 +23,10 @@ export class DoctorHeader {
   @Column({
     name: 'logo_position',
     type: 'enum',
-    enum: ['left', 'right'],
+    enum: ['left', 'center', 'right'],
     default: 'left',
   })
-  logoPosition: 'left' | 'right';
+  logoPosition: 'left' | 'center' | 'right';
 
   @Column({ name: 'content_html', type: 'text', nullable: true })
   contentHtml: string | null;

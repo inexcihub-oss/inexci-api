@@ -365,10 +365,15 @@ export class PendencyValidatorService {
       };
     }
 
-    // Combina pendências fixas + pendências dinâmicas de documentos obrigatórios
+    // Combina pendências fixas + pendências dinâmicas de documentos obrigatórios.
+    // Documentos do template só fazem sentido no status PENDING (antes do envio).
+    const documentPendencies =
+      status === SurgeryRequestStatus.PENDING
+        ? this.buildDocumentPendencies(request)
+        : [];
     const allPendencies: PendencyConfig[] = [
       ...config.pendencies,
-      ...this.buildDocumentPendencies(request),
+      ...documentPendencies,
     ];
 
     const pendencies: CalculatedPendencyDto[] = allPendencies.map((p) => ({
@@ -423,9 +428,14 @@ export class PendencyValidatorService {
       return { pending: 0, total: 0, canAdvance: true, items: [] };
     }
 
+    // Documentos do template só fazem sentido no status PENDING (antes do envio).
+    const documentPendencies =
+      request.status === SurgeryRequestStatus.PENDING
+        ? this.buildDocumentPendencies(request)
+        : [];
     const allPendencies: PendencyConfig[] = [
       ...config.pendencies,
-      ...this.buildDocumentPendencies(request),
+      ...documentPendencies,
     ];
 
     const items: ResolvedPendency[] = allPendencies.map((p) => ({
@@ -439,7 +449,7 @@ export class PendencyValidatorService {
 
     return {
       pending: blockingPending,
-      total: config.pendencies.length,
+      total: allPendencies.length,
       canAdvance: blockingPending === 0,
       items,
     };
@@ -516,7 +526,7 @@ export class PendencyValidatorService {
     return {
       pendingCount,
       completedCount,
-      totalCount: config.pendencies.length,
+      totalCount: allPendencies.length,
     };
   }
 }

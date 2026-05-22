@@ -7,7 +7,7 @@ import {
 import { FindManyHealthPlanDto } from './dto/find-many-health-plan.dto';
 import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
 import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
@@ -85,5 +85,31 @@ export class HealthPlansService {
     await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
     await this.healthPlanRepository.delete(id);
     this.logger.log(`Convênio soft-deleted: id=${id}`);
+  }
+
+  async bulkDelete(
+    ids: string[],
+    userId: string,
+  ): Promise<{ deleted: number }> {
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const uniqueIds = [...new Set(ids)];
+
+    const plans = await this.healthPlanRepository.findMany({
+      id: In(uniqueIds),
+      ownerId,
+    });
+
+    if (plans.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'Um ou mais convênios não foram encontrados.',
+      );
+    }
+
+    await this.healthPlanRepository.getRepository().softDelete(uniqueIds);
+    this.logger.log(
+      `Convênios soft-deleted em lote: total=${uniqueIds.length}`,
+    );
+
+    return { deleted: uniqueIds.length };
   }
 }

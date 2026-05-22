@@ -19,6 +19,7 @@ import { PatientsService } from './patients.service';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
+import { BulkDeletePatientsDto } from './dto/bulk-delete-patients.dto';
 
 @ApiTags('Pacientes')
 @ApiBearerAuth()
@@ -59,5 +60,15 @@ export class PatientsController {
   @ApiOperation({ summary: 'Excluir paciente' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.patientsService.delete(id, user.userId);
+  }
+
+  @Post('bulk-delete')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir pacientes em lote' })
+  bulkDelete(
+    @Body() data: BulkDeletePatientsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patientsService.bulkDelete(data.ids, user.userId);
   }
 }

@@ -164,4 +164,35 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
     expect(payload.statusCode).toBe(500);
     expect(payload.userId).toBe('u-x');
   });
+
+  it('em erro com status inicial 201, registra 500 no payload http_request', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error');
+    const req = {
+      method: 'POST',
+      originalUrl: '/surgery-requests/templates',
+      url: '/surgery-requests/templates',
+      user: { userId: 'u-tpl' },
+    };
+    const res = { statusCode: 201 };
+    const handler: CallHandler = {
+      handle: () => throwError(() => new Error('db falhou')),
+    };
+
+    await requestContextStorage.run({ requestId: 'req-6' }, async () => {
+      await expect(
+        lastValueFrom(
+          interceptor.intercept(buildExecutionContext(req, res), handler),
+        ),
+      ).rejects.toThrow('db falhou');
+    });
+
+    const httpErrorCalls = errorSpy.mock.calls.filter((call) =>
+      String(call[0] ?? '').includes('http_request'),
+    );
+    expect(httpErrorCalls.length).toBe(1);
+    const payload = JSON.parse(httpErrorCalls[0][0] as string);
+    expect(payload.statusCode).toBe(500);
+    expect(payload.method).toBe('POST');
+    expect(payload.url).toBe('/surgery-requests/templates');
+  });
 });

@@ -123,11 +123,10 @@ export const envValidationSchema = Joi.object({
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),
 
   // ── Billing / Payment Gateway ────────────────────────
-  PAYMENT_GATEWAY_PROVIDER: Joi.string().valid('asaas').default('asaas'),
-  ASAAS_API_URL: Joi.string().uri().default('https://api-sandbox.asaas.com/v3'),
-  ASAAS_API_KEY: Joi.string().allow('').default(''),
-  ASAAS_WEBHOOK_TOKEN: Joi.string().allow('').default(''),
-  ASAAS_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
+  PAYMENT_GATEWAY_PROVIDER: Joi.string().valid('stripe').default('stripe'),
+  STRIPE_SECRET_KEY: Joi.string().allow('').default(''),
+  STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
+  STRIPE_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
   BILLING_TRIAL_DAYS: Joi.number().default(30),
   BILLING_GRACE_PERIOD_DAYS: Joi.number().default(7),
   BILLING_TRIAL_REMINDER_DAYS: Joi.string().default('7,3,1'),

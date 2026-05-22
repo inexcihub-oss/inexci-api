@@ -354,8 +354,8 @@ export class SurgeryRequestsService {
     return this.reportService.reorderReportSections(id, dto, userId);
   }
 
-  generateReportPdf(id: string, userId: string) {
-    return this.reportService.generateReportPdf(id, userId);
+  generateMedicalReportPdf(id: string, userId: string) {
+    return this.reportService.generateMedicalReportPdf(id, userId);
   }
 
   exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
@@ -366,28 +366,37 @@ export class SurgeryRequestsService {
   // DELEGAÇÃO → TEMPLATE SERVICE
   // ============================================================
 
-  createTemplate(dto: { name: string; templateData: object }, userId: string) {
-    return this.templateService.createTemplate(dto, userId);
+  createTemplate(
+    dto: { name: string; templateData: object },
+    userId: string,
+    ownerId: string | null,
+  ) {
+    return this.templateService.createTemplate(dto, userId, ownerId);
   }
 
-  getTemplates(userId: string) {
-    return this.templateService.getTemplates(userId);
+  getTemplates(userId: string, ownerId: string | null) {
+    return this.templateService.getTemplates(userId, ownerId);
   }
 
-  deleteTemplate(id: string, userId: string) {
-    return this.templateService.deleteTemplate(id, userId);
+  deleteTemplate(id: string, userId: string, ownerId: string | null) {
+    return this.templateService.deleteTemplate(id, userId, ownerId);
+  }
+
+  bulkDeleteTemplates(ids: string[], userId: string, ownerId: string | null) {
+    return this.templateService.bulkDeleteTemplates(ids, userId, ownerId);
   }
 
   updateTemplate(
     id: string,
     dto: { name?: string; templateData?: object },
     userId: string,
+    ownerId: string | null,
   ) {
-    return this.templateService.updateTemplate(id, dto, userId);
+    return this.templateService.updateTemplate(id, dto, userId, ownerId);
   }
 
-  incrementTemplateUsage(id: string, userId: string) {
-    return this.templateService.incrementUsage(id, userId);
+  incrementTemplateUsage(id: string, userId: string, ownerId: string | null) {
+    return this.templateService.incrementUsage(id, userId, ownerId);
   }
 
   // ── Helpers privados ────────────────────────────────────────────────────────

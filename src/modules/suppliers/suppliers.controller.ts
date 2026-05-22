@@ -19,6 +19,7 @@ import { SuppliersService } from './suppliers.service';
 import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { BulkDeleteSuppliersDto } from './dto/bulk-delete-suppliers.dto';
 
 @ApiTags('Fornecedores')
 @ApiBearerAuth()
@@ -66,5 +67,15 @@ export class SuppliersController {
   @ApiOperation({ summary: 'Excluir fornecedor' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.suppliersService.delete(id, user.userId);
+  }
+
+  @Post('bulk-delete')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir fornecedores em lote' })
+  bulkDelete(
+    @Body() data: BulkDeleteSuppliersDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.suppliersService.bulkDelete(data.ids, user.userId);
   }
 }

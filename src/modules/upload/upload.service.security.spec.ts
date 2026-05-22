@@ -42,19 +42,24 @@ describe('UploadService — IDOR (VULN-03)', () => {
 
     service = new UploadService(
       mockSupabase,
-      { get: jest.fn().mockReturnValue('inexci-storage') } as unknown as ConfigService,
+      {
+        get: jest.fn().mockReturnValue('inexci-storage'),
+      } as unknown as ConfigService,
       mockDocumentRepository as DocumentRepository,
     );
   });
 
   describe('pastas com escopo de tenant (documents, post-surgical, report)', () => {
     it('deve lançar ForbiddenException se arquivo não pertence ao tenant', async () => {
-      (mockDocumentRepository.existsByUriAndOwner as jest.Mock).mockResolvedValue(
-        false,
-      );
+      (
+        mockDocumentRepository.existsByUriAndOwner as jest.Mock
+      ).mockResolvedValue(false);
 
       await expect(
-        service.getSignedUrl('documents/arquivo-de-outro-tenant.pdf', 'owner-a'),
+        service.getSignedUrl(
+          'documents/arquivo-de-outro-tenant.pdf',
+          'owner-a',
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -65,9 +70,9 @@ describe('UploadService — IDOR (VULN-03)', () => {
     });
 
     it('deve gerar URL se arquivo pertence ao tenant', async () => {
-      (mockDocumentRepository.existsByUriAndOwner as jest.Mock).mockResolvedValue(
-        true,
-      );
+      (
+        mockDocumentRepository.existsByUriAndOwner as jest.Mock
+      ).mockResolvedValue(true);
 
       const result = await service.getSignedUrl(
         'documents/meu-arquivo.pdf',
@@ -78,9 +83,9 @@ describe('UploadService — IDOR (VULN-03)', () => {
     });
 
     it('deve verificar post-surgical e report também', async () => {
-      (mockDocumentRepository.existsByUriAndOwner as jest.Mock).mockResolvedValue(
-        false,
-      );
+      (
+        mockDocumentRepository.existsByUriAndOwner as jest.Mock
+      ).mockResolvedValue(false);
 
       await expect(
         service.getSignedUrl('post-surgical/laudo.pdf', 'owner-a'),
@@ -94,10 +99,7 @@ describe('UploadService — IDOR (VULN-03)', () => {
 
   describe('pastas pessoais (avatars, signatures, headers)', () => {
     it('deve gerar URL sem verificação de tenant para avatars', async () => {
-      const result = await service.getSignedUrl(
-        'avatars/photo.png',
-        'owner-a',
-      );
+      const result = await service.getSignedUrl('avatars/photo.png', 'owner-a');
 
       expect(mockDocumentRepository.existsByUriAndOwner).not.toHaveBeenCalled();
       expect(result.url).toBe('https://example.com/signed');

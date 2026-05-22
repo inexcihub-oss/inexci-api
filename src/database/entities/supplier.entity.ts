@@ -152,4 +152,7 @@ export class Supplier {
 
   @ManyToMany(() => OpmeItem, (opmeItem) => opmeItem.suppliers)
   opmeItems: OpmeItem[];
+
+  @OneToMany(() => OpmeItem, (opmeItem) => opmeItem.selectedSupplier)
+  selectedOpmeItems: OpmeItem[];
 }

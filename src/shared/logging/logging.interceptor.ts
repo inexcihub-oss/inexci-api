@@ -1,6 +1,7 @@
 import {
   CallHandler,
   ExecutionContext,
+  HttpException,
   Injectable,
   Logger,
   NestInterceptor,
@@ -63,18 +64,23 @@ export class LoggingInterceptor implements NestInterceptor {
           this.traceLogger.error(
             `✗ ${handlerLabel} (${Date.now() - startedAt}ms) — ${reason}`,
           );
-          this.emit(req, res, startedAt);
+          this.emit(req, res, startedAt, err);
         },
       }),
     );
   }
 
-  private emit(req: Request, res: Response, startedAt: number): void {
+  private emit(
+    req: Request,
+    res: Response,
+    startedAt: number,
+    err?: unknown,
+  ): void {
     const ctx = getRequestContext();
     const durationMs = Date.now() - startedAt;
     const url = sanitizeUrl(req.originalUrl || req.url || '');
     const method = req.method;
-    const statusCode = res.statusCode;
+    const statusCode = this.resolveStatusCode(err, res.statusCode);
 
     const payload = JSON.stringify({
       event: 'http_request',
@@ -94,6 +100,34 @@ export class LoggingInterceptor implements NestInterceptor {
     } else {
       this.logger.log(payload);
     }
+  }
+
+  private resolveStatusCode(err: unknown, currentStatusCode: number): number {
+    if (!err) return currentStatusCode;
+
+    if (err instanceof HttpException) {
+      return err.getStatus();
+    }
+
+    const anyErr = err as {
+      status?: number;
+      statusCode?: number;
+      getStatus?: () => number;
+    };
+
+    if (typeof anyErr?.getStatus === 'function') {
+      return anyErr.getStatus();
+    }
+
+    if (typeof anyErr?.statusCode === 'number') {
+      return anyErr.statusCode;
+    }
+
+    if (typeof anyErr?.status === 'number') {
+      return anyErr.status;
+    }
+
+    return currentStatusCode >= 400 ? currentStatusCode : 500;
   }
 }
 
