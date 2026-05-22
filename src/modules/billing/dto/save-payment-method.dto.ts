@@ -1,12 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsInt,
-  IsNotEmpty,
-  IsString,
-  Length,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, Length, Max, Min } from 'class-validator';
 
 /**
  * Dados enviados pelo frontend após o Stripe.js ter criado o PaymentMethod.

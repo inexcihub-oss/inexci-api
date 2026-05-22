@@ -24,6 +24,7 @@ import { HealthPlansService } from './health-plans.service';
 import { FindManyHealthPlanDto } from './dto/find-many-health-plan.dto';
 import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
 import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
+import { BulkDeleteHealthPlansDto } from './dto/bulk-delete-health-plans.dto';
 
 @ApiTags('Planos de Saúde')
 @ApiBearerAuth()
@@ -66,5 +67,15 @@ export class HealthPlansController {
   @ApiOperation({ summary: 'Excluir plano de saúde (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.healthPlansService.delete(id, user.userId);
+  }
+
+  @Post('bulk-delete')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir planos de saúde em lote (soft delete)' })
+  bulkDelete(
+    @Body() data: BulkDeleteHealthPlansDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.healthPlansService.bulkDelete(data.ids, user.userId);
   }
 }

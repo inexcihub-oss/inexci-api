@@ -62,7 +62,10 @@ export class UploadController {
     if (!filePath) {
       throw new BadRequestException('O parâmetro "path" é obrigatório');
     }
-    const result = await this.uploadService.getSignedUrl(filePath, user.ownerId);
+    const result = await this.uploadService.getSignedUrl(
+      filePath,
+      user.ownerId,
+    );
     return { data: result };
   }
 

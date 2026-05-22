@@ -411,9 +411,7 @@ export class StripeProvider implements PaymentGateway {
               ? obj['subscription']
               : undefined,
           customerId:
-            typeof obj['customer'] === 'string'
-              ? obj['customer']
-              : undefined,
+            typeof obj['customer'] === 'string' ? obj['customer'] : undefined,
         },
       };
     }
@@ -424,9 +422,7 @@ export class StripeProvider implements PaymentGateway {
         resourceId: id,
         refs: {
           customerId:
-            typeof obj['customer'] === 'string'
-              ? obj['customer']
-              : undefined,
+            typeof obj['customer'] === 'string' ? obj['customer'] : undefined,
         },
       };
     }

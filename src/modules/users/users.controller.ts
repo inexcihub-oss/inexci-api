@@ -5,6 +5,7 @@ import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
 import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
+import { BulkDeleteCollaboratorsDto } from './dto/bulk-delete-collaborators.dto';
 import { UsersService } from './users.service';
 import {
   Body,
@@ -217,5 +218,18 @@ export class UsersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.usersService.deleteCollaborator(id, user.userId);
+  }
+
+  @Post('collaborators/bulk-delete')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir colaboradores em lote' })
+  async bulkDeleteCollaborators(
+    @Body() data: BulkDeleteCollaboratorsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.usersService.bulkDeleteCollaborators(
+      data.ids,
+      user.userId,
+    );
   }
 }

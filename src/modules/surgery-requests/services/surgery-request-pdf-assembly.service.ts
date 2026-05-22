@@ -507,7 +507,7 @@ export class SurgeryRequestPdfAssemblyService {
     const contestationDocuments = (request.documents ?? []).filter(
       (doc: any) =>
         !!doc?.uri &&
-        (!!latestContestation?.id
+        (latestContestation?.id
           ? doc.contestationId === latestContestation.id
           : false),
     );

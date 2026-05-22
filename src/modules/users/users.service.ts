@@ -727,6 +727,45 @@ export class UsersService {
     return { message: 'Colaborador desativado com sucesso' };
   }
 
+  async bulkDeleteCollaborators(
+    collaboratorIds: string[],
+    adminId: string,
+  ): Promise<{ deleted: number }> {
+    const admin = await this.userRepository.findOne({ id: adminId });
+    if (!admin || admin.role !== UserRole.ADMIN)
+      throw new ForbiddenException('Apenas admins podem remover colaboradores');
+
+    const uniqueIds = [...new Set(collaboratorIds)];
+    const collaborators = await this.userRepository.getRepository().find({
+      where: {
+        id: In(uniqueIds),
+        adminId,
+        role: UserRole.COLLABORATOR,
+      },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+
+    if (collaborators.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'Um ou mais colaboradores não foram encontrados.',
+      );
+    }
+
+    for (const collaborator of collaborators) {
+      await this.userRepository.update(collaborator.id, {
+        email: `deleted_${collaborator.email ?? 'sem-email'}_${collaborator.id}`,
+        phone: `DEL${collaborator.id.slice(0, 12)}`,
+      });
+    }
+
+    await this.userRepository.getRepository().softDelete(uniqueIds);
+
+    return { deleted: uniqueIds.length };
+  }
+
   // ============ MÉDICOS DA CONTA ============
 
   /**

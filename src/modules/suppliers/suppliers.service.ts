@@ -8,7 +8,7 @@ import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
-import { FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { Supplier } from 'src/database/entities/supplier.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
@@ -95,5 +95,32 @@ export class SuppliersService {
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
     await this.supplierRepository.delete(id);
+  }
+
+  async bulkDelete(
+    ids: string[],
+    userId: string,
+  ): Promise<{ deleted: number }> {
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+
+    if (!ownerId) {
+      throw new ForbiddenException('Usuário sem clínica vinculada.');
+    }
+
+    const uniqueIds = [...new Set(ids)];
+    const suppliers = await this.supplierRepository.findMany({
+      id: In(uniqueIds),
+      ownerId,
+    });
+
+    if (suppliers.length !== uniqueIds.length) {
+      throw new NotFoundException(
+        'Um ou mais fornecedores não foram encontrados.',
+      );
+    }
+
+    await this.supplierRepository.getRepository().softDelete(uniqueIds);
+
+    return { deleted: uniqueIds.length };
   }
 }

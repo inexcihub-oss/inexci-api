@@ -382,6 +382,10 @@ export class SurgeryRequestsService {
     return this.templateService.deleteTemplate(id, userId, ownerId);
   }
 
+  bulkDeleteTemplates(ids: string[], userId: string, ownerId: string | null) {
+    return this.templateService.bulkDeleteTemplates(ids, userId, ownerId);
+  }
+
   updateTemplate(
     id: string,
     dto: { name?: string; templateData?: object },

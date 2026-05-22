@@ -12,6 +12,7 @@ import { SupplierRepository } from 'src/database/repositories/supplier.repositor
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { Supplier } from 'src/database/entities/supplier.entity';
+import { ILike } from 'typeorm';
 
 const MIN_OPME_OPTIONS = 3;
 
@@ -128,20 +129,49 @@ export class OpmeService {
     ownerId: string,
   ): Promise<Supplier[]> {
     const result: Supplier[] = [];
+    const addedIds = new Set<string>();
+    const addedNamesNormalized = new Set<string>();
 
     for (const id of ids) {
       const supplier = await this.supplierRepository.findOne({ id });
-      if (supplier) result.push(supplier);
+      if (!supplier) continue;
+      if (addedIds.has(supplier.id)) continue;
+
+      result.push(supplier);
+      addedIds.add(supplier.id);
+      addedNamesNormalized.add(supplier.name.trim().toLowerCase());
     }
 
     for (const name of names) {
       const trimmed = name.trim();
       if (!trimmed) continue;
+
+      const normalized = trimmed.toLowerCase();
+      if (addedNamesNormalized.has(normalized)) continue;
+
+      const existing = await this.supplierRepository.getRepository().findOne({
+        where: {
+          ownerId,
+          name: ILike(trimmed),
+        },
+      });
+
+      if (existing) {
+        if (!addedIds.has(existing.id)) {
+          result.push(existing);
+          addedIds.add(existing.id);
+        }
+        addedNamesNormalized.add(existing.name.trim().toLowerCase());
+        continue;
+      }
+
       const newSupplier = await this.supplierRepository.create({
         name: trimmed,
         ownerId,
       });
       result.push(newSupplier);
+      addedIds.add(newSupplier.id);
+      addedNamesNormalized.add(newSupplier.name.trim().toLowerCase());
     }
 
     return result;

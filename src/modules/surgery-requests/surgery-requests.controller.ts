@@ -45,6 +45,7 @@ import { NotifySurgeryRequestDto } from './dto/notify-surgery-request.dto';
 import { CreateReportSectionDto } from './dto/create-report-section.dto';
 import { UpdateReportSectionDto } from './dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
+import { BulkDeleteTemplatesDto } from './dto/bulk-delete-templates.dto';
 
 @ApiTags('Solicitações Cirúrgicas')
 @ApiBearerAuth()
@@ -525,6 +526,23 @@ export class SurgeryRequestsController {
   ) {
     return this.surgeryRequestsService.createTemplate(
       dto,
+      user.userId,
+      user.ownerId,
+    );
+  }
+
+  /**
+   * POST /surgery-requests/templates/bulk-delete
+   * Exclui templates em lote do médico logado.
+   */
+  @Post('templates/bulk-delete')
+  @ApiOperation({ summary: 'Excluir templates em lote' })
+  bulkDeleteTemplates(
+    @Body() dto: BulkDeleteTemplatesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.bulkDeleteTemplates(
+      dto.ids,
       user.userId,
       user.ownerId,
     );

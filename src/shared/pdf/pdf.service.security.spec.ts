@@ -21,13 +21,12 @@ describe('PdfService — segurança SSRF (VULN-01)', () => {
   it('deve retornar null para URL de metadados AWS (SSRF)', async () => {
     const url =
       'http://169.254.169.254/latest/meta-data/iam/security-credentials/';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const result = await (service as any).fetchAsDataUri(url);
     expect(result).toBeNull();
   });
 
   it('deve retornar null para URL com protocolo http', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (service as any).fetchAsDataUri(
       'http://supabase.co/storage/file.png',
     );
@@ -35,7 +34,6 @@ describe('PdfService — segurança SSRF (VULN-01)', () => {
   });
 
   it('deve retornar null para localhost', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (service as any).fetchAsDataUri(
       'https://localhost/secret',
     );
@@ -43,7 +41,6 @@ describe('PdfService — segurança SSRF (VULN-01)', () => {
   });
 
   it('deve retornar null para host interno Redis', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (service as any).fetchAsDataUri('http://redis:6379/');
     expect(result).toBeNull();
   });
