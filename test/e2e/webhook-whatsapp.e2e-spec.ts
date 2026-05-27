@@ -200,13 +200,15 @@ describe('WhatsApp tool execution — create_patient', () => {
       {},
       BASE_CONTEXT,
     );
-    expect(parseToolResult(preview).status).toBe('pending_confirmation');
+    expect(parseToolResult(preview)?.status).toBe('pending_confirmation');
 
     const commit = await getTool('patient_draft_commit').execute(
       { confirm: true },
       BASE_CONTEXT,
     );
     const result = parseToolResult(commit);
+    expect(result).not.toBeNull();
+    if (!result) throw new Error('Tool result inválido');
     expect(result.status).toBe('ok');
     expect(mockPatientsService.create).toHaveBeenCalledTimes(1);
     expect(mockPatientsService.create).toHaveBeenCalledWith(
@@ -264,7 +266,7 @@ describe('WhatsApp tool execution — create_hospital', () => {
       { confirm: true },
       BASE_CONTEXT,
     );
-    expect(parseToolResult(commit).status).toBe('ok');
+    expect(parseToolResult(commit)?.status).toBe('ok');
     expect(mockHospitalsService.create).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Hospital Beneficência' }),
       'user-1',
@@ -292,30 +294,12 @@ describe('WhatsApp tool execution — create_sc', () => {
 
     tools = buildScDraftTools({
       draftService,
-      resolver: { resolve: jest.fn() } as any,
-      patientRepo: {
-        findOne: jest.fn(),
-        findMany: jest.fn().mockResolvedValue([]),
-      } as any,
-      procedureRepo: {
-        findOne: jest.fn(),
-        findMany: jest.fn().mockResolvedValue([]),
-      } as any,
-      hospitalRepo: {
-        findOne: jest.fn(),
-        findMany: jest.fn().mockResolvedValue([]),
-      } as any,
-      healthPlanRepo: {
-        findOne: jest.fn(),
-        findMany: jest.fn().mockResolvedValue([]),
-      } as any,
       userRepo: {
         findOne: jest.fn().mockResolvedValue({
           id: 'user-1',
           ownerId: 'owner-1',
           name: 'Dr. Alberto',
         }),
-        findMany: jest.fn().mockResolvedValue([]),
       } as any,
       surgeryRequestRepo: {
         create: jest.fn(),
@@ -326,6 +310,8 @@ describe('WhatsApp tool execution — create_sc', () => {
       } as any,
       surgeryRequestsService: mockSurgeryRequestsService as any,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
+      opmeService: { create: jest.fn() } as any,
+      tussService: { lookup: jest.fn().mockReturnValue([]) } as any,
     });
   });
 
@@ -345,6 +331,8 @@ describe('WhatsApp tool execution — create_sc', () => {
     const commit = tools.find((t) => t.name === 'sc_draft_commit')!;
     const result = await commit.execute({ confirm: true }, ctx);
     const parsed = parseToolResult(result);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error('Tool result inválido');
 
     expect(parsed.status).toBe('ok');
     expect(
@@ -415,6 +403,8 @@ describe('WhatsApp tool execution — mark_performed', () => {
     const commit = tools.find((t) => t.name === 'mark_performed_draft_commit')!;
     const result = await commit.execute({ confirm: true }, BASE_CONTEXT);
     const parsed = parseToolResult(result);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error('Tool result inválido');
 
     expect(parsed.status).toBe('ok');
     expect(mockWorkflowService.markPerformed).toHaveBeenCalledTimes(1);
@@ -453,7 +443,8 @@ describe('WhatsApp tool execution — invoice_request (draft)', () => {
       } as any,
       workflowService: mockWorkflowService as any,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
-      patientRepo: { findOne: jest.fn() } as any,
+      patientsService: { create: jest.fn() } as any,
+      surgeryRequestsService: { createSurgeryRequest: jest.fn() } as any,
     });
   });
 
@@ -470,6 +461,8 @@ describe('WhatsApp tool execution — invoice_request (draft)', () => {
     const commit = tools.find((t) => t.name === 'invoice_draft_commit')!;
     const result = await commit.execute({ confirm: true }, BASE_CONTEXT);
     const parsed = parseToolResult(result);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error('Tool result inválido');
 
     expect(parsed.status).toBe('ok');
     expect(mockWorkflowService.invoiceRequest).toHaveBeenCalledTimes(1);
@@ -506,6 +499,8 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
       BASE_CONTEXT,
     );
     const parsed = parseToolResult(result);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error('Tool result inválido');
     expect(parsed.status).not.toBe('error');
 
     const draft = await draftService.getCurrentOfType('conv-1', 'invoice');
@@ -530,6 +525,8 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
       BASE_CONTEXT,
     );
     const parsed = parseToolResult(result);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error('Tool result inválido');
     expect(parsed.status).toBe('error');
     expect(parsed.message ?? '').toContain('campoInexistente');
   });
@@ -552,6 +549,8 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
 
     const result = await draftStatus.execute({}, BASE_CONTEXT);
     const parsed = parseToolResult(result);
+    expect(parsed).not.toBeNull();
+    if (!parsed) throw new Error('Tool result inválido');
     expect(parsed.status).not.toBe('error');
     expect(JSON.stringify(parsed.data ?? '')).toContain('create_patient');
   });
@@ -567,7 +566,7 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
     await draftService.start({ conversationId: 'conv-1', type: 'create_sc' });
 
     const result = await draftCancel.execute({}, BASE_CONTEXT);
-    expect(parseToolResult(result).status).toBe('ok');
+    expect(parseToolResult(result)?.status).toBe('ok');
 
     const draft = await draftService.getCurrent('conv-1');
     expect(draft).toBeNull();

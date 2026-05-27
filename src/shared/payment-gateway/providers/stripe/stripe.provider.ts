@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- SDK Stripe usa namespace CJS com errors.StripeError
 import StripeLib = require('stripe');
 import type { Customer as StripeCustomer } from 'stripe/cjs/resources/Customers';
 import type { DeletedCustomer as StripeDeletedCustomer } from 'stripe/cjs/resources/Customers';

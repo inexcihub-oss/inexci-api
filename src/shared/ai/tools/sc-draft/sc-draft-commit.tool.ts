@@ -119,7 +119,6 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
         const tussList = Array.isArray(fields.tussItems)
           ? fields.tussItems
           : [];
-        let tussAdded = 0;
         for (const item of tussList) {
           const code = item?.code;
           if (!code) continue;
@@ -142,7 +141,6 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
               { tussCode: code, name, quantity: 1 },
               context.userId,
             );
-            tussAdded += 1;
           } catch (err: any) {
             warnings.push(`TUSS ${code} (${err?.message || 'erro'})`);
           }

@@ -33,6 +33,12 @@ function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
     id: 'req-1',
     status: SurgeryRequestStatus.PENDING,
     doctorId: 'doctor-1',
+    doctor: {
+      id: 'doctor-1',
+      doctorProfile: {
+        signatureUrl: 'signatures/doctor-1.png',
+      },
+    },
     createdById: 'user-1',
     patientId: 'patient-1',
     hospitalId: 'hospital-1',

@@ -1,5 +1,5 @@
 import { Logger as NestLogger } from '@nestjs/common';
-import type { Logger as TypeOrmLogger, QueryRunner } from 'typeorm';
+import type { Logger as TypeOrmLogger } from 'typeorm';
 
 /**
  * Logger compacto para o TypeORM.

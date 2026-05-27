@@ -17,6 +17,7 @@ describe('OpmeService', () => {
   const mockSupplierRepository = {
     findOne: jest.fn(),
     create: jest.fn(),
+    getRepository: jest.fn(),
   };
 
   const mockAccessValidator = {
@@ -27,6 +28,10 @@ describe('OpmeService', () => {
     create: jest.fn(),
     save: jest.fn(),
     remove: jest.fn(),
+  };
+
+  const mockSupplierTypeOrmRepository = {
+    findOne: jest.fn(),
   };
 
   const fakeSurgeryRequest = {
@@ -47,6 +52,10 @@ describe('OpmeService', () => {
     jest.clearAllMocks();
 
     mockOpmeItemRepository.getRepository.mockReturnValue(mockTypeOrmRepository);
+    mockSupplierRepository.getRepository.mockReturnValue(
+      mockSupplierTypeOrmRepository,
+    );
+    mockSupplierTypeOrmRepository.findOne.mockResolvedValue(null);
     mockAccessValidator.validateAndFetch.mockResolvedValue(fakeSurgeryRequest);
 
     service = new OpmeService(
