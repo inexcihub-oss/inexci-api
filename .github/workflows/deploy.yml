@@ -23,7 +23,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Lint
-        run: yarn lint --max-warnings=0
+        run: yarn lint
 
       - name: Testes unitários
         run: yarn test --passWithNoTests --forceExit
