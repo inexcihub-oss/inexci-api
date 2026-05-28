@@ -43,7 +43,7 @@ describe('UploadService — IDOR (VULN-03)', () => {
     service = new UploadService(
       mockSupabase,
       {
-        get: jest.fn().mockReturnValue('inexci-storage'),
+        get: jest.fn().mockReturnValue('test-bucket'),
       } as unknown as ConfigService,
       mockDocumentRepository as DocumentRepository,
     );

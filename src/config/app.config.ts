@@ -29,7 +29,7 @@ export const envValidationSchema = Joi.object({
   SUPABASE_URL: Joi.string().allow('').default(''),
   SUPABASE_PUBLISHABLE_KEY: Joi.string().allow('').default(''),
   SUPABASE_SECRET_KEY: Joi.string().allow('').default(''),
-  SUPABASE_BUCKET: Joi.string().allow('').default('inexci-storage'),
+  SUPABASE_BUCKET: Joi.string().required(),
 
   // ── Email (SMTP) ─────────────────────────────────────
   MAIL_HOST: Joi.string().allow('').default('smtp.example.com'),

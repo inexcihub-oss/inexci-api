@@ -3,7 +3,7 @@
  *
  * ARQUITETURA: 1 bucket privado, acesso exclusivamente via signed URL.
  *
- *  ┌─ inexci-storage (bucket PRIVADO) ──────────────────────────────┐
+ *  ┌─ SUPABASE_BUCKET (bucket PRIVADO) ─────────────────────────────┐
  *  │   Todos os arquivos requerem autenticação (signed URL, 1h).    │
  *  │                                                                 │
  *  │   • avatars/        → fotos de perfil dos usuários             │
@@ -22,7 +22,7 @@ import { registerAs } from '@nestjs/config';
 // ── Config registrada via ConfigService ──────────────────────────────────────
 
 export const storageConfig = registerAs('storage', () => ({
-  bucket: process.env.SUPABASE_BUCKET || 'inexci-storage',
+  bucket: process.env.SUPABASE_BUCKET,
 }));
 
 /** Token para acesso direto ao nome do bucket (retrocompatibilidade) */

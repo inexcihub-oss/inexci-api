@@ -49,10 +49,11 @@ export class UploadService {
     private readonly configService: ConfigService,
     private readonly documentRepository: DocumentRepository,
   ) {
-    this.bucket = this.configService.get<string>(
-      'storage.bucket',
-      'inexci-storage',
-    );
+    const bucket = this.configService.get<string>('storage.bucket');
+    if (!bucket) {
+      throw new Error('Variável SUPABASE_BUCKET não configurada');
+    }
+    this.bucket = bucket;
   }
 
   /**
