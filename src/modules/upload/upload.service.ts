@@ -6,10 +6,29 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseClient } from '@supabase/supabase-js';
+import * as path from 'path';
 import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
 import { STORAGE_FOLDERS } from '../../config/storage.config';
 import { DocumentRepository } from '../../database/repositories/document.repository';
 import { v4 as uuidv4 } from 'uuid';
+
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'application/pdf': 'pdf',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/mp4': 'mp4',
+  'audio/webm': 'webm',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+};
 
 /** Pastas que armazenam dados de pacientes e requerem verificação de tenant. */
 const TENANT_SCOPED_FOLDERS = [
@@ -56,9 +75,13 @@ export class UploadService {
       );
     }
 
-    // Gerar nome único para o arquivo
-    const fileExtension = file.originalname.split('.').pop();
-    const fileName = `${uuidv4()}.${fileExtension}`;
+    const ext = MIME_TO_EXT[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(
+        `Tipo de arquivo não permitido: ${file.mimetype}`,
+      );
+    }
+    const fileName = `${uuidv4()}.${ext}`;
     const filePath = `${folder}/${fileName}`;
 
     try {
@@ -105,13 +128,14 @@ export class UploadService {
     ownerId: string | null,
     expiresIn = 3600,
   ): Promise<{ url: string }> {
-    const folder = filePath.split('/')[0];
+    const safePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
+    const folder = safePath.split('/')[0];
     if (TENANT_SCOPED_FOLDERS.includes(folder)) {
       if (!ownerId) {
         throw new ForbiddenException('Acesso negado ao arquivo solicitado');
       }
       const belongs = await this.documentRepository.existsByUriAndOwner(
-        filePath,
+        safePath,
         ownerId,
       );
       if (!belongs) {
@@ -121,7 +145,7 @@ export class UploadService {
 
     const { data, error } = await this.supabase.storage
       .from(this.bucket)
-      .createSignedUrl(filePath, expiresIn);
+      .createSignedUrl(safePath, expiresIn);
 
     if (error || !data?.signedUrl) {
       throw new BadRequestException(

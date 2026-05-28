@@ -230,8 +230,11 @@ export class AuthService {
       try {
         const status = await this.consentService.getStatus(result.id);
         pendingConsents = status.pendingRequired;
-      } catch {
-        // Não bloqueia login se a verificação de consentimento falhar
+      } catch (err) {
+        this.logger.error(
+          `Falha ao verificar consentimentos no login do usuário ${result.id}`,
+          err instanceof Error ? err.stack : String(err),
+        );
       }
 
       return {

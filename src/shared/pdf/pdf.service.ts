@@ -392,6 +392,10 @@ export class PdfService {
    */
   async fetchBuffer(url: string, depth = 0): Promise<Buffer | null> {
     if (depth > 10) return null;
+    if (!isAllowedHost(url)) {
+      this.logger.warn(`fetchBuffer: host não permitido bloqueado — ${url}`);
+      return null;
+    }
     return new Promise((resolve) => {
       try {
         const client = url.startsWith('https') ? https : http;
@@ -406,6 +410,13 @@ export class PdfService {
             const nextUrl = res.headers.location.startsWith('http')
               ? res.headers.location
               : new URL(res.headers.location, url).href;
+            if (!isAllowedHost(nextUrl)) {
+              this.logger.warn(
+                `fetchBuffer: redirect para host não permitido bloqueado — ${nextUrl}`,
+              );
+              resolve(null);
+              return;
+            }
             void this.fetchBuffer(nextUrl, depth + 1).then(resolve);
             return;
           }

@@ -61,27 +61,48 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  // Swagger / OpenAPI
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Inexci API')
-    .setDescription(
-      'Documentação completa da API Inexci — gestão de solicitações cirúrgicas',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      docExpansion: 'none',
-      filter: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
-    },
-  });
-
   const configService = app.get(ConfigService);
+
+  // BullBoard — bloqueado por padrão; só abre se BULL_BOARD_USER e BULL_BOARD_PASS estiverem definidos
+  const bullBoardUser = configService.get<string>('BULL_BOARD_USER', '');
+  const bullBoardPass = configService.get<string>('BULL_BOARD_PASS', '');
+  if (bullBoardUser && bullBoardPass) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const basicAuth = require('express-basic-auth') as (opts: {
+      users: Record<string, string>;
+      challenge: boolean;
+    }) => (req: unknown, res: unknown, next: () => void) => void;
+    app.use(
+      '/admin/queues',
+      basicAuth({ users: { [bullBoardUser]: bullBoardPass }, challenge: true }),
+    );
+  } else {
+    app.use('/admin/queues', (_req: unknown, res: any) => {
+      res.status(404).end();
+    });
+  }
+
+  // Swagger / OpenAPI — desabilitado em produção
+  if (configService.get<string>('NODE_ENV') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Inexci API')
+      .setDescription(
+        'Documentação completa da API Inexci — gestão de solicitações cirúrgicas',
+      )
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: 'none',
+        filter: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      },
+    });
+  }
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS');
   const allowedOrigins = corsOrigins

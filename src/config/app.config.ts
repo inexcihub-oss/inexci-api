@@ -131,6 +131,10 @@ export const envValidationSchema = Joi.object({
   BILLING_GRACE_PERIOD_DAYS: Joi.number().default(7),
   BILLING_TRIAL_REMINDER_DAYS: Joi.string().default('7,3,1'),
 
+  // ── BullBoard ────────────────────────────────────────
+  BULL_BOARD_USER: Joi.string().allow('').default(''),
+  BULL_BOARD_PASS: Joi.string().allow('').default(''),
+
   // ── Logging / Observabilidade ────────────────────────
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'log', 'debug', 'verbose')
