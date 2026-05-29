@@ -64,7 +64,6 @@ export const envValidationSchema = Joi.object({
   AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2600),
   AI_RESPONSE_MAX_TOKENS: Joi.number().default(450),
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
-  AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
   // ── Observabilidade / OpenTelemetry ─────────────────

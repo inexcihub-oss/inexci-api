@@ -225,9 +225,14 @@ export class MessageProcessorService {
   }
 
   buildAiConsentMissingMessage(): string {
-    const portalUrl =
-      this.configService.get<string>('AI_CONSENT_PORTAL_URL') ||
-      AI_CONSENT_DEFAULT_PORTAL_URL;
+    const dashboardUrl = this.configService
+      .get<string>('DASHBOARD_URL')
+      ?.trim();
+    const normalizedDashboardUrl = dashboardUrl?.replace(/\/+$/, '');
+
+    const portalUrl = normalizedDashboardUrl
+      ? `${normalizedDashboardUrl}${AI_CONSENT_PORTAL_PATH}`
+      : AI_CONSENT_DEFAULT_PORTAL_URL;
     return [
       'Olá! Para conversar de forma assistida sobre suas solicitações cirúrgicas e pacientes pelo WhatsApp, é preciso ativar o assistente de Inteligência Artificial na plataforma web.',
       '',

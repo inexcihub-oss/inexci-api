@@ -315,16 +315,18 @@ describe('MessageProcessorService', () => {
   });
 
   describe('buildAiConsentMissingMessage', () => {
-    it('uses default portal URL when env not set', () => {
-      const msg = service.buildAiConsentMissingMessage();
-      expect(msg).toContain('https://app.inexci.com/configuracoes/privacidade');
-    });
-    it('uses configured portal URL', () => {
+    it('builds portal URL from DASHBOARD_URL', () => {
       configService.get.mockImplementation((k) =>
-        k === 'AI_CONSENT_PORTAL_URL' ? 'https://custom.example' : undefined,
+        k === 'DASHBOARD_URL' ? 'https://app.seudominio.com/' : undefined,
       );
       const msg = service.buildAiConsentMissingMessage();
-      expect(msg).toContain('https://custom.example');
+      expect(msg).toContain(
+        'https://app.seudominio.com/configuracoes/privacidade',
+      );
+    });
+    it('uses hardcoded default when DASHBOARD_URL is missing', () => {
+      const msg = service.buildAiConsentMissingMessage();
+      expect(msg).toContain('https://app.inexci.com/configuracoes/privacidade');
     });
   });
 
