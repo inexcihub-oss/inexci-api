@@ -19,7 +19,7 @@ export const envValidationSchema = Joi.object({
   DATABASE_URL: Joi.string().required(),
 
   // ── CORS ─────────────────────────────────────────────
-  CORS_ORIGINS: Joi.string().default('http://localhost:3000'),
+  CORS_ORIGINS: Joi.string().required(),
 
   // ── Redis ────────────────────────────────────────────
   REDIS_HOST: Joi.string().default('localhost'),

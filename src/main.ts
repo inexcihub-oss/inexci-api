@@ -105,14 +105,19 @@ async function bootstrap() {
   }
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS');
-  const allowedOrigins = corsOrigins
-    ? corsOrigins.split(',').map((o) => o.trim())
-    : [
-        'http://localhost:3001',
-        'http://127.0.0.1:3001',
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-      ];
+  const normalizeOrigin = (value: string): string =>
+    value.trim().replace(/\/$/, '');
+
+  const allowedOrigins = (corsOrigins ?? '')
+    .split(',')
+    .map((o) => normalizeOrigin(o))
+    .filter(Boolean);
+
+  if (allowedOrigins.length === 0) {
+    throw new Error(
+      'CORS_ORIGINS não configurado. Defina as origens permitidas via variável de ambiente.',
+    );
+  }
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -121,11 +126,14 @@ async function bootstrap() {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      const normalizedOrigin = normalizeOrigin(origin);
+
+      if (allowedOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
       }
 
-      return callback(new Error(`Origin ${origin} não permitida por CORS`));
+      // Bloqueia sem lançar exceção global (evita ruído/500 no ExceptionFilter)
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
