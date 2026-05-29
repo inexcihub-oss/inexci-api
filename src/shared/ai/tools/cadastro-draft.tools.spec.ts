@@ -70,6 +70,7 @@ describe('cadastro draft tools (preview + commit)', () => {
       })),
     };
     mockProceduresService = {
+      findAll: jest.fn().mockResolvedValue({ records: [] }),
       create: jest.fn().mockImplementation(async (data: any) => ({
         id: 'new-pro',
         name: data.name,
@@ -293,6 +294,7 @@ describe('cadastro draft tools (preview + commit)', () => {
       expect(parseToolResult<any>(commitRaw)?.status).toBe('ok');
       expect(mockProceduresService.create).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'Artroplastia total de quadril' }),
+        'user-1',
       );
     });
   });

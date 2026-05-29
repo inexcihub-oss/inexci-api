@@ -109,6 +109,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
     notificationService = {
       notifyPatientIfRequested: jest.fn().mockResolvedValue(undefined),
+      notifyPatientSchedulingOptions: jest.fn().mockResolvedValue(undefined),
       notifyAdminsOfWorkflowAction: jest.fn().mockResolvedValue(undefined),
       notifyStakeholdersOfStatusChange: jest.fn().mockResolvedValue(undefined),
       notify: jest.fn().mockResolvedValue(undefined),
@@ -364,7 +365,9 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).toHaveBeenCalled();
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).toHaveBeenCalled();
     });
   });
 
@@ -462,7 +465,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
   describe('updateDateOptions', () => {
     it('should throw when status is not IN_SCHEDULING', async () => {
-      surgeryRequestRepository.findOneSimple.mockResolvedValue(
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         makeRequest({ status: SurgeryRequestStatus.SENT }),
       );
 
@@ -476,7 +479,7 @@ describe('SurgeryRequestWorkflowService', () => {
     });
 
     it('should update date options successfully', async () => {
-      surgeryRequestRepository.findOneSimple.mockResolvedValue(
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING }),
       );
 
