@@ -26,6 +26,9 @@ export class ProcedureRepository extends BaseRepository<Procedure> {
       select: {
         id: true,
         name: true,
+        ownerId: true,
+        createdAt: true,
+        updatedAt: true,
       },
       order: { name: 'ASC' },
     });
@@ -37,6 +40,9 @@ export class ProcedureRepository extends BaseRepository<Procedure> {
       select: {
         id: true,
         name: true,
+        ownerId: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }

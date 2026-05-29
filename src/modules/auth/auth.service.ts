@@ -31,6 +31,8 @@ import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
 import { LogTrace } from 'src/shared/logging/trace.decorator';
+import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
+import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 
 @Injectable()
 @LogTrace()
@@ -48,6 +50,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly consentService: ConsentService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly procedureRepository: ProcedureRepository,
   ) {}
 
   /** Email verification token expiry: 24 hours */
@@ -141,6 +144,12 @@ export class AuthService {
       phone: data.phone.replace(/\D/g, ''),
       ownerId: userId, // self-referência — mesmo ID
     } as Partial<User>);
+
+    await Promise.all(
+      DEFAULT_PROCEDURE_NAMES.map((name) =>
+        this.procedureRepository.create({ name, ownerId: user.id }),
+      ),
+    );
 
     // Cria automaticamente uma assinatura TRIALING de 30 dias, ancorada no
     // plano escolhido pelo usuário no cadastro (ou no plano default se não

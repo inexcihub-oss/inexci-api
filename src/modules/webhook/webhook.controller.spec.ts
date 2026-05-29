@@ -3,6 +3,7 @@ import { WebhookController } from './webhook.controller';
 describe('WebhookController', () => {
   const webhookServiceMock = {
     validateTwilioSignature: jest.fn(),
+    tryHandleSchedulingSelection: jest.fn(),
   };
 
   const aiOrchestratorMock = {
@@ -13,6 +14,7 @@ describe('WebhookController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    webhookServiceMock.tryHandleSchedulingSelection.mockResolvedValue(false);
     controller = new WebhookController(
       webhookServiceMock as any,
       aiOrchestratorMock as any,
@@ -174,5 +176,46 @@ describe('WebhookController', () => {
         messageSid: 'SM-789',
       }),
     );
+  });
+
+  it('deve encerrar processamento quando seleção de agendamento for tratada', async () => {
+    webhookServiceMock.tryHandleSchedulingSelection.mockResolvedValue(true);
+
+    const reqMock = {
+      get: () => 'api.inexci.local',
+      originalUrl: '/webhooks/twilio',
+      protocol: 'https',
+      body: {
+        From: 'whatsapp:+5511999990000',
+        MessageSid: 'SM-900',
+        ButtonText: 'Opção 1',
+        ButtonPayload: 'opcao_1',
+      },
+    };
+
+    const response = await controller.handleTwilioWebhook(
+      {
+        From: 'whatsapp:+5511999990000',
+        Body: '',
+        MessageSid: 'SM-900',
+        ButtonText: 'Opção 1',
+        ButtonPayload: 'opcao_1',
+      },
+      'signature',
+      reqMock as any,
+    );
+
+    expect(
+      webhookServiceMock.tryHandleSchedulingSelection,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'whatsapp:+5511999990000',
+        messageSid: 'SM-900',
+        buttonPayload: 'opcao_1',
+        buttonText: 'Opção 1',
+      }),
+    );
+    expect(aiOrchestratorMock.enqueueInboundMessage).not.toHaveBeenCalled();
+    expect(response).toBe('<Response></Response>');
   });
 });

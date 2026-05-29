@@ -99,11 +99,9 @@ export class AuthorizationHandler {
       { logger: this.logger, operationName: 'acceptAuthorization' },
     );
 
-    await this.notificationService.notifyPatientIfRequested(
+    await this.notificationService.notifyPatientSchedulingOptions(
       request,
-      request.status,
-      SurgeryRequestStatus.IN_SCHEDULING,
-      dto.notifyPatient,
+      dto.dateOptions,
     );
 
     await this.notificationService.notifyAdminsOfWorkflowAction(

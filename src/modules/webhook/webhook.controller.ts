@@ -172,6 +172,25 @@ export class WebhookController {
     }
 
     try {
+      const schedulingHandled =
+        await this.webhookService.tryHandleSchedulingSelection({
+          from,
+          messageSid,
+          buttonPayload,
+          buttonText,
+        });
+
+      if (schedulingHandled) {
+        return '<Response></Response>';
+      }
+    } catch (error) {
+      this.logger.error(
+        `Falha ao processar seleção de agendamento (${messageSid})`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
+    try {
       await this.aiOrchestrator.enqueueInboundMessage({
         from,
         body: messageBody,

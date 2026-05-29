@@ -10,6 +10,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
+import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import {
   SurgeryRequest,
@@ -42,6 +43,7 @@ export class SurgeryRequestMutationService {
     private readonly patientRepository: PatientRepository,
     private readonly hospitalRepository: HospitalRepository,
     private readonly healthPlanRepository: HealthPlanRepository,
+    private readonly procedureRepository: ProcedureRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
   ) {}
 
@@ -65,6 +67,10 @@ export class SurgeryRequestMutationService {
     );
     const doctorId = await this.resolveDoctorId(userId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
+
+    if (!data.isIndication && data.procedureId) {
+      await this.assertProcedureBelongsToOwner(data.procedureId, ownerId);
+    }
 
     const result = await executeInTransaction(
       this.dataSource,
@@ -148,6 +154,10 @@ export class SurgeryRequestMutationService {
     );
     const doctorId = await this.resolveDoctorId(userId, data.doctorId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
+
+    if (data.procedureId) {
+      await this.assertProcedureBelongsToOwner(data.procedureId, ownerId);
+    }
 
     const newRequest = await executeInTransaction(
       this.dataSource,
@@ -264,6 +274,18 @@ export class SurgeryRequestMutationService {
 
     await this.surgeryRequestRepository.update(id, { hasOpme: hasOpme });
     return this.surgeryRequestRepository.findOneSimple({ id });
+  }
+
+  private async assertProcedureBelongsToOwner(
+    procedureId: string,
+    ownerId: string,
+  ): Promise<void> {
+    const procedure = await this.procedureRepository.findOne({
+      id: procedureId,
+    });
+    if (!procedure || procedure.ownerId !== ownerId) {
+      throw new NotFoundException('Procedimento não encontrado');
+    }
   }
 
   private async findWithAccess(
