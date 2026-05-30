@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { PiiVaultService } from '../services/pii-vault.service';
+import { AiToolSpec } from './tool-spec';
 
 /**
  * Token de injeção multi-provider para coletar o array de todas as tools
@@ -65,5 +66,10 @@ export interface AiTool {
    * Remover este campo da tool é o critério de "migration concluída".
    */
   bypassesService?: boolean;
+  /**
+   * Spec estruturado da tool (Fase 7 do Blueprint v3 — §9.1).
+   * Quando ausente, o `ToolExecutorService` aplica `DEFAULT_TOOL_SPEC`.
+   */
+  spec?: AiToolSpec;
   execute(args: Record<string, any>, context: ToolContext): Promise<string>;
 }

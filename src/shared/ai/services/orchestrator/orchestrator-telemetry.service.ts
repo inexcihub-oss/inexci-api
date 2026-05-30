@@ -160,6 +160,20 @@ export class OrchestratorTelemetryService {
     userId: string,
     ownerId: string | null,
     snapshots: CompletionUsageSnapshot[],
+    extra?: {
+      tier?: string | null;
+      toolsInvoked?: Array<{
+        name: string;
+        durationMs: number;
+        status: 'ok' | 'pending_confirmation' | 'error' | 'need_input';
+      }>;
+      plannerIntent?: string | null;
+      draftType?: string | null;
+      extractionSource?: {
+        audio?: 'cache' | 'live' | null;
+        doc?: 'cache' | 'ocr' | 'vision' | null;
+      } | null;
+    },
   ): Promise<void> {
     if (!snapshots.length) return;
 
@@ -193,6 +207,15 @@ export class OrchestratorTelemetryService {
         latencyMs: totals.latency || null,
         costEstimateCents: costCents,
         breakdown: snapshots,
+        tier: extra?.tier ?? null,
+        toolsInvoked: extra?.toolsInvoked ?? [],
+        plannerIntent: extra?.plannerIntent ?? null,
+        draftType:
+          extra?.draftType ??
+          (snapshots[0]?.draftType
+            ? String(snapshots[0]!.draftType)
+            : null),
+        extractionSource: extra?.extractionSource ?? null,
       });
     } catch (error: any) {
       this.logger.warn(
