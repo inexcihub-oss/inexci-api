@@ -6,10 +6,17 @@ import { ActivityType } from 'src/database/entities/surgery-request-activity.ent
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
+import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
+
+  private static readonly SCHEDULING_PATIENT_SELECTED_STATUS_LABEL =
+    'Em agendamento';
+
+  private static readonly SCHEDULING_PATIENT_SELECTED_NEXT_STEP =
+    'Paciente escolheu uma opção de data para a cirurgia. Confirme a data da cirurgia';
 
   constructor(
     private readonly configService: ConfigService,
@@ -89,6 +96,38 @@ export class WebhookService {
     return `${datePart} às ${timePart}`;
   }
 
+  private async notifyResponsibleDoctorOfSchedulingSelection(request: {
+    id: string;
+    protocol?: string | null;
+    doctor?: { name?: string | null; phone?: string | null } | null;
+    patient?: { name?: string | null } | null;
+  }): Promise<void> {
+    const doctorPhone = request.doctor?.phone;
+    if (!doctorPhone) return;
+
+    const doctorName = request.doctor?.name ?? 'Doutor(a)';
+    const requestProtocol = request.protocol ?? request.id;
+    const patientName = request.patient?.name ?? 'Paciente';
+
+    try {
+      await this.whatsappService.sendTemplate(
+        doctorPhone,
+        WHATSAPP_TEMPLATES.STATUS_CHANGE_USERS,
+        {
+          '1': doctorName,
+          '2': requestProtocol,
+          '3': WebhookService.SCHEDULING_PATIENT_SELECTED_STATUS_LABEL,
+          '4': WebhookService.SCHEDULING_PATIENT_SELECTED_NEXT_STEP,
+          '5': patientName,
+        },
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao notificar médico sobre escolha de data do paciente (solicitação ${request.id}): ${err?.message}`,
+      );
+    }
+  }
+
   async tryHandleSchedulingSelection(params: {
     from: string;
     messageSid: string;
@@ -108,6 +147,7 @@ export class WebhookService {
     const request = await requestRepo
       .createQueryBuilder('sr')
       .innerJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
       .where('sr.status = :status', {
         status: SurgeryRequestStatus.IN_SCHEDULING,
       })
@@ -153,6 +193,8 @@ export class WebhookService {
       type: ActivityType.SYSTEM,
       content: `Paciente selecionou a ${selectedIndex + 1}ª opção de data (${selectedLabel}) no WhatsApp.`,
     });
+
+    await this.notifyResponsibleDoctorOfSchedulingSelection(request as any);
 
     const patientName = request.patient?.name ?? 'Paciente';
     await this.whatsappService.sendMessage(

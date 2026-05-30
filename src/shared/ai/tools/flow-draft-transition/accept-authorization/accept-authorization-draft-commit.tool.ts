@@ -72,7 +72,7 @@ export function buildAcceptAuthorizationDraftCommitTool(
           surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Autorização aceita via draft. ${f.dateOptions!.length} data(s) proposta(s).`,
+          content: `[WhatsApp IA] Autorização aceita. ${f.dateOptions!.length} data(s) proposta(s).`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,

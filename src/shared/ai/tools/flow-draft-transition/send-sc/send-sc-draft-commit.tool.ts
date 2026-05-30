@@ -79,7 +79,7 @@ export function buildSendScDraftCommitTool(
           surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Solicitação enviada para análise via draft (${f.method}).`,
+          content: `[WhatsApp IA] Solicitação enviada para análise (${f.method}).`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,

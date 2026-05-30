@@ -130,7 +130,7 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
           surgeryRequestId: f.surgeryRequestId!,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Atualização (${f.scope}) via draft. Campos: ${changeKeys.join(', ')}.`,
+          content: `[WhatsApp IA] Atualização (${f.scope}). Campos: ${changeKeys.join(', ')}.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: f.surgeryRequestId,

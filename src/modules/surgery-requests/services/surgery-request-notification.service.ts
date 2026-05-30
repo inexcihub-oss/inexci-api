@@ -232,6 +232,7 @@ export class SurgeryRequestNotificationService {
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     actorId: string,
+    options?: { sendWhatsapp?: boolean },
   ): Promise<void> {
     await this.notificationsService.notifyStatusChange(
       request.id,
@@ -240,6 +241,7 @@ export class SurgeryRequestNotificationService {
       oldStatus,
       newStatus,
       actorId,
+      options,
     );
   }
 

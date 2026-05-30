@@ -76,7 +76,7 @@ export function buildContestationDraftCommitTool(deps: FlowDraftDeps): AiTool {
           surgeryRequestId: f.surgeryRequestId!,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Contestação (${f.contestationType}) registrada via draft.`,
+          content: `[WhatsApp IA] Contestação (${f.contestationType}) registrada.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: f.surgeryRequestId,

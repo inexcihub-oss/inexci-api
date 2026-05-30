@@ -368,6 +368,15 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(
         notificationService.notifyPatientSchedulingOptions,
       ).toHaveBeenCalled();
+      expect(
+        notificationService.notifyStakeholdersOfStatusChange,
+      ).toHaveBeenCalledWith(
+        request,
+        SurgeryRequestStatus.IN_ANALYSIS,
+        SurgeryRequestStatus.IN_SCHEDULING,
+        'user-1',
+        { sendWhatsapp: false },
+      );
     });
   });
 

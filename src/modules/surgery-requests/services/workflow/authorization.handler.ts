@@ -117,6 +117,7 @@ export class AuthorizationHandler {
       request.status,
       SurgeryRequestStatus.IN_SCHEDULING,
       userId,
+      { sendWhatsapp: false },
     );
   }
 
