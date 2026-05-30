@@ -518,7 +518,8 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
 
-    const isDoctor = data.isDoctor || false;
+    const hasDoctorCredentials = Boolean(data.crm && data.crmState);
+    const isDoctor = data.isDoctor ?? hasDoctorCredentials;
 
     // Gera uma senha aleatória apenas para satisfazer o schema — o colaborador
     // nunca saberá esta senha; ela será substituída ao definir a senha pelo link.

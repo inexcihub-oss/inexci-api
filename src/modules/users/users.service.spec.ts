@@ -259,6 +259,40 @@ describe('UsersService — Colaboradores e Permissões', () => {
       );
     });
 
+    it('deve criar doctorProfile quando CRM/UF são enviados sem isDoctor', async () => {
+      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+
+      mockUserRepository.create.mockResolvedValue({
+        id: 'new-3',
+        name: 'Dra. Maria',
+        email: 'maria@email.com',
+        phone: '+5511977777777',
+        role: UserRole.COLLABORATOR,
+      });
+
+      await service.createCollaborator(
+        {
+          name: 'Dra. Maria',
+          email: 'maria@email.com',
+          phone: '+5511977777777',
+          crm: '987654',
+          crmState: 'GO',
+          specialty: 'Ortopedia',
+        },
+        'admin-1',
+      );
+
+      expect(mockDoctorProfileRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'new-3',
+          crm: '987654',
+          crmState: 'GO',
+          specialty: 'Ortopedia',
+        }),
+      );
+    });
+
     it('deve enviar WhatsApp para colaborador não-médico com telefone', async () => {
       mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
       mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
