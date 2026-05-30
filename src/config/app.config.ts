@@ -19,7 +19,7 @@ export const envValidationSchema = Joi.object({
   DATABASE_URL: Joi.string().required(),
 
   // ── CORS ─────────────────────────────────────────────
-  CORS_ORIGINS: Joi.string().default('http://localhost:3000'),
+  CORS_ORIGINS: Joi.string().required(),
 
   // ── Redis ────────────────────────────────────────────
   REDIS_HOST: Joi.string().default('localhost'),
@@ -29,7 +29,7 @@ export const envValidationSchema = Joi.object({
   SUPABASE_URL: Joi.string().allow('').default(''),
   SUPABASE_PUBLISHABLE_KEY: Joi.string().allow('').default(''),
   SUPABASE_SECRET_KEY: Joi.string().allow('').default(''),
-  SUPABASE_BUCKET: Joi.string().allow('').default('inexci-storage'),
+  SUPABASE_BUCKET: Joi.string().required(),
 
   // ── Email (SMTP) ─────────────────────────────────────
   MAIL_HOST: Joi.string().allow('').default('smtp.example.com'),
@@ -64,7 +64,6 @@ export const envValidationSchema = Joi.object({
   AI_CONTEXT_TOKEN_BUDGET: Joi.number().default(2600),
   AI_RESPONSE_MAX_TOKENS: Joi.number().default(450),
   AI_PROCESS_TIMEOUT_MS: Joi.number().default(90000),
-  AI_CONSENT_PORTAL_URL: Joi.string().allow('').default(''),
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
   // ── Observabilidade / OpenTelemetry ─────────────────
@@ -130,6 +129,10 @@ export const envValidationSchema = Joi.object({
   BILLING_TRIAL_DAYS: Joi.number().default(30),
   BILLING_GRACE_PERIOD_DAYS: Joi.number().default(7),
   BILLING_TRIAL_REMINDER_DAYS: Joi.string().default('7,3,1'),
+
+  // ── BullBoard ────────────────────────────────────────
+  BULL_BOARD_USER: Joi.string().allow('').default(''),
+  BULL_BOARD_PASS: Joi.string().allow('').default(''),
 
   // ── Logging / Observabilidade ────────────────────────
   LOG_LEVEL: Joi.string()

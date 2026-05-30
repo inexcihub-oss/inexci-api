@@ -392,6 +392,10 @@ export class PdfService {
    */
   async fetchBuffer(url: string, depth = 0): Promise<Buffer | null> {
     if (depth > 10) return null;
+    if (!isAllowedHost(url)) {
+      this.logger.warn(`fetchBuffer: host não permitido bloqueado — ${url}`);
+      return null;
+    }
     return new Promise((resolve) => {
       try {
         const client = url.startsWith('https') ? https : http;
@@ -406,6 +410,13 @@ export class PdfService {
             const nextUrl = res.headers.location.startsWith('http')
               ? res.headers.location
               : new URL(res.headers.location, url).href;
+            if (!isAllowedHost(nextUrl)) {
+              this.logger.warn(
+                `fetchBuffer: redirect para host não permitido bloqueado — ${nextUrl}`,
+              );
+              resolve(null);
+              return;
+            }
             void this.fetchBuffer(nextUrl, depth + 1).then(resolve);
             return;
           }
@@ -661,11 +672,11 @@ export class PdfService {
   ): Promise<Buffer> {
     let browser: puppeteer.Browser | null = null;
     try {
+      const executablePath = await this.resolvePuppeteerExecutablePath();
+
       browser = await puppeteer.launch({
         headless: true,
-        executablePath:
-          this.configService.get<string>('PUPPETEER_EXECUTABLE_PATH') ||
-          undefined,
+        executablePath,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -691,5 +702,46 @@ export class PdfService {
         await browser.close();
       }
     }
+  }
+
+  private async resolvePuppeteerExecutablePath(): Promise<string | undefined> {
+    const configuredPath = this.configService
+      .get<string>('PUPPETEER_EXECUTABLE_PATH')
+      ?.trim();
+
+    const candidates = [
+      configuredPath,
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/google-chrome',
+      '/snap/bin/chromium',
+    ].filter((value, index, arr): value is string => {
+      return Boolean(value) && arr.indexOf(value) === index;
+    });
+
+    for (const candidate of candidates) {
+      try {
+        await fs.promises.access(candidate, fs.constants.X_OK);
+
+        if (configuredPath && candidate !== configuredPath) {
+          this.logger.warn(
+            `PUPPETEER_EXECUTABLE_PATH inválido (${configuredPath}). Usando fallback: ${candidate}`,
+          );
+        }
+
+        return candidate;
+      } catch {
+        // tenta próximo candidato
+      }
+    }
+
+    if (configuredPath) {
+      this.logger.warn(
+        `PUPPETEER_EXECUTABLE_PATH configurado mas não encontrado: ${configuredPath}`,
+      );
+    }
+
+    return undefined;
   }
 }

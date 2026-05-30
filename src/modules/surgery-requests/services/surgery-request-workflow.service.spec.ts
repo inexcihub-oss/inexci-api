@@ -33,6 +33,12 @@ function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
     id: 'req-1',
     status: SurgeryRequestStatus.PENDING,
     doctorId: 'doctor-1',
+    doctor: {
+      id: 'doctor-1',
+      doctorProfile: {
+        signatureUrl: 'signatures/doctor-1.png',
+      },
+    },
     createdById: 'user-1',
     patientId: 'patient-1',
     hospitalId: 'hospital-1',
@@ -103,6 +109,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
     notificationService = {
       notifyPatientIfRequested: jest.fn().mockResolvedValue(undefined),
+      notifyPatientSchedulingOptions: jest.fn().mockResolvedValue(undefined),
       notifyAdminsOfWorkflowAction: jest.fn().mockResolvedValue(undefined),
       notifyStakeholdersOfStatusChange: jest.fn().mockResolvedValue(undefined),
       notify: jest.fn().mockResolvedValue(undefined),
@@ -358,7 +365,18 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).toHaveBeenCalled();
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).toHaveBeenCalled();
+      expect(
+        notificationService.notifyStakeholdersOfStatusChange,
+      ).toHaveBeenCalledWith(
+        request,
+        SurgeryRequestStatus.IN_ANALYSIS,
+        SurgeryRequestStatus.IN_SCHEDULING,
+        'user-1',
+        { sendWhatsapp: false },
+      );
     });
   });
 
@@ -456,7 +474,7 @@ describe('SurgeryRequestWorkflowService', () => {
 
   describe('updateDateOptions', () => {
     it('should throw when status is not IN_SCHEDULING', async () => {
-      surgeryRequestRepository.findOneSimple.mockResolvedValue(
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         makeRequest({ status: SurgeryRequestStatus.SENT }),
       );
 
@@ -470,7 +488,7 @@ describe('SurgeryRequestWorkflowService', () => {
     });
 
     it('should update date options successfully', async () => {
-      surgeryRequestRepository.findOneSimple.mockResolvedValue(
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING }),
       );
 

@@ -27,6 +27,18 @@ export interface PatientNotificationContext {
   channels?: { email?: boolean; whatsapp?: boolean };
 }
 
+export interface PatientSchedulingNotificationContext {
+  request: {
+    id: string;
+    protocol?: string | null;
+    patient?: {
+      name?: string | null;
+      phone?: string | null;
+    } | null;
+  };
+  dateOptions: string[];
+}
+
 @Injectable()
 export class PatientNotificationService {
   private readonly logger = new Logger(PatientNotificationService.name);
@@ -35,6 +47,58 @@ export class PatientNotificationService {
     private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
   ) {}
+
+  private formatSchedulingOption(isoDate: string | undefined): string {
+    if (!isoDate) return '—';
+    const date = new Date(isoDate);
+    if (Number.isNaN(date.getTime())) return '—';
+
+    const datePart = date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+    });
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const timePart = minutes === '00' ? `${hours}h` : `${hours}:${minutes}h`;
+
+    return `${datePart} às ${timePart}`;
+  }
+
+  async notifyPatientSchedulingOptions(
+    ctx: PatientSchedulingNotificationContext,
+  ): Promise<void> {
+    const patientName = ctx.request.patient?.name ?? 'Paciente';
+    const patientPhone = ctx.request.patient?.phone;
+
+    if (!patientPhone) {
+      this.logger.warn(
+        `Paciente sem telefone para envio de opções de agendamento (solicitação ${ctx.request.id})`,
+      );
+      return;
+    }
+
+    const options = Array.isArray(ctx.dateOptions) ? ctx.dateOptions : [];
+    const option1 = this.formatSchedulingOption(options[0]);
+    const option2 = this.formatSchedulingOption(options[1]);
+    const option3 = this.formatSchedulingOption(options[2]);
+
+    try {
+      await this.whatsappService.sendTemplate(
+        patientPhone,
+        WHATSAPP_TEMPLATES.MESSAGE_SCHEDULING_PATIENT,
+        {
+          '1': patientName,
+          '2': option1,
+          '3': option2,
+          '4': option3,
+        },
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao enviar opções de agendamento para paciente: ${err?.message}`,
+      );
+    }
+  }
 
   async notifyPatientStatusChange(
     ctx: PatientNotificationContext,

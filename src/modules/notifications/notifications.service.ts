@@ -306,6 +306,7 @@ export class NotificationsService {
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     actorId: string,
+    options?: { sendWhatsapp?: boolean },
   ): Promise<void> {
     try {
       const actor = await this.userRepository.findOne({ id: actorId });
@@ -369,42 +370,45 @@ export class NotificationsService {
       const requestProtocol = request?.protocol ?? surgeryRequestId;
       const pendencyMessage = getStalePendencyMessage(newStatus);
 
-      // WhatsApp — respeita whatsappNotifications + tipo. E-mail não é mais
-      // enviado para usuários do sistema em mudanças de status.
-      await Promise.all(
-        stakeholderIds.map(async (uid) => {
-          try {
-            const [channels, user] = await Promise.all([
-              this.resolveChannels(uid, NotificationType.STATUS_UPDATE),
-              this.userRepository.findOne({ id: uid }),
-            ]);
+      const shouldSendWhatsapp = options?.sendWhatsapp !== false;
+      if (shouldSendWhatsapp) {
+        // WhatsApp — respeita whatsappNotifications + tipo. E-mail não é mais
+        // enviado para usuários do sistema em mudanças de status.
+        await Promise.all(
+          stakeholderIds.map(async (uid) => {
+            try {
+              const [channels, user] = await Promise.all([
+                this.resolveChannels(uid, NotificationType.STATUS_UPDATE),
+                this.userRepository.findOne({ id: uid }),
+              ]);
 
-            if (channels.whatsapp && user?.phone) {
-              try {
-                await this.whatsappService.sendTemplate(
-                  user.phone,
-                  WHATSAPP_TEMPLATES.STATUS_CHANGE_USERS,
-                  {
-                    '1': user.name ?? 'Usuário',
-                    '2': requestProtocol,
-                    '3': newLabel,
-                    '4': pendencyMessage,
-                    '5': patientName,
-                  },
-                );
-              } catch (waErr: any) {
-                this.logger.warn(
-                  `Falha ao enviar WhatsApp de status para ${uid}: ${waErr?.message}`,
-                );
+              if (channels.whatsapp && user?.phone) {
+                try {
+                  await this.whatsappService.sendTemplate(
+                    user.phone,
+                    WHATSAPP_TEMPLATES.STATUS_CHANGE_USERS,
+                    {
+                      '1': user.name ?? 'Usuário',
+                      '2': requestProtocol,
+                      '3': newLabel,
+                      '4': pendencyMessage,
+                      '5': patientName,
+                    },
+                  );
+                } catch (waErr: any) {
+                  this.logger.warn(
+                    `Falha ao enviar WhatsApp de status para ${uid}: ${waErr?.message}`,
+                  );
+                }
               }
+            } catch (notifyErr: any) {
+              this.logger.warn(
+                `Falha ao notificar stakeholder ${uid}: ${notifyErr?.message}`,
+              );
             }
-          } catch (notifyErr: any) {
-            this.logger.warn(
-              `Falha ao notificar stakeholder ${uid}: ${notifyErr?.message}`,
-            );
-          }
-        }),
-      );
+          }),
+        );
+      }
     } catch (err: any) {
       this.logger.warn(
         `Falha ao notificar envolvidos sobre mudança de status: ${err?.message}`,

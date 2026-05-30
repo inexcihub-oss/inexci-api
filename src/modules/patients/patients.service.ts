@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -99,16 +94,8 @@ export class PatientsService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    const doctorId =
-      await this.accessControlService.resolveDefaultDoctorId(userId);
-
-    if (!doctorId) {
-      throw new BadRequestException(
-        'Nenhum médico acessível para criar pacientes.',
-      );
-    }
-
     const ownerId = user.ownerId;
+    const doctorId = ownerId;
 
     const patient = await this.patientRepository.create({
       doctorId,
@@ -135,7 +122,7 @@ export class PatientsService {
 
     void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
 
-    const doctor = await this.userRepository.findOne({ id: doctorId });
+    const doctor = await this.userRepository.findOne({ id: ownerId });
     void this.mailService.sendWelcomePatient(patient.email, {
       patientName: patient.name,
       doctorName: doctor?.name ?? '',

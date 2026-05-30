@@ -53,6 +53,20 @@ export class SurgeryRequestNotificationService {
   }
 
   /**
+   * Envia automaticamente as opções de data ao paciente quando a solicitação entra (ou permanece)
+   * em Em Agendamento.
+   */
+  async notifyPatientSchedulingOptions(
+    request: any,
+    dateOptions: string[],
+  ): Promise<void> {
+    await this.patientNotificationService.notifyPatientSchedulingOptions({
+      request,
+      dateOptions,
+    });
+  }
+
+  /**
    * Envia e-mail com template específico conforme o status atual da solicitação.
    */
   async notify(
@@ -218,6 +232,7 @@ export class SurgeryRequestNotificationService {
     oldStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     actorId: string,
+    options?: { sendWhatsapp?: boolean },
   ): Promise<void> {
     await this.notificationsService.notifyStatusChange(
       request.id,
@@ -226,6 +241,7 @@ export class SurgeryRequestNotificationService {
       oldStatus,
       newStatus,
       actorId,
+      options,
     );
   }
 

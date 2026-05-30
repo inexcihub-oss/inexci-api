@@ -2,6 +2,7 @@ import * as bcrypt from 'bcryptjs';
 import { faker } from '@faker-js/faker';
 import { Logger } from '@nestjs/common';
 import { SeedDataSource } from '../typeorm/seed-data-source';
+import { DEFAULT_PROCEDURE_NAMES } from '../../modules/procedures/default-procedures.constants';
 
 const logger = new Logger('Seed');
 
@@ -143,6 +144,21 @@ function generatePhone(): string {
   return `${ddd}${number}`;
 }
 
+async function createDefaultProceduresForOwner(
+  dataSource: { query: (q: string, params?: unknown[]) => Promise<any[]> },
+  ownerId: string,
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const name of DEFAULT_PROCEDURE_NAMES) {
+    const result = await dataSource.query(
+      `INSERT INTO procedures (name, owner_id) VALUES ($1, $2) RETURNING id`,
+      [name, ownerId],
+    );
+    ids.push(result[0].id);
+  }
+  return ids;
+}
+
 async function main() {
   checkEnvironment();
 
@@ -204,40 +220,9 @@ async function main() {
   // ========================================
   // 2. PROCEDIMENTOS (TUSS / cirúrgicos)
   // ========================================
-  logger.log('🔧 Criando procedimentos...');
-
-  const procedureNames = [
-    'Colecistectomia videolaparoscópica',
-    'Herniorrafia inguinal bilateral',
-    'Herniorrafia umbilical',
-    'Apendicectomia laparoscópica',
-    'Artroplastia total do joelho',
-    'Artroscopia de joelho com meniscectomia parcial',
-    'Discectomia lombar por via posterior',
-    'Artroplastia total do quadril',
-    'Nefrolitotripsia percutânea',
-    'Septoplastia com turbinectomia parcial bilateral',
-    'Tireoidectomia total',
-    'Mastectomia radical modificada',
-    'Revascularização do miocárdio',
-    'Endoscopia digestiva alta com biópsia',
-    'Colonoscopia com polipectomia',
-    'Histerectomia laparoscópica total',
-    'Prostatectomia radical laparoscópica',
-    'Cirurgia de catarata com implante de LIO',
-    'Rinoplastia funcional',
-    'Artrodese de coluna lombar',
-  ];
-
-  const procedureIds: string[] = [];
-  for (const name of procedureNames) {
-    const result = await dataSource.query(
-      `INSERT INTO procedures (name) VALUES ($1) RETURNING id`,
-      [name],
-    );
-    procedureIds.push(result[0].id);
-  }
-  logger.log(`✅ ${procedureIds.length} procedimentos criados\n`);
+  logger.log('🔧 Preparando procedimentos padrão por conta...');
+  const procedureNames = DEFAULT_PROCEDURE_NAMES;
+  let procedureIds: string[] = [];
 
   // ========================================
   // 3. CONTA 1 — Dr. Carlos Mendonça (Admin + Médico)
@@ -282,6 +267,20 @@ async function main() {
   );
   await createActiveSubscription(dataSource, adminId, professionalPlanId);
   logger.log('  ✅ admin@inexci.com criado (admin + médico, Cardiologia)\n');
+
+  const procedureIdsConta1 = await createDefaultProceduresForOwner(
+    dataSource,
+    adminMedicoId,
+  );
+  const procedureIdsConta2 = await createDefaultProceduresForOwner(
+    dataSource,
+    adminId,
+  );
+  // Mantém compatibilidade do restante do seed (majoritariamente conta 2)
+  procedureIds = procedureIdsConta2;
+  logger.log(
+    `✅ Procedimentos criados por conta: conta1=${procedureIdsConta1.length}, conta2=${procedureIdsConta2.length}\n`,
+  );
 
   // ========================================
   // 5. COLABORADORES DA CONTA 2 (admin@inexci.com)
@@ -1440,7 +1439,7 @@ async function main() {
         patientIds1[0],
         hospitalIds[3],
         healthPlanIds[4],
-        procedureIds[4],
+        procedureIdsConta1[4],
         'Gonartrose bilateral grau IV (KL). Dor intensa e incapacitante bilateral. Sem resposta a tratamento clínico e infiltrações.',
         'Paciente 64 anos com artrose avançada dos joelhos. Cintilografia óssea com hipercaptação bilateral. Indicação absoluta de ATJ.',
         'HAS, DM2. Risco cirúrgico baixo (cardiologista). IMC 28. Sem antecedentes de TVP.',
@@ -1505,7 +1504,7 @@ async function main() {
         patientIds1[1],
         hospitalIds[3],
         healthPlanIds[5],
-        procedureIds[7],
+        procedureIdsConta1[7],
         'Fratura do colo do fêmur direito Garden III em paciente idosa. Queda da própria altura em domicílio.',
         'RX confirma fratura do colo femoral direito deslocada. Indicação de tratamento cirúrgico de urgência.',
         'Osteoporose severa. HAS. Uso de anticoagulantes (suspenso). Risco cirúrgico moderado (ASA III).',
@@ -1565,7 +1564,7 @@ async function main() {
         patientIds1[3],
         hospitalIds[4],
         healthPlanIds[4],
-        procedureIds[5],
+        procedureIdsConta1[5],
         'Lesão meniscal medial posterior direita em paciente jovem e ativa. RNM confirma rotura complexa.',
         'Paciente com dor medial no joelho após torção durante corrida. RNM: rotura complexa de menisco medial. Bloqueio articular intermitente.',
         'ASA I. Atleta amadora. Sem comorbidades.',
@@ -1588,7 +1587,7 @@ async function main() {
         patientIds1[2],
         hospitalIds[4],
         healthPlanIds[6],
-        procedureIds[4],
+        procedureIdsConta1[4],
         'Gonartrose severa unilateral esquerda com deformidade em varo. Falha do tratamento conservador por 2 anos.',
         'Paciente com artrose avançada do joelho esquerdo. Deformidade em varo de 12 graus. RX: pinçamento total.',
         'Sem comorbidades. ASA I. IMC 23. Bom estado geral.',
@@ -1646,7 +1645,7 @@ async function main() {
         patientIds1[4],
         hospitalIds[3],
         healthPlanIds[4],
-        procedureIds[19],
+        procedureIdsConta1[19],
         'Espondilolistese degenerativa L4-L5 grau II com estenose foraminal e dor radicular bilateral. Sem resposta ao tratamento conservador por 18 meses.',
         'Paciente de 80 anos com lombalgia crônica irradiada para membros inferiores. RM confirma listese e estenose foraminal bilateral grave. Fisioterapia e bloqueio epidural sem resultado.',
         'Osteoporose severa. HAS controlada. Uso de bifosfonatos. Risco cirúrgico moderado (ASA III). Avaliação cardiológica favorável ao procedimento.',
@@ -1670,7 +1669,7 @@ async function main() {
         patientIds1[0],
         hospitalIds[4],
         healthPlanIds[5],
-        procedureIds[1],
+        procedureIdsConta1[1],
         'Hérnia inguinal bilateral volumosa com episódios de encarceramento. Indicação cirúrgica de urgência relativa.',
         'Paciente com abaulamento inguinal bilateral há 3 anos com progressão nos últimos 6 meses e dois episódios de encarceramento. Exame clínico confirma hérnia inguinal direta bilateral redutível.',
         'HAS controlada. DM2 compensada. ASA II. Avaliação pré-operatória em andamento.',
@@ -1700,7 +1699,7 @@ async function main() {
         patientIds1[1],
         hospitalIds[3],
         healthPlanIds[4],
-        procedureIds[17],
+        procedureIdsConta1[17],
         'Catarata nuclear densa grau IV no olho direito. Acuidade visual inferior a 20/200 com piora progressiva nos últimos 6 meses.',
         'Paciente de 70 anos com redução progressiva da acuidade visual. Oftalmoscopia confirma catarata densa bilateral. Indicação de tratamento cirúrgico pelo olho direito.',
         'HAS controlada. Osteoporose. Uso de anticoagulantes suspensos 5 dias antes do procedimento. ASA II.',
@@ -1748,7 +1747,7 @@ async function main() {
         patientIds1[2],
         hospitalIds[4],
         healthPlanIds[4],
-        procedureIds[18],
+        procedureIdsConta1[18],
         'Desvio septal esquerdo grau III com obstrução nasal crônica e hipertrofia de cornetos inferiores bilaterais.',
         'Paciente com obstrução nasal crônica bilateral predominante à esquerda há 4 anos. Sem resposta a corticosteroides tópicos por 6 meses. Desvio septal confirmado por rinoscopia.',
         'Sem comorbidades. ASA I. Exames pré-operatórios normais.',
@@ -1786,7 +1785,7 @@ async function main() {
         patientIds1[3],
         hospitalIds[4],
         healthPlanIds[6],
-        procedureIds[10],
+        procedureIdsConta1[10],
         'Nódulo tireoidiano sólido de 2,8 cm com PAAF indeterminada (Bethesda IV). Indicação de tireoidectomia total para diagnóstico definitivo e tratamento.',
         'Paciente com nódulo tireoidiano palpável identificado há 6 meses. USG confirma nódulo sólido hipoecogênico de 2,8 cm. PAAF: neoplasia folicular (Bethesda IV).',
         'Sem comorbidades. ASA I. Avaliação laringoscópica normal.',
@@ -1943,8 +1942,8 @@ async function main() {
       adminMedicoId,
       'ATJ Padrão',
       JSON.stringify({
-        procedure_id: procedureIds[4],
-        procedure: { id: procedureIds[4], name: procedureNames[4] },
+        procedure_id: procedureIdsConta1[4],
+        procedure: { id: procedureIdsConta1[4], name: procedureNames[4] },
         procedureName: procedureNames[4],
         procedure_name: procedureNames[4],
         opme_items: [
@@ -1981,8 +1980,8 @@ async function main() {
       adminMedicoId,
       'Artroscopia de Joelho',
       JSON.stringify({
-        procedure_id: procedureIds[5],
-        procedure: { id: procedureIds[5], name: procedureNames[5] },
+        procedure_id: procedureIdsConta1[5],
+        procedure: { id: procedureIdsConta1[5], name: procedureNames[5] },
         procedureName: procedureNames[5],
         procedure_name: procedureNames[5],
         opme_items: [],

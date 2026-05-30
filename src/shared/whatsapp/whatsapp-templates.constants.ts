@@ -16,6 +16,9 @@ export const WHATSAPP_TEMPLATES = {
   /** Notificação de mudança de status ao paciente. Variáveis: {"1": patientName, "2": newStatus, "3": statusDescription} */
   STATUS_CHANGE_PATIENT: 'HXa075ce51eb3486868752c2abd23498ae',
 
+  /** Notificação interativa ao paciente com opções de data em Em Agendamento. Variáveis: {"1": patientName, "2": option1, "3": option2, "4": option3} */
+  MESSAGE_SCHEDULING_PATIENT: 'HXf574afd88c95466179f08fd2740908fa',
+
   /**
    * Notificação de mudança de status para usuários da plataforma (médico, gestor, admin, colaborador).
    * Variáveis: {"1": userName, "2": requestProtocol, "3": newStatus, "4": pendencyMessage, "5": patientName}

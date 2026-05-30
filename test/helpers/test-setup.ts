@@ -59,7 +59,7 @@ export async function cleanDatabase(app: INestApplication): Promise<void> {
 
     // Construir e executar TRUNCATE único para todas as tabelas
     const tableNames = tables
-      .map(({ tablename }) => `"${tablename}"`)
+      .map((table: { tablename: string }) => `"${table.tablename}"`)
       .join(', ');
     if (tableNames) {
       await dataSource.query(

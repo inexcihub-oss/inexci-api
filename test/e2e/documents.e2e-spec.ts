@@ -73,9 +73,10 @@ describe('Documents (e2e)', () => {
           .field('surgeryRequestId', '1')
           .attach('document', testFilePath);
         expect([401, 404]).toContain(response.status);
-      } catch (error) {
+      } catch (error: unknown) {
         // EPIPE pode ocorrer quando o servidor fecha a conexão antes do upload
-        expect(error.message || error.code).toMatch(/EPIPE|ECONNRESET/);
+        const err = error as { message?: string; code?: string };
+        expect(err.message || err.code).toMatch(/EPIPE|ECONNRESET/);
       }
     });
 

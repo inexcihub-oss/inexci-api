@@ -60,7 +60,7 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
           surgeryRequestId: fields.surgeryRequestId!,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Faturamento registrado via draft. Protocolo: ${fields.invoiceProtocol}, valor: ${fields.invoiceValue?.toFixed(2)}.`,
+          content: `[WhatsApp IA] Faturamento registrado. Protocolo: ${fields.invoiceProtocol}, valor: ${fields.invoiceValue?.toFixed(2)}.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: fields.surgeryRequestId,

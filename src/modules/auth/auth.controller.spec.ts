@@ -60,8 +60,8 @@ describe('AuthController', () => {
         'rt-123',
         expect.objectContaining({
           httpOnly: true,
-          sameSite: 'lax',
-          path: '/auth',
+          sameSite: 'strict',
+          path: '/auth/refresh',
         }),
       );
 
@@ -154,7 +154,7 @@ describe('AuthController', () => {
       );
       expect(res.clearCookie).toHaveBeenCalledWith(
         'refresh_token',
-        expect.objectContaining({ httpOnly: true, path: '/auth' }),
+        expect.objectContaining({ httpOnly: true, path: '/auth/refresh' }),
       );
       expect(result).toEqual({ message: 'Logout realizado com sucesso' });
     });

@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { UserStatus } from 'src/database/entities/user.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 
 @Injectable()
@@ -25,13 +26,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: any) {
     const user = await this.userRepository.findOne({ id: payload.userId });
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Sessão inválida');
+    }
+
     return {
       userId: payload.userId,
-      ownerId: user?.ownerId ?? null,
-      role: user?.role,
-      privacyPolicyAcceptedAt: user?.privacyPolicyAcceptedAt ?? null,
-      termsOfUseAcceptedAt: user?.termsOfUseAcceptedAt ?? null,
-      aiConsentAcceptedAt: user?.aiConsentAcceptedAt ?? null,
+      ownerId: user.ownerId,
+      role: user.role,
+      privacyPolicyAcceptedAt: user.privacyPolicyAcceptedAt ?? null,
+      termsOfUseAcceptedAt: user.termsOfUseAcceptedAt ?? null,
+      aiConsentAcceptedAt: user.aiConsentAcceptedAt ?? null,
     };
   }
 }

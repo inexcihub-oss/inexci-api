@@ -61,37 +61,63 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  // Swagger / OpenAPI
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Inexci API')
-    .setDescription(
-      'Documentação completa da API Inexci — gestão de solicitações cirúrgicas',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      docExpansion: 'none',
-      filter: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
-    },
-  });
-
   const configService = app.get(ConfigService);
 
+  // BullBoard — bloqueado por padrão; só abre se BULL_BOARD_USER e BULL_BOARD_PASS estiverem definidos
+  const bullBoardUser = configService.get<string>('BULL_BOARD_USER', '');
+  const bullBoardPass = configService.get<string>('BULL_BOARD_PASS', '');
+  if (bullBoardUser && bullBoardPass) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const basicAuth = require('express-basic-auth') as (opts: {
+      users: Record<string, string>;
+      challenge: boolean;
+    }) => (req: unknown, res: unknown, next: () => void) => void;
+    app.use(
+      '/admin/queues',
+      basicAuth({ users: { [bullBoardUser]: bullBoardPass }, challenge: true }),
+    );
+  } else {
+    app.use('/admin/queues', (_req: unknown, res: any) => {
+      res.status(404).end();
+    });
+  }
+
+  // Swagger / OpenAPI — desabilitado em produção
+  if (configService.get<string>('NODE_ENV') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Inexci API')
+      .setDescription(
+        'Documentação completa da API Inexci — gestão de solicitações cirúrgicas',
+      )
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: 'none',
+        filter: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
+      },
+    });
+  }
+
   const corsOrigins = configService.get<string>('CORS_ORIGINS');
-  const allowedOrigins = corsOrigins
-    ? corsOrigins.split(',').map((o) => o.trim())
-    : [
-        'http://localhost:3001',
-        'http://127.0.0.1:3001',
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-      ];
+  const normalizeOrigin = (value: string): string =>
+    value.trim().replace(/\/$/, '');
+
+  const allowedOrigins = (corsOrigins ?? '')
+    .split(',')
+    .map((o) => normalizeOrigin(o))
+    .filter(Boolean);
+
+  if (allowedOrigins.length === 0) {
+    throw new Error(
+      'CORS_ORIGINS não configurado. Defina as origens permitidas via variável de ambiente.',
+    );
+  }
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -100,11 +126,14 @@ async function bootstrap() {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      const normalizedOrigin = normalizeOrigin(origin);
+
+      if (allowedOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
       }
 
-      return callback(new Error(`Origin ${origin} não permitida por CORS`));
+      // Bloqueia sem lançar exceção global (evita ruído/500 no ExceptionFilter)
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

@@ -118,7 +118,7 @@ export class AccessControlService {
   async getOwnerId(userId: string): Promise<string> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    return user.ownerId;
+    return user.ownerId ?? user.adminId ?? user.id;
   }
 
   /**
@@ -128,7 +128,8 @@ export class AccessControlService {
   async assertSameOwner(userId: string, ownerId: string): Promise<void> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    if (user.ownerId !== ownerId) {
+    const effectiveOwnerId = user.ownerId ?? user.adminId ?? user.id;
+    if (effectiveOwnerId !== ownerId) {
       throw new ForbiddenException(
         'Acesso negado: recurso pertence a outra clínica.',
       );

@@ -85,7 +85,7 @@ export function buildMarkPerformedDraftCommitTool(
           surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Cirurgia marcada como realizada via draft em ${f.surgeryPerformedAt}.`,
+          content: `[WhatsApp IA] Cirurgia marcada como realizada em ${f.surgeryPerformedAt}.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,

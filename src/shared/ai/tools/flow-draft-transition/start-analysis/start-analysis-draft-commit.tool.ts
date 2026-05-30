@@ -80,7 +80,7 @@ export function buildStartAnalysisDraftCommitTool(
           surgeryRequestId,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Análise iniciada via draft. Nº operadora: ${f.requestNumber}.`,
+          content: `[WhatsApp IA] Análise iniciada. Nº operadora: ${f.requestNumber}.`,
         });
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,

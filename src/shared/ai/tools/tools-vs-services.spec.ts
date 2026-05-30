@@ -256,6 +256,7 @@ describe('tools vs services — procedure_draft_commit', () => {
     };
 
     mockProceduresService = {
+      findAll: jest.fn().mockResolvedValue({ records: [] }),
       create: jest.fn().mockResolvedValue({
         id: 'proc-1',
         name: 'Artroplastia Total do Joelho',

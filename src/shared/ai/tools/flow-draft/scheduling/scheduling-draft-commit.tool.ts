@@ -67,7 +67,7 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
           surgeryRequestId: f.surgeryRequestId!,
           userId: context.userId,
           type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Agendamento via draft: ${hasOptions ? 'opções definidas' : ''}${
+          content: `[WhatsApp IA] Agendamento: ${hasOptions ? 'opções definidas' : ''}${
             f.confirmedDateIndex !== undefined
               ? `${hasOptions ? '; ' : ''}data confirmada (opção #${f.confirmedDateIndex + 1})`
               : ''

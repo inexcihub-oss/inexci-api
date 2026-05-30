@@ -6,7 +6,7 @@ import { normalizeNameForCompare } from '../../catalog.helpers';
 import { CadastroDraftDeps } from '../_types';
 
 export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
-  const { draftService, procedureRepo, proceduresService } = deps;
+  const { draftService, proceduresService } = deps;
   return {
     name: 'procedure_draft_commit',
     definition: {
@@ -50,14 +50,13 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
       const rawName = v.draft.fields.name!;
       const target = normalizeNameForCompare(rawName);
 
-      let existing = await procedureRepo.findOne({ name: rawName } as any);
-      if (!existing) {
-        const candidates = await procedureRepo.findMany({} as any, 0, 200);
-        existing =
-          candidates.find(
-            (item) => normalizeNameForCompare(item.name) === target,
-          ) ?? null;
-      }
+      const { records } = await proceduresService.findAll(
+        { skip: 0, take: 200 } as any,
+        context.userId,
+      );
+      const existing =
+        records.find((item) => normalizeNameForCompare(item.name) === target) ??
+        null;
       if (existing) {
         await draftService.finalizeCommit(context.conversationId, {
           id: existing.id,
@@ -71,7 +70,10 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
       }
 
       try {
-        const created = await proceduresService.create({ name: rawName });
+        const created = await proceduresService.create(
+          { name: rawName },
+          context.userId,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: created.id,
           label: created.name,

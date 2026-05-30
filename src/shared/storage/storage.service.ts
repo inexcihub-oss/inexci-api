@@ -19,10 +19,11 @@ export class StorageService {
     private readonly supabase: SupabaseClient,
     private readonly configService: ConfigService,
   ) {
-    this.bucket = this.configService.get<string>(
-      'storage.bucket',
-      'inexci-storage',
-    );
+    const bucket = this.configService.get<string>('storage.bucket');
+    if (!bucket) {
+      throw new Error('Variável SUPABASE_BUCKET não configurada');
+    }
+    this.bucket = bucket;
   }
   /**
    * Sanitiza o nome do arquivo removendo acentos e caracteres inválidos

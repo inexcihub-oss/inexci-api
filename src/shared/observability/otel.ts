@@ -20,6 +20,7 @@ import {
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-base';
 import { resourceFromAttributes } from '@opentelemetry/resources';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
 let sdk: NodeSDK | null = null;
 
@@ -52,6 +53,12 @@ export function initOtel(): void {
     sampler: new ParentBasedSampler({
       root: new TraceIdRatioBasedSampler(samplerArg),
     }),
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-fs': { enabled: false },
+        '@opentelemetry/instrumentation-dns': { enabled: false },
+      }),
+    ],
   });
 
   sdk.start();

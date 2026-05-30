@@ -11,6 +11,22 @@ export class CreateInfrastructure1746144000000 implements MigrationInterface {
 
   transaction = false;
 
+  private async createEnumIfNotExists(
+    queryRunner: QueryRunner,
+    enumName: string,
+    enumValues: string,
+  ): Promise<void> {
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '${enumName}') THEN
+          CREATE TYPE "${enumName}" AS ENUM (${enumValues});
+        END IF;
+      END
+      $$;
+    `);
+  }
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
@@ -30,53 +46,59 @@ export class CreateInfrastructure1746144000000 implements MigrationInterface {
 
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "vector"`);
 
-    await queryRunner.query(`
-      CREATE TYPE "user_role_enum" AS ENUM ('admin', 'collaborator');
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'user_role_enum',
+      `'admin', 'collaborator'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "user_status_enum" AS ENUM ('pending', 'active', 'inactive');
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'user_status_enum',
+      `'pending', 'active', 'inactive'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "user_doctor_access_status_enum" AS ENUM ('active', 'inactive');
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'user_doctor_access_status_enum',
+      `'active', 'inactive'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "activity_type_enum" AS ENUM (
-        'comment', 'status_change', 'system', 'pdf_generated'
-      );
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'activity_type_enum',
+      `'comment', 'status_change', 'system', 'pdf_generated'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "notification_type_enum" AS ENUM (
-        'new_surgery_request',
-        'status_update',
-        'pendency',
-        'expiring_document',
-        'action_by_user',
-        'system',
-        'info'
-      );
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'notification_type_enum',
+      `'new_surgery_request', 'status_update', 'pendency', 'expiring_document', 'action_by_user', 'system', 'info'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "doctor_header_logo_position_enum" AS ENUM ('left', 'right');
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'doctor_header_logo_position_enum',
+      `'left', 'right'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "notification_channel_enum" AS ENUM ('email', 'whatsapp');
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'notification_channel_enum',
+      `'email', 'whatsapp'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "notification_send_status_enum" AS ENUM (
-        'queued', 'sent', 'delivered', 'read', 'failed'
-      );
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'notification_send_status_enum',
+      `'queued', 'sent', 'delivered', 'read', 'failed'`,
+    );
 
-    await queryRunner.query(`
-      CREATE TYPE "contestation_type_enum" AS ENUM ('authorization', 'payment');
-    `);
+    await this.createEnumIfNotExists(
+      queryRunner,
+      'contestation_type_enum',
+      `'authorization', 'payment'`,
+    );
 
     await queryRunner.query(`
       CREATE OR REPLACE FUNCTION generate_protocol()

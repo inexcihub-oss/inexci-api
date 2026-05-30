@@ -20,6 +20,7 @@ import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { ConfigService } from '@nestjs/config';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
+import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 
 // Mock bcryptjs before it's imported by the service
 jest.mock('bcryptjs', () => ({
@@ -73,6 +74,10 @@ describe('AuthService', () => {
     createTrialSubscription: jest.fn().mockResolvedValue({ id: 'sub-1' }),
   };
 
+  const mockProcedureRepository = {
+    create: jest.fn().mockResolvedValue({}),
+  };
+
   const mockRefreshTokenRepo = {
     save: jest.fn().mockResolvedValue({}),
     findOne: jest.fn(),
@@ -120,6 +125,7 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ConsentService, useValue: mockConsentService },
         { provide: SubscriptionService, useValue: mockSubscriptionService },
+        { provide: ProcedureRepository, useValue: mockProcedureRepository },
       ],
     }).compile();
 
