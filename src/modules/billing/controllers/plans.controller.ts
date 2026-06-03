@@ -11,7 +11,7 @@ export class PlansController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Listar planos de assinatura dispon\u00edveis' })
+  @ApiOperation({ summary: 'Listar planos de assinatura disponíveis' })
   @ApiResponse({ status: 200 })
   async list() {
     const plans = await this.planRepo.findPublicPlans();
@@ -25,6 +25,7 @@ export class PlansController {
       billingPeriod: p.billingPeriod,
       surgeryRequestQuota: p.surgeryRequestQuota,
       sortOrder: p.sortOrder,
+      isTrialDefault: p.isTrialDefault,
     }));
   }
 }

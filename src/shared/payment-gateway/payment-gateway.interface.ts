@@ -16,7 +16,7 @@ import {
 /**
  * Token de DI para resolu\u00e7\u00e3o do provider ativo (configurado via env).
  * O m\u00f3dulo `PaymentGatewayModule` registra a implementa\u00e7\u00e3o concreta
- * (atualmente Asaas) sob este token.
+ * (Stripe) sob este token.
  */
 export const PAYMENT_GATEWAY = Symbol('PAYMENT_GATEWAY');
 

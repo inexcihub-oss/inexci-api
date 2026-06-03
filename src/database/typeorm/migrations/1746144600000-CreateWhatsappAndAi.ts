@@ -26,6 +26,7 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
         "owner_id"             UUID,
         "conversation_summary" TEXT,
         "conversation_memory"  JSONB NOT NULL DEFAULT '{}'::jsonb,
+        "operation_draft"      JSONB,
         "summary_updated_at"   TIMESTAMPTZ,
         "summary_version"      INTEGER NOT NULL DEFAULT 1,
         "started_at"           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -54,6 +55,11 @@ export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
       `CREATE UNIQUE INDEX "uq_wc_phone_active"
          ON "whatsapp_conversations" ("phone")
          WHERE "active" = true;`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_wc_operation_draft_type"
+         ON "whatsapp_conversations" (("operation_draft"->>'type'))
+         WHERE "operation_draft" IS NOT NULL;`,
     );
 
     await queryRunner.query(`

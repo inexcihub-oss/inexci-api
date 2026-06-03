@@ -127,14 +127,6 @@ export class SendAnalysisHandler {
       dto.notifyPatient,
     );
 
-    await this.notificationService.notifyAdminsOfWorkflowAction(
-      userId,
-      request.patient?.name ?? 'Paciente',
-      request.protocol ?? id,
-      'Solicitação enviada para análise',
-      `/solicitacao/${id}`,
-    );
-
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
       SurgeryRequestStatus.PENDING,
@@ -223,6 +215,7 @@ export class SendAnalysisHandler {
           doctorName,
         },
         mailAttachments.length > 0 ? mailAttachments : undefined,
+        dto.cc,
       );
       this.logger.log(
         `[AI_SEND_SC] id=${id} method=email to=${dto.to} attachments=${mailAttachments.length}`,
@@ -296,14 +289,6 @@ export class SendAnalysisHandler {
       SurgeryRequestStatus.SENT,
       SurgeryRequestStatus.IN_ANALYSIS,
       dto.notifyPatient,
-    );
-
-    await this.notificationService.notifyAdminsOfWorkflowAction(
-      userId,
-      request.patient?.name ?? 'Paciente',
-      request.protocol ?? id,
-      'Análise iniciada',
-      `/solicitacao/${id}`,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(

@@ -126,6 +126,34 @@ export class UsersController {
     return this.usersService.deleteMyHeader(user.userId);
   }
 
+  @Get('doctor-profile/:id/header')
+  @ApiOperation({ summary: 'Obter cabeçalho personalizado de um médico' })
+  async getDoctorHeaderById(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.getDoctorHeaderByUserId(id, user.userId);
+  }
+
+  @Put('doctor-profile/:id/header')
+  @ApiOperation({ summary: 'Criar/atualizar cabeçalho de um médico' })
+  async upsertDoctorHeaderById(
+    @Param('id') id: string,
+    @Body() dto: UpsertDoctorHeaderDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.upsertDoctorHeaderByUserId(id, dto, user.userId);
+  }
+
+  @Delete('doctor-profile/:id/header')
+  @ApiOperation({ summary: 'Remover cabeçalho de um médico' })
+  async deleteDoctorHeaderById(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.deleteDoctorHeaderByUserId(id, user.userId);
+  }
+
   // ============ COLABORADORES ============
 
   @Get('doctors')

@@ -147,11 +147,12 @@ export class StaleNotificationService {
       .filter((u) => u.role === UserRole.ADMIN)
       .map((u) => u.id);
 
+    const activityUserIds =
+      await this.surgeryRequestRepository.findDistinctActivityUserIds(
+        request.id,
+      );
+
     if (tier.notifyAll) {
-      const activityUserIds =
-        await this.surgeryRequestRepository.findDistinctActivityUserIds(
-          request.id,
-        );
       return [
         ...new Set([
           request.doctorId,
@@ -163,7 +164,12 @@ export class StaleNotificationService {
     }
 
     return [
-      ...new Set([request.doctorId, request.createdById, ...adminIds]),
+      ...new Set([
+        request.doctorId,
+        request.createdById,
+        ...adminIds,
+        ...activityUserIds,
+      ]),
     ].filter(Boolean);
   }
 

@@ -41,7 +41,7 @@ describe('SubscriptionService', () => {
       }),
     };
     gateway = {
-      providerId: 'asaas',
+      providerId: 'stripe',
       createSubscription: jest.fn(),
       cancelSubscription: jest.fn().mockResolvedValue(undefined),
     };
@@ -62,7 +62,7 @@ describe('SubscriptionService', () => {
       subscriptionRepo.findByOwnerId.mockResolvedValue(null);
       planRepo.findTrialDefault.mockResolvedValue({
         id: 'plan-trial',
-        slug: 'free-trial',
+        slug: 'starter',
         surgeryRequestQuota: 30,
         billingPeriod: 'MONTHLY',
       });
@@ -75,7 +75,7 @@ describe('SubscriptionService', () => {
           ownerId: 'owner-1',
           planId: 'plan-trial',
           status: SubscriptionStatus.TRIALING,
-          gatewayProvider: 'asaas',
+          gatewayProvider: 'stripe',
         }),
       );
       expect(quotaPeriodRepo.create).toHaveBeenCalledWith(

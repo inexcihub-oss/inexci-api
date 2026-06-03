@@ -100,42 +100,43 @@ export class UsersService {
     const requestingUser = await this.userRepository.findOne({ id: userId });
     if (!requestingUser) throw new NotFoundException('Usuário não encontrado');
 
+    let user: Awaited<ReturnType<typeof this.userRepository.findOne>>;
+
     // Admin pode ver qualquer um da conta
     if (requestingUser.role === UserRole.ADMIN) {
-      const user = await this.userRepository.findOne({ id });
+      user = await this.userRepository.findOne({ id });
       if (!user) throw new NotFoundException('Usuário não encontrado');
-      return user;
-    }
-
-    // Médico (com doctorProfile) pode ver a si mesmo ou quem tem acesso
-    const doctorProfile =
-      await this.doctorProfileRepository.findByUserId(userId);
-    if (doctorProfile) {
-      if (id === userId) {
-        const user = await this.userRepository.findOne({ id });
-        if (!user) throw new NotFoundException('Usuário não encontrado');
-        return user;
-      }
-      const accesses =
-        await this.userDoctorAccessRepository.findActiveByDoctorUserId(userId);
-      const accessUserIds = accesses.map((a) => a.userId);
-      if (!accessUserIds.includes(id)) {
+    } else {
+      // Médico (com doctorProfile) pode ver a si mesmo ou quem tem acesso
+      const doctorProfile =
+        await this.doctorProfileRepository.findByUserId(userId);
+      if (doctorProfile) {
+        if (id !== userId) {
+          const accesses =
+            await this.userDoctorAccessRepository.findActiveByDoctorUserId(userId);
+          const accessUserIds = accesses.map((a) => a.userId);
+          if (!accessUserIds.includes(id)) {
+            throw new ForbiddenException('Sem permissão para ver este usuário');
+          }
+        }
+      } else if (id !== userId) {
         throw new ForbiddenException('Sem permissão para ver este usuário');
       }
-      const user = await this.userRepository.findOne({ id });
+
+      user = await this.userRepository.findOne({ id });
       if (!user) throw new NotFoundException('Usuário não encontrado');
-      return user;
     }
 
-    // Colaborador só pode ver a si mesmo
-    if (id !== userId) {
-      throw new ForbiddenException('Sem permissão para ver este usuário');
+    const [avatarUrl, signatureUrl] = await Promise.all([
+      this.resolveStorageUrl(user.avatarUrl),
+      this.resolveStorageUrl(user.doctorProfile?.signatureUrl),
+    ]);
+
+    const result: Record<string, unknown> = { ...user, avatarUrl };
+    if (user.doctorProfile) {
+      result.doctorProfile = { ...user.doctorProfile, signatureUrl };
     }
-
-    const user = await this.userRepository.findOne({ id });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    return user;
+    return result;
   }
 
   async getProfile(userId: string) {
@@ -456,8 +457,8 @@ export class UsersService {
     if (data.crm !== undefined) profileUpdates.crm = data.crm;
     if (data.crmState !== undefined) profileUpdates.crmState = data.crmState;
     if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
-    if (data.signature_image_url !== undefined)
-      profileUpdates.signatureUrl = data.signature_image_url ?? null;
+    if (data.signatureImageUrl !== undefined)
+      profileUpdates.signatureUrl = data.signatureImageUrl ?? null;
 
     await this.doctorProfileRepository.update(
       target.doctorProfile.id,
@@ -484,9 +485,16 @@ export class UsersService {
       take,
     );
 
-    // Excluir o próprio admin da lista de colaboradores
     const filtered = collaborators.filter((c) => c.id !== userId);
-    return { records: filtered };
+
+    const records = await Promise.all(
+      filtered.map(async (c) => ({
+        ...c,
+        avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
+      })),
+    );
+
+    return { records };
   }
 
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
@@ -782,12 +790,14 @@ export class UsersService {
       admin.ownerId,
     );
 
-    return {
-      records: doctors.map((d) => {
+    const records = await Promise.all(
+      doctors.map(async (d) => {
         const { password, ...rest } = d;
-        return rest;
+        return { ...rest, avatarUrl: await this.resolveStorageUrl(d.avatarUrl) };
       }),
-    };
+    );
+
+    return { records };
   }
 
   async toggleCollaboratorStatus(collaboratorId: string, adminId: string) {
@@ -965,6 +975,40 @@ export class UsersService {
     });
   }
 
+  private async getAuthorizedDoctorProfileForHeader(
+    targetUserId: string,
+    requestingUserId: string,
+  ) {
+    const requesting = await this.userRepository.findOne({
+      id: requestingUserId,
+    });
+    if (!requesting) throw new NotFoundException('Usuário não encontrado');
+
+    const target = await this.userRepository.findOne({ id: targetUserId });
+    if (!target) throw new NotFoundException('Usuário alvo não encontrado');
+
+    const isSelf = requestingUserId === targetUserId;
+    const isAccountAdmin =
+      requesting.role === UserRole.ADMIN &&
+      target.ownerId === requesting.ownerId &&
+      (target.adminId === requestingUserId || isSelf);
+
+    if (!isSelf && !isAccountAdmin) {
+      throw new ForbiddenException(
+        'Sem permissão para configurar este cabeçalho',
+      );
+    }
+
+    const profile =
+      await this.doctorProfileRepository.findByUserId(targetUserId);
+    if (!profile)
+      throw new ForbiddenException(
+        'Este usuário não possui perfil de médico para cabeçalho',
+      );
+
+    return profile;
+  }
+
   async getMyHeader(userId: string) {
     const profile = await this.doctorProfileRepository.findByUserId(userId);
     if (!profile) return null;
@@ -1001,6 +1045,56 @@ export class UsersService {
     return { message: 'Cabeçalho removido com sucesso' };
   }
 
+  async getDoctorHeaderByUserId(
+    targetUserId: string,
+    requestingUserId: string,
+  ) {
+    const profile = await this.getAuthorizedDoctorProfileForHeader(
+      targetUserId,
+      requestingUserId,
+    );
+    return this.doctorHeaderRepository.findByDoctorProfileId(profile.id);
+  }
+
+  async upsertDoctorHeaderByUserId(
+    targetUserId: string,
+    dto: UpsertDoctorHeaderDto,
+    requestingUserId: string,
+  ) {
+    const profile = await this.getAuthorizedDoctorProfileForHeader(
+      targetUserId,
+      requestingUserId,
+    );
+
+    const data: Parameters<DoctorHeaderRepository['upsert']>[1] = {
+      logoPosition: dto.logoPosition ?? 'left',
+    };
+
+    if (dto.logoUrl !== undefined) {
+      data.logoUrl = dto.logoUrl;
+    }
+
+    if (dto.contentHtml !== undefined) {
+      data.contentHtml = dto.contentHtml
+        ? this.sanitizeHeaderHtml(dto.contentHtml)
+        : null;
+    }
+
+    return this.doctorHeaderRepository.upsert(profile.id, data);
+  }
+
+  async deleteDoctorHeaderByUserId(
+    targetUserId: string,
+    requestingUserId: string,
+  ) {
+    const profile = await this.getAuthorizedDoctorProfileForHeader(
+      targetUserId,
+      requestingUserId,
+    );
+    await this.doctorHeaderRepository.removeByDoctorProfileId(profile.id);
+    return { message: 'Cabeçalho removido com sucesso' };
+  }
+
   // ============ ASSINATURA DIGITAL ============
 
   async updateSignatureUrl(userId: string, signatureUrl: string) {
@@ -1010,5 +1104,15 @@ export class UsersService {
         'Apenas médicos podem atualizar a assinatura digital.',
       );
     await this.doctorProfileRepository.update(profile.id, { signatureUrl });
+  }
+
+  private async resolveStorageUrl(path?: string | null): Promise<string | null> {
+    if (!path) return null;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    try {
+      return await this.storageService.getSignedUrl(path);
+    } catch {
+      return null;
+    }
   }
 }

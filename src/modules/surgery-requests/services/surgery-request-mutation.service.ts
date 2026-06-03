@@ -1,7 +1,12 @@
 import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
@@ -252,7 +257,7 @@ export class SurgeryRequestMutationService {
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     }
 
-    await this.findWithAccess(data.id, userId);
+    const surgeryRequest = await this.findWithAccess(data.id, userId);
 
     const updateData: Partial<SurgeryRequest> = {};
     if (data.priority !== undefined) updateData.priority = data.priority;
@@ -260,6 +265,19 @@ export class SurgeryRequestMutationService {
       updateData.hospitalId = data.hospitalId ?? null;
     if (data.healthPlanId !== undefined)
       updateData.healthPlanId = data.healthPlanId ?? null;
+    if (data.doctorId !== undefined) {
+      if (surgeryRequest.status !== SurgeryRequestStatus.PENDING) {
+        throw new BadRequestException(
+          'O médico só pode ser alterado enquanto a solicitação estiver pendente',
+        );
+      }
+      const accessibleDoctorIds =
+        await this.accessControlService.getAccessibleDoctorIds(userId);
+      if (!accessibleDoctorIds.includes(data.doctorId)) {
+        throw new NotFoundException('Médico não encontrado');
+      }
+      updateData.doctorId = data.doctorId;
+    }
 
     await this.surgeryRequestRepository.update(data.id, updateData);
 

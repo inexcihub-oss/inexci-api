@@ -19,7 +19,22 @@ export function getStatusLabel(status: number): string {
 /** Descrição amigável do status para notificar o paciente via WhatsApp ({{3}} do template status_message_patient). */
 export function getStatusDescriptionForPatient(
   status: SurgeryRequestStatus,
+  details?: {
+    surgeryDate?: Date | string | null;
+    hospitalName?: string | null;
+  },
 ): string {
+  const surgeryDateValue = details?.surgeryDate;
+  const parsedDate =
+    surgeryDateValue instanceof Date
+      ? surgeryDateValue
+      : surgeryDateValue
+        ? new Date(surgeryDateValue)
+        : null;
+  const hasValidSurgeryDate =
+    parsedDate !== null && !Number.isNaN(parsedDate.getTime());
+  const hospitalName = details?.hospitalName?.trim();
+
   switch (status) {
     case SurgeryRequestStatus.PENDING:
       return 'Sua solicitação cirúrgica foi criada e está aguardando envio.';
@@ -30,6 +45,25 @@ export function getStatusDescriptionForPatient(
     case SurgeryRequestStatus.IN_SCHEDULING:
       return 'Sua cirurgia foi autorizada e está em processo de agendamento com o hospital.';
     case SurgeryRequestStatus.SCHEDULED:
+      if (hasValidSurgeryDate) {
+        const datePart = parsedDate.toLocaleDateString('pt-BR');
+        const timePart = parsedDate.toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+
+        if (hospitalName) {
+          return `Sua cirurgia está confirmada para a data ${datePart} no ${hospitalName}, horário ${timePart}.`;
+        }
+
+        return `Sua cirurgia está confirmada para a data ${datePart}, horário ${timePart}.`;
+      }
+
+      if (hospitalName) {
+        return `Sua cirurgia foi agendada no ${hospitalName}! Em breve você receberá as informações sobre data e hora.`;
+      }
+
       return 'Sua cirurgia foi agendada! Em breve você receberá as informações sobre data, hora e local.';
     case SurgeryRequestStatus.PERFORMED:
       return 'Sua cirurgia foi realizada com sucesso. Estamos processando as etapas finais.';

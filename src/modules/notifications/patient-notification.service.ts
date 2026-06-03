@@ -12,6 +12,7 @@ export interface PatientNotificationContext {
   request: {
     id: string;
     protocol?: string | null;
+    surgeryDate?: Date | string | null;
     patient?: {
       name?: string | null;
       email?: string | null;
@@ -56,6 +57,7 @@ export class PatientNotificationService {
     const datePart = date.toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',
+      year: 'numeric',
     });
     const hours = date.getHours().toString().padStart(2, '0');
     const minutes = date.getMinutes().toString().padStart(2, '0');
@@ -120,7 +122,10 @@ export class PatientNotificationService {
     const requestId = ctx.request.protocol ?? ctx.request.id;
     const oldLabel = getStatusLabel(ctx.oldStatus);
     const newLabel = getStatusLabel(ctx.newStatus);
-    const statusDescription = getStatusDescriptionForPatient(ctx.newStatus);
+    const statusDescription = getStatusDescriptionForPatient(ctx.newStatus, {
+      surgeryDate: ctx.request.surgeryDate,
+      hospitalName: ctx.request.hospital?.name,
+    });
     const changedAt = new Date().toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: '2-digit',

@@ -29,7 +29,8 @@ import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
-import { SubscriptionService } from '../billing/services/subscription.service';
+import { CardPaymentInfo, SubscriptionService } from '../billing/services/subscription.service';
+import { StorageService } from 'src/shared/storage/storage.service';
 import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
@@ -51,6 +52,7 @@ export class AuthService {
     private readonly consentService: ConsentService,
     private readonly subscriptionService: SubscriptionService,
     private readonly procedureRepository: ProcedureRepository,
+    private readonly storageService: StorageService,
   ) {}
 
   /** Email verification token expiry: 24 hours */
@@ -151,17 +153,31 @@ export class AuthService {
       ),
     );
 
-    // Cria automaticamente uma assinatura TRIALING de 30 dias, ancorada no
-    // plano escolhido pelo usuário no cadastro (ou no plano default se não
-    // foi informado). Trial não exige cartão.
+    // Cria automaticamente uma assinatura inicial (trial ou paga conforme o plano)
+    const paymentInfo = data.paymentMethodId
+      ? {
+          paymentMethodId: data.paymentMethodId,
+          brand: data.cardBrand ?? '',
+          last4: data.cardLast4 ?? '',
+          holderName: data.cardHolderName ?? '',
+          expMonth: data.cardExpMonth ?? 1,
+          expYear: data.cardExpYear ?? new Date().getFullYear(),
+        }
+      : undefined;
+
     try {
-      await this.subscriptionService.createTrialSubscription(
+      await this.subscriptionService.createInitialSubscription(
         user.id,
         data.planSlug,
+        paymentInfo,
       );
     } catch (err) {
+      if (paymentInfo) {
+        await this.userRepository.delete(user.id).catch(() => {});
+        throw err;
+      }
       this.logger.error(
-        `Falha ao criar trial para userId=${user.id}: ${err instanceof Error ? err.message : err}`,
+        `Falha ao criar subscription para userId=${user.id}: ${err instanceof Error ? err.message : err}`,
       );
     }
 
@@ -286,6 +302,11 @@ export class AuthService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
     const doctorProfile = user.doctorProfile ?? null;
 
+    const [avatarUrl, signatureUrl] = await Promise.all([
+      this.resolveStorageUrl(user.avatarUrl),
+      this.resolveStorageUrl(doctorProfile?.signatureUrl),
+    ]);
+
     return {
       id: user.id,
       role: user.role,
@@ -293,7 +314,7 @@ export class AuthService {
       phone: user.phone,
       email: user.email,
       ownerId: user.ownerId,
-      avatarUrl: user.avatarUrl ?? null,
+      avatarUrl,
       isDoctor: !!doctorProfile,
       emailVerified: user.emailVerified ?? false,
       doctorProfile: doctorProfile
@@ -302,11 +323,21 @@ export class AuthService {
             crm: doctorProfile.crm,
             crmState: doctorProfile.crmState,
             specialty: doctorProfile.specialty,
-            signatureUrl: doctorProfile.signatureUrl,
+            signatureUrl,
             clinicName: doctorProfile.clinicName,
           }
         : null,
     };
+  }
+
+  private async resolveStorageUrl(path?: string | null): Promise<string | null> {
+    if (!path) return null;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    try {
+      return await this.storageService.getSignedUrl(path);
+    } catch {
+      return null;
+    }
   }
 
   async sendRecoveryPasswordEmail(email: string) {

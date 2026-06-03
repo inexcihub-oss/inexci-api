@@ -16,6 +16,7 @@ export interface MailJobData {
   /** HTML bruto — usado quando não há template Handlebars disponível */
   html?: string;
   to: string;
+  cc?: string;
   subject: string;
   context?: Record<string, any>;
   attachments?: MailAttachment[];
@@ -38,8 +39,9 @@ export class MailService {
     subject: string,
     context: Record<string, any>,
     attachments?: MailAttachment[],
+    cc?: string,
   ): Promise<void> {
-    await this.enqueue({ template, to, subject, context, attachments });
+    await this.enqueue({ template, to, subject, context, attachments, cc });
   }
 
   /**
@@ -86,6 +88,7 @@ export class MailService {
       doctorName: string;
     },
     attachments?: MailAttachment[],
+    cc?: string,
   ) {
     return this.send(
       'surgery-request-sent',
@@ -93,6 +96,7 @@ export class MailService {
       'Solicitação Cirúrgica Enviada',
       context,
       attachments,
+      cc,
     );
   }
 

@@ -327,6 +327,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'surgeryRequest.healthPlanId',
         'surgeryRequest.hospitalId',
         'surgeryRequest.createdAt',
+        'surgeryRequest.lastStatusChangedAt',
         'surgeryRequest.isIndication',
         'surgeryRequest.indicationName',
         'surgeryRequest.protocol',

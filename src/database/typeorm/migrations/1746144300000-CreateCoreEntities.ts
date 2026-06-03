@@ -16,10 +16,26 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
       CREATE TABLE "procedures" (
         "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
         "name"       VARCHAR(255) NOT NULL,
+        "owner_id"   UUID NOT NULL,
+        "deleted_at" TIMESTAMP,
         "created_at" TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
-        CONSTRAINT "pk_procedures" PRIMARY KEY ("id")
+        CONSTRAINT "pk_procedures" PRIMARY KEY ("id"),
+        CONSTRAINT "fk_procedures_owner"
+          FOREIGN KEY ("owner_id") REFERENCES "users"("id")
+          ON DELETE CASCADE ON UPDATE CASCADE
       );
+    `);
+    await queryRunner.query(
+      `CREATE INDEX "idx_procedures_owner_id" ON "procedures" ("owner_id");`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_procedures_deleted_at" ON "procedures" ("deleted_at");`,
+    );
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX "uq_procedures_owner_name_active"
+      ON "procedures" ("owner_id", LOWER("name"))
+      WHERE "deleted_at" IS NULL;
     `);
 
     await queryRunner.query(`

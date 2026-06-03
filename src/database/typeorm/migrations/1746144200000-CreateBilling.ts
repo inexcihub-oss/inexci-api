@@ -4,8 +4,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Billing — assinaturas, cobrança e cotas.
  *
  * Quota é por solicitações cirúrgicas enviadas/mês (-1 = ilimitado).
- * Os planos default são populados pelo seed (`yarn seed`), não pela
- * migration — ver `inexci-api/src/database/seeds/seed.ts`.
+ * Os planos são inseridos ao final desta migration (9 planos: starter,
+ * essencial, profissional, avancado + versões anuais + enterprise).
  *
  * Tabelas: subscription_plans, subscriptions, payment_methods, invoices,
  * subscription_quota_periods, payment_gateway_events.
@@ -181,6 +181,22 @@ export class CreateBilling1746144200000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX "idx_payment_gateway_events_processed_at" ON "payment_gateway_events" ("processed_at");`,
     );
+
+    await queryRunner.query(`
+      INSERT INTO subscription_plans
+        (slug, name, description, price_cents, currency, billing_period, surgery_request_quota, is_active, is_trial_default, sort_order)
+      VALUES
+        ('starter',             'Starter',             'Ideal para médicos individuais começando agora',             45800,   'BRL', 'MONTHLY',  10, true,  true,  1),
+        ('starter-anual',       'Starter Anual',       'Ideal para médicos individuais começando agora',             444000,  'BRL', 'YEARLY',   10, true,  false, 2),
+        ('essencial',           'Essencial',           'Para clínicas pequenas e equipes em crescimento',            63400,   'BRL', 'MONTHLY',  20, true,  false, 3),
+        ('essencial-anual',     'Essencial Anual',     'Para clínicas pequenas e equipes em crescimento',            655200,  'BRL', 'YEARLY',   20, true,  false, 4),
+        ('profissional',        'Profissional',        'Para clínicas estabelecidas com alto volume cirúrgico',      81000,   'BRL', 'MONTHLY',  40, true,  false, 5),
+        ('profissional-anual',  'Profissional Anual',  'Para clínicas estabelecidas com alto volume cirúrgico',      866400,  'BRL', 'YEARLY',   40, true,  false, 6),
+        ('avancado',            'Avançado',            'Para grandes equipes com volume intenso de procedimentos',   98600,   'BRL', 'MONTHLY',  50, true,  false, 7),
+        ('avancado-anual',      'Avançado Anual',      'Para grandes equipes com volume intenso de procedimentos',   1077600, 'BRL', 'YEARLY',   50, true,  false, 8),
+        ('enterprise',          'Enterprise',          'Acima de 50 solicitações por mês — vamos conversar',        0,       'BRL', 'MONTHLY',  -1, true,  false, 9)
+      ON CONFLICT (slug) DO NOTHING;
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

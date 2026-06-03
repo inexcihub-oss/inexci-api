@@ -101,9 +101,9 @@ async function recordStatusChange(
 
 /**
  * Cria uma subscription ATIVA (já saída do trial) para um admin de seed,
- * com período corrente de 30 dias e quota period vinculado. Usa o gateway
- * 'asaas' como placeholder. Não cria payment_method nem invoice (seed é
- * para desenvolvimento — fluxo real exige cadastro de cartão).
+ * com período corrente de 30 dias e quota period vinculado. Não cria
+ * payment_method nem invoice (seed é para desenvolvimento — fluxo real
+ * exige cadastro de cartão via Stripe).
  */
 async function createActiveSubscription(
   dataSource: { query: (q: string, params?: unknown[]) => Promise<unknown[]> },
@@ -114,7 +114,7 @@ async function createActiveSubscription(
     `INSERT INTO subscriptions
        (owner_id, plan_id, status, current_period_start, current_period_end, gateway_provider)
      VALUES
-       ($1, $2, 'active', NOW(), NOW() + INTERVAL '30 days', 'asaas')
+       ($1, $2, 'active', NOW(), NOW() + INTERVAL '30 days', 'stripe')
      RETURNING id`,
     [ownerId, planId],
   )) as Array<{ id: string }>;
@@ -189,7 +189,7 @@ async function main() {
   // ========================================
   // 1. PLANOS DE ASSINATURA
   // ========================================
-  // Cria os 5 planos default (idempotente via ON CONFLICT em slug).
+  // Cria os planos default (idempotente via ON CONFLICT em slug).
   // Quota é por solicitações cirúrgicas enviadas/mês (-1 = ilimitado).
   logger.log('📋 Criando planos de assinatura...');
 
@@ -197,11 +197,15 @@ async function main() {
     INSERT INTO subscription_plans
       (slug, name, description, price_cents, currency, billing_period, surgery_request_quota, is_active, is_trial_default, sort_order)
     VALUES
-      ('free-trial',   'Free Trial',   'Teste gratuito por 30 dias — use a plataforma sem compromisso',  0,     'BRL', 'MONTHLY',  20, true, true,  0),
-      ('starter',      'Starter',      'Para médicos individuais começando agora',                       9900,  'BRL', 'MONTHLY',  20, true, false, 1),
-      ('essencial',    'Essencial',    'Para clínicas pequenas e equipes em crescimento',                19900, 'BRL', 'MONTHLY',  60, true, false, 2),
-      ('profissional', 'Profissional', 'Para clínicas estabelecidas com alto volume cirúrgico',          39900, 'BRL', 'MONTHLY', 200, true, false, 3),
-      ('enterprise',   'Enterprise',   'Para grandes hospitais e redes — volume ilimitado',              79900, 'BRL', 'MONTHLY',  -1, true, false, 4)
+      ('starter',             'Starter',             'Ideal para médicos individuais começando agora',             45800,   'BRL', 'MONTHLY',  10, true,  true,  1),
+      ('starter-anual',       'Starter Anual',       'Ideal para médicos individuais começando agora',             444000,  'BRL', 'YEARLY',   10, true,  false, 2),
+      ('essencial',           'Essencial',           'Para clínicas pequenas e equipes em crescimento',            63400,   'BRL', 'MONTHLY',  20, true,  false, 3),
+      ('essencial-anual',     'Essencial Anual',     'Para clínicas pequenas e equipes em crescimento',            655200,  'BRL', 'YEARLY',   20, true,  false, 4),
+      ('profissional',        'Profissional',        'Para clínicas estabelecidas com alto volume cirúrgico',      81000,   'BRL', 'MONTHLY',  40, true,  false, 5),
+      ('profissional-anual',  'Profissional Anual',  'Para clínicas estabelecidas com alto volume cirúrgico',      866400,  'BRL', 'YEARLY',   40, true,  false, 6),
+      ('avancado',            'Avançado',            'Para grandes equipes com volume intenso de procedimentos',   98600,   'BRL', 'MONTHLY',  50, true,  false, 7),
+      ('avancado-anual',      'Avançado Anual',      'Para grandes equipes com volume intenso de procedimentos',   1077600, 'BRL', 'YEARLY',   50, true,  false, 8),
+      ('enterprise',          'Enterprise',          'Acima de 50 solicitações por mês — vamos conversar',        0,       'BRL', 'MONTHLY',  -1, true,  false, 9)
     ON CONFLICT (slug) DO NOTHING;
   `);
 
@@ -214,7 +218,7 @@ async function main() {
   }
   const professionalPlanId = profPlanRow[0].id;
   logger.log(
-    '✅ 5 planos de assinatura disponíveis (free-trial, starter, essencial, profissional, enterprise)\n',
+    '✅ 9 planos criados: starter, starter-anual, essencial, essencial-anual, profissional, profissional-anual, avancado, avancado-anual, enterprise\n',
   );
 
   // ========================================
@@ -2180,7 +2184,7 @@ async function main() {
   logger.log('');
   logger.log('📊 Dados criados:');
   logger.log(
-    '  • 5 planos de assinatura (free-trial, starter, essencial, profissional, enterprise)',
+    '  • 9 planos de assinatura (starter/anual, essencial/anual, profissional/anual, avancado/anual, enterprise)',
   );
   logger.log('  • 20 procedimentos cirúrgicos');
   logger.log('  • CID/TUSS não são carregados automaticamente (carga manual)');

@@ -21,6 +21,7 @@ import { ConfigService } from '@nestjs/config';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
+import { StorageService } from 'src/shared/storage/storage.service';
 
 // Mock bcryptjs before it's imported by the service
 jest.mock('bcryptjs', () => ({
@@ -78,6 +79,10 @@ describe('AuthService', () => {
     create: jest.fn().mockResolvedValue({}),
   };
 
+  const mockStorageService = {
+    getSignedUrl: jest.fn().mockResolvedValue('https://signed.url/avatar.png'),
+  };
+
   const mockRefreshTokenRepo = {
     save: jest.fn().mockResolvedValue({}),
     findOne: jest.fn(),
@@ -126,6 +131,7 @@ describe('AuthService', () => {
         { provide: ConsentService, useValue: mockConsentService },
         { provide: SubscriptionService, useValue: mockSubscriptionService },
         { provide: ProcedureRepository, useValue: mockProcedureRepository },
+        { provide: StorageService, useValue: mockStorageService },
       ],
     }).compile();
 

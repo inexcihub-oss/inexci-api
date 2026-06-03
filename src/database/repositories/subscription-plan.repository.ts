@@ -13,10 +13,10 @@ export class SubscriptionPlanRepository extends BaseRepository<SubscriptionPlan>
     super(repo);
   }
 
-  /** Lista planos ativos (sem o trial default) ordenados por sort_order. */
+  /** Lista planos ativos (visíveis públicamente) ordenados por sort_order. */
   async findPublicPlans(): Promise<SubscriptionPlan[]> {
     return this.repository.find({
-      where: { isActive: true, isTrialDefault: false },
+      where: { isActive: true },
       order: { sortOrder: 'ASC' },
     });
   }

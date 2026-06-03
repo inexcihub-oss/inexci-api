@@ -119,6 +119,7 @@ export class MailProcessor implements OnModuleInit {
       template,
       html: rawHtml,
       to,
+      cc,
       subject,
       context,
       attachments,
@@ -146,6 +147,7 @@ export class MailProcessor implements OnModuleInit {
       await this.transporter.sendMail({
         from: `"${this.mail.from.name}" <${this.mail.from.address}>`,
         to,
+        ...(cc ? { cc } : {}),
         subject,
         html,
         attachments: attachments?.map((a) => {

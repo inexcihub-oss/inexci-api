@@ -32,14 +32,11 @@ export class PaymentMethod {
   @Column({ name: 'gateway_provider', type: 'varchar', length: 30 })
   gatewayProvider: string;
 
-  /** Token devolvido pelo gateway (ex.: creditCardToken da Asaas). */
+  /** Token/ID do método de pagamento no Stripe (pm_xxx). */
   @Column({ name: 'gateway_token', type: 'varchar', length: 255 })
   gatewayToken: string;
 
-  /**
-   * ID do cliente no gateway (ex.: customer da Asaas). Importante para
-   * tokenizar novos cart\u00f5es para o mesmo cliente.
-   */
+  /** ID do customer no Stripe (cus_xxx). Necess\u00e1rio para criar novos PaymentMethods. */
   @Column({
     name: 'gateway_customer_id',
     type: 'varchar',

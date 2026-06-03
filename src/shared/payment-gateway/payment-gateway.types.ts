@@ -1,6 +1,6 @@
 /**
  * Tipos compartilhados pela camada gen\u00e9rica de gateway de pagamento.
- * Cada provider (Asaas, Stripe, etc.) deve normalizar suas respostas para
+ * O provider Stripe deve normalizar suas respostas para
  * estes shapes, garantindo que o restante do sistema permane\u00e7a agn\u00f3stico
  * ao gateway.
  */

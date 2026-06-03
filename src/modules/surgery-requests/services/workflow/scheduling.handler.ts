@@ -77,14 +77,6 @@ export class SchedulingHandler {
       dto.notifyPatient,
     );
 
-    await this.notificationService.notifyAdminsOfWorkflowAction(
-      userId,
-      request.patient?.name ?? 'Paciente',
-      request.protocol ?? id,
-      'Data de cirurgia confirmada',
-      `/solicitacao/${id}`,
-    );
-
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
       SurgeryRequestStatus.IN_SCHEDULING,

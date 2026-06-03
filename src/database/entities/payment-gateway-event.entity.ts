@@ -10,7 +10,7 @@ import {
  * Log de eventos de webhook recebidos do gateway de pagamento.
  *
  * Serve a dois prop\u00f3sitos:
- * 1. Idempot\u00eancia: gateways como Asaas reentregam webhooks; o par
+ * 1. Idempot\u00eancia: o Stripe pode reenviar webhooks; o par
  *    `(gatewayProvider, eventId)` \u00e9 \u00fanico, garantindo que o handler n\u00e3o
  *    processe o mesmo evento duas vezes.
  * 2. Auditoria: armazena o payload bruto + erros de processamento para
@@ -32,7 +32,7 @@ export class PaymentGatewayEvent {
 
   /**
    * Identificador do evento no gateway. Para gateways que n\u00e3o emitem
-   * ID expl\u00edcito (ex.: Asaas), o provider gera um ID est\u00e1vel a partir
+   * ID expl\u00edcito, o provider gera um ID est\u00e1vel a partir
    * de (event_type + resource_id).
    */
   @Column({ name: 'event_id', type: 'varchar', length: 200 })

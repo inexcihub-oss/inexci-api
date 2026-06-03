@@ -37,4 +37,9 @@ export class SendRequestDto {
   @IsOptional()
   @IsString({ each: true })
   attachments?: string[];
+
+  @ValidateIf((o) => o.method === SendMethod.EMAIL)
+  @IsOptional()
+  @IsString()
+  cc?: string;
 }

@@ -7,6 +7,9 @@ import {
   IsOptional,
   Matches,
   ValidateIf,
+  IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 
 export class RegisterDto {
@@ -53,10 +56,37 @@ export class RegisterDto {
   /**
    * Slug do plano de assinatura escolhido no cadastro. Opcional — quando
    * omitido, o backend usa o plano marcado como `is_trial_default`.
-   * Em qualquer caso, a assinatura inicial é criada como TRIALING (30 dias)
-   * e não exige cartão.
+   * 
+   * Planos com `isTrialDefault=true` criam uma assinatura de 30 dias grátis.
+   * Planos pagos (essencial, profissional, enterprise) exigem `paymentMethodId`.
    */
   @IsString()
   @IsOptional()
   planSlug?: string;
+
+  @IsString()
+  @IsOptional()
+  paymentMethodId?: string;
+
+  @IsString()
+  @IsOptional()
+  cardBrand?: string;
+
+  @IsString()
+  @IsOptional()
+  cardLast4?: string;
+
+  @IsString()
+  @IsOptional()
+  cardHolderName?: string;
+
+  @IsInt()
+  @IsOptional()
+  @Min(1)
+  @Max(12)
+  cardExpMonth?: number;
+
+  @IsInt()
+  @IsOptional()
+  cardExpYear?: number;
 }

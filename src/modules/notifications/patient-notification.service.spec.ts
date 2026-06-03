@@ -8,6 +8,7 @@ jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
     STATUS_CHANGE_PATIENT: 'mock-status-sid',
     STALE_STATUS_MESSAGE: 'mock-stale-sid',
+    MESSAGE_SCHEDULING_PATIENT: 'mock-scheduling-sid',
     WELCOME_PATIENT: 'mock-welcome-patient-sid',
     WELCOME_USER: 'mock-welcome-user-sid',
   },
@@ -25,6 +26,7 @@ describe('PatientNotificationService', () => {
   const baseRequest = {
     id: 'req-1',
     protocol: 'PROT-001',
+    surgeryDate: new Date(2026, 5, 2, 6, 0, 0),
     patient: {
       name: 'João Silva',
       email: 'joao@test.com',
@@ -166,5 +168,80 @@ describe('PatientNotificationService', () => {
     });
 
     expect(mockWhatsappService.sendTemplate).toHaveBeenCalled();
+  });
+
+  it('status Agendada envia data, horário e hospital no texto ao paciente', async () => {
+    await service.notifyPatientStatusChange({
+      request: baseRequest,
+      oldStatus: SurgeryRequestStatus.IN_SCHEDULING,
+      newStatus: SurgeryRequestStatus.SCHEDULED,
+      notifyPatient: true,
+    });
+
+    expect(mockWhatsappService.sendTemplate).toHaveBeenCalledWith(
+      '+5511999999999',
+      'mock-status-sid',
+      expect.objectContaining({
+        '3': expect.stringContaining('data 02/06/2026'),
+      }),
+    );
+
+    expect(mockWhatsappService.sendTemplate).toHaveBeenCalledWith(
+      '+5511999999999',
+      'mock-status-sid',
+      expect.objectContaining({
+        '3': expect.stringContaining('horário 06:00'),
+      }),
+    );
+
+    expect(mockWhatsappService.sendTemplate).toHaveBeenCalledWith(
+      '+5511999999999',
+      'mock-status-sid',
+      expect.objectContaining({
+        '3': expect.stringContaining('no Hospital ABC'),
+      }),
+    );
+  });
+
+  it('status Agendada sem hospital não inclui nome de hospital no texto', async () => {
+    const request = {
+      ...baseRequest,
+      hospital: null,
+    };
+
+    await service.notifyPatientStatusChange({
+      request,
+      oldStatus: SurgeryRequestStatus.IN_SCHEDULING,
+      newStatus: SurgeryRequestStatus.SCHEDULED,
+      notifyPatient: true,
+    });
+
+    const [, , variables] = mockWhatsappService.sendTemplate.mock.calls[0];
+    expect(variables['3']).not.toContain(' no ');
+    expect(variables['3']).toContain('horário 06:00');
+  });
+
+  it('opções de agendamento enviam data no formato DD/MM/AAAA', async () => {
+    await service.notifyPatientSchedulingOptions({
+      request: {
+        id: 'req-1',
+        patient: { name: 'João Silva', phone: '+5511999999999' },
+      },
+      dateOptions: [
+        '2026-06-12T09:00:00-03:00',
+        '2026-06-13T10:30:00-03:00',
+        '2026-06-14T11:00:00-03:00',
+      ],
+    });
+
+    expect(mockWhatsappService.sendTemplate).toHaveBeenCalledWith(
+      '+5511999999999',
+      'mock-scheduling-sid',
+      expect.objectContaining({
+        '2': expect.stringContaining('12/06/2026'),
+        '3': expect.stringContaining('13/06/2026'),
+        '4': expect.stringContaining('14/06/2026'),
+      }),
+    );
   });
 });

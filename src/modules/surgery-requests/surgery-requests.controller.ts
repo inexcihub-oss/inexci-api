@@ -104,6 +104,15 @@ export class SurgeryRequestsController {
     return this.surgeryRequestsService.update(data, user.userId);
   }
 
+  @Get(':id/cc-recipients')
+  @ApiOperation({ summary: 'Listar usuários para campo CC do e-mail da SC' })
+  getCcRecipients(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.getCcRecipients(id, user.userId);
+  }
+
   @Patch(':id/has-opme')
   @ApiOperation({ summary: 'Definir se possui OPME' })
   setHasOpme(

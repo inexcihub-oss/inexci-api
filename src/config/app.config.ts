@@ -38,7 +38,9 @@ export const envValidationSchema = Joi.object({
   MAIL_USER: Joi.string().allow('').default(''),
   MAIL_PASS: Joi.string().allow('').default(''),
   MAIL_FROM_NAME: Joi.string().allow('').default('Inexci'),
-  MAIL_FROM_ADDRESS: Joi.string().allow('').default('noreply@inexci.com.br'),
+  MAIL_FROM_ADDRESS: Joi.string()
+    .allow('')
+    .default('no-reply@mg.inexci.com.br'),
 
   // ── Twilio (WhatsApp) ────────────────────────────────
   TWILIO_ACCOUNT_SID: Joi.string().allow('').default(''),

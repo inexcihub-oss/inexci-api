@@ -79,7 +79,7 @@ export class CreateInfrastructure1746144000000 implements MigrationInterface {
     await this.createEnumIfNotExists(
       queryRunner,
       'doctor_header_logo_position_enum',
-      `'left', 'right'`,
+      `'left', 'right', 'center'`,
     );
 
     await this.createEnumIfNotExists(

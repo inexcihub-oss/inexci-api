@@ -13,6 +13,8 @@ import { MailModule } from 'src/shared/mail/mail.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { PrivacyModule } from '../privacy/privacy.module';
 import { BillingModule } from '../billing/billing.module';
+import { StorageModule } from 'src/shared/storage/storage.module';
+import { StorageService } from 'src/shared/storage/storage.service';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { BillingModule } from '../billing/billing.module';
     WhatsappModule,
     PrivacyModule,
     BillingModule,
+    StorageModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -38,7 +41,7 @@ import { BillingModule } from '../billing/billing.module';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, StorageService],
   controllers: [AuthController],
   exports: [AuthService],
 })

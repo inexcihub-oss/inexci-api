@@ -357,9 +357,16 @@ export class NotificationsService {
       await this.createNotificationForUsers(stakeholderIds, {
         type: NotificationType.STATUS_UPDATE,
         title: 'Status da Solicitação Atualizado',
-        message: `Status alterado de "${oldLabel}" para "${newLabel}"`,
+        message: `Status alterado de "${oldLabel}" para "${newLabel}" por ${actor.name ?? 'usuário'}`,
         link: `/solicitacao/${surgeryRequestId}`,
-        metadata: { surgeryRequestId, oldStatus, newStatus },
+        metadata: {
+          surgeryRequestId,
+          oldStatus,
+          newStatus,
+          actorId: actor.id,
+          actorName: actor.name,
+          actorAvatarUrl: actor.avatarUrl,
+        },
       });
 
       const request = await this.surgeryRequestRepository.findOneWithRelations(
@@ -441,12 +448,21 @@ export class NotificationsService {
 
       if (!adminIds.length) return;
 
+      const actorMetadata = {
+        actorId: actor.id,
+        actorName: actor.name,
+        actorAvatarUrl: actor.avatarUrl,
+      };
+
       await this.createNotificationForUsers(adminIds, {
         type: NotificationType.ACTION_BY_USER,
         title,
         message,
         link,
-        metadata,
+        metadata: {
+          ...(metadata ?? {}),
+          ...actorMetadata,
+        },
       });
     } catch (err: any) {
       this.logger.warn(`Falha ao notificar admins: ${err?.message}`);

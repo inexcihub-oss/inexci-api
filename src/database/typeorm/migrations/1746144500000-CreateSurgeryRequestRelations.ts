@@ -40,22 +40,29 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
 
     await queryRunner.query(`
       CREATE TABLE "opme_items" (
-        "id"                  UUID NOT NULL DEFAULT gen_random_uuid(),
-        "surgery_request_id"  UUID NOT NULL,
-        "name"                VARCHAR(75) NOT NULL,
-        "brand"               VARCHAR(75),
-        "quantity"            INTEGER NOT NULL DEFAULT 1,
-        "authorized_quantity" INTEGER,
-        "created_at"          TIMESTAMP NOT NULL DEFAULT now(),
-        "updated_at"          TIMESTAMP NOT NULL DEFAULT now(),
+        "id"                   UUID NOT NULL DEFAULT gen_random_uuid(),
+        "surgery_request_id"   UUID NOT NULL,
+        "name"                 VARCHAR(75) NOT NULL,
+        "brand"                VARCHAR(75),
+        "quantity"             INTEGER NOT NULL DEFAULT 1,
+        "authorized_quantity"  INTEGER,
+        "selected_supplier_id" UUID,
+        "created_at"           TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at"           TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "pk_opme_items" PRIMARY KEY ("id"),
         CONSTRAINT "fk_opme_items_surgery_request"
           FOREIGN KEY ("surgery_request_id") REFERENCES "surgery_requests"("id")
-          ON DELETE CASCADE ON UPDATE CASCADE
+          ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "fk_opme_items_selected_supplier"
+          FOREIGN KEY ("selected_supplier_id") REFERENCES "suppliers"("id")
+          ON DELETE SET NULL ON UPDATE NO ACTION
       );
     `);
     await queryRunner.query(
       `CREATE INDEX "idx_opme_items_sr_id" ON "opme_items" ("surgery_request_id");`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_opme_items_selected_supplier_id" ON "opme_items" ("selected_supplier_id");`,
     );
 
     await queryRunner.query(`

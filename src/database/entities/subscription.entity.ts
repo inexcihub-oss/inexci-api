@@ -103,7 +103,7 @@ export class Subscription {
 
   // ───── Refer\u00eancias do gateway ─────
 
-  /** Provider que cuida desta assinatura (asaas, stripe, ...). */
+  /** Provider que cuida desta assinatura (stripe). */
   @Column({ name: 'gateway_provider', type: 'varchar', length: 30 })
   gatewayProvider: string;
 

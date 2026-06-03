@@ -24,16 +24,25 @@ import {
   PaymentGateway,
 } from 'src/shared/payment-gateway/payment-gateway.interface';
 
+export interface CardPaymentInfo {
+  paymentMethodId: string;
+  brand: string;
+  last4: string;
+  holderName: string;
+  expMonth: number;
+  expYear: number;
+}
+
 /**
  * Orquestrador do ciclo de vida da assinatura.
  *
- * Concentra as regras de neg\u00f3cio:
- * - Cria\u00e7\u00e3o autom\u00e1tica de trial no cadastro.
- * - Cria\u00e7\u00e3o de subscription no gateway quando o cart\u00e3o \u00e9 cadastrado.
- * - Troca de plano (s\u00f3 vale no pr\u00f3ximo ciclo \u2014 sem proration).
- * - Cancelamento (mant\u00e9m at\u00e9 o final do ciclo).
- * - Reativa\u00e7\u00e3o (limpa flag de cancel_at_period_end ou cria nova).
- * - Transi\u00e7\u00f5es de status disparadas pelo cron e pelos webhooks.
+ * Concentra as regras de negócio:
+ * - Criação automática de trial no cadastro.
+ * - Criação de subscription no gateway quando o cartão é cadastrado.
+ * - Troca de plano (só vale no próximo ciclo — sem proration).
+ * - Cancelamento (mantém até o final do ciclo).
+ * - Reativação (limpa flag de cancel_at_period_end ou cria nova).
+ * - Transições de status disparadas pelo cron e pelos webhooks.
  */
 @Injectable()
 export class SubscriptionService {
@@ -49,18 +58,45 @@ export class SubscriptionService {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
   ) {}
 
-  // ───── Cria\u00e7\u00e3o (chamado no register) ─────
+  // ───── Criação (chamado no register) ─────
+
+  /**
+   * Cria assinatura inicial — pode ser TRIALING (30 dias grátis) ou ACTIVE com cartão.
+   * 
+   * Se `planSlug` for fornecido e for um plano com `isTrialDefault=true`, cria trial.
+   * Caso contrário, se houver `paymentInfo`, cria assinatura paga imediatamente.
+   * Se nenhum plano for especificado, usa o plano default com trial.
+   */
+  async createInitialSubscription(
+    ownerId: string,
+    planSlug?: string,
+    paymentInfo?: CardPaymentInfo,
+  ): Promise<Subscription> {
+    const plan = await this.resolveInitialPlan(planSlug);
+
+    if (plan.isTrialDefault) {
+      return this.createTrialSubscription(ownerId, plan.slug);
+    }
+
+    if (!paymentInfo) {
+      throw new BadRequestException(
+        'Dados de pagamento são obrigatórios para planos pagos',
+      );
+    }
+
+    return this.createPaidSubscription(ownerId, plan, paymentInfo);
+  }
 
   /**
    * Cria assinatura TRIALING para um novo admin/owner.
    *
-   * Se `planSlug` for fornecido, o trial \u00e9 ancorado nesse plano (ou seja,
-   * a cota durante o trial \u00e9 a do plano escolhido e a primeira cobran\u00e7a
-   * ap\u00f3s o trial ser\u00e1 desse mesmo plano). Caso contr\u00e1rio, usa o plano
+   * Se `planSlug` for fornecido, o trial é ancorado nesse plano (ou seja,
+   * a cota durante o trial é a do plano escolhido e a primeira cobrança
+   * após o trial será desse mesmo plano). Caso contrário, usa o plano
    * marcado como `is_trial_default = true`.
    *
-   * N\u00e3o cria nada no gateway ainda (o gateway s\u00f3 entra em cena quando
-   * o admin cadastra o cart\u00e3o).
+   * Não cria nada no gateway ainda (o gateway só entra em cena quando
+   * o admin cadastra o cartão).
    */
   async createTrialSubscription(
     ownerId: string,
@@ -69,7 +105,7 @@ export class SubscriptionService {
     const existing = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (existing) {
       this.logger.warn(
-        `[createTrial] j\u00e1 existe subscription para owner ${ownerId} \u2014 ignorando`,
+        `[createTrial] já existe subscription para owner ${ownerId} — ignorando`,
       );
       return existing;
     }
@@ -104,6 +140,95 @@ export class SubscriptionService {
     return subscription;
   }
 
+  private async createPaidSubscription(
+    ownerId: string,
+    plan: SubscriptionPlan,
+    paymentInfo: CardPaymentInfo,
+  ): Promise<Subscription> {
+    const existing = await this.subscriptionRepo.findByOwnerId(ownerId);
+    if (existing) {
+      this.logger.warn(
+        `[createPaid] já existe subscription para owner ${ownerId} — ignorando`,
+      );
+      return existing;
+    }
+
+    const user = await this.userRepo.findOne({ id: ownerId });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    const customer = await this.gateway.createCustomer({
+      ownerId,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || null,
+    });
+
+    const tokenized = await this.gateway.tokenizeCard({
+      customerId: customer.id,
+      paymentMethodId: paymentInfo.paymentMethodId,
+      brand: paymentInfo.brand,
+      last4: paymentInfo.last4,
+      holderName: paymentInfo.holderName,
+      expMonth: paymentInfo.expMonth,
+      expYear: paymentInfo.expYear,
+    });
+
+    const now = new Date();
+    const periodEnd = this.addDays(now, plan.billingPeriod === 'YEARLY' ? 365 : 30);
+
+    const subscription = await this.subscriptionRepo.create({
+      ownerId,
+      planId: plan.id,
+      status: SubscriptionStatus.ACTIVE,
+      trialEndsAt: null,
+      currentPeriodStart: now,
+      currentPeriodEnd: periodEnd,
+      gatewayProvider: this.gateway.providerId,
+      gatewayCustomerId: customer.id,
+    });
+
+    const gatewaySub = await this.gateway.createSubscription({
+      customerId: customer.id,
+      paymentMethodToken: tokenized.token,
+      amountCents: plan.priceCents,
+      cycle: plan.billingPeriod,
+      nextDueDate: now,
+      description: `Assinatura ${plan.name} — Inexci`,
+      externalReference: subscription.id,
+    });
+
+    const savedPM = await this.paymentMethodRepo.create({
+      ownerId,
+      gatewayProvider: this.gateway.providerId,
+      gatewayToken: tokenized.token,
+      gatewayCustomerId: customer.id,
+      brand: tokenized.brand,
+      last4: tokenized.last4,
+      holderName: tokenized.holderName,
+      expMonth: tokenized.expMonth,
+      expYear: tokenized.expYear,
+      isDefault: true,
+    });
+
+    await this.subscriptionRepo.update(subscription.id, {
+      gatewaySubscriptionId: gatewaySub.id,
+      defaultPaymentMethodId: savedPM.id,
+    });
+
+    await this.quotaPeriodRepo.create({
+      subscriptionId: subscription.id,
+      periodStart: now,
+      periodEnd: periodEnd,
+      surgeryRequestsLimit: plan.surgeryRequestQuota,
+      surgeryRequestsUsed: 0,
+    });
+
+    this.logger.log(
+      `Assinatura paga criada para owner=${ownerId} plano=${plan.slug}`,
+    );
+    return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
+  }
+
   private async resolveInitialPlan(
     planSlug: string | undefined,
   ): Promise<SubscriptionPlan> {
@@ -111,13 +236,13 @@ export class SubscriptionService {
       const plan = await this.planRepo.findBySlug(planSlug);
       if (plan && plan.isActive) return plan;
       this.logger.warn(
-        `[createTrial] planSlug="${planSlug}" inv\u00e1lido ou inativo \u2014 caindo para o plano default`,
+        `[createTrial] planSlug="${planSlug}" inválido ou inativo — caindo para o plano default`,
       );
     }
     const trialPlan = await this.planRepo.findTrialDefault();
     if (!trialPlan) {
       throw new NotFoundException(
-        'Plano de trial padr\u00e3o n\u00e3o encontrado. Verifique a tabela subscription_plans.',
+        'Plano de trial padrão não encontrado. Verifique a tabela subscription_plans.',
       );
     }
     return trialPlan;
@@ -133,7 +258,7 @@ export class SubscriptionService {
     const owner = await this.assertOwner(userId);
     const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
-      throw new NotFoundException('Assinatura n\u00e3o encontrada');
+      throw new NotFoundException('Assinatura não encontrada');
     }
 
     const now = new Date();
@@ -171,18 +296,18 @@ export class SubscriptionService {
     return { subscription, daysLeftInTrial, daysUntilSuspension };
   }
 
-  // ───── Mudan\u00e7as de estado ─────
+  // ───── Mudanças de estado ─────
 
   /**
-   * Agenda troca de plano para o pr\u00f3ximo ciclo.
-   * Segue a regra "next_cycle" \u2014 a troca s\u00f3 entra em vigor no fim do
-   * per\u00edodo atual; o gateway recebe o update no momento da renova\u00e7\u00e3o.
+   * Agenda troca de plano para o próximo ciclo.
+   * Segue a regra "next_cycle" — a troca só entra em vigor no fim do
+   * período atual; o gateway recebe o update no momento da renovação.
    */
   async changePlan(userId: string, planId: string): Promise<Subscription> {
     const owner = await this.assertOwner(userId);
     const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
-      throw new NotFoundException('Assinatura n\u00e3o encontrada');
+      throw new NotFoundException('Assinatura não encontrada');
     }
     if (subscription.status === SubscriptionStatus.CANCELED) {
       throw new BadRequestException(
@@ -191,7 +316,7 @@ export class SubscriptionService {
     }
     const plan = await this.planRepo.findOne({ id: planId });
     if (!plan || !plan.isActive) {
-      throw new NotFoundException('Plano n\u00e3o encontrado ou inativo');
+      throw new NotFoundException('Plano não encontrado ou inativo');
     }
 
     if (subscription.planId === planId) {
@@ -208,15 +333,15 @@ export class SubscriptionService {
   }
 
   /**
-   * Marca cancelamento ao fim do ciclo. A conta continua ativa at\u00e9 l\u00e1.
-   * No gateway, o cancelamento real s\u00f3 acontece quando o cron de fim de
-   * per\u00edodo executa.
+   * Marca cancelamento ao fim do ciclo. A conta continua ativa até lá.
+   * No gateway, o cancelamento real só acontece quando o cron de fim de
+   * período executa.
    */
   async cancelAtPeriodEnd(userId: string): Promise<Subscription> {
     const owner = await this.assertOwner(userId);
     const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
-      throw new NotFoundException('Assinatura n\u00e3o encontrada');
+      throw new NotFoundException('Assinatura não encontrada');
     }
     if (
       subscription.status === SubscriptionStatus.CANCELED ||
@@ -230,16 +355,16 @@ export class SubscriptionService {
     return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
   }
 
-  /** Reverte um cancelamento agendado (enquanto ainda no per\u00edodo atual). */
+  /** Reverte um cancelamento agendado (enquanto ainda no período atual). */
   async resumeSubscription(userId: string): Promise<Subscription> {
     const owner = await this.assertOwner(userId);
     const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
-      throw new NotFoundException('Assinatura n\u00e3o encontrada');
+      throw new NotFoundException('Assinatura não encontrada');
     }
     if (subscription.status === SubscriptionStatus.CANCELED) {
       throw new BadRequestException(
-        'Assinatura j\u00e1 cancelada. Crie uma nova.',
+        'Assinatura já cancelada. Crie uma nova.',
       );
     }
     await this.subscriptionRepo.update(subscription.id, {
@@ -251,12 +376,12 @@ export class SubscriptionService {
   // ───── Hooks chamados pelo PaymentMethodService ─────
 
   /**
-   * Quando o admin cadastra o primeiro cart\u00e3o durante o trial, cria a
-   * subscription no gateway com `nextDueDate = trialEndsAt`. Isso faz a
-   * Asaas iniciar a cobran\u00e7a imediatamente ap\u00f3s o trial.
+   * Quando o admin cadastra o primeiro cartão durante o trial, cria a
+   * subscription no gateway com `nextDueDate = trialEndsAt`. Isso faz o
+   * Stripe iniciar a cobrança imediatamente após o trial.
    *
-   * Se a subscription j\u00e1 estava ACTIVE/PAST_DUE/SUSPENDED, apenas atualiza
-   * o cart\u00e3o associado.
+   * Se a subscription já estava ACTIVE/PAST_DUE/SUSPENDED, apenas atualiza
+   * o cartão associado.
    */
   async onPaymentMethodAdded(params: {
     ownerId: string;
@@ -273,7 +398,7 @@ export class SubscriptionService {
     if (!plan) return;
 
     if (subscription.status === SubscriptionStatus.TRIALING) {
-      // Cria subscription no gateway com primeira cobran\u00e7a no fim do trial
+      // Cria subscription no gateway com primeira cobrança no fim do trial
       const nextDue = subscription.trialEndsAt ?? new Date();
       const gatewaySub = await this.gateway.createSubscription({
         customerId: params.gatewayCustomerId,
@@ -281,7 +406,7 @@ export class SubscriptionService {
         amountCents: plan.priceCents,
         cycle: plan.billingPeriod,
         nextDueDate: nextDue,
-        description: `Assinatura ${plan.name} \u2014 Inexci`,
+        description: `Assinatura ${plan.name} — Inexci`,
         externalReference: subscription.id,
       });
 
@@ -294,8 +419,8 @@ export class SubscriptionService {
     }
 
     if (subscription.status === SubscriptionStatus.SUSPENDED) {
-      // Sai da suspens\u00e3o ap\u00f3s cadastro de cart\u00e3o (cobran\u00e7a imediata
-      // \u00e9 disparada pelo gateway na pr\u00f3xima nextDueDate).
+      // Sai da suspensão após cadastro de cartão (cobrança imediata
+      // é disparada pelo gateway na próxima nextDueDate).
       const nextDue = new Date();
       let gatewaySubId = subscription.gatewaySubscriptionId;
       if (!gatewaySubId) {
@@ -305,7 +430,7 @@ export class SubscriptionService {
           amountCents: plan.priceCents,
           cycle: plan.billingPeriod,
           nextDueDate: nextDue,
-          description: `Assinatura ${plan.name} \u2014 Inexci`,
+          description: `Assinatura ${plan.name} — Inexci`,
           externalReference: subscription.id,
         });
         gatewaySubId = gatewaySub.id;
@@ -321,7 +446,7 @@ export class SubscriptionService {
       return;
     }
 
-    // Caso comum: apenas troca o cart\u00e3o ativo
+    // Caso comum: apenas troca o cartão ativo
     await this.subscriptionRepo.update(subscription.id, {
       gatewayCustomerId: params.gatewayCustomerId,
       defaultPaymentMethodId: params.paymentMethodId,
@@ -381,7 +506,7 @@ export class SubscriptionService {
   }
 
   /**
-   * Avan\u00e7a o per\u00edodo de cobran\u00e7a (chamado quando uma fatura \u00e9 paga
+   * Avança o período de cobrança (chamado quando uma fatura é paga
    * com sucesso). Se houver `nextPlanId`, ativa a troca de plano agendada.
    */
   async advanceBillingPeriod(subscriptionId: string): Promise<void> {
@@ -421,7 +546,7 @@ export class SubscriptionService {
    */
   private async assertOwner(userId: string) {
     const user = await this.userRepo.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usu\u00e1rio n\u00e3o encontrado');
+    if (!user) throw new NotFoundException('Usuário não encontrado');
     if (user.id !== user.ownerId) {
       throw new ForbiddenException(
         'Apenas o admin da conta pode gerenciar a assinatura',

@@ -19,4 +19,8 @@ export class UpdateSurgeryRequestBasicDto {
   @IsOptional()
   @IsString()
   healthPlanId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  doctorId?: string;
 }

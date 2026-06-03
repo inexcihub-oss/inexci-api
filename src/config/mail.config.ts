@@ -14,7 +14,7 @@ export const mailConfig = registerAs('mail', () => ({
   },
   from: {
     name: process.env.MAIL_FROM_NAME || 'Inexci',
-    address: process.env.MAIL_FROM_ADDRESS || 'noreply@inexci.com.br',
+    address: process.env.MAIL_FROM_ADDRESS || 'no-reply@mg.inexci.com.br',
   },
   appUrl: process.env.DASHBOARD_URL || '',
 }));

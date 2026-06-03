@@ -283,6 +283,7 @@ describe('SurgeryRequestWorkflowService', () => {
         'test@test.com',
         expect.objectContaining({ patientName: 'Paciente Test' }),
         undefined,
+        undefined,
       );
       expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });
     });

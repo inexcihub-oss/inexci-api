@@ -89,14 +89,6 @@ export class ExecutionHandler {
       { logger: this.logger, operationName: 'markPerformed' },
     );
 
-    await this.notificationService.notifyAdminsOfWorkflowAction(
-      userId,
-      request.patient?.name ?? 'Paciente',
-      request.protocol ?? id,
-      'Cirurgia marcada como realizada',
-      `/solicitacao/${id}`,
-    );
-
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
       request.status,

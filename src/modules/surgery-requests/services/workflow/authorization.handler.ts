@@ -104,14 +104,6 @@ export class AuthorizationHandler {
       dto.dateOptions,
     );
 
-    await this.notificationService.notifyAdminsOfWorkflowAction(
-      userId,
-      request.patient?.name ?? 'Paciente',
-      request.protocol ?? id,
-      'Autorização aceita',
-      `/solicitacao/${id}`,
-    );
-
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
       request.status,

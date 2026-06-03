@@ -41,9 +41,9 @@ describe('UpdateDoctorProfileDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('deve aceitar somente signature_image_url', async () => {
+  it('deve aceitar somente signatureImageUrl', async () => {
     const dto = plainToInstance(UpdateDoctorProfileDto, {
-      signature_image_url: 'https://storage.example.com/signatures/abc.png',
+      signatureImageUrl: 'https://storage.example.com/signatures/abc.png',
     });
 
     const errors = await validate(dto);
@@ -55,7 +55,7 @@ describe('UpdateDoctorProfileDto', () => {
       crm: '654321',
       crmState: 'RJ',
       specialty: 'Cardiologia',
-      signature_image_url: 'https://storage.example.com/sig.png',
+      signatureImageUrl: 'https://storage.example.com/sig.png',
     });
 
     const errors = await validate(dto);
