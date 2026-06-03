@@ -406,18 +406,28 @@ export class SurgeryRequestsService {
   async getCcRecipients(id: string, userId: string) {
     const where = await this.buildAccessWhere({ id }, userId);
     const request = await this.surgeryRequestRepository.findOneSimple(where);
-    if (!request) throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
     const recipients: Array<{ id: string; name: string; email: string }> = [];
 
     const doctor = await this.userRepository.findOne({ id: request.doctorId });
     if (doctor?.email) {
-      recipients.push({ id: doctor.id, name: doctor.name, email: doctor.email });
+      recipients.push({
+        id: doctor.id,
+        name: doctor.name,
+        email: doctor.email,
+      });
     }
 
-    const accesses = await this.userDoctorAccessRepository.findActiveByDoctorUserId(request.doctorId);
+    const accesses =
+      await this.userDoctorAccessRepository.findActiveByDoctorUserId(
+        request.doctorId,
+      );
     for (const access of accesses) {
-      const u = access.user ?? await this.userRepository.findOne({ id: access.userId });
+      const u =
+        access.user ??
+        (await this.userRepository.findOne({ id: access.userId }));
       if (u?.email && !recipients.some((r) => r.id === u.id)) {
         recipients.push({ id: u.id, name: u.name, email: u.email });
       }

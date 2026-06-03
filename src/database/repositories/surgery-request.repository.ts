@@ -528,12 +528,11 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     prevStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     userId: string | null = null,
+    statusChangedAt?: Date,
   ): Promise<void> {
-    const now = new Date();
-
     const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
     await surgeryRequestRepo.update(surgeryRequestId, {
-      lastStatusChangedAt: now,
+      lastStatusChangedAt: statusChangedAt ?? new Date(),
     });
 
     const activityRepo = manager.getRepository(SurgeryRequestActivity);

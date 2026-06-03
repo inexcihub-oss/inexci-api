@@ -127,8 +127,16 @@ export class MailService {
       message?: string;
     },
     attachments?: MailAttachment[],
+    cc?: string,
   ) {
-    return this.send('surgery-contested', to, subject, context, attachments);
+    return this.send(
+      'surgery-contested',
+      to,
+      subject,
+      context,
+      attachments,
+      cc,
+    );
   }
 
   /**

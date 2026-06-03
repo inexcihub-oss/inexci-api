@@ -113,7 +113,9 @@ export class UsersService {
       if (doctorProfile) {
         if (id !== userId) {
           const accesses =
-            await this.userDoctorAccessRepository.findActiveByDoctorUserId(userId);
+            await this.userDoctorAccessRepository.findActiveByDoctorUserId(
+              userId,
+            );
           const accessUserIds = accesses.map((a) => a.userId);
           if (!accessUserIds.includes(id)) {
             throw new ForbiddenException('Sem permissão para ver este usuário');
@@ -793,7 +795,10 @@ export class UsersService {
     const records = await Promise.all(
       doctors.map(async (d) => {
         const { password, ...rest } = d;
-        return { ...rest, avatarUrl: await this.resolveStorageUrl(d.avatarUrl) };
+        return {
+          ...rest,
+          avatarUrl: await this.resolveStorageUrl(d.avatarUrl),
+        };
       }),
     );
 
@@ -1106,7 +1111,9 @@ export class UsersService {
     await this.doctorProfileRepository.update(profile.id, { signatureUrl });
   }
 
-  private async resolveStorageUrl(path?: string | null): Promise<string | null> {
+  private async resolveStorageUrl(
+    path?: string | null,
+  ): Promise<string | null> {
     if (!path) return null;
     if (path.startsWith('http://') || path.startsWith('https://')) return path;
     try {

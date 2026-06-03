@@ -56,7 +56,7 @@ export class RegisterDto {
   /**
    * Slug do plano de assinatura escolhido no cadastro. Opcional — quando
    * omitido, o backend usa o plano marcado como `is_trial_default`.
-   * 
+   *
    * Planos com `isTrialDefault=true` criam uma assinatura de 30 dias grátis.
    * Planos pagos (essencial, profissional, enterprise) exigem `paymentMethodId`.
    */

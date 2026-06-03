@@ -279,6 +279,7 @@ export class SendAnalysisHandler {
           request.status,
           SurgeryRequestStatus.IN_ANALYSIS,
           userId,
+          new Date(dto.receivedAt),
         );
       },
       { logger: this.logger, operationName: 'startAnalysis' },

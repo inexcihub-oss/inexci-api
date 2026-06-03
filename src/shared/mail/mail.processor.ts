@@ -142,7 +142,11 @@ export class MailProcessor implements OnModuleInit {
         throw new Error('mail job sem template nem rawHtml');
       }
       const html =
-        rawHtml ?? (await this.renderTemplate(template!, context ?? {}));
+        rawHtml ??
+        (await this.renderTemplate(template!, {
+          ...(context ?? {}),
+          ...(cc ? { cc } : {}),
+        }));
 
       await this.transporter.sendMail({
         from: `"${this.mail.from.name}" <${this.mail.from.address}>`,

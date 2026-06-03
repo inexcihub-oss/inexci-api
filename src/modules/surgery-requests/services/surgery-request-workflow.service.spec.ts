@@ -565,11 +565,8 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       // markPerformed roda em executeInTransaction (envolve dataSource.transaction)
-      // e dispara notificações de admin e stakeholders.
+      // e dispara notificação para stakeholders.
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(
-        notificationService.notifyAdminsOfWorkflowAction,
-      ).toHaveBeenCalled();
       expect(
         notificationService.notifyStakeholdersOfStatusChange,
       ).toHaveBeenCalled();

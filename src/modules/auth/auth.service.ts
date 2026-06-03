@@ -29,7 +29,7 @@ import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
-import { CardPaymentInfo, SubscriptionService } from '../billing/services/subscription.service';
+import { SubscriptionService } from '../billing/services/subscription.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
@@ -330,7 +330,9 @@ export class AuthService {
     };
   }
 
-  private async resolveStorageUrl(path?: string | null): Promise<string | null> {
+  private async resolveStorageUrl(
+    path?: string | null,
+  ): Promise<string | null> {
     if (!path) return null;
     if (path.startsWith('http://') || path.startsWith('https://')) return path;
     try {

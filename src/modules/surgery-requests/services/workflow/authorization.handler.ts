@@ -217,6 +217,7 @@ export class AuthorizationHandler {
           message: dto.message,
         },
         pdfAttachment ? [pdfAttachment] : undefined,
+        dto.cc || undefined,
       );
       return { sent: true, method: SendMethod.EMAIL };
     }

@@ -25,6 +25,10 @@ export class ContestAuthorizationDto {
   message?: string;
 
   @IsOptional()
+  @IsString()
+  cc?: string;
+
+  @IsOptional()
   @IsString({ each: true })
   attachments?: string[];
 }

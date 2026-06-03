@@ -62,7 +62,7 @@ export class SubscriptionService {
 
   /**
    * Cria assinatura inicial — pode ser TRIALING (30 dias grátis) ou ACTIVE com cartão.
-   * 
+   *
    * Se `planSlug` for fornecido e for um plano com `isTrialDefault=true`, cria trial.
    * Caso contrário, se houver `paymentInfo`, cria assinatura paga imediatamente.
    * Se nenhum plano for especificado, usa o plano default com trial.
@@ -174,7 +174,10 @@ export class SubscriptionService {
     });
 
     const now = new Date();
-    const periodEnd = this.addDays(now, plan.billingPeriod === 'YEARLY' ? 365 : 30);
+    const periodEnd = this.addDays(
+      now,
+      plan.billingPeriod === 'YEARLY' ? 365 : 30,
+    );
 
     const subscription = await this.subscriptionRepo.create({
       ownerId,
@@ -363,9 +366,7 @@ export class SubscriptionService {
       throw new NotFoundException('Assinatura não encontrada');
     }
     if (subscription.status === SubscriptionStatus.CANCELED) {
-      throw new BadRequestException(
-        'Assinatura já cancelada. Crie uma nova.',
-      );
+      throw new BadRequestException('Assinatura já cancelada. Crie uma nova.');
     }
     await this.subscriptionRepo.update(subscription.id, {
       cancelAtPeriodEnd: false,
