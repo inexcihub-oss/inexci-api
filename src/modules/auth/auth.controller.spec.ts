@@ -74,12 +74,10 @@ describe('AuthController', () => {
 
   describe('register', () => {
     it('should NOT start a session and exclude refresh_token/access_token from body', async () => {
-      // O fluxo de registro exige confirmação por e-mail antes do login,
-      // então o controller descarta qualquer token retornado pelo service.
+      // O fluxo de registro exige confirmação por e-mail antes do login: o service
+      // não emite mais tokens e o controller não define cookie de sessão.
       const registerResult = {
         user: { id: 'user-2', name: 'New User' },
-        access_token: 'jwt-token-2',
-        refresh_token: 'rt-456',
       };
       mockAuthService.register.mockResolvedValue(registerResult);
 

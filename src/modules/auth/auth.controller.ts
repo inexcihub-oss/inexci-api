@@ -55,10 +55,9 @@ export class AuthController {
   @ApiOperation({ summary: 'Registrar novo usuário' })
   @ApiResponse({ status: 201, description: 'Usuário registrado com sucesso' })
   async register(@Body() req: RegisterDto) {
-    const result = await this.authService.register(req);
-    // Não inicia sessão — o usuário precisa confirmar o e-mail antes de logar.
-    const { refresh_token: _rt, access_token: _at, ...body } = result;
-    return body;
+    // O service não emite mais access/refresh token: o usuário precisa confirmar
+    // o e-mail antes de logar. Nenhum cookie de sessão é definido aqui.
+    return await this.authService.register(req);
   }
 
   @Public()

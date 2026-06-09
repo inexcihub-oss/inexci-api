@@ -336,8 +336,11 @@ describe('AuthService', () => {
         signatureUrl: null,
         clinicName: null,
       });
-      expect(result.access_token).toBe('mock-jwt-token');
-      expect(result.refresh_token).toBeDefined();
+      // O cadastro não inicia sessão: nenhum token é emitido e nenhum refresh
+      // token órfão é persistido (o usuário deve confirmar o e-mail antes de logar).
+      expect((result as Record<string, unknown>).access_token).toBeUndefined();
+      expect((result as Record<string, unknown>).refresh_token).toBeUndefined();
+      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
       expect(mockDoctorProfileRepository.create).toHaveBeenCalled();
     });
 
@@ -370,7 +373,8 @@ describe('AuthService', () => {
       expect(result.user.isDoctor).toBe(false);
       expect(result.user.doctorProfile).toBeNull();
       expect(mockDoctorProfileRepository.create).not.toHaveBeenCalled();
-      expect(result.access_token).toBe('mock-jwt-token');
+      expect((result as Record<string, unknown>).access_token).toBeUndefined();
+      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
     });
   });
 
@@ -413,6 +417,79 @@ describe('AuthService', () => {
       expect(result!.user.email).toBe('test@example.com');
       expect(result!.access_token).toBe('mock-jwt-token');
       expect(result!.user.isDoctor).toBe(false);
+    });
+  });
+
+  // ─── refreshAccessToken ─────────────────────────────────────────
+
+  describe('refreshAccessToken', () => {
+    const validStored = {
+      id: 'rt-1',
+      token: 'rt-token',
+      userId: 'user-1',
+      revoked: false,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+
+    it('rotaciona o token para um usuário ativo e verificado', async () => {
+      mockRefreshTokenRepo.findOne.mockResolvedValue(validStored);
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: true,
+      });
+
+      const result = await service.refreshAccessToken('rt-token');
+
+      expect(result.access_token).toBe('mock-jwt-token');
+      expect(result.refresh_token).toBeDefined();
+      // O token usado é revogado (rotação) e um novo é persistido.
+      expect(mockRefreshTokenRepo.update).toHaveBeenCalledWith('rt-1', {
+        revoked: true,
+      });
+      expect(mockRefreshTokenRepo.save).toHaveBeenCalled();
+    });
+
+    it('rejeita e revoga a sessão quando o e-mail não está verificado', async () => {
+      mockRefreshTokenRepo.findOne.mockResolvedValue(validStored);
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        emailVerified: false,
+      });
+
+      await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      // Revoga todos os refresh tokens do usuário para encerrar a sessão.
+      expect(mockRefreshTokenRepo.update).toHaveBeenCalledWith(
+        { userId: 'user-1', revoked: false },
+        { revoked: true },
+      );
+      // Não emite novo token.
+      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejeita quando a conta não está ativa', async () => {
+      mockRefreshTokenRepo.findOne.mockResolvedValue(validStored);
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.PENDING,
+        emailVerified: true,
+      });
+
+      await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejeita um refresh token inexistente', async () => {
+      mockRefreshTokenRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.refreshAccessToken('nope')).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 

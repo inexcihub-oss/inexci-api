@@ -206,8 +206,9 @@ export class AuthService {
         });
     }
 
-    const refreshToken = await this.createRefreshToken(user.id);
-
+    // O cadastro NÃO inicia sessão: o usuário precisa confirmar o e-mail antes de
+    // logar. Não geramos access/refresh token aqui para evitar persistir um
+    // refresh token órfão em `refresh_tokens` (o controller já não os utiliza).
     return {
       user: {
         id: user.id.toString(),
@@ -233,8 +234,6 @@ export class AuthService {
         createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
         updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
       },
-      access_token: this.jwtService.sign({ userId: user.id }),
-      refresh_token: refreshToken,
     };
   }
 
@@ -477,6 +476,17 @@ export class AuthService {
       // Revoke expired token
       await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
       throw new BadRequestException('Refresh token expirado');
+    }
+
+    // Revalida o usuário: um refresh token não pode reanimar uma sessão de uma
+    // conta inativa ou com e-mail ainda não confirmado (mesma barreira do login).
+    // Sem isso, um refresh token antigo furaria a verificação de e-mail.
+    const user = await this.userRepository.findOne({ id: storedToken.userId });
+    if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerified) {
+      await this.revokeRefreshTokens(storedToken.userId);
+      throw new UnauthorizedException(
+        'Sessão inválida. Confirme seu e-mail e faça login novamente.',
+      );
     }
 
     // Revoke the used token (rotation)
