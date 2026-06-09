@@ -8,6 +8,7 @@ import {
   Put,
   Res,
   Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
@@ -85,8 +86,32 @@ export class AuthController {
   }
 
   private clearRefreshCookie(res: Response) {
-    const { maxAge: _maxAge, ...clearOptions } = this.getRefreshCookieOptions();
-    res.clearCookie(this.REFRESH_COOKIE, clearOptions);
+    const { maxAge: _maxAge, ...baseOptions } = this.getRefreshCookieOptions();
+
+    const paths = new Set<string>([
+      baseOptions.path ?? '/auth/refresh',
+      '/auth/refresh',
+      '/',
+    ]);
+
+    const hasDomain = !!baseOptions.domain;
+    const domainCandidates = hasDomain
+      ? [baseOptions.domain, undefined]
+      : [undefined];
+
+    for (const path of paths) {
+      for (const domain of domainCandidates) {
+        const options: CookieOptions = {
+          ...baseOptions,
+          path,
+          ...(domain ? { domain } : {}),
+        };
+        if (!domain) {
+          delete options.domain;
+        }
+        res.clearCookie(this.REFRESH_COOKIE, options);
+      }
+    }
   }
 
   @Public()
@@ -187,10 +212,21 @@ export class AuthController {
       );
       throw new BadRequestException('Refresh token ausente');
     }
-    const result = await this.authService.refreshAccessToken(refreshToken);
-    this.setRefreshCookie(res, result.refresh_token);
-    const { refresh_token, ...body } = result;
-    return body;
+    try {
+      const result = await this.authService.refreshAccessToken(refreshToken);
+      this.setRefreshCookie(res, result.refresh_token);
+      const { refresh_token, ...body } = result;
+      return body;
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException
+      ) {
+        // Evita loop infinito de refresh com cookie órfão/revogado.
+        this.clearRefreshCookie(res);
+      }
+      throw error;
+    }
   }
 
   @Post('logout')

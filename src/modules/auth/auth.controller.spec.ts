@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { Response, Request } from 'express';
+import { BadRequestException } from '@nestjs/common';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -133,6 +134,24 @@ describe('AuthController', () => {
 
       expect(mockAuthService.refreshAccessToken).toHaveBeenCalledWith(
         'body-rt',
+      );
+    });
+
+    it('should clear refresh cookie when token is invalid', async () => {
+      mockAuthService.refreshAccessToken.mockRejectedValue(
+        new BadRequestException('Refresh token inválido'),
+      );
+
+      const req = mockRequest({ refresh_token: 'invalid-rt' }) as Request;
+      const res = mockResponse() as Response;
+
+      await expect(
+        controller.refresh(req, undefined as any, res),
+      ).rejects.toThrow('Refresh token inválido');
+
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'refresh_token',
+        expect.objectContaining({ httpOnly: true, path: '/auth/refresh' }),
       );
     });
   });
