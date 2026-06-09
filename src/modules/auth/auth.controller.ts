@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Post, Put, Res, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Post,
+  Put,
+  Res,
+  Req,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
+import type { CookieOptions } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -25,29 +36,57 @@ import {
 @Controller('auth')
 @SkipConsentCheck()
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
   /** Cookie httpOnly para refresh token */
   private readonly REFRESH_COOKIE = 'refresh_token';
   private readonly REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
   constructor(private readonly authService: AuthService) {}
 
-  private setRefreshCookie(res: Response, token: string) {
-    res.cookie(this.REFRESH_COOKIE, token, {
+  private getRefreshCookieOptions(): CookieOptions {
+    const configuredSameSite =
+      process.env.AUTH_REFRESH_COOKIE_SAMESITE?.trim().toLowerCase();
+    const sameSite: CookieOptions['sameSite'] =
+      configuredSameSite === 'lax' ||
+      configuredSameSite === 'strict' ||
+      configuredSameSite === 'none'
+        ? configuredSameSite
+        : process.env.NODE_ENV === 'production'
+          ? 'none'
+          : 'strict';
+
+    const configuredPath = process.env.AUTH_REFRESH_COOKIE_PATH?.trim();
+    const path =
+      configuredPath ||
+      (process.env.NODE_ENV === 'production' ? '/' : '/auth/refresh');
+
+    const secureFromEnv = process.env.AUTH_REFRESH_COOKIE_SECURE?.trim();
+    const secure =
+      secureFromEnv === 'true'
+        ? true
+        : secureFromEnv === 'false'
+          ? false
+          : process.env.NODE_ENV === 'production' || sameSite === 'none';
+
+    const domain = process.env.AUTH_REFRESH_COOKIE_DOMAIN?.trim();
+
+    return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/auth/refresh',
+      secure,
+      sameSite,
+      path,
       maxAge: this.REFRESH_COOKIE_MAX_AGE,
-    });
+      ...(domain ? { domain } : {}),
+    };
+  }
+
+  private setRefreshCookie(res: Response, token: string) {
+    res.cookie(this.REFRESH_COOKIE, token, this.getRefreshCookieOptions());
   }
 
   private clearRefreshCookie(res: Response) {
-    res.clearCookie(this.REFRESH_COOKIE, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/auth/refresh',
-    });
+    const { maxAge: _maxAge, ...clearOptions } = this.getRefreshCookieOptions();
+    res.clearCookie(this.REFRESH_COOKIE, clearOptions);
   }
 
   @Public()
@@ -142,6 +181,12 @@ export class AuthController {
   ) {
     // Prioriza cookie httpOnly; fallback para body (retrocompatibilidade temporária)
     const refreshToken = req.cookies?.refresh_token || bodyToken;
+    if (!refreshToken) {
+      this.logger.warn(
+        'Tentativa de refresh sem token (cookie/body ausentes). Verifique SameSite/Domain/Path do cookie de refresh.',
+      );
+      throw new BadRequestException('Refresh token ausente');
+    }
     const result = await this.authService.refreshAccessToken(refreshToken);
     this.setRefreshCookie(res, result.refresh_token);
     const { refresh_token, ...body } = result;
