@@ -1,192 +1,163 @@
 # Política de Privacidade da Inexci
 
-## 1. Quem somos
+Diretrizes sobre a coleta, utilização, armazenamento e proteção de dados pessoais dos usuários das plataformas Inexci, em conformidade com a legislação vigente.
 
-A **Inexci** ([RAZÃO SOCIAL COMPLETA], CNPJ [CNPJ], com sede em [ENDEREÇO]) é a controladora dos dados pessoais tratados na plataforma de gestão de solicitações cirúrgicas disponível em [DOMÍNIO PRINCIPAL]. Esta Política descreve como coletamos, usamos, compartilhamos e protegemos esses dados.
+A presente Política de Privacidade tem por finalidade demonstrar o compromisso da **RAIZE MEDICAL S.A.**, pessoa jurídica de direito privado, estabelecida à Rua Serra Negra, 10, Loja B, Bairro Tanque, CEP 22735-020, Rio de Janeiro/RJ, inscrita no CNPJ sob o nº **21.963.787/0001-67**, titular das plataformas, aplicativos e sites INEXCI, doravante denominada **INEXCI**, com a privacidade e a proteção dos dados pessoais coletados de seus USUÁRIOS.
 
-Para qualquer assunto relacionado a esta Política, fale com o nosso **Encarregado pelo Tratamento de Dados (DPO)**:
+Esta Política estabelece as regras sobre o tratamento de dados pessoais no escopo dos serviços e funcionalidades da Inexci, em conformidade com a Lei nº 13.709/2018 (Lei Geral de Proteção de Dados Pessoais — LGPD) e demais normas aplicáveis.
 
-- **Nome / razão social:** [NOME DO DPO]
-- **E-mail:** [dpo@inexci.com — confirmar canal definitivo]
-- **Formulário público:** [URL do formulário de contato — A DEFINIR]
+Este documento deve ser lido em conjunto com os [Termos de Uso](/privacidade/termos) e o [Aviso de Uso de IA](/privacidade/ia).
 
----
+Como condição para acesso e uso das funcionalidades da INEXCI, o USUÁRIO declara que realizou a leitura completa e atenta desta Política de Privacidade, estando ciente de seus termos e manifestando sua concordância livre e expressa. Caso não concorde com estas diretrizes, o USUÁRIO deverá descontinuar o acesso.
+
+## 1. Definições
+
+Para os fins deste documento, consideram-se as seguintes definições:
+
+- **COOKIES:** pequenos arquivos de computador ou pacotes de dados enviados por um site ao navegador do usuário quando o USUÁRIO visita o site.
+- **IP:** abreviatura de Internet Protocol; conjunto alfanumérico que identifica dispositivos dos USUÁRIOS na Internet.
+- **USUÁRIO:** qualquer pessoa física que acessa e/ou utiliza funcionalidades e/ou serviços da INEXCI.
 
 ## 2. A quem esta Política se aplica
 
 Tratamos dados de três grupos distintos:
 
-| Grupo | Como entram em contato com a plataforma |
-|---|---|
-| **Médicos e colaboradores** | Cadastram-se na plataforma, gerenciam solicitações cirúrgicas e usam canais (web, WhatsApp). |
-| **Pacientes** | Têm seus dados inseridos pelo médico responsável; não interagem diretamente com a plataforma na maioria dos casos. |
-| **Visitantes do site** | Navegam por páginas públicas, sem cadastro. |
+- **Médicos e colaboradores:** cadastram-se na plataforma, gerenciam solicitações cirúrgicas e usam canais (web e WhatsApp).
+- **Pacientes:** têm seus dados inseridos pelo médico responsável; não interagem diretamente com a plataforma na maioria dos casos.
+- **Visitantes do site:** navegam por páginas públicas, sem cadastro.
 
----
+## 3. Coleta e Uso de Dados e Registro de Atividades
 
-## 3. Quais dados coletamos
+### 3.1 Dados coletados
 
-### 3.1 De médicos e colaboradores
+Os dados coletados a partir da submissão voluntária pelo USUÁRIO ou automaticamente atendem ao princípio da necessidade e podem incluir:
 
-- **Identificação:** nome completo, CPF, e-mail, telefone, CRM (quando aplicável), número da inscrição estadual/profissional.
-- **Acesso:** senha (armazenada com hash bcrypt), endereço IP, registros de login, dispositivos.
-- **Contato profissional:** endereço da clínica, dados bancários para repasse (se aplicável).
-- **Conteúdo gerado:** solicitações cirúrgicas criadas, mensagens trocadas no WhatsApp com o assistente, áudios enviados, documentos anexados.
-
-### 3.2 De pacientes
+### 3.1.1 Usuário Paciente
 
 - **Identificação:** nome completo, CPF, RG, telefone, e-mail (quando informado), data de nascimento, endereço, gênero.
-- **Dados de saúde (sensíveis, art. 5º, II da LGPD):** diagnóstico, CID, descrição cirúrgica, laudo médico, histórico clínico, OPME (Órteses, Próteses e Materiais Especiais) prescritos, código TUSS dos procedimentos, convênio/plano de saúde, hospital de realização, data e horário da cirurgia, evolução pós-operatória, valores praticados.
+- **Dados de saúde (sensíveis, art. 5º, II da LGPD):** diagnóstico, CID, descrição cirúrgica, laudo médico, histórico clínico, OPME (Órteses, Próteses e Materiais Especiais) prescritos, código TUSS dos procedimentos, convênio/plano de saúde, hospital de realização, data e horário da cirurgia, evolução pós-operatória, valores praticados, prescrições de medicamentos, exames, vacinas, diagnósticos, alergias, doenças e outras condições de saúde relacionadas, características biológicas, tratamentos em andamento, medicamentos utilizados, doenças e outras condições de saúde relacionadas ou não a fatores genéticos (prontuário), imagem e voz.
 - **Documentos:** laudos em PDF/imagem, exames, autorizações do convênio.
 
-### 3.3 De visitantes
+### 3.1.2 Usuários médicos e/ou colaboradores
 
-- **Tecnológicos:** endereço IP, tipo de navegador, sistema operacional, páginas visitadas, cookies essenciais.
+- **Identificação:** nome completo, CPF, e-mail, telefone, função, sexo, especialidade do profissional de saúde e CRM.
+- **Acesso:** senha (armazenada com hash seguro), endereço IP, registros de login, dispositivos, cookies, registros de atividades e dados de uso da plataforma.
+- **Contato profissional:** endereço da clínica, dados bancários para repasse (se aplicável), dados do cartão de crédito.
+- **Conteúdo gerado:** solicitações cirúrgicas criadas, mensagens trocadas no WhatsApp com o assistente, áudios enviados e documentos anexados.
 
----
+### 3.1.3 Visitantes
 
-## 4. Para que usamos os dados (finalidades)
+- **Tecnológicos:** endereço IP, tipo de navegador, sistema operacional, páginas visitadas e cookies essenciais.
 
-| Finalidade | Categoria de dado | Base legal |
-|---|---|---|
-| Cadastro e autenticação na plataforma | Identificação + acesso do médico/colaborador | Execução de contrato (art. 7º, V) |
-| Gestão da solicitação cirúrgica (criação, autorização, agendamento, realização, faturamento) | Dados do paciente, dados clínicos, documentos | Tutela da saúde (art. 11, II, "f") + consentimento intermediado pelo médico |
-| Comunicação automatizada com o médico via WhatsApp (status, lembretes) | Telefone do médico, conteúdo de mensagem | Execução de contrato + consentimento |
-| Comunicação automatizada com o paciente via WhatsApp/e-mail | Telefone, e-mail, conteúdo | Consentimento intermediado pelo médico |
-| **Assistente de IA via WhatsApp** | Conteúdo das mensagens, dados pseudonimizados das solicitações | **Consentimento explícito e separado** (art. 7º, I e art. 11, I) |
-| Geração de PDFs (autorização, laudo, contestação) | Dados clínicos e administrativos da SC | Execução de contrato |
-| Faturamento ao convênio | Identificação do paciente, dados do plano, valores | Obrigação legal + execução de contrato |
-| Suporte ao usuário | Identificação + histórico de uso | Execução de contrato + legítimo interesse |
-| Segurança da plataforma (anti-fraude, anti-abuso) | Logs de acesso, IP | Legítimo interesse (art. 7º, IX) |
-| Cumprimento de obrigações legais (fiscal, trabalhista) | Identificação + dados financeiros | Cumprimento de obrigação legal (art. 7º, II) |
+### 3.2 Finalidades e bases legais do tratamento
 
----
+- Cadastro e autenticação na plataforma | Identificação + acesso do médico/colaborador | **Execução de contrato** (art. 7º, V).
+- Gestão da solicitação cirúrgica (criação, autorização, agendamento, realização, faturamento) | Dados do paciente, dados clínicos, documentos | **Tutela da saúde** (art. 11, II, “f”) + consentimento intermediado pelo médico.
+- Comunicação automatizada com o médico via WhatsApp (status, lembretes) | Telefone do médico, conteúdo de mensagem | **Execução de contrato + consentimento**.
+- Comunicação automatizada com o paciente via WhatsApp/e-mail | Telefone, e-mail, conteúdo | **Consentimento intermediado pelo médico**.
+- Assistente de IA via WhatsApp | Conteúdo das mensagens e dados pseudonimizados das solicitações | **Consentimento explícito e separado** (art. 7º, I e art. 11, I).
+- Geração de PDFs (autorização, laudo, contestação) | Dados clínicos e administrativos da solicitação cirúrgica | **Execução de contrato**.
+- Faturamento ao convênio | Identificação do paciente, dados do plano, valores | **Obrigação legal + execução de contrato**.
+- Suporte ao usuário | Identificação + histórico de uso | **Execução de contrato + legítimo interesse**.
+- Segurança da plataforma (anti-fraude, anti-abuso) | Logs de acesso, IP | **Legítimo interesse** (art. 7º, IX).
+- Cumprimento de obrigações legais (fiscal, trabalhista) | Identificação + dados financeiros | **Cumprimento de obrigação legal** (art. 7º, II).
 
-## 5. Com quem compartilhamos os dados (operadores)
+### 3.3 Demais disposições sobre coleta e veracidade
 
-A Inexci utiliza fornecedores terceirizados para operar a plataforma. Cada um trata dados estritamente limitados à finalidade contratada e está sujeito a contrato de operador conforme art. 39 da LGPD.
+Todos os dados pessoais poderão ser utilizados como meio probatório em casos de atos ilícitos ou contrários a esta Política de Privacidade ou qualquer outro documento legal disponibilizado pela INEXCI, bem como para cumprimento de ordem judicial ou de requisição administrativa.
 
-| Operador | Finalidade | Localização | Transferência internacional? | Garantia |
-|---|---|---|---|---|
-| **Microsoft Corporation** (Azure OpenAI Service) | Assistente de IA (geração de respostas no WhatsApp) | **Brasil — região Brasil-Sul (São Paulo)** | **Não** | DPA padrão da Microsoft (Online Services DPA) + Zero Data Retention contratual |
-| **Twilio Inc.** | Envio e recebimento de mensagens WhatsApp | Estados Unidos / Irlanda | **Sim** | DPA assinado [PENDENTE confirmar] |
-| **Sendinblue / Brevo SAS** | Envio de e-mail transacional | França (UE) | **Sim** (transferência adequada — UE possui nível adequado de proteção) | DPA assinado [PENDENTE confirmar] |
-| **Supabase Inc.** | Armazenamento de arquivos (laudos, exames, documentos) | [região do bucket — A DEFINIR] | [Sim/Não conforme região] | DPA + criptografia at-rest |
-| **Amazon Web Services (AWS)** | Armazenamento adicional via SDK S3 (quando aplicável) | [região — A DEFINIR] | [Sim/Não] | DPA + criptografia |
-| **[Provedor de hospedagem da API]** | Hospedagem do backend e do frontend | [Brasil / EUA — A DEFINIR] | [conforme] | DPA |
-| **PostgreSQL gerenciado** ([provedor]) | Banco de dados relacional | [região — A DEFINIR] | [conforme] | TLS + criptografia at-rest |
+Cabe ao USUÁRIO configurar o seu dispositivo móvel caso deseje bloquear a coleta de cookies ou outros dados. Nesta hipótese, algumas funcionalidades da INEXCI poderão ser limitadas.
 
-A lista acima pode ser atualizada conforme novos operadores forem contratados; a versão vigente está sempre em [URL DEDICADA — sugestão `app.inexci.com/privacidade/operadores`].
+A INEXCI não é responsável pela precisão, veracidade ou falta delas nas informações prestadas pelo USUÁRIO ou pela sua desatualização, sendo de responsabilidade do USUÁRIO prestá-las com exatidão e atualizá-las sempre que necessário.
 
----
+A base de dados formada por meio da coleta de dados na INEXCI é de propriedade e responsabilidade da INEXCI, sendo que seu uso, acesso e compartilhamento, quando necessários, serão feitos dentro dos limites e propósitos dos negócios da INEXCI e descritos nesta Política de Privacidade e Termos de Uso.
 
-## 5.1 Divisão de papéis e cadeia de consentimento
+O USUÁRIO é corresponsável pelo sigilo de seus dados pessoais. O compartilhamento de senhas e dados de acesso viola esta Política de Privacidade e os Termos de Uso da INEXCI.
 
-A Inexci atua, **em relação aos seus dados como Médico/Colaborador** (cadastro, autenticação, comunicações com você), como **Controladora**.
+Internamente, os dados dos USUÁRIOS serão acessados somente por profissionais devidamente autorizados pela INEXCI, respeitando os princípios de proporcionalidade, necessidade e relevância para os objetivos da INEXCI, além do compromisso de confidencialidade e preservação da privacidade.
 
-Em relação aos **dados dos pacientes** que você cadastra, a Inexci atua como **Operadora** sob suas instruções; **você é o Controlador** desses dados.
+## 4. Armazenamento, Transferência Internacional, Retenção e Eliminação dos Dados
 
-O **consentimento dos pacientes** é, portanto, **obtido por você**, fora da plataforma, de acordo com a sua prática clínica habitual. A Inexci **não exige upload nem armazena evidência de termo assinado** dos pacientes; apenas confia na sua declaração — registrada eletronicamente quando você aceita o [Aviso de Uso de IA](ai-disclosure-1.0.md) — de que obteve o consentimento e mantém a evidência sob sua guarda.
+Os dados coletados são armazenados em infraestrutura de nuvem (cloud computing) da **Hostinger**, com servidores localizados no Brasil e nos Estados Unidos.
 
-Caso ocorra incidente, auditoria ou solicitação de autoridade competente envolvendo dados de paciente específico, **você se compromete a apresentar a evidência do consentimento** que mantém. A ausência dessa evidência é responsabilidade exclusiva sua.
+A transferência internacional será realizada somente para os agentes e finalidades descritas nesta Política de Privacidade, os quais aplicam as melhores práticas internacionais de proteção de dados pessoais e garantem proporcionar grau de proteção de dados pessoais adequado ao previsto na Lei nº 13.709/2018 (LGPD), conforme exigência do art. 33, inciso I da lei.
 
----
+Para funcionalidades de inteligência artificial e transcrição de áudio, a INEXCI poderá utilizar serviços de fornecedores especializados, incluindo a OpenAI, conforme a configuração técnica vigente da plataforma. Nesses casos, o tratamento observará os termos aplicáveis do fornecedor, as bases legais cabíveis e as salvaguardas contratuais para transferência internacional, quando necessária.
 
-## 6. Transferência internacional de dados
+Todos os dados coletados pela INEXCI são armazenados em ambiente seguro, monitorado, com controle de falhas e backup distribuído. Todavia, na condição de prestadora de Software como Serviço (SaaS), a INEXCI não controla os dispositivos e estações utilizados pelo usuário/cliente. Assim, a segurança desses ambientes locais é de responsabilidade do usuário/cliente, na qualidade de controlador dos dados pessoais de seus clientes/pacientes. A INEXCI não se responsabiliza por danos decorrentes de acesso indevido causado por negligência do usuário/cliente, exceto nos casos em que haja dolo ou culpa comprovada da própria INEXCI.
 
-Alguns dos nossos operadores estão localizados fora do Brasil. Nesses casos, a transferência internacional ocorre com base em **cláusulas-padrão contratuais aprovadas pela Autoridade Nacional de Proteção de Dados (Resolução CD/ANPD nº 19/2024)** e em DPAs específicos com cada fornecedor.
+Para fins de auditoria, segurança, controle de fraudes, preservação de direitos e cumprimento de obrigação legal, a INEXCI poderá permanecer com o histórico de registros de acesso dos USUÁRIOS por prazo mínimo de 6 (seis) meses. A guarda dos dados relacionados ao prontuário do paciente é de responsabilidade integral da clínica, conforme a legislação específica do setor.
 
-Para o **assistente de IA**, o conteúdo das suas mensagens é processado pela **Microsoft Azure OpenAI Service na região Brasil-Sul (São Paulo)** — **sem transferência internacional de dados**. A Microsoft opera o serviço sob política de **Zero Data Retention (ZDR)**: prompts e respostas não são armazenados pelo provedor após o processamento, não são utilizados para treinar modelos e não ficam disponíveis para revisão humana.
+Ao término do contrato entre USUÁRIO e INEXCI, o USUÁRIO Administrador da Conta é integralmente responsável por realizar a exportação de todos os dados inseridos em sua conta na plataforma INEXCI dentro do prazo de 60 (sessenta) dias a contar do término da assinatura.
 
-Como camada adicional, antes do envio ao provedor aplicamos **pseudonimização** que substitui nomes, CPFs, telefones, e-mails, hospitais e convênios por códigos opacos do tipo `{{patient_name_1}}`. O provedor recebe apenas o texto pseudonimizado; a substituição reversa só acontece dentro da nossa infraestrutura, antes da entrega ao seu WhatsApp.
+Caso haja solicitação de eliminação dos dados pelo USUÁRIO, essa eliminação somente poderá ocorrer se já não houver mais finalidade de uso nem obrigação legal, regulatória ou judicial que justifique sua retenção.
 
-> ⚠️ **Limitação técnica reconhecida:** o conteúdo livre digitado/falado pelo usuário (descrição clínica, sintomas, evolução) não é completamente mascarado quando contém termos genéricos. Mesmo sob ZDR e residência de dados no Brasil, esse conteúdo é processado por um operador terceirizado — não recomendamos digitar no assistente informações que você não autorizaria a processamento por terceiros.
+Os dados deverão ser retidos enquanto durar sua finalidade de uso ou obrigação legal, regulatória ou judicial que justifique sua retenção. Ao término da finalidade de uso e do prazo de retenção obrigatória, os dados poderão ser eliminados com uso de métodos de descarte seguro, ou utilizados de forma anonimizada para fins estatísticos.
 
----
+## 5. Compartilhamento e Exportação dos Dados
 
-## 7. Por quanto tempo guardamos os dados (retenção)
+Os dados coletados e as atividades registradas poderão ser compartilhados:
 
-| Categoria | Prazo | Justificativa |
-|---|---|---|
-| Cadastro do médico/colaborador (conta ativa) | Durante a vigência do contrato | Necessidade |
-| Conta do médico após cancelamento | 5 anos | Prazo prescricional (CC/CDC) |
-| Solicitações cirúrgicas finalizadas/encerradas | 5 anos após o encerramento | Prazo prescricional |
-| Mensagens WhatsApp (`whatsapp_conversation_messages`) | **15 dias** | Mínimo necessário para continuidade do diálogo |
-| Logs de uso da IA (`ai_token_usage_logs`) | 365 dias | Auditoria e custo |
-| Logs operacionais (`notification_send_logs`) | 90 dias | Suporte e investigação |
-| Logs de redação de PII (`ai_pii_redaction_logs`) | 180 dias | Compliance |
-| Backups criptografados | 30 dias rolling | Recuperação |
+1. Com autoridades judiciais, administrativas ou governamentais competentes, sempre que houver requisição legal ou ordem judicial;
+2. Em caso de movimentações societárias, como fusão, aquisição ou incorporação;
+3. Com provedores de serviços contratados pela INEXCI para viabilizar o site e a plataforma INEXCI, juntamente com suas funcionalidades e serviços;
+4. Com pessoas jurídicas integrantes do grupo econômico da RAIZE, quando necessário à regular prestação de serviços e/ou fornecimento de produtos;
+5. Com parceiros comerciais e prestadores de serviços, quando necessário à execução dos serviços ofertados.
 
-Após esses prazos, os dados são **excluídos ou anonimizados**, conforme procedimento documentado.
+Todos os terceiros contratados obrigam-se a tratar os dados com confidencialidade e somente para a finalidade contratada, assegurando o cumprimento legal em matéria de privacidade e proteção de dados e utilizando, em todo o tempo, as melhores práticas de segurança da informação.
 
----
+Poderá, ainda, haver compartilhamento de prontuários entre os profissionais de saúde de uma mesma clínica, a depender das regras estabelecidas pela clínica para acesso aos dados e prestação dos serviços de cuidado em saúde.
 
-## 8. Segurança das informações
+Os dados de prontuários somente poderão ser exportados mediante autorização do USUÁRIO Administrador da Conta da clínica na plataforma, o qual será integralmente responsável pela legitimação da operação.
 
-Adotamos as medidas previstas no art. 46 da LGPD, incluindo:
+## 6. Consentimento
 
-- TLS 1.2+ obrigatório em todas as conexões (web, API, webhooks).
-- Senhas armazenadas com hash bcrypt (custo ≥ 10).
-- JWT com expiração de 7 dias para autenticação.
-- Validação HMAC dos webhooks da Twilio.
-- Pseudonimização de PII antes do envio à IA externa (PII Vault).
-- Filtro defensivo que aborta chamadas ao provedor de IA se detectar PII residual.
-- Auditoria registrada na tabela `ai_pii_redaction_log`.
-- Acesso ao banco de dados restrito por VPC e credenciais rotacionadas.
-- Controle de acesso baseado em papel (admin / colaborador) e isolamento por `account_id` (em implementação — ver Fase 3 do plano técnico).
-- Logs de acesso e modificação preservados.
-- Backups criptografados com chave gerenciada.
-- Pen test e revisão de dependências anuais.
+### 6.1 Papéis e responsabilidades
 
----
+A Inexci atua, em relação aos dados de Médico/Colaborador (cadastro, autenticação e comunicações), como **Controladora**.
 
-## 9. Seus direitos como titular dos dados
+Em relação aos dados dos pacientes cadastrados pelo profissional de saúde, a Inexci atua como **Operadora** sob instruções do profissional/clínica, que figura como **Controlador** desses dados.
 
-Conforme o art. 18 da LGPD, você tem direito a:
+O consentimento dos pacientes, quando necessário, é obtido pelo profissional/clínica, fora da plataforma, de acordo com sua prática assistencial. A Inexci não exige upload nem armazena evidência de termo assinado dos pacientes; apenas registra eletronicamente a declaração do profissional ao aceitar o Aviso de Uso de IA, de que obteve o consentimento e mantém a evidência sob sua guarda.
 
-1. **Confirmar** a existência de tratamento.
-2. **Acessar** os dados.
-3. **Corrigir** dados incompletos, inexatos ou desatualizados.
-4. **Anonimizar, bloquear ou eliminar** dados desnecessários ou tratados em desconformidade.
-5. **Portar** os dados a outro fornecedor.
-6. **Eliminar** os dados tratados com base no consentimento (exceto quando houver outra base legal aplicável, como obrigação legal).
-7. **Obter informação** sobre as entidades com as quais compartilhamos seus dados.
-8. **Obter informação** sobre a possibilidade de não fornecer consentimento e suas consequências.
-9. **Revogar** o consentimento.
+Caso ocorra incidente, auditoria ou solicitação de autoridade competente envolvendo dados de paciente específico, o profissional/clínica compromete-se a apresentar a evidência do consentimento sob sua guarda. A ausência dessa evidência é de responsabilidade exclusiva do controlador.
 
-Para exercer qualquer desses direitos, acesse `[app.inexci.com/configuracoes/privacidade]` (titulares cadastrados) ou envie e-mail para `[dpo@inexci.com]` com cópia do documento de identificação.
+## 7. Exibição, Retificação, Portabilidade, Limitação, Oposição e Eliminação de Dados
 
-**Prazo de resposta:** até **15 dias úteis**, prorrogáveis por mais 15 mediante justificativa.
+O USUÁRIO poderá ter acesso aos seus dados (exibição) e realizar a retificação de seus dados pessoais por meio do ambiente logado na plataforma INEXCI ou pelos canais de atendimento disponibilizados pela INEXCI.
 
----
+Pelo canal de atendimento da INEXCI, o USUÁRIO poderá também requerer: (i) a limitação do uso de seus dados pessoais; (ii) manifestar sua oposição ao uso de seus dados pessoais; ou (iii) solicitar a eliminação de seus dados pessoais coletados pela INEXCI, desde que a eventual relação contratual entre o USUÁRIO e a INEXCI tenha terminado, não haja nenhuma finalidade de uso que legitime o tratamento e tenha decorrido o prazo legal mínimo relacionado à retenção dos dados.
 
-## 10. Cookies e tecnologias similares
+Tendo em vista o papel de Operador que a INEXCI desempenha em relação aos dados de pacientes, a portabilidade dos dados de prontuários médicos deverá ser solicitada pelo próprio paciente ao profissional de saúde que o atende ou à clínica em que realize tratamento de saúde, responsável pela guarda dos dados dos prontuários.
 
-Utilizamos cookies essenciais para autenticação e funcionamento da plataforma. Não utilizamos cookies de marketing ou rastreamento de terceiros sem o seu consentimento explícito. [Ajustar caso introduzam analytics — Google Analytics, Mixpanel etc. — exigem consentimento granular.]
+## 8. Segurança
+
+A INEXCI trata os dados pessoais de acordo com as melhores práticas de segurança da informação e os armazena em infraestrutura em nuvem com controles técnicos e administrativos compatíveis com o mercado.
+
+A INEXCI adota medidas técnicas e administrativas aptas a proteger os dados pessoais de acessos não autorizados e de situações acidentais ou ilícitas de destruição, perda, alteração, comunicação ou difusão, observados a estrutura, a escala e o volume de suas operações, bem como a sensibilidade dos dados tratados e a probabilidade e a gravidade dos danos aos titulares. Dentre tais medidas, destacam-se: hash seguro de senhas, backup, segregação de dados por organização, monitoramento de ambiente e controle de acesso com base na necessidade e na permissão concedida pelo USUÁRIO.
+
+## 9. Disposições Gerais
+
+A INEXCI não utiliza nenhum tipo de decisão automatizada que impacte o USUÁRIO.
+
+A INEXCI reserva a si o direito de alterar o teor desta Política de Privacidade a qualquer momento, conforme a finalidade ou necessidade, tal qual para adequação e conformidade legal de disposição de lei ou norma que tenha força jurídica equivalente, cabendo ao USUÁRIO verificá-la sempre que efetuar o acesso à INEXCI.
+
+Ocorrendo atualizações neste documento e que necessariamente demandem nova coleta de consentimento, a INEXCI notificará o USUÁRIO pelos meios de contato por ele fornecidos.
+
+Em caso de dúvida sobre as disposições desta Política de Privacidade, ou para contato com o Encarregado pelo Tratamento de Dados Pessoais (Data Protection Officer — DPO), o USUÁRIO poderá utilizar o canal de atendimento pelo e-mail: **contato@inexci.com.br**. As respostas serão enviadas entre segunda e sexta-feira, em horário comercial, exceto feriados.
+
+Caso empresas terceirizadas realizem o tratamento de quaisquer dados coletados pela INEXCI, deverão respeitar as condições aqui estipuladas e as melhores práticas de segurança da informação, obrigatoriamente.
+
+Caso alguma disposição desta Política de Privacidade seja considerada ilegal ou ilegítima por autoridade da localidade em que o USUÁRIO resida, as demais condições permanecerão em pleno vigor e produção de efeitos.
+
+O USUÁRIO reconhece que toda comunicação realizada por qualquer forma eletrônica é válida como prova documental, sendo eficaz e suficiente para a divulgação de qualquer assunto a que se refira aos serviços prestados pela INEXCI, bem como às condições de sua prestação ou a qualquer outro assunto nele abordado, ressalvadas as disposições expressamente diversas previstas nesta Política de Privacidade.
+
+## 10. Lei Aplicável e Jurisdição
+
+O presente documento será regido e interpretado segundo a legislação brasileira, no idioma português, sendo eleito o foro do domicílio do USUÁRIO para dirimir qualquer litígio ou controvérsia envolvendo o presente documento, salvo ressalva específica de competência pessoal, territorial ou funcional pela legislação aplicável.
 
 ---
 
-## 11. Crianças e adolescentes
+**Inexci — Política de Privacidade.**
 
-A plataforma é destinada a profissionais de saúde maiores de 18 anos. Quando dados de pacientes menores de idade forem inseridos pelo médico, o consentimento deve ser obtido dos pais ou responsáveis legais, conforme o art. 14 da LGPD.
-
----
-
-## 12. Alterações desta Política
-
-Esta Política pode ser atualizada periodicamente. Versionamos no formato `MAJOR.MINOR`:
-
-- **MAJOR** (ex.: 1.0 → 2.0): mudança material; usuários precisarão **reaceitar** a Política no próximo acesso.
-- **MINOR** (ex.: 1.0 → 1.1): correções redacionais ou de operadores; comunicada por e-mail/banner.
-
-O histórico de versões fica disponível em `[app.inexci.com/privacidade/historico]`.
-
----
-
-## 13. Foro e legislação aplicável
-
-Esta Política é regida pelas leis brasileiras, em especial pela **Lei 13.709/2018 (LGPD)**, **Marco Civil da Internet (Lei 12.965/2014)** e **Resoluções da ANPD**. Fica eleito o foro da comarca de **[CIDADE/UF da sede]** para dirimir quaisquer questões dela decorrentes.
-
----
-
-**Inexci — versão 1.0 (DRAFT) — gerado em 2026-05-07 pela engenharia. Pendente revisão jurídica antes de publicação.**
+Em caso de dúvidas, entre em contato pelo canal oficial: **contato@inexci.com.br**.

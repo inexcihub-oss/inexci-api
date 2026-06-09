@@ -1,48 +1,71 @@
-# Aviso de uso de Inteligência Artificial
+# Aviso de Uso de Inteligência Artificial da Inexci
 
-## Inteligência Artificial no atendimento
+## 1. Finalidade do Aviso
 
-Para oferecer respostas rápidas no WhatsApp e auxiliar na gestão das suas solicitações cirúrgicas, a Inexci utiliza um assistente de Inteligência Artificial fornecido pela **Microsoft Corporation** por meio do serviço **Azure OpenAI Service**, hospedado na região **Brasil-Sul (São Paulo)**.
+Este Aviso de Uso de Inteligência Artificial descreve, de forma clara e transparente, como funciona a funcionalidade opcional de assistente de IA da Inexci, quais dados podem ser tratados, quais limitações existem e quais são as responsabilidades do Usuário.
 
-### O que isso significa, na prática
+Este documento deve ser lido em conjunto com os [Termos de Uso](/privacidade/termos) e a [Política de Privacidade](/privacidade/politica).
 
-- **Mensagens enviadas** ao assistente e **dados das suas solicitações cirúrgicas** são processados por servidores localizados na **região Brasil-Sul (São Paulo)** da Microsoft Azure — **sem transferência internacional**.
-- A Microsoft opera o serviço sob política de **Zero Data Retention (ZDR)**: as mensagens não são armazenadas pelo provedor após o processamento, **não são utilizadas para treinar modelos** e não ficam acessíveis para revisão humana.
-- A Inexci aplica, adicionalmente, **pseudonimização** — substitui nomes, CPFs, telefones, e-mails, hospitais e convênios por códigos opacos do tipo `{{patient_name_1}}` antes do envio à IA. O provedor recebe apenas o texto pseudonimizado.
-- O conteúdo das suas conversas no WhatsApp é **retido por até 15 dias** e excluído automaticamente após esse prazo.
-- O assistente **pode cometer erros**. Decisões clínicas, administrativas ou financeiras tomadas com base em respostas do assistente são de **sua responsabilidade exclusiva** como Médico.
-- O assistente **não substitui o julgamento clínico** e **não emite diagnósticos**.
+## 2. Assistente de IA no atendimento
 
-### Declaração quanto aos seus pacientes
+Para oferecer respostas mais rápidas no WhatsApp e auxiliar na gestão das solicitações cirúrgicas, a Inexci disponibiliza, de forma opcional, um assistente de IA.
 
-Ao aceitar este aviso, **você (Médico/Colaborador) declara, sob sua responsabilidade profissional**:
+O assistente poderá utilizar serviços de fornecedores especializados, incluindo a OpenAI, conforme a arquitetura técnica vigente da plataforma. O tratamento observará os termos aplicáveis do fornecedor, as bases legais cabíveis e as salvaguardas contratuais aplicáveis, inclusive em hipóteses de transferência internacional de dados, quando necessário.
 
-1. Que **obteve previamente o consentimento livre, informado e inequívoco** dos seus pacientes para o tratamento dos dados pessoais e dados pessoais sensíveis (saúde) deles na plataforma Inexci, incluindo o eventual uso de assistente de IA conforme descrito neste aviso (LGPD, art. 7º, I e art. 11, I; CFM 2.217/2018).
-2. Que **mantém sob sua guarda a evidência** desse consentimento (termo físico, digital, gravação ou anotação em prontuário), conforme exige a sua atividade profissional, e a apresentará à Inexci ou à autoridade competente caso solicitada.
-3. Que **assume integral responsabilidade** por informar os pacientes sobre os termos deste aviso e sobre seus direitos como titulares de dados (art. 18 da LGPD), atuando como Controlador dos dados desses pacientes.
-4. Que entende que a Inexci atua, em relação aos dados dos seus pacientes, como **Operadora** sob suas instruções, e como Controladora apenas em relação aos seus próprios dados de cadastro e uso da plataforma.
+## 3. Tratamento de dados e medidas de proteção
 
-A Inexci **não exige upload de termos assinados** dos pacientes na plataforma e **não verifica diretamente** a coleta do consentimento — essa é uma obrigação sua. A plataforma confia na sua declaração ao aceitar este aviso.
+No uso do assistente de IA, poderão ser tratados dados relacionados às mensagens enviadas pelo Usuário e ao contexto operacional das solicitações cirúrgicas, conforme necessário para a execução da funcionalidade.
 
-### Limitação que você precisa conhecer
+A Inexci adota medidas técnicas e administrativas para reduzir riscos de exposição de dados, incluindo, quando aplicável:
 
-Texto livre que você digite ou fale (ex.: descrições clínicas, sintomas, evolução pós-operatória) **pode não ser completamente mascarado** quando contiver termos genéricos, e — ainda que pseudonimizado — sai da infraestrutura da Inexci. Se você não autorizaria que determinada informação fosse processada por terceiros, **não a digite no assistente**.
+- pseudonimização de identificadores diretos;
+- segregação de dados por organização;
+- controles de acesso;
+- monitoramento de ambiente;
+- políticas de retenção e descarte seguro.
 
-### Como controlar o uso
+## 4. Limitações e uso responsável
 
-Esta autorização é coletada **uma única vez**, neste primeiro acesso à plataforma web. Você pode:
+O Usuário reconhece e concorda que:
 
-- **Aceitar** o uso do assistente de IA e ter acesso completo a ele via WhatsApp.
-- **Continuar sem o assistente** — as demais funcionalidades da plataforma (criação de SC pela web, status, agendamento, faturamento) continuam funcionando normalmente. O bot do WhatsApp continua respondendo a **avisos automáticos** (status, agendamento, etc.) e a **dúvidas gerais sobre a Inexci** (suporte usando base de conhecimento — sem processar dados das suas solicitações), mas não conversa de forma assistida sobre pacientes ou solicitações específicas.
-- **Revogar a autorização a qualquer momento** em `/configuracoes/privacidade`. A revogação dispara **anonimização das conversas anteriores** com o assistente.
+1. O assistente de IA pode cometer erros, gerar informações imprecisas ou interpretar incorretamente solicitações.
+2. O assistente de IA não substitui o julgamento clínico e não deve ser utilizado para emissão de diagnóstico ou definição autônoma de conduta terapêutica.
+3. Decisões clínicas, administrativas e financeiras tomadas com base nas respostas do assistente são de responsabilidade exclusiva do Médico/Colaborador.
+4. Conteúdo livre digitado ou falado poderá ser processado por fornecedor terceirizado de IA, conforme a configuração técnica vigente da plataforma.
 
-Só será solicitado **novo aceite** caso publiquemos uma versão materialmente nova deste aviso (mudança MAJOR).
+## 5. Consentimento para uso do assistente
 
-### Sua escolha (obrigatória — uma das duas)
+O uso do assistente de IA exige consentimento explícito e separado, nos termos dos arts. 7º, I e 11, I da LGPD.
 
-- ☐ **Li, compreendi e autorizo** o uso de Inteligência Artificial nos termos acima, e **declaro ter obtido o consentimento dos meus pacientes** conforme descrito na seção "Declaração quanto aos seus pacientes".
-- ☐ **Prefiro continuar sem o assistente de IA** (posso ativar depois em `/configuracoes/privacidade`).
+- O consentimento é coletado no ambiente web, em /configuracoes/privacidade.
+- O WhatsApp não é canal de coleta de consentimento.
+- O Usuário pode ativar ou desativar o assistente a qualquer momento em /configuracoes/privacidade.
+- A revogação produzirá os efeitos técnicos previstos na configuração vigente da plataforma e na Política de Privacidade.
+
+Sem consentimento ativo para IA, o Usuário poderá continuar recebendo comunicações transacionais e respostas gerais de suporte, sem atendimento assistido sobre pacientes ou solicitações específicas.
+
+## 6. Declaração sobre consentimento de pacientes
+
+Ao aceitar este Aviso, o Médico/Colaborador declara, sob sua responsabilidade profissional, que:
+
+1. Obteve previamente o consentimento do paciente (ou responsável legal), quando exigido, para o tratamento de dados pessoais e dados pessoais sensíveis (saúde) na plataforma, incluindo o uso do assistente de IA.
+2. Mantém sob sua guarda a evidência da coleta de consentimento (termo físico, registro digital, gravação ou anotação em prontuário), responsabilizando-se por apresentá-la quando solicitada por autoridade competente.
+3. É responsável por informar os pacientes sobre o uso da plataforma e sobre o uso do assistente de IA, quando aplicável.
+4. Está ciente de que, em relação aos dados dos pacientes, a Inexci atua como Operadora sob instruções do profissional/clínica, que figura como Controlador.
+
+A Inexci não exige upload de termos assinados dos pacientes na plataforma e não realiza validação individual da coleta de consentimento pelo profissional de saúde.
+
+## 7. Versionamento e atualização
+
+Este Aviso poderá ser atualizado para refletir alterações legais, regulatórias, operacionais ou tecnológicas.
+
+- Mudanças materiais (MAJOR) poderão exigir novo aceite.
+- Mudanças não materiais (MINOR) poderão ser comunicadas por e-mail, banner ou aviso na plataforma.
+
+## 8. Canal de contato
+
+Em caso de dúvidas sobre este Aviso, entre em contato pelo canal oficial: **contato@inexci.com.br**.
 
 ---
 
-**Inexci — Aviso de IA versão 1.0 (DRAFT) — gerado em 2026-05-07 pela engenharia. Pendente revisão jurídica antes de publicação.**
+**Inexci — Aviso de Uso de IA.**
