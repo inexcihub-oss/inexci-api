@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'src/database/entities/user.entity';
 import { RecoveryCode } from 'src/database/entities/recovery-code.entity';
-import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -15,11 +14,16 @@ import { PrivacyModule } from '../privacy/privacy.module';
 import { BillingModule } from '../billing/billing.module';
 import { StorageModule } from 'src/shared/storage/storage.module';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { RefreshTokenStore } from './refresh-token.store';
+import {
+  JWT_DEFAULT_AUDIENCE,
+  JWT_DEFAULT_ISSUER,
+} from './jwt-payload.interface';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([User, RecoveryCode, RefreshToken]),
+    TypeOrmModule.forFeature([User, RecoveryCode]),
     PassportModule,
     MailModule,
     WhatsappModule,
@@ -36,12 +40,19 @@ import { StorageService } from 'src/shared/storage/storage.service';
           }
           return secret;
         })(),
-        signOptions: { expiresIn: '15m' },
+        signOptions: {
+          expiresIn: '15m',
+          issuer: configService.get<string>('JWT_ISSUER', JWT_DEFAULT_ISSUER),
+          audience: configService.get<string>(
+            'JWT_AUDIENCE',
+            JWT_DEFAULT_AUDIENCE,
+          ),
+        },
       }),
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy, StorageService],
+  providers: [AuthService, JwtStrategy, StorageService, RefreshTokenStore],
   controllers: [AuthController],
   exports: [AuthService],
 })

@@ -7,15 +7,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { AuthService } from './auth.service';
+import { RefreshTokenStore } from './refresh-token.store';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
-import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { ConfigService } from '@nestjs/config';
 import { ConsentService } from '../privacy/consent.service';
@@ -83,10 +82,10 @@ describe('AuthService', () => {
     getSignedUrl: jest.fn().mockResolvedValue('https://signed.url/avatar.png'),
   };
 
-  const mockRefreshTokenRepo = {
-    save: jest.fn().mockResolvedValue({}),
-    findOne: jest.fn(),
-    update: jest.fn(),
+  const mockRefreshTokenStore = {
+    issue: jest.fn().mockResolvedValue('new-refresh-token'),
+    consume: jest.fn(),
+    revokeAllForUser: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockConfigService = {
@@ -123,10 +122,7 @@ describe('AuthService', () => {
         { provide: MailService, useValue: mockMailService },
         { provide: WhatsappService, useValue: mockWhatsappService },
         { provide: JwtService, useValue: mockJwtService },
-        {
-          provide: getRepositoryToken(RefreshToken),
-          useValue: mockRefreshTokenRepo,
-        },
+        { provide: RefreshTokenStore, useValue: mockRefreshTokenStore },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ConsentService, useValue: mockConsentService },
         { provide: SubscriptionService, useValue: mockSubscriptionService },
@@ -340,7 +336,7 @@ describe('AuthService', () => {
       // token órfão é persistido (o usuário deve confirmar o e-mail antes de logar).
       expect((result as Record<string, unknown>).access_token).toBeUndefined();
       expect((result as Record<string, unknown>).refresh_token).toBeUndefined();
-      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
       expect(mockDoctorProfileRepository.create).toHaveBeenCalled();
     });
 
@@ -374,7 +370,7 @@ describe('AuthService', () => {
       expect(result.user.doctorProfile).toBeNull();
       expect(mockDoctorProfileRepository.create).not.toHaveBeenCalled();
       expect((result as Record<string, unknown>).access_token).toBeUndefined();
-      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
   });
 
@@ -423,16 +419,11 @@ describe('AuthService', () => {
   // ─── refreshAccessToken ─────────────────────────────────────────
 
   describe('refreshAccessToken', () => {
-    const validStored = {
-      id: 'rt-1',
-      token: 'rt-token',
-      userId: 'user-1',
-      revoked: false,
-      expiresAt: new Date(Date.now() + 60_000),
-    };
-
     it('rotaciona o token para um usuário ativo e verificado', async () => {
-      mockRefreshTokenRepo.findOne.mockResolvedValue(validStored);
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+      });
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         status: UserStatus.ACTIVE,
@@ -442,16 +433,17 @@ describe('AuthService', () => {
       const result = await service.refreshAccessToken('rt-token');
 
       expect(result.access_token).toBe('mock-jwt-token');
-      expect(result.refresh_token).toBeDefined();
-      // O token usado é revogado (rotação) e um novo é persistido.
-      expect(mockRefreshTokenRepo.update).toHaveBeenCalledWith('rt-1', {
-        revoked: true,
-      });
-      expect(mockRefreshTokenRepo.save).toHaveBeenCalled();
+      expect(result.refresh_token).toBe('new-refresh-token');
+      // O consume revoga o token usado atomicamente; um novo é emitido.
+      expect(mockRefreshTokenStore.consume).toHaveBeenCalledWith('rt-token');
+      expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith('user-1');
     });
 
     it('rejeita e revoga a sessão quando o e-mail não está verificado', async () => {
-      mockRefreshTokenRepo.findOne.mockResolvedValue(validStored);
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+      });
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         status: UserStatus.ACTIVE,
@@ -462,16 +454,18 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       // Revoga todos os refresh tokens do usuário para encerrar a sessão.
-      expect(mockRefreshTokenRepo.update).toHaveBeenCalledWith(
-        { userId: 'user-1', revoked: false },
-        { revoked: true },
+      expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
+        'user-1',
       );
       // Não emite novo token.
-      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
 
     it('rejeita quando a conta não está ativa', async () => {
-      mockRefreshTokenRepo.findOne.mockResolvedValue(validStored);
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'valid',
+        userId: 'user-1',
+      });
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         status: UserStatus.PENDING,
@@ -481,27 +475,51 @@ describe('AuthService', () => {
       await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
         UnauthorizedException,
       );
-      expect(mockRefreshTokenRepo.save).not.toHaveBeenCalled();
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
 
     it('rejeita um refresh token inexistente', async () => {
-      mockRefreshTokenRepo.findOne.mockResolvedValue(null);
+      mockRefreshTokenStore.consume.mockResolvedValue({ status: 'not_found' });
 
       await expect(service.refreshAccessToken('nope')).rejects.toThrow(
         BadRequestException,
       );
     });
+
+    it('detecta reuso de token: revoga a família e força novo login (401)', async () => {
+      mockRefreshTokenStore.consume.mockResolvedValue({
+        status: 'reused',
+        userId: 'user-1',
+      });
+
+      await expect(service.refreshAccessToken('replayed')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      // Revoga TODOS os refresh tokens do usuário (revogação de família).
+      expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
+        'user-1',
+      );
+      // Não emite novo token.
+      expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
+    });
   });
 
   // ─── sendRecoveryPasswordEmail ──────────────────────────────────
 
+  const GENERIC_RECOVERY_MESSAGE =
+    'Se o e-mail existir, enviaremos um código de recuperação.';
+
   describe('sendRecoveryPasswordEmail', () => {
-    it('should throw NotFoundException when email is unknown', async () => {
+    it('anti-enumeration: e-mail inexistente retorna mensagem genérica sem lançar nem enfileirar e-mail', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.sendRecoveryPasswordEmail('unknown@example.com'),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.sendRecoveryPasswordEmail(
+        'unknown@example.com',
+      );
+
+      expect(result).toEqual({ message: GENERIC_RECOVERY_MESSAGE });
+      expect(mockRecoveryCodeRepository.create).not.toHaveBeenCalled();
+      expect(mockMailService.sendPasswordRecovery).not.toHaveBeenCalled();
     });
 
     it('should create a recovery code with 15min expiry and send email', async () => {
@@ -519,7 +537,7 @@ describe('AuthService', () => {
         await service.sendRecoveryPasswordEmail('test@example.com');
       const afterCall = Date.now();
 
-      expect(result).toEqual({ message: 'E-mail enviado com sucesso' });
+      expect(result).toEqual({ message: GENERIC_RECOVERY_MESSAGE });
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
         userId: 'user-1',
         used: false,
@@ -547,14 +565,11 @@ describe('AuthService', () => {
 
   describe('validateRecoveryPasswordCode', () => {
     it('should throw NotFoundException when code is invalid', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      });
       mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.validateRecoveryPasswordCode({
-          code: 'bad-code',
-          email: 'test@example.com',
-        }),
-      ).rejects.toThrow(NotFoundException);
 
       await expect(
         service.validateRecoveryPasswordCode({
@@ -564,7 +579,23 @@ describe('AuthService', () => {
       ).rejects.toThrow('Código inválido');
     });
 
+    it('escopa por usuário: e-mail inexistente → Código inválido', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.validateRecoveryPasswordCode({
+          code: '123456',
+          email: 'nobody@example.com',
+        }),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockRecoveryCodeRepository.findOne).not.toHaveBeenCalled();
+    });
+
     it('should throw BadRequestException when code is expired', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      });
       mockRecoveryCodeRepository.findOne.mockResolvedValue({
         id: 'code-1',
         code: '123456',
@@ -577,24 +608,14 @@ describe('AuthService', () => {
           code: '123456',
           email: 'test@example.com',
         }),
-      ).rejects.toThrow(BadRequestException);
-
-      mockRecoveryCodeRepository.findOne.mockResolvedValue({
-        id: 'code-1',
-        code: '123456',
-        used: false,
-        expiresAt: new Date(Date.now() - 60 * 1000),
-      });
-
-      await expect(
-        service.validateRecoveryPasswordCode({
-          code: '123456',
-          email: 'test@example.com',
-        }),
       ).rejects.toThrow('Código expirado');
     });
 
-    it('should mark code as used when valid and not expired', async () => {
+    it('marca o código como usado e emite um reset token', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+      });
       mockRecoveryCodeRepository.findOne.mockResolvedValue({
         id: 'code-1',
         code: '123456',
@@ -608,10 +629,18 @@ describe('AuthService', () => {
         email: 'test@example.com',
       });
 
-      expect(result).toEqual({ message: 'Código validado com sucesso' });
+      // uuid mockado → 'mock-uuid-1234'
+      expect(result).toEqual({
+        message: 'Código validado com sucesso',
+        resetToken: 'mock-uuid-1234',
+      });
       expect(mockRecoveryCodeRepository.updateByWhere).toHaveBeenCalledWith(
         { id: 'code-1' },
-        { used: true },
+        expect.objectContaining({
+          used: true,
+          resetToken: 'mock-uuid-1234',
+          resetTokenExpiresAt: expect.any(Date),
+        }),
       );
     });
   });
@@ -630,7 +659,7 @@ describe('AuthService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException when no validated recovery code exists', async () => {
+    it('rejeita quando o reset token não bate (inválido)', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
@@ -640,22 +669,36 @@ describe('AuthService', () => {
       await expect(
         service.changePassword({
           email: 'test@example.com',
+          resetToken: 'wrong-token',
           password: 'new',
         } as any),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(
+        'Token de redefinição inválido. Reinicie a recuperação de senha.',
+      );
+    });
 
+    it('rejeita quando o reset token está expirado', async () => {
       mockUserRepository.findOne.mockResolvedValue({
         id: 'user-1',
         email: 'test@example.com',
       });
-      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      mockRecoveryCodeRepository.findOne.mockResolvedValue({
+        id: 'code-1',
+        userId: 'user-1',
+        used: true,
+        resetToken: 'reset-tok',
+        resetTokenExpiresAt: new Date(Date.now() - 60 * 1000), // expirado
+      });
 
       await expect(
         service.changePassword({
           email: 'test@example.com',
+          resetToken: 'reset-tok',
           password: 'new',
         } as any),
-      ).rejects.toThrow('Nenhum código de recuperação validado encontrado');
+      ).rejects.toThrow(
+        'Token de redefinição expirado. Reinicie a recuperação de senha.',
+      );
     });
 
     it('should hash the new password, save it, and delete recovery codes', async () => {
@@ -667,6 +710,8 @@ describe('AuthService', () => {
         id: 'code-1',
         userId: 'user-1',
         used: true,
+        resetToken: 'reset-tok',
+        resetTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-new-password');
       mockUserRepository.update.mockResolvedValue({});
@@ -674,6 +719,7 @@ describe('AuthService', () => {
 
       const result = await service.changePassword({
         email: 'test@example.com',
+        resetToken: 'reset-tok',
         password: 'new-password-123',
       } as any);
 

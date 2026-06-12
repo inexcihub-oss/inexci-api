@@ -11,7 +11,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'João Silva',
       email: 'joao@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
     });
 
@@ -22,7 +22,7 @@ describe('RegisterDto', () => {
   it('deve falhar sem nome', async () => {
     const dto = plainToInstance(RegisterDto, {
       email: 'joao@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
     });
 
@@ -34,7 +34,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'João',
       email: 'not-an-email',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
     });
 
@@ -54,11 +54,70 @@ describe('RegisterDto', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
+  describe('política de senha forte', () => {
+    const baseDto = {
+      name: 'João',
+      email: 'joao@email.com',
+      phone: '(11) 98888-7777',
+    };
+
+    const passwordError = (errors: Awaited<ReturnType<typeof validate>>) =>
+      errors.find((e) => e.property === 'password');
+
+    it('rejeita senha sem maiúscula', async () => {
+      const dto = plainToInstance(RegisterDto, {
+        ...baseDto,
+        password: 'senha@123',
+      });
+      expect(passwordError(await validate(dto))).toBeDefined();
+    });
+
+    it('rejeita senha sem minúscula', async () => {
+      const dto = plainToInstance(RegisterDto, {
+        ...baseDto,
+        password: 'SENHA@123',
+      });
+      expect(passwordError(await validate(dto))).toBeDefined();
+    });
+
+    it('rejeita senha sem número', async () => {
+      const dto = plainToInstance(RegisterDto, {
+        ...baseDto,
+        password: 'SenhaForte@',
+      });
+      expect(passwordError(await validate(dto))).toBeDefined();
+    });
+
+    it('rejeita senha sem caractere especial', async () => {
+      const dto = plainToInstance(RegisterDto, {
+        ...baseDto,
+        password: 'SenhaForte123',
+      });
+      expect(passwordError(await validate(dto))).toBeDefined();
+    });
+
+    it('rejeita senha complexa porém com menos de 8 caracteres', async () => {
+      const dto = plainToInstance(RegisterDto, {
+        ...baseDto,
+        password: 'Aa@1',
+      });
+      expect(passwordError(await validate(dto))).toBeDefined();
+    });
+
+    it('aceita senha que cumpre todos os requisitos', async () => {
+      const dto = plainToInstance(RegisterDto, {
+        ...baseDto,
+        password: 'Senha@123',
+      });
+      expect(passwordError(await validate(dto))).toBeUndefined();
+    });
+  });
+
   it('deve falhar quando o telefone não é informado', async () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'João Silva',
       email: 'joao@email.com',
-      password: '12345678',
+      password: 'Senha@123',
     });
 
     const errors = await validate(dto);
@@ -70,7 +129,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'João Silva',
       email: 'joao@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '12345',
     });
 
@@ -83,7 +142,7 @@ describe('RegisterDto', () => {
     const dtoFixo = plainToInstance(RegisterDto, {
       name: 'João Silva',
       email: 'joao@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '1122334455',
     });
     expect(await validate(dtoFixo)).toHaveLength(0);
@@ -91,7 +150,7 @@ describe('RegisterDto', () => {
     const dtoCelular = plainToInstance(RegisterDto, {
       name: 'João Silva',
       email: 'joao2@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
     });
     expect(await validate(dtoCelular)).toHaveLength(0);
@@ -101,7 +160,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Dr. Carlos',
       email: 'carlos@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
       isDoctor: true,
       crm: '123456',
@@ -117,7 +176,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Dr. Carlos',
       email: 'carlos@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
       isDoctor: true,
       // crm ausente
@@ -133,7 +192,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Dr. Carlos',
       email: 'carlos@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
       isDoctor: true,
       crm: '123456',
@@ -149,7 +208,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Maria',
       email: 'maria@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
       isDoctor: false,
     });
@@ -162,7 +221,7 @@ describe('RegisterDto', () => {
     const dto = plainToInstance(RegisterDto, {
       name: 'Pedro',
       email: 'pedro@email.com',
-      password: '12345678',
+      password: 'Senha@123',
       phone: '(11) 98888-7777',
     });
 

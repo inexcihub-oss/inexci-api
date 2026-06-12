@@ -11,6 +11,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
+import { IsStrongPassword } from 'src/shared/validators/strong-password.decorator';
 
 export class RegisterDto {
   @IsString()
@@ -25,7 +26,7 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(8)
+  @IsStrongPassword()
   password: string;
 
   @IsBoolean()

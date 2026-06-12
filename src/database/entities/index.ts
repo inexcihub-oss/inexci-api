@@ -34,7 +34,6 @@ import { Document } from './document.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
-import { RefreshToken } from './refresh-token.entity';
 import { SubscriptionPlan, BillingPeriod } from './subscription-plan.entity';
 import { Subscription, SubscriptionStatus } from './subscription.entity';
 import { PaymentMethod } from './payment-method.entity';
@@ -101,7 +100,6 @@ export { PaymentGatewayEvent };
 
 // AUTENTICAÇÃO
 export { RecoveryCode };
-export { RefreshToken };
 
 // OBSERVABILIDADE
 export {
@@ -144,7 +142,6 @@ export const ENTITIES = [
   Notification,
   UserNotificationSettings,
   RecoveryCode,
-  RefreshToken,
   SubscriptionPlan,
   Subscription,
   PaymentMethod,

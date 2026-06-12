@@ -12,15 +12,12 @@ import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
-import { RefreshToken } from 'src/database/entities/refresh-token.entity';
 import { HttpMessages } from 'src/common';
 import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -34,6 +31,7 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
+import { RefreshTokenStore } from './refresh-token.store';
 
 @Injectable()
 @LogTrace()
@@ -46,8 +44,7 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
     private readonly jwtService: JwtService,
-    @InjectRepository(RefreshToken)
-    private readonly refreshTokenRepo: Repository<RefreshToken>,
+    private readonly refreshTokenStore: RefreshTokenStore,
     private readonly configService: ConfigService,
     private readonly consentService: ConsentService,
     private readonly subscriptionService: SubscriptionService,
@@ -58,20 +55,12 @@ export class AuthService {
   /** Email verification token expiry: 24 hours */
   private readonly EMAIL_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
-  /** Refresh token expiry: 7 days */
-  private readonly REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-
   /**
-   * Generates a new refresh token, persists it, and returns it.
+   * Generates a new refresh token (persisted as hash in Redis) and returns the
+   * raw value to be sent to the client via httpOnly cookie.
    */
   private async createRefreshToken(userId: string): Promise<string> {
-    const token = uuidv4();
-    await this.refreshTokenRepo.save({
-      userId: userId,
-      token,
-      expiresAt: new Date(Date.now() + this.REFRESH_TOKEN_EXPIRY_MS),
-    });
-    return token;
+    return this.refreshTokenStore.issue(userId);
   }
 
   async validateUser(email: string, password: string): Promise<User | null> {
@@ -341,10 +330,23 @@ export class AuthService {
     }
   }
 
+  /**
+   * Mensagem genérica de recuperação. **Não** revela se o e-mail existe
+   * (anti-enumeration): tanto sucesso quanto e-mail inexistente retornam isto.
+   */
+  private readonly GENERIC_RECOVERY_MESSAGE =
+    'Se o e-mail existir, enviaremos um código de recuperação.';
+
   async sendRecoveryPasswordEmail(email: string) {
     const user = await this.userRepository.findOne({ email });
 
-    if (!user) throw new NotFoundException('User not found');
+    // Anti-enumeration: para um e-mail inexistente, retorna a MESMA resposta do
+    // caso de sucesso (sem lançar, sem enfileirar e-mail). Assim não dá para
+    // distinguir e-mails cadastrados por status/corpo. O throttle (3/h) já
+    // protege contra varredura por latência.
+    if (!user) {
+      return { message: this.GENERIC_RECOVERY_MESSAGE };
+    }
 
     // Remove any existing unused recovery codes for this user
     await this.recoveryCodeRepository.deleteMany({
@@ -366,11 +368,20 @@ export class AuthService {
       validationCode,
     });
 
-    return { message: 'E-mail enviado com sucesso' };
+    return { message: this.GENERIC_RECOVERY_MESSAGE };
   }
 
+  /** TTL do reset token de uso único: 10 minutos. */
+  private readonly RESET_TOKEN_EXPIRY_MS = 10 * 60 * 1000;
+
   async validateRecoveryPasswordCode(data: validationCodeDto) {
+    // Escopa a validação ao usuário (via e-mail): um código não pode ser
+    // validado fora da conta dona dele.
+    const user = await this.userRepository.findOne({ email: data.email });
+    if (!user) throw new NotFoundException('Código inválido');
+
     const validationCode = await this.recoveryCodeRepository.findOne({
+      userId: user.id,
       code: data.code,
       used: false,
     });
@@ -384,12 +395,19 @@ export class AuthService {
       throw new BadRequestException('Código expirado');
     }
 
+    // Marca o código como usado e emite um reset token de uso único e curta
+    // duração, exigido no changePassword.
+    const resetToken = uuidv4();
     await this.recoveryCodeRepository.updateByWhere(
       { id: validationCode.id },
-      { used: true },
+      {
+        used: true,
+        resetToken,
+        resetTokenExpiresAt: new Date(Date.now() + this.RESET_TOKEN_EXPIRY_MS),
+      },
     );
 
-    return { message: 'Código validado com sucesso' };
+    return { message: 'Código validado com sucesso', resetToken };
   }
 
   async changePassword(data: changePasswordDto) {
@@ -397,15 +415,26 @@ export class AuthService {
 
     if (!user) throw new NotFoundException('User not found');
 
-    // Verify that a recovery code was recently validated for this user
+    // Exige o reset token de uso único emitido na validação do código, escopado
+    // ao usuário. Sem isso, qualquer código "usado" da conta liberaria a troca.
     const validatedCode = await this.recoveryCodeRepository.findOne({
       userId: user.id,
+      resetToken: data.resetToken,
       used: true,
     });
 
     if (!validatedCode) {
       throw new BadRequestException(
-        'Nenhum código de recuperação validado encontrado',
+        'Token de redefinição inválido. Reinicie a recuperação de senha.',
+      );
+    }
+
+    if (
+      !validatedCode.resetTokenExpiresAt ||
+      new Date() > new Date(validatedCode.resetTokenExpiresAt)
+    ) {
+      throw new BadRequestException(
+        'Token de redefinição expirado. Reinicie a recuperação de senha.',
       );
     }
 
@@ -462,41 +491,48 @@ export class AuthService {
 
   /**
    * Validates a refresh token and returns a new access_token + rotated refresh_token.
+   *
+   * O consumo é atômico no Redis (marca o token usado como revogado). Reações:
+   *  - `not_found` (inexistente/expirado): "Refresh token inválido".
+   *  - `reused` (token conhecido, já rotacionado e fora da janela de graça):
+   *    sinal de roubo → revoga **toda** a família de refresh tokens do usuário e
+   *    força novo login. Corridas legítimas são absorvidas pela janela de graça
+   *    do store (Fase 6b), então `reused` aqui é genuíno.
+   *  - `valid` (inclui reuso dentro da janela de graça): rotaciona normalmente.
    */
   async refreshAccessToken(token: string) {
-    const storedToken = await this.refreshTokenRepo.findOne({
-      where: { token, revoked: false },
-    });
+    const consumed = await this.refreshTokenStore.consume(token);
 
-    if (!storedToken) {
-      throw new BadRequestException('Refresh token inválido');
+    if (consumed.status === 'reused') {
+      this.logger.warn(
+        `[AUTH_REUSE_DETECTED] Reuso de refresh token detectado para userId=${consumed.userId}. Revogando todos os tokens da família.`,
+      );
+      await this.revokeRefreshTokens(consumed.userId);
+      throw new UnauthorizedException(
+        'Sessão revogada por segurança. Faça login novamente.',
+      );
     }
 
-    if (new Date() > new Date(storedToken.expiresAt)) {
-      // Revoke expired token
-      await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
-      throw new BadRequestException('Refresh token expirado');
+    if (consumed.status !== 'valid') {
+      throw new BadRequestException('Refresh token inválido');
     }
 
     // Revalida o usuário: um refresh token não pode reanimar uma sessão de uma
     // conta inativa ou com e-mail ainda não confirmado (mesma barreira do login).
     // Sem isso, um refresh token antigo furaria a verificação de e-mail.
-    const user = await this.userRepository.findOne({ id: storedToken.userId });
+    const user = await this.userRepository.findOne({ id: consumed.userId });
     if (!user || user.status !== UserStatus.ACTIVE || !user.emailVerified) {
-      await this.revokeRefreshTokens(storedToken.userId);
+      await this.revokeRefreshTokens(consumed.userId);
       throw new UnauthorizedException(
         'Sessão inválida. Confirme seu e-mail e faça login novamente.',
       );
     }
 
-    // Revoke the used token (rotation)
-    await this.refreshTokenRepo.update(storedToken.id, { revoked: true });
-
-    // Issue new tokens
-    const newRefreshToken = await this.createRefreshToken(storedToken.userId);
+    // Emite o novo refresh token (o anterior já foi revogado no consume).
+    const newRefreshToken = await this.createRefreshToken(consumed.userId);
 
     return {
-      access_token: this.jwtService.sign({ userId: storedToken.userId }),
+      access_token: this.jwtService.sign({ userId: consumed.userId }),
       refresh_token: newRefreshToken,
     };
   }
@@ -505,10 +541,7 @@ export class AuthService {
    * Revokes all refresh tokens for a user (used on logout or password change).
    */
   async revokeRefreshTokens(userId: string) {
-    await this.refreshTokenRepo.update(
-      { userId: userId, revoked: false },
-      { revoked: true },
-    );
+    await this.refreshTokenStore.revokeAllForUser(userId);
   }
 
   /**

@@ -1,10 +1,5 @@
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsStrongPassword } from 'src/shared/validators/strong-password.decorator';
 
 export class changePasswordDto {
   @IsString()
@@ -12,9 +7,17 @@ export class changePasswordDto {
   @IsEmail()
   email: string;
 
+  /**
+   * Reset token de uso único devolvido por `validateRecoveryPasswordCode`.
+   * Amarra a troca de senha à validação prévia do código.
+   */
+  @IsString()
+  @IsNotEmpty()
+  resetToken: string;
+
   @IsOptional()
   @IsString()
   @IsNotEmpty()
-  @MinLength(6)
+  @IsStrongPassword()
   password: string;
 }

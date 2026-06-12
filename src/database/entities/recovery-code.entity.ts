@@ -26,6 +26,26 @@ export class RecoveryCode {
   @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
   expiresAt: Date | null;
 
+  /**
+   * Reset token de uso único emitido após a validação do código. Exigido no
+   * `changePassword` para amarrar a validação do código à troca de senha
+   * (evita trocar a senha apenas por existir "algum" código usado).
+   */
+  @Column({
+    name: 'reset_token',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
+  resetToken: string | null;
+
+  @Column({
+    name: 'reset_token_expires_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  resetTokenExpiresAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

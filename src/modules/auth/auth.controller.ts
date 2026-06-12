@@ -207,8 +207,12 @@ export class AuthController {
     // Prioriza cookie httpOnly; fallback para body (retrocompatibilidade temporária)
     const refreshToken = req.cookies?.refresh_token || bodyToken;
     if (!refreshToken) {
-      this.logger.warn(
-        'Tentativa de refresh sem token (cookie/body ausentes). Verifique SameSite/Domain/Path do cookie de refresh.',
+      // Fluxo esperado para visitante anônimo / cookie expirado — não é erro
+      // operacional. O frontend (Fase 6a) só dispara refresh com pista de
+      // sessão, então em produção isso deve ficar raro. Mantido em debug para
+      // não poluir os logs de erro.
+      this.logger.debug(
+        'Tentativa de refresh sem token (cookie/body ausentes). Se ocorrer para usuário logado, verifique SameSite/Domain/Path do cookie de refresh.',
       );
       throw new BadRequestException('Refresh token ausente');
     }
