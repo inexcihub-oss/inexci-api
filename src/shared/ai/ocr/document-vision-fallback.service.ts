@@ -307,7 +307,9 @@ export class DocumentVisionFallbackService {
     const response = await this.openai.chatCompletion({
       model,
       temperature: 0,
-      maxTokens: 800,
+      // Fase 5 do Blueprint v3 — simétrico ao classifier (2500) para
+      // evitar truncamento de JSON em laudos longos. Antes era 800.
+      maxTokens: 2500,
       timeoutMs: 45000,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },

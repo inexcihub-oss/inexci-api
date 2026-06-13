@@ -30,6 +30,7 @@
     "check:pgvector": "ts-node -r tsconfig-paths/register scripts/check-pgvector.ts",
     "audit:ai-code": "ts-node -r tsconfig-paths/register scripts/audit-ai-code.ts",
     "audit:ai-code:check": "ts-node -r tsconfig-paths/register scripts/audit-ai-code.ts --check --baseline ../planos-implementacao/baselines/ai-code-baseline-2026-05-13.json",
+    "audit:tools-by-draft": "ts-node -r tsconfig-paths/register scripts/audit-tools-by-draft.ts",
     "predeploy": "yarn check:pgvector"
   },
   "dependencies": {

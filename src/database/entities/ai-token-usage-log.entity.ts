@@ -84,6 +84,46 @@ export class AiTokenUsageLog {
     draftType?: string | null;
   }>;
 
+  /**
+   * Tier do Model Gateway resolvido para esta chamada
+   * (`cheap`, `standard`, `premium`, `vision`, `embedding`).
+   * Null para linhas anteriores à Fase 1 do Blueprint v3.
+   */
+  @Column({ type: 'text', nullable: true })
+  tier: string | null;
+
+  /**
+   * Granularidade por ferramenta executada no turno. Substitui o
+   * agregado por stage do `breakdown` para análise de custo e error
+   * rate por tool (Fase 0 do Blueprint v3).
+   */
+  @Column({ name: 'tools_invoked', type: 'jsonb', default: () => "'[]'::jsonb" })
+  toolsInvoked: Array<{
+    name: string;
+    durationMs: number;
+    status: 'ok' | 'pending_confirmation' | 'error' | 'need_input';
+  }>;
+
+  /** Intent classificado pelo planner explícito (Fase 3 do Blueprint v3). */
+  @Column({ name: 'planner_intent', type: 'text', nullable: true })
+  plannerIntent: string | null;
+
+  /** Cópia denormalizada do `operationDraft.type` no início do turno. */
+  @Column({ name: 'draft_type', type: 'text', nullable: true })
+  draftType: string | null;
+
+  /**
+   * Origem da extração multimodal:
+   *   `{ audio: 'cache'|'live'|null, doc: 'cache'|'ocr'|'vision'|null }`.
+   * Habilita observação do hit-rate dos caches SHA256 de STT/OCR
+   * (Fases 4 e 5 do Blueprint v3).
+   */
+  @Column({ name: 'extraction_source', type: 'jsonb', nullable: true })
+  extractionSource: {
+    audio?: 'cache' | 'live' | null;
+    doc?: 'cache' | 'ocr' | 'vision' | null;
+  } | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
