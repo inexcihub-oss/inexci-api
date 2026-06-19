@@ -9,12 +9,29 @@ import { CreateOpmeDto } from './dto/create-opme.dto';
 import { UpdateOpmeDto } from './dto/update-opme.dto';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
+import { ManufacturerRepository } from 'src/database/repositories/manufacturer.repository';
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { Supplier } from 'src/database/entities/supplier.entity';
+import { Manufacturer } from 'src/database/entities/manufacturer.entity';
 import { ILike } from 'typeorm';
 
 const MIN_OPME_OPTIONS = 3;
+
+interface ResolveSuppliersResult {
+  suppliers: Supplier[];
+  createdSupplierNames: string[];
+}
+
+interface ResolveManufacturersResult {
+  manufacturers: Manufacturer[];
+  createdManufacturerNames: string[];
+}
+
+interface UpdateOpmeResponse extends MessageResponse {
+  createdSupplierNames: string[];
+  createdManufacturerNames: string[];
+}
 
 @Injectable()
 export class OpmeService {
@@ -22,11 +39,16 @@ export class OpmeService {
   constructor(
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly supplierRepository: SupplierRepository,
+    private readonly manufacturerRepository: ManufacturerRepository,
     private readonly surgeryRequestAccessValidator: SurgeryRequestAccessValidator,
   ) {}
 
   async create(data: CreateOpmeDto, userId: string) {
-    this.validateMinManufacturers(data.brand);
+    this.validateMinManufacturers(
+      data.manufacturerIds,
+      data.manufacturerNames,
+      data.brand,
+    );
     this.validateMinSuppliers(data.supplierIds, data.supplierNames);
 
     const surgeryRequest =
@@ -35,24 +57,51 @@ export class OpmeService {
         userId,
       );
 
-    const suppliers = await this.resolveSuppliers(
+    const { suppliers, createdSupplierNames } = await this.resolveSuppliers(
       data.supplierIds,
       data.supplierNames,
       surgeryRequest.ownerId,
     );
 
+    const { manufacturers, createdManufacturerNames } =
+      await this.resolveManufacturers(
+        data.manufacturerIds,
+        data.manufacturerNames,
+        data.brand,
+        surgeryRequest.ownerId,
+      );
+
+    const normalizedManufacturersText = manufacturers
+      .map((manufacturer) => manufacturer.name)
+      .join(', ');
+
+    const resolvedBrand =
+      normalizedManufacturersText ||
+      this.extractBrandNames(data.brand).join(', ') ||
+      null;
+
     const entity = this.opmeItemRepository.getRepository().create({
       name: data.name,
-      brand: data.brand,
+      brand: resolvedBrand,
       quantity: data.quantity,
       surgeryRequestId: data.surgeryRequestId,
       suppliers,
+      manufacturers,
     });
 
-    return this.opmeItemRepository.getRepository().save(entity);
+    const saved = await this.opmeItemRepository.getRepository().save(entity);
+
+    return {
+      ...saved,
+      createdSupplierNames,
+      createdManufacturerNames,
+    };
   }
 
-  async update(data: UpdateOpmeDto, userId: string): Promise<MessageResponse> {
+  async update(
+    data: UpdateOpmeDto,
+    userId: string,
+  ): Promise<UpdateOpmeResponse> {
     const opmeItem = await this.opmeItemRepository.findByIdWithSuppliers(
       data.id,
     );
@@ -67,25 +116,54 @@ export class OpmeService {
 
     if (data.name !== undefined) opmeItem.name = data.name;
 
-    if (data.brand !== undefined) {
-      this.validateMinManufacturers(data.brand);
-      opmeItem.brand = data.brand;
+    let createdSupplierNames: string[] = [];
+    let createdManufacturerNames: string[] = [];
+
+    if (
+      data.brand !== undefined ||
+      data.manufacturerIds !== undefined ||
+      data.manufacturerNames !== undefined
+    ) {
+      this.validateMinManufacturers(
+        data.manufacturerIds,
+        data.manufacturerNames,
+        data.brand,
+      );
+
+      const resolvedManufacturers = await this.resolveManufacturers(
+        data.manufacturerIds,
+        data.manufacturerNames,
+        data.brand,
+        surgeryRequest.ownerId,
+      );
+
+      opmeItem.manufacturers = resolvedManufacturers.manufacturers;
+      createdManufacturerNames = resolvedManufacturers.createdManufacturerNames;
+      opmeItem.brand = resolvedManufacturers.manufacturers
+        .map((manufacturer) => manufacturer.name)
+        .join(', ');
     }
 
     if (data.quantity !== undefined) opmeItem.quantity = data.quantity;
 
     if (data.supplierIds !== undefined || data.supplierNames !== undefined) {
       this.validateMinSuppliers(data.supplierIds, data.supplierNames);
-      opmeItem.suppliers = await this.resolveSuppliers(
+      const resolvedSuppliers = await this.resolveSuppliers(
         data.supplierIds,
         data.supplierNames,
         surgeryRequest.ownerId,
       );
+      opmeItem.suppliers = resolvedSuppliers.suppliers;
+      createdSupplierNames = resolvedSuppliers.createdSupplierNames;
     }
 
     await this.opmeItemRepository.saveWithSuppliers(opmeItem);
 
-    return { message: 'OPME atualizado com sucesso' };
+    return {
+      message: 'OPME atualizado com sucesso',
+      createdSupplierNames,
+      createdManufacturerNames,
+    };
   }
 
   async delete(id: string, userId: string): Promise<MessageResponse> {
@@ -98,20 +176,38 @@ export class OpmeService {
       userId,
     );
 
-    // Limpa a junction table opme_item_supplier antes de remover
+    // Limpa as junction tables antes de remover
     opmeItem.suppliers = [];
+    opmeItem.manufacturers = [];
     await this.opmeItemRepository.saveWithSuppliers(opmeItem);
     await this.opmeItemRepository.getRepository().remove(opmeItem);
 
     return { message: 'OPME removido com sucesso' };
   }
 
-  private validateMinManufacturers(brand?: string): void {
-    const count = (brand ?? '')
+  private extractBrandNames(brand?: string): string[] {
+    return (brand ?? '')
       .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean).length;
-    if (count < MIN_OPME_OPTIONS) {
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }
+
+  private validateMinManufacturers(
+    manufacturerIds: string[] = [],
+    manufacturerNames: string[] = [],
+    brand?: string,
+  ): void {
+    const fallbackBrandNames =
+      manufacturerIds.length === 0 && manufacturerNames.length === 0
+        ? this.extractBrandNames(brand)
+        : [];
+
+    const total =
+      manufacturerIds.length +
+      manufacturerNames.filter((name) => name.trim()).length +
+      fallbackBrandNames.length;
+
+    if (total < MIN_OPME_OPTIONS) {
       throw new BadRequestException(ERROR_MESSAGES.OPME_MIN_MANUFACTURERS);
     }
   }
@@ -127,8 +223,9 @@ export class OpmeService {
     ids: string[] = [],
     names: string[] = [],
     ownerId: string,
-  ): Promise<Supplier[]> {
+  ): Promise<ResolveSuppliersResult> {
     const result: Supplier[] = [];
+    const createdSupplierNames: string[] = [];
     const addedIds = new Set<string>();
     const addedNamesNormalized = new Set<string>();
 
@@ -170,10 +267,89 @@ export class OpmeService {
         ownerId,
       });
       result.push(newSupplier);
+      createdSupplierNames.push(newSupplier.name);
       addedIds.add(newSupplier.id);
       addedNamesNormalized.add(newSupplier.name.trim().toLowerCase());
     }
 
-    return result;
+    return {
+      suppliers: result,
+      createdSupplierNames,
+    };
+  }
+
+  private async resolveManufacturers(
+    manufacturerIds: string[] = [],
+    manufacturerNames: string[] = [],
+    brand: string | undefined,
+    ownerId: string,
+  ): Promise<ResolveManufacturersResult> {
+    const result: Manufacturer[] = [];
+    const createdManufacturerNames: string[] = [];
+    const addedIds = new Set<string>();
+    const addedNamesNormalized = new Set<string>();
+    const fallbackBrandNames =
+      manufacturerIds.length === 0 && manufacturerNames.length === 0
+        ? this.extractBrandNames(brand)
+        : [];
+    const namesToResolve = [...manufacturerNames, ...fallbackBrandNames];
+
+    for (const id of manufacturerIds) {
+      const manufacturer = await this.manufacturerRepository
+        .getRepository()
+        .findOne({
+          where: {
+            id,
+            ownerId,
+          },
+        });
+
+      if (!manufacturer) continue;
+      if (addedIds.has(manufacturer.id)) continue;
+
+      result.push(manufacturer);
+      addedIds.add(manufacturer.id);
+      addedNamesNormalized.add(manufacturer.name.trim().toLowerCase());
+    }
+
+    for (const name of namesToResolve) {
+      const trimmed = name.trim();
+      if (!trimmed) continue;
+
+      const normalized = trimmed.toLowerCase();
+      if (addedNamesNormalized.has(normalized)) continue;
+
+      const existing = await this.manufacturerRepository
+        .getRepository()
+        .findOne({
+          where: {
+            ownerId,
+            name: ILike(trimmed),
+          },
+        });
+
+      if (existing) {
+        if (!addedIds.has(existing.id)) {
+          result.push(existing);
+          addedIds.add(existing.id);
+        }
+        addedNamesNormalized.add(existing.name.trim().toLowerCase());
+        continue;
+      }
+
+      const newManufacturer = await this.manufacturerRepository.create({
+        name: trimmed,
+        ownerId,
+      });
+      result.push(newManufacturer);
+      createdManufacturerNames.push(newManufacturer.name);
+      addedIds.add(newManufacturer.id);
+      addedNamesNormalized.add(newManufacturer.name.trim().toLowerCase());
+    }
+
+    return {
+      manufacturers: result,
+      createdManufacturerNames,
+    };
   }
 }

@@ -41,6 +41,9 @@ export class SurgeryRequestBilling {
   })
   invoiceValue: number;
 
+  @Column({ name: 'invoice_notes', type: 'text', nullable: true })
+  invoiceNotes: string | null;
+
   /** Prazo de pagamento (data) — derivado de healthPlan.defaultPaymentDays quando não fornecido */
   @Column({ name: 'payment_deadline', type: 'date', nullable: true })
   paymentDeadline: Date | null;

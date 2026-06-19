@@ -471,7 +471,7 @@ export class DocumentIntakeService {
                 '- A intenção declarada é **criar uma nova SC** e o documento trouxe DADOS SUFICIENTES (paciente + procedimento/TUSS + contexto).',
                 '- **MODO AUTO-CRIAR ATIVADO**: NÃO pergunte "posso seguir?" / "qual o nome do paciente?" / "qual o procedimento?". Os dados já estão acima. Vá DIRETO para o draft:',
                 '  1. `plan_actions({ intent: "create_sc" })` para abrir o rascunho.',
-                '  2. Resolva o paciente: chame `query_patients({ patient_name_or_id: "<nome acima>", match_mode: "fuzzy" })`. Se a tool retornar um único match → `draft_update({ draft_type: "create_sc", field: "patientId", value: "<UUID>" })`. Se retornar lista ambígua → mostre ao usuário e peça desempate. Se NÃO encontrar nada → chame `create_patient_from_document({ confirm: true })` (use telefone/e-mail extraídos; se faltarem os obrigatórios, pergunte só esses dois).',
+                '  2. Resolva o paciente: chame `query_patients({ patient_name_or_id: "<nome acima>", match_mode: "fuzzy" })`. Se a tool retornar um único match → `draft_update({ draft_type: "create_sc", field: "patientId", value: "<UUID>" })`. Se retornar lista ambígua → mostre ao usuário e peça desempate. Se NÃO encontrar nada → chame `create_patient_from_document({ confirm: true })` (use CPF/telefone/e-mail extraídos; se faltar algum obrigatório, pergunte apenas o mínimo necessário).',
                 '  3. Resolva o procedimento: chame `search_procedures({ query: "<nome sugerido>" })`. Se houver match, grave `draft_update({ draft_type: "create_sc", field: "procedureId", value: "<UUID>" })`. Se NÃO houver, abra um sub-draft de cadastro: `plan_actions({ intent: "create_procedure" })` → preencha `name` → commit. Ao commitar o sub-draft, o sistema retoma o draft de SC e preenche `procedureId` automaticamente.',
                 '  4. Resolva (se possível) hospital e convênio do mesmo jeito (fuzzy lookup → grave o ID). Hospital e convênio são OPCIONAIS — se não encontrar match e o usuário não quiser cadastrar agora, siga sem.',
                 '  5. Prioridade: assuma `LOW` se o usuário não disser nada. Grave `draft_update({ draft_type: "create_sc", field: "priority", value: "LOW" })`. NÃO pergunte ao usuário sobre prioridade quando ele não citou.',
@@ -500,7 +500,7 @@ export class DocumentIntakeService {
             return [
               '- A intenção declarada é **cadastrar um paciente novo** a partir deste documento.',
               '- Quando o usuário confirmar (sim/pode/vai), chame `create_patient_from_document` com `confirm: false` para mostrar preview; após o usuário confirmar de novo, chame com `confirm: true`.',
-              '- Use os dados extraídos como base. Se telefone/e-mail estiverem faltando (são obrigatórios), peça-os antes.',
+              '- Use os dados extraídos como base. Nome e CPF são obrigatórios; telefone/e-mail são opcionais.',
               '- NUNCA responda "não ficou claro qual ação você quer confirmar" enquanto este hint estiver ativo: a ação JÁ está clara — é criar o paciente.',
             ].join('\n');
           default:

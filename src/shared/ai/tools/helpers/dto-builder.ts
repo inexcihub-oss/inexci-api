@@ -31,21 +31,15 @@ const VALIDATE_OPTS = { whitelist: true, forbidNonWhitelisted: false };
 /**
  * Constrói e valida um `CreatePatientDto` a partir dos campos do rascunho de
  * paciente. Aplica normalização de CPF, telefone, e-mail e data de nascimento.
- *
- * Nota: `email` é obrigatório no DTO REST mas opcional no fluxo de IA
- * (o LLM pode omiti-lo). Quando ausente, passa `''` e deixa a validação REST
- * rejeitar — ou informe `skipEmail: true` para pular o campo.
  */
 export async function buildPatientCreateDto(
   fields: CreatePatientDraftFields,
 ): Promise<DtoBuildResult<CreatePatientDto>> {
   const dto = plainToInstance(CreatePatientDto, {
     name: fields.name,
-    phone: normalizePhoneDigits(fields.phone) ?? fields.phone ?? '',
-    email: normalizeEmail(fields.email) ?? fields.email ?? '',
-    cpf: fields.cpf
-      ? (normalizeCpfDigits(fields.cpf) ?? fields.cpf)
-      : undefined,
+    cpf: normalizeCpfDigits(fields.cpf) ?? fields.cpf,
+    phone: normalizePhoneDigits(fields.phone) ?? fields.phone ?? undefined,
+    email: normalizeEmail(fields.email) ?? fields.email ?? undefined,
     birthDate: fields.birthDate
       ? (normalizeBirthDate(fields.birthDate) ?? fields.birthDate)
       : undefined,

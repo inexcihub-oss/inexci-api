@@ -4,6 +4,7 @@ export { DoctorHeaderRepository } from './doctor-header.repository';
 export { UserDoctorAccessRepository } from './user-doctor-access.repository';
 export { PatientRepository } from './patient.repository';
 export { HospitalRepository } from './hospital.repository';
+export { ManufacturerRepository } from './manufacturer.repository';
 export { SupplierRepository } from './supplier.repository';
 export { DocumentRepository } from './document.repository';
 export { HealthPlanRepository } from './health-plan.repository';

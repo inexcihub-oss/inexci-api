@@ -26,6 +26,7 @@ import { ProceduresModule } from './modules/procedures/procedures.module';
 import { PendenciesModule } from './modules/surgery-requests/pendencies/pendencies.module';
 import { DocumentsModule } from './modules/surgery-requests/documents/documents.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
@@ -118,6 +119,7 @@ import { BillingModule } from './modules/billing/billing.module';
     PendenciesModule,
     DocumentsModule,
     SuppliersModule,
+    ManufacturersModule,
     PatientsModule,
     HospitalsModule,
     SurgeryProceduresModule,

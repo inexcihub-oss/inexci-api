@@ -17,7 +17,7 @@ export class OpmeItemRepository extends BaseRepository<OpmeItem> {
   findByIdWithSuppliers(id: string): Promise<OpmeItem | null> {
     return this.repository.findOne({
       where: { id },
-      relations: ['suppliers'],
+      relations: ['suppliers', 'manufacturers'],
     });
   }
 

@@ -5,13 +5,13 @@ export class CreateHealthPlanDto {
   @IsNotEmpty()
   name: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  phone: string;
+  phone?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  email: string;
+  email?: string;
 
   @IsOptional() @IsString() ansCode?: string;
   @IsOptional() @IsString() cnpj?: string;

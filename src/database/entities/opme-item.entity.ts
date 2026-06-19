@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { SurgeryRequest } from './surgery-request.entity';
 import { Supplier } from './supplier.entity';
+import { Manufacturer } from './manufacturer.entity';
 
 @Entity('opme_items')
 export class OpmeItem {
@@ -55,6 +56,16 @@ export class OpmeItem {
     inverseJoinColumn: { name: 'supplier_id', referencedColumnName: 'id' },
   })
   suppliers: Supplier[];
+
+  @ManyToMany(() => Manufacturer, (manufacturer) => manufacturer.opmeItems, {
+    eager: false,
+  })
+  @JoinTable({
+    name: 'opme_item_manufacturers',
+    joinColumn: { name: 'opme_item_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'manufacturer_id', referencedColumnName: 'id' },
+  })
+  manufacturers: Manufacturer[];
 
   @ManyToOne(() => Supplier, (supplier) => supplier.selectedOpmeItems, {
     nullable: true,

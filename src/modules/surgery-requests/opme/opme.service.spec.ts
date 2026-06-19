@@ -24,6 +24,11 @@ describe('OpmeService', () => {
     validateAndFetch: jest.fn(),
   };
 
+  const mockManufacturerRepository = {
+    create: jest.fn(),
+    getRepository: jest.fn(),
+  };
+
   const mockTypeOrmRepository = {
     create: jest.fn(),
     save: jest.fn(),
@@ -31,6 +36,10 @@ describe('OpmeService', () => {
   };
 
   const mockSupplierTypeOrmRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockManufacturerTypeOrmRepository = {
     findOne: jest.fn(),
   };
 
@@ -55,12 +64,23 @@ describe('OpmeService', () => {
     mockSupplierRepository.getRepository.mockReturnValue(
       mockSupplierTypeOrmRepository,
     );
+    mockManufacturerRepository.getRepository.mockReturnValue(
+      mockManufacturerTypeOrmRepository,
+    );
     mockSupplierTypeOrmRepository.findOne.mockResolvedValue(null);
+    mockManufacturerTypeOrmRepository.findOne.mockResolvedValue(null);
+    mockManufacturerRepository.create.mockImplementation(
+      async (payload: any) => ({
+        id: 'manufacturer-id',
+        ...payload,
+      }),
+    );
     mockAccessValidator.validateAndFetch.mockResolvedValue(fakeSurgeryRequest);
 
     service = new OpmeService(
       mockOpmeItemRepository as any,
       mockSupplierRepository as any,
+      mockManufacturerRepository as any,
       mockAccessValidator as any,
     );
   });
@@ -161,7 +181,21 @@ describe('OpmeService', () => {
         'user-1',
       );
       expect(mockTypeOrmRepository.save).toHaveBeenCalled();
-      expect(result).toEqual(savedEntity);
+      expect(result).toEqual(
+        expect.objectContaining({
+          ...savedEntity,
+          createdSupplierNames: [
+            'Fornecedor 1',
+            'Fornecedor 2',
+            'Fornecedor 3',
+          ],
+          createdManufacturerNames: [
+            'Fabricante A',
+            'Fabricante B',
+            'Fabricante C',
+          ],
+        }),
+      );
     });
 
     it('deve criar item OPME com 3 fornecedores existentes por ID', async () => {
@@ -288,7 +322,11 @@ describe('OpmeService', () => {
       expect(mockOpmeItemRepository.saveWithSuppliers).toHaveBeenCalledWith(
         expect.objectContaining({ name: 'Parafuso Novo', quantity: 5 }),
       );
-      expect(result).toEqual({ message: 'OPME atualizado com sucesso' });
+      expect(result).toEqual({
+        message: 'OPME atualizado com sucesso',
+        createdSupplierNames: [],
+        createdManufacturerNames: [],
+      });
     });
 
     it('deve lançar BadRequestException ao atualizar brand com menos de 3 fabricantes', async () => {

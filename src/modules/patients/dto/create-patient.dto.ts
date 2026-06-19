@@ -13,13 +13,15 @@ export class CreatePatientDto {
 
   @IsString()
   @IsNotEmpty()
-  phone: string;
+  cpf: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  email: string;
+  phone?: string;
 
-  @IsOptional() @IsString() cpf?: string;
+  @IsOptional()
+  @IsString()
+  email?: string;
 
   @IsOptional()
   @IsIn(['M', 'F', 'm', 'f'])

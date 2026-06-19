@@ -23,6 +23,16 @@ export class UpdateOpmeDto {
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
+  manufacturerIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  manufacturerNames?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
   supplierIds?: string[];
 
   @IsOptional()

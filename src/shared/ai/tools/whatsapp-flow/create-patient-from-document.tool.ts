@@ -18,7 +18,7 @@ export function buildCreatePatientFromDocumentTool(
       function: {
         name: 'create_patient_from_document',
         description:
-          'Cria um paciente a partir dos dados extraídos do documento enviado pelo WhatsApp (RG, CPF, ficha de cadastro, etc.). Cadastro mínimo: nome, telefone e e-mail obrigatórios; CPF/data de nascimento/sexo opcionais (ficam como pendência aberta). Requer `confirm=true`.',
+          'Cria um paciente a partir dos dados extraídos do documento enviado pelo WhatsApp (RG, CPF, ficha de cadastro, etc.). Cadastro mínimo: nome e CPF obrigatórios; telefone/e-mail/data de nascimento/sexo opcionais. Requer `confirm=true`.',
         parameters: {
           type: 'object',
           properties: {
@@ -29,15 +29,15 @@ export function buildCreatePatientFromDocumentTool(
             phone: {
               type: 'string',
               description:
-                'Telefone do paciente (10 a 13 dígitos, com ou sem máscara). Obrigatório.',
+                'Telefone do paciente (10 a 13 dígitos, com ou sem máscara). Opcional.',
             },
             email: {
               type: 'string',
-              description: 'E-mail do paciente. Obrigatório.',
+              description: 'E-mail do paciente. Opcional.',
             },
             cpf: {
               type: 'string',
-              description: 'CPF (11 dígitos, com ou sem máscara). Opcional.',
+              description: 'CPF (11 dígitos, com ou sem máscara). Obrigatório.',
             },
             birth_date: {
               type: 'string',
@@ -60,7 +60,7 @@ export function buildCreatePatientFromDocumentTool(
                 'Se true, executa a criação. Se false ou omitido, mostra preview.',
             },
           },
-          required: ['name', 'phone', 'email'],
+          required: ['name', 'cpf'],
         },
       },
     } as OpenAI.ChatCompletionTool,
@@ -90,39 +90,50 @@ export function buildCreatePatientFromDocumentTool(
         });
       }
 
-      const phoneRaw = detokenizeArg(context, args.phone);
-      const phoneDigits = normalizePhone(phoneRaw);
-      if (!phoneDigits) {
+      const cpfDigits = normalizeCpf(detokenizeArg(context, args.cpf));
+      if (!cpfDigits) {
         return buildToolResult({
           status: 'needs_input',
           message:
-            'Parâmetro inválido: `phone` é obrigatório e deve ter 10 a 13 dígitos.',
-          nextRequiredFields: ['phone'],
+            'Parâmetro inválido: `cpf` é obrigatório e deve conter 11 dígitos.',
+          nextRequiredFields: ['cpf'],
         });
       }
 
-      const emailRaw = detokenizeArg(context, args.email);
-      const email =
-        typeof emailRaw === 'string' && /\S+@\S+\.\S+/.test(emailRaw.trim())
-          ? emailRaw.trim().toLowerCase()
-          : null;
-      if (!email) {
-        return buildToolResult({
-          status: 'needs_input',
-          message:
-            'Parâmetro inválido: `email` é obrigatório e deve ser válido.',
-          nextRequiredFields: ['email'],
-        });
-      }
-
-      let cpfDigits: string | null = null;
-      if (args.cpf !== undefined && args.cpf !== null && args.cpf !== '') {
-        cpfDigits = normalizeCpf(detokenizeArg(context, args.cpf));
-        if (!cpfDigits) {
+      let phoneDigits: string | null = null;
+      if (
+        args.phone !== undefined &&
+        args.phone !== null &&
+        args.phone !== ''
+      ) {
+        phoneDigits = normalizePhone(detokenizeArg(context, args.phone));
+        if (!phoneDigits) {
           return buildToolResult({
             status: 'needs_input',
-            message: 'Parâmetro inválido: `cpf` deve conter 11 dígitos.',
-            nextRequiredFields: ['cpf'],
+            message:
+              'Parâmetro inválido: `phone` deve ter 10 a 13 dígitos quando informado.',
+            nextRequiredFields: ['phone'],
+          });
+        }
+      }
+
+      let email: string | null = null;
+      if (
+        args.email !== undefined &&
+        args.email !== null &&
+        args.email !== ''
+      ) {
+        const emailRaw = detokenizeArg(context, args.email);
+        email =
+          typeof emailRaw === 'string' && /\S+@\S+\.\S+/.test(emailRaw.trim())
+            ? emailRaw.trim().toLowerCase()
+            : null;
+        if (!email) {
+          return buildToolResult({
+            status: 'needs_input',
+            message:
+              'Parâmetro inválido: `email` deve ser válido quando informado.',
+            nextRequiredFields: ['email'],
           });
         }
       }
@@ -251,10 +262,10 @@ export function buildCreatePatientFromDocumentTool(
         const previewLines = [
           'Confirme a criação do paciente a partir do documento:',
           `Nome: ${name}`,
-          `Telefone: ${phoneDigits}`,
-          `Email: ${email}`,
+          `CPF: ${cpfDigits}`,
         ];
-        if (cpfDigits) previewLines.push(`CPF: ${cpfDigits}`);
+        if (phoneDigits) previewLines.push(`Telefone: ${phoneDigits}`);
+        if (email) previewLines.push(`Email: ${email}`);
         if (birthDate) previewLines.push(`Nascimento: ${birthDate}`);
         if (gender) previewLines.push(`Sexo: ${gender}`);
         if (doctorName) previewLines.push(`Médico responsável: ${doctorName}`);
@@ -275,9 +286,9 @@ export function buildCreatePatientFromDocumentTool(
         created = await patientsService.create(
           {
             name,
-            phone: phoneDigits,
-            email,
-            cpf: cpfDigits ?? undefined,
+            cpf: cpfDigits,
+            phone: phoneDigits ?? undefined,
+            email: email ?? undefined,
             gender: gender ?? undefined,
             birthDate: birthDate ?? undefined,
           },

@@ -101,14 +101,14 @@ export class PatientsService {
       doctorId,
       ownerId,
       name: data.name,
-      phone: data.phone.trim(),
+      phone: data.phone?.trim() || null,
       cpf: data.cpf,
       gender: data.gender,
       birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
       healthPlanId: data.healthPlanId,
       healthPlanNumber: data.healthPlanNumber,
       healthPlanType: data.healthPlanType,
-      email: data.email.trim(),
+      email: data.email?.trim() || null,
       zipCode: data.zipCode,
       address: data.address,
       addressNumber: data.addressNumber,
@@ -120,13 +120,17 @@ export class PatientsService {
       active: true,
     });
 
-    void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+    if (patient.phone) {
+      void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
+    }
 
     const doctor = await this.userRepository.findOne({ id: ownerId });
-    void this.mailService.sendWelcomePatient(patient.email, {
-      patientName: patient.name,
-      doctorName: doctor?.name ?? '',
-    });
+    if (patient.email) {
+      void this.mailService.sendWelcomePatient(patient.email, {
+        patientName: patient.name,
+        doctorName: doctor?.name ?? '',
+      });
+    }
 
     return patient;
   }
@@ -142,8 +146,8 @@ export class PatientsService {
 
     const updateData: Partial<Patient> = {};
     if (data.name !== undefined) updateData.name = data.name;
-    if (data.phone !== undefined) updateData.phone = data.phone.trim();
-    if (data.email !== undefined) updateData.email = data.email.trim();
+    if (data.phone !== undefined) updateData.phone = data.phone.trim() || null;
+    if (data.email !== undefined) updateData.email = data.email.trim() || null;
     if (data.cpf !== undefined) updateData.cpf = data.cpf;
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.birthDate !== undefined)

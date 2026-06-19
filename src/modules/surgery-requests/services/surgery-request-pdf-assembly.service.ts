@@ -186,7 +186,12 @@ export class SurgeryRequestPdfAssemblyService {
     const opmeItems = opmeItemsRaw.map((item: any) => ({
       name: item.name,
       quantity: item.quantity ?? 1,
-      fabricantesText: uniqueNormalized(extractNames(item.brand)).join(', '),
+      fabricantesText: uniqueNormalized([
+        ...((item.manufacturers ?? [])
+          .map((m: any) => m?.name)
+          .filter(Boolean) as string[]),
+        ...extractNames(item.brand),
+      ]).join(', '),
       fornecedoresText: uniqueNormalized(
         (item.suppliers ?? []).map((s: any) => s?.name).filter(Boolean),
       ).join(', '),
@@ -194,7 +199,12 @@ export class SurgeryRequestPdfAssemblyService {
 
     // ── Fabricantes e Fornecedores ───────────────────────────────────────
     const fabricantes = uniqueNormalized(
-      opmeItemsRaw.flatMap((i: any) => extractNames(i.brand)),
+      opmeItemsRaw.flatMap((i: any) => [
+        ...((i.manufacturers ?? [])
+          .map((m: any) => m?.name)
+          .filter(Boolean) as string[]),
+        ...extractNames(i.brand),
+      ]),
     );
     const fornecedores = uniqueNormalized(
       opmeItemsRaw.flatMap((i: any) => [

@@ -23,6 +23,10 @@ export class InvoiceRequestDto {
   invoiceValue: number;
 
   @IsOptional()
+  @IsString()
+  invoiceNotes?: string;
+
+  @IsOptional()
   @IsDateString()
   paymentDeadline?: string;
 

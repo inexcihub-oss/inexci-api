@@ -338,7 +338,8 @@ export class AuthService {
     'Se o e-mail existir, enviaremos um código de recuperação.';
 
   async sendRecoveryPasswordEmail(email: string) {
-    const user = await this.userRepository.findOne({ email });
+    const normalizedEmail = email.trim();
+    const user = await this.userRepository.findOne({ email: normalizedEmail });
 
     // Anti-enumeration: para um e-mail inexistente, retorna a MESMA resposta do
     // caso de sucesso (sem lançar, sem enfileirar e-mail). Assim não dá para
@@ -375,14 +376,17 @@ export class AuthService {
   private readonly RESET_TOKEN_EXPIRY_MS = 10 * 60 * 1000;
 
   async validateRecoveryPasswordCode(data: validationCodeDto) {
+    const normalizedEmail = data.email.trim();
+    const normalizedCode = data.code.trim().replace(/\s+/g, '');
+
     // Escopa a validação ao usuário (via e-mail): um código não pode ser
     // validado fora da conta dona dele.
-    const user = await this.userRepository.findOne({ email: data.email });
+    const user = await this.userRepository.findOne({ email: normalizedEmail });
     if (!user) throw new NotFoundException('Código inválido');
 
     const validationCode = await this.recoveryCodeRepository.findOne({
       userId: user.id,
-      code: data.code,
+      code: normalizedCode,
       used: false,
     });
 
@@ -411,7 +415,10 @@ export class AuthService {
   }
 
   async changePassword(data: changePasswordDto) {
-    const user = await this.userRepository.findOne({ email: data.email });
+    const normalizedEmail = data.email.trim();
+    const normalizedResetToken = data.resetToken.trim();
+
+    const user = await this.userRepository.findOne({ email: normalizedEmail });
 
     if (!user) throw new NotFoundException('User not found');
 
@@ -419,7 +426,7 @@ export class AuthService {
     // ao usuário. Sem isso, qualquer código "usado" da conta liberaria a troca.
     const validatedCode = await this.recoveryCodeRepository.findOne({
       userId: user.id,
-      resetToken: data.resetToken,
+      resetToken: normalizedResetToken,
       used: true,
     });
 

@@ -36,14 +36,14 @@ export class Patient {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'varchar', length: 100 })
-  email: string;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  email: string | null;
 
-  @Column({ type: 'varchar', length: 15 })
-  phone: string;
+  @Column({ type: 'varchar', length: 15, nullable: true })
+  phone: string | null;
 
-  @Column({ type: 'varchar', length: 14, nullable: true })
-  cpf: string | null;
+  @Column({ type: 'varchar', length: 14 })
+  cpf: string;
 
   @Column({ type: 'char', length: 1, nullable: true })
   gender: string | null;

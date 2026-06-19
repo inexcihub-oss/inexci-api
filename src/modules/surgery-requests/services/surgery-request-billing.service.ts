@@ -79,6 +79,7 @@ export class SurgeryRequestBillingService {
           invoiceProtocol: dto.invoiceProtocol,
           invoiceSentAt: new Date(dto.invoiceSentAt),
           invoiceValue: dto.invoiceValue,
+          invoiceNotes: dto.invoiceNotes?.trim() || null,
           paymentDeadline: paymentDeadline,
         });
 

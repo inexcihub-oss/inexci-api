@@ -255,7 +255,7 @@ export interface OperationDraft<
  */
 export const REQUIRED_FIELDS_BY_TYPE: Record<OperationDraftType, string[]> = {
   create_sc: ['patientId', 'doctorId', 'procedureId', 'priority'],
-  create_patient: ['name', 'phone'],
+  create_patient: ['name', 'cpf'],
   create_hospital: ['name'],
   create_health_plan: ['name'],
   create_procedure: ['name'],

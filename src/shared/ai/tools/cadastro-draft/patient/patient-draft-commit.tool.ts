@@ -69,9 +69,9 @@ export function buildPatientDraftCommitTool(deps: CadastroDraftDeps): AiTool {
         const created = await patientsService.create(
           {
             name: fields.name!,
-            phone: fields.phone!,
-            email: fields.email ?? '',
-            cpf: fields.cpf ?? undefined,
+            cpf: fields.cpf!,
+            phone: fields.phone ?? undefined,
+            email: fields.email ?? undefined,
             gender: fields.gender ?? undefined,
             birthDate: fields.birthDate ?? undefined,
           },

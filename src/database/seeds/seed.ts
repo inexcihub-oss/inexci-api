@@ -184,7 +184,7 @@ async function main() {
     process.exit(0);
   }
 
-  const hashedPassword = await bcrypt.hash('123456', 10);
+  const hashedPassword = await bcrypt.hash('Teste123@', 10);
 
   // ========================================
   // 1. PLANOS DE ASSINATURA
@@ -687,6 +687,85 @@ async function main() {
     supplierIds.push(r[0].id);
   }
   logger.log(`  ✅ ${supplierIds.length} fornecedores criados\n`);
+
+  // ========================================
+  // 10.1 FABRICANTES DE OPME
+  // ========================================
+  logger.log('🏭 Criando fabricantes...');
+
+  const manufacturersData = [
+    // Conta 2
+    {
+      name: 'Stryker',
+      owner_id: adminId,
+      website: 'https://www.stryker.com/br/pt',
+      country: 'Brasil',
+      contact_name: 'Tatiana Melo',
+      contact_phone: '21996005678',
+      contact_email: 'tatiana@stryker.com.br',
+    },
+    {
+      name: 'Johnson & Johnson MedTech',
+      owner_id: adminId,
+      website: 'https://www.jnjmedtech.com/pt-BR',
+      country: 'Brasil',
+      contact_name: 'Marcelo Gomes',
+      contact_phone: '21995009012',
+      contact_email: 'marcelo@synthes.com.br',
+    },
+    // Conta 1
+    {
+      name: 'Zimmer Biomet',
+      owner_id: adminMedicoId,
+      website: 'https://www.zimmerbiomet.com',
+      country: 'Brasil',
+      contact_name: 'Claudia Neves',
+      contact_phone: '11997001234',
+      contact_email: 'claudia@zimmerbiomet.com.br',
+    },
+    {
+      name: 'DePuy Synthes',
+      owner_id: adminMedicoId,
+      website: 'https://www.jnjmedtech.com',
+      country: 'Brasil',
+      contact_name: 'Fernando Costa',
+      contact_phone: '11996005678',
+      contact_email: 'fernando@depuy.com.br',
+    },
+    {
+      name: 'Alcon',
+      owner_id: adminMedicoId,
+      website: 'https://www.alcon.com',
+      country: 'Brasil',
+      contact_name: 'Equipe Comercial Alcon',
+      contact_phone: generatePhone(),
+      contact_email: `comercial.alcon.${faker.string.numeric(4)}@example.com`,
+    },
+  ];
+
+  const manufacturerIds: string[] = [];
+  for (const m of manufacturersData) {
+    const r = await dataSource.query(
+      `INSERT INTO manufacturers (name, cnpj, anvisa_registration, email, phone, website, country, contact_name, contact_phone, contact_email, notes, owner_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [
+        m.name,
+        generateCNPJ(),
+        `ANV-${faker.string.numeric(8)}`,
+        `contato@${m.name.toLowerCase().replace(/[^a-z0-9]/g, '')}${faker.string.numeric(2)}.com.br`,
+        generatePhone(),
+        m.website,
+        m.country,
+        m.contact_name,
+        m.contact_phone,
+        m.contact_email,
+        'Fabricante cadastrado para ambiente de desenvolvimento.',
+        m.owner_id,
+      ],
+    );
+    manufacturerIds.push(r[0].id);
+  }
+  logger.log(`  ✅ ${manufacturerIds.length} fabricantes criados\n`);
 
   // ========================================
   // 11. PACIENTES — Conta 2 (admin@inexci.com)
@@ -2209,7 +2288,7 @@ async function main() {
     '  • 3 cabeçalhos de médico (doctor_headers — 1 por perfil médico)',
   );
   logger.log('');
-  logger.log('🔐 Credenciais (todos com senha: 123456):');
+  logger.log('🔐 Credenciais (todos com senha: Teste123@):');
   logger.log('  ┌─────────────────────────────────────────────────────────┐');
   logger.log('  │ CONTA 1 (Ortopedia — São Paulo)                         │');
   logger.log('  │  medico@inexci.com        Admin + Médico (Ortopedia)    │');

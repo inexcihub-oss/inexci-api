@@ -12,6 +12,7 @@ import {
 import { Patient } from './patient.entity';
 import { Hospital } from './hospital.entity';
 import { HealthPlan } from './health-plan.entity';
+import { Manufacturer } from './manufacturer.entity';
 import { Supplier } from './supplier.entity';
 import { Procedure } from './procedure.entity';
 import {
@@ -66,6 +67,7 @@ export { UserDoctorAccess, UserDoctorAccessStatus };
 export { Patient };
 export { Hospital };
 export { HealthPlan };
+export { Manufacturer };
 export { Supplier };
 
 // DADOS DE REFERÊNCIA
@@ -127,6 +129,7 @@ export const ENTITIES = [
   Patient,
   Hospital,
   HealthPlan,
+  Manufacturer,
   Supplier,
   Procedure,
   SurgeryRequest,
