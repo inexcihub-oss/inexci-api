@@ -319,12 +319,10 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/1 a 3 datas propostas/);
   });
 
-  it('explica que mark_performed precisa de docs cirúrgicos via mark_performed_draft_check_docs', () => {
+  it('explica que mark_performed aceita docs pós-cirúrgicos opcionais via mark_performed_draft_check_docs', () => {
     expect(SYSTEM_PROMPT).toMatch(/Marcar como realizada.*5→6/);
     expect(SYSTEM_PROMPT).toMatch(/mark_performed_draft_check_docs/);
-    expect(SYSTEM_PROMPT).toMatch(
-      /backend bloqueia.*transi[çc][ãa]o.*obrigat[óo]rios/i,
-    );
+    expect(SYSTEM_PROMPT).toMatch(/opcionais.*faturamento/i);
   });
 
   // ============================================================

@@ -428,7 +428,7 @@ export class DocumentIntakeService {
         dataLines.push(
           `  - OPME: ${extracted.opme
             .map((o: any) => {
-              const tag = [o.supplier, o.brand].filter(Boolean).join('/');
+              const tag = [o.supplier, o.manufacturer].filter(Boolean).join('/');
               return `${o.qty || 1}x ${o.description}${tag ? ` [${tag}]` : ''}`;
             })
             .join('; ')}`,
@@ -478,7 +478,7 @@ export class DocumentIntakeService {
                 '  6. Médico responsável: NÃO pergunte. Se você for médico OU se houver só 1 médico acessível, o sistema preenche automaticamente; se houver vários e nenhum default for possível, AÍ SIM peça desempate.',
                 '  7. Cole o laudo: `draft_update({ draft_type: "create_sc", field: "notes", value: "<laudoText acima>" })`.',
                 '  8. Cole TUSS no draft (não chame `manage_tuss_items` ainda): `draft_update({ draft_type: "create_sc", field: "tussItems", value: [{ "code": "3.07.15.091", "description": "Descompressão medular..." }, ...] })` usando os códigos+descrições já extraídos.',
-                '  9. Cole OPME no draft (não chame `manage_opme_items` ainda): `draft_update({ draft_type: "create_sc", field: "opmeItems", value: [{ "description": "Cage Stand Alone", "qty": 2, "supplier": "SINTEX", "brand": "DIVA/NOVA SPINE" }, ...] })`.',
+                '  9. Cole OPME no draft (não chame `manage_opme_items` ainda): `draft_update({ draft_type: "create_sc", field: "opmeItems", value: [{ "description": "Cage Stand Alone", "qty": 2, "supplier": "SINTEX", "manufacturer": "DIVA/NOVA SPINE" }, ...] })`.',
                 '  10. Chame `sc_draft_preview` → mostre ao usuário o resumo final (com paciente, procedimento, hospital/convênio se houver, prioridade, número de TUSS, número de OPME e existência de laudo). Aí sim peça confirmação ("posso salvar?").',
                 '  11. UMA ÚNICA chamada `sc_draft_commit({ confirm: true })` cria a SC E persiste laudo + TUSS + OPME de uma vez. Não chame mais `manage_tuss_items` / `manage_opme_items` em seguida — só faça isso se o usuário pedir um ajuste depois.',
                 '- NUNCA fragmente em perguntas separadas para cada campo quando os dados já estão extraídos. NUNCA responda "não ficou claro qual ação você quer confirmar" enquanto este hint estiver ativo.',

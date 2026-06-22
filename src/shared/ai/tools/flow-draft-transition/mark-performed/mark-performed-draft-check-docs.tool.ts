@@ -15,7 +15,7 @@ export function buildMarkPerformedDraftCheckDocsTool(
       function: {
         name: 'mark_performed_draft_check_docs',
         description:
-          'Verifica se os documentos cirúrgicos pós-operatórios obrigatórios já estão anexados à SC. Retorna os tipos presentes e os que faltam.',
+          'Verifica quais documentos pós-cirúrgicos já estão anexados à SC e quais ainda faltam (todos opcionais).',
         parameters: { type: 'object', properties: {} },
       },
     } as OpenAI.ChatCompletionTool,
@@ -50,8 +50,8 @@ export function buildMarkPerformedDraftCheckDocsTool(
         },
         message:
           result.missing.length === 0
-            ? 'Todos os documentos obrigatórios estão anexados.'
-            : `Faltam ${result.missing.length} documento(s) obrigatório(s): ${result.missing.map((d) => d.label).join(', ')}.`,
+            ? 'Nenhum documento pós-cirúrgico obrigatório pendente — pode prosseguir com preview/commit.'
+            : `Faltam ${result.missing.length} documento(s) recomendado(s): ${result.missing.map((d) => d.label).join(', ')}.`,
       });
     },
   };

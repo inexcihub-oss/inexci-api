@@ -151,9 +151,11 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        width: 160px;
+        width: 260px;
+        max-width: 100%;
         margin-left: auto;
-        margin-top: 40px;
+        margin-right: auto;
+        margin-top: 32px;
         break-inside: avoid;
         page-break-inside: avoid;
       }
@@ -192,8 +194,15 @@
         font-size: 10px;
         font-weight: 400;
         color: #111111;
-        text-align: left;
+        text-align: center;
         margin-top: 2px;
+      }
+
+      .closing-text {
+        font-size: 12px;
+        line-height: 1.333;
+        color: #111111;
+        margin-bottom: 16px;
       }
 
       /* ── Cabeçalho Customizado ────────────────────────── */
@@ -368,6 +377,10 @@
         </div>
       {{/if}}
     {{/unless}}
+
+    <!-- ── Encerramento ───────────────────────────────────── -->
+    <p class='closing-text'>Colocando-me a disposição para maiores
+      informações,</p>
 
     <!-- ── Assinatura do Médico ───────────────────────────── -->
     <div class='signature-block'>

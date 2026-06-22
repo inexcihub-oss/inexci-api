@@ -158,17 +158,19 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           // criamos o item com placeholders "a definir" — o usuário
           // refina pela interface depois.
           const supplierBase = item.supplier ? [item.supplier] : ['A definir'];
-          const brandBase = item.brand ? [item.brand] : ['A definir'];
+          const manufacturerBase = item.manufacturer
+            ? [item.manufacturer]
+            : ['A definir'];
           const supplierNames = [
             ...supplierBase,
             'A definir',
             'A definir',
           ].slice(0, Math.max(3, supplierBase.length));
           const manufacturerNames = [
-            ...brandBase,
+            ...manufacturerBase,
             'A definir',
             'A definir',
-          ].slice(0, Math.max(3, brandBase.length));
+          ].slice(0, Math.max(3, manufacturerBase.length));
           if (!opmeService) {
             warnings.push(`OPME ${name} (serviço indisponível)`);
             continue;
@@ -178,7 +180,7 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
               {
                 surgeryRequestId: created.id,
                 name,
-                brand: manufacturerNames.join(', '),
+                manufacturerNames,
                 quantity: typeof item.qty === 'number' ? item.qty : 1,
                 supplierNames,
               },

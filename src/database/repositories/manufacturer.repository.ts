@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, FindOptionsWhere } from 'typeorm';
+import { DataSource, FindOptionsWhere, ILike } from 'typeorm';
 import { Manufacturer } from '../entities/manufacturer.entity';
 import { BaseRepository } from './base.repository';
 
@@ -26,6 +26,19 @@ export class ManufacturerRepository extends BaseRepository<Manufacturer> {
     return this.repository.find({
       where: { ownerId },
       order: { name: 'ASC' },
+    });
+  }
+
+  findByNameIncludingDeleted(
+    ownerId: string,
+    name: string,
+  ): Promise<Manufacturer | null> {
+    const trimmed = name.trim();
+    if (!trimmed) return Promise.resolve(null);
+
+    return this.repository.findOne({
+      where: { ownerId, name: ILike(trimmed) },
+      withDeleted: true,
     });
   }
 }

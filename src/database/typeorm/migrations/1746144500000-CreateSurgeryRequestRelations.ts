@@ -3,7 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * Sub-tabelas e relacionamentos da solicitação cirúrgica:
  *  - surgery_request_tuss_items
- *  - opme_items + opme_item_suppliers (junction)
+ *  - opme_items + opme_item_suppliers + opme_item_manufacturers (junctions)
  *  - surgery_request_quotations
  *  - contestations
  *  - documents (depende de contestations)
@@ -43,7 +43,6 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
         "id"                   UUID NOT NULL DEFAULT gen_random_uuid(),
         "surgery_request_id"   UUID NOT NULL,
         "name"                 VARCHAR(75) NOT NULL,
-        "brand"                VARCHAR(75),
         "quantity"             INTEGER NOT NULL DEFAULT 1,
         "authorized_quantity"  INTEGER,
         "selected_supplier_id" UUID,
@@ -78,6 +77,27 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
           ON DELETE CASCADE ON UPDATE CASCADE
       );
     `);
+
+    await queryRunner.query(`
+      CREATE TABLE "opme_item_manufacturers" (
+        "opme_item_id"    UUID NOT NULL,
+        "manufacturer_id" UUID NOT NULL,
+        CONSTRAINT "pk_opme_item_manufacturers"
+          PRIMARY KEY ("opme_item_id", "manufacturer_id"),
+        CONSTRAINT "fk_opme_item_manufacturers_opme_item"
+          FOREIGN KEY ("opme_item_id") REFERENCES "opme_items"("id")
+          ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "fk_opme_item_manufacturers_manufacturer"
+          FOREIGN KEY ("manufacturer_id") REFERENCES "manufacturers"("id")
+          ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+    await queryRunner.query(
+      `CREATE INDEX "idx_opme_item_manufacturers_opme_item_id" ON "opme_item_manufacturers" ("opme_item_id");`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_opme_item_manufacturers_manufacturer_id" ON "opme_item_manufacturers" ("manufacturer_id");`,
+    );
 
     await queryRunner.query(`
       CREATE TABLE "surgery_request_quotations" (
@@ -187,6 +207,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
         "invoice_protocol"         VARCHAR(100) NOT NULL,
         "invoice_sent_at"          TIMESTAMP NOT NULL,
         "invoice_value"            NUMERIC(12, 2) NOT NULL,
+        "invoice_notes"            TEXT,
         "payment_deadline"         DATE,
         "received_value"           NUMERIC(12, 2),
         "received_at"              TIMESTAMP,
@@ -305,6 +326,7 @@ export class CreateSurgeryRequestRelations1746144500000 implements MigrationInte
       'documents',
       'contestations',
       'surgery_request_quotations',
+      'opme_item_manufacturers',
       'opme_item_suppliers',
       'opme_items',
       'surgery_request_tuss_items',

@@ -21,6 +21,14 @@ import {
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 import { SendMethod } from 'src/shared/constants/send-method';
 
+function extractOpmeManufacturerNames(item: {
+  manufacturers?: Array<{ name?: string | null }>;
+}): string[] {
+  return (item.manufacturers ?? [])
+    .map((manufacturer) => manufacturer?.name?.trim())
+    .filter((name): name is string => Boolean(name));
+}
+
 @Injectable()
 export class SurgeryRequestPdfAssemblyService {
   private readonly logger = new Logger(SurgeryRequestPdfAssemblyService.name);
@@ -48,10 +56,24 @@ export class SurgeryRequestPdfAssemblyService {
   }
 
   /**
+   * Resolve o ID do médico responsável pela solicitação (não o usuário logado).
+   */
+  resolveAssignedDoctorId(request: {
+    doctorId?: string;
+    doctor?: { id?: string };
+  }): string | undefined {
+    return request.doctorId ?? request.doctor?.id;
+  }
+
+  /**
    * Carrega dados do médico (profile, CRM, assinatura, cabeçalho) necessários para PDFs.
    */
   async loadDoctorData(userId: string) {
     const doctor = await this.userRepository.findOneWithProfile({ id: userId });
+    return this.buildDoctorPdfContext(doctor);
+  }
+
+  private async buildDoctorPdfContext(doctor: any) {
     const profile = doctor?.doctorProfile;
 
     let doctorCrm: string | undefined;
@@ -60,34 +82,69 @@ export class SurgeryRequestPdfAssemblyService {
     }
 
     const doctorSignatureUrl = await this.resolveDoctorSignatureUrl(profile);
+    const customHeader = await this.resolveCustomHeader(profile);
 
-    let customHeader: CustomHeaderData | null = null;
-    if (profile?.id) {
-      const header = await this.doctorHeaderRepository.findByDoctorProfileId(
-        profile.id,
-      );
-      if (header) {
-        let logoUrl: string | null = null;
-        if (header.logoUrl) {
-          if (header.logoUrl.startsWith('http')) {
-            logoUrl = header.logoUrl;
-          } else {
-            try {
-              logoUrl = await this.storageService.getSignedUrl(header.logoUrl);
-            } catch {
-              logoUrl = null;
-            }
-          }
+    return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
+  }
+
+  private async resolveCustomHeader(
+    profile: any,
+  ): Promise<CustomHeaderData | null> {
+    if (!profile?.id) return null;
+
+    const header =
+      profile.header ??
+      (await this.doctorHeaderRepository.findByDoctorProfileId(profile.id));
+    if (!header) return null;
+
+    let logoUrl: string | null = null;
+    if (header.logoUrl) {
+      if (header.logoUrl.startsWith('http')) {
+        logoUrl = header.logoUrl;
+      } else {
+        try {
+          logoUrl = await this.storageService.getSignedUrl(header.logoUrl);
+        } catch {
+          logoUrl = null;
         }
-        customHeader = {
-          logoUrl,
-          logoPosition: header.logoPosition,
-          contentHtml: header.contentHtml,
-        };
       }
     }
 
-    return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
+    return {
+      logoUrl,
+      logoPosition: header.logoPosition,
+      contentHtml: header.contentHtml,
+    };
+  }
+
+  /**
+   * Carrega dados do médico atribuído à solicitação cirúrgica.
+   */
+  async loadAssignedDoctorData(request: {
+    doctorId?: string;
+    doctor?: {
+      id?: string;
+      doctorProfile?: { id?: string } | null;
+    };
+  }) {
+    const doctorId = this.resolveAssignedDoctorId(request);
+    if (!doctorId) {
+      throw new Error(
+        'Solicitação sem médico atribuído para geração de PDF',
+      );
+    }
+
+    const preloadedDoctor =
+      request.doctor?.id === doctorId ? request.doctor : undefined;
+    const doctor =
+      preloadedDoctor ??
+      (await this.userRepository.findOneWithProfile({ id: doctorId }));
+
+    if (!doctor) {
+      throw new Error(`Médico atribuído não encontrado: ${doctorId}`);
+    }
+
+    return this.buildDoctorPdfContext(doctor);
   }
 
   /**
@@ -98,11 +155,11 @@ export class SurgeryRequestPdfAssemblyService {
    */
   async generateLaudoPdf(
     request: any,
-    userId: string,
+    _userId: string,
     options?: { includeInfoDocuments?: boolean },
   ): Promise<{ pdf: string; method: SendMethod.DOWNLOAD }> {
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
-      await this.loadDoctorData(userId);
+      await this.loadAssignedDoctorData(request);
 
     const doctorEmail = doctor?.email ?? '';
     const doctorPhoneRaw = doctor?.phone ?? '';
@@ -173,6 +230,8 @@ export class SurgeryRequestPdfAssemblyService {
         .filter((part) => part.length > 0);
     };
 
+    const extractManufacturerNames = extractOpmeManufacturerNames;
+
     const uniqueNormalized = (arr: string[]) =>
       Array.from(
         new Map(
@@ -186,12 +245,9 @@ export class SurgeryRequestPdfAssemblyService {
     const opmeItems = opmeItemsRaw.map((item: any) => ({
       name: item.name,
       quantity: item.quantity ?? 1,
-      fabricantesText: uniqueNormalized([
-        ...((item.manufacturers ?? [])
-          .map((m: any) => m?.name)
-          .filter(Boolean) as string[]),
-        ...extractNames(item.brand),
-      ]).join(', '),
+      fabricantesText: uniqueNormalized(extractManufacturerNames(item)).join(
+        ', ',
+      ),
       fornecedoresText: uniqueNormalized(
         (item.suppliers ?? []).map((s: any) => s?.name).filter(Boolean),
       ).join(', '),
@@ -199,12 +255,7 @@ export class SurgeryRequestPdfAssemblyService {
 
     // ── Fabricantes e Fornecedores ───────────────────────────────────────
     const fabricantes = uniqueNormalized(
-      opmeItemsRaw.flatMap((i: any) => [
-        ...((i.manufacturers ?? [])
-          .map((m: any) => m?.name)
-          .filter(Boolean) as string[]),
-        ...extractNames(i.brand),
-      ]),
+      opmeItemsRaw.flatMap((i: any) => extractManufacturerNames(i)),
     );
     const fornecedores = uniqueNormalized(
       opmeItemsRaw.flatMap((i: any) => [
@@ -324,10 +375,10 @@ export class SurgeryRequestPdfAssemblyService {
    */
   async generateMedicalReportPdf(
     request: any,
-    userId: string,
+    _userId: string,
   ): Promise<Buffer> {
     const { doctor, profile, doctorSignatureUrl, customHeader } =
-      await this.loadDoctorData(userId);
+      await this.loadAssignedDoctorData(request);
 
     // ── Dados do laudo (medicalReport JSON) ───────────────────────────────
     let reportData: {
@@ -428,7 +479,7 @@ export class SurgeryRequestPdfAssemblyService {
   async generateContestAuthorizationPdf(
     request: any,
     id: string,
-    userId: string,
+    _userId: string,
   ): Promise<Buffer> {
     const contestations = request.contestations ?? [];
     const latestContestation = contestations
@@ -500,7 +551,7 @@ export class SurgeryRequestPdfAssemblyService {
         selectedSupplierName ? [selectedSupplierName] : [],
       );
 
-      const fabricantes = unique(splitAndNormalize(item.brand));
+      const fabricantes = unique(extractOpmeManufacturerNames(item));
 
       return {
         name: item.name,
@@ -552,7 +603,7 @@ export class SurgeryRequestPdfAssemblyService {
     }
 
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
-      await this.loadDoctorData(userId);
+      await this.loadAssignedDoctorData(request);
 
     const pdfData: ContestAuthorizationPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),

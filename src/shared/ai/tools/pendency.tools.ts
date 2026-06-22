@@ -89,14 +89,7 @@ function mapPendencyToRecommendedAction(
         l.includes('seção de laudo'),
       );
       const missingPatient = Array.from(undoneLabels).some((l) =>
-        [
-          'nome do paciente',
-          'data de nascimento',
-          'cpf',
-          'telefone',
-          'endereço',
-          'cep',
-        ].includes(l),
+        ['nome do paciente', 'cpf'].includes(l),
       );
 
       // Quando só falta a assinatura, oriente direto para
@@ -508,11 +501,11 @@ export function buildPendencyTools(
         );
       } else if (p.key === 'medical_report') {
         lines.push(
-          `- ${p.label}: dados completos do paciente + ao menos 1 seção de laudo + assinatura do médico configurada (responsável: ${p.responsibleRole}).`,
+          `- ${p.label}: nome e CPF do paciente + ao menos 1 seção de laudo + assinatura do médico configurada (responsável: ${p.responsibleRole}).`,
         );
       } else if (p.key === 'patient_data') {
         lines.push(
-          `- ${p.label}: nome, data de nascimento, CPF, telefone, endereço e CEP (responsável: ${p.responsibleRole}).`,
+          `- ${p.label}: nome e CPF (responsável: ${p.responsibleRole}).`,
         );
       } else {
         lines.push(`- ${p.label} (responsável: ${p.responsibleRole}).`);
@@ -689,11 +682,11 @@ export function buildPendencyTools(
 
       if (missingRequired === 0) {
         lines.push(
-          'Todos os documentos obrigatórios já estão anexados — pode prosseguir com `plan_actions(intent="mark_performed")` + `mark_performed_draft_*` informando a data da cirurgia.',
+          'Nenhum documento pós-cirúrgico é obrigatório para marcar como realizada — pode prosseguir com `plan_actions(intent="mark_performed")` + `mark_performed_draft_*` informando a data da cirurgia.',
         );
         if (missingOptional > 0) {
           lines.push(
-            'Há documentos opcionais ainda não anexados; se tiver, anexe pelo `manage_documents` antes para o registro ficar mais completo.',
+            'Há documentos recomendados ainda não anexados; se tiver, anexe pelo `manage_documents` para compor o pacote de faturamento.',
           );
         }
       } else {

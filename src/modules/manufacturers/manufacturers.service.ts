@@ -1,7 +1,9 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { FindOptionsWhere, In } from 'typeorm';
 import { Manufacturer } from 'src/database/entities/manufacturer.entity';
@@ -13,6 +15,8 @@ import { CreateManufacturerDto } from './dto/create-manufacturer.dto';
 
 @Injectable()
 export class ManufacturersService {
+  private readonly logger = new Logger(ManufacturersService.name);
+
   constructor(
     private readonly manufacturerRepository: ManufacturerRepository,
     private readonly accessControlService: AccessControlService,
@@ -65,6 +69,30 @@ export class ManufacturersService {
       throw new ForbiddenException('Usuário sem clínica vinculada.');
     }
 
+    const existingIncludingDeleted =
+      await this.manufacturerRepository.findByNameIncludingDeleted(
+        ownerId,
+        data.name,
+      );
+
+    if (existingIncludingDeleted && !existingIncludingDeleted.deletedAt) {
+      throw new ConflictException(
+        `Já existe um fabricante com o nome "${data.name.trim()}".`,
+      );
+    }
+
+    if (existingIncludingDeleted?.deletedAt) {
+      await this.manufacturerRepository.restore(existingIncludingDeleted.id);
+      const restored = await this.manufacturerRepository.update(
+        existingIncludingDeleted.id,
+        data,
+      );
+      this.logger.log(
+        `Fabricante restaurado após soft delete: id=${existingIncludingDeleted.id}`,
+      );
+      return restored!;
+    }
+
     return this.manufacturerRepository.create({
       ...data,
       ownerId,
@@ -79,7 +107,8 @@ export class ManufacturersService {
       userId,
       manufacturer.ownerId,
     );
-    await this.manufacturerRepository.delete(id);
+    await this.manufacturerRepository.softDelete(id);
+    this.logger.log(`Fabricante soft-deleted: id=${id}`);
   }
 
   async bulkDelete(
@@ -104,7 +133,10 @@ export class ManufacturersService {
       );
     }
 
-    await this.manufacturerRepository.getRepository().softDelete(uniqueIds);
+    await this.manufacturerRepository.bulkSoftDelete(uniqueIds);
+    this.logger.log(
+      `Fabricantes soft-deleted em lote: total=${uniqueIds.length}`,
+    );
 
     return { deleted: uniqueIds.length };
   }

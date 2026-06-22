@@ -124,9 +124,9 @@ const DOCUMENT_RESPONSE_SCHEMA = {
                 description: { type: 'string' },
                 qty: { type: 'number', minimum: 1 },
                 supplier: { type: ['string', 'null'] },
-                brand: { type: ['string', 'null'] },
+                manufacturer: { type: ['string', 'null'] },
               },
-              required: ['description', 'qty', 'supplier', 'brand'],
+              required: ['description', 'qty', 'supplier', 'manufacturer'],
             },
           },
           suggestedSuppliers: {
@@ -201,7 +201,7 @@ const SYSTEM_PROMPT = [
   '',
   'FORNECEDORES: "SUGIRO AS EMPRESAS:" / "Fornecedores:" — liste nomes em',
   '`suggestedSuppliers` (ex.: ["SINTEX", "VITALITY"]). Quando houver marca',
-  'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), use `opme[].brand`.',
+  'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), use `opme[].manufacturer`.',
   '',
   'LAUDO CLÍNICO COMPLETO: o texto narrativo entre "Diagnóstico" e "Códigos',
   'solicitados" (queixa, exame, RNM, indicação) vai INTEIRO em `laudoText`.',
@@ -512,8 +512,8 @@ export class DocumentVisionFallbackService {
           if (typeof item?.supplier === 'string' && item.supplier.trim()) {
             entry.supplier = item.supplier.trim();
           }
-          if (typeof item?.brand === 'string' && item.brand.trim()) {
-            entry.brand = item.brand.trim();
+          if (typeof item?.manufacturer === 'string' && item.manufacturer.trim()) {
+            entry.manufacturer = item.manufacturer.trim();
           }
           return entry;
         })

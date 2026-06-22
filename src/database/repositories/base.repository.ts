@@ -51,12 +51,33 @@ export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
   }
 
   async delete(id: string): Promise<void> {
+    await this.softDelete(id);
+  }
+
+  async softDelete(id: string): Promise<void> {
     if (this.repository.metadata.deleteDateColumn) {
       await this.repository.softDelete(id);
       return;
     }
 
     await this.repository.delete(id);
+  }
+
+  async bulkSoftDelete(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+
+    if (this.repository.metadata.deleteDateColumn) {
+      await this.repository.softDelete(ids);
+      return;
+    }
+
+    await this.repository.delete(ids);
+  }
+
+  async restore(id: string): Promise<void> {
+    if (this.repository.metadata.deleteDateColumn) {
+      await this.repository.restore(id);
+    }
   }
 
   getRepository(): Repository<T> {

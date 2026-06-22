@@ -15,7 +15,7 @@ export function buildMarkPerformedDraftPreviewTool(
       function: {
         name: 'mark_performed_draft_preview',
         description:
-          'Gera o preview da marcação como realizada. Bloqueia se faltarem documentos obrigatórios.',
+          'Gera o preview da marcação como realizada. Documentos pós-cirúrgicos são opcionais.',
         parameters: { type: 'object', properties: {} },
       },
     } as OpenAI.ChatCompletionTool,

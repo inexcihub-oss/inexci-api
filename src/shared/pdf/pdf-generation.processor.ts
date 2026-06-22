@@ -7,7 +7,7 @@ import {
   ActivityType,
   SurgeryRequestActivity,
 } from 'src/database/entities/surgery-request-activity.entity';
-import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { PdfGenerationJobData } from './pdf-generation.service';
 import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
@@ -20,8 +20,7 @@ export class PdfGenerationProcessor {
   constructor(
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
     private readonly storageService: StorageService,
-    @InjectRepository(SurgeryRequest)
-    private readonly surgeryRequestRepo: Repository<SurgeryRequest>,
+    private readonly surgeryRequestRepository: SurgeryRequestRepository,
     @InjectRepository(SurgeryRequestActivity)
     private readonly activityRepo: Repository<SurgeryRequestActivity>,
   ) {}
@@ -35,19 +34,9 @@ export class PdfGenerationProcessor {
 
     try {
       // ── Carregar solicitação com todas as relações necessárias ─────────────
-      const request = await this.surgeryRequestRepo.findOne({
-        where: { id: surgeryRequestId },
-        relations: [
-          'createdBy',
-          'patient',
-          'hospital',
-          'healthPlan',
-          'tussItems',
-          'opmeItems',
-          'documents',
-          'reportSections',
-        ],
-      });
+      const request = await this.surgeryRequestRepository.findOneWithAllRelations(
+        { id: surgeryRequestId },
+      );
 
       if (!request) {
         this.logger.warn(
@@ -57,10 +46,9 @@ export class PdfGenerationProcessor {
       }
 
       // ── Gerar PDF (mesclado com documentos anexos) via serviço compartilhado
-      const doctorUserId = (request as any).createdById || userId;
       const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
         request,
-        doctorUserId,
+        userId,
       );
       const finalBuffer = Buffer.from(pdf, 'base64');
 

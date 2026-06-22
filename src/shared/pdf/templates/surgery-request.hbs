@@ -323,7 +323,7 @@
           <thead>
             <tr>
               <th>Material</th>
-              <th>Marca</th>
+              <th>Fabricante</th>
               <th style='text-align:center'>Qtd. Solicitada</th>
               {{#if opmeItems.[0].authorizedQuantity}}
                 <th style='text-align:center'>Qtd. Autorizada</th>
@@ -334,7 +334,7 @@
             {{#each opmeItems}}
               <tr>
                 <td>{{name}}</td>
-                <td>{{brand}}</td>
+                <td>{{fabricantesText}}</td>
                 <td style='text-align:center'>{{quantity}}</td>
                 {{#if authorizedQuantity}}
                   <td style='text-align:center'>{{authorizedQuantity}}</td>

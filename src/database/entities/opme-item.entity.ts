@@ -24,9 +24,6 @@ export class OpmeItem {
   @Column({ type: 'varchar', length: 75 })
   name: string;
 
-  @Column({ type: 'varchar', length: 75, nullable: true })
-  brand: string | null;
-
   @Column({ type: 'int' })
   quantity: number;
 

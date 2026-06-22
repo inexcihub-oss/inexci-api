@@ -102,6 +102,20 @@ export class PendencyValidatorService {
     }));
   }
 
+  /** Nome e CPF são os únicos campos obrigatórios do paciente. */
+  private isPatientDataComplete(patient?: SurgeryRequest['patient']): boolean {
+    return !!(patient?.name && patient?.cpf);
+  }
+
+  private getPatientDataCheckItems(
+    patient?: SurgeryRequest['patient'],
+  ): Array<{ label: string; done: boolean }> {
+    return [
+      { label: 'Nome do paciente', done: !!patient?.name },
+      { label: 'CPF', done: !!patient?.cpf },
+    ];
+  }
+
   /**
    * Retorna os sub-itens de checklist para cada tipo de pendência.
    */
@@ -115,14 +129,7 @@ export class PendencyValidatorService {
 
     switch (key) {
       case 'patient_data':
-        return [
-          { label: 'Nome do paciente', done: !!request.patient?.name },
-          { label: 'Data de nascimento', done: !!request.patient?.birthDate },
-          { label: 'CPF', done: !!request.patient?.cpf },
-          { label: 'Telefone', done: !!request.patient?.phone },
-          { label: 'Endereço', done: !!request.patient?.address },
-          { label: 'CEP', done: !!request.patient?.zipCode },
-        ];
+        return this.getPatientDataCheckItems(request.patient);
 
       case 'hospital_data':
         return [{ label: 'Hospital selecionado', done: !!request.hospitalId }];
@@ -158,17 +165,11 @@ export class PendencyValidatorService {
         ];
 
       case 'medical_report': {
-        const pt = request.patient;
         const sections = request.reportSections ?? [];
         const doctorHasSignature =
           !!request.doctor?.doctorProfile?.signatureUrl;
         return [
-          { label: 'Nome do paciente', done: !!pt?.name },
-          { label: 'Data de nascimento', done: !!pt?.birthDate },
-          { label: 'CPF', done: !!pt?.cpf },
-          { label: 'Telefone', done: !!pt?.phone },
-          { label: 'Endereço', done: !!pt?.address },
-          { label: 'CEP', done: !!pt?.zipCode },
+          ...this.getPatientDataCheckItems(request.patient),
           {
             label: 'Ao menos 1 seção de laudo preenchida',
             done: sections.length > 0,
@@ -240,14 +241,7 @@ export class PendencyValidatorService {
     switch (pendency.key) {
       // ── PENDING ──────────────────────────────────────────────────────────
       case 'patient_data':
-        return !!(
-          request.patient?.name &&
-          request.patient?.birthDate &&
-          request.patient?.cpf &&
-          request.patient?.phone &&
-          request.patient?.address &&
-          request.patient?.zipCode
-        );
+        return this.isPatientDataComplete(request.patient);
 
       case 'hospital_data':
         return !!request.hospitalId;
@@ -264,21 +258,16 @@ export class PendencyValidatorService {
         return false;
 
       case 'medical_report': {
-        // Campos obrigatórios: dados do paciente + ao menos 1 seção de laudo
+        // Campos obrigatórios: nome + CPF do paciente + ao menos 1 seção de laudo
         // preenchida + assinatura do médico configurada.
-        const pt = request.patient;
-        const patientComplete = !!(
-          pt?.name &&
-          pt?.birthDate &&
-          pt?.cpf &&
-          pt?.phone &&
-          pt?.address &&
-          pt?.zipCode
-        );
         const sections = request.reportSections ?? [];
         const doctorHasSignature =
           !!request.doctor?.doctorProfile?.signatureUrl;
-        return patientComplete && sections.length > 0 && doctorHasSignature;
+        return (
+          this.isPatientDataComplete(request.patient) &&
+          sections.length > 0 &&
+          doctorHasSignature
+        );
       }
 
       // ── IN_SCHEDULING ─────────────────────────────────────────────────────

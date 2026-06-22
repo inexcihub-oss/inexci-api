@@ -21,6 +21,7 @@ import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { parseCalendarDate } from 'src/shared/utils/date.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 import { SurgeryRequestNotificationService } from '../surgery-request-notification.service';
@@ -118,13 +119,6 @@ export class SendAnalysisHandler {
         );
       },
       { logger: this.logger, operationName: 'sendRequest' },
-    );
-
-    await this.notificationService.notifyPatientIfRequested(
-      request,
-      SurgeryRequestStatus.PENDING,
-      SurgeryRequestStatus.SENT,
-      dto.notifyPatient,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(
@@ -253,21 +247,23 @@ export class SendAnalysisHandler {
         const repo = manager.getRepository(SurgeryRequest);
         const analysisRepo = manager.getRepository(SurgeryRequestAnalysis);
 
+        const receivedAt = parseCalendarDate(dto.receivedAt);
+
         await analysisRepo.save({
           surgeryRequestId: id,
           requestNumber: dto.requestNumber,
-          receivedAt: new Date(dto.receivedAt),
+          receivedAt,
           quotation1Number: dto.quotation1Number,
           quotation1ReceivedAt: dto.quotation1ReceivedAt
-            ? new Date(dto.quotation1ReceivedAt)
+            ? parseCalendarDate(dto.quotation1ReceivedAt)
             : null,
           quotation2Number: dto.quotation2Number,
           quotation2ReceivedAt: dto.quotation2ReceivedAt
-            ? new Date(dto.quotation2ReceivedAt)
+            ? parseCalendarDate(dto.quotation2ReceivedAt)
             : null,
           quotation3Number: dto.quotation3Number,
           quotation3ReceivedAt: dto.quotation3ReceivedAt
-            ? new Date(dto.quotation3ReceivedAt)
+            ? parseCalendarDate(dto.quotation3ReceivedAt)
             : null,
           notes: dto.notes,
         });
@@ -279,17 +275,10 @@ export class SendAnalysisHandler {
           request.status,
           SurgeryRequestStatus.IN_ANALYSIS,
           userId,
-          new Date(dto.receivedAt),
+          receivedAt,
         );
       },
       { logger: this.logger, operationName: 'startAnalysis' },
-    );
-
-    await this.notificationService.notifyPatientIfRequested(
-      request,
-      SurgeryRequestStatus.SENT,
-      SurgeryRequestStatus.IN_ANALYSIS,
-      dto.notifyPatient,
     );
 
     await this.notificationService.notifyStakeholdersOfStatusChange(

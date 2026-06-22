@@ -312,7 +312,7 @@ describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
       });
     });
 
-    it('check_docs reporta documentos faltantes', async () => {
+    it('check_docs reporta documentos faltantes como recomendados', async () => {
       mockDocumentRepo.findMany.mockResolvedValue([
         { id: 'd1', key: 'surgery_room' },
       ]);
@@ -325,12 +325,8 @@ describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
         context,
       );
       const result = parseToolResult<any>(raw);
-      expect(result?.status).toBe('needs_input');
-      expect(result?.data?.missing).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ type: 'surgery_auth_document' }),
-        ]),
-      );
+      expect(result?.status).toBe('ok');
+      expect(result?.data?.missing).toEqual([]);
     });
 
     it('check_docs sem surgeryRequestId pede draft_update', async () => {
@@ -343,7 +339,7 @@ describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
       expect(result?.message).toMatch(/draft_update/);
     });
 
-    it('preview bloqueia quando documentos obrigatórios faltam', async () => {
+    it('preview segue mesmo sem documentos anexados', async () => {
       mockDocumentRepo.findMany.mockResolvedValue([]);
       await draftService.setFields('conv-1', 'mark_performed', {
         surgeryRequestId: 'sc-1',
@@ -355,12 +351,30 @@ describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
         context,
       );
       const preview = parseToolResult<any>(previewRaw);
-      expect(preview?.status).toBe('blocked');
-      expect(preview?.message).toMatch(/Ficha da sala/);
-      expect(preview?.message).toMatch(/Documento de autorização/);
+      expect(preview?.status).toBe('pending_confirmation');
     });
 
-    it('commit autoriza e avança quando todos os docs obrigatórios estão presentes', async () => {
+    it('commit autoriza e avança sem documentos anexados', async () => {
+      mockDocumentRepo.findMany.mockResolvedValue([]);
+      await draftService.setFields('conv-1', 'mark_performed', {
+        surgeryRequestId: 'sc-1',
+        surgeryRequestLabel: 'SC-0001',
+        surgeryPerformedAt: '2026-04-01',
+      });
+      const commitRaw = await getTool('mark_performed_draft_commit').execute(
+        { confirm: true },
+        context,
+      );
+      const commit = parseToolResult<any>(commitRaw);
+      expect(commit?.status).toBe('ok');
+      expect(mockWorkflowService.markPerformed).toHaveBeenCalledWith(
+        'sc-1',
+        expect.objectContaining({ surgeryPerformedAt: '2026-04-01' }),
+        'user-1',
+      );
+    });
+
+    it('commit autoriza e avança quando documentos estão presentes', async () => {
       mockDocumentRepo.findMany.mockResolvedValue([
         { id: 'd1', key: 'surgery_room' },
         { id: 'd2', key: 'surgery_auth_document' },
@@ -381,24 +395,6 @@ describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
         expect.objectContaining({ surgeryPerformedAt: '2026-04-01' }),
         'user-1',
       );
-    });
-
-    it('commit bloqueia quando faltam documentos mesmo com confirm=true', async () => {
-      mockDocumentRepo.findMany.mockResolvedValue([
-        { id: 'd1', key: 'surgery_room' },
-      ]);
-      await draftService.setFields('conv-1', 'mark_performed', {
-        surgeryRequestId: 'sc-1',
-        surgeryRequestLabel: 'SC-0001',
-        surgeryPerformedAt: '2026-04-01',
-      });
-      const commitRaw = await getTool('mark_performed_draft_commit').execute(
-        { confirm: true },
-        context,
-      );
-      const commit = parseToolResult<any>(commitRaw);
-      expect(commit?.status).toBe('blocked');
-      expect(mockWorkflowService.markPerformed).not.toHaveBeenCalled();
     });
   });
 });

@@ -62,7 +62,7 @@ export interface CreateScDraftFields {
     description: string;
     qty?: number;
     supplier?: string;
-    brand?: string;
+    manufacturer?: string;
   }>;
 }
 

@@ -64,14 +64,14 @@ export class ManufacturersController {
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Excluir fabricante' })
+  @ApiOperation({ summary: 'Excluir fabricante (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.manufacturersService.delete(id, user.userId);
   }
 
   @Post('bulk-delete')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Excluir fabricantes em lote' })
+  @ApiOperation({ summary: 'Excluir fabricantes em lote (soft delete)' })
   bulkDelete(
     @Body() data: BulkDeleteManufacturersDto,
     @CurrentUser() user: AuthenticatedUser,

@@ -212,7 +212,7 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
                 description: 'CAGES STAND ALONE',
                 qty: 2,
                 supplier: 'SINTEX',
-                brand: 'DIVA/NOVA SPINE',
+                manufacturer: 'DIVA/NOVA SPINE',
               },
             ],
             suggestedSuppliers: ['SINTEX', 'VITALITY', 'GUSMED'],

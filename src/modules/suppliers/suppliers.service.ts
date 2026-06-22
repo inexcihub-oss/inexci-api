@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -84,6 +85,30 @@ export class SuppliersService {
       throw new ForbiddenException('Usuário sem clínica vinculada.');
     }
 
+    const existingIncludingDeleted =
+      await this.supplierRepository.findByNameIncludingDeleted(
+        ownerId,
+        data.name,
+      );
+
+    if (existingIncludingDeleted && !existingIncludingDeleted.deletedAt) {
+      throw new ConflictException(
+        `Já existe um fornecedor com o nome "${data.name.trim()}".`,
+      );
+    }
+
+    if (existingIncludingDeleted?.deletedAt) {
+      await this.supplierRepository.restore(existingIncludingDeleted.id);
+      const restored = await this.supplierRepository.update(
+        existingIncludingDeleted.id,
+        data,
+      );
+      this.logger.log(
+        `Fornecedor restaurado após soft delete: id=${existingIncludingDeleted.id}`,
+      );
+      return restored!;
+    }
+
     return this.supplierRepository.create({
       ...data,
       ownerId,
@@ -94,7 +119,8 @@ export class SuppliersService {
     const supplier = await this.supplierRepository.findOne({ id });
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
-    await this.supplierRepository.delete(id);
+    await this.supplierRepository.softDelete(id);
+    this.logger.log(`Fornecedor soft-deleted: id=${id}`);
   }
 
   async bulkDelete(
@@ -119,7 +145,10 @@ export class SuppliersService {
       );
     }
 
-    await this.supplierRepository.getRepository().softDelete(uniqueIds);
+    await this.supplierRepository.bulkSoftDelete(uniqueIds);
+    this.logger.log(
+      `Fornecedores soft-deleted em lote: total=${uniqueIds.length}`,
+    );
 
     return { deleted: uniqueIds.length };
   }

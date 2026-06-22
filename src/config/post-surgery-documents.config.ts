@@ -1,23 +1,16 @@
 /**
- * Documentos esperados após uma cirurgia ser realizada.
+ * Documentos pós-cirúrgicos que podem ser anexados após a realização.
  *
- * Hoje o backend não BLOQUEIA `mark_performed` na ausência destes
- * documentos (a validação rígida fica no `surgery-request-state-machine`,
- * que só checa transição de status). Mas o fluxo operacional da clínica
- * espera que a SC tenha esse pacote anexado antes de seguir para faturamento
- * — o frontend orienta isso e a IA do WhatsApp passou a usar esta lista
- * como guia para as recomendações pré `mark_performed`.
- *
- * Evolução natural: passar essa lista a uma pendência declarativa em
- * `pendencies.config.ts` (status SCHEDULED) — quando isso acontecer, esse
- * arquivo continua sendo a única fonte de verdade.
+ * Nenhum deles é obrigatório para a transição SCHEDULED → PERFORMED.
+ * Eles compõem o pacote final de faturamento quando informados — o frontend
+ * orienta isso e a IA do WhatsApp usa esta lista como guia de recomendação.
  */
 export interface PostSurgeryRequiredDoc {
   /** Tipo persistido em `documents.type` (ver `common/document-types.common.ts`). */
   type: string;
   /** Rótulo amigável para mostrar ao usuário. */
   label: string;
-  /** Se true, é considerado obrigatório para a SC ser marcada como Realizada. */
+  /** Se true, bloqueia `mark_performed` quando ausente (hoje todos são opcionais). */
   required: boolean;
   /** Texto curto explicando o que esperar — mostrado no WhatsApp. */
   hint: string;
@@ -27,13 +20,13 @@ export const POST_SURGERY_REQUIRED_DOCS: PostSurgeryRequiredDoc[] = [
   {
     type: 'surgery_room',
     label: 'Ficha da sala de cirurgia',
-    required: true,
+    required: false,
     hint: 'Documento da sala/centro cirúrgico contendo registro do procedimento (descrição cirúrgica, equipe, horários).',
   },
   {
     type: 'surgery_auth_document',
     label: 'Documento de autorização da cirurgia',
-    required: true,
+    required: false,
     hint: 'Cópia da autorização emitida pelo convênio para a cirurgia realizada.',
   },
   {

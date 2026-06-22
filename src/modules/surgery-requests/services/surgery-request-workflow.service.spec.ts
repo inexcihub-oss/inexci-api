@@ -258,7 +258,7 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).toHaveBeenCalled();
+      expect(notificationService.notifyPatientIfRequested).not.toHaveBeenCalled();
       expect(pdfGenerationService.scheduleGeneration).toHaveBeenCalledWith(
         'req-1',
         'user-1',
@@ -331,7 +331,7 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).toHaveBeenCalled();
+      expect(notificationService.notifyPatientIfRequested).not.toHaveBeenCalled();
     });
   });
 
@@ -368,7 +368,7 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(dataSource.transaction).toHaveBeenCalled();
       expect(
         notificationService.notifyPatientSchedulingOptions,
-      ).toHaveBeenCalled();
+      ).not.toHaveBeenCalled();
       expect(
         notificationService.notifyStakeholdersOfStatusChange,
       ).toHaveBeenCalledWith(
@@ -378,6 +378,50 @@ describe('SurgeryRequestWorkflowService', () => {
         'user-1',
         { sendWhatsapp: false },
       );
+    });
+
+    it('should notify patient scheduling options when notifyPatient is true', async () => {
+      const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+      const dateOptions = [
+        '2026-03-01T10:00:00.000Z',
+        '2026-03-05T14:00:00.000Z',
+        '2026-03-08T09:00:00.000Z',
+      ];
+
+      await service.acceptAuthorization(
+        'req-1',
+        { dateOptions, notifyPatient: true },
+        'user-1',
+      );
+
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).toHaveBeenCalledWith(request, dateOptions);
+    });
+
+    it('should not notify patient scheduling options when notifyPatient is false', async () => {
+      const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+      const dateOptions = [
+        '2026-03-01T10:00:00.000Z',
+        '2026-03-05T14:00:00.000Z',
+        '2026-03-08T09:00:00.000Z',
+      ];
+
+      await service.acceptAuthorization(
+        'req-1',
+        { dateOptions, notifyPatient: false },
+        'user-1',
+      );
+
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -467,7 +511,7 @@ describe('SurgeryRequestWorkflowService', () => {
       await service.confirmDate('req-1', { selectedDateIndex: 0 }, 'user-1');
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).toHaveBeenCalled();
+      expect(notificationService.notifyPatientIfRequested).not.toHaveBeenCalled();
     });
   });
 
@@ -502,6 +546,31 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(surgeryRequestRepository.update).toHaveBeenCalledWith('req-1', {
         dateOptions: ['2026-04-01', '2026-04-10'],
       });
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should notify patient scheduling options when notifyPatient is true', async () => {
+      const request = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+      const dateOptions = [
+        '2026-04-01T10:00:00.000Z',
+        '2026-04-10T14:00:00.000Z',
+        '2026-04-12T09:00:00.000Z',
+      ];
+
+      await service.updateDateOptions(
+        'req-1',
+        { dateOptions, notifyPatient: true },
+        'user-1',
+      );
+
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).toHaveBeenCalledWith(request, dateOptions);
     });
   });
 

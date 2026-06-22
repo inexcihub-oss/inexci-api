@@ -24,6 +24,10 @@ import {
 import { BaseRepository } from './base.repository';
 import { getStatusLabel } from 'src/shared/utils';
 
+/** Ordenação da listagem: última atividade relevante da solicitação. */
+const SURGERY_REQUEST_LIST_SORT_EXPRESSION =
+  'GREATEST(COALESCE(surgeryRequest.lastStatusChangedAt, surgeryRequest.createdAt), surgeryRequest.updatedAt)';
+
 @Global()
 @Injectable()
 export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
@@ -311,6 +315,24 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       }
     >
   > {
+    // Paginação em query sem joins: TypeORM quebra ORDER BY com expressões SQL
+    // quando skip/take combinam com joins (subquery distinctAlias).
+    const idRows = await this.repository
+      .createQueryBuilder('surgeryRequest')
+      .select('surgeryRequest.id', 'id')
+      .where(where)
+      .orderBy(SURGERY_REQUEST_LIST_SORT_EXPRESSION, 'DESC')
+      .offset(skip)
+      .limit(take)
+      .getRawMany<{ id: string }>();
+
+    const ids = idRows.map((row) => String(row.id));
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const idOrder = new Map(ids.map((id, index) => [id, index]));
+
     const queryBuilder = this.repository
       .createQueryBuilder('surgeryRequest')
       .leftJoin('surgeryRequest.createdBy', 'createdBy')
@@ -322,9 +344,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .leftJoin('surgeryRequest.billing', 'billing')
       .leftJoin('surgeryRequest.documents', 'documents')
       .where(where)
-      .orderBy('surgeryRequest.createdAt', 'DESC')
-      .skip(skip)
-      .take(take)
+      .andWhere('surgeryRequest.id IN (:...ids)', { ids })
       .select([
         'surgeryRequest.id',
         'surgeryRequest.status',
@@ -333,6 +353,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'surgeryRequest.healthPlanId',
         'surgeryRequest.hospitalId',
         'surgeryRequest.createdAt',
+        'surgeryRequest.updatedAt',
         'surgeryRequest.lastStatusChangedAt',
         'surgeryRequest.isIndication',
         'surgeryRequest.indicationName',
@@ -414,19 +435,23 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       }
     }
 
-    return results.entities.map((entity) => {
-      const pendencies = this.calculatePendencies(entity);
-      const hasIncompletePayment =
-        hasIncompletePaymentById.get(entity.id) ?? false;
+    return results.entities
+      .map((entity) => {
+        const pendencies = this.calculatePendencies(entity);
+        const hasIncompletePayment =
+          hasIncompletePaymentById.get(entity.id) ?? false;
 
-      return {
-        ...entity,
-        pendenciesCount: pendencies.pendingCount,
-        completedCount: pendencies.completedCount,
-        totalPendencies: pendencies.totalCount,
-        hasIncompletePayment,
-      };
-    });
+        return {
+          ...entity,
+          pendenciesCount: pendencies.pendingCount,
+          completedCount: pendencies.completedCount,
+          totalPendencies: pendencies.totalCount,
+          hasIncompletePayment,
+        };
+      })
+      .sort(
+        (a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0),
+      );
   }
 
   async create(data: Partial<SurgeryRequest>): Promise<SurgeryRequest> {
@@ -463,6 +488,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       'createdBy',
       'doctor',
       'doctor.doctorProfile',
+      'doctor.doctorProfile.header',
       'patient',
       'hospital',
       'healthPlan',

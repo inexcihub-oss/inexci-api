@@ -2,11 +2,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * Cadastros básicos do domínio (entidades de negócio):
- * procedures, hospitals, health_plans, suppliers e patients.
+ * procedures, hospitals, health_plans, suppliers, manufacturers e patients.
  *
- * Cadastros (hospitals/health_plans/suppliers) usam `owner_id` para tenant
- * isolation; `patients` ganha `owner_id` denormalizado para acelerar
- * filtros por clínica.
+ * Cadastros (hospitals/health_plans/suppliers/manufacturers) usam `owner_id`
+ * para tenant isolation; `patients` ganha `owner_id` denormalizado para
+ * acelerar filtros por clínica. CPF é obrigatório; telefone e e-mail opcionais.
  */
 export class CreateCoreEntities1746144300000 implements MigrationInterface {
   name = 'CreateCoreEntities1746144300000';
@@ -152,14 +152,47 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
     );
 
     await queryRunner.query(`
+      CREATE TABLE "manufacturers" (
+        "id"                  UUID NOT NULL DEFAULT gen_random_uuid(),
+        "name"                VARCHAR(150) NOT NULL,
+        "cnpj"                VARCHAR(20),
+        "anvisa_registration" VARCHAR(50),
+        "email"               VARCHAR(100),
+        "phone"               VARCHAR(15),
+        "website"             VARCHAR(200),
+        "country"             VARCHAR(60),
+        "contact_name"        VARCHAR(100),
+        "contact_phone"       VARCHAR(15),
+        "contact_email"       VARCHAR(100),
+        "notes"               TEXT,
+        "owner_id"            UUID NOT NULL,
+        "deleted_at"          TIMESTAMP,
+        "created_at"          TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at"          TIMESTAMP NOT NULL DEFAULT now(),
+        CONSTRAINT "pk_manufacturers" PRIMARY KEY ("id"),
+        CONSTRAINT "fk_manufacturers_owner"
+          FOREIGN KEY ("owner_id") REFERENCES "users"("id")
+          ON DELETE CASCADE ON UPDATE CASCADE
+      );
+    `);
+    await queryRunner.query(
+      `CREATE INDEX "idx_manufacturers_owner_id" ON "manufacturers" ("owner_id");`,
+    );
+    await queryRunner.query(`
+      CREATE UNIQUE INDEX "uq_manufacturers_owner_name_active"
+      ON "manufacturers" ("owner_id", LOWER("name"))
+      WHERE "deleted_at" IS NULL;
+    `);
+
+    await queryRunner.query(`
       CREATE TABLE "patients" (
         "id"                 UUID NOT NULL DEFAULT gen_random_uuid(),
         "doctor_id"          UUID NOT NULL,
         "owner_id"           UUID NOT NULL,
         "name"               VARCHAR(100) NOT NULL,
-        "email"              VARCHAR(100) NOT NULL,
-        "phone"              VARCHAR(15) NOT NULL,
-        "cpf"                VARCHAR(14),
+        "email"              VARCHAR(100),
+        "phone"              VARCHAR(15),
+        "cpf"                VARCHAR(14) NOT NULL,
         "gender"             CHAR(1),
         "birth_date"         DATE,
         "health_plan_id"     UUID,
@@ -203,6 +236,7 @@ export class CreateCoreEntities1746144300000 implements MigrationInterface {
   public async down(queryRunner: QueryRunner): Promise<void> {
     const tables = [
       'patients',
+      'manufacturers',
       'suppliers',
       'health_plans',
       'hospitals',

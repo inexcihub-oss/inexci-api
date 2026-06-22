@@ -56,9 +56,10 @@ export interface SurgeryRequestPdfData {
   // OPME
   opmeItems?: Array<{
     name: string;
-    brand?: string;
     quantity: number;
     authorizedQuantity?: number;
+    fabricantesText?: string;
+    fornecedoresText?: string;
   }>;
 
   // Datas

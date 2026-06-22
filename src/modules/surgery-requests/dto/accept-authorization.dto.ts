@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -50,6 +51,7 @@ function HasExplicitTime(validationOptions?: ValidationOptions) {
  */
 export class AcceptAuthorizationDto {
   @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   notifyPatient?: boolean;
 

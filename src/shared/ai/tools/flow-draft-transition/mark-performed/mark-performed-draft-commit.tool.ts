@@ -23,7 +23,7 @@ export function buildMarkPerformedDraftCommitTool(
       function: {
         name: 'mark_performed_draft_commit',
         description:
-          'Marca a cirurgia como realizada após confirmação (`confirm=true`). Avança status SCHEDULED → PERFORMED. Falha se os documentos cirúrgicos obrigatórios não estiverem anexados.',
+          'Marca a cirurgia como realizada após confirmação (`confirm=true`). Avança status SCHEDULED → PERFORMED.',
         parameters: {
           type: 'object',
           properties: { confirm: { type: 'boolean' } },

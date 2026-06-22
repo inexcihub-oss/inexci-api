@@ -77,12 +77,14 @@ describe('SurgeryRequestNotificationService', () => {
       await service.notifyPatientIfRequested(baseRequest, prev, next, false);
       expect(
         mockPatientNotificationService.notifyPatientStatusChange,
-      ).toHaveBeenCalledWith({
-        request: baseRequest,
-        oldStatus: prev,
-        newStatus: next,
-        notifyPatient: false,
-      });
+      ).not.toHaveBeenCalled();
+    });
+
+    it('não notifica quando notifyPatient está ausente', async () => {
+      await service.notifyPatientIfRequested(baseRequest, prev, next);
+      expect(
+        mockPatientNotificationService.notifyPatientStatusChange,
+      ).not.toHaveBeenCalled();
     });
 
     it('delega para PatientNotificationService com notifyPatient=true', async () => {

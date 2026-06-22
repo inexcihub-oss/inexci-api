@@ -1,8 +1,11 @@
+import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsDateString,
+  IsOptional,
 } from 'class-validator';
 
 /**
@@ -10,6 +13,11 @@ import {
  * Atualiza opções de data sem mudar status (em IN_SCHEDULING) — exige 3 datas
  */
 export class UpdateDateOptionsDto {
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  notifyPatient?: boolean;
+
   @IsArray()
   @ArrayMinSize(3)
   @ArrayMaxSize(3)

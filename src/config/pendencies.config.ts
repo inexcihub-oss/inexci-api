@@ -97,18 +97,11 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
         blocking: false, // apenas aviso
         responsibleRole: 'collaborator',
       },
-      {
-        key: 'post_surgery_documents',
-        label: 'Documentos cirúrgicos pós-operatórios',
-        blocking: true,
-        responsibleRole: 'collaborator',
-      },
     ],
   },
   {
     status: SurgeryRequestStatus.PERFORMED,
     label: 'Realizada',
-    // Sem pendências de status — documentos pós-cirúrgicos são pré-requisito do endpoint /mark-performed
     pendencies: [],
   },
   {

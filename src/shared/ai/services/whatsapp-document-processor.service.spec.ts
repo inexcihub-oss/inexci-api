@@ -735,7 +735,7 @@ describe('WhatsappDocumentProcessorService', () => {
               description: 'CAGES STAND ALONE',
               qty: 2,
               supplier: 'SINTEX',
-              brand: 'DIVA/NOVA SPINE',
+              manufacturer: 'DIVA/NOVA SPINE',
             },
             { description: 'ANCORAS', qty: 4 },
           ],

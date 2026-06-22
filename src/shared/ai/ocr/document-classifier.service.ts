@@ -122,9 +122,9 @@ const DOCUMENT_RESPONSE_SCHEMA = {
                 description: { type: 'string' },
                 qty: { type: 'number', minimum: 1 },
                 supplier: { type: ['string', 'null'] },
-                brand: { type: ['string', 'null'] },
+                manufacturer: { type: ['string', 'null'] },
               },
-              required: ['description', 'qty', 'supplier', 'brand'],
+              required: ['description', 'qty', 'supplier', 'manufacturer'],
             },
           },
           suggestedSuppliers: {
@@ -221,7 +221,7 @@ const SYSTEM_PROMPT = [
   'associar empresa direto a um material específico, preencha também',
   '`opme[].supplier` no item correspondente. Se houver MARCA/fabricante',
   'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), coloque a marca em',
-  '`opme[].brand` quando puder associar; senão deixe `null`.',
+  '`opme[].manufacturer` quando puder associar; senão deixe `null`.',
   '',
   'LAUDO CLÍNICO COMPLETO:',
   'O texto narrativo entre "Diagnóstico" e "Códigos solicitados" (queixa,',
@@ -554,8 +554,8 @@ export class DocumentClassifierService {
           if (typeof item?.supplier === 'string' && item.supplier.trim()) {
             entry.supplier = item.supplier.trim();
           }
-          if (typeof item?.brand === 'string' && item.brand.trim()) {
-            entry.brand = item.brand.trim();
+          if (typeof item?.manufacturer === 'string' && item.manufacturer.trim()) {
+            entry.manufacturer = item.manufacturer.trim();
           }
           return entry;
         })

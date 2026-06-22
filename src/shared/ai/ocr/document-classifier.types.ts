@@ -63,7 +63,7 @@ export interface DocumentClassificationOpmeItem {
    * Marca/fabricante (ex.: `DIVA/NOVA SPINE`, `ROI-C / HIGHRIDGE MEDICAL`)
    * — em geral aparece entre parênteses, ao lado do fornecedor.
    */
-  brand?: string;
+  manufacturer?: string;
 }
 
 export interface DocumentClassificationExtracted {

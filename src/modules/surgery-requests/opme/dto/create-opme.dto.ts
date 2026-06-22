@@ -14,10 +14,6 @@ export class CreateOpmeDto {
   name: string;
 
   @IsOptional()
-  @IsString()
-  brand?: string;
-
-  @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
   manufacturerIds?: string[];

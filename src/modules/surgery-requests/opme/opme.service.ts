@@ -14,7 +14,8 @@ import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-reque
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { Supplier } from 'src/database/entities/supplier.entity';
 import { Manufacturer } from 'src/database/entities/manufacturer.entity';
-import { ILike } from 'typeorm';
+import { OpmeItem } from 'src/database/entities/opme-item.entity';
+import { CreateOpmeResponseDto } from './dto/opme-response.dto';
 
 const MIN_OPME_OPTIONS = 3;
 
@@ -28,7 +29,7 @@ interface ResolveManufacturersResult {
   createdManufacturerNames: string[];
 }
 
-interface UpdateOpmeResponse extends MessageResponse {
+export interface UpdateOpmeResponse extends MessageResponse {
   createdSupplierNames: string[];
   createdManufacturerNames: string[];
 }
@@ -43,11 +44,13 @@ export class OpmeService {
     private readonly surgeryRequestAccessValidator: SurgeryRequestAccessValidator,
   ) {}
 
-  async create(data: CreateOpmeDto, userId: string) {
+  async create(
+    data: CreateOpmeDto,
+    userId: string,
+  ): Promise<CreateOpmeResponseDto> {
     this.validateMinManufacturers(
       data.manufacturerIds,
       data.manufacturerNames,
-      data.brand,
     );
     this.validateMinSuppliers(data.supplierIds, data.supplierNames);
 
@@ -67,22 +70,11 @@ export class OpmeService {
       await this.resolveManufacturers(
         data.manufacturerIds,
         data.manufacturerNames,
-        data.brand,
         surgeryRequest.ownerId,
       );
 
-    const normalizedManufacturersText = manufacturers
-      .map((manufacturer) => manufacturer.name)
-      .join(', ');
-
-    const resolvedBrand =
-      normalizedManufacturersText ||
-      this.extractBrandNames(data.brand).join(', ') ||
-      null;
-
     const entity = this.opmeItemRepository.getRepository().create({
       name: data.name,
-      brand: resolvedBrand,
       quantity: data.quantity,
       surgeryRequestId: data.surgeryRequestId,
       suppliers,
@@ -91,11 +83,11 @@ export class OpmeService {
 
     const saved = await this.opmeItemRepository.getRepository().save(entity);
 
-    return {
-      ...saved,
+    return this.toCreateResponse(
+      saved,
       createdSupplierNames,
       createdManufacturerNames,
-    };
+    );
   }
 
   async update(
@@ -120,28 +112,22 @@ export class OpmeService {
     let createdManufacturerNames: string[] = [];
 
     if (
-      data.brand !== undefined ||
       data.manufacturerIds !== undefined ||
       data.manufacturerNames !== undefined
     ) {
       this.validateMinManufacturers(
         data.manufacturerIds,
         data.manufacturerNames,
-        data.brand,
       );
 
       const resolvedManufacturers = await this.resolveManufacturers(
         data.manufacturerIds,
         data.manufacturerNames,
-        data.brand,
         surgeryRequest.ownerId,
       );
 
       opmeItem.manufacturers = resolvedManufacturers.manufacturers;
       createdManufacturerNames = resolvedManufacturers.createdManufacturerNames;
-      opmeItem.brand = resolvedManufacturers.manufacturers
-        .map((manufacturer) => manufacturer.name)
-        .join(', ');
     }
 
     if (data.quantity !== undefined) opmeItem.quantity = data.quantity;
@@ -185,27 +171,40 @@ export class OpmeService {
     return { message: 'OPME removido com sucesso' };
   }
 
-  private extractBrandNames(brand?: string): string[] {
-    return (brand ?? '')
-      .split(',')
-      .map((name) => name.trim())
-      .filter(Boolean);
+  private toCreateResponse(
+    item: OpmeItem,
+    createdSupplierNames: string[],
+    createdManufacturerNames: string[],
+  ): CreateOpmeResponseDto {
+    return {
+      id: item.id,
+      surgeryRequestId: item.surgeryRequestId,
+      name: item.name,
+      quantity: item.quantity,
+      authorizedQuantity: item.authorizedQuantity,
+      selectedSupplierId: item.selectedSupplierId,
+      suppliers: (item.suppliers ?? []).map((supplier) => ({
+        id: supplier.id,
+        name: supplier.name,
+      })),
+      manufacturers: (item.manufacturers ?? []).map((manufacturer) => ({
+        id: manufacturer.id,
+        name: manufacturer.name,
+      })),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      createdSupplierNames,
+      createdManufacturerNames,
+    };
   }
 
   private validateMinManufacturers(
     manufacturerIds: string[] = [],
     manufacturerNames: string[] = [],
-    brand?: string,
   ): void {
-    const fallbackBrandNames =
-      manufacturerIds.length === 0 && manufacturerNames.length === 0
-        ? this.extractBrandNames(brand)
-        : [];
-
     const total =
       manufacturerIds.length +
-      manufacturerNames.filter((name) => name.trim()).length +
-      fallbackBrandNames.length;
+      manufacturerNames.filter((name) => name.trim()).length;
 
     if (total < MIN_OPME_OPTIONS) {
       throw new BadRequestException(ERROR_MESSAGES.OPME_MIN_MANUFACTURERS);
@@ -246,16 +245,21 @@ export class OpmeService {
       const normalized = trimmed.toLowerCase();
       if (addedNamesNormalized.has(normalized)) continue;
 
-      const existing = await this.supplierRepository.getRepository().findOne({
-        where: {
-          ownerId,
-          name: ILike(trimmed),
-        },
-      });
+      const existing = await this.supplierRepository.findByNameIncludingDeleted(
+        ownerId,
+        trimmed,
+      );
 
       if (existing) {
+        if (existing.deletedAt) {
+          await this.supplierRepository.restore(existing.id);
+        }
+
         if (!addedIds.has(existing.id)) {
-          result.push(existing);
+          const activeSupplier =
+            (await this.supplierRepository.findOne({ id: existing.id })) ??
+            existing;
+          result.push(activeSupplier);
           addedIds.add(existing.id);
         }
         addedNamesNormalized.add(existing.name.trim().toLowerCase());
@@ -281,18 +285,12 @@ export class OpmeService {
   private async resolveManufacturers(
     manufacturerIds: string[] = [],
     manufacturerNames: string[] = [],
-    brand: string | undefined,
     ownerId: string,
   ): Promise<ResolveManufacturersResult> {
     const result: Manufacturer[] = [];
     const createdManufacturerNames: string[] = [];
     const addedIds = new Set<string>();
     const addedNamesNormalized = new Set<string>();
-    const fallbackBrandNames =
-      manufacturerIds.length === 0 && manufacturerNames.length === 0
-        ? this.extractBrandNames(brand)
-        : [];
-    const namesToResolve = [...manufacturerNames, ...fallbackBrandNames];
 
     for (const id of manufacturerIds) {
       const manufacturer = await this.manufacturerRepository
@@ -312,25 +310,29 @@ export class OpmeService {
       addedNamesNormalized.add(manufacturer.name.trim().toLowerCase());
     }
 
-    for (const name of namesToResolve) {
+    for (const name of manufacturerNames) {
       const trimmed = name.trim();
       if (!trimmed) continue;
 
       const normalized = trimmed.toLowerCase();
       if (addedNamesNormalized.has(normalized)) continue;
 
-      const existing = await this.manufacturerRepository
-        .getRepository()
-        .findOne({
-          where: {
-            ownerId,
-            name: ILike(trimmed),
-          },
-        });
+      const existing =
+        await this.manufacturerRepository.findByNameIncludingDeleted(
+          ownerId,
+          trimmed,
+        );
 
       if (existing) {
+        if (existing.deletedAt) {
+          await this.manufacturerRepository.restore(existing.id);
+        }
+
         if (!addedIds.has(existing.id)) {
-          result.push(existing);
+          const activeManufacturer =
+            (await this.manufacturerRepository.findOne({ id: existing.id })) ??
+            existing;
+          result.push(activeManufacturer);
           addedIds.add(existing.id);
         }
         addedNamesNormalized.add(existing.name.trim().toLowerCase());

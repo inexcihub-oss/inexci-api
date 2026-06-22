@@ -9,6 +9,14 @@ import {
 import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
 import { TestDataFactory } from '../helpers/test-data-factory';
 
+const validOpmePayload = (surgeryRequestId: number) => ({
+  surgeryRequestId,
+  name: 'Prótese de quadril titanium',
+  manufacturerNames: ['OrthoTech', 'Fab B', 'Fab C'],
+  supplierNames: ['Medical Supplies Inc', 'Fornecedor B', 'Fornecedor C'],
+  quantity: 1,
+});
+
 describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
   let app: INestApplication;
   let authToken: string;
@@ -49,36 +57,26 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
         return;
       }
 
-      const opmeData = {
-        surgeryRequestId: testSurgeryRequestId,
-        name: 'Prótese de quadril titanium',
-        distributor: 'Medical Supplies Inc',
-        brand: 'OrthoTech',
-        quantity: 1,
-      };
-
       const response = await request(app.getHttpServer())
         .post('/surgery-requests/opme')
         .set(getAuthHeader(authToken))
-        .send(opmeData)
+        .send(validOpmePayload(testSurgeryRequestId))
         .expect(201);
 
       expect(response.body).toBeDefined();
       expect(response.body).toHaveProperty('id');
+      expect(response.body).not.toHaveProperty('brand');
+      expect(response.body.manufacturers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: expect.any(String), name: expect.any(String) }),
+        ]),
+      );
     });
 
     it('should fail without authentication', async () => {
-      const opmeData = {
-        surgeryRequestId: 1,
-        name: 'Prótese de quadril',
-        distributor: 'Medical Supplies Inc',
-        brand: 'OrthoTech',
-        quantity: 1,
-      };
-
       await request(app.getHttpServer())
         .post('/surgery-requests/opme')
-        .send(opmeData)
+        .send(validOpmePayload(1))
         .expect(401);
     });
 
@@ -95,18 +93,10 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
     });
 
     it('should fail with invalid surgery request id', async () => {
-      const opmeData = {
-        surgeryRequestId: 999999,
-        name: 'Prótese de quadril',
-        distributor: 'Medical Supplies Inc',
-        brand: 'OrthoTech',
-        quantity: 1,
-      };
-
       const response = await request(app.getHttpServer())
         .post('/surgery-requests/opme')
         .set(getAuthHeader(authToken))
-        .send(opmeData);
+        .send(validOpmePayload(999999));
 
       // Pode retornar 404 (not found), 400 (bad request) ou 500 (erro interno)
       expect([400, 404, 500]).toContain(response.status);

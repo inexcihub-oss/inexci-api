@@ -64,14 +64,14 @@ export class SuppliersController {
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Excluir fornecedor' })
+  @ApiOperation({ summary: 'Excluir fornecedor (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.suppliersService.delete(id, user.userId);
   }
 
   @Post('bulk-delete')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Excluir fornecedores em lote' })
+  @ApiOperation({ summary: 'Excluir fornecedores em lote (soft delete)' })
   bulkDelete(
     @Body() data: BulkDeleteSuppliersDto,
     @CurrentUser() user: AuthenticatedUser,

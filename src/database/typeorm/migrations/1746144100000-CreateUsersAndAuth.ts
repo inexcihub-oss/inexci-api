@@ -5,9 +5,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Tabelas:
  *  - users (auto-referenciada via owner_id e admin_id)
- *  - refresh_tokens, recovery_codes
+ *  - recovery_codes (com reset_token de uso único para troca de senha)
  *  - doctor_profiles, doctor_headers
  *  - user_doctor_accesses (vínculo binário colaborador ↔ médico)
+ *
+ * Refresh tokens vivem no Redis (`RefreshTokenStore`) — sem tabela Postgres.
  *
  * Consentimentos LGPD vivem como timestamps em `users` (sem versionamento,
  * sem tabela de auditoria).
@@ -76,36 +78,16 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
     );
 
     await queryRunner.query(`
-      CREATE TABLE "refresh_tokens" (
-        "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
-        "user_id"    UUID NOT NULL,
-        "token"      VARCHAR(512) NOT NULL,
-        "expires_at" TIMESTAMP NOT NULL,
-        "revoked"    BOOLEAN NOT NULL DEFAULT false,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-        CONSTRAINT "pk_refresh_tokens" PRIMARY KEY ("id"),
-        CONSTRAINT "uq_refresh_tokens_token" UNIQUE ("token"),
-        CONSTRAINT "fk_refresh_tokens_user"
-          FOREIGN KEY ("user_id") REFERENCES "users"("id")
-          ON DELETE CASCADE ON UPDATE CASCADE
-      );
-    `);
-    await queryRunner.query(
-      `CREATE INDEX "idx_refresh_tokens_user_id" ON "refresh_tokens" ("user_id");`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "idx_refresh_tokens_revoked" ON "refresh_tokens" ("revoked");`,
-    );
-
-    await queryRunner.query(`
       CREATE TABLE "recovery_codes" (
-        "id"         UUID NOT NULL DEFAULT gen_random_uuid(),
-        "user_id"    UUID NOT NULL,
-        "code"       VARCHAR(6) NOT NULL,
-        "expires_at" TIMESTAMP,
-        "used"       BOOLEAN NOT NULL DEFAULT false,
-        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "id"                      UUID NOT NULL DEFAULT gen_random_uuid(),
+        "user_id"                 UUID NOT NULL,
+        "code"                    VARCHAR(6) NOT NULL,
+        "expires_at"              TIMESTAMP,
+        "used"                    BOOLEAN NOT NULL DEFAULT false,
+        "reset_token"             VARCHAR(255),
+        "reset_token_expires_at"  TIMESTAMP,
+        "created_at"              TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at"              TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "pk_recovery_codes" PRIMARY KEY ("id"),
         CONSTRAINT "fk_recovery_codes_user"
           FOREIGN KEY ("user_id") REFERENCES "users"("id")
@@ -114,6 +96,9 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
     `);
     await queryRunner.query(
       `CREATE INDEX "idx_recovery_codes_user_id" ON "recovery_codes" ("user_id");`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "idx_recovery_codes_reset_token" ON "recovery_codes" ("reset_token") WHERE "reset_token" IS NOT NULL;`,
     );
 
     await queryRunner.query(`
@@ -190,7 +175,6 @@ export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
       'doctor_headers',
       'doctor_profiles',
       'recovery_codes',
-      'refresh_tokens',
       'users',
     ];
     for (const table of tables) {

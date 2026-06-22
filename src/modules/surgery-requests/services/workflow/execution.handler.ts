@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import {
@@ -11,8 +6,6 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { DocumentRepository } from 'src/database/repositories/document.repository';
-import { POST_SURGERY_REQUIRED_DOCS } from 'src/config/post-surgery-documents.config';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -29,7 +22,6 @@ export class ExecutionHandler {
   constructor(
     private readonly dataSource: DataSource,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly documentRepository: DocumentRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
   ) {}
 
@@ -46,26 +38,6 @@ export class ExecutionHandler {
       request,
       SurgeryRequestStatus.PERFORMED,
     );
-
-    // Garante que os documentos pós-cirúrgicos obrigatórios estejam anexados
-    // antes da transição SCHEDULED → PERFORMED. Mesmas keys que o
-    // `SurgeryStatusModal` exige no frontend.
-    const docs = await this.documentRepository.findMany({
-      surgeryRequestId: id,
-    });
-    const presentKeys = new Set(
-      (docs ?? []).map((d) => d.key).filter((k): k is string => !!k),
-    );
-    const missingRequiredDocs = POST_SURGERY_REQUIRED_DOCS.filter(
-      (d) => d.required && !presentKeys.has(d.type),
-    );
-    if (missingRequiredDocs.length > 0) {
-      throw new BadRequestException(
-        `Para marcar a cirurgia como realizada é necessário anexar: ${missingRequiredDocs
-          .map((d) => d.label)
-          .join(', ')}.`,
-      );
-    }
 
     await executeInTransaction(
       this.dataSource,

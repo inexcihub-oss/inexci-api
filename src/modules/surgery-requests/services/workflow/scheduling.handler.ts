@@ -70,13 +70,6 @@ export class SchedulingHandler {
       { logger: this.logger, operationName: 'confirmDate' },
     );
 
-    await this.notificationService.notifyPatientIfRequested(
-      request,
-      request.status,
-      SurgeryRequestStatus.SCHEDULED,
-      dto.notifyPatient,
-    );
-
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
       SurgeryRequestStatus.IN_SCHEDULING,
@@ -105,10 +98,12 @@ export class SchedulingHandler {
       dateOptions: dto.dateOptions,
     });
 
-    await this.notificationService.notifyPatientSchedulingOptions(
-      request,
-      dto.dateOptions,
-    );
+    if (dto.notifyPatient === true) {
+      await this.notificationService.notifyPatientSchedulingOptions(
+        request,
+        dto.dateOptions,
+      );
+    }
   }
 
   async reschedule(id: string, dto: RescheduleDto, _userId: string) {

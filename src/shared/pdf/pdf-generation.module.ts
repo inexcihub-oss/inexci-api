@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestActivity } from 'src/database/entities/surgery-request-activity.entity';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { PdfModule } from './pdf.module';
@@ -15,7 +14,7 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
     BullModule.registerQueue({
       name: 'pdf-generation',
     }),
-    TypeOrmModule.forFeature([SurgeryRequest, SurgeryRequestActivity]),
+    TypeOrmModule.forFeature([SurgeryRequestActivity]),
     PdfModule,
   ],
   providers: [

@@ -420,7 +420,7 @@ export class WhatsappDocumentProcessorService {
           description: String(o.description),
           qty: typeof o.qty === 'number' && o.qty > 0 ? o.qty : 1,
           supplier: isUsable(o.supplier) ? o.supplier : undefined,
-          brand: isUsable(o.brand) ? o.brand : undefined,
+          manufacturer: isUsable(o.manufacturer) ? o.manufacturer : undefined,
         }));
     }
     // Prioridade default: LOW. Não sobrescreve se o LLM já gravou outra.
@@ -553,7 +553,7 @@ export class WhatsappDocumentProcessorService {
       datapoints.push(`CID: ${extracted.cid.map((c) => c.code).join(', ')}`);
     if (extracted.opme?.length) {
       const opmeLines = extracted.opme.map((o) => {
-        const supplierBits = [o.supplier, o.brand].filter(Boolean).join(' / ');
+        const supplierBits = [o.supplier, o.manufacturer].filter(Boolean).join(' / ');
         const suffix = supplierBits ? ` [${supplierBits}]` : '';
         return `${o.qty}× ${o.description}${suffix}`;
       });

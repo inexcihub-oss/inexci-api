@@ -17,12 +17,13 @@ export interface SurgeryRequestTemplateData {
   procedureId?: string;
   opmeItems?: Array<{
     name: string;
-    brand: string;
-    distributor: string;
+    manufacturers?: string[];
+    distributor?: string;
+    suppliers?: string[];
     quantity: number;
   }>;
   requiredDocuments?: string[];
-  required_exams?: string[];
+  requiredExams?: string[];
 }
 
 /**

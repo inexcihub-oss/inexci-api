@@ -453,7 +453,7 @@ describe('ManageTools', () => {
         expect.objectContaining({
           surgeryRequestId: 'req-1',
           name: 'Parafuso',
-          brand: 'Fab 1, Fab 2, Fab 3',
+          manufacturerNames: ['Fab 1', 'Fab 2', 'Fab 3'],
           supplierNames: ['F1', 'F2', 'F3'],
         }),
         'user-1',

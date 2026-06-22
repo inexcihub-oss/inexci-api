@@ -144,6 +144,45 @@ function generatePhone(): string {
   return `${ddd}${number}`;
 }
 
+type ManufacturersByOwner = Map<string, Map<string, string>>;
+
+function getDefaultManufacturerId(
+  byOwner: ManufacturersByOwner,
+  ownerId: string,
+): string | null {
+  const byName = byOwner.get(ownerId);
+  if (!byName?.size) return null;
+  return byName.values().next().value ?? null;
+}
+
+async function linkOpmeManufacturers(
+  dataSource: { query: (q: string, params?: unknown[]) => Promise<unknown[]> },
+  byOwner: ManufacturersByOwner,
+): Promise<number> {
+  const rows = (await dataSource.query(`
+    SELECT oi.id, sr.owner_id
+    FROM opme_items oi
+    INNER JOIN surgery_requests sr ON sr.id = oi.surgery_request_id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM opme_item_manufacturers oim WHERE oim.opme_item_id = oi.id
+    )
+  `)) as Array<{ id: string; owner_id: string }>;
+
+  let linked = 0;
+  for (const row of rows) {
+    const manufacturerId = getDefaultManufacturerId(byOwner, row.owner_id);
+    if (!manufacturerId) continue;
+
+    await dataSource.query(
+      `INSERT INTO opme_item_manufacturers (opme_item_id, manufacturer_id) VALUES ($1, $2)`,
+      [row.id, manufacturerId],
+    );
+    linked++;
+  }
+
+  return linked;
+}
+
 async function createDefaultProceduresForOwner(
   dataSource: { query: (q: string, params?: unknown[]) => Promise<any[]> },
   ownerId: string,
@@ -743,6 +782,7 @@ async function main() {
     },
   ];
 
+  const manufacturersByOwner: ManufacturersByOwner = new Map();
   const manufacturerIds: string[] = [];
   for (const m of manufacturersData) {
     const r = await dataSource.query(
@@ -763,7 +803,13 @@ async function main() {
         m.owner_id,
       ],
     );
-    manufacturerIds.push(r[0].id);
+    const manufacturerId = r[0].id as string;
+    manufacturerIds.push(manufacturerId);
+
+    if (!manufacturersByOwner.has(m.owner_id)) {
+      manufacturersByOwner.set(m.owner_id, new Map());
+    }
+    manufacturersByOwner.get(m.owner_id)!.set(m.name, manufacturerId);
   }
   logger.log(`  ✅ ${manufacturerIds.length} fabricantes criados\n`);
 
@@ -1176,7 +1222,7 @@ async function main() {
     );
     // OPME items
     const opme3a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity) VALUES ($1,'Prótese total de joelho cimentada - tamanho 4','Stryker Triathlon',1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Prótese total de joelho cimentada - tamanho 4',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1184,7 +1230,7 @@ async function main() {
       [opme3a[0].id, supplierIds[1]],
     );
     const opme3b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity) VALUES ($1,'Dreno de Hemovac 10mm','Portex',2) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Dreno de Hemovac 10mm',2) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1268,7 +1314,7 @@ async function main() {
     await recordStatusChange(dataSource, r[0].id, 3, 4);
     await recordStatusChange(dataSource, r[0].id, 4, 5);
     const opme5a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Enxerto de veia safena (set)','Biomet',1,1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Enxerto de veia safena (set)',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1276,7 +1322,7 @@ async function main() {
       [opme5a[0].id, supplierIds[1]],
     );
     const opme5b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Oxigenador de membrana','Sorin Group',1,1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Oxigenador de membrana',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1321,12 +1367,18 @@ async function main() {
       await recordStatusChange(dataSource, r[0].id, prev, next);
     }
     await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Histórico e Diagnóstico','<p>Paciente com cólica renal de repetição. TC de abdome confirmou urolitíase com cálculo obstrutivo de 12mm. Sem resposta a tratamento conservador.</p>',1)`,
-      [r[0].id],
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Histórico e Diagnóstico', $2, 1)`,
+      [
+        r[0].id,
+        '<p>Histórico clínico e diagnóstico documentados para acompanhamento pós-cirúrgico.</p>',
+      ],
     );
     await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Conduta','<p>Indicada nefrolitotripsia percutânea. Paciente orientado sobre o procedimento, riscos e benefícios. Consentimento informado assinado.</p>',2)`,
-      [r[0].id],
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Conduta', $2, 2)`,
+      [
+        r[0].id,
+        '<p>Conduta pós-operatória conforme protocolo institucional.</p>',
+      ],
     );
   }
 
@@ -1456,7 +1508,7 @@ async function main() {
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
     const opme10a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity) VALUES ($1,'Cage intersomático TLIF PEEK','Medtronic',1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Cage intersomático TLIF PEEK',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1464,7 +1516,7 @@ async function main() {
       [opme10a[0].id, supplierIds[2]],
     );
     const opme10b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity) VALUES ($1,'Parafusos pediculares (kit 4)','Synthes',1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Parafusos pediculares (kit 4)',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1541,7 +1593,7 @@ async function main() {
     ])
       await recordStatusChange(dataSource, r[0].id, p, n);
     const opmeC1a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Triathlon - tamanho 5','Stryker',1,1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Triathlon - tamanho 5',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1549,7 +1601,7 @@ async function main() {
       [opmeC1a[0].id, supplierIds[3]],
     );
     const opmeC1b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Polia tibial ultracongruente','Stryker',1,1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Polia tibial ultracongruente',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1557,7 +1609,7 @@ async function main() {
       [opmeC1b[0].id, supplierIds[3]],
     );
     const opmeC1c = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Cimento ósseo com antibiótico 40g','Palacos',2,2) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Cimento ósseo com antibiótico 40g',2,2) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1619,7 +1671,7 @@ async function main() {
     ])
       await recordStatusChange(dataSource, r[0].id, p, n);
     const opmeC2a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity) VALUES ($1,'Prótese total de quadril cimentada - haste 12','DePuy Corail',1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Prótese total de quadril cimentada - haste 12',1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1627,7 +1679,7 @@ async function main() {
       [opmeC2a[0].id, supplierIds[4]],
     );
     const opmeC2b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity) VALUES ($1,'Cimento ósseo Palacos R 40g','Heraeus',3) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Cimento ósseo Palacos R 40g',3) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1691,7 +1743,7 @@ async function main() {
     ])
       await recordStatusChange(dataSource, r[0].id, p, n);
     const opmeC4a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Persona - tamanho C','Zimmer Biomet',1,0) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Prótese total de joelho Persona - tamanho C',1,0) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1708,12 +1760,18 @@ async function main() {
       [r[0].id, adminMedicoId],
     );
     await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Histórico e Diagnóstico','<p>Paciente com gonartrose severa unilateral esquerda. Tratamento conservador sem resposta após 2 anos. RX confirma pinçamento articular total com deformidade em varo de 12 graus.</p>',1)`,
-      [r[0].id],
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Histórico e Diagnóstico', $2, 1)`,
+      [
+        r[0].id,
+        '<p>Histórico clínico e diagnóstico documentados para acompanhamento pós-cirúrgico.</p>',
+      ],
     );
     await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Conduta','<p>Indicada artroplastia total do joelho esquerdo. Implante autorizado pela operadora. Cirurgia realizada sem intercorrências. Alta no 3º PO.</p>',2)`,
-      [r[0].id],
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Conduta', $2, 2)`,
+      [
+        r[0].id,
+        '<p>Conduta pós-operatória conforme protocolo institucional.</p>',
+      ],
     );
   }
 
@@ -1802,7 +1860,7 @@ async function main() {
       await recordStatusChange(dataSource, r[0].id, prev, next, adminMedicoId);
     }
     const opmeC7a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity) VALUES ($1,'Lente intraocular monofocal AcrySof IQ','Alcon',1,1) RETURNING id`,
+      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Lente intraocular monofocal AcrySof IQ',1,1) RETURNING id`,
       [r[0].id],
     );
     await dataSource.query(
@@ -1810,12 +1868,18 @@ async function main() {
       [opmeC7a[0].id, supplierIds[3]],
     );
     await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Diagnóstico e Indicação','<p>Paciente com catarata nuclear densa grau IV no olho direito. Acuidade visual inferior a 20/200. Indicação de facoemulsificação com implante de LIO.</p>',1)`,
-      [r[0].id],
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Diagnóstico e Indicação', $2, 1)`,
+      [
+        r[0].id,
+        '<p>Diagnóstico de catarata senil e indicação de facectomia com implante de LIO.</p>',
+      ],
     );
     await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1,'Procedimento Realizado','<p>Facoemulsificação realizada sem intercorrências. LIO implantada em posição correta. Alta no mesmo dia. Olho esquerdo a ser operado em 60 dias.</p>',2)`,
-      [r[0].id],
+      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Procedimento Realizado', $2, 2)`,
+      [
+        r[0].id,
+        '<p>Facectomia com implante de lente intraocular monofocal realizada sem intercorrências.</p>',
+      ],
     );
   }
 
@@ -1948,9 +2012,9 @@ async function main() {
 
     if (opmeCount === 0) {
       const opmeInsert = await dataSource.query(
-        `INSERT INTO opme_items (surgery_request_id, name, brand, quantity, authorized_quantity)
-         VALUES ($1, $2, $3, 1, 1) RETURNING id`,
-        [sr.id, `Kit OPME padrão - ${procedureName}`, 'Padrão Seed'],
+        `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity)
+         VALUES ($1, $2, 1, 1) RETURNING id`,
+        [sr.id, `Kit OPME padrão - ${procedureName}`],
       );
 
       const supplierId = defaultSupplierByOwner.get(sr.owner_id);
@@ -2008,6 +2072,18 @@ async function main() {
   );
 
   // ========================================
+  // 14b. VÍNCULO OPME ↔ FABRICANTE
+  // ========================================
+  logger.log('🔗 Vinculando fabricantes aos itens OPME...');
+  const linkedOpmeManufacturers = await linkOpmeManufacturers(
+    dataSource,
+    manufacturersByOwner,
+  );
+  logger.log(
+    `  ✅ ${linkedOpmeManufacturers} vínculos em opme_item_manufacturers criados\n`,
+  );
+
+  // ========================================
   // 15. CID/TUSS
   // ========================================
   logger.log(
@@ -2025,29 +2101,28 @@ async function main() {
       adminMedicoId,
       'ATJ Padrão',
       JSON.stringify({
-        procedure_id: procedureIdsConta1[4],
+        procedureId: procedureIdsConta1[4],
         procedure: { id: procedureIdsConta1[4], name: procedureNames[4] },
         procedureName: procedureNames[4],
-        procedure_name: procedureNames[4],
-        opme_items: [
+        opmeItems: [
           {
             name: 'Prótese total de joelho cimentada',
-            brand: 'Stryker Triathlon',
+            manufacturers: ['Stryker Triathlon'],
             quantity: 1,
           },
           {
             name: 'Cimento ósseo com antibiótico 40g',
-            brand: 'Palacos',
+            manufacturers: ['Palacos'],
             quantity: 2,
           },
         ],
-        required_documents: [
+        requiredDocuments: [
           'personal_document',
           'doctor_request',
           'medical_report',
           'preoperative_exams',
         ],
-        required_exams: [
+        requiredExams: [
           'Hemograma',
           'Coagulograma',
           'RX joelho AP/P',
@@ -2063,17 +2138,16 @@ async function main() {
       adminMedicoId,
       'Artroscopia de Joelho',
       JSON.stringify({
-        procedure_id: procedureIdsConta1[5],
+        procedureId: procedureIdsConta1[5],
         procedure: { id: procedureIdsConta1[5], name: procedureNames[5] },
         procedureName: procedureNames[5],
-        procedure_name: procedureNames[5],
-        opme_items: [],
-        required_documents: [
+        opmeItems: [],
+        requiredDocuments: [
           'personal_document',
           'doctor_request',
           'medical_report',
         ],
-        required_exams: ['RNM joelho', 'Hemograma', 'Coagulograma'],
+        requiredExams: ['RNM joelho', 'Hemograma', 'Coagulograma'],
       }),
       3,
     ],
@@ -2084,25 +2158,24 @@ async function main() {
       adminId,
       'Revascularização Miocárdica',
       JSON.stringify({
-        procedure_id: procedureIds[12],
+        procedureId: procedureIds[12],
         procedure: { id: procedureIds[12], name: procedureNames[12] },
         procedureName: procedureNames[12],
-        procedure_name: procedureNames[12],
-        opme_items: [
+        opmeItems: [
           {
             name: 'Oxigenador de membrana',
-            brand: 'Sorin Group',
+            manufacturers: ['Sorin Group'],
             quantity: 1,
           },
         ],
-        required_documents: [
+        requiredDocuments: [
           'personal_document',
           'doctor_request',
           'medical_report',
           'preoperative_exams',
           'cardiac_evaluation',
         ],
-        required_exams: [
+        requiredExams: [
           'Coronariografia',
           'Ecocardiograma',
           'Cintilografia miocárdica',
@@ -2118,29 +2191,28 @@ async function main() {
       collabMedicaId,
       'Discectomia Lombar',
       JSON.stringify({
-        procedure_id: procedureIds[6],
+        procedureId: procedureIds[6],
         procedure: { id: procedureIds[6], name: procedureNames[6] },
         procedureName: procedureNames[6],
-        procedure_name: procedureNames[6],
-        opme_items: [
+        opmeItems: [
           {
             name: 'Cage intersomático TLIF PEEK',
-            brand: 'Medtronic',
+            manufacturers: ['Medtronic'],
             quantity: 1,
           },
           {
             name: 'Parafusos pediculares (kit 4)',
-            brand: 'Synthes',
+            manufacturers: ['Synthes'],
             quantity: 1,
           },
         ],
-        required_documents: [
+        requiredDocuments: [
           'personal_document',
           'doctor_request',
           'medical_report',
           'preoperative_exams',
         ],
-        required_exams: [
+        requiredExams: [
           'RNM coluna lombar',
           'EMG membros inferiores',
           'Hemograma',
@@ -2240,12 +2312,11 @@ async function main() {
   for (const dp of doctorProfileRows) {
     await dataSource.query(
       `INSERT INTO doctor_headers (doctor_profile_id, logo_url, logo_position, content_html)
-       VALUES ($1, $2, 'left', $3)
+       VALUES ($1, NULL, 'left', $2)
        ON CONFLICT (doctor_profile_id) DO NOTHING`,
       [
         dp.id,
-        `https://storage.inexci.com/headers/logo-${dp.user_id}.png`,
-        `<p><strong>Clínica</strong> — Cabeçalho padrão para o perfil médico ${dp.user_id}</p>`,
+        '<p><strong>Clínica</strong> — Cabeçalho padrão para laudos (texto apenas, sem logo).</p>',
       ],
     );
   }
@@ -2274,18 +2345,21 @@ async function main() {
   logger.log('  • 7 convênios com contatos de autorização');
   logger.log('  • 5 fornecedores de OPME');
   logger.log(
+    '  • 5 fabricantes de OPME (Stryker, J&J MedTech, Zimmer Biomet, DePuy Synthes, Alcon)',
+  );
+  logger.log(
     '  • 13 pacientes com dados completos (endereço, convênio, histórico)',
   );
   logger.log(
     '  • 20 solicitações cirúrgicas (todos os 9 status cobertos nas 2 contas)',
   );
   logger.log(
-    '  • OPME, cotações, análises, faturamentos, contestações, laudos',
+    '  • OPME (com vínculo a fornecedores e fabricantes), cotações, análises, faturamentos, contestações, laudos',
   );
   logger.log('  • 4 templates de solicitação');
   logger.log('  • Atividades (comentários, mudanças de status, sistema)');
   logger.log(
-    '  • 3 cabeçalhos de médico (doctor_headers — 1 por perfil médico)',
+    '  • 3 cabeçalhos de médico (doctor_headers — texto apenas, sem logo)',
   );
   logger.log('');
   logger.log('🔐 Credenciais (todos com senha: Teste123@):');

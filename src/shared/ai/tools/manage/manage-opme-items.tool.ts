@@ -100,7 +100,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
       if (operation === 'list') {
         const items = await opmeItemRepo.getRepository().find({
           where: { surgeryRequestId: auth.request.id } as any,
-          relations: ['suppliers'],
+          relations: ['suppliers', 'manufacturers'],
         });
 
         if (!items.length) {
@@ -112,9 +112,13 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
             .map((s: any) => s.name)
             .filter(Boolean)
             .join(', ');
+          const manufacturers = (item.manufacturers || [])
+            .map((m: any) => m.name)
+            .filter(Boolean)
+            .join(', ');
           return [
             `${index + 1}. ${item.name} (qtd: ${item.quantity})`,
-            `   Fabricantes: ${item.brand || 'não informado'}`,
+            `   Fabricantes: ${manufacturers || 'não informado'}`,
             `   Fornecedores: ${suppliers || 'não informados'}`,
             `   id: ${item.id}`,
           ].join('\n');
@@ -155,7 +159,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
             {
               surgeryRequestId: auth.request.id,
               name,
-              brand: manufacturerNames.join(', '),
+              manufacturerNames,
               quantity,
               supplierNames,
             },
@@ -216,11 +220,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
           if (manufacturers.length < 3) {
             return 'Para atualizar fabricantes, informe ao menos 3 em `manufacturerNames`.';
           }
-          const joined = manufacturers.join(', ');
-          if (joined !== item.brand) {
-            item.brand = joined;
-            changes.push(`fabricantes: ${manufacturers.length} itens`);
-          }
+          changes.push(`fabricantes: ${manufacturers.length} itens`);
         }
 
         if (args.supplierNames !== undefined) {
@@ -246,8 +246,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
           if (q !== item.quantity) updateDto.quantity = q;
         }
         if (args.manufacturerNames !== undefined) {
-          const manufacturers = parseStringList(args.manufacturerNames);
-          updateDto.brand = manufacturers.join(', ');
+          updateDto.manufacturerNames = parseStringList(args.manufacturerNames);
         }
         if (args.supplierNames !== undefined) {
           updateDto.supplierNames = parseStringList(args.supplierNames);

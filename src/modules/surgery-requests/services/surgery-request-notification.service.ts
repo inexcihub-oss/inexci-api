@@ -44,17 +44,18 @@ export class SurgeryRequestNotificationService {
     newStatus: SurgeryRequestStatus,
     notifyPatient?: boolean,
   ): Promise<void> {
+    if (notifyPatient !== true) return;
+
     await this.patientNotificationService.notifyPatientStatusChange({
       request,
       oldStatus: prevStatus,
       newStatus,
-      notifyPatient,
+      notifyPatient: true,
     });
   }
 
   /**
-   * Envia automaticamente as opções de data ao paciente quando a solicitação entra (ou permanece)
-   * em Em Agendamento.
+   * Envia as opções de data ao paciente quando explicitamente solicitado (notifyPatient=true).
    */
   async notifyPatientSchedulingOptions(
     request: any,

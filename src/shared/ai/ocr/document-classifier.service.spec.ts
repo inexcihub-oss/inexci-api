@@ -152,13 +152,13 @@ describe('DocumentClassifierService', () => {
           ],
           cid: [{ code: 'M23.2' }, { code: '   ' }],
           opme: [
-            { description: 'Âncora 5mm', qty: 2, supplier: null, brand: null },
-            { description: '', qty: 3, supplier: null, brand: null },
+            { description: 'Âncora 5mm', qty: 2, supplier: null, manufacturer: null },
+            { description: '', qty: 3, supplier: null, manufacturer: null },
             {
               description: 'Parafuso interferência',
               qty: 'um' as any,
               supplier: null,
-              brand: null,
+              manufacturer: null,
             },
           ],
           suggestedSuppliers: null,
@@ -183,7 +183,7 @@ describe('DocumentClassifierService', () => {
     expect(result.extracted.healthPlan).toEqual({ name: 'Unimed' });
   });
 
-  it('extrai diagnóstico, procedimento sugerido, OPME com supplier/brand e fornecedores', async () => {
+  it('extrai diagnóstico, procedimento sugerido, OPME com supplier/manufacturer e fornecedores', async () => {
     // Caso real do laudo do Jean Pierre — o classifier deve devolver TUDO
     // que aparece estruturado no documento.
     openai.chatCompletion.mockResolvedValueOnce(
@@ -224,13 +224,13 @@ describe('DocumentClassifierService', () => {
               description: 'CAGES STAND ALONE',
               qty: 2,
               supplier: 'SINTEX',
-              brand: 'DIVA/NOVA SPINE',
+              manufacturer: 'DIVA/NOVA SPINE',
             },
             {
               description: 'ANCORAS',
               qty: 4,
               supplier: null,
-              brand: null,
+              manufacturer: null,
             },
           ],
           suggestedSuppliers: ['SINTEX', 'VITALITY', 'GUSMED'],
@@ -264,7 +264,7 @@ describe('DocumentClassifierService', () => {
         description: 'CAGES STAND ALONE',
         qty: 2,
         supplier: 'SINTEX',
-        brand: 'DIVA/NOVA SPINE',
+        manufacturer: 'DIVA/NOVA SPINE',
       },
       { description: 'ANCORAS', qty: 4 },
     ]);

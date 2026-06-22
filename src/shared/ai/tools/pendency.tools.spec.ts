@@ -690,7 +690,7 @@ describe('PendencyTools', () => {
       expect(result).toContain('Acesso negado');
     });
 
-    it('quando NADA está anexado, lista todos como faltando e bloqueia mark_performed', async () => {
+    it('quando NADA está anexado, lista todos como opcionais e libera mark_performed', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
         protocol: 'SC-0042',
@@ -705,17 +705,19 @@ describe('PendencyTools', () => {
       );
 
       expect(result).toContain('SC-0042');
-      expect(result).toMatch(/Ficha da sala de cirurgia.*\(obrigatório\)/i);
+      expect(result).toMatch(/Ficha da sala de cirurgia.*\(opcional\)/i);
       expect(result).toMatch(
-        /Documento de autorização da cirurgia.*\(obrigatório\)/i,
+        /Documento de autorização da cirurgia.*\(opcional\)/i,
       );
       expect(result).toMatch(/Imagens.*\(opcional\)/i);
       expect(result).toMatch(/\[faltando\]/);
-      expect(result).toMatch(/Faltam 2 documento\(s\) obrigatório/i);
-      expect(result).toMatch(/manage_documents/);
+      expect(result).toMatch(
+        /pode prosseguir com `plan_actions\(intent="mark_performed"\)`/i,
+      );
+      expect(result).toMatch(/documentos recomendados ainda não anexados/i);
     });
 
-    it('quando todos os obrigatórios estão anexados, libera mark_performed', async () => {
+    it('quando parte dos documentos está anexada, libera mark_performed com aviso', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
         protocol: 'SC-0042',
@@ -738,11 +740,10 @@ describe('PendencyTools', () => {
       expect(result).toMatch(
         /pode prosseguir com `plan_actions\(intent="mark_performed"\)`/i,
       );
-      // Há ainda o opcional (surgery_images) faltando — deve avisar.
-      expect(result).toMatch(/opcionais ainda não anexados/i);
+      expect(result).toMatch(/documentos recomendados ainda não anexados/i);
     });
 
-    it('quando obrigatórios e opcionais estão todos anexados, sem aviso de opcional', async () => {
+    it('quando todos os documentos estão anexados, sem aviso de recomendado', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-1',
         protocol: 'SC-0042',
@@ -761,7 +762,7 @@ describe('PendencyTools', () => {
       );
 
       expect(result).toMatch(/pode prosseguir/i);
-      expect(result).not.toMatch(/opcionais ainda não anexados/i);
+      expect(result).not.toMatch(/documentos recomendados ainda não anexados/i);
     });
 
     it('rejeita quando o doctorId da SC não é acessível ao usuário', async () => {
@@ -794,7 +795,7 @@ describe('PendencyTools', () => {
       const result = await tool.execute({ identifier: 'SC-0042' }, baseContext);
 
       expect(result).toContain('SC-0042');
-      expect(result).toMatch(/Faltam 2/);
+      expect(result).toMatch(/pode prosseguir/i);
     });
   });
 });

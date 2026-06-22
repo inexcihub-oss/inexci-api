@@ -93,7 +93,7 @@ export class MailService {
     return this.send(
       'surgery-request-sent',
       to,
-      'Solicitação Cirúrgica Enviada',
+      'Solicitação Cirúrgica — Análise e Autorização',
       context,
       attachments,
       cc,

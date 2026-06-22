@@ -105,7 +105,7 @@ export class PatientNotificationService {
   async notifyPatientStatusChange(
     ctx: PatientNotificationContext,
   ): Promise<void> {
-    if (!ctx.notifyPatient) return;
+    if (ctx.notifyPatient !== true) return;
 
     const patient = ctx.request.patient;
     const patientEmail = patient?.email;

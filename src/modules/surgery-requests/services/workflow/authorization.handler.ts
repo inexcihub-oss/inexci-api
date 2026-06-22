@@ -99,10 +99,19 @@ export class AuthorizationHandler {
       { logger: this.logger, operationName: 'acceptAuthorization' },
     );
 
-    await this.notificationService.notifyPatientSchedulingOptions(
-      request,
-      dto.dateOptions,
-    );
+    if (dto.notifyPatient === true) {
+      this.logger.log(
+        `[acceptAuthorization] Enviando opções de agendamento ao paciente (solicitação ${id})`,
+      );
+      await this.notificationService.notifyPatientSchedulingOptions(
+        request,
+        dto.dateOptions,
+      );
+    } else {
+      this.logger.log(
+        `[acceptAuthorization] Notificação ao paciente omitida (notifyPatient=${String(dto.notifyPatient)})`,
+      );
+    }
 
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
