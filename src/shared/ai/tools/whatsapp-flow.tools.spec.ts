@@ -856,6 +856,7 @@ describe('WhatsappFlowTools', () => {
       const result = await createPatient.execute(
         {
           name: 'João da Silva',
+          cpf: '52998224725',
           phone: '11988887777',
           email: 'joao@silva.com',
         },
@@ -937,6 +938,7 @@ describe('WhatsappFlowTools', () => {
       const result = await createPatient.execute(
         {
           name: 'Pedro Santos',
+          cpf: '52998224725',
           phone: '11977776666',
           email: 'pedro@santos.com',
         },
@@ -953,6 +955,7 @@ describe('WhatsappFlowTools', () => {
       const result = await createPatient.execute(
         {
           name: 'Pedro Santos',
+          cpf: '52998224725',
           phone: '11977776666',
           email: 'pedro@santos.com',
           confirm: true,

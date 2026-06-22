@@ -55,6 +55,7 @@ describe('tools vs services — patient_draft_commit', () => {
     });
     await draftService.setFields('conv-1', 'create_patient', {
       name: 'João Silva',
+      cpf: '52998224725',
       phone: '11999990000',
     });
 

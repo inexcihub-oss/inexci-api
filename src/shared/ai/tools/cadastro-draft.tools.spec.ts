@@ -120,6 +120,7 @@ describe('cadastro draft tools (preview + commit)', () => {
       });
       await draftService.setFields('conv-1', 'create_patient', {
         name: 'João da Silva',
+        cpf: '52998224725',
         phone: '11912345678',
         doctorId: 'doctor-1',
         doctorLabel: 'Dra. Maria',
@@ -151,6 +152,7 @@ describe('cadastro draft tools (preview + commit)', () => {
       expect(mockPatientsService.create).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'João da Silva',
+          cpf: '52998224725',
           phone: '11912345678',
         }),
         'user-1',
@@ -190,6 +192,7 @@ describe('cadastro draft tools (preview + commit)', () => {
       });
       await draftService.setFields('conv-1', 'create_patient', {
         name: 'Carla',
+        cpf: '52998224725',
         phone: '11912345678',
         doctorId: 'doctor-1',
         doctorLabel: 'Dra. Maria',

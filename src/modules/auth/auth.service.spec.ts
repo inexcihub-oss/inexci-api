@@ -654,6 +654,7 @@ describe('AuthService', () => {
       await expect(
         service.changePassword({
           email: 'nobody@example.com',
+          resetToken: 'reset-tok',
           password: 'new',
         } as any),
       ).rejects.toThrow(NotFoundException);
