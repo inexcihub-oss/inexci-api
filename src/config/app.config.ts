@@ -131,8 +131,15 @@ export const envValidationSchema = Joi.object({
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   STRIPE_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
   BILLING_TRIAL_DAYS: Joi.number().default(30),
-  BILLING_GRACE_PERIOD_DAYS: Joi.number().default(7),
-  BILLING_TRIAL_REMINDER_DAYS: Joi.string().default('7,3,1'),
+  // Price IDs da Stripe por plano (Test ou Live conforme o ambiente)
+  STRIPE_PRICE_STARTER_MONTHLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_STARTER_YEARLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_ESSENCIAL_MONTHLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_ESSENCIAL_YEARLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_PROFISSIONAL_MONTHLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_PROFISSIONAL_YEARLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_AVANCADO_MONTHLY: Joi.string().allow('').default(''),
+  STRIPE_PRICE_AVANCADO_YEARLY: Joi.string().allow('').default(''),
 
   // ── BullBoard ────────────────────────────────────────
   BULL_BOARD_USER: Joi.string().allow('').default(''),

@@ -5,8 +5,6 @@ import StripeLib = require('stripe');
 import type { Customer as StripeCustomer } from 'stripe/cjs/resources/Customers';
 import type { DeletedCustomer as StripeDeletedCustomer } from 'stripe/cjs/resources/Customers';
 import type { Subscription as StripeSubscription } from 'stripe/cjs/resources/Subscriptions';
-import type { SubscriptionUpdateParams as StripeSubscriptionUpdateParams } from 'stripe/cjs/resources/Subscriptions';
-import type { Invoice as StripeInvoice } from 'stripe/cjs/resources/Invoices';
 import type { Event as StripeEvent } from 'stripe/cjs/resources/Events';
 
 import {
@@ -14,26 +12,22 @@ import {
   PaymentGatewayError,
 } from '../../payment-gateway.interface';
 import {
-  CancelSubscriptionInput,
+  CreateBillingPortalSessionInput,
+  CreateCheckoutSessionInput,
   CreateCustomerInput,
-  CreateSubscriptionInput,
+  GatewayBillingPortalSession,
+  GatewayCheckoutSession,
   GatewayCustomer,
-  GatewayInvoice,
-  GatewayInvoiceStatus,
-  GatewayPaymentMethod,
   GatewayProviderId,
   GatewaySubscription,
   GatewaySubscriptionStatus,
   NormalizedWebhookEvent,
   NormalizedWebhookEventType,
-  TokenizeCardInput,
-  UpdateSubscriptionInput,
   VerifyWebhookInput,
 } from '../../payment-gateway.types';
 
 type StripeInstance = StripeLib.Stripe;
 type StripeSubStatus = StripeSubscription['status'];
-type StripeInvoiceStatus = StripeInvoice['status'];
 
 @Injectable()
 export class StripeProvider implements PaymentGateway {
@@ -84,90 +78,52 @@ export class StripeProvider implements PaymentGateway {
     }
   }
 
-  // ───── Cartão ─────
+  // ───── Checkout / Portal ─────
 
-  async tokenizeCard(input: TokenizeCardInput): Promise<GatewayPaymentMethod> {
+  async createCheckoutSession(
+    input: CreateCheckoutSessionInput,
+  ): Promise<GatewayCheckoutSession> {
     try {
-      await this.stripe.paymentMethods.attach(input.paymentMethodId, {
-        customer: input.customerId,
-      });
-      return {
-        token: input.paymentMethodId,
-        brand: input.brand,
-        last4: input.last4,
-        holderName: input.holderName,
-        expMonth: input.expMonth,
-        expYear: input.expYear,
+      const subscriptionData: Record<string, unknown> = {
+        metadata: { subscriptionId: input.subscriptionId },
       };
+
+      if (input.trialEnd) {
+        subscriptionData['trial_end'] = Math.floor(
+          input.trialEnd.getTime() / 1000,
+        );
+      }
+
+      const session = await this.stripe.checkout.sessions.create({
+        mode: 'subscription',
+        customer: input.customerId,
+        line_items: [{ price: input.priceId, quantity: 1 }],
+        success_url: input.successUrl,
+        cancel_url: input.cancelUrl,
+        subscription_data: subscriptionData as StripeLib.Stripe.Checkout.SessionCreateParams.SubscriptionData,
+      });
+
+      return { id: session.id, url: session.url ?? '', raw: session };
+    } catch (err) {
+      throw this.wrapError(err);
+    }
+  }
+
+  async createBillingPortalSession(
+    input: CreateBillingPortalSessionInput,
+  ): Promise<GatewayBillingPortalSession> {
+    try {
+      const session = await this.stripe.billingPortal.sessions.create({
+        customer: input.customerId,
+        return_url: input.returnUrl,
+      });
+      return { url: session.url, raw: session };
     } catch (err) {
       throw this.wrapError(err);
     }
   }
 
   // ───── Subscriptions ─────
-
-  async createSubscription(
-    input: CreateSubscriptionInput,
-  ): Promise<GatewaySubscription> {
-    try {
-      const interval: 'year' | 'month' =
-        input.cycle === 'YEARLY' ? 'year' : 'month';
-
-      // Cria produto e preço inline via Prices API
-      const price = await this.stripe.prices.create({
-        currency: 'brl',
-        unit_amount: input.amountCents,
-        recurring: { interval },
-        product_data: { name: input.description },
-      });
-
-      const sub = await this.stripe.subscriptions.create({
-        customer: input.customerId,
-        items: [{ price: price.id }],
-        default_payment_method: input.paymentMethodToken,
-        metadata: { externalReference: input.externalReference },
-      });
-      return this.toGatewaySubscription(sub);
-    } catch (err) {
-      throw this.wrapError(err);
-    }
-  }
-
-  async updateSubscription(
-    subscriptionId: string,
-    input: UpdateSubscriptionInput,
-  ): Promise<GatewaySubscription> {
-    try {
-      const params: StripeSubscriptionUpdateParams = {};
-      if (input.description != null) {
-        params.metadata = { description: input.description };
-      }
-      const sub = await this.stripe.subscriptions.update(
-        subscriptionId,
-        params,
-      );
-      return this.toGatewaySubscription(sub);
-    } catch (err) {
-      throw this.wrapError(err);
-    }
-  }
-
-  async cancelSubscription(
-    subscriptionId: string,
-    input: CancelSubscriptionInput,
-  ): Promise<void> {
-    try {
-      if (input.atPeriodEnd) {
-        await this.stripe.subscriptions.update(subscriptionId, {
-          cancel_at_period_end: true,
-        });
-      } else {
-        await this.stripe.subscriptions.cancel(subscriptionId);
-      }
-    } catch (err) {
-      throw this.wrapError(err);
-    }
-  }
 
   async getSubscription(
     subscriptionId: string,
@@ -177,32 +133,6 @@ export class StripeProvider implements PaymentGateway {
       return this.toGatewaySubscription(sub);
     } catch (err) {
       if (this.isNotFound(err)) return null;
-      throw this.wrapError(err);
-    }
-  }
-
-  // ───── Faturas ─────
-
-  async getInvoice(invoiceId: string): Promise<GatewayInvoice | null> {
-    try {
-      const invoice = await this.stripe.invoices.retrieve(invoiceId);
-      return this.toGatewayInvoice(invoice);
-    } catch (err) {
-      if (this.isNotFound(err)) return null;
-      throw this.wrapError(err);
-    }
-  }
-
-  async listInvoicesBySubscription(
-    subscriptionId: string,
-  ): Promise<GatewayInvoice[]> {
-    try {
-      const list = await this.stripe.invoices.list({
-        subscription: subscriptionId,
-        limit: 100,
-      });
-      return list.data.map((inv: StripeInvoice) => this.toGatewayInvoice(inv));
-    } catch (err) {
       throw this.wrapError(err);
     }
   }
@@ -285,8 +215,20 @@ export class StripeProvider implements PaymentGateway {
     const item = s.items.data[0];
     const amountCents = item?.price?.unit_amount ?? 0;
     const interval = item?.price?.recurring?.interval;
-    // current_period_end foi removido da API; usar billing_cycle_anchor como próxima data
     const nextDueDateTs = s.billing_cycle_anchor ?? null;
+
+    // API 2026-04-22.dahlia moved current_period_start/end to the item level.
+    const rawItem = item as unknown as Record<string, unknown>;
+    const rawSub = s as unknown as Record<string, unknown>;
+    const periodStartTs =
+      (rawItem['current_period_start'] as number | undefined) ??
+      (rawSub['current_period_start'] as number | undefined) ??
+      null;
+    const periodEndTs =
+      (rawItem['current_period_end'] as number | undefined) ??
+      (rawSub['current_period_end'] as number | undefined) ??
+      null;
+
     return {
       id: s.id,
       customerId: s.customer as string,
@@ -294,28 +236,15 @@ export class StripeProvider implements PaymentGateway {
       cycle: interval === 'year' ? 'YEARLY' : 'MONTHLY',
       amountCents: amountCents ?? 0,
       nextDueDate: nextDueDateTs ? new Date(nextDueDateTs * 1000) : null,
-      raw: s,
-    };
-  }
-
-  private toGatewayInvoice(inv: StripeInvoice): GatewayInvoice {
-    // Na API 2026-04-22.dahlia, subscription está em inv.parent.subscription_details.subscription
-    const subRef = inv.parent?.subscription_details?.subscription;
-    const subscriptionId = typeof subRef === 'string' ? subRef : null;
-    return {
-      id: inv.id ?? '',
-      subscriptionId,
-      customerId: typeof inv.customer === 'string' ? inv.customer : '',
-      amountCents: inv.amount_due,
-      status: this.mapInvoiceStatus(inv.status),
-      dueDate: inv.due_date
-        ? new Date(inv.due_date * 1000)
-        : new Date(inv.created * 1000),
-      paidAt: inv.status_transitions?.paid_at
-        ? new Date(inv.status_transitions.paid_at * 1000)
+      priceId: item?.price?.id ?? null,
+      currentPeriodStart: periodStartTs ? new Date(periodStartTs * 1000) : null,
+      currentPeriodEnd: periodEndTs ? new Date(periodEndTs * 1000) : null,
+      trialEndsAt: s.trial_end ? new Date(s.trial_end * 1000) : null,
+      cancelAtPeriodEnd: s.cancel_at_period_end ?? false,
+      canceledAt: (rawSub['canceled_at'] as number | null | undefined)
+        ? new Date((rawSub['canceled_at'] as number) * 1000)
         : null,
-      invoiceUrl: inv.hosted_invoice_url ?? null,
-      raw: inv,
+      raw: s,
     };
   }
 
@@ -342,42 +271,22 @@ export class StripeProvider implements PaymentGateway {
     }
   }
 
-  private mapInvoiceStatus(
-    status: StripeInvoiceStatus | null,
-  ): GatewayInvoiceStatus {
-    switch (status) {
-      case 'draft':
-      case 'open':
-        return 'pending';
-      case 'paid':
-        return 'paid';
-      case 'uncollectible':
-        return 'overdue';
-      case 'void':
-        return 'canceled';
-      default:
-        return 'pending';
-    }
-  }
-
   private mapStripeEvent(type: string): NormalizedWebhookEventType {
     switch (type) {
+      case 'checkout.session.completed':
+        return 'checkout.completed';
       case 'customer.subscription.created':
         return 'subscription.created';
       case 'customer.subscription.updated':
         return 'subscription.updated';
       case 'customer.subscription.deleted':
         return 'subscription.canceled';
-      case 'invoice.created':
-        return 'invoice.created';
       case 'invoice.payment_succeeded':
         return 'invoice.paid';
       case 'invoice.payment_failed':
         return 'invoice.failed';
       case 'invoice.marked_uncollectible':
         return 'invoice.overdue';
-      case 'charge.refunded':
-        return 'invoice.refunded';
       default:
         return 'unknown';
     }
@@ -389,6 +298,22 @@ export class StripeProvider implements PaymentGateway {
   } {
     const obj = event.data.object as unknown as Record<string, unknown>;
     const id = (obj['id'] as string) ?? '';
+
+    // Checkout session events
+    if (event.type === 'checkout.session.completed') {
+      return {
+        resourceId: id,
+        refs: {
+          checkoutSessionId: id,
+          subscriptionId:
+            typeof obj['subscription'] === 'string'
+              ? obj['subscription']
+              : undefined,
+          customerId:
+            typeof obj['customer'] === 'string' ? obj['customer'] : undefined,
+        },
+      };
+    }
 
     // Subscription events
     if (event.type.startsWith('customer.subscription.')) {
@@ -411,17 +336,6 @@ export class StripeProvider implements PaymentGateway {
             typeof obj['subscription'] === 'string'
               ? obj['subscription']
               : undefined,
-          customerId:
-            typeof obj['customer'] === 'string' ? obj['customer'] : undefined,
-        },
-      };
-    }
-
-    // Charge events
-    if (event.type.startsWith('charge.')) {
-      return {
-        resourceId: id,
-        refs: {
           customerId:
             typeof obj['customer'] === 'string' ? obj['customer'] : undefined,
         },

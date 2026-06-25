@@ -234,19 +234,44 @@ async function main() {
 
   await dataSource.query(`
     INSERT INTO subscription_plans
-      (slug, name, description, price_cents, currency, billing_period, surgery_request_quota, is_active, is_trial_default, sort_order)
+      (slug, name, description, price_cents, currency, billing_period, surgery_request_quota, gateway_price_id, is_active, is_trial_default, sort_order)
     VALUES
-      ('starter',             'Starter',             'Ideal para médicos individuais começando agora',             45800,   'BRL', 'MONTHLY',  10, true,  true,  1),
-      ('starter-anual',       'Starter Anual',       'Ideal para médicos individuais começando agora',             444000,  'BRL', 'YEARLY',   10, true,  false, 2),
-      ('essencial',           'Essencial',           'Para clínicas pequenas e equipes em crescimento',            63400,   'BRL', 'MONTHLY',  20, true,  false, 3),
-      ('essencial-anual',     'Essencial Anual',     'Para clínicas pequenas e equipes em crescimento',            655200,  'BRL', 'YEARLY',   20, true,  false, 4),
-      ('profissional',        'Profissional',        'Para clínicas estabelecidas com alto volume cirúrgico',      81000,   'BRL', 'MONTHLY',  40, true,  false, 5),
-      ('profissional-anual',  'Profissional Anual',  'Para clínicas estabelecidas com alto volume cirúrgico',      866400,  'BRL', 'YEARLY',   40, true,  false, 6),
-      ('avancado',            'Avançado',            'Para grandes equipes com volume intenso de procedimentos',   98600,   'BRL', 'MONTHLY',  50, true,  false, 7),
-      ('avancado-anual',      'Avançado Anual',      'Para grandes equipes com volume intenso de procedimentos',   1077600, 'BRL', 'YEARLY',   50, true,  false, 8),
-      ('enterprise',          'Enterprise',          'Acima de 50 solicitações por mês — vamos conversar',        0,       'BRL', 'MONTHLY',  -1, true,  false, 9)
+      ('starter',             'Starter',             'Ideal para médicos individuais começando agora',             45800,   'BRL', 'MONTHLY',  10, NULL, true,  true,  1),
+      ('starter-anual',       'Starter Anual',       'Ideal para médicos individuais começando agora',             444000,  'BRL', 'YEARLY',   10, NULL, true,  false, 2),
+      ('essencial',           'Essencial',           'Para clínicas pequenas e equipes em crescimento',            63400,   'BRL', 'MONTHLY',  20, NULL, true,  false, 3),
+      ('essencial-anual',     'Essencial Anual',     'Para clínicas pequenas e equipes em crescimento',            655200,  'BRL', 'YEARLY',   20, NULL, true,  false, 4),
+      ('profissional',        'Profissional',        'Para clínicas estabelecidas com alto volume cirúrgico',      81000,   'BRL', 'MONTHLY',  40, NULL, true,  false, 5),
+      ('profissional-anual',  'Profissional Anual',  'Para clínicas estabelecidas com alto volume cirúrgico',      866400,  'BRL', 'YEARLY',   40, NULL, true,  false, 6),
+      ('avancado',            'Avançado',            'Para grandes equipes com volume intenso de procedimentos',   98600,   'BRL', 'MONTHLY',  50, NULL, true,  false, 7),
+      ('avancado-anual',      'Avançado Anual',      'Para grandes equipes com volume intenso de procedimentos',   1077600, 'BRL', 'YEARLY',   50, NULL, true,  false, 8),
+      ('enterprise',          'Enterprise',          'Acima de 50 solicitações por mês — vamos conversar',        0,       'BRL', 'MONTHLY',  -1, NULL, true,  false, 9)
     ON CONFLICT (slug) DO NOTHING;
   `);
+
+  // Popula gateway_price_id a partir das vars de ambiente (idempotente)
+  const priceMap: Record<string, string | undefined> = {
+    'starter':            process.env.STRIPE_PRICE_STARTER_MONTHLY,
+    'starter-anual':      process.env.STRIPE_PRICE_STARTER_YEARLY,
+    'essencial':          process.env.STRIPE_PRICE_ESSENCIAL_MONTHLY,
+    'essencial-anual':    process.env.STRIPE_PRICE_ESSENCIAL_YEARLY,
+    'profissional':       process.env.STRIPE_PRICE_PROFISSIONAL_MONTHLY,
+    'profissional-anual': process.env.STRIPE_PRICE_PROFISSIONAL_YEARLY,
+    'avancado':           process.env.STRIPE_PRICE_AVANCADO_MONTHLY,
+    'avancado-anual':     process.env.STRIPE_PRICE_AVANCADO_YEARLY,
+  };
+  let priceIdsSet = 0;
+  for (const [slug, priceId] of Object.entries(priceMap)) {
+    if (!priceId) continue;
+    const result = await dataSource.query(
+      `UPDATE subscription_plans SET gateway_price_id = $1, updated_at = now()
+       WHERE slug = $2 AND (gateway_price_id IS NULL OR gateway_price_id != $1)`,
+      [priceId, slug],
+    );
+    if ((result as any).rowCount > 0) priceIdsSet++;
+  }
+  if (priceIdsSet > 0) {
+    logger.log(`  ↳ ${priceIdsSet} gateway_price_id(s) atualizados via STRIPE_PRICE_*`);
+  }
 
   const profPlanRow = await dataSource.query(
     `SELECT id FROM subscription_plans WHERE slug = 'profissional' LIMIT 1`,

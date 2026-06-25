@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import {
@@ -9,7 +9,7 @@ import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decor
 
 import { SubscriptionService } from '../services/subscription.service';
 import { QuotaService } from '../services/quota.service';
-import { ChangePlanDto } from '../dto/change-plan.dto';
+import { StartCheckoutDto } from '../dto/start-checkout.dto';
 
 @ApiTags('Billing')
 @ApiBearerAuth()
@@ -34,7 +34,6 @@ export class SubscriptionsController {
         id: subscription.id,
         status: subscription.status,
         planId: subscription.planId,
-        nextPlanId: subscription.nextPlanId,
         trialEndsAt: subscription.trialEndsAt,
         currentPeriodStart: subscription.currentPeriodStart,
         currentPeriodEnd: subscription.currentPeriodEnd,
@@ -42,7 +41,6 @@ export class SubscriptionsController {
         canceledAt: subscription.canceledAt,
         suspendedAt: subscription.suspendedAt,
         pastDueSince: subscription.pastDueSince,
-        defaultPaymentMethodId: subscription.defaultPaymentMethodId,
         gatewayProvider: subscription.gatewayProvider,
       },
       plan: subscription.plan
@@ -55,14 +53,7 @@ export class SubscriptionsController {
             currency: subscription.plan.currency,
             billingPeriod: subscription.plan.billingPeriod,
             surgeryRequestQuota: subscription.plan.surgeryRequestQuota,
-          }
-        : null,
-      nextPlan: subscription.nextPlan
-        ? {
-            id: subscription.nextPlan.id,
-            slug: subscription.nextPlan.slug,
-            name: subscription.nextPlan.name,
-            priceCents: subscription.nextPlan.priceCents,
+            gatewayPriceId: subscription.plan.gatewayPriceId,
           }
         : null,
       quota,
@@ -71,42 +62,20 @@ export class SubscriptionsController {
     };
   }
 
-  @Patch('plan')
-  @ApiOperation({
-    summary:
-      'Trocar de plano (vale a partir do pr\u00f3ximo ciclo de cobran\u00e7a)',
-  })
-  async changePlan(
+  @Post('checkout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Inicia uma Checkout Session no Stripe para o plano escolhido' })
+  async checkout(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ChangePlanDto,
+    @Body() dto: StartCheckoutDto,
   ) {
-    const sub = await this.subscriptionService.changePlan(
-      user.userId,
-      dto.planId,
-    );
-    return { id: sub.id, planId: sub.planId, nextPlanId: sub.nextPlanId };
+    return this.subscriptionService.startCheckout(user.userId, dto.planId);
   }
 
-  @Delete()
-  @ApiOperation({ summary: 'Cancelar assinatura ao fim do ciclo' })
-  async cancel(@CurrentUser() user: AuthenticatedUser) {
-    const sub = await this.subscriptionService.cancelAtPeriodEnd(user.userId);
-    return {
-      id: sub.id,
-      status: sub.status,
-      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-      currentPeriodEnd: sub.currentPeriodEnd,
-    };
-  }
-
-  @Post('resume')
-  @ApiOperation({ summary: 'Reverter cancelamento agendado' })
-  async resume(@CurrentUser() user: AuthenticatedUser) {
-    const sub = await this.subscriptionService.resumeSubscription(user.userId);
-    return {
-      id: sub.id,
-      status: sub.status,
-      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-    };
+  @Post('portal')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Abre o Customer Portal da Stripe para gerenciar a assinatura' })
+  async portal(@CurrentUser() user: AuthenticatedUser) {
+    return this.subscriptionService.openBillingPortal(user.userId);
   }
 }
