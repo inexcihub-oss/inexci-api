@@ -189,7 +189,7 @@ export class WhatsappDocumentDispatcherService {
         ) {
           reason = error.code;
         }
-      } else if (/supabase|upload|storage/i.test(errMessage)) {
+      } else if (/upload|storage/i.test(errMessage)) {
         reason = 'STORAGE_ERROR';
       }
 

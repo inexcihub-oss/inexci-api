@@ -1,13 +1,3 @@
-// Mock Supabase para evitar validação de URL no nível do módulo
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({
-    auth: { getUser: jest.fn() },
-    storage: {
-      from: jest.fn(() => ({ upload: jest.fn(), getPublicUrl: jest.fn() })),
-    },
-  })),
-}));
-
 import {
   ForbiddenException,
   NotFoundException,

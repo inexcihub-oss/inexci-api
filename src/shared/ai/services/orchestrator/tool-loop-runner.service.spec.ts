@@ -48,7 +48,6 @@ const buildCompletion = (
   }) as OpenAI.ChatCompletion;
 
 const buildHooks = (overrides: Partial<ToolLoopHooks> = {}): ToolLoopHooks => ({
-  evaluatePlanFirstGuard: jest.fn().mockResolvedValue(new Set<string>()),
   memorizeEntitiesFromToolCall: jest.fn().mockResolvedValue(undefined),
   appendNextStepIfNeeded: jest.fn(async (_n, _a, output) => output),
   redactResidualPii: jest.fn().mockResolvedValue(undefined),
@@ -200,60 +199,6 @@ describe('ToolLoopRunnerService', () => {
       tool_call_id: 'call-1',
       content: 'result',
     });
-  });
-
-  it('blocks plan-first violations and synthesizes blocked tool results', async () => {
-    const blocked = buildToolCall('blocked-1', 'create_patient');
-    const allowed = buildToolCall('allowed-1', 'plan_actions');
-    const initial = buildAssistantMessage([blocked, allowed]);
-
-    toolExecutor.executeMany.mockResolvedValueOnce([
-      { toolCallId: 'allowed-1', output: 'plan ok' },
-    ]);
-    openaiService.chatCompletion.mockResolvedValueOnce(
-      buildCompletion(buildAssistantMessage(undefined, 'fim')),
-    );
-
-    const hooks = buildHooks({
-      evaluatePlanFirstGuard: jest
-        .fn()
-        .mockResolvedValue(new Set(['blocked-1'])),
-    });
-
-    const input = buildInput(initial, { hooks });
-    await runner.run(input);
-
-    expect(toolExecutor.executeMany).toHaveBeenCalledWith(
-      [allowed],
-      expect.anything(),
-    );
-    const blockedMsg = input.messages.find(
-      (m) => (m as any).tool_call_id === 'blocked-1',
-    ) as any;
-    expect(blockedMsg).toBeDefined();
-    expect(blockedMsg.content).toContain('PLAN_ACTIONS_REQUIRED');
-  });
-
-  it('skips tool execution when all tool calls are blocked', async () => {
-    const blocked = buildToolCall('blocked-1', 'create_patient');
-    const initial = buildAssistantMessage([blocked]);
-    openaiService.chatCompletion.mockResolvedValueOnce(
-      buildCompletion(buildAssistantMessage(undefined, 'corrige')),
-    );
-
-    const hooks = buildHooks({
-      evaluatePlanFirstGuard: jest
-        .fn()
-        .mockResolvedValue(new Set(['blocked-1'])),
-    });
-
-    const input = buildInput(initial, { hooks });
-    await runner.run(input);
-
-    expect(toolExecutor.executeMany).not.toHaveBeenCalled();
-    expect(
-      input.messages.some((m) => (m as any).tool_call_id === 'blocked-1'),
-    ).toBe(true);
   });
 
   it('skips trackPendingConfirmation when arguments JSON is invalid', async () => {

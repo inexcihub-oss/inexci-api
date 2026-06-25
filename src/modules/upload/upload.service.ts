@@ -1,16 +1,15 @@
 import {
-  Inject,
   Injectable,
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
-import { SUPABASE_ADMIN_CLIENT } from '../../config/supabase.config';
-import { STORAGE_FOLDERS } from '../../config/storage.config';
+import {
+  STORAGE_FOLDERS,
+  STORAGE_FOLDER_SIZE_LIMITS,
+} from '../../config/storage.config';
+import { StorageService } from '../../shared/storage/storage.service';
 import { DocumentRepository } from '../../database/repositories/document.repository';
-import { v4 as uuidv4 } from 'uuid';
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -41,30 +40,19 @@ const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
 @Injectable()
 export class UploadService {
-  private readonly bucket: string;
-
   constructor(
-    @Inject(SUPABASE_ADMIN_CLIENT)
-    private readonly supabase: SupabaseClient,
-    private readonly configService: ConfigService,
+    private readonly storageService: StorageService,
     private readonly documentRepository: DocumentRepository,
-  ) {
-    const bucket = this.configService.get<string>('storage.bucket');
-    if (!bucket) {
-      throw new Error('Variável SUPABASE_BUCKET não configurada');
-    }
-    this.bucket = bucket;
-  }
+  ) {}
 
   /**
-   * Faz upload de um arquivo para o Supabase Storage
-   * @param file - Arquivo do multer
-   * @param folder - Pasta dentro do bucket (ex: 'documents', 'avatars')
-   * @returns URL pública do arquivo
+   * Faz upload de um arquivo para o R2 Storage.
+   * Valida MIME type, magic bytes e limite de tamanho por pasta.
    */
   async uploadFile(
     file: Express.Multer.File,
     folder: string = STORAGE_FOLDERS.DOCUMENTS,
+    ownerId?: string,
   ): Promise<{ url: string; path: string }> {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo foi enviado');
@@ -82,52 +70,34 @@ export class UploadService {
         `Tipo de arquivo não permitido: ${file.mimetype}`,
       );
     }
-    const fileName = `${uuidv4()}.${ext}`;
-    const filePath = `${folder}/${fileName}`;
 
-    try {
-      // Upload para o Supabase Storage
-      const { data, error } = await this.supabase.storage
-        .from(this.bucket)
-        .upload(filePath, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false,
-        });
-
-      if (error) {
-        throw new BadRequestException(`Erro ao fazer upload: ${error.message}`);
-      }
-
-      // Gerar URL assinada (1h) para acesso ao bucket privado
-      const { data: signedData, error: _signedError } =
-        await this.supabase.storage
-          .from(this.bucket)
-          .createSignedUrl(data.path, 3600);
-
-      const url = signedData?.signedUrl ?? data.path;
-
-      return {
-        url,
-        path: data.path,
-      };
-    } catch (error) {
+    const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[folder];
+    if (sizeLimit !== undefined && file.buffer.length > sizeLimit) {
       throw new BadRequestException(
-        `Erro ao fazer upload do arquivo: ${(error as Error).message}`,
+        `Arquivo excede o tamanho máximo permitido para esta pasta (${Math.round(sizeLimit / 1024)} KB)`,
       );
     }
+
+    const { fileTypeFromBuffer } = await import('file-type');
+    const detected = await fileTypeFromBuffer(file.buffer);
+    if (detected && detected.mime !== file.mimetype) {
+      throw new BadRequestException('Tipo de arquivo inválido');
+    }
+
+    const filePath = await this.storageService.create(file, folder, ownerId);
+    const url = await this.storageService.getSignedUrl(filePath);
+
+    return { url, path: filePath };
   }
 
   /**
    * Gera uma URL assinada para um arquivo existente no Storage.
    * Para pastas com dados de pacientes exige que o arquivo pertença ao tenant.
-   * @param filePath - Caminho do arquivo no bucket
-   * @param ownerId - ID do tenant do usuário autenticado
-   * @param expiresIn - Validade em segundos (padrão 3600 = 1h)
    */
   async getSignedUrl(
     filePath: string,
     ownerId: string | null,
-    expiresIn = 3600,
+    _expiresIn = 3600,
   ): Promise<{ url: string }> {
     const safePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
     const folder = safePath.split('/')[0];
@@ -144,50 +114,24 @@ export class UploadService {
       }
     }
 
-    const { data, error } = await this.supabase.storage
-      .from(this.bucket)
-      .createSignedUrl(safePath, expiresIn);
-
-    if (error || !data?.signedUrl) {
-      throw new BadRequestException(
-        `Erro ao gerar URL assinada: ${error?.message ?? 'unknown'}`,
-      );
-    }
-
-    return { url: data.signedUrl };
+    const url = await this.storageService.getSignedUrl(safePath);
+    return { url };
   }
 
   /**
-   * Deleta um arquivo do Supabase Storage
-   * @param filePath - Caminho do arquivo no bucket
+   * Deleta um arquivo do Storage.
    */
   async deleteFile(filePath: string): Promise<void> {
-    try {
-      const { error } = await this.supabase.storage
-        .from(this.bucket)
-        .remove([filePath]);
-
-      if (error) {
-        throw new BadRequestException(
-          `Erro ao deletar arquivo: ${error.message}`,
-        );
-      }
-    } catch (error) {
-      throw new BadRequestException(
-        `Erro ao deletar arquivo: ${(error as Error).message}`,
-      );
-    }
+    await this.storageService.delete(filePath);
   }
 
   /**
-   * Faz upload de múltiplos arquivos
-   * @param files - Array de arquivos do multer
-   * @param folder - Pasta dentro do bucket
-   * @returns Array de URLs públicas
+   * Faz upload de múltiplos arquivos.
    */
   uploadMultipleFiles(
     files: Express.Multer.File[],
     folder: string = STORAGE_FOLDERS.DOCUMENTS,
+    ownerId?: string,
   ): Promise<Array<{ url: string; path: string; originalName: string }>> {
     if (!files || files.length === 0) {
       throw new BadRequestException('Nenhum arquivo foi enviado');
@@ -200,7 +144,7 @@ export class UploadService {
     }
 
     const uploadPromises = files.map(async (file) => {
-      const result = await this.uploadFile(file, folder);
+      const result = await this.uploadFile(file, folder, ownerId);
       return {
         ...result,
         originalName: file.originalname,

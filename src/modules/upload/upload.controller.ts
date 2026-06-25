@@ -41,8 +41,9 @@ export class UploadController {
   async uploadSingle(
     @UploadedFile() file: Express.Multer.File,
     @Body('folder') folder: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    const result = await this.uploadService.uploadFile(file, folder);
+    const result = await this.uploadService.uploadFile(file, folder, user.ownerId);
 
     return {
       message: 'Arquivo enviado com sucesso',
@@ -78,8 +79,9 @@ export class UploadController {
   async uploadMultiple(
     @UploadedFiles() files: Express.Multer.File[],
     @Body('folder') folder: string,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    const results = await this.uploadService.uploadMultipleFiles(files, folder);
+    const results = await this.uploadService.uploadMultipleFiles(files, folder, user.ownerId);
 
     return {
       message: `${results.length} arquivo(s) enviado(s) com sucesso`,

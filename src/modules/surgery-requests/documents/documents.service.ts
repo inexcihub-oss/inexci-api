@@ -26,11 +26,16 @@ export class DocumentsService {
   async create(
     data: CreateDocumentDto,
     userId: string,
+    ownerId: string,
     file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File is required');
 
-    const storagePath = await this.storageService.create(file, data.folder);
+    const storagePath = await this.storageService.create(
+      file,
+      data.folder,
+      ownerId,
+    );
 
     const newDocument = await this.documentRepository.create({
       surgeryRequestId: data.surgeryRequestId,
@@ -87,12 +92,11 @@ export class DocumentsService {
           surgeryRequestId: data.surgeryRequestId,
         });
 
-        // Deletar do Supabase Storage
         if (document.uri) {
           try {
             await this.storageService.delete(document.uri);
           } catch (error) {
-            this.logger.error('Erro ao deletar arquivo do Supabase', error);
+            this.logger.error('Erro ao deletar arquivo do storage', error);
             // Não falha a transação se o arquivo não existir no storage
           }
         }

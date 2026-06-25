@@ -227,8 +227,7 @@ export interface SurgeryRequestLaudoPdfData {
 }
 
 const ALLOWED_URL_HOSTS = [
-  'supabase.co',
-  'supabasestorage.app',
+  'r2.cloudflarestorage.com',
   'amazonaws.com',
 ];
 

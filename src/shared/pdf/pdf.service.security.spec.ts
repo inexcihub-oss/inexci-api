@@ -28,7 +28,7 @@ describe('PdfService — segurança SSRF (VULN-01)', () => {
 
   it('deve retornar null para URL com protocolo http', async () => {
     const result = await (service as any).fetchAsDataUri(
-      'http://supabase.co/storage/file.png',
+      'http://accountid.r2.cloudflarestorage.com/bucket/file.png',
     );
     expect(result).toBeNull();
   });

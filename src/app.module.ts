@@ -19,7 +19,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { envValidationSchema } from './config/app.config';
 import { storageConfig } from './config/storage.config';
 import { mailConfig } from './config/mail.config';
-import { SupabaseModule } from './config/supabase.module';
+import { R2Module } from './config/r2.module';
 import { SurgeryRequestsModule } from './modules/surgery-requests/surgery-requests.module';
 import { OpmeModule } from './modules/surgery-requests/opme/opme.module';
 import { ProceduresModule } from './modules/procedures/procedures.module';
@@ -56,7 +56,7 @@ import { BillingModule } from './modules/billing/billing.module';
       validationSchema: envValidationSchema,
       load: [storageConfig, mailConfig],
     }),
-    SupabaseModule,
+    R2Module,
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1000, limit: 10 },
       { name: 'medium', ttl: 10000, limit: 50 },

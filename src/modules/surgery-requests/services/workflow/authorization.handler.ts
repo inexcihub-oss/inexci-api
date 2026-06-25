@@ -24,6 +24,7 @@ import { ContestationRepository } from 'src/database/repositories/contestation.r
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -260,7 +261,11 @@ export class AuthorizationHandler {
         mimetype: 'application/pdf',
         buffer,
       };
-      const storagePath = await this.storageService.create(mockFile, 'pdfs');
+      const storagePath = await this.storageService.create(
+        mockFile,
+        STORAGE_FOLDERS.PDFS,
+        request.ownerId,
+      );
 
       const activityRepo = this.dataSource.getRepository(
         SurgeryRequestActivity,

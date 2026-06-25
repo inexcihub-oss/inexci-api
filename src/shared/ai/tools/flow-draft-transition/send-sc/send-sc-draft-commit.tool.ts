@@ -6,6 +6,7 @@ import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-r
 import { SendMethod } from '../../../../constants/send-method';
 import { FlowDraftTransitionDeps } from '../_types';
 import { assertCurrentStatusIs } from '../_helpers';
+import { STORAGE_FOLDERS } from '../../../../../config/storage.config';
 
 export function buildSendScDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -109,9 +110,10 @@ export function buildSendScDraftCommitTool(
             const fileName = `solicitacao-${pdfPayload.protocol ?? label ?? surgeryRequestId}.pdf`;
             const path = await storageService.uploadBuffer(
               pdfBuffer,
-              'whatsapp-downloads',
+              STORAGE_FOLDERS.WHATSAPP_DOWNLOADS,
               fileName,
               'application/pdf',
+              context.ownerId ?? undefined,
             );
             const url = await storageService.getSignedUrl(path);
             return buildToolResult({

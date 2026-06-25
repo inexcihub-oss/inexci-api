@@ -27,11 +27,11 @@ export const envValidationSchema = Joi.object({
   REDIS_HOST: Joi.string().default('localhost'),
   REDIS_PORT: Joi.number().default(6379),
 
-  // ── Supabase ─────────────────────────────────────────
-  SUPABASE_URL: Joi.string().allow('').default(''),
-  SUPABASE_PUBLISHABLE_KEY: Joi.string().allow('').default(''),
-  SUPABASE_SECRET_KEY: Joi.string().allow('').default(''),
-  SUPABASE_BUCKET: Joi.string().required(),
+  // ── Cloudflare R2 (Storage) ──────────────────────────────
+  R2_ACCOUNT_ID: Joi.string().required(),
+  R2_ACCESS_KEY_ID: Joi.string().required(),
+  R2_SECRET_ACCESS_KEY: Joi.string().required(),
+  R2_BUCKET: Joi.string().required(),
 
   // ── Email (SMTP) ─────────────────────────────────────
   MAIL_HOST: Joi.string().allow('').default('smtp.example.com'),
