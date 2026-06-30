@@ -223,11 +223,7 @@ describe('OpmeService', () => {
         ],
         createdAt: savedEntity.createdAt,
         updatedAt: savedEntity.updatedAt,
-        createdSupplierNames: [
-          'Fornecedor 1',
-          'Fornecedor 2',
-          'Fornecedor 3',
-        ],
+        createdSupplierNames: ['Fornecedor 1', 'Fornecedor 2', 'Fornecedor 3'],
         createdManufacturerNames: [
           'Fabricante A',
           'Fabricante B',
@@ -338,11 +334,7 @@ describe('OpmeService', () => {
           manufacturerNames: validManufacturerNames,
           quantity: 1,
           surgeryRequestId: 'sr-1',
-          supplierNames: [
-            'Fornecedor A',
-            'Fornecedor 1',
-            'Fornecedor 2',
-          ],
+          supplierNames: ['Fornecedor A', 'Fornecedor 1', 'Fornecedor 2'],
         },
         'user-1',
       );

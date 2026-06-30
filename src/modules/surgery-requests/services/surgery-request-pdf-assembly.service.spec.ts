@@ -160,7 +160,9 @@ describe('SurgeryRequestPdfAssemblyService', () => {
         mockDoctorHeaderRepository.findByDoctorProfileId,
       ).not.toHaveBeenCalled();
 
-      expect(mockPdfService.generateSurgeryRequestLaudoPdf).toHaveBeenCalledWith(
+      expect(
+        mockPdfService.generateSurgeryRequestLaudoPdf,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           doctorName: 'Dr. Carlos Mendonça',
           doctorSpecialty: 'Ortopedia e Traumatologia',

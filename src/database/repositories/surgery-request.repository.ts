@@ -449,9 +449,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
           hasIncompletePayment,
         };
       })
-      .sort(
-        (a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0),
-      );
+      .sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
   }
 
   async create(data: Partial<SurgeryRequest>): Promise<SurgeryRequest> {

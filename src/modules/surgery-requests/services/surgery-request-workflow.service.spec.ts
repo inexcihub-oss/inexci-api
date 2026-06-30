@@ -261,7 +261,9 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).not.toHaveBeenCalled();
+      expect(
+        notificationService.notifyPatientIfRequested,
+      ).not.toHaveBeenCalled();
       expect(pdfGenerationService.scheduleGeneration).toHaveBeenCalledWith(
         'req-1',
         'user-1',
@@ -333,7 +335,9 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).not.toHaveBeenCalled();
+      expect(
+        notificationService.notifyPatientIfRequested,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -513,7 +517,9 @@ describe('SurgeryRequestWorkflowService', () => {
       await service.confirmDate('req-1', { selectedDateIndex: 0 }, 'user-1');
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(notificationService.notifyPatientIfRequested).not.toHaveBeenCalled();
+      expect(
+        notificationService.notifyPatientIfRequested,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -554,7 +560,9 @@ describe('SurgeryRequestWorkflowService', () => {
     });
 
     it('should notify patient scheduling options when notifyPatient is true', async () => {
-      const request = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
+      const request = makeRequest({
+        status: SurgeryRequestStatus.IN_SCHEDULING,
+      });
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );

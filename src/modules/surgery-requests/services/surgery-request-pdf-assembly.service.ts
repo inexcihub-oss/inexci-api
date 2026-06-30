@@ -129,9 +129,7 @@ export class SurgeryRequestPdfAssemblyService {
   }) {
     const doctorId = this.resolveAssignedDoctorId(request);
     if (!doctorId) {
-      throw new Error(
-        'Solicitação sem médico atribuído para geração de PDF',
-      );
+      throw new Error('Solicitação sem médico atribuído para geração de PDF');
     }
 
     const preloadedDoctor =

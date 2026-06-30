@@ -35,9 +35,10 @@ export class PdfGenerationProcessor {
 
     try {
       // ── Carregar solicitação com todas as relações necessárias ─────────────
-      const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-        { id: surgeryRequestId },
-      );
+      const request =
+        await this.surgeryRequestRepository.findOneWithAllRelations({
+          id: surgeryRequestId,
+        });
 
       if (!request) {
         this.logger.warn(

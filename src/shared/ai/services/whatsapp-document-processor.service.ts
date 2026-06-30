@@ -382,7 +382,9 @@ export class WhatsappDocumentProcessorService {
       datapoints.push(`CID: ${extracted.cid.map((c) => c.code).join(', ')}`);
     if (extracted.opme?.length) {
       const opmeLines = extracted.opme.map((o) => {
-        const supplierBits = [o.supplier, o.manufacturer].filter(Boolean).join(' / ');
+        const supplierBits = [o.supplier, o.manufacturer]
+          .filter(Boolean)
+          .join(' / ');
         const suffix = supplierBits ? ` [${supplierBits}]` : '';
         return `${o.qty}× ${o.description}${suffix}`;
       });

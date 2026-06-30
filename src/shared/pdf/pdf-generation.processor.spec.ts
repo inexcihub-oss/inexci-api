@@ -6,7 +6,10 @@ import { PdfGenerationProcessor } from './pdf-generation.processor';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { ActivityType, SurgeryRequestActivity } from 'src/database/entities/surgery-request-activity.entity';
+import {
+  ActivityType,
+  SurgeryRequestActivity,
+} from 'src/database/entities/surgery-request-activity.entity';
 
 describe('PdfGenerationProcessor', () => {
   let processor: PdfGenerationProcessor;

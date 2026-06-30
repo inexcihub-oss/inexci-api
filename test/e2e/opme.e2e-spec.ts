@@ -68,7 +68,10 @@ describe('OPME - Órteses, Próteses e Materiais Especiais (e2e)', () => {
       expect(response.body).not.toHaveProperty('brand');
       expect(response.body.manufacturers).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ id: expect.any(String), name: expect.any(String) }),
+          expect.objectContaining({
+            id: expect.any(String),
+            name: expect.any(String),
+          }),
         ]),
       );
     });

@@ -48,10 +48,7 @@ export class OpmeService {
     data: CreateOpmeDto,
     userId: string,
   ): Promise<CreateOpmeResponseDto> {
-    this.validateMinManufacturers(
-      data.manufacturerIds,
-      data.manufacturerNames,
-    );
+    this.validateMinManufacturers(data.manufacturerIds, data.manufacturerNames);
     this.validateMinSuppliers(data.supplierIds, data.supplierNames);
 
     const surgeryRequest =

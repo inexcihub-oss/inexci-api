@@ -428,7 +428,9 @@ export class DocumentIntakeService {
         dataLines.push(
           `  - OPME: ${extracted.opme
             .map((o: any) => {
-              const tag = [o.supplier, o.manufacturer].filter(Boolean).join('/');
+              const tag = [o.supplier, o.manufacturer]
+                .filter(Boolean)
+                .join('/');
               return `${o.qty || 1}x ${o.description}${tag ? ` [${tag}]` : ''}`;
             })
             .join('; ')}`,
