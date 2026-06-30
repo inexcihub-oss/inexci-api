@@ -53,6 +53,43 @@ jobs:
           command_timeout: 20m
           debug: true
           script: |
-            chmod +x /opt/inexci/deploy.sh
-            cd /opt/inexci
-            ./deploy.sh
+            set -euo pipefail
+
+            COMPOSE="docker compose -f /opt/inexci/docker-compose.prod.yml"
+
+            echo "==> Atualizando código..."
+            cd /opt/inexci/inexci-api && git pull && cd /opt/inexci
+
+            echo "==> Reconstruindo imagem da API..."
+            $COMPOSE build api
+
+            echo "==> Subindo redis, stt-service, api e dozzle..."
+            $COMPOSE up -d redis stt-service api dozzle || true
+
+            echo "==> Aguardando API ficar healthy..."
+            HEALTHY=false
+            for i in $(seq 1 36); do
+              STATUS=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' inexci-api 2>/dev/null || echo "not-found")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "==> API healthy!"
+                HEALTHY=true
+                break
+              fi
+              echo "    status atual: $STATUS ($i/36)"
+              sleep 10
+            done
+
+            if [ "$HEALTHY" = "false" ]; then
+              echo "==> ERRO: API não ficou healthy em 6 minutos."
+              echo "==> Últimos logs da API:"
+              $COMPOSE logs api --tail 200
+              echo "==> Inspeção do healthcheck do container:"
+              docker inspect --format='{{json .State.Health}}' inexci-api || true
+              exit 1
+            fi
+
+            echo "==> Subindo nginx..."
+            $COMPOSE up -d nginx
+
+            echo "==> Status final:"
+            $COMPOSE ps
