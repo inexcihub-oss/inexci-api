@@ -4,15 +4,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestAnalysis } from 'src/database/entities/surgery-request-analysis.entity';
-import { ReportSection } from 'src/database/entities/report-section.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { DocumentRepository } from 'src/database/repositories/document.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
@@ -29,6 +27,7 @@ import { SurgeryRequestPdfAssemblyService } from '../surgery-request-pdf-assembl
 import { SendRequestDto } from '../../dto/send-request.dto';
 import { StartAnalysisDto } from '../../dto/start-analysis.dto';
 import { QuotaService } from 'src/modules/billing/services/quota.service';
+import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
 
 @Injectable()
 export class SendAnalysisHandler {
@@ -40,13 +39,12 @@ export class SendAnalysisHandler {
     private readonly mailService: MailService,
     private readonly pdfGenerationService: PdfGenerationService,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    @InjectRepository(ReportSection)
-    private readonly reportSectionRepository: Repository<ReportSection>,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
     private readonly quotaService: QuotaService,
     private readonly documentRepository: DocumentRepository,
     private readonly storageService: StorageService,
+    private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
   /**
@@ -75,22 +73,7 @@ export class SendAnalysisHandler {
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.SENT);
-
-    const sectionCount = await this.reportSectionRepository.count({
-      where: { surgeryRequestId: id },
-    });
-    if (sectionCount === 0) {
-      throw new BadRequestException(
-        'É necessário ao menos uma seção no laudo para enviar a solicitação',
-      );
-    }
-
-    const doctorSignature = request.doctor?.doctorProfile?.signatureUrl?.trim();
-    if (!doctorSignature) {
-      throw new BadRequestException(
-        'É necessário configurar a assinatura do médico para enviar a solicitação',
-      );
-    }
+    await this.pendencyValidator.assertCanAdvance(id);
 
     // Consome cota mensal de solicitações cirúrgicas. Bloqueia se a
     // assinatura estiver suspensa, cancelada ou se o limite do plano
@@ -240,6 +223,7 @@ export class SendAnalysisHandler {
         'A solicitação precisa estar com status Enviada.',
       );
     }
+    await this.pendencyValidator.assertCanAdvance(id);
 
     await executeInTransaction(
       this.dataSource,

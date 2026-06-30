@@ -27,6 +27,7 @@ import { InvoiceRequestDto } from '../dto/invoice-request.dto';
 import { ConfirmReceiptDto } from '../dto/confirm-receipt.dto';
 import { ContestPaymentDto } from '../dto/contest-payment.dto';
 import { UpdateReceiptDto } from '../dto/update-receipt.dto';
+import { PendencyValidatorService } from '../pendencies/pendency-validator.service';
 
 @Injectable()
 export class SurgeryRequestBillingService {
@@ -40,6 +41,7 @@ export class SurgeryRequestBillingService {
     private readonly billingRepository: Repository<SurgeryRequestBilling>,
     private readonly contestationRepository: ContestationRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
+    private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
   // ============================================================
@@ -57,6 +59,7 @@ export class SurgeryRequestBillingService {
         'A solicitação precisa estar Realizada para ser faturada.',
       );
     }
+    await this.pendencyValidator.assertCanAdvance(id);
 
     return executeInTransaction(
       this.dataSource,
@@ -127,6 +130,7 @@ export class SurgeryRequestBillingService {
     if (!request.billing) {
       throw new NotFoundException(ERROR_MESSAGES.BILLING_NOT_FOUND);
     }
+    await this.pendencyValidator.assertCanAdvance(id);
 
     return executeInTransaction(
       this.dataSource,

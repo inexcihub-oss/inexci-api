@@ -43,7 +43,7 @@ export class UploadController {
     @Body('folder') folder: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const result = await this.uploadService.uploadFile(file, folder, user.ownerId);
+    const result = await this.uploadService.uploadFile(file, folder, user.ownerId ?? undefined);
 
     return {
       message: 'Arquivo enviado com sucesso',
@@ -81,7 +81,7 @@ export class UploadController {
     @Body('folder') folder: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const results = await this.uploadService.uploadMultipleFiles(files, folder, user.ownerId);
+    const results = await this.uploadService.uploadMultipleFiles(files, folder, user.ownerId ?? undefined);
 
     return {
       message: `${results.length} arquivo(s) enviado(s) com sucesso`,

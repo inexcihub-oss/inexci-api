@@ -88,7 +88,9 @@ describe('BillingWebhookService', () => {
       await service.handle(verifyInput);
 
       expect(eventRepo.create).not.toHaveBeenCalled();
-      expect(subscriptionService.syncFromGatewaySubscription).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
     });
 
     it('pula evento já processado sem reprocessar', async () => {
@@ -101,7 +103,9 @@ describe('BillingWebhookService', () => {
       await service.handle(verifyInput);
 
       expect(eventRepo.create).not.toHaveBeenCalled();
-      expect(subscriptionService.syncFromGatewaySubscription).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
     });
 
     it('cria registro de evento e marca como processado após dispatch bem-sucedido', async () => {
@@ -110,12 +114,17 @@ describe('BillingWebhookService', () => {
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-1' });
       gateway.getSubscription.mockResolvedValue(makeGatewaySub());
-      subscriptionService.syncFromGatewaySubscription.mockResolvedValue(undefined);
+      subscriptionService.syncFromGatewaySubscription.mockResolvedValue(
+        undefined,
+      );
 
       await service.handle(verifyInput);
 
       expect(eventRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ eventId: 'evt_test_1', eventType: 'subscription.updated' }),
+        expect.objectContaining({
+          eventId: 'evt_test_1',
+          eventType: 'subscription.updated',
+        }),
       );
       expect(eventRepo.update).toHaveBeenCalledWith(
         'stored-1',
@@ -130,20 +139,29 @@ describe('BillingWebhookService', () => {
       eventRepo.create.mockResolvedValue({ id: 'stored-2' });
       gateway.getSubscription.mockRejectedValue(new Error('Stripe timeout'));
 
-      await expect(service.handle(verifyInput)).rejects.toThrow('Stripe timeout');
+      await expect(service.handle(verifyInput)).rejects.toThrow(
+        'Stripe timeout',
+      );
 
       expect(eventRepo.update).toHaveBeenCalledWith(
         'stored-2',
-        expect.objectContaining({ error: expect.stringContaining('Stripe timeout') }),
+        expect.objectContaining({
+          error: expect.stringContaining('Stripe timeout'),
+        }),
       );
     });
 
     it('reaproveita registro existente (não processado) em vez de criar outro', async () => {
       const event = makeEvent();
       gateway.parseWebhookEvent.mockReturnValue(event);
-      eventRepo.findByProviderEvent.mockResolvedValue({ id: 'existing-1', processedAt: null });
+      eventRepo.findByProviderEvent.mockResolvedValue({
+        id: 'existing-1',
+        processedAt: null,
+      });
       gateway.getSubscription.mockResolvedValue(makeGatewaySub());
-      subscriptionService.syncFromGatewaySubscription.mockResolvedValue(undefined);
+      subscriptionService.syncFromGatewaySubscription.mockResolvedValue(
+        undefined,
+      );
 
       await service.handle(verifyInput);
 
@@ -183,12 +201,12 @@ describe('BillingWebhookService', () => {
       expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-local', {
         gatewaySubscriptionId: 'gw-sub-1',
       });
-      expect(subscriptionService.syncFromGatewaySubscription).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'gw-sub-1' }),
-      );
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).toHaveBeenCalledWith(expect.objectContaining({ id: 'gw-sub-1' }));
     });
 
-    it('não sobrescreve gatewaySubscriptionId já existente', async () => {
+    it('sobrescreve gatewaySubscriptionId quando checkout retorna um novo id', async () => {
       gateway.parseWebhookEvent.mockReturnValue(checkoutEvent());
       subscriptionRepo.findByGatewayCustomerId.mockResolvedValue({
         id: 'sub-local',
@@ -198,10 +216,9 @@ describe('BillingWebhookService', () => {
 
       await service.handle(verifyInput);
 
-      expect(subscriptionRepo.update).not.toHaveBeenCalledWith(
-        'sub-local',
-        expect.objectContaining({ gatewaySubscriptionId: expect.anything() }),
-      );
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-local', {
+        gatewaySubscriptionId: 'gw-sub-1',
+      });
     });
 
     it('retorna silenciosamente quando customerId ou subscriptionId ausente', async () => {
@@ -233,7 +250,9 @@ describe('BillingWebhookService', () => {
 
       await service.handle(verifyInput);
 
-      expect(subscriptionService.syncFromGatewaySubscription).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -252,7 +271,9 @@ describe('BillingWebhookService', () => {
         await service.handle(verifyInput);
 
         expect(gateway.getSubscription).toHaveBeenCalledWith('gw-sub-1');
-        expect(subscriptionService.syncFromGatewaySubscription).toHaveBeenCalledWith(
+        expect(
+          subscriptionService.syncFromGatewaySubscription,
+        ).toHaveBeenCalledWith(
           expect.objectContaining({ id: 'gw-sub-1', status: 'active' }),
         );
       },
@@ -271,14 +292,18 @@ describe('BillingWebhookService', () => {
     });
 
     it('retorna silenciosamente quando gateway não encontra a subscription', async () => {
-      gateway.parseWebhookEvent.mockReturnValue(makeEvent({ type: 'subscription.updated' }));
+      gateway.parseWebhookEvent.mockReturnValue(
+        makeEvent({ type: 'subscription.updated' }),
+      );
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-x' });
       gateway.getSubscription.mockResolvedValue(null);
 
       await service.handle(verifyInput);
 
-      expect(subscriptionService.syncFromGatewaySubscription).not.toHaveBeenCalled();
+      expect(
+        subscriptionService.syncFromGatewaySubscription,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -287,20 +312,30 @@ describe('BillingWebhookService', () => {
   describe('subscription.canceled', () => {
     it('localiza subscription local e chama cancelImmediately', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
-        makeEvent({ type: 'subscription.canceled', refs: { subscriptionId: 'gw-sub-1' } }),
+        makeEvent({
+          type: 'subscription.canceled',
+          refs: { subscriptionId: 'gw-sub-1' },
+        }),
       );
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-c' });
-      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({ id: 'sub-local-1' });
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-local-1',
+      });
 
       await service.handle(verifyInput);
 
-      expect(subscriptionService.cancelImmediately).toHaveBeenCalledWith('sub-local-1');
+      expect(subscriptionService.cancelImmediately).toHaveBeenCalledWith(
+        'sub-local-1',
+      );
     });
 
     it('não falha quando subscription local não existe', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
-        makeEvent({ type: 'subscription.canceled', refs: { subscriptionId: 'gw-sub-orphan' } }),
+        makeEvent({
+          type: 'subscription.canceled',
+          refs: { subscriptionId: 'gw-sub-orphan' },
+        }),
       );
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-c2' });
@@ -317,20 +352,30 @@ describe('BillingWebhookService', () => {
   describe('invoice.paid', () => {
     it('localiza subscription local e chama markActive', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
-        makeEvent({ type: 'invoice.paid', refs: { subscriptionId: 'gw-sub-1' } }),
+        makeEvent({
+          type: 'invoice.paid',
+          refs: { subscriptionId: 'gw-sub-1' },
+        }),
       );
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-ip' });
-      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({ id: 'sub-local-2' });
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-local-2',
+      });
 
       await service.handle(verifyInput);
 
-      expect(subscriptionService.markActive).toHaveBeenCalledWith('sub-local-2');
+      expect(subscriptionService.markActive).toHaveBeenCalledWith(
+        'sub-local-2',
+      );
     });
 
     it('não falha quando subscription local não existe', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
-        makeEvent({ type: 'invoice.paid', refs: { subscriptionId: 'gw-no-sub' } }),
+        makeEvent({
+          type: 'invoice.paid',
+          refs: { subscriptionId: 'gw-no-sub' },
+        }),
       );
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-ip2' });
@@ -354,7 +399,9 @@ describe('BillingWebhookService', () => {
         );
         eventRepo.findByProviderEvent.mockResolvedValue(null);
         eventRepo.create.mockResolvedValue({ id: 'stored-if' });
-        subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({ id: 'sub-local-3' });
+        subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+          id: 'sub-local-3',
+        });
 
         await service.handle(verifyInput);
 
@@ -367,7 +414,10 @@ describe('BillingWebhookService', () => {
 
     it('não falha quando subscription local não existe', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
-        makeEvent({ type: 'invoice.failed', refs: { subscriptionId: 'gw-no-sub' } }),
+        makeEvent({
+          type: 'invoice.failed',
+          refs: { subscriptionId: 'gw-no-sub' },
+        }),
       );
       eventRepo.findByProviderEvent.mockResolvedValue(null);
       eventRepo.create.mockResolvedValue({ id: 'stored-if2' });

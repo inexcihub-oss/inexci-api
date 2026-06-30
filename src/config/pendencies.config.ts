@@ -82,7 +82,9 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
       {
         key: 'confirm_date',
         label: 'Paciente confirmar data',
-        blocking: true,
+        // Não bloqueante: a própria ação de confirmDate resolve esta pendência;
+        // validar antes do commit causaria false-block.
+        blocking: false,
         responsibleRole: 'patient',
       },
     ],
@@ -111,7 +113,9 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
       {
         key: 'confirm_receipt',
         label: 'Confirmar recebimento',
-        blocking: true,
+        // Não bloqueante: a própria ação de confirmReceipt fornece os dados via DTO;
+        // validar antes causaria false-block já que receivedValue/receivedAt ainda não existem.
+        blocking: false,
         responsibleRole: 'collaborator',
       },
     ],

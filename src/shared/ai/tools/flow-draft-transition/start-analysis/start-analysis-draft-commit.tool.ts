@@ -4,7 +4,7 @@ import { buildToolResult } from '../../tool-result';
 import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
-import { assertCurrentStatusIs } from '../_helpers';
+import { assertCurrentStatusIs, extractTransitionErrorMessage } from '../_helpers';
 
 export function buildStartAnalysisDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -93,7 +93,7 @@ export function buildStartAnalysisDraftCommitTool(
       } catch (err: any) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao iniciar análise: ${err?.message || 'erro desconhecido'}`,
+          message: extractTransitionErrorMessage(err, 'Erro ao iniciar análise'),
         });
       }
     },

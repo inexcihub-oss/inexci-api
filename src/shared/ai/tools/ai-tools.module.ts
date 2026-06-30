@@ -55,6 +55,7 @@ import { OpmeService } from '../../../modules/surgery-requests/opme/opme.service
 import { UsersService } from '../../../modules/users/users.service';
 import { DocumentsService } from '../../../modules/surgery-requests/documents/documents.service';
 import { TussService } from '../../../modules/tuss/tuss.service';
+import { SurgeryRequestAssemblyService } from '../../../modules/surgery-requests/services/surgery-request-assembly.service';
 import { CidService } from '../../../modules/surgery-requests/cid/cid.service';
 import { StorageService } from '../../storage/storage.service';
 
@@ -111,6 +112,7 @@ export interface AllToolsDeps {
   documentsService: DocumentsService;
   documentDispatcher: WhatsappDocumentDispatcherService;
   conversationMemory: ConversationMemoryService;
+  assemblyService: SurgeryRequestAssemblyService;
 }
 
 // ─── Fábrica principal ────────────────────────────────────────────────────────
@@ -157,6 +159,7 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
     documentsService,
     documentDispatcher,
     conversationMemory,
+    assemblyService,
   } = deps;
 
   return [
@@ -167,8 +170,7 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       surgeryRequestRepo,
       surgeryRequestsService,
       activityRepo,
-      opmeService,
-      tussService,
+      assemblyService,
     }),
     ...buildCadastroDraftTools({
       draftService,
@@ -312,6 +314,7 @@ export function aiToolsFactory(
   documentsService: DocumentsService,
   documentDispatcher: WhatsappDocumentDispatcherService,
   conversationMemory: ConversationMemoryService,
+  assemblyService: SurgeryRequestAssemblyService,
 ): AiTool[] {
   return buildAllAiTools({
     draftService,
@@ -346,6 +349,7 @@ export function aiToolsFactory(
     documentsService,
     documentDispatcher,
     conversationMemory,
+    assemblyService,
   });
 }
 
@@ -389,4 +393,5 @@ export const AI_TOOLS_INJECT: InjectionToken[] = [
   DocumentsService,
   WhatsappDocumentDispatcherService,
   ConversationMemoryService,
+  SurgeryRequestAssemblyService,
 ];

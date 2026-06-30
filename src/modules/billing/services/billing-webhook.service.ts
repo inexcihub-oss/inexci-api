@@ -123,7 +123,7 @@ export class BillingWebhookService {
       return;
     }
 
-    if (!local.gatewaySubscriptionId) {
+    if (local.gatewaySubscriptionId !== subscriptionId) {
       await this.subscriptionRepo.update(local.id, {
         gatewaySubscriptionId: subscriptionId,
       });

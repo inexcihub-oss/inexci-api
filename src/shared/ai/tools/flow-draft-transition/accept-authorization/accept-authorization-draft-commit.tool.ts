@@ -4,7 +4,7 @@ import { buildToolResult } from '../../tool-result';
 import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
-import { assertCurrentStatusIs } from '../_helpers';
+import { assertCurrentStatusIs, extractTransitionErrorMessage } from '../_helpers';
 
 export function buildAcceptAuthorizationDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -85,7 +85,7 @@ export function buildAcceptAuthorizationDraftCommitTool(
       } catch (err: any) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao aceitar autorização: ${err?.message || 'erro desconhecido'}`,
+          message: extractTransitionErrorMessage(err, 'Erro ao aceitar autorização'),
         });
       }
     },

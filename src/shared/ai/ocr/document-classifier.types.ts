@@ -32,7 +32,15 @@ export interface DocumentClassificationPatient {
   birthDate?: string;
   rg?: string;
   motherName?: string;
+  /** Logradouro (rua/avenida), sem número/complemento/bairro/cidade/UF. */
   address?: string;
+  addressNumber?: string;
+  addressComplement?: string;
+  neighborhood?: string;
+  city?: string;
+  /** UF — 2 letras maiúsculas (ex.: "RJ"). */
+  state?: string;
+  zipCode?: string;
   phone?: string;
 }
 
@@ -45,6 +53,8 @@ export interface DocumentClassificationHealthPlan {
 export interface DocumentClassificationTussItem {
   code: string;
   description: string;
+  /** Quantidade solicitada (ex.: sufixo "X 2" na mesma linha). Default 1. */
+  qty?: number;
 }
 
 export interface DocumentClassificationCidItem {
@@ -64,6 +74,11 @@ export interface DocumentClassificationOpmeItem {
    * — em geral aparece entre parênteses, ao lado do fornecedor.
    */
   manufacturer?: string;
+}
+
+export interface DocumentClassificationReportSection {
+  title: string;
+  description: string;
 }
 
 export interface DocumentClassificationExtracted {
@@ -92,18 +107,25 @@ export interface DocumentClassificationExtracted {
    * ao popular o draft de SC.
    */
   suggestedProcedureName?: string;
+  /**
+   * Seções estruturadas do laudo (título + descrição), espelhando a aba de
+   * "seções do laudo" da plataforma (entidade `ReportSection`). Texto
+   * copiado literalmente do documento — sem resumir.
+   */
+  reportSections?: DocumentClassificationReportSection[];
+  /** @deprecated mantido como agregado de `reportSections` para compatibilidade. */
   laudoText?: string;
   notes?: string;
 }
 
 export interface DocumentClassification {
   kind: DocumentClassificationKind;
-  /** 0..1 — abaixo de 0.7 o `ambiguity` deve descrever a dúvida. */
+  /** 0..1 — abaixo de 0.75 o `ambiguity` deve descrever a dúvida. */
   confidence: number;
   extracted: DocumentClassificationExtracted;
   /** Mapeia para `DOCUMENT_TYPES` (ex.: `medical_report`, `personal_document`). */
   suggestedDocumentType: string;
-  /** Texto livre quando `confidence < 0.7`. */
+  /** Texto livre quando `confidence < 0.75`. */
   ambiguity?: string;
   /** Latência em ms da chamada ao LLM. */
   durationMs: number;

@@ -28,6 +28,12 @@ import {
 
 type StripeInstance = StripeLib.Stripe;
 type StripeSubStatus = StripeSubscription['status'];
+type CheckoutSessionCreateParams = NonNullable<
+  Parameters<StripeInstance['checkout']['sessions']['create']>[0]
+>;
+type StripeCheckoutSubscriptionData = NonNullable<
+  CheckoutSessionCreateParams['subscription_data']
+>;
 
 @Injectable()
 export class StripeProvider implements PaymentGateway {
@@ -100,7 +106,7 @@ export class StripeProvider implements PaymentGateway {
         line_items: [{ price: input.priceId, quantity: 1 }],
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
-        subscription_data: subscriptionData as StripeLib.Stripe.Checkout.SessionCreateParams.SubscriptionData,
+        subscription_data: subscriptionData as StripeCheckoutSubscriptionData,
       });
 
       return { id: session.id, url: session.url ?? '', raw: session };
@@ -131,6 +137,50 @@ export class StripeProvider implements PaymentGateway {
     try {
       const sub = await this.stripe.subscriptions.retrieve(subscriptionId);
       return this.toGatewaySubscription(sub);
+    } catch (err) {
+      if (this.isNotFound(err)) return null;
+      throw this.wrapError(err);
+    }
+  }
+
+  async getLatestSubscriptionByCustomer(
+    customerId: string,
+  ): Promise<GatewaySubscription | null> {
+    try {
+      const list = await this.stripe.subscriptions.list({
+        customer: customerId,
+        status: 'all',
+        limit: 10,
+      });
+
+      if (!list.data.length) return null;
+
+      const score = (status: StripeSubStatus): number => {
+        switch (status) {
+          case 'active':
+          case 'trialing':
+            return 5;
+          case 'past_due':
+          case 'unpaid':
+            return 4;
+          case 'incomplete':
+            return 3;
+          case 'paused':
+            return 2;
+          case 'canceled':
+          case 'incomplete_expired':
+          default:
+            return 1;
+        }
+      };
+
+      const best = [...list.data].sort((a, b) => {
+        const statusDelta = score(b.status) - score(a.status);
+        if (statusDelta !== 0) return statusDelta;
+        return (b.created ?? 0) - (a.created ?? 0);
+      })[0];
+
+      return best ? this.toGatewaySubscription(best) : null;
     } catch (err) {
       if (this.isNotFound(err)) return null;
       throw this.wrapError(err);

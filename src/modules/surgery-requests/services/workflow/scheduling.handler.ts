@@ -18,6 +18,7 @@ import { SurgeryRequestNotificationService } from '../surgery-request-notificati
 import { ConfirmDateDto } from '../../dto/confirm-date.dto';
 import { UpdateDateOptionsDto } from '../../dto/update-date-options.dto';
 import { RescheduleDto } from '../../dto/reschedule.dto';
+import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
 
 @Injectable()
 export class SchedulingHandler {
@@ -27,6 +28,7 @@ export class SchedulingHandler {
     private readonly dataSource: DataSource,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
+    private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
   async confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
@@ -41,6 +43,7 @@ export class SchedulingHandler {
         'A solicitação precisa estar Em Agendamento.',
       );
     }
+    await this.pendencyValidator.assertCanAdvance(id);
 
     const dateOptions = request.dateOptions as string[];
     if (!dateOptions || dateOptions[dto.selectedDateIndex] === undefined) {

@@ -67,6 +67,12 @@ const DOCUMENT_RESPONSE_SCHEMA = {
               rg: { type: ['string', 'null'] },
               motherName: { type: ['string', 'null'] },
               address: { type: ['string', 'null'] },
+              addressNumber: { type: ['string', 'null'] },
+              addressComplement: { type: ['string', 'null'] },
+              neighborhood: { type: ['string', 'null'] },
+              city: { type: ['string', 'null'] },
+              state: { type: ['string', 'null'] },
+              zipCode: { type: ['string', 'null'] },
               phone: { type: ['string', 'null'] },
             },
             required: [
@@ -76,6 +82,12 @@ const DOCUMENT_RESPONSE_SCHEMA = {
               'rg',
               'motherName',
               'address',
+              'addressNumber',
+              'addressComplement',
+              'neighborhood',
+              'city',
+              'state',
+              'zipCode',
               'phone',
             ],
           },
@@ -98,8 +110,9 @@ const DOCUMENT_RESPONSE_SCHEMA = {
               properties: {
                 code: { type: 'string' },
                 description: { type: 'string' },
+                qty: { type: ['number', 'null'], minimum: 1 },
               },
-              required: ['code', 'description'],
+              required: ['code', 'description', 'qty'],
             },
           },
           cid: {
@@ -133,6 +146,18 @@ const DOCUMENT_RESPONSE_SCHEMA = {
           },
           diagnosis: { type: ['string', 'null'] },
           suggestedProcedureName: { type: ['string', 'null'] },
+          reportSections: {
+            type: ['array', 'null'],
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                title: { type: 'string' },
+                description: { type: 'string' },
+              },
+              required: ['title', 'description'],
+            },
+          },
           laudoText: { type: ['string', 'null'] },
           notes: { type: ['string', 'null'] },
         },
@@ -146,6 +171,7 @@ const DOCUMENT_RESPONSE_SCHEMA = {
           'suggestedSuppliers',
           'diagnosis',
           'suggestedProcedureName',
+          'reportSections',
           'laudoText',
           'notes',
         ],
@@ -173,9 +199,12 @@ const SYSTEM_PROMPT = [
   '2. Extraia TODO campo que estiver claramente legível. Se está escrito,',
   '   coloque na resposta — não seja conservador.',
   '3. NÃO invente: se não está no texto, retorne `null`.',
-  '4. Devolva placeholders no formato `{{categoria_n}}` exatamente como',
-  '   recebidos (são PII tokenizada). NUNCA expanda um placeholder.',
-  '5. Se confiança < 0.7, descreva a dúvida em `ambiguity`.',
+  '4. CPF, RG, telefone, e-mail e endereço podem estar tokenizados no texto',
+  '   como placeholders (exemplos: `{{cpf_1}}`, `{{rg_1}}`, `{{phone_1}}`,',
+  '   `{{email_1}}`). Copie esses tokens EXATAMENTE como aparecem no texto —',
+  '   não os expanda nem interprete. NOMES de pessoas nunca são tokenizados:',
+  '   extraia-os literalmente.',
+  '5. Se confiança < 0.75, descreva a dúvida em `ambiguity`.',
   '6. Sempre `null` (não string vazia) para ausentes.',
   '',
   'COMO LER UM LAUDO/SOLICITAÇÃO CIRÚRGICA TÍPICO BRASILEIRO:',
@@ -184,9 +213,69 @@ const SYSTEM_PROMPT = [
   'extrair CRM (o sistema já sabe quem é o médico solicitante).',
   '',
   '"Paciente: <NOME>" → `extracted.patient.name`. Pode aparecer também como',
-  '"Pcte:", "Nome:", "Nome do paciente:".',
+  '"Pcte:", "Nome:", "Nome do paciente:". É comum o cabeçalho trazer várias',
+  'linhas seguidas sem rótulo explícito, ex.:',
+  '  "Lucas Bruno Borges de Medeiros',
+  '   DN 26/10/1995 / ID: 27.903.040-7 DETRAN-RJ / CPF 168.508.057-03',
+  '   END: Rua Guarajanga, Q 6 01, Lt 13 Duque de Caxias - RJ. CEP 25.220-290 / Tel. 21 97744-0411',
+  '   SULAMERICA 88888 0167 4659 0018"',
+  'Nesse padrão: 1ª linha = `patient.name`; "DN" = `patient.birthDate`;',
+  '"ID:" = `patient.rg`; "CPF" = `patient.cpf`; "Tel."/"Cel." =',
+  '`patient.phone`; a linha com nome de',
+  'operadora (SULAMERICA, BRADESCO SAÚDE, AMIL, UNIMED etc.) seguida de uma',
+  'sequência numérica longa = `healthPlan.name` (a operadora) +',
+  '`healthPlan.planId` (o número da carteirinha), mesmo sem rótulo',
+  '"Convênio:"/"Plano:"/"Carteirinha:".',
   '"Plano: <NOME>" / "Convênio: <NOME>" → `extracted.healthPlan.name`.',
-  '"Hospital: <NOME>" / "Clínica:" → `extracted.hospital`.',
+  '"N° Carteirinha:" / "Carteirinha:" / "Matrícula:" → `extracted.healthPlan.planId`.',
+  '',
+  'ENDEREÇO DO PACIENTE ("END:", "Endereço:", "Resid.:" etc.):',
+  'Quebre o endereço em componentes em vez de copiar o texto inteiro para',
+  '`patient.address`. Campos: `patient.address` (logradouro — rua/avenida/',
+  'travessa, sem número), `patient.addressNumber` (número do imóvel — só',
+  'dígitos, ex.: "123"), `patient.addressComplement` (qualquer informação',
+  'extra de localização que não seja logradouro/número/bairro/cidade/UF —',
+  'quadra, lote, bloco, apto, casa, ponto de referência etc.),',
+  '`patient.neighborhood` (bairro), `patient.city` (cidade), `patient.state`',
+  '(UF, 2 letras maiúsculas) e `patient.zipCode` (CEP). IMPORTANTE: marcadores',
+  'como "Q"/"Quadra", "Lt"/"Lote", "Bl"/"Bloco", "Apto", "Casa" SEMPRE viram',
+  '`addressComplement` quando aparecem no texto — nunca descarte essa',
+  'informação só porque não há um número de casa tradicional separado.',
+  'Exemplo: "END: Rua Guarajanga, Q 6 01, Lt 13 Duque de Caxias - RJ. CEP',
+  '25.220-290" → address="Rua Guarajanga", addressNumber=null,',
+  'addressComplement="Q 6 01, Lt 13", city="Duque de Caxias", state="RJ",',
+  'zipCode="25.220-290" (addressNumber fica `null` pois não há um número de',
+  'casa isolado, mas addressComplement é OBRIGATORIAMENTE preenchido com a',
+  'informação de quadra/lote que está no texto). Outro exemplo: "Av. Brasil,',
+  '450, Bloco 2 Apto 301, Centro, Rio de Janeiro - RJ" → addressNumber="450",',
+  'addressComplement="Bloco 2 Apto 301", neighborhood="Centro",',
+  'city="Rio de Janeiro", state="RJ". Só deixe um componente `null` quando',
+  'ele REALMENTE não aparece no texto — nunca invente bairro, número ou',
+  'cidade que não estejam escritos.',
+  '',
+  'LOCAL DA CIRURGIA (hospital):',
+  'Não procure apenas o rótulo "Hospital:" / "Clínica:". Para cada documento,',
+  'pergunte-se: "este texto diz ONDE a cirurgia será realizada? Se sim, qual',
+  'é o nome desse hospital/clínica?". A informação pode estar em qualquer',
+  'lugar do texto e fraseada de formas muito diferentes — não existe um',
+  'único padrão fixo. Exemplos de frases que respondem "sim" a essa',
+  'pergunta (NÃO é uma lista exaustiva, apenas ilustrações do tipo de',
+  'raciocínio esperado):',
+  '  - Rótulo direto: "Hospital: <NOME>", "Clínica: <NOME>", "Unidade:',
+  '    <NOME>".',
+  '  - Frase de fechamento com data, ex.: "Local: Será realizada no Hospital',
+  '    Caxias D\'Or, na data de 14/10/2023." → aqui `extracted.hospital =',
+  '    "Hospital Caxias D\'Or"` (ignore a data — não há campo para isso).',
+  '  - Frase corrida sem rótulo, ex.: "Cirurgia agendada para o Hospital São',
+  '    Lucas", "Procedimento será realizado no Hospital e Maternidade Santa',
+  '    Joana", "Internação prevista na Clínica NeuroVida".',
+  '  - Menção dentro de outro contexto, ex.: "Solicito autorização para',
+  '    realização no Hospital Albert Einstein" ou um cabeçalho/rodapé que só',
+  '    cita o nome do hospital sem nenhum verbo ligado a ele.',
+  'Se o texto não disser em nenhum lugar onde a cirurgia ocorrerá, deixe',
+  '`extracted.hospital = null` — não infira a partir do nome da clínica que',
+  'EMITIU o laudo (cabeçalho do documento) a menos que o próprio texto deixe',
+  'claro que é o mesmo local da cirurgia.',
   '',
   'DIAGNÓSTICO E QUADRO CLÍNICO:',
   '"Diagnóstico:" / "Diagnostico:" / "Hipótese diagnóstica:" / "DH:" →',
@@ -205,7 +294,11 @@ const SYSTEM_PROMPT = [
   '"Códigos solicitados:" / "TUSS:" / "Código:" — cada linha vira um item de',
   '`extracted.tuss` com `code` (ex.: "3.07.15.091" ou "30715091") e',
   '`description` (descrição na mesma linha). Se a mesma descrição aparece',
-  'várias vezes com códigos diferentes, mantenha cada uma.',
+  'várias vezes com códigos diferentes, mantenha cada uma. Quando a linha',
+  'terminar com um sufixo de quantidade — ex.: "3.07.15.091 X 2",',
+  '"3.07.15.091 x2", "3.07.15.091 (2x)" — esse número vira `tuss[].qty`',
+  '(ex.: `qty: 2`). Quando não houver sufixo de quantidade, use `qty: 1`.',
+  'Não confunda esse sufixo com parte do código ou da descrição.',
   '',
   'OPME (Órteses, Próteses, Materiais Especiais):',
   '"MATERIAL:" / "OPME:" / "Materiais necessários:" — cada linha geralmente',
@@ -217,17 +310,35 @@ const SYSTEM_PROMPT = [
   'FORNECEDORES OPME:',
   '"SUGIRO AS EMPRESAS:" / "Fornecedores sugeridos:" / "Distribuidores:" —',
   'liste cada empresa em `extracted.suggestedSuppliers` (apenas o NOME da',
-  'distribuidora, ex.: ["SINTEX", "VITALITY", "GUSMED"]). Se o documento',
-  'associar empresa direto a um material específico, preencha também',
-  '`opme[].supplier` no item correspondente. Se houver MARCA/fabricante',
-  'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), coloque a marca em',
-  '`opme[].manufacturer` quando puder associar; senão deixe `null`.',
+  'distribuidora, ex.: ["SINTEX", "VITALITY", "GUSMED"]). O mesmo vale para',
+  'o padrão "materiais fornecidos pela empresa X (empresas para cotação Y e',
+  'Z)" — coloque X, Y e Z (todas as 3) em `extracted.suggestedSuppliers`,',
+  'mesmo que só X seja a fornecedora principal. Se o documento associar',
+  'empresa direto a um material específico, preencha também `opme[].supplier`',
+  'no item correspondente. Se houver MARCA/fabricante entre parênteses (ex.:',
+  '"SINTEX (DIVA/NOVA SPINE)"), coloque a marca em `opme[].manufacturer`',
+  'quando puder associar; senão deixe `null`.',
   '',
-  'LAUDO CLÍNICO COMPLETO:',
-  'O texto narrativo entre "Diagnóstico" e "Códigos solicitados" (queixa,',
-  'exame neurológico, RNM, indicação cirúrgica, justificativa) deve ir',
-  '**INTEIRO** em `extracted.laudoText`. Não trunque, não resuma — copie',
-  'literal. Esse texto vai virar o "laudoText" da SC.',
+  'SEÇÕES DO LAUDO (reportSections):',
+  'A plataforma organiza o laudo em seções com título + descrição (igual à',
+  'aba de "seções do laudo" do sistema). Divida o texto narrativo do',
+  'documento (queixa, histórico, exame físico, achados de exames de',
+  'imagem, indicação cirúrgica, justificativa, condutas) nessas seções e',
+  'devolva em `extracted.reportSections` como uma lista de',
+  '`{title, description}`. Use os títulos que o PRÓPRIO documento sugerir',
+  '(ex.: um bloco de história clínica + diagnóstico seguido de achados',
+  'numerados de RX/RNM forma UMA seção só, título "Histórico e',
+  'Diagnóstico"; o parágrafo de raciocínio/justificativa clínica — e',
+  'qualquer parágrafo seguinte que dê continuidade a essa mesma linha de',
+  'raciocínio, como otimização de custos ou explicação do propósito de',
+  'cada material — forma a seção "Conduta"). Se o documento não tiver uma',
+  'divisão clara, use um título genérico como "Laudo" com todo o texto.',
+  'Cada `description` deve ser objetiva e útil, com no máximo ~1200',
+  'caracteres por seção. Priorize informação clínica central e itens com',
+  'impacto na solicitação (diagnóstico, justificativa, exames, conduta).',
+  'Preencha também `extracted.laudoText` com a concatenação de todas as',
+  'seções (compatibilidade com consumidores antigos que ainda não leem',
+  '`reportSections`), limitado a ~2000 caracteres.',
   '',
   'Regras de mapeamento `kind` → `suggestedDocumentType`:',
   '- `medical_report` → `medical_report`',
@@ -305,6 +416,7 @@ export class DocumentClassifierService {
     }
 
     const model = this.getModel();
+    const maxTokens = this.getMaxTokens();
     const userPrompt = this.buildUserPrompt(trimmed, opts.intent);
 
     // Salvaguarda contra regressão do `payload_blob`: se o texto tokenizado
@@ -334,11 +446,9 @@ export class DocumentClassifierService {
     const response = await this.openai.chatCompletion({
       model,
       temperature: 0,
-      // 2500 tokens dá folga para JSONs reais de laudo (TUSS + CID + OPME +
-      // patient + laudoText). 800 truncava respostas em laudos bem
-      // preenchidos, fazendo o JSON parse falhar e o pipeline cair em
-      // "classifier_failed".
-      maxTokens: 2500,
+      // Mantemos configurável via env para ajuste fino sem deploy.
+      // Default mais enxuto reduz latência e risco de JSON truncado.
+      maxTokens,
       timeoutMs: 30000,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -411,6 +521,16 @@ export class DocumentClassifierService {
       'gpt-4o-mini',
     );
     return (raw && raw.trim()) || 'gpt-4o-mini';
+  }
+
+  private getMaxTokens(): number {
+    const raw = this.configService.get<string>(
+      'AI_DOC_CLASSIFIER_MAX_TOKENS',
+      '1800',
+    );
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 1800;
+    return Math.max(600, Math.min(4000, Math.floor(parsed)));
   }
 
   /**
@@ -502,6 +622,12 @@ export class DocumentClassifierService {
       'rg',
       'motherName',
       'address',
+      'addressNumber',
+      'addressComplement',
+      'neighborhood',
+      'city',
+      'state',
+      'zipCode',
       'phone',
     ]);
     if (patient) out.patient = patient;
@@ -525,6 +651,10 @@ export class DocumentClassifierService {
             typeof item?.description === 'string'
               ? item.description.trim()
               : '',
+          qty:
+            typeof item?.qty === 'number' && item.qty >= 1
+              ? item.qty
+              : undefined,
         }))
         .filter((item: any) => item.code);
       if (tuss.length) out.tuss = tuss;
@@ -554,7 +684,10 @@ export class DocumentClassifierService {
           if (typeof item?.supplier === 'string' && item.supplier.trim()) {
             entry.supplier = item.supplier.trim();
           }
-          if (typeof item?.manufacturer === 'string' && item.manufacturer.trim()) {
+          if (
+            typeof item?.manufacturer === 'string' &&
+            item.manufacturer.trim()
+          ) {
             entry.manufacturer = item.manufacturer.trim();
           }
           return entry;
@@ -582,6 +715,19 @@ export class DocumentClassifierService {
       raw.suggestedProcedureName.trim()
     ) {
       out.suggestedProcedureName = raw.suggestedProcedureName.trim();
+    }
+
+    if (Array.isArray(raw?.reportSections) && raw.reportSections.length) {
+      const sections = raw.reportSections
+        .map((item: any) => ({
+          title: typeof item?.title === 'string' ? item.title.trim() : '',
+          description:
+            typeof item?.description === 'string'
+              ? item.description.trim()
+              : '',
+        }))
+        .filter((item: any) => item.title && item.description);
+      if (sections.length) out.reportSections = sections;
     }
 
     if (typeof raw?.laudoText === 'string' && raw.laudoText.trim()) {

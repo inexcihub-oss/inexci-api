@@ -212,6 +212,7 @@ export interface MarkPerformedDraftFields {
   surgeryRequestId?: string;
   surgeryRequestLabel?: string;
   surgeryPerformedAt?: string;
+  notifyPatient?: boolean;
 }
 
 export type DraftFieldsByType = {

@@ -95,6 +95,36 @@ export async function assertCurrentStatusIs(
 }
 
 /**
+ * Extrai uma mensagem legível de erros de transição de status.
+ * Quando o backend retorna pendencies[], lista-as para o LLM.
+ */
+export function extractTransitionErrorMessage(
+  err: any,
+  defaultPrefix: string,
+): string {
+  const response = typeof err?.getResponse === 'function'
+    ? err.getResponse()
+    : err?.response;
+
+  if (response && typeof response === 'object') {
+    const pendencies: Array<{ key: string; name: string }> =
+      Array.isArray(response.pendencies) ? response.pendencies : [];
+    const baseMessage: string =
+      typeof response.message === 'string'
+        ? response.message
+        : (err?.message ?? 'erro desconhecido');
+
+    if (pendencies.length > 0) {
+      const list = pendencies.map((p) => p.name).join('; ');
+      return `${baseMessage} Pendências: ${list}.`;
+    }
+    return baseMessage;
+  }
+
+  return `${defaultPrefix}: ${err?.message || 'erro desconhecido'}`;
+}
+
+/**
  * Lista os documentos cirúrgicos pós-operatórios já presentes na SC e
  * indica quais ainda faltam para que a transição possa acontecer.
  */

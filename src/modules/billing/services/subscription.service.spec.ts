@@ -35,7 +35,11 @@ describe('SubscriptionService', () => {
       findBySlug: jest.fn(),
       findTrialDefault: jest.fn(),
     };
-    quotaPeriodRepo = { create: jest.fn() };
+    quotaPeriodRepo = {
+      create: jest.fn(),
+      findCurrentForSubscription: jest.fn(),
+      update: jest.fn(),
+    };
     userRepo = { findOne: jest.fn() };
     config = {
       get: jest.fn((key: string, def: unknown) => {
@@ -47,9 +51,11 @@ describe('SubscriptionService', () => {
     gateway = {
       providerId: 'stripe',
       createCustomer: jest.fn(),
+      getCustomer: jest.fn(),
       createCheckoutSession: jest.fn(),
       createBillingPortalSession: jest.fn(),
       getSubscription: jest.fn(),
+      getLatestSubscriptionByCustomer: jest.fn(),
     };
 
     service = new SubscriptionService(
@@ -123,7 +129,10 @@ describe('SubscriptionService', () => {
       });
       subscriptionRepo.create.mockResolvedValue({ id: 'sub-2' });
 
-      const result = await service.createTrialSubscription('owner-1', 'essencial');
+      const result = await service.createTrialSubscription(
+        'owner-1',
+        'essencial',
+      );
 
       expect(subscriptionRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ planId: 'plan-essencial' }),
@@ -266,6 +275,254 @@ describe('SubscriptionService', () => {
       expect(result.daysLeftInTrial).toBeGreaterThanOrEqual(9);
       expect(result.daysLeftInTrial).toBeLessThanOrEqual(10);
     });
+
+    it('reconcilia com gateway quando existe gatewaySubscriptionId', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewaySubscriptionId: 'gw-sub-1',
+          planId: 'plan-1',
+          status: SubscriptionStatus.ACTIVE,
+          currentPeriodStart: new Date('2026-01-01'),
+          currentPeriodEnd: new Date('2026-02-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewaySubscriptionId: 'gw-sub-1',
+          planId: 'plan-1',
+          status: SubscriptionStatus.CANCELED,
+          currentPeriodStart: new Date('2026-01-01'),
+          currentPeriodEnd: new Date('2026-02-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        });
+
+      // Chamado dentro de syncFromGatewaySubscription
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        ownerId: 'owner-1',
+        planId: 'plan-1',
+        currentPeriodStart: new Date('2026-01-01'),
+        currentPeriodEnd: new Date('2026-02-01'),
+      });
+      gateway.getSubscription.mockResolvedValue({
+        id: 'gw-sub-1',
+        customerId: 'cus-1',
+        status: 'canceled',
+        cycle: 'MONTHLY',
+        amountCents: 1000,
+        nextDueDate: null,
+        priceId: 'price_1',
+        currentPeriodStart: new Date('2026-01-01'),
+        currentPeriodEnd: new Date('2026-02-01'),
+        trialEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canceledAt: new Date('2026-01-15'),
+      });
+      // findOne({ gatewayPriceId }) durante sync
+      planRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(gateway.getSubscription).toHaveBeenCalledWith('gw-sub-1');
+      expect(result.subscription.status).toBe(SubscriptionStatus.CANCELED);
+    });
+
+    it('marca como cancelada localmente quando assinatura não existe no gateway', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewaySubscriptionId: 'gw-sub-1',
+          status: SubscriptionStatus.ACTIVE,
+          planId: 'plan-1',
+          currentPeriodStart: new Date('2026-01-01'),
+          currentPeriodEnd: new Date('2026-02-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewaySubscriptionId: 'gw-sub-1',
+          status: SubscriptionStatus.CANCELED,
+          planId: 'plan-1',
+          currentPeriodStart: new Date('2026-01-01'),
+          currentPeriodEnd: new Date('2026-02-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        });
+      gateway.getSubscription.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(subscriptionRepo.update).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({
+          status: SubscriptionStatus.CANCELED,
+          cancelAtPeriodEnd: false,
+        }),
+      );
+      expect(result.subscription.status).toBe(SubscriptionStatus.CANCELED);
+    });
+
+    it('reconcilia por customer quando gatewaySubscriptionId está ausente', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewayCustomerId: 'cus-1',
+          gatewaySubscriptionId: null,
+          status: SubscriptionStatus.CANCELED,
+          planId: 'plan-1',
+          currentPeriodStart: new Date('2026-01-01'),
+          currentPeriodEnd: new Date('2026-02-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewayCustomerId: 'cus-1',
+          gatewaySubscriptionId: 'gw-sub-2',
+          status: SubscriptionStatus.ACTIVE,
+          planId: 'plan-1',
+          currentPeriodStart: new Date('2026-02-01'),
+          currentPeriodEnd: new Date('2026-03-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        });
+
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        ownerId: 'owner-1',
+        planId: 'plan-1',
+        currentPeriodStart: new Date('2026-01-01'),
+        currentPeriodEnd: new Date('2026-02-01'),
+      });
+
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue({
+        id: 'gw-sub-2',
+        customerId: 'cus-1',
+        status: 'active',
+        cycle: 'MONTHLY',
+        amountCents: 1000,
+        nextDueDate: null,
+        priceId: 'price_1',
+        currentPeriodStart: new Date('2026-02-01'),
+        currentPeriodEnd: new Date('2026-03-01'),
+        trialEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+      });
+      planRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(gateway.getLatestSubscriptionByCustomer).toHaveBeenCalledWith(
+        'cus-1',
+      );
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-1', {
+        gatewaySubscriptionId: 'gw-sub-2',
+      });
+      expect(result.subscription.status).toBe(SubscriptionStatus.ACTIVE);
+    });
+
+    it('troca para subscription ativa mais recente do customer quando id atual está cancelado', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewayCustomerId: 'cus-1',
+          gatewaySubscriptionId: 'gw-sub-old',
+          status: SubscriptionStatus.CANCELED,
+          planId: 'plan-1',
+          currentPeriodStart: new Date('2026-01-01'),
+          currentPeriodEnd: new Date('2026-02-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          ownerId: 'owner-1',
+          gatewayProvider: 'stripe',
+          gatewayCustomerId: 'cus-1',
+          gatewaySubscriptionId: 'gw-sub-new',
+          status: SubscriptionStatus.ACTIVE,
+          planId: 'plan-1',
+          currentPeriodStart: new Date('2026-06-01'),
+          currentPeriodEnd: new Date('2026-07-01'),
+          trialEndsAt: null,
+          pastDueSince: null,
+        });
+
+      gateway.getSubscription.mockResolvedValue({
+        id: 'gw-sub-old',
+        customerId: 'cus-1',
+        status: 'canceled',
+        cycle: 'MONTHLY',
+        amountCents: 1000,
+        nextDueDate: null,
+        priceId: 'price_1',
+        currentPeriodStart: new Date('2026-01-01'),
+        currentPeriodEnd: new Date('2026-02-01'),
+        trialEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canceledAt: new Date('2026-02-01'),
+      });
+      gateway.getLatestSubscriptionByCustomer.mockResolvedValue({
+        id: 'gw-sub-new',
+        customerId: 'cus-1',
+        status: 'active',
+        cycle: 'MONTHLY',
+        amountCents: 5000,
+        nextDueDate: null,
+        priceId: 'price_1',
+        currentPeriodStart: new Date('2026-06-01'),
+        currentPeriodEnd: new Date('2026-07-01'),
+        trialEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+      });
+
+      subscriptionRepo.findByGatewaySubscriptionId.mockImplementation(
+        async (gatewaySubscriptionId: string) => {
+          if (gatewaySubscriptionId === 'gw-sub-new') {
+            return {
+              id: 'sub-1',
+              ownerId: 'owner-1',
+              planId: 'plan-1',
+              currentPeriodStart: new Date('2026-01-01'),
+              currentPeriodEnd: new Date('2026-02-01'),
+            };
+          }
+          return null;
+        },
+      );
+      planRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.getMySubscription('owner-1');
+
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-1', {
+        gatewaySubscriptionId: 'gw-sub-new',
+      });
+      expect(result.subscription.status).toBe(SubscriptionStatus.ACTIVE);
+    });
   });
 
   describe('startCheckout', () => {
@@ -284,12 +541,19 @@ describe('SubscriptionService', () => {
         gatewayCustomerId: 'cus_existing',
         trialEndsAt: null,
       });
-      gateway.createCheckoutSession.mockResolvedValue({ id: 'cs_xxx', url: 'https://checkout.stripe.com/xxx' });
+      gateway.getCustomer.mockResolvedValue({ id: 'cus_existing' });
+      gateway.createCheckoutSession.mockResolvedValue({
+        id: 'cs_xxx',
+        url: 'https://checkout.stripe.com/xxx',
+      });
 
       const result = await service.startCheckout('owner-1', 'plan-1');
 
       expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
-        expect.objectContaining({ priceId: 'price_abc123', customerId: 'cus_existing' }),
+        expect.objectContaining({
+          priceId: 'price_abc123',
+          customerId: 'cus_existing',
+        }),
       );
       expect(result.url).toBe('https://checkout.stripe.com/xxx');
     });
@@ -298,16 +562,62 @@ describe('SubscriptionService', () => {
       userRepo.findOne.mockResolvedValue(buildOwner());
       planRepo.findOne.mockResolvedValue(plan);
       subscriptionRepo.findByOwnerId
-        .mockResolvedValueOnce({ id: 'sub-1', gatewayCustomerId: null, trialEndsAt: null })
-        .mockResolvedValueOnce({ id: 'sub-1', gatewayCustomerId: null, trialEndsAt: null });
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          gatewayCustomerId: null,
+          trialEndsAt: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          gatewayCustomerId: null,
+          trialEndsAt: null,
+        });
       gateway.createCustomer.mockResolvedValue({ id: 'cus_new' });
       subscriptionRepo.update.mockResolvedValue(undefined);
-      gateway.createCheckoutSession.mockResolvedValue({ id: 'cs_yyy', url: 'https://checkout.stripe.com/yyy' });
+      gateway.createCheckoutSession.mockResolvedValue({
+        id: 'cs_yyy',
+        url: 'https://checkout.stripe.com/yyy',
+      });
 
       const result = await service.startCheckout('owner-1', 'plan-1');
 
       expect(gateway.createCustomer).toHaveBeenCalled();
       expect(result.url).toBe('https://checkout.stripe.com/yyy');
+    });
+
+    it('recria customer quando gatewayCustomerId salvo não existe mais no gateway', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      planRepo.findOne.mockResolvedValue(plan);
+      subscriptionRepo.findByOwnerId
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          gatewayCustomerId: 'cus_old_missing',
+          trialEndsAt: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'sub-1',
+          gatewayCustomerId: 'cus_old_missing',
+          trialEndsAt: null,
+        });
+      gateway.getCustomer.mockResolvedValue(null);
+      gateway.createCustomer.mockResolvedValue({ id: 'cus_new' });
+      subscriptionRepo.update.mockResolvedValue(undefined);
+      gateway.createCheckoutSession.mockResolvedValue({
+        id: 'cs_new',
+        url: 'https://checkout.stripe.com/new',
+      });
+
+      const result = await service.startCheckout('owner-1', 'plan-1');
+
+      expect(gateway.getCustomer).toHaveBeenCalledWith('cus_old_missing');
+      expect(gateway.createCustomer).toHaveBeenCalled();
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-1', {
+        gatewayCustomerId: 'cus_new',
+      });
+      expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
+        expect.objectContaining({ customerId: 'cus_new' }),
+      );
+      expect(result.url).toBe('https://checkout.stripe.com/new');
     });
 
     it('lança BadRequest quando plano não tem gatewayPriceId', async () => {
@@ -335,7 +645,10 @@ describe('SubscriptionService', () => {
         id: 'sub-1',
         gatewayCustomerId: 'cus_abc',
       });
-      gateway.createBillingPortalSession.mockResolvedValue({ url: 'https://billing.stripe.com/portal' });
+      gateway.getCustomer.mockResolvedValue({ id: 'cus_abc' });
+      gateway.createBillingPortalSession.mockResolvedValue({
+        url: 'https://billing.stripe.com/portal',
+      });
 
       const result = await service.openBillingPortal('owner-1');
 
@@ -345,16 +658,51 @@ describe('SubscriptionService', () => {
       expect(result.url).toBe('https://billing.stripe.com/portal');
     });
 
-    it('lança BadRequest quando não há gatewayCustomerId', async () => {
+    it('recria customer e abre portal quando gatewayCustomerId local está inválido', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue({
+        id: 'sub-1',
+        gatewayCustomerId: 'cus_old_missing',
+      });
+      gateway.getCustomer.mockResolvedValue(null);
+      gateway.createCustomer.mockResolvedValue({ id: 'cus_new' });
+      gateway.createBillingPortalSession.mockResolvedValue({
+        url: 'https://billing.stripe.com/portal/new',
+      });
+
+      const result = await service.openBillingPortal('owner-1');
+
+      expect(gateway.getCustomer).toHaveBeenCalledWith('cus_old_missing');
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-1', {
+        gatewayCustomerId: 'cus_new',
+      });
+      expect(gateway.createBillingPortalSession).toHaveBeenCalledWith(
+        expect.objectContaining({ customerId: 'cus_new' }),
+      );
+      expect(result.url).toBe('https://billing.stripe.com/portal/new');
+    });
+
+    it('cria customer na Stripe e abre portal quando não há gatewayCustomerId', async () => {
       userRepo.findOne.mockResolvedValue(buildOwner());
       subscriptionRepo.findByOwnerId.mockResolvedValue({
         id: 'sub-1',
         gatewayCustomerId: null,
       });
+      gateway.createCustomer.mockResolvedValue({ id: 'cus_new' });
+      gateway.createBillingPortalSession.mockResolvedValue({
+        url: 'https://billing.stripe.com/portal',
+      });
 
-      await expect(service.openBillingPortal('owner-1')).rejects.toThrow(
-        BadRequestException,
+      const result = await service.openBillingPortal('owner-1');
+
+      expect(gateway.createCustomer).toHaveBeenCalled();
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('sub-1', {
+        gatewayCustomerId: 'cus_new',
+      });
+      expect(gateway.createBillingPortalSession).toHaveBeenCalledWith(
+        expect.objectContaining({ customerId: 'cus_new' }),
       );
+      expect(result.url).toBe('https://billing.stripe.com/portal');
     });
   });
 
@@ -440,13 +788,43 @@ describe('SubscriptionService', () => {
         planId: 'plan-1',
         currentPeriodStart: new Date('2026-02-01'),
       });
-      planRepo.findOne.mockResolvedValue({ id: 'plan-1', surgeryRequestQuota: 30 });
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-1',
+        surgeryRequestQuota: 30,
+      });
 
       await service.syncFromGatewaySubscription(
         buildGatewaySub({ currentPeriodStart: new Date('2026-02-01') }),
       );
 
       expect(quotaPeriodRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('ajusta cota do período atual quando há downgrade sem virar ciclo', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        planId: 'plan-old',
+        currentPeriodStart: new Date('2026-02-01'),
+      });
+      planRepo.findOne
+        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 10 }) // gatewayPriceId
+        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 10 }); // id
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue({
+        id: 'quota-1',
+        surgeryRequestsLimit: 40,
+        surgeryRequestsUsed: 1,
+      });
+
+      await service.syncFromGatewaySubscription(
+        buildGatewaySub({
+          currentPeriodStart: new Date('2026-02-01'),
+        }),
+      );
+
+      expect(quotaPeriodRepo.create).not.toHaveBeenCalled();
+      expect(quotaPeriodRepo.update).toHaveBeenCalledWith('quota-1', {
+        surgeryRequestsLimit: 10,
+      });
     });
 
     it('ignora silenciosamente quando subscription local não é encontrada', async () => {

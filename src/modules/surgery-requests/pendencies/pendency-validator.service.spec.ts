@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { PendencyValidatorService } from './pendency-validator.service';
 import {
   SurgeryRequest,
@@ -92,5 +93,79 @@ describe('PendencyValidatorService — patient_data', () => {
       (p) => p.key === 'medical_report',
     );
     expect(medicalReport?.isComplete).toBe(false);
+  });
+});
+
+describe('PendencyValidatorService — assertCanAdvance', () => {
+  const mockRepository = { findOne: jest.fn() };
+  const service = new PendencyValidatorService(mockRepository as any);
+
+  const completeRequest = {
+    id: 'req-ok',
+    status: SurgeryRequestStatus.PENDING,
+    patient: { name: 'Ana Lima', cpf: '98765432100' },
+    hospitalId: 'h-1',
+    tussItems: [{ id: 't-1' }],
+    hasOpme: false,
+    reportSections: [{ id: 's-1' }],
+    doctor: { doctorProfile: { signatureUrl: 'https://sig.url' } },
+    documents: [],
+    opmeItems: [],
+  } as unknown as SurgeryRequest;
+
+  const incompleteRequest = {
+    id: 'req-bad',
+    status: SurgeryRequestStatus.PENDING,
+    patient: { name: 'Fulano' },
+    hospitalId: null,
+    tussItems: [],
+    hasOpme: null,
+    reportSections: [],
+    doctor: { doctorProfile: { signatureUrl: null } },
+    documents: [],
+    opmeItems: [],
+  } as unknown as SurgeryRequest;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('não lança quando todas as pendências bloqueantes estão resolvidas', async () => {
+    mockRepository.findOne.mockResolvedValue(completeRequest);
+    await expect(service.assertCanAdvance('req-ok')).resolves.toBeUndefined();
+  });
+
+  it('lança BadRequestException com pendencies[] quando há bloqueantes não resolvidas', async () => {
+    mockRepository.findOne.mockResolvedValue(incompleteRequest);
+    await expect(service.assertCanAdvance('req-bad')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('payload de erro contém message e pendencies[] com keys corretas', async () => {
+    mockRepository.findOne.mockResolvedValue(incompleteRequest);
+    try {
+      await service.assertCanAdvance('req-bad');
+      fail('deveria ter lançado');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(BadRequestException);
+      const body = err.getResponse();
+      expect(body.message).toBe(
+        'Existem pendências que impedem o avanço de status.',
+      );
+      expect(Array.isArray(body.pendencies)).toBe(true);
+      const keys = body.pendencies.map((p: any) => p.key);
+      expect(keys).toContain('patient_data');
+      expect(keys).toContain('hospital_data');
+      expect(keys).toContain('tuss_procedures');
+      expect(keys).toContain('opme_items');
+      expect(keys).toContain('medical_report');
+    }
+  });
+
+  it('não lança quando SC está em status sem pendências bloqueantes (SENT)', async () => {
+    mockRepository.findOne.mockResolvedValue({
+      ...completeRequest,
+      status: SurgeryRequestStatus.SENT,
+    });
+    await expect(service.assertCanAdvance('req-sent')).resolves.toBeUndefined();
   });
 });

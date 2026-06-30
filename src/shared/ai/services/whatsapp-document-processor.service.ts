@@ -2,13 +2,14 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { AiTokenUsageLogRepository } from '../../../database/repositories/ai-token-usage-log.repository';
 import { hashPhone } from '../../crypto/phone-hash.util';
 import { StorageService } from '../../storage/storage.service';
-import { OcrService } from '../ocr/ocr.service';
 import {
   DocumentClassification,
   DocumentClassificationIntent,
 } from '../ocr/document-classifier.types';
-import { DocumentClassifierService } from '../ocr/document-classifier.service';
-import { DocumentVisionFallbackService } from '../ocr/document-vision-fallback.service';
+import {
+  DocumentExtractionService,
+  ClassifierUsageSnapshot,
+} from '../ocr/document-extraction.service';
 import {
   PendingDocumentRequest,
   WhatsappDocumentDispatcherService,
@@ -50,22 +51,6 @@ export interface ProcessPendingDocumentOutcome {
   usedVisionFallback?: boolean;
 }
 
-interface ClassifierUsageSnapshot {
-  stage: 'doc_classifier' | 'doc_vision_fallback';
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  model: string;
-  latencyMs: number;
-}
-
-const VISION_TRIGGER_OCR_MIN_CHARS = 30;
-const VISION_TRIGGER_OCR_MIN_CONFIDENCE = 0.6;
-// Limiar inclusivo: classifier que devolve confidence == 0.5 (caso clássico
-// "não sei, chuto meio-termo") cai no fallback. Sem isso o pipeline fica
-// preso em "Documento (tipo não identificado) — Confiança: 50%".
-const VISION_TRIGGER_CLASSIFIER_MAX_CONFIDENCE = 0.6;
-
 /**
  * Orquestra o pipeline pesado quando o usuário declara intent sobre uma
  * pendência ativa: download do staging → OCR + tokenização PII → LLM
@@ -89,11 +74,8 @@ export class WhatsappDocumentProcessorService {
 
   constructor(
     private readonly storage: StorageService,
-    private readonly ocr: OcrService,
-    private readonly classifier: DocumentClassifierService,
+    private readonly extractor: DocumentExtractionService,
     private readonly dispatcher: WhatsappDocumentDispatcherService,
-    @Optional()
-    private readonly visionFallback?: DocumentVisionFallbackService,
     @Optional()
     private readonly aiTokenUsageLogRepo?: AiTokenUsageLogRepository,
     @Optional()
@@ -105,7 +87,6 @@ export class WhatsappDocumentProcessorService {
   ): Promise<ProcessPendingDocumentOutcome> {
     const { phone, pending, intent, conversationId, messageSid } = input;
     const phoneMasked = this.maskPhone(phone);
-    const usageSnapshots: ClassifierUsageSnapshot[] = [];
 
     const buffer = await this.storage.download(pending.storagePath);
     if (!buffer) {
@@ -120,178 +101,20 @@ export class WhatsappDocumentProcessorService {
       };
     }
 
-    let ocrResult: Awaited<ReturnType<OcrService['extractAndTokenize']>> | null;
-    let ocrFailureReason: string | null = null;
-    try {
-      ocrResult = await this.ocr.extractAndTokenize(
-        {
-          buffer,
-          mimeType: pending.contentType,
-          filename: pending.fileName,
-        },
-        conversationId,
-      );
-    } catch (err: any) {
-      ocrResult = null;
-      ocrFailureReason = err?.message || 'erro desconhecido no OCR';
-      this.logger.warn(
-        `[AI_DOC_PIPELINE] sid=${messageSid} phone=${phoneMasked} status=ocr_exception reason=${ocrFailureReason}`,
-      );
-    }
-
-    if (ocrResult) {
-      this.logger.log(
-        `[AI_DOC_OCR] sid=${messageSid} phone=${phoneMasked} source=${ocrResult.source} pages=${ocrResult.pagesProcessed}/${ocrResult.pageCount} confidence=${ocrResult.confidence.toFixed(2)} duration_ms=${ocrResult.durationMs} chars=${(ocrResult.text ?? '').length}`,
-      );
-      if (ocrResult.warnings?.length) {
-        this.logger.log(
-          `[AI_DOC_OCR_WARNINGS] sid=${messageSid} phone=${phoneMasked} warnings=${ocrResult.warnings.join('|')}`,
-        );
-      }
-    }
-
-    const ocrText = ocrResult?.text?.trim() ?? '';
-    const ocrTextTooShort = ocrText.length < VISION_TRIGGER_OCR_MIN_CHARS;
-    const ocrConfidenceLow =
-      !!ocrResult && ocrResult.confidence < VISION_TRIGGER_OCR_MIN_CONFIDENCE;
-    const ocrUnusable = !ocrResult || ocrTextTooShort || ocrConfidenceLow;
-
-    let classification: DocumentClassification | null = null;
-    let classifierError: string | null = null;
-    let usedVisionFallback = false;
-
-    if (ocrResult && !ocrTextTooShort) {
-      try {
-        const result = await this.classifier.classifyWithUsage({
-          text: ocrResult.tokenizedText,
-          intent,
-          messageSid,
-        });
-        classification = result.classification;
-        usageSnapshots.push({ stage: 'doc_classifier', ...result.usage });
-        try {
-          this.logger.log(
-            `[AI_DOC_CLASSIFIER_RESULT] sid=${messageSid} phone=${phoneMasked} stage=text_only kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} extracted=${JSON.stringify(classification.extracted ?? {})}`,
-          );
-        } catch {
-          /* JSON.stringify nunca deve falhar aqui, mas guardamos por segurança. */
-        }
-      } catch (err: any) {
-        classifierError = err?.message || 'classifier indisponível';
-        this.logger.warn(
-          `[AI_DOC_PIPELINE] sid=${messageSid} phone=${phoneMasked} status=classifier_failed reason=${classifierError}`,
-        );
-      }
-    }
-
-    // Sinais que disparam Vision fallback:
-    //  1. confidence baixa (<= threshold; inclusivo para pegar o "0.5" clássico).
-    //  2. classifier devolveu `unknown` mesmo com confidence alta —
-    //     significa que o LLM viu o texto mas não conseguiu classificar
-    //     (PDF escaneado, OCR com ruído, layout não convencional).
-    //  3. `extracted` totalmente vazio — sem nome de paciente, hospital,
-    //     TUSS, CID, OPME, nem CRM. Sem nada útil é equivalente a "unknown"
-    //     para o fluxo, então tentamos Vision para ver se ele pega algo.
-    const classifierConfidenceLow =
-      !!classification &&
-      classification.confidence <= VISION_TRIGGER_CLASSIFIER_MAX_CONFIDENCE;
-    const classifierKindUnknown =
-      !!classification && classification.kind === 'unknown';
-    const classifierExtractedEmpty =
-      !!classification && this.isExtractedEffectivelyEmpty(classification);
-
-    const isPdf =
-      (pending.contentType || '').toLowerCase() === 'application/pdf';
-    const isImage = this.visionFallback?.isSupportedImageMime(
-      pending.contentType,
-    );
-
-    const visionEnabled = !!this.visionFallback?.isEnabled();
-    const shouldTryVisionFallback =
-      visionEnabled &&
-      (isImage || isPdf) &&
-      (ocrUnusable ||
-        classifierError ||
-        classifierConfidenceLow ||
-        classifierKindUnknown ||
-        classifierExtractedEmpty);
+    const extracted = await this.extractor.extractFromBuffer({
+      buffer,
+      mimeType: pending.contentType,
+      filename: pending.fileName,
+      sessionId: messageSid,
+      intent,
+    });
 
     this.logger.log(
-      `[AI_DOC_PIPELINE_SIGNALS] sid=${messageSid} phone=${phoneMasked} ` +
-        `vision_enabled=${visionEnabled} mime_supported=${!!isImage || !!isPdf} ` +
-        `ocr_unusable=${ocrUnusable} classifier_error=${!!classifierError} ` +
-        `classifier_confidence_low=${classifierConfidenceLow} classifier_kind_unknown=${classifierKindUnknown} classifier_extracted_empty=${classifierExtractedEmpty} ` +
-        `=> will_try_vision=${shouldTryVisionFallback}`,
+      `[AI_DOC_PIPELINE] sid=${messageSid} phone=${phoneMasked} status=${extracted.status} vision_fallback=${extracted.usedVisionFallback}`,
     );
 
-    if (shouldTryVisionFallback && this.visionFallback) {
-      const reason = ocrUnusable
-        ? ocrResult
-          ? ocrTextTooShort
-            ? 'ocr_text_too_short'
-            : 'ocr_confidence_low'
-          : 'ocr_exception'
-        : classifierError
-          ? 'classifier_failed'
-          : classifierConfidenceLow
-            ? 'classifier_confidence_low'
-            : classifierKindUnknown
-              ? 'classifier_kind_unknown'
-              : 'classifier_extracted_empty';
-
-      this.logger.log(
-        `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} reason=${reason} mime=${pending.contentType}`,
-      );
-
-      // Para PDFs, rasterizamos a primeira página antes de mandar pro
-      // Vision (que aceita só imagens). PDFs com mais páginas ainda têm o
-      // classifier text-only do `getText` cobrindo o conteúdo todo — o
-      // Vision aqui só compensa OCR ruim na primeira página.
-      let visionImageBuffer: Buffer | null = buffer;
-      let visionMimeType = pending.contentType;
-      if (isPdf) {
-        visionImageBuffer = await this.ocr.rasterizeFirstPdfPage(buffer);
-        visionMimeType = 'image/png';
-        if (!visionImageBuffer) {
-          this.logger.warn(
-            `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} status=vision_failed reason=pdf_rasterize_failed`,
-          );
-        }
-      }
-
-      if (visionImageBuffer) {
-        try {
-          const visionResult = await this.visionFallback.classifyImage({
-            imageBuffer: visionImageBuffer,
-            imageMimeType: visionMimeType,
-            intent,
-            conversationId,
-            messageSid,
-          });
-          classification = visionResult.classification;
-          usedVisionFallback = true;
-          usageSnapshots.push({
-            stage: 'doc_vision_fallback',
-            ...visionResult.usage,
-          });
-          classifierError = null;
-          try {
-            this.logger.log(
-              `[AI_DOC_CLASSIFIER_RESULT] sid=${messageSid} phone=${phoneMasked} stage=vision_fallback kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} extracted=${JSON.stringify(classification.extracted ?? {})}`,
-            );
-          } catch {
-            /* ignore */
-          }
-        } catch (err: any) {
-          this.logger.warn(
-            `[AI_DOC_PIPELINE_FALLBACK] sid=${messageSid} phone=${phoneMasked} status=vision_failed reason=${err?.message || 'erro'}`,
-          );
-        }
-      }
-    }
-
     await this.persistUsageSnapshots(
-      usageSnapshots,
+      extracted.usageSnapshots,
       conversationId,
       input.userId ?? null,
       input.ownerId ?? null,
@@ -299,13 +122,17 @@ export class WhatsappDocumentProcessorService {
       messageSid,
     );
 
-    if (!classification) {
-      if (ocrUnusable && !classifierError) {
+    if (!extracted.classification) {
+      if (
+        extracted.status === 'ocr_empty' ||
+        extracted.status === 'ocr_exception'
+      ) {
         return {
           status: 'ocr_empty',
-          errorMessage: ocrFailureReason
-            ? 'Tive problema para ler o conteúdo do arquivo. Tente reenviar uma versão mais nítida ou anexe pelo painel web.'
-            : 'Não consegui ler texto suficiente nesse arquivo. Tente reenviar uma versão mais nítida ou anexe pelo painel web.',
+          errorMessage:
+            extracted.status === 'ocr_exception'
+              ? 'Tive problema para ler o conteúdo do arquivo. Tente reenviar uma versão mais nítida ou anexe pelo painel web.'
+              : 'Não consegui ler texto suficiente nesse arquivo. Tente reenviar uma versão mais nítida ou anexe pelo painel web.',
         };
       }
       return {
@@ -315,12 +142,14 @@ export class WhatsappDocumentProcessorService {
       };
     }
 
+    const { classification, usedVisionFallback } = extracted;
+
     const updatedPending: PendingDocumentRequest = {
       ...pending,
       intent,
       classification,
       classifiedAt: Date.now(),
-      ocrTokenizedText: ocrResult?.tokenizedText ?? '',
+      ocrTokenizedText: extracted.ocrTokenizedText ?? '',
     };
     await this.dispatcher.savePending(phone, updatedPending);
 
@@ -589,7 +418,7 @@ export class WhatsappDocumentProcessorService {
     // acionável, encerramos o turno com um pedido objetivo em vez de
     // prometer "vou abrir uma SC" — assim o usuário sabe que precisa
     // digitar os dados manualmente.
-    const isEmpty = this.isExtractedEffectivelyEmpty(classification);
+    const isEmpty = this.extractor.isExtractedEffectivelyEmpty(classification);
 
     lines.push('');
     if (isEmpty) {
@@ -619,6 +448,7 @@ export class WhatsappDocumentProcessorService {
     // próximo turno (ou já no mesmo) e o usuário só confirma o commit final.
     const hasRichScData =
       intent === 'create_sc' && this.hasRichSurgeryRequestData(classification);
+
 
     switch (intent) {
       case 'attach':
@@ -668,35 +498,6 @@ export class WhatsappDocumentProcessorService {
       !!e.diagnosis ||
       !!e.laudoText;
     return hasPatient && hasProcedure && hasContext;
-  }
-
-  /**
-   * Considera o resultado do classifier como "vazio" se ele não trouxe
-   * nenhum dado clínico/pessoal acionável. Sem essa heurística o pipeline
-   * aceitava classificações como `kind=medical_report, extracted={}` —
-   * pareciam OK no log mas o LLM não tinha nada para popular o draft.
-   */
-  private isExtractedEffectivelyEmpty(
-    classification: DocumentClassification,
-  ): boolean {
-    const e = classification.extracted ?? {};
-    const hasPatient = !!(
-      e.patient?.name ||
-      e.patient?.cpf ||
-      e.patient?.birthDate ||
-      e.patient?.phone ||
-      e.patient?.rg
-    );
-    const hasContext = !!(
-      e.hospital ||
-      e.healthPlan?.name ||
-      e.diagnosis ||
-      e.suggestedProcedureName ||
-      (e.tuss?.length ?? 0) > 0 ||
-      (e.cid?.length ?? 0) > 0 ||
-      (e.opme?.length ?? 0) > 0
-    );
-    return !hasPatient && !hasContext;
   }
 
   private kindLabel(kind: DocumentClassification['kind']): string {

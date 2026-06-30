@@ -119,6 +119,7 @@ const VALID_FIELDS_BY_TYPE: Record<
     surgeryRequestId: 'string',
     surgeryRequestLabel: 'string',
     surgeryPerformedAt: 'string',
+    notifyPatient: 'boolean',
   },
 };
 

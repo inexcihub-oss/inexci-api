@@ -13,6 +13,7 @@ import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { SurgeryRequestNotificationService } from '../surgery-request-notification.service';
 import { MarkPerformedDto } from '../../dto/mark-performed.dto';
 import { CloseSurgeryRequestDto } from '../../dto/close-surgery-request.dto';
+import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
 
 @Injectable()
 export class ExecutionHandler {
@@ -23,6 +24,7 @@ export class ExecutionHandler {
     private readonly dataSource: DataSource,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
+    private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
   async markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
@@ -38,6 +40,7 @@ export class ExecutionHandler {
       request,
       SurgeryRequestStatus.PERFORMED,
     );
+    await this.pendencyValidator.assertCanAdvance(id);
 
     await executeInTransaction(
       this.dataSource,
@@ -66,6 +69,12 @@ export class ExecutionHandler {
       request.status,
       SurgeryRequestStatus.PERFORMED,
       userId,
+    );
+    await this.notificationService.notifyPatientIfRequested(
+      request,
+      request.status,
+      SurgeryRequestStatus.PERFORMED,
+      dto.notifyPatient,
     );
   }
 

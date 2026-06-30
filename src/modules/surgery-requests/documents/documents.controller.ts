@@ -39,7 +39,7 @@ export class DocumentsController {
     @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.documentsService.create(data, user.userId, user.ownerId, file);
+    return this.documentsService.create(data, user.userId, user.ownerId as string, file);
   }
 
   @Delete()

@@ -42,6 +42,9 @@ export interface PaymentGateway {
 
   // ───── Subscriptions ─────
   getSubscription(subscriptionId: string): Promise<GatewaySubscription | null>;
+  getLatestSubscriptionByCustomer(
+    customerId: string,
+  ): Promise<GatewaySubscription | null>;
 
   // ───── Webhooks ─────
   /**

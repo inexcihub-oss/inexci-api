@@ -135,10 +135,15 @@ export class SubscriptionService {
     daysUntilSuspension: number | null;
   }> {
     const owner = await this.assertOwner(userId);
-    const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
+    let subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
       throw new NotFoundException('Assinatura não encontrada');
     }
+
+    // Reconciliação best-effort com o gateway em leitura (ex.: login),
+    // para cobrir janelas em que webhooks falharam enquanto o serviço estava
+    // indisponível.
+    subscription = await this.reconcileWithGatewayOnRead(subscription);
 
     const now = new Date();
     let daysLeftInTrial: number | null = null;
@@ -170,6 +175,102 @@ export class SubscriptionService {
     }
 
     return { subscription, daysLeftInTrial, daysUntilSuspension };
+  }
+
+  /**
+   * Sincroniza o espelho local com o gateway no momento de leitura.
+   * Não bloqueia o fluxo caso o gateway esteja indisponível.
+   */
+  private async reconcileWithGatewayOnRead(
+    subscription: Subscription,
+  ): Promise<Subscription> {
+    if (subscription.gatewayProvider !== this.gateway.providerId) {
+      return subscription;
+    }
+    if (
+      !subscription.gatewaySubscriptionId &&
+      !subscription.gatewayCustomerId
+    ) {
+      return subscription;
+    }
+
+    try {
+      let gatewaySubById: GatewaySubscription | null = null;
+      let gatewaySubLatestByCustomer: GatewaySubscription | null = null;
+
+      if (subscription.gatewaySubscriptionId) {
+        gatewaySubById = await this.gateway.getSubscription(
+          subscription.gatewaySubscriptionId,
+        );
+      }
+
+      if (subscription.gatewayCustomerId) {
+        gatewaySubLatestByCustomer =
+          await this.gateway.getLatestSubscriptionByCustomer(
+            subscription.gatewayCustomerId,
+          );
+      }
+
+      const gatewaySub = this.pickPreferredGatewaySubscription(
+        gatewaySubById,
+        gatewaySubLatestByCustomer,
+      );
+
+      // Se não existe mais no gateway, marca como cancelada localmente.
+      if (!gatewaySub) {
+        if (subscription.status !== SubscriptionStatus.CANCELED) {
+          await this.subscriptionRepo.update(subscription.id, {
+            status: SubscriptionStatus.CANCELED,
+            canceledAt: new Date(),
+            cancelAtPeriodEnd: false,
+          });
+        }
+      } else {
+        if (subscription.gatewaySubscriptionId !== gatewaySub.id) {
+          await this.subscriptionRepo.update(subscription.id, {
+            gatewaySubscriptionId: gatewaySub.id,
+          });
+        }
+        await this.syncFromGatewaySubscription(gatewaySub);
+      }
+
+      return (
+        (await this.subscriptionRepo.findByOwnerId(subscription.ownerId)) ??
+        subscription
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[getMySubscription] Falha ao reconciliar assinatura com gateway: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return subscription;
+    }
+  }
+
+  private pickPreferredGatewaySubscription(
+    byId: GatewaySubscription | null,
+    latestByCustomer: GatewaySubscription | null,
+  ): GatewaySubscription | null {
+    if (!byId) return latestByCustomer;
+    if (!latestByCustomer) return byId;
+    if (byId.id === latestByCustomer.id) return byId;
+
+    const isByIdCanceled = byId.status === 'canceled';
+    const isLatestCanceled = latestByCustomer.status === 'canceled';
+
+    if (isByIdCanceled && !isLatestCanceled) {
+      return latestByCustomer;
+    }
+
+    const byIdPeriodEnd = byId.currentPeriodEnd?.getTime() ?? 0;
+    const latestPeriodEnd = latestByCustomer.currentPeriodEnd?.getTime() ?? 0;
+
+    if (latestPeriodEnd > byIdPeriodEnd) {
+      return latestByCustomer;
+    }
+
+    return byId;
   }
 
   // ───── Hooks chamados pelo cron / webhook handler ─────
@@ -275,7 +376,10 @@ export class SubscriptionService {
       successUrl: `${dashboardUrl}/configuracoes?tab=plan&checkout=success`,
       cancelUrl: `${dashboardUrl}/configuracoes?tab=plan&checkout=cancel`,
       subscriptionId: sub?.id ?? owner.id,
-      trialEnd: sub?.trialEndsAt && sub.trialEndsAt > new Date() ? sub.trialEndsAt : null,
+      trialEnd:
+        sub?.trialEndsAt && sub.trialEndsAt > new Date()
+          ? sub.trialEndsAt
+          : null,
     });
 
     return { url: session.url };
@@ -287,16 +391,11 @@ export class SubscriptionService {
   async openBillingPortal(userId: string): Promise<{ url: string }> {
     const owner = await this.assertOwner(userId);
 
-    const sub = await this.subscriptionRepo.findByOwnerId(owner.id);
-    if (!sub?.gatewayCustomerId) {
-      throw new BadRequestException(
-        'Nenhuma assinatura ativa encontrada. Assine um plano primeiro.',
-      );
-    }
+    const customerId = await this.ensureGatewayCustomer(owner.id);
 
     const dashboardUrl = this.config.get<string>('DASHBOARD_URL', '');
     const session = await this.gateway.createBillingPortalSession({
-      customerId: sub.gatewayCustomerId,
+      customerId,
       returnUrl: `${dashboardUrl}/configuracoes?tab=plan`,
     });
 
@@ -330,7 +429,8 @@ export class SubscriptionService {
       expired: SubscriptionStatus.CANCELED,
       incomplete: SubscriptionStatus.PAST_DUE,
     };
-    const newStatus = statusMap[gatewaySub.status] ?? SubscriptionStatus.PAST_DUE;
+    const newStatus =
+      statusMap[gatewaySub.status] ?? SubscriptionStatus.PAST_DUE;
 
     let newPlanId: string | undefined;
     if (gatewaySub.priceId) {
@@ -365,21 +465,45 @@ export class SubscriptionService {
       prevPeriodStart !== null &&
       gatewaySub.currentPeriodStart.getTime() > prevPeriodStart.getTime();
 
-    if (periodAdvanced && gatewaySub.currentPeriodEnd) {
-      const planForQuota = newPlanId
-        ? await this.planRepo.findOne({ id: newPlanId })
-        : await this.planRepo.findOne({ id: local.planId });
+    const planChangedInGateway = !!newPlanId && newPlanId !== local.planId;
 
-      if (planForQuota) {
-        await this.quotaPeriodRepo.create({
-          subscriptionId: local.id,
-          periodStart: gatewaySub.currentPeriodStart!,
-          periodEnd: gatewaySub.currentPeriodEnd,
+    const planForQuota = planChangedInGateway
+      ? await this.planRepo.findOne({ id: newPlanId! })
+      : await this.planRepo.findOne({ id: local.planId });
+
+    if (!planForQuota) return;
+
+    if (periodAdvanced && gatewaySub.currentPeriodEnd) {
+      await this.quotaPeriodRepo.create({
+        subscriptionId: local.id,
+        periodStart: gatewaySub.currentPeriodStart!,
+        periodEnd: gatewaySub.currentPeriodEnd,
+        surgeryRequestsLimit: planForQuota.surgeryRequestQuota,
+        surgeryRequestsUsed: 0,
+      });
+      this.logger.log(
+        `[sync] cota renovada para subscription=${local.id} período=${gatewaySub.currentPeriodStart!.toISOString()}`,
+      );
+      return;
+    }
+
+    if (planChangedInGateway) {
+      const currentQuotaPeriod =
+        await this.quotaPeriodRepo.findCurrentForSubscription(
+          local.id,
+          new Date(),
+        );
+
+      if (
+        currentQuotaPeriod &&
+        currentQuotaPeriod.surgeryRequestsLimit !==
+          planForQuota.surgeryRequestQuota
+      ) {
+        await this.quotaPeriodRepo.update(currentQuotaPeriod.id, {
           surgeryRequestsLimit: planForQuota.surgeryRequestQuota,
-          surgeryRequestsUsed: 0,
         });
         this.logger.log(
-          `[sync] cota renovada para subscription=${local.id} período=${gatewaySub.currentPeriodStart!.toISOString()}`,
+          `[sync] cota do período atual ajustada para subscription=${local.id} novoLimite=${planForQuota.surgeryRequestQuota}`,
         );
       }
     }
@@ -421,7 +545,19 @@ export class SubscriptionService {
   async ensureGatewayCustomer(ownerId: string): Promise<string> {
     const sub = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (!sub) throw new NotFoundException('Assinatura não encontrada');
-    if (sub.gatewayCustomerId) return sub.gatewayCustomerId;
+
+    if (sub.gatewayCustomerId) {
+      const existingCustomer = await this.gateway.getCustomer(
+        sub.gatewayCustomerId,
+      );
+      if (existingCustomer) {
+        return sub.gatewayCustomerId;
+      }
+
+      this.logger.warn(
+        `[ensureGatewayCustomer] customer inexistente no gateway para owner=${ownerId}. Recriando (customerId antigo=${sub.gatewayCustomerId})`,
+      );
+    }
 
     const user = await this.userRepo.findOne({ id: ownerId });
     if (!user) throw new NotFoundException('Usuário não encontrado');

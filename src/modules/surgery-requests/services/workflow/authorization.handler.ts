@@ -33,6 +33,7 @@ import { SurgeryRequestNotificationService } from '../surgery-request-notificati
 import { SurgeryRequestPdfAssemblyService } from '../surgery-request-pdf-assembly.service';
 import { AcceptAuthorizationDto } from '../../dto/accept-authorization.dto';
 import { ContestAuthorizationDto } from '../../dto/contest-authorization.dto';
+import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
 
 @Injectable()
 export class AuthorizationHandler {
@@ -47,6 +48,7 @@ export class AuthorizationHandler {
     private readonly contestationRepository: ContestationRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
+    private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
   async acceptAuthorization(
@@ -66,6 +68,7 @@ export class AuthorizationHandler {
       request,
       SurgeryRequestStatus.IN_SCHEDULING,
     );
+    await this.pendencyValidator.assertCanAdvance(id);
 
     await executeInTransaction(
       this.dataSource,

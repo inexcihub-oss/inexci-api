@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -47,6 +47,8 @@ export interface PendencySummary {
 
 @Injectable()
 export class PendencyValidatorService {
+  private readonly logger = new Logger(PendencyValidatorService.name);
+
   private readonly nextStatusMap: Partial<
     Record<SurgeryRequestStatus, SurgeryRequestStatus>
   > = {
@@ -480,6 +482,26 @@ export class PendencyValidatorService {
         { pending: number; total: number; canAdvance: boolean }
       >,
     );
+  }
+
+  /**
+   * Lança BadRequestException quando há pendências bloqueantes não resolvidas.
+   * Deve ser chamado nos handlers de transição antes de executeInTransaction.
+   */
+  async assertCanAdvance(requestId: string): Promise<void> {
+    const result = await this.validateForStatus(requestId);
+    if (!result.canAdvance) {
+      const blocking = result.pendencies
+        .filter((p) => !p.isOptional && !p.isComplete)
+        .map((p) => ({ key: p.key, name: p.name }));
+      this.logger.warn(
+        `[TRANSITION_BLOCKED] sc=${requestId} from=${result.currentStatus} pendencies=${blocking.map((p) => p.key).join(',')}`,
+      );
+      throw new BadRequestException({
+        message: 'Existem pendências que impedem o avanço de status.',
+        pendencies: blocking,
+      });
+    }
   }
 
   /**
