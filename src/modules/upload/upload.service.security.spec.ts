@@ -1,50 +1,26 @@
-// Mock Supabase para evitar validação de URL no nível do módulo
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({
-    auth: { getUser: jest.fn() },
-    storage: {
-      from: jest.fn(() => ({
-        upload: jest.fn(),
-        createSignedUrl: jest.fn().mockResolvedValue({
-          data: { signedUrl: 'https://example.com/signed' },
-          error: null,
-        }),
-      })),
-    },
-  })),
-}));
-
 import { ForbiddenException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { UploadService } from './upload.service';
+import { StorageService } from '../../shared/storage/storage.service';
 import { DocumentRepository } from '../../database/repositories/document.repository';
 
 describe('UploadService — IDOR (VULN-03)', () => {
   let service: UploadService;
   let mockDocumentRepository: Partial<DocumentRepository>;
-  let mockSupabase: any;
+  let mockStorageService: Partial<StorageService>;
 
   beforeEach(() => {
     mockDocumentRepository = {
       existsByUriAndOwner: jest.fn(),
     };
 
-    mockSupabase = {
-      storage: {
-        from: jest.fn(() => ({
-          createSignedUrl: jest.fn().mockResolvedValue({
-            data: { signedUrl: 'https://example.com/signed' },
-            error: null,
-          }),
-        })),
-      },
+    mockStorageService = {
+      getSignedUrl: jest
+        .fn()
+        .mockResolvedValue('https://example.com/signed'),
     };
 
     service = new UploadService(
-      mockSupabase,
-      {
-        get: jest.fn().mockReturnValue('test-bucket'),
-      } as unknown as ConfigService,
+      mockStorageService as StorageService,
       mockDocumentRepository as DocumentRepository,
     );
   });

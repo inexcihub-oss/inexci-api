@@ -601,11 +601,6 @@ export class AiOrchestratorService {
             processStartedAt,
             processTimeoutMs,
             hooks: {
-              evaluatePlanFirstGuard: (toolCalls, conversationId) =>
-                this.draftContext.evaluatePlanFirstGuard(
-                  toolCalls,
-                  conversationId,
-                ),
               memorizeEntitiesFromToolCall: (input) =>
                 this.conversationMemory.memorizeEntities(input),
               appendNextStepIfNeeded: (functionName, args, output, ctx) =>

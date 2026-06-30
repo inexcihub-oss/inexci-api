@@ -26,6 +26,7 @@ export class PlansController {
       surgeryRequestQuota: p.surgeryRequestQuota,
       sortOrder: p.sortOrder,
       isTrialDefault: p.isTrialDefault,
+      gatewayPriceId: p.gatewayPriceId ?? null,
     }));
   }
 }

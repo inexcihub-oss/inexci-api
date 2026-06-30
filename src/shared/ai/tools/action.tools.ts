@@ -7,6 +7,7 @@ import { SurgeryRequestMutationService } from '../../../modules/surgery-requests
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
 import { resolveAuthorizedRequest as resolveAuthorizedRequestImpl } from './_helpers/resolve-surgery-request';
+import { extractTransitionErrorMessage } from './flow-draft-transition/_helpers';
 import { buildToolResult } from './tool-result';
 
 const STATUS_LABELS: Record<number, string> = {
@@ -284,7 +285,7 @@ export function buildActionTools(
         });
         return `Solicitação *${request.protocol}* avançada de *${currentLabel}* para *${nextLabel}* com sucesso.`;
       } catch (err: any) {
-        return `Erro ao avançar a solicitação: ${err?.message || 'erro desconhecido'}`;
+        return extractTransitionErrorMessage(err, 'Erro ao avançar a solicitação');
       }
     },
   };
@@ -434,7 +435,7 @@ export function buildActionTools(
       } catch (err: any) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao encerrar: ${err?.message || 'erro desconhecido'}`,
+          message: extractTransitionErrorMessage(err, 'Erro ao encerrar'),
         });
       }
     },

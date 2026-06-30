@@ -181,7 +181,21 @@ export class OcrService implements OnModuleDestroy {
         : [];
       const firstPage = screenshotPages[0];
       const data: Buffer | undefined = firstPage?.data;
-      return data ?? null;
+      if (!data) return null;
+
+      // O Vision fallback exige bytes de imagem válidos para o MIME informado.
+      // Garantimos PNG real aqui para evitar erros "Invalid base64 image_url"
+      // quando o rasterizador devolve um formato diferente do esperado.
+      try {
+        const sharpFactory =
+          (sharp as unknown as { default?: typeof sharp }).default ||
+          (sharp as unknown as typeof sharp);
+        return await (sharpFactory as any)(data).rotate().png().toBuffer();
+      } catch {
+        // Fallback defensivo: se não conseguir transcodificar, devolve o
+        // buffer original para manter compatibilidade com o fluxo atual.
+        return data;
+      }
     } catch (err: any) {
       this.logger.warn(
         `[AI_DOC_OCR] rasterizeFirstPdfPage falhou: ${err?.message || 'erro desconhecido'}`,

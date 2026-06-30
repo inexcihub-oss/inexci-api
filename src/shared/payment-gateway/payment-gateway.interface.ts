@@ -1,29 +1,27 @@
 import {
-  CancelSubscriptionInput,
+  CreateBillingPortalSessionInput,
+  CreateCheckoutSessionInput,
   CreateCustomerInput,
-  CreateSubscriptionInput,
+  GatewayBillingPortalSession,
+  GatewayCheckoutSession,
   GatewayCustomer,
-  GatewayInvoice,
-  GatewayPaymentMethod,
   GatewayProviderId,
   GatewaySubscription,
   NormalizedWebhookEvent,
-  TokenizeCardInput,
-  UpdateSubscriptionInput,
   VerifyWebhookInput,
 } from './payment-gateway.types';
 
 /**
- * Token de DI para resolu\u00e7\u00e3o do provider ativo (configurado via env).
- * O m\u00f3dulo `PaymentGatewayModule` registra a implementa\u00e7\u00e3o concreta
+ * Token de DI para resolução do provider ativo (configurado via env).
+ * O módulo `PaymentGatewayModule` registra a implementação concreta
  * (Stripe) sob este token.
  */
 export const PAYMENT_GATEWAY = Symbol('PAYMENT_GATEWAY');
 
 /**
- * Contrato gen\u00e9rico para integra\u00e7\u00e3o com gateways de pagamento.
+ * Contrato genérico para integração com gateways de pagamento.
  *
- * Toda implementa\u00e7\u00e3o deve normalizar respostas para os tipos compartilhados
+ * Toda implementação deve normalizar respostas para os tipos compartilhados
  * em `payment-gateway.types.ts`. Erros do gateway devem ser propagados como
  * `PaymentGatewayError` (subclasse de Error com `code`, `httpStatus` e `raw`).
  */
@@ -34,36 +32,28 @@ export interface PaymentGateway {
   createCustomer(input: CreateCustomerInput): Promise<GatewayCustomer>;
   getCustomer(customerId: string): Promise<GatewayCustomer | null>;
 
-  // ───── Payment methods (cart\u00e3o) ─────
-  tokenizeCard(input: TokenizeCardInput): Promise<GatewayPaymentMethod>;
+  // ───── Checkout / Portal (Stripe Checkout + Customer Portal) ─────
+  createCheckoutSession(
+    input: CreateCheckoutSessionInput,
+  ): Promise<GatewayCheckoutSession>;
+  createBillingPortalSession(
+    input: CreateBillingPortalSessionInput,
+  ): Promise<GatewayBillingPortalSession>;
 
   // ───── Subscriptions ─────
-  createSubscription(
-    input: CreateSubscriptionInput,
-  ): Promise<GatewaySubscription>;
-  updateSubscription(
-    subscriptionId: string,
-    input: UpdateSubscriptionInput,
-  ): Promise<GatewaySubscription>;
-  cancelSubscription(
-    subscriptionId: string,
-    input: CancelSubscriptionInput,
-  ): Promise<void>;
   getSubscription(subscriptionId: string): Promise<GatewaySubscription | null>;
-
-  // ───── Invoices / cobran\u00e7as ─────
-  getInvoice(invoiceId: string): Promise<GatewayInvoice | null>;
-  /** Lista as faturas geradas para uma assinatura, mais recentes primeiro. */
-  listInvoicesBySubscription(subscriptionId: string): Promise<GatewayInvoice[]>;
+  getLatestSubscriptionByCustomer(
+    customerId: string,
+  ): Promise<GatewaySubscription | null>;
 
   // ───── Webhooks ─────
   /**
-   * Verifica autenticidade do webhook (assinatura/token). Lan\u00e7a se inv\u00e1lido.
+   * Verifica autenticidade do webhook (assinatura/token). Lança se inválido.
    */
   verifyWebhook(input: VerifyWebhookInput): void;
   /**
    * Normaliza o payload bruto do gateway para o shape interno.
-   * Eventos n\u00e3o reconhecidos devolvem `type: 'unknown'`.
+   * Eventos não reconhecidos devolvem `type: 'unknown'`.
    */
   parseWebhookEvent(payload: unknown): NormalizedWebhookEvent;
 }

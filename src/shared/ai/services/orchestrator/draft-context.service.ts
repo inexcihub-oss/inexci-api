@@ -39,11 +39,4 @@ export class DraftContextService {
   buildCacheKey(activeDraftType: OperationDraftType | null): string {
     return `inexci:wa:v${PROMPT_VERSION}:draft=${activeDraftType ?? 'none'}`;
   }
-
-  async evaluatePlanFirstGuard(
-    _toolCalls: OpenAI.ChatCompletionMessageToolCall[] | undefined,
-    _conversationId: string,
-  ): Promise<Set<string>> {
-    return new Set<string>();
-  }
 }

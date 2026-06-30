@@ -9,6 +9,7 @@ import {
 } from 'src/database/entities/surgery-request-activity.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { PdfGenerationJobData } from './pdf-generation.service';
 import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
 
@@ -52,7 +53,6 @@ export class PdfGenerationProcessor {
       );
       const finalBuffer = Buffer.from(pdf, 'base64');
 
-      // ── Fazer upload para Supabase Storage ────────────────────────────────
       const timestamp = Date.now();
       const filename = `solicitacao-${surgeryRequestId}-${timestamp}.pdf`;
       const mockFile = {
@@ -60,7 +60,11 @@ export class PdfGenerationProcessor {
         mimetype: 'application/pdf',
         buffer: finalBuffer,
       };
-      const storagePath = await this.storageService.create(mockFile, 'pdfs');
+      const storagePath = await this.storageService.create(
+        mockFile,
+        STORAGE_FOLDERS.PDFS,
+        request.ownerId,
+      );
 
       // ── Registrar atividade PDF_GENERATED ─────────────────────────────────
       await this.activityRepo.save({

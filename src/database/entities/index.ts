@@ -37,8 +37,6 @@ import { UserNotificationSettings } from './user-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { SubscriptionPlan, BillingPeriod } from './subscription-plan.entity';
 import { Subscription, SubscriptionStatus } from './subscription.entity';
-import { PaymentMethod } from './payment-method.entity';
-import { Invoice, InvoiceStatus } from './invoice.entity';
 import { SubscriptionQuotaPeriod } from './subscription-quota-period.entity';
 import { PaymentGatewayEvent } from './payment-gateway-event.entity';
 import { ReportSection } from './report-section.entity';
@@ -95,8 +93,6 @@ export { ReportSection };
 // PLANOS DE ASSINATURA / BILLING
 export { SubscriptionPlan, BillingPeriod };
 export { Subscription, SubscriptionStatus };
-export { PaymentMethod };
-export { Invoice, InvoiceStatus };
 export { SubscriptionQuotaPeriod };
 export { PaymentGatewayEvent };
 
@@ -147,8 +143,6 @@ export const ENTITIES = [
   RecoveryCode,
   SubscriptionPlan,
   Subscription,
-  PaymentMethod,
-  Invoice,
   SubscriptionQuotaPeriod,
   PaymentGatewayEvent,
   ReportSection,

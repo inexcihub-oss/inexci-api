@@ -317,9 +317,10 @@ export function buildDoctorProfileTools(
               buffer: downloaded.buffer,
             } as any,
             STORAGE_FOLDERS.SIGNATURES,
+            context.userId as string,
           );
         } else {
-          // Staging: arquivo já está no Supabase em whatsapp-tmp/. Movemos
+          // Staging: arquivo já está no R2 em whatsapp-tmp/. Movemos
           // para a pasta de assinaturas (rename no bucket — sem download
           // + re-upload) e limpamos a pendência depois.
           newPath = await storageService.move(

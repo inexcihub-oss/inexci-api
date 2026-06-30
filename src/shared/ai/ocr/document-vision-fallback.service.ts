@@ -175,7 +175,7 @@ const SYSTEM_PROMPT = [
   '2. Extraia TODO campo visivelmente legível. Se está escrito, registre.',
   '3. NÃO INVENTAR — devolva `null` em vez de chutar.',
   '4. CPF/telefones/e-mails: devolva o valor cru, o backend tokeniza.',
-  '5. Confiança < 0.7 → preencha `ambiguity`.',
+  '5. Confiança < 0.75 → preencha `ambiguity`.',
   '',
   'COMO LER UM LAUDO/SOLICITAÇÃO CIRÚRGICA TÍPICO BR:',
   '',
@@ -204,8 +204,8 @@ const SYSTEM_PROMPT = [
   'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), use `opme[].manufacturer`.',
   '',
   'LAUDO CLÍNICO COMPLETO: o texto narrativo entre "Diagnóstico" e "Códigos',
-  'solicitados" (queixa, exame, RNM, indicação) vai INTEIRO em `laudoText`.',
-  'Não trunque, não resuma — copie literal.',
+  'solicitados" (queixa, exame, RNM, indicação) vai em `laudoText`, de forma',
+  'objetiva e útil, limitado a ~2000 caracteres.',
   '',
   'Mapeamento `kind` → `suggestedDocumentType`:',
   '- `medical_report` / `surgery_request` → `medical_report`',
@@ -246,7 +246,7 @@ export interface VisionFallbackResult {
 /**
  * Fallback para casos onde o pipeline texto-OCR falha:
  * - texto extraído é muito curto (< 30 chars),
- * - confiança média do Tesseract é baixa (< 0.5), ou
+ * - confiança média do Tesseract é baixa (< 0.75), ou
  * - o `DocumentClassifierService` lança erro/JSON inválido.
  *
  * Envia a imagem original direto ao `gpt-4o` (vision) com o mesmo JSON
@@ -512,7 +512,10 @@ export class DocumentVisionFallbackService {
           if (typeof item?.supplier === 'string' && item.supplier.trim()) {
             entry.supplier = item.supplier.trim();
           }
-          if (typeof item?.manufacturer === 'string' && item.manufacturer.trim()) {
+          if (
+            typeof item?.manufacturer === 'string' &&
+            item.manufacturer.trim()
+          ) {
             entry.manufacturer = item.manufacturer.trim();
           }
           return entry;

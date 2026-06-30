@@ -104,6 +104,13 @@ describe('PiiVaultService', () => {
       expect(findings.some((f) => f.category === 'cpf')).toBe(true);
     });
 
+    it('detecta RG não tokenizado', () => {
+      const findings = service.detectResidualPii(
+        'ID: 27.903.040-7 DETRAN-RJ',
+      );
+      expect(findings.some((f) => f.category === 'rg')).toBe(true);
+    });
+
     it('detecta telefone brasileiro', () => {
       const findings = service.detectResidualPii(
         'me liga em (31) 98908-5791 hoje',
@@ -141,6 +148,12 @@ describe('PiiVaultService', () => {
       const result = service.maskLiteralPii('CPF do paciente: 123.456.789-00.');
       expect(result.text).toBe('CPF do paciente: XXX.XXX.XXX-XX.');
       expect(result.masked).toEqual([{ category: 'cpf', count: 1 }]);
+    });
+
+    it('mascara RG formatado por placeholder genérico', () => {
+      const result = service.maskLiteralPii('RG do paciente: 27.903.040-7.');
+      expect(result.text).toBe('RG do paciente: XX.XXX.XXX-X.');
+      expect(result.masked).toEqual([{ category: 'rg', count: 1 }]);
     });
 
     it('mascara email literal por exemplo genérico', () => {
@@ -344,6 +357,27 @@ describe('PiiVaultService', () => {
       expect(out).not.toContain('529.982.247-25');
       expect(out).not.toContain('98888-7777');
       expect(out).not.toContain('joao@x.com');
+    });
+
+    it('tokeniza RG no formato "XX.XXX.XXX-X" sem afetar CPF/TUSS adjacentes', () => {
+      const out = service.preprocessUserInput(
+        sid,
+        'Lucas Bruno Borges de Medeiros\nDN 26/10/1995 / ID: 27.903.040-7 DETRAN-RJ / CPF 168.508.057-03',
+      );
+      expect(out).toMatch(/\{\{rg_\d+\}\}/);
+      expect(out).toMatch(/\{\{cpf_\d+\}\}/);
+      expect(out).not.toContain('27.903.040-7');
+      expect(out).not.toContain('168.508.057-03');
+      expect(out).toContain('Lucas Bruno Borges de Medeiros');
+    });
+
+    it('não confunde código TUSS (sem traço final) com RG', () => {
+      const out = service.preprocessUserInput(
+        sid,
+        'Código TUSS solicitado: 3.07.15.091 - Descompressão cervical',
+      );
+      expect(out).not.toMatch(/\{\{rg_\d+\}\}/);
+      expect(out).toContain('3.07.15.091');
     });
 
     it('NÃO transforma laudos longos (> 1500 chars) em payload_blob por padrão', () => {

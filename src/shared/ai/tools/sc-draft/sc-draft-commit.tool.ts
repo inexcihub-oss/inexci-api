@@ -13,8 +13,7 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
     surgeryRequestRepo,
     surgeryRequestsService,
     activityRepo,
-    opmeService,
-    tussService,
+    assemblyService,
   } = deps;
   return {
     name: 'sc_draft_commit',
@@ -98,111 +97,16 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
             '[WhatsApp IA] Solicitação criada via rascunho estruturado (sc_draft).',
         });
 
-        // ── Pós-create: popula laudo / TUSS / OPME quando o draft trouxe
-        // esses dados (tipicamente vindos do classificador de documentos).
-        // Tudo é best-effort: falhas individuais não derrubam a criação
-        // da SC; apenas registramos em `warnings` para a mensagem final.
-        const warnings: string[] = [];
-
-        if (fields.notes && typeof fields.notes === 'string') {
-          try {
-            await surgeryRequestsService.createReportSection(
-              created.id,
-              { title: 'Laudo', description: fields.notes },
-              context.userId,
-            );
-          } catch (err: any) {
-            warnings.push(`laudo (${err?.message || 'erro'})`);
-          }
-        }
-
-        const tussList = Array.isArray(fields.tussItems)
-          ? fields.tussItems
-          : [];
-        for (const item of tussList) {
-          const code = item?.code;
-          if (!code) continue;
-          let name = item.description;
-          if (!name && tussService) {
-            try {
-              const matches = tussService.lookup(code, 1);
-              if (matches?.[0]?.name) name = matches[0].name;
-            } catch {
-              // catálogo indisponível — segue sem descrição
-            }
-          }
-          if (!name) {
-            warnings.push(`TUSS ${code} (descrição não resolvida)`);
-            continue;
-          }
-          try {
-            await surgeryRequestsService.addTussItem(
-              created.id,
-              { tussCode: code, name, quantity: 1 },
-              context.userId,
-            );
-          } catch (err: any) {
-            warnings.push(`TUSS ${code} (${err?.message || 'erro'})`);
-          }
-        }
-
-        const opmeList = Array.isArray(fields.opmeItems)
-          ? fields.opmeItems
-          : [];
-        let opmeAdded = 0;
-        for (const item of opmeList) {
-          const name = item?.description;
-          if (!name) continue;
-          // OPME na plataforma exige >=3 fabricantes e >=3 fornecedores.
-          // Quando o documento traz apenas 1 fornecedor/marca, ainda
-          // criamos o item com placeholders "a definir" — o usuário
-          // refina pela interface depois.
-          const supplierBase = item.supplier ? [item.supplier] : ['A definir'];
-          const manufacturerBase = item.manufacturer
-            ? [item.manufacturer]
-            : ['A definir'];
-          const supplierNames = [
-            ...supplierBase,
-            'A definir',
-            'A definir',
-          ].slice(0, Math.max(3, supplierBase.length));
-          const manufacturerNames = [
-            ...manufacturerBase,
-            'A definir',
-            'A definir',
-          ].slice(0, Math.max(3, manufacturerBase.length));
-          if (!opmeService) {
-            warnings.push(`OPME ${name} (serviço indisponível)`);
-            continue;
-          }
-          try {
-            await opmeService.create(
-              {
-                surgeryRequestId: created.id,
-                name,
-                manufacturerNames,
-                quantity: typeof item.qty === 'number' ? item.qty : 1,
-                supplierNames,
-              },
-              context.userId,
-            );
-            opmeAdded += 1;
-          } catch (err: any) {
-            warnings.push(`OPME ${name} (${err?.message || 'erro'})`);
-          }
-        }
-
-        if (opmeAdded > 0) {
-          try {
-            await surgeryRequestsService.setHasOpme(
-              created.id,
-              true,
-              context.userId,
-            );
-          } catch {
-            // não-crítico
-          }
-        }
+        // ── Pós-create: popula laudo / TUSS / OPME via SurgeryRequestAssemblyService.
+        const { warnings } = assemblyService
+          ? await assemblyService.assembleFromExtracted({
+              scId: created.id,
+              notes: typeof fields.notes === 'string' ? fields.notes : undefined,
+              tussItems: Array.isArray(fields.tussItems) ? fields.tussItems : [],
+              opmeItems: Array.isArray(fields.opmeItems) ? fields.opmeItems : [],
+              userId: context.userId,
+            })
+          : { warnings: [] as string[] };
 
         // Recarrega a SC com TODAS as relações reais (procedure, hospital,
         // healthPlan, patient, tussItems, opmeItems, reportSections). Usar

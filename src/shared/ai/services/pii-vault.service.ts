@@ -13,6 +13,7 @@ export type PiiCategory =
   | 'hospital_name'
   | 'health_plan_name'
   | 'cpf'
+  | 'rg'
   | 'phone'
   | 'email'
   | 'address'
@@ -31,6 +32,7 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
   'hospital_name',
   'health_plan_name',
   'cpf',
+  'rg',
   'phone',
   'email',
   'address',
@@ -43,6 +45,16 @@ export const ALL_PII_CATEGORIES: PiiCategory[] = [
   'surgery_description',
   'payload_blob',
 ];
+
+/**
+ * RG (registro geral) não tem checksum nem formato único entre estados —
+ * cobrimos o padrão mais comum em documentos brasileiros (ex.: "27.903.040-7"
+ * em "ID: 27.903.040-7 DETRAN-RJ"): 1-2 dígitos, ponto, 3 dígitos, ponto,
+ * 3 dígitos, traço, 1 dígito ou "X" (dígito verificador). Os pontos
+ * obrigatórios evitam colisão com CPF (sempre 3-3-3-2) e código TUSS
+ * (sem traço final).
+ */
+const RG_REGEX = /\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g;
 
 export interface PiiBinding {
   token: string;
@@ -218,10 +230,10 @@ export class PiiVaultService {
 
   /**
    * Pré-processador de input livre (texto do usuário, OCR de documento, etc.):
-   * substitui CPF/telefone/email por placeholders ANTES de o conteúdo entrar
-   * no histórico ou ir para a OpenAI.
+   * substitui CPF/RG/telefone/email por placeholders ANTES de o conteúdo
+   * entrar no histórico ou ir para a OpenAI.
    *
-   * Apenas dados sensíveis estruturados (CPF, telefone, e-mail) são
+   * Apenas dados sensíveis estruturados (CPF, RG, telefone, e-mail) são
    * tokenizados. Texto de laudo, descrição de procedimento, observações
    * clínicas e qualquer conteúdo médico fluem **inteiros** ao LLM —
    * laudos podem ter qualquer tamanho e precisamos do conteúdo completo
@@ -245,6 +257,10 @@ export class PiiVaultService {
       this.tokenize(sessionId, match, 'cpf'),
     );
 
+    out = out.replace(RG_REGEX, (match) =>
+      this.tokenize(sessionId, match, 'rg'),
+    );
+
     out = out.replace(/(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g, (match) =>
       this.tokenize(sessionId, match, 'phone'),
     );
@@ -262,8 +278,8 @@ export class PiiVaultService {
   }
 
   /**
-   * Detecta resíduos de PII estruturada (CPF, telefone BR, email) que não
-   * passaram pela tokenização. Usado como filtro defensivo antes de
+   * Detecta resíduos de PII estruturada (CPF, RG, telefone BR, email) que
+   * não passaram pela tokenização. Usado como filtro defensivo antes de
    * qualquer chamada ao LLM externo.
    */
   detectResidualPii(text: string): ResidualPiiFinding[] {
@@ -272,6 +288,9 @@ export class PiiVaultService {
 
     const cpf = text.match(/\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/);
     if (cpf) findings.push({ category: 'cpf', sample: cpf[0] });
+
+    const rg = text.match(/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/);
+    if (rg) findings.push({ category: 'rg', sample: rg[0] });
 
     const phone = text.match(/(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/);
     if (phone) findings.push({ category: 'phone', sample: phone[0] });
@@ -283,8 +302,9 @@ export class PiiVaultService {
   }
 
   /**
-   * Mascara CPF/telefone/email "literais" no texto por placeholders genéricos
-   * não-PII (`(DDD) NNNNN-NNNN`, `XXX.XXX.XXX-XX`, `exemplo@dominio.com`).
+   * Mascara CPF/RG/telefone/email "literais" no texto por placeholders
+   * genéricos não-PII (`(DDD) NNNNN-NNNN`, `XXX.XXX.XXX-XX`, `XX.XXX.XXX-X`,
+   * `exemplo@dominio.com`).
    *
    * Usado para sanitizar respostas do assistente ANTES de salvar no histórico
    * conversacional — sem isso, exemplos de formato gerados pela IA
@@ -348,6 +368,7 @@ export class PiiVaultService {
       'cpf',
       'XXX.XXX.XXX-XX',
     );
+    collect(/\b\d{1,2}\.\d{3}\.\d{3}-[\dXx]\b/g, 'rg', 'XX.XXX.XXX-X');
     collect(
       /(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}/g,
       'phone',

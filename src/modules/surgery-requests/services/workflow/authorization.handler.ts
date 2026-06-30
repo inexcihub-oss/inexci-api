@@ -24,6 +24,7 @@ import { ContestationRepository } from 'src/database/repositories/contestation.r
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -32,6 +33,7 @@ import { SurgeryRequestNotificationService } from '../surgery-request-notificati
 import { SurgeryRequestPdfAssemblyService } from '../surgery-request-pdf-assembly.service';
 import { AcceptAuthorizationDto } from '../../dto/accept-authorization.dto';
 import { ContestAuthorizationDto } from '../../dto/contest-authorization.dto';
+import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
 
 @Injectable()
 export class AuthorizationHandler {
@@ -46,6 +48,7 @@ export class AuthorizationHandler {
     private readonly contestationRepository: ContestationRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
+    private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
   async acceptAuthorization(
@@ -65,6 +68,7 @@ export class AuthorizationHandler {
       request,
       SurgeryRequestStatus.IN_SCHEDULING,
     );
+    await this.pendencyValidator.assertCanAdvance(id);
 
     await executeInTransaction(
       this.dataSource,
@@ -260,7 +264,11 @@ export class AuthorizationHandler {
         mimetype: 'application/pdf',
         buffer,
       };
-      const storagePath = await this.storageService.create(mockFile, 'pdfs');
+      const storagePath = await this.storageService.create(
+        mockFile,
+        STORAGE_FOLDERS.PDFS,
+        request.ownerId,
+      );
 
       const activityRepo = this.dataSource.getRepository(
         SurgeryRequestActivity,

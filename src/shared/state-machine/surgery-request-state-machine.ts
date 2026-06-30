@@ -7,14 +7,11 @@ import {
 /**
  * SurgeryRequestStateMachine
  *
- * Classe de validação de pré-requisitos para transições de status.
- * NÃO aplica transições — apenas valida se elas são permitidas.
- * Cada endpoint de transição (Fase 4.2) chama assertCanTransition() antes de mudar o status.
+ * Valida APENAS a parte estrutural da transição: se o status atual é o
+ * esperado para a transição alvo. Toda validação de completude de dados
+ * é responsabilidade do PendencyValidatorService (assertCanAdvance).
  */
 export class SurgeryRequestStateMachine {
-  /**
-   * Verifica se a transição para o targetStatus é permitida.
-   */
   canTransitionTo(
     request: SurgeryRequest,
     targetStatus: SurgeryRequestStatus,
@@ -22,9 +19,6 @@ export class SurgeryRequestStateMachine {
     return this.getBlockingPendencies(request, targetStatus).length === 0;
   }
 
-  /**
-   * Retorna a lista de pré-requisitos não atendidos para a transição.
-   */
   getBlockingPendencies(
     request: SurgeryRequest,
     targetStatus: SurgeryRequestStatus,
@@ -32,102 +26,63 @@ export class SurgeryRequestStateMachine {
     const pendencies: string[] = [];
 
     switch (targetStatus) {
-      // ── PENDING → SENT ──────────────────────────────────────────────────
-      case SurgeryRequestStatus.SENT: {
+      case SurgeryRequestStatus.SENT:
         if (request.status !== SurgeryRequestStatus.PENDING) {
           pendencies.push(
             'A solicitação precisa estar com status Pendente para ser enviada.',
           );
         }
-        // Validações de dados obrigatórios
-        if (!request.patientId) pendencies.push('Paciente não informado.');
-        if (!request.hospitalId) pendencies.push('Hospital não informado.');
-        const procedures = request.tussItems ?? [];
-        if (procedures.length === 0)
-          pendencies.push('Nenhum procedimento TUSS informado.');
         break;
-      }
 
-      // ── SENT → IN_ANALYSIS ──────────────────────────────────────────────
-      case SurgeryRequestStatus.IN_ANALYSIS: {
+      case SurgeryRequestStatus.IN_ANALYSIS:
         if (request.status !== SurgeryRequestStatus.SENT) {
           pendencies.push(
             'A solicitação precisa estar com status Enviada para iniciar análise.',
           );
         }
-        // analysis deve ser criada pelo endpoint start-analysis com requestNumber + receivedAt
-        // A validação de campos é feita no DTO do endpoint
         break;
-      }
 
-      // ── IN_ANALYSIS → IN_SCHEDULING ─────────────────────────────────────
-      case SurgeryRequestStatus.IN_SCHEDULING: {
+      case SurgeryRequestStatus.IN_SCHEDULING:
         if (request.status !== SurgeryRequestStatus.IN_ANALYSIS) {
           pendencies.push(
             'A solicitação precisa estar Em Análise para aceitar autorização.',
           );
         }
-        // Nota: dateOptions é fornecido pelo DTO da transição (AcceptAuthorizationDto),
-        // não precisa ser uma pré-condição no estado atual da solicitação.
         break;
-      }
 
-      // ── IN_SCHEDULING → SCHEDULED ───────────────────────────────────────
-      case SurgeryRequestStatus.SCHEDULED: {
+      case SurgeryRequestStatus.SCHEDULED:
         if (request.status !== SurgeryRequestStatus.IN_SCHEDULING) {
           pendencies.push(
             'A solicitação precisa estar Em Agendamento para confirmar data.',
           );
         }
-        // Nota: selectedDateIndex e surgeryDate são definidos pelo endpoint confirm-date
         break;
-      }
 
-      // ── SCHEDULED → PERFORMED ────────────────────────────────────────────
-      case SurgeryRequestStatus.PERFORMED: {
+      case SurgeryRequestStatus.PERFORMED:
         if (request.status !== SurgeryRequestStatus.SCHEDULED) {
           pendencies.push(
             'A solicitação precisa estar Agendada para ser marcada como Realizada.',
           );
         }
-        // Nota: surgeryPerformedAt é definido pelo endpoint mark-performed
         break;
-      }
 
-      // ── PERFORMED → INVOICED ─────────────────────────────────────────────
-      case SurgeryRequestStatus.INVOICED: {
+      case SurgeryRequestStatus.INVOICED:
         if (request.status !== SurgeryRequestStatus.PERFORMED) {
           pendencies.push(
             'A solicitação precisa estar Realizada para ser faturada.',
           );
         }
-        if (!request.billing?.invoiceValue) {
-          pendencies.push('Valor da fatura não informado.');
-        }
-        if (!request.billing?.invoiceSentAt) {
-          pendencies.push('Data de envio da fatura não informada.');
-        }
         break;
-      }
 
-      // ── INVOICED → FINALIZED ──────────────────────────────────────────────
-      case SurgeryRequestStatus.FINALIZED: {
+      case SurgeryRequestStatus.FINALIZED:
         if (request.status !== SurgeryRequestStatus.INVOICED) {
           pendencies.push(
             'A solicitação precisa estar Faturada para ser finalizada.',
           );
         }
-        if (!request.billing?.receivedValue) {
-          pendencies.push('Valor recebido não informado.');
-        }
-        if (!request.billing?.receivedAt) {
-          pendencies.push('Data de recebimento não informada.');
-        }
         break;
-      }
 
-      // ── QUALQUER → CLOSED ─────────────────────────────────────────────────
-      case SurgeryRequestStatus.CLOSED: {
+      case SurgeryRequestStatus.CLOSED:
         if (
           request.status === SurgeryRequestStatus.FINALIZED ||
           request.status === SurgeryRequestStatus.CLOSED
@@ -141,7 +96,6 @@ export class SurgeryRequestStateMachine {
           );
         }
         break;
-      }
 
       default:
         pendencies.push(
@@ -152,9 +106,6 @@ export class SurgeryRequestStateMachine {
     return pendencies;
   }
 
-  /**
-   * Valida a transição e lança BadRequestException com lista de pendências se não puder avançar.
-   */
   assertCanTransition(
     request: SurgeryRequest,
     targetStatus: SurgeryRequestStatus,

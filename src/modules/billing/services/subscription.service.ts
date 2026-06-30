@@ -11,7 +11,6 @@ import { ConfigService } from '@nestjs/config';
 import { SubscriptionRepository } from 'src/database/repositories/subscription.repository';
 import { SubscriptionPlanRepository } from 'src/database/repositories/subscription-plan.repository';
 import { SubscriptionQuotaPeriodRepository } from 'src/database/repositories/subscription-quota-period.repository';
-import { PaymentMethodRepository } from 'src/database/repositories/payment-method.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import {
   Subscription,
@@ -23,26 +22,19 @@ import {
   PAYMENT_GATEWAY,
   PaymentGateway,
 } from 'src/shared/payment-gateway/payment-gateway.interface';
-
-export interface CardPaymentInfo {
-  paymentMethodId: string;
-  brand: string;
-  last4: string;
-  holderName: string;
-  expMonth: number;
-  expYear: number;
-}
+import {
+  GatewaySubscription,
+  GatewaySubscriptionStatus,
+} from 'src/shared/payment-gateway/payment-gateway.types';
 
 /**
  * Orquestrador do ciclo de vida da assinatura.
  *
- * Concentra as regras de negócio:
- * - Criação automática de trial no cadastro.
- * - Criação de subscription no gateway quando o cartão é cadastrado.
- * - Troca de plano (só vale no próximo ciclo — sem proration).
- * - Cancelamento (mantém até o final do ciclo).
- * - Reativação (limpa flag de cancel_at_period_end ou cria nova).
- * - Transições de status disparadas pelo cron e pelos webhooks.
+ * Modelo Stripe Checkout + Customer Portal:
+ * - Cadastro cria trial local leve (sem gateway).
+ * - Pagamento, troca de plano, cancelamento e cartão são gerenciados
+ *   pelo Customer Portal da Stripe.
+ * - Transições de status vêm exclusivamente de webhooks Stripe.
  */
 @Injectable()
 export class SubscriptionService {
@@ -52,7 +44,6 @@ export class SubscriptionService {
     private readonly subscriptionRepo: SubscriptionRepository,
     private readonly planRepo: SubscriptionPlanRepository,
     private readonly quotaPeriodRepo: SubscriptionQuotaPeriodRepository,
-    private readonly paymentMethodRepo: PaymentMethodRepository,
     private readonly userRepo: UserRepository,
     private readonly config: ConfigService,
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
@@ -61,42 +52,19 @@ export class SubscriptionService {
   // ───── Criação (chamado no register) ─────
 
   /**
-   * Cria assinatura inicial — pode ser TRIALING (30 dias grátis) ou ACTIVE com cartão.
-   *
-   * Se `planSlug` for fornecido e for um plano com `isTrialDefault=true`, cria trial.
-   * Caso contrário, se houver `paymentInfo`, cria assinatura paga imediatamente.
-   * Se nenhum plano for especificado, usa o plano default com trial.
+   * Cria assinatura inicial em TRIALING.
+   * Sem gateway — o Checkout só é acionado quando o admin decide assinar.
    */
   async createInitialSubscription(
     ownerId: string,
     planSlug?: string,
-    paymentInfo?: CardPaymentInfo,
   ): Promise<Subscription> {
-    const plan = await this.resolveInitialPlan(planSlug);
-
-    if (plan.isTrialDefault) {
-      return this.createTrialSubscription(ownerId, plan.slug);
-    }
-
-    if (!paymentInfo) {
-      throw new BadRequestException(
-        'Dados de pagamento são obrigatórios para planos pagos',
-      );
-    }
-
-    return this.createPaidSubscription(ownerId, plan, paymentInfo);
+    return this.createTrialSubscription(ownerId, planSlug);
   }
 
   /**
    * Cria assinatura TRIALING para um novo admin/owner.
-   *
-   * Se `planSlug` for fornecido, o trial é ancorado nesse plano (ou seja,
-   * a cota durante o trial é a do plano escolhido e a primeira cobrança
-   * após o trial será desse mesmo plano). Caso contrário, usa o plano
-   * marcado como `is_trial_default = true`.
-   *
-   * Não cria nada no gateway ainda (o gateway só entra em cena quando
-   * o admin cadastra o cartão).
+   * Idempotente: devolve a existente sem recriar.
    */
   async createTrialSubscription(
     ownerId: string,
@@ -140,98 +108,6 @@ export class SubscriptionService {
     return subscription;
   }
 
-  private async createPaidSubscription(
-    ownerId: string,
-    plan: SubscriptionPlan,
-    paymentInfo: CardPaymentInfo,
-  ): Promise<Subscription> {
-    const existing = await this.subscriptionRepo.findByOwnerId(ownerId);
-    if (existing) {
-      this.logger.warn(
-        `[createPaid] já existe subscription para owner ${ownerId} — ignorando`,
-      );
-      return existing;
-    }
-
-    const user = await this.userRepo.findOne({ id: ownerId });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    const customer = await this.gateway.createCustomer({
-      ownerId,
-      name: user.name,
-      email: user.email,
-      phone: user.phone || null,
-    });
-
-    const tokenized = await this.gateway.tokenizeCard({
-      customerId: customer.id,
-      paymentMethodId: paymentInfo.paymentMethodId,
-      brand: paymentInfo.brand,
-      last4: paymentInfo.last4,
-      holderName: paymentInfo.holderName,
-      expMonth: paymentInfo.expMonth,
-      expYear: paymentInfo.expYear,
-    });
-
-    const now = new Date();
-    const periodEnd = this.addDays(
-      now,
-      plan.billingPeriod === 'YEARLY' ? 365 : 30,
-    );
-
-    const subscription = await this.subscriptionRepo.create({
-      ownerId,
-      planId: plan.id,
-      status: SubscriptionStatus.ACTIVE,
-      trialEndsAt: null,
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-      gatewayProvider: this.gateway.providerId,
-      gatewayCustomerId: customer.id,
-    });
-
-    const gatewaySub = await this.gateway.createSubscription({
-      customerId: customer.id,
-      paymentMethodToken: tokenized.token,
-      amountCents: plan.priceCents,
-      cycle: plan.billingPeriod,
-      nextDueDate: now,
-      description: `Assinatura ${plan.name} — Inexci`,
-      externalReference: subscription.id,
-    });
-
-    const savedPM = await this.paymentMethodRepo.create({
-      ownerId,
-      gatewayProvider: this.gateway.providerId,
-      gatewayToken: tokenized.token,
-      gatewayCustomerId: customer.id,
-      brand: tokenized.brand,
-      last4: tokenized.last4,
-      holderName: tokenized.holderName,
-      expMonth: tokenized.expMonth,
-      expYear: tokenized.expYear,
-      isDefault: true,
-    });
-
-    await this.subscriptionRepo.update(subscription.id, {
-      gatewaySubscriptionId: gatewaySub.id,
-      defaultPaymentMethodId: savedPM.id,
-    });
-
-    await this.quotaPeriodRepo.create({
-      subscriptionId: subscription.id,
-      periodStart: now,
-      periodEnd: periodEnd,
-      surgeryRequestsLimit: plan.surgeryRequestQuota,
-      surgeryRequestsUsed: 0,
-    });
-
-    this.logger.log(
-      `Assinatura paga criada para owner=${ownerId} plano=${plan.slug}`,
-    );
-    return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
-  }
-
   private async resolveInitialPlan(
     planSlug: string | undefined,
   ): Promise<SubscriptionPlan> {
@@ -259,10 +135,15 @@ export class SubscriptionService {
     daysUntilSuspension: number | null;
   }> {
     const owner = await this.assertOwner(userId);
-    const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
+    let subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
     if (!subscription) {
       throw new NotFoundException('Assinatura não encontrada');
     }
+
+    // Reconciliação best-effort com o gateway em leitura (ex.: login),
+    // para cobrir janelas em que webhooks falharam enquanto o serviço estava
+    // indisponível.
+    subscription = await this.reconcileWithGatewayOnRead(subscription);
 
     const now = new Date();
     let daysLeftInTrial: number | null = null;
@@ -284,10 +165,7 @@ export class SubscriptionService {
       subscription.status === SubscriptionStatus.PAST_DUE &&
       subscription.pastDueSince
     ) {
-      const grace = Number(
-        this.config.get<number>('BILLING_GRACE_PERIOD_DAYS', 7),
-      );
-      const suspensionDate = this.addDays(subscription.pastDueSince, grace);
+      const suspensionDate = this.addDays(subscription.pastDueSince, 7);
       daysUntilSuspension = Math.max(
         0,
         Math.ceil(
@@ -299,159 +177,100 @@ export class SubscriptionService {
     return { subscription, daysLeftInTrial, daysUntilSuspension };
   }
 
-  // ───── Mudanças de estado ─────
-
   /**
-   * Agenda troca de plano para o próximo ciclo.
-   * Segue a regra "next_cycle" — a troca só entra em vigor no fim do
-   * período atual; o gateway recebe o update no momento da renovação.
+   * Sincroniza o espelho local com o gateway no momento de leitura.
+   * Não bloqueia o fluxo caso o gateway esteja indisponível.
    */
-  async changePlan(userId: string, planId: string): Promise<Subscription> {
-    const owner = await this.assertOwner(userId);
-    const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
-    if (!subscription) {
-      throw new NotFoundException('Assinatura não encontrada');
-    }
-    if (subscription.status === SubscriptionStatus.CANCELED) {
-      throw new BadRequestException(
-        'Assinatura cancelada. Crie uma nova assinatura.',
-      );
-    }
-    const plan = await this.planRepo.findOne({ id: planId });
-    if (!plan || !plan.isActive) {
-      throw new NotFoundException('Plano não encontrado ou inativo');
-    }
-
-    if (subscription.planId === planId) {
-      // Cancela uma troca pendente, se existia
-      await this.subscriptionRepo.update(subscription.id, { nextPlanId: null });
-      return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
-    }
-
-    await this.subscriptionRepo.update(subscription.id, { nextPlanId: planId });
-    this.logger.log(
-      `Plano agendado para troca: subscription=${subscription.id} novoPlano=${plan.slug}`,
-    );
-    return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
-  }
-
-  /**
-   * Marca cancelamento ao fim do ciclo. A conta continua ativa até lá.
-   * No gateway, o cancelamento real só acontece quando o cron de fim de
-   * período executa.
-   */
-  async cancelAtPeriodEnd(userId: string): Promise<Subscription> {
-    const owner = await this.assertOwner(userId);
-    const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
-    if (!subscription) {
-      throw new NotFoundException('Assinatura não encontrada');
+  private async reconcileWithGatewayOnRead(
+    subscription: Subscription,
+  ): Promise<Subscription> {
+    if (subscription.gatewayProvider !== this.gateway.providerId) {
+      return subscription;
     }
     if (
-      subscription.status === SubscriptionStatus.CANCELED ||
-      subscription.cancelAtPeriodEnd
+      !subscription.gatewaySubscriptionId &&
+      !subscription.gatewayCustomerId
     ) {
       return subscription;
     }
-    await this.subscriptionRepo.update(subscription.id, {
-      cancelAtPeriodEnd: true,
-    });
-    return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
-  }
 
-  /** Reverte um cancelamento agendado (enquanto ainda no período atual). */
-  async resumeSubscription(userId: string): Promise<Subscription> {
-    const owner = await this.assertOwner(userId);
-    const subscription = await this.subscriptionRepo.findByOwnerId(owner.id);
-    if (!subscription) {
-      throw new NotFoundException('Assinatura não encontrada');
-    }
-    if (subscription.status === SubscriptionStatus.CANCELED) {
-      throw new BadRequestException('Assinatura já cancelada. Crie uma nova.');
-    }
-    await this.subscriptionRepo.update(subscription.id, {
-      cancelAtPeriodEnd: false,
-    });
-    return (await this.subscriptionRepo.findOne({ id: subscription.id }))!;
-  }
+    try {
+      let gatewaySubById: GatewaySubscription | null = null;
+      let gatewaySubLatestByCustomer: GatewaySubscription | null = null;
 
-  // ───── Hooks chamados pelo PaymentMethodService ─────
-
-  /**
-   * Quando o admin cadastra o primeiro cartão durante o trial, cria a
-   * subscription no gateway com `nextDueDate = trialEndsAt`. Isso faz o
-   * Stripe iniciar a cobrança imediatamente após o trial.
-   *
-   * Se a subscription já estava ACTIVE/PAST_DUE/SUSPENDED, apenas atualiza
-   * o cartão associado.
-   */
-  async onPaymentMethodAdded(params: {
-    ownerId: string;
-    paymentMethodId: string;
-    paymentMethodToken: string;
-    gatewayCustomerId: string;
-  }): Promise<void> {
-    const subscription = await this.subscriptionRepo.findByOwnerId(
-      params.ownerId,
-    );
-    if (!subscription) return;
-
-    const plan = await this.planRepo.findOne({ id: subscription.planId });
-    if (!plan) return;
-
-    if (subscription.status === SubscriptionStatus.TRIALING) {
-      // Cria subscription no gateway com primeira cobrança no fim do trial
-      const nextDue = subscription.trialEndsAt ?? new Date();
-      const gatewaySub = await this.gateway.createSubscription({
-        customerId: params.gatewayCustomerId,
-        paymentMethodToken: params.paymentMethodToken,
-        amountCents: plan.priceCents,
-        cycle: plan.billingPeriod,
-        nextDueDate: nextDue,
-        description: `Assinatura ${plan.name} — Inexci`,
-        externalReference: subscription.id,
-      });
-
-      await this.subscriptionRepo.update(subscription.id, {
-        gatewayCustomerId: params.gatewayCustomerId,
-        gatewaySubscriptionId: gatewaySub.id,
-        defaultPaymentMethodId: params.paymentMethodId,
-      });
-      return;
-    }
-
-    if (subscription.status === SubscriptionStatus.SUSPENDED) {
-      // Sai da suspensão após cadastro de cartão (cobrança imediata
-      // é disparada pelo gateway na próxima nextDueDate).
-      const nextDue = new Date();
-      let gatewaySubId = subscription.gatewaySubscriptionId;
-      if (!gatewaySubId) {
-        const gatewaySub = await this.gateway.createSubscription({
-          customerId: params.gatewayCustomerId,
-          paymentMethodToken: params.paymentMethodToken,
-          amountCents: plan.priceCents,
-          cycle: plan.billingPeriod,
-          nextDueDate: nextDue,
-          description: `Assinatura ${plan.name} — Inexci`,
-          externalReference: subscription.id,
-        });
-        gatewaySubId = gatewaySub.id;
+      if (subscription.gatewaySubscriptionId) {
+        gatewaySubById = await this.gateway.getSubscription(
+          subscription.gatewaySubscriptionId,
+        );
       }
-      await this.subscriptionRepo.update(subscription.id, {
-        status: SubscriptionStatus.ACTIVE,
-        suspendedAt: null,
-        pastDueSince: null,
-        gatewayCustomerId: params.gatewayCustomerId,
-        gatewaySubscriptionId: gatewaySubId,
-        defaultPaymentMethodId: params.paymentMethodId,
-      });
-      return;
+
+      if (subscription.gatewayCustomerId) {
+        gatewaySubLatestByCustomer =
+          await this.gateway.getLatestSubscriptionByCustomer(
+            subscription.gatewayCustomerId,
+          );
+      }
+
+      const gatewaySub = this.pickPreferredGatewaySubscription(
+        gatewaySubById,
+        gatewaySubLatestByCustomer,
+      );
+
+      // Se não existe mais no gateway, marca como cancelada localmente.
+      if (!gatewaySub) {
+        if (subscription.status !== SubscriptionStatus.CANCELED) {
+          await this.subscriptionRepo.update(subscription.id, {
+            status: SubscriptionStatus.CANCELED,
+            canceledAt: new Date(),
+            cancelAtPeriodEnd: false,
+          });
+        }
+      } else {
+        if (subscription.gatewaySubscriptionId !== gatewaySub.id) {
+          await this.subscriptionRepo.update(subscription.id, {
+            gatewaySubscriptionId: gatewaySub.id,
+          });
+        }
+        await this.syncFromGatewaySubscription(gatewaySub);
+      }
+
+      return (
+        (await this.subscriptionRepo.findByOwnerId(subscription.ownerId)) ??
+        subscription
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[getMySubscription] Falha ao reconciliar assinatura com gateway: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return subscription;
+    }
+  }
+
+  private pickPreferredGatewaySubscription(
+    byId: GatewaySubscription | null,
+    latestByCustomer: GatewaySubscription | null,
+  ): GatewaySubscription | null {
+    if (!byId) return latestByCustomer;
+    if (!latestByCustomer) return byId;
+    if (byId.id === latestByCustomer.id) return byId;
+
+    const isByIdCanceled = byId.status === 'canceled';
+    const isLatestCanceled = latestByCustomer.status === 'canceled';
+
+    if (isByIdCanceled && !isLatestCanceled) {
+      return latestByCustomer;
     }
 
-    // Caso comum: apenas troca o cartão ativo
-    await this.subscriptionRepo.update(subscription.id, {
-      gatewayCustomerId: params.gatewayCustomerId,
-      defaultPaymentMethodId: params.paymentMethodId,
-    });
+    const byIdPeriodEnd = byId.currentPeriodEnd?.getTime() ?? 0;
+    const latestPeriodEnd = latestByCustomer.currentPeriodEnd?.getTime() ?? 0;
+
+    if (latestPeriodEnd > byIdPeriodEnd) {
+      return latestByCustomer;
+    }
+
+    return byId;
   }
 
   // ───── Hooks chamados pelo cron / webhook handler ─────
@@ -488,17 +307,6 @@ export class SubscriptionService {
   async cancelImmediately(subscriptionId: string): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
     if (!sub) return;
-    if (sub.gatewaySubscriptionId) {
-      try {
-        await this.gateway.cancelSubscription(sub.gatewaySubscriptionId, {
-          atPeriodEnd: false,
-        });
-      } catch (err) {
-        this.logger.warn(
-          `Falha ao cancelar no gateway subscription=${sub.gatewaySubscriptionId}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
     await this.subscriptionRepo.update(subscriptionId, {
       status: SubscriptionStatus.CANCELED,
       canceledAt: new Date(),
@@ -507,15 +315,14 @@ export class SubscriptionService {
   }
 
   /**
-   * Avança o período de cobrança (chamado quando uma fatura é paga
-   * com sucesso). Se houver `nextPlanId`, ativa a troca de plano agendada.
+   * Avança o período de cobrança e renova a cota.
+   * Chamado pelo webhook `invoice.paid` / `customer.subscription.updated`.
    */
   async advanceBillingPeriod(subscriptionId: string): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
     if (!sub) return;
 
-    const planId = sub.nextPlanId ?? sub.planId;
-    const plan = await this.planRepo.findOne({ id: planId });
+    const plan = await this.planRepo.findOne({ id: sub.planId });
     if (!plan) return;
 
     const periodStart = sub.currentPeriodEnd;
@@ -523,8 +330,6 @@ export class SubscriptionService {
 
     await this.subscriptionRepo.update(subscriptionId, {
       status: SubscriptionStatus.ACTIVE,
-      planId: plan.id,
-      nextPlanId: null,
       currentPeriodStart: periodStart,
       currentPeriodEnd: periodEnd,
       pastDueSince: null,
@@ -539,11 +344,175 @@ export class SubscriptionService {
     });
   }
 
+  // ───── Checkout / Portal ─────
+
+  /**
+   * Cria uma Stripe Checkout Session para o plano selecionado e retorna a URL.
+   * O admin é redirecionado para a Stripe para inserir o cartão e confirmar.
+   */
+  async startCheckout(
+    userId: string,
+    planId: string,
+  ): Promise<{ url: string }> {
+    const owner = await this.assertOwner(userId);
+
+    const plan = await this.planRepo.findOne({ id: planId });
+    if (!plan || !plan.isActive) {
+      throw new NotFoundException('Plano não encontrado');
+    }
+    if (!plan.gatewayPriceId) {
+      throw new BadRequestException(
+        'Este plano não está disponível para assinatura direta. Entre em contato.',
+      );
+    }
+
+    const customerId = await this.ensureGatewayCustomer(owner.id);
+    const sub = await this.subscriptionRepo.findByOwnerId(owner.id);
+
+    const dashboardUrl = this.config.get<string>('DASHBOARD_URL', '');
+    const session = await this.gateway.createCheckoutSession({
+      customerId,
+      priceId: plan.gatewayPriceId,
+      successUrl: `${dashboardUrl}/configuracoes?tab=plan&checkout=success`,
+      cancelUrl: `${dashboardUrl}/configuracoes?tab=plan&checkout=cancel`,
+      subscriptionId: sub?.id ?? owner.id,
+      trialEnd:
+        sub?.trialEndsAt && sub.trialEndsAt > new Date()
+          ? sub.trialEndsAt
+          : null,
+    });
+
+    return { url: session.url };
+  }
+
+  /**
+   * Cria uma sessão no Stripe Customer Portal para o admin gerenciar a assinatura.
+   */
+  async openBillingPortal(userId: string): Promise<{ url: string }> {
+    const owner = await this.assertOwner(userId);
+
+    const customerId = await this.ensureGatewayCustomer(owner.id);
+
+    const dashboardUrl = this.config.get<string>('DASHBOARD_URL', '');
+    const session = await this.gateway.createBillingPortalSession({
+      customerId,
+      returnUrl: `${dashboardUrl}/configuracoes?tab=plan`,
+    });
+
+    return { url: session.url };
+  }
+
+  // ───── Sincronização via webhook ─────
+
+  /**
+   * Sincroniza o espelho local com os dados de uma subscription do gateway.
+   * Chamado por BillingWebhookService nos eventos subscription.created/updated
+   * e checkout.completed.
+   */
+  async syncFromGatewaySubscription(
+    gatewaySub: GatewaySubscription,
+  ): Promise<void> {
+    const local = await this.subscriptionRepo.findByGatewaySubscriptionId(
+      gatewaySub.id,
+    );
+    if (!local) {
+      this.logger.warn(
+        `[sync] subscription não encontrada para gateway ID: ${gatewaySub.id}`,
+      );
+      return;
+    }
+
+    const statusMap: Record<GatewaySubscriptionStatus, SubscriptionStatus> = {
+      active: SubscriptionStatus.ACTIVE,
+      past_due: SubscriptionStatus.PAST_DUE,
+      canceled: SubscriptionStatus.CANCELED,
+      expired: SubscriptionStatus.CANCELED,
+      incomplete: SubscriptionStatus.PAST_DUE,
+    };
+    const newStatus =
+      statusMap[gatewaySub.status] ?? SubscriptionStatus.PAST_DUE;
+
+    let newPlanId: string | undefined;
+    if (gatewaySub.priceId) {
+      const plan = await this.planRepo.findOne({
+        gatewayPriceId: gatewaySub.priceId,
+      } as Parameters<typeof this.planRepo.findOne>[0]);
+      if (plan) newPlanId = plan.id;
+    }
+
+    const prevPeriodStart = local.currentPeriodStart;
+
+    await this.subscriptionRepo.update(local.id, {
+      status: newStatus,
+      ...(newPlanId ? { planId: newPlanId } : {}),
+      ...(gatewaySub.currentPeriodStart
+        ? { currentPeriodStart: gatewaySub.currentPeriodStart }
+        : {}),
+      ...(gatewaySub.currentPeriodEnd
+        ? { currentPeriodEnd: gatewaySub.currentPeriodEnd }
+        : {}),
+      trialEndsAt: gatewaySub.trialEndsAt,
+      cancelAtPeriodEnd: gatewaySub.cancelAtPeriodEnd,
+      ...(gatewaySub.canceledAt ? { canceledAt: gatewaySub.canceledAt } : {}),
+      ...(newStatus === SubscriptionStatus.ACTIVE
+        ? { pastDueSince: null, suspendedAt: null }
+        : {}),
+    });
+
+    // Renova cota quando o período avança
+    const periodAdvanced =
+      gatewaySub.currentPeriodStart !== null &&
+      prevPeriodStart !== null &&
+      gatewaySub.currentPeriodStart.getTime() > prevPeriodStart.getTime();
+
+    const planChangedInGateway = !!newPlanId && newPlanId !== local.planId;
+
+    const planForQuota = planChangedInGateway
+      ? await this.planRepo.findOne({ id: newPlanId! })
+      : await this.planRepo.findOne({ id: local.planId });
+
+    if (!planForQuota) return;
+
+    if (periodAdvanced && gatewaySub.currentPeriodEnd) {
+      await this.quotaPeriodRepo.create({
+        subscriptionId: local.id,
+        periodStart: gatewaySub.currentPeriodStart!,
+        periodEnd: gatewaySub.currentPeriodEnd,
+        surgeryRequestsLimit: planForQuota.surgeryRequestQuota,
+        surgeryRequestsUsed: 0,
+      });
+      this.logger.log(
+        `[sync] cota renovada para subscription=${local.id} período=${gatewaySub.currentPeriodStart!.toISOString()}`,
+      );
+      return;
+    }
+
+    if (planChangedInGateway) {
+      const currentQuotaPeriod =
+        await this.quotaPeriodRepo.findCurrentForSubscription(
+          local.id,
+          new Date(),
+        );
+
+      if (
+        currentQuotaPeriod &&
+        currentQuotaPeriod.surgeryRequestsLimit !==
+          planForQuota.surgeryRequestQuota
+      ) {
+        await this.quotaPeriodRepo.update(currentQuotaPeriod.id, {
+          surgeryRequestsLimit: planForQuota.surgeryRequestQuota,
+        });
+        this.logger.log(
+          `[sync] cota do período atual ajustada para subscription=${local.id} novoLimite=${planForQuota.surgeryRequestQuota}`,
+        );
+      }
+    }
+  }
+
   // ───── Helpers ─────
 
   /**
-   * Apenas o admin (owner = self) pode contratar/alterar o plano. Colaboradores
-   * recebem 403.
+   * Apenas o admin (owner = self) pode contratar/alterar o plano.
    */
   private async assertOwner(userId: string) {
     const user = await this.userRepo.findOne({ id: userId });
@@ -570,5 +539,48 @@ export class SubscriptionService {
     if (period === 'YEARLY') d.setUTCFullYear(d.getUTCFullYear() + 1);
     else d.setUTCMonth(d.getUTCMonth() + 1);
     return d;
+  }
+
+  /** Garante/cria Stripe customer para o owner e persiste o ID localmente. */
+  async ensureGatewayCustomer(ownerId: string): Promise<string> {
+    const sub = await this.subscriptionRepo.findByOwnerId(ownerId);
+    if (!sub) throw new NotFoundException('Assinatura não encontrada');
+
+    if (sub.gatewayCustomerId) {
+      const existingCustomer = await this.gateway.getCustomer(
+        sub.gatewayCustomerId,
+      );
+      if (existingCustomer) {
+        return sub.gatewayCustomerId;
+      }
+
+      this.logger.warn(
+        `[ensureGatewayCustomer] customer inexistente no gateway para owner=${ownerId}. Recriando (customerId antigo=${sub.gatewayCustomerId})`,
+      );
+    }
+
+    const user = await this.userRepo.findOne({ id: ownerId });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+
+    const customer = await this.gateway.createCustomer({
+      ownerId,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || null,
+    });
+
+    await this.subscriptionRepo.update(sub.id, {
+      gatewayCustomerId: customer.id,
+    });
+
+    return customer.id;
+  }
+
+  async assertIsOwner(userId: string) {
+    return this.assertOwner(userId);
+  }
+
+  async findByOwnerId(ownerId: string): Promise<Subscription | null> {
+    return this.subscriptionRepo.findByOwnerId(ownerId);
   }
 }

@@ -104,6 +104,105 @@ describe('DocumentClassifierService', () => {
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
+  it('repassa qty por item TUSS quando a linha traz sufixo de quantidade', async () => {
+    openai.chatCompletion.mockResolvedValueOnce(
+      buildLlmResponse({
+        kind: 'surgery_request',
+        confidence: 0.9,
+        suggestedDocumentType: 'authorization_guide',
+        ambiguity: null,
+        extracted: {
+          patient: null,
+          hospital: null,
+          healthPlan: null,
+          tuss: [
+            {
+              code: '3.07.15.091',
+              description: 'Descompressão de cauda equina',
+              qty: 2,
+            },
+            {
+              code: '3.07.15.18-0',
+              description: 'Protusão disco-osteofitária',
+              qty: 2,
+            },
+            {
+              code: '3.07.15.19-9',
+              description: 'Hemilaminectomia de L5',
+              qty: 1,
+            },
+          ],
+          cid: null,
+          opme: null,
+          laudoText: null,
+          notes: null,
+        },
+      }),
+    );
+
+    const result = await service.classify({ text: 'guia com códigos TUSS' });
+
+    expect(result.extracted.tuss).toEqual([
+      {
+        code: '3.07.15.091',
+        description: 'Descompressão de cauda equina',
+        qty: 2,
+      },
+      {
+        code: '3.07.15.18-0',
+        description: 'Protusão disco-osteofitária',
+        qty: 2,
+      },
+      { code: '3.07.15.19-9', description: 'Hemilaminectomia de L5', qty: 1 },
+    ]);
+  });
+
+  it('repassa endereço estruturado do paciente (logradouro/número/bairro/cidade/UF/CEP)', async () => {
+    openai.chatCompletion.mockResolvedValueOnce(
+      buildLlmResponse({
+        kind: 'medical_report',
+        confidence: 0.9,
+        suggestedDocumentType: 'medical_report',
+        ambiguity: null,
+        extracted: {
+          patient: {
+            name: 'Lucas Bruno Borges de Medeiros',
+            cpf: null,
+            birthDate: null,
+            rg: null,
+            motherName: null,
+            address: 'Rua Guarajanga',
+            addressNumber: null,
+            addressComplement: 'Q 6 01, Lt 13',
+            neighborhood: null,
+            city: 'Duque de Caxias',
+            state: 'RJ',
+            zipCode: '25.220-290',
+            phone: null,
+          },
+          hospital: null,
+          healthPlan: null,
+          tuss: null,
+          cid: null,
+          opme: null,
+          laudoText: null,
+          notes: null,
+        },
+      }),
+    );
+
+    const result = await service.classify({ text: 'laudo com endereço' });
+
+    expect(result.extracted.patient).toEqual({
+      name: 'Lucas Bruno Borges de Medeiros',
+      address: 'Rua Guarajanga',
+      addressComplement: 'Q 6 01, Lt 13',
+      city: 'Duque de Caxias',
+      state: 'RJ',
+      zipCode: '25.220-290',
+    });
+  });
+
   it('clampa confidence inválido e usa defaults seguros para enums', async () => {
     openai.chatCompletion.mockResolvedValueOnce(
       buildLlmResponse({
@@ -152,7 +251,12 @@ describe('DocumentClassifierService', () => {
           ],
           cid: [{ code: 'M23.2' }, { code: '   ' }],
           opme: [
-            { description: 'Âncora 5mm', qty: 2, supplier: null, manufacturer: null },
+            {
+              description: 'Âncora 5mm',
+              qty: 2,
+              supplier: null,
+              manufacturer: null,
+            },
             { description: '', qty: 3, supplier: null, manufacturer: null },
             {
               description: 'Parafuso interferência',
@@ -294,7 +398,7 @@ describe('DocumentClassifierService', () => {
     expect(result.ambiguity).toContain('payload_blob');
   });
 
-  it('usa maxTokens 2500 (cobre laudos com TUSS/CID/OPME completos)', async () => {
+  it('usa maxTokens default 1800 (configurável por env)', async () => {
     openai.chatCompletion.mockResolvedValueOnce(
       buildLlmResponse({
         kind: 'medical_report',
@@ -326,6 +430,6 @@ describe('DocumentClassifierService', () => {
       text: 'Texto qualquer com mais de 60 chars para evitar curto-circuito de blob.',
     });
     const callArgs = openai.chatCompletion.mock.calls[0][0];
-    expect(callArgs.maxTokens).toBe(2500);
+    expect(callArgs.maxTokens).toBe(1800);
   });
 });

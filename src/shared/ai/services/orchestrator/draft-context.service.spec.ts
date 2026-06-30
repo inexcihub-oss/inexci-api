@@ -4,15 +4,6 @@ import { ToolRegistryService } from '../tool-registry.service';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { PROMPT_VERSION } from '../../prompts/system-prompt';
 
-const makeToolCall = (
-  id: string,
-  name: string,
-): import('openai').default.ChatCompletionMessageToolCall => ({
-  id,
-  type: 'function',
-  function: { name, arguments: '{}' },
-});
-
 describe('DraftContextService', () => {
   let service: DraftContextService;
   let operationDraftService: jest.Mocked<
@@ -33,19 +24,6 @@ describe('DraftContextService', () => {
       operationDraftService as unknown as OperationDraftService,
       toolRegistry as unknown as ToolRegistryService,
     );
-  });
-
-  describe('evaluatePlanFirstGuard', () => {
-    it('sempre retorna set vazio (guard no-op)', async () => {
-      const toolCalls = [makeToolCall('c1', 'any_mutation_tool')];
-      const result = await service.evaluatePlanFirstGuard(toolCalls, 'conv-1');
-      expect(result.size).toBe(0);
-    });
-
-    it('retorna set vazio quando toolCalls está vazio', async () => {
-      const result = await service.evaluatePlanFirstGuard([], 'conv-1');
-      expect(result.size).toBe(0);
-    });
   });
 
   describe('buildCacheKey', () => {

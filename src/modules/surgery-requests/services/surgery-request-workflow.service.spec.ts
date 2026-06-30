@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 import { SurgeryRequestWorkflowService } from './surgery-request-workflow.service';
 import { SurgeryRequestBillingService } from './surgery-request-billing.service';
@@ -19,12 +18,12 @@ import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { PendencyValidatorService } from 'src/modules/surgery-requests/pendencies/pendency-validator.service';
 
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
-import { ReportSection } from 'src/database/entities/report-section.entity';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,7 +82,7 @@ describe('SurgeryRequestWorkflowService', () => {
   let notificationService: { [K: string]: jest.Mock };
   let pdfAssemblyService: { [K: string]: jest.Mock };
   let billingService: { [K: string]: jest.Mock };
-  let reportSectionRepo: { [K: string]: jest.Mock };
+  let pendencyValidator: { [K: string]: jest.Mock };
   let contestationRepository: { [K: string]: jest.Mock };
   let dataSource: { transaction: jest.Mock };
 
@@ -129,8 +128,8 @@ describe('SurgeryRequestWorkflowService', () => {
       updateReceipt: jest.fn().mockResolvedValue(undefined),
     };
 
-    reportSectionRepo = {
-      count: jest.fn(),
+    pendencyValidator = {
+      assertCanAdvance: jest.fn().mockResolvedValue(undefined),
     };
 
     contestationRepository = {
@@ -169,10 +168,6 @@ describe('SurgeryRequestWorkflowService', () => {
           useValue: contestationRepository,
         },
         {
-          provide: getRepositoryToken(ReportSection),
-          useValue: reportSectionRepo,
-        },
-        {
           provide: SurgeryRequestNotificationService,
           useValue: notificationService,
         },
@@ -181,6 +176,10 @@ describe('SurgeryRequestWorkflowService', () => {
           useValue: pdfAssemblyService,
         },
         { provide: SurgeryRequestBillingService, useValue: billingService },
+        {
+          provide: PendencyValidatorService,
+          useValue: pendencyValidator,
+        },
         {
           provide: StorageService,
           useValue: { getSignedUrl: jest.fn(), delete: jest.fn() },
@@ -232,12 +231,17 @@ describe('SurgeryRequestWorkflowService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException when no report sections exist', async () => {
+    it('should throw BadRequestException when assertCanAdvance blocks the transition', async () => {
       const request = makeRequest();
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );
-      reportSectionRepo.count.mockResolvedValue(0);
+      pendencyValidator.assertCanAdvance.mockRejectedValue(
+        new BadRequestException({
+          message: 'Existem pendências que impedem o avanço de status.',
+          pendencies: [{ key: 'medical_report', name: 'Laudo Médico' }],
+        }),
+      );
 
       await expect(
         service.sendRequest('req-1', { method: SendMethod.DOWNLOAD }, 'user-1'),
@@ -249,7 +253,6 @@ describe('SurgeryRequestWorkflowService', () => {
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );
-      reportSectionRepo.count.mockResolvedValue(3);
 
       const result = await service.sendRequest(
         'req-1',
@@ -271,7 +274,6 @@ describe('SurgeryRequestWorkflowService', () => {
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );
-      reportSectionRepo.count.mockResolvedValue(1);
 
       const result = await service.sendRequest(
         'req-1',

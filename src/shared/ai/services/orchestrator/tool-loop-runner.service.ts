@@ -9,7 +9,6 @@ import {
 } from './orchestrator-telemetry.service';
 import { ToolContext } from '../../tools/tool.interface';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
-import { buildToolResult } from '../../tools/tool-result';
 import { inexciTracer, SpanStatusCode } from '../../../observability/tracer';
 
 /**
@@ -33,10 +32,6 @@ const MAX_TOOL_ITERATIONS = 8;
  * vista do runner — invocado por contrato em momentos bem definidos do loop.
  */
 export interface ToolLoopHooks {
-  evaluatePlanFirstGuard: (
-    toolCalls: OpenAI.ChatCompletionMessageToolCall[],
-    conversationId: string,
-  ) => Promise<Set<string>>;
   memorizeEntitiesFromToolCall: (input: {
     conversationId: string;
     toolName: string;
@@ -93,7 +88,6 @@ export interface ToolLoopResult {
  * Executa o loop de tool calls do orchestrator (até `MAX_TOOL_ITERATIONS`
  * iterações). Cuida de:
  *
- * - aplicar o plan-first guard sobre as tool calls solicitadas;
  * - delegar execução para `ToolExecutorService`;
  * - rastrear `pending_confirmation` via `ConfirmationManagerService`;
  * - memorizar entidades extraídas via hook do orchestrator;
@@ -153,44 +147,10 @@ export class ToolLoopRunnerService {
             currentToolCalls.length,
           );
           try {
-            const blockedToolCallIds = await hooks.evaluatePlanFirstGuard(
+            const toolResults = await this.toolExecutor.executeMany(
               currentToolCalls,
-              conversationId,
+              toolContext,
             );
-
-            const toolCallsToExecute = blockedToolCallIds.size
-              ? currentToolCalls.filter(
-                  (call) => !blockedToolCallIds.has(call.id),
-                )
-              : currentToolCalls;
-
-            const toolResults = toolCallsToExecute.length
-              ? await this.toolExecutor.executeMany(
-                  toolCallsToExecute,
-                  toolContext,
-                )
-              : [];
-
-            if (blockedToolCallIds.size) {
-              for (const call of currentToolCalls) {
-                if (!blockedToolCallIds.has(call.id)) continue;
-                toolResults.push({
-                  toolCallId: call.id,
-                  output: buildToolResult({
-                    status: 'blocked',
-                    message:
-                      'Antes de chamar tools de mutação complexa, chame `plan_actions` para classificar a intenção e abrir o rascunho correspondente.',
-                    errors: [
-                      {
-                        code: 'PLAN_ACTIONS_REQUIRED',
-                        message:
-                          'Chame `plan_actions` primeiro neste turno para inicializar o rascunho.',
-                      },
-                    ],
-                  }),
-                });
-              }
-            }
 
             const patchedToolResults = await Promise.all(
               toolResults.map(async (result) => {

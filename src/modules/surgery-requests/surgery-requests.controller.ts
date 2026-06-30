@@ -10,11 +10,16 @@ import {
   Param,
   Res,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { SurgeryRequestsService } from './surgery-requests.service';
+import { SurgeryRequestFromDocumentService } from './services/surgery-request-from-document.service';
+import { CreateFromDocumentDto } from './dto/create-from-document.dto';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -53,6 +58,7 @@ import { BulkDeleteTemplatesDto } from './dto/bulk-delete-templates.dto';
 export class SurgeryRequestsController {
   constructor(
     private readonly surgeryRequestsService: SurgeryRequestsService,
+    private readonly fromDocumentService: SurgeryRequestFromDocumentService,
   ) {}
 
   // ============================================================
@@ -67,6 +73,35 @@ export class SurgeryRequestsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.createSurgeryRequest(data, user.userId);
+  }
+
+  @Post('extract-from-document')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
+  @ApiOperation({
+    summary:
+      'Extrai dados de um documento (imagem ou PDF) para pré-preencher uma SC — não persiste.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  extractFromDocument(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fromDocumentService.extractFromDocument(file, user.userId);
+  }
+
+  @Post('from-document')
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
+  @ApiOperation({
+    summary: 'Cria uma SC PENDENTE a partir dos dados revisados do documento.',
+  })
+  createFromDocument(
+    @Body() data: CreateFromDocumentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fromDocumentService.createFromDocument(data, user.userId);
   }
 
   // ============================================================

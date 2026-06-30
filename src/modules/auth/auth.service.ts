@@ -142,29 +142,13 @@ export class AuthService {
       ),
     );
 
-    // Cria automaticamente uma assinatura inicial (trial ou paga conforme o plano)
-    const paymentInfo = data.paymentMethodId
-      ? {
-          paymentMethodId: data.paymentMethodId,
-          brand: data.cardBrand ?? '',
-          last4: data.cardLast4 ?? '',
-          holderName: data.cardHolderName ?? '',
-          expMonth: data.cardExpMonth ?? 1,
-          expYear: data.cardExpYear ?? new Date().getFullYear(),
-        }
-      : undefined;
-
+    // Cria assinatura inicial em trial — pagamento via Stripe Checkout
     try {
       await this.subscriptionService.createInitialSubscription(
         user.id,
         data.planSlug,
-        paymentInfo,
       );
     } catch (err) {
-      if (paymentInfo) {
-        await this.userRepository.delete(user.id).catch(() => {});
-        throw err;
-      }
       this.logger.error(
         `Falha ao criar subscription para userId=${user.id}: ${err instanceof Error ? err.message : err}`,
       );

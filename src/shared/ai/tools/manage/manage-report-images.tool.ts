@@ -189,6 +189,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
               buffer: downloaded.buffer,
             } as any,
             STORAGE_FOLDERS.DOCUMENTS,
+            auth.request.ownerId,
           );
 
           let created: any;

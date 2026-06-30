@@ -49,6 +49,7 @@ import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.
 import { OcrService } from './ocr/ocr.service';
 import { DocumentClassifierService } from './ocr/document-classifier.service';
 import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.service';
+import { DocumentExtractionService } from './ocr/document-extraction.service';
 import { ResponseNormalizerService } from './services/orchestrator/response-normalizer.service';
 import { PhoneNormalizerService } from './services/orchestrator/phone-normalizer.service';
 import { ClearContextDetectorService } from './services/orchestrator/clear-context-detector.service';
@@ -120,6 +121,7 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     OcrService,
     DocumentClassifierService,
     DocumentVisionFallbackService,
+    DocumentExtractionService,
     ResponseNormalizerService,
     PhoneNormalizerService,
     ClearContextDetectorService,
@@ -135,6 +137,6 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     DraftContextService,
     AiMessageProcessor,
   ],
-  exports: [AiOrchestratorService],
+  exports: [AiOrchestratorService, DocumentExtractionService],
 })
 export class AiModule {}
