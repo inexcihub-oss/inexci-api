@@ -299,6 +299,7 @@ export class AuthService {
             clinicName: doctorProfile.clinicName,
           }
         : null,
+      consents: this.consentService.buildStatusFromUser(user),
     };
   }
 

@@ -417,7 +417,8 @@ export class DocumentClassifierService {
 
     const model = this.getModel();
     const maxTokens = this.getMaxTokens();
-    const userPrompt = this.buildUserPrompt(trimmed, opts.intent);
+    const classifierText = this.truncateForClassifier(trimmed);
+    const userPrompt = this.buildUserPrompt(classifierText, opts.intent);
 
     // Salvaguarda contra regressão do `payload_blob`: se o texto tokenizado
     // veio reduzido a um único placeholder gigante (bug onde
@@ -531,6 +532,93 @@ export class DocumentClassifierService {
     const parsed = Number(raw);
     if (!Number.isFinite(parsed)) return 1800;
     return Math.max(600, Math.min(4000, Math.floor(parsed)));
+  }
+
+  /**
+   * Reduz o texto enviado ao LLM em documentos muito longos. Quando o OCR
+   * marcou páginas (`[PÁGINA N]`), prioriza a 1ª, as 3 últimas (TUSS/OPME)
+   * e preenche o orçamento com páginas intermediárias. Sem marcadores, usa
+   * head+tail clássico.
+   */
+  private truncateForClassifier(text: string): string {
+    const maxChars = this.getMaxInputChars();
+    if (text.length <= maxChars) return text;
+
+    const pageAware = this.truncateByPageMarkers(text, maxChars);
+    if (pageAware) {
+      this.logger.log(
+        `[AI_DOC_CLASSIFY] input_truncated original_len=${text.length} strategy=page_aware truncated_len=${pageAware.length}`,
+      );
+      return pageAware;
+    }
+
+    const headChars = Math.min(10000, Math.floor(maxChars * 0.55));
+    const tailChars = Math.max(8000, maxChars - headChars - 40);
+    const head = text.slice(0, headChars);
+    const tail = text.slice(-tailChars);
+
+    this.logger.log(
+      `[AI_DOC_CLASSIFY] input_truncated original_len=${text.length} strategy=head_tail head=${headChars} tail=${tailChars}`,
+    );
+
+    return `${head}\n\n[...trecho intermediário omitido para performance...]\n\n${tail}`;
+  }
+
+  private truncateByPageMarkers(
+    text: string,
+    maxChars: number,
+  ): string | null {
+    const chunks = text
+      .split(/\n\n(?=\[PÁGINA \d+\]\n)/)
+      .map((chunk) => chunk.trim())
+      .filter(Boolean);
+    if (chunks.length <= 1) return null;
+
+    const firstPage = chunks[0];
+    const tailPageCount = Math.min(3, Math.max(1, chunks.length - 1));
+    const tailPages = chunks.slice(-tailPageCount);
+    const middlePages = chunks.slice(1, chunks.length - tailPageCount);
+
+    const selected: string[] = [];
+    const pushIfFits = (chunk: string) => {
+      const candidate = [...selected, chunk].join('\n\n');
+      if (candidate.length <= maxChars) {
+        selected.push(chunk);
+        return true;
+      }
+      return false;
+    };
+
+    if (firstPage) selected.push(firstPage);
+    for (const page of middlePages) {
+      pushIfFits(page);
+    }
+    for (const page of tailPages) {
+      if (!selected.includes(page)) pushIfFits(page);
+    }
+
+    let consolidated = selected.join('\n\n');
+    if (consolidated.length <= maxChars) return consolidated;
+
+    // Último recurso: mantém 1ª + últimas dentro do orçamento.
+    const compactTail = tailPages.join('\n\n');
+    const compactHeadBudget = Math.max(
+      2000,
+      maxChars - compactTail.length - 40,
+    );
+    const compactHead = firstPage.slice(0, compactHeadBudget);
+    consolidated = `${compactHead}\n\n[...páginas intermediárias omitidas...]\n\n${compactTail}`;
+    return consolidated.slice(0, maxChars);
+  }
+
+  private getMaxInputChars(): number {
+    const raw = this.configService.get<string>(
+      'AI_DOC_CLASSIFIER_MAX_INPUT_CHARS',
+      '22000',
+    );
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 22000;
+    return Math.max(4000, Math.min(50000, Math.floor(parsed)));
   }
 
   /**

@@ -50,6 +50,7 @@ function buildConfigService(
   const base: Record<string, any> = {
     AI_DOC_OCR_LANG: 'por',
     AI_DOC_MAX_PAGES: 5,
+    AI_DOC_OCR_PARALLEL_WORKERS: 1,
     ...overrides,
   };
   return {
@@ -241,6 +242,8 @@ describe('OcrService', () => {
     expect(result.pagesProcessed).toBe(2);
     expect(result.text).toContain('pagina um');
     expect(result.text).toContain('pagina dois');
+    expect(result.text).toContain('[PÁGINA 1]');
+    expect(result.text).toContain('[PÁGINA 2]');
     expect(result.confidence).toBeCloseTo(0.8, 2);
     expect(result.pages.map((p) => p.source)).toEqual(['ocr', 'ocr']);
   });
@@ -270,6 +273,34 @@ describe('OcrService', () => {
     expect(result.pageCount).toBe(4);
     expect(result.pagesProcessed).toBe(1);
     expect(result.truncatedPages).toBe(3);
+  });
+
+  it('processa páginas de PDF escaneado em paralelo com pool de workers', async () => {
+    service = new OcrService(
+      buildConfigService({ AI_DOC_OCR_PARALLEL_WORKERS: 3 }),
+      piiVault,
+    );
+
+    getTextMock.mockResolvedValueOnce({ text: '   ', total: 6 });
+    getScreenshotMock.mockResolvedValueOnce({
+      pages: Array.from({ length: 6 }, (_, i) => ({
+        pageNumber: i + 1,
+        data: Buffer.from(`png-${i + 1}`),
+      })),
+    });
+    recognizeMock.mockImplementation(async () => ({
+      data: { text: 'conteudo', confidence: 85 },
+    }));
+
+    const result = await service.extract({
+      buffer: Buffer.from('%PDF scan big'),
+      mimeType: 'application/pdf',
+    });
+
+    expect(createWorkerMock).toHaveBeenCalledTimes(3);
+    expect(recognizeMock).toHaveBeenCalledTimes(6);
+    expect(result.pagesProcessed).toBe(6);
+    expect(result.text).toContain('[PÁGINA 6]');
   });
 
   it('extractAndTokenize substitui PII estruturada antes de devolver', async () => {

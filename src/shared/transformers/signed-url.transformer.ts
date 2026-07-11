@@ -47,21 +47,27 @@ export async function transformDoctorSignatureUrl(
     return resolveHeaderLogoUrl(doctor, storageService);
   }
 
+  const withSignedSignature = (signedUrl: string) => ({
+    ...doctor,
+    signatureUrl: signedUrl,
+    doctorProfile: doctor.doctorProfile
+      ? { ...doctor.doctorProfile, signatureUrl: signedUrl }
+      : doctor.doctorProfile,
+  });
+
   let transformed: any;
   if (rawSignature.startsWith('http')) {
-    // Já é uma URL HTTP — apenas garante que está no campo top-level
-    transformed = { ...doctor, signatureUrl: rawSignature };
+    transformed = withSignedSignature(rawSignature);
   } else {
     try {
-      transformed = {
-        ...doctor,
-        signatureUrl: await storageService.getSignedUrl(rawSignature),
-      };
+      transformed = withSignedSignature(
+        await storageService.getSignedUrl(rawSignature),
+      );
     } catch {
       logger.warn(
         `Falha ao gerar signed URL para assinatura do médico ${doctor.id}`,
       );
-      transformed = doctor;
+      transformed = withSignedSignature(rawSignature);
     }
   }
 

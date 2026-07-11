@@ -100,6 +100,13 @@ describe('AuthService', () => {
       requiredConsentsAccepted: true,
       pendingRequired: [],
     }),
+    buildStatusFromUser: jest.fn().mockReturnValue({
+      privacyPolicyAcceptedAt: new Date('2026-01-01'),
+      termsOfUseAcceptedAt: new Date('2026-01-02'),
+      aiConsentAcceptedAt: null,
+      requiredConsentsAccepted: true,
+      pendingRequired: [],
+    }),
     acceptTerms: jest.fn().mockResolvedValue(undefined),
     grantAi: jest.fn().mockResolvedValue(undefined),
     revokeAi: jest.fn().mockResolvedValue(undefined),
@@ -133,6 +140,40 @@ describe('AuthService', () => {
 
     service = module.get<AuthService>(AuthService);
     jest.clearAllMocks();
+  });
+
+  // ─── me ─────────────────────────────────────────────────────────
+
+  describe('me', () => {
+    it('inclui consents embutidos sem query adicional ao ConsentService', async () => {
+      const user = {
+        id: 'user-1',
+        role: UserRole.ADMIN,
+        name: 'Test User',
+        phone: '11999999999',
+        email: 'test@example.com',
+        ownerId: 'user-1',
+        avatarUrl: null,
+        emailVerified: true,
+        privacyPolicyAcceptedAt: new Date('2026-01-01'),
+        termsOfUseAcceptedAt: new Date('2026-01-02'),
+        aiConsentAcceptedAt: null,
+        doctorProfile: null,
+      };
+      mockUserRepository.findOneWithProfile.mockResolvedValue(user);
+
+      const result = await service.me('user-1');
+
+      expect(result.consents).toEqual({
+        privacyPolicyAcceptedAt: new Date('2026-01-01'),
+        termsOfUseAcceptedAt: new Date('2026-01-02'),
+        aiConsentAcceptedAt: null,
+        requiredConsentsAccepted: true,
+        pendingRequired: [],
+      });
+      expect(mockConsentService.buildStatusFromUser).toHaveBeenCalledWith(user);
+      expect(mockConsentService.getStatus).not.toHaveBeenCalled();
+    });
   });
 
   // ─── validateUser ───────────────────────────────────────────────

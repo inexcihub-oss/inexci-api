@@ -25,7 +25,7 @@ export class ConsentService {
 
   async getStatus(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
-    return this.buildStatus(user);
+    return this.buildStatusFromUser(user);
   }
 
   /** Aceita Política de Privacidade e Termos de Uso de uma só vez. */
@@ -37,7 +37,7 @@ export class ConsentService {
       termsOfUseAcceptedAt: now,
     });
     this.logger.log(`[CONSENT_TERMS_ACCEPTED] user=${userId}`);
-    return this.buildStatus({
+    return this.buildStatusFromUser({
       ...user,
       privacyPolicyAcceptedAt: now,
       termsOfUseAcceptedAt: now,
@@ -49,14 +49,14 @@ export class ConsentService {
     const now = new Date();
     await this.userRepo.update(userId, { aiConsentAcceptedAt: now });
     this.logger.log(`[CONSENT_AI_GRANTED] user=${userId}`);
-    return this.buildStatus({ ...user, aiConsentAcceptedAt: now });
+    return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: now });
   }
 
   async revokeAi(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
     await this.userRepo.update(userId, { aiConsentAcceptedAt: null });
     this.logger.warn(`[CONSENT_AI_REVOKED] user=${userId}`);
-    return this.buildStatus({ ...user, aiConsentAcceptedAt: null });
+    return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: null });
   }
 
   /**
@@ -73,7 +73,11 @@ export class ConsentService {
     return user;
   }
 
-  private buildStatus(
+  /**
+   * Monta o status de consentimento a partir de um User já carregado
+   * (ex.: timestamps LGPD vindos de `findOneWithProfile` no `/auth/me`).
+   */
+  buildStatusFromUser(
     user: Pick<
       User,
       'privacyPolicyAcceptedAt' | 'termsOfUseAcceptedAt' | 'aiConsentAcceptedAt'

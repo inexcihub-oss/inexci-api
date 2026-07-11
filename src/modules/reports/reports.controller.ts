@@ -58,6 +58,33 @@ export class ReportsController {
     );
   }
 
+  @Get('dashboard-full')
+  @ApiOperation({
+    summary: 'Dashboard consolidado (KPIs + evoluções + tempo médio + alertas)',
+  })
+  @ApiQuery({ name: 'days', required: false })
+  @ApiQuery({ name: 'months', required: false })
+  @ApiQuery({ name: 'hospitalId', required: false })
+  @ApiQuery({ name: 'healthPlanId', required: false })
+  @ApiQuery({ name: 'startDate', required: false, description: 'ISO date' })
+  @ApiQuery({ name: 'endDate', required: false, description: 'ISO date' })
+  dashboardFull(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+    @Query('months') months?: string,
+    @Query('hospitalId') hospitalId?: string,
+    @Query('healthPlanId') healthPlanId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.reportsService.dashboardFull(
+      user.userId,
+      this.buildFilters({ hospitalId, healthPlanId, startDate, endDate }),
+      days ? parseInt(days, 10) : 30,
+      months ? parseInt(months, 10) : 6,
+    );
+  }
+
   @Get('temporal-evolution')
   @ApiOperation({ summary: 'Evolução temporal' })
   @ApiQuery({ name: 'days', required: false })

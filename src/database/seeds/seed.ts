@@ -3,6 +3,7 @@ import { faker } from '@faker-js/faker';
 import { Logger } from '@nestjs/common';
 import { SeedDataSource } from '../typeorm/seed-data-source';
 import { DEFAULT_PROCEDURE_NAMES } from '../../modules/procedures/default-procedures.constants';
+import { seedClinicalReportSections } from './seed-clinical-sections.helper';
 
 const logger = new Logger('Seed');
 
@@ -1173,8 +1174,8 @@ async function main() {
   // SR 1 — Status PENDING (Pendente) — paciente 0
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,NULL,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,NULL,$7,$8) RETURNING id`,
       [
         adminId,
         adminId,
@@ -1182,22 +1183,24 @@ async function main() {
         hospitalIds[0],
         healthPlanIds[0],
         procedureIds[0],
-        'Colelitíase sintomática com episódios repetidos de colecistite aguda. USG revelou cálculos múltiplos com espessamento de parede.',
-        'Paciente apresenta quadro de dor em hipocôndrio direito há 8 meses com irradiação para escápula direita. Diagnóstico confirmado por ultrassonografia.',
-        'Hipertensão arterial sistêmica controlada. Alergia a penicilina documentada. ASA II.',
-        'Colecistectomia videolaparoscópica com clipagem do ducto e artéria cística. Acesso de 4 portais.',
         '0012345678',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Colelitíase sintomática com episódios repetidos de colecistite aguda. USG revelou cálculos múltiplos com espessamento de parede.",
+      medicalReport: "Paciente apresenta quadro de dor em hipocôndrio direito há 8 meses com irradiação para escápula direita. Diagnóstico confirmado por ultrassonografia.",
+      patientHistory: "Hipertensão arterial sistêmica controlada. Alergia a penicilina documentada. ASA II.",
+      surgeryDescription: "Colecistectomia videolaparoscópica com clipagem do ducto e artéria cística. Acesso de 4 portais.",
+    });
   }
 
   // SR 2 — Status SENT (Enviada) — paciente 1
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,2,3,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '3 days','email') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, send_method)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,2,3,false,$7,$8,NOW() - INTERVAL '3 days','email') RETURNING id`,
       [
         adminId,
         assistente1Id,
@@ -1205,23 +1208,25 @@ async function main() {
         hospitalIds[0],
         healthPlanIds[1],
         procedureIds[2],
-        'Hérnia umbilical de 3 cm com conteúdo epiplóico. Assintomática mas com aumento progressivo.',
-        'Paciente relata abaulamento umbilical há 2 anos com progressão nos últimos 6 meses. Exame físico confirma hérnia redutível.',
-        'Diabetes mellitus tipo 2 em controle. Hemoglobina glicada 6,8%. HAS compensada.',
-        'Herniorrafia umbilical com tela de polipropileno. Acesso por incisão periumbilical.',
         '9876543210',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Hérnia umbilical de 3 cm com conteúdo epiplóico. Assintomática mas com aumento progressivo.",
+      medicalReport: "Paciente relata abaulamento umbilical há 2 anos com progressão nos últimos 6 meses. Exame físico confirma hérnia redutível.",
+      patientHistory: "Diabetes mellitus tipo 2 em controle. Hemoglobina glicada 6,8%. HAS compensada.",
+      surgeryDescription: "Herniorrafia umbilical com tela de polipropileno. Acesso por incisão periumbilical.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
   }
 
   // SR 3 — Status IN_ANALYSIS (Em Análise) com analysis record — paciente 2
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method, analysis_started_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '10 days','email',NOW() - INTERVAL '8 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, send_method, analysis_started_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,true,$7,$8,NOW() - INTERVAL '10 days','email',NOW() - INTERVAL '8 days') RETURNING id`,
       [
         adminId,
         adminId,
@@ -1229,15 +1234,17 @@ async function main() {
         hospitalIds[1],
         healthPlanIds[2],
         procedureIds[4],
-        'Gonartrose severa bilateral (KL grau IV). Dor intratável em ambos os joelhos limitando deambulação.',
-        'Paciente com histórico de 5 anos de dor progressiva nos joelhos. RX demonstra pinçamento articular bilateral e osteofitose proeminente. Sem resposta a tratamento conservador.',
-        'Hipertensão arterial. Tabagismo cessante há 2 anos. ASA II. Risco cirúrgico cardiovascular baixo conforme avaliação cardiológica.',
-        'Artroplastia total do joelho direito com implante cimentado. Uso de torniquete pneumático. Tempo cirúrgico estimado 2h.',
         '1122334455',
         'Enfermaria',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Gonartrose severa bilateral (KL grau IV). Dor intratável em ambos os joelhos limitando deambulação.",
+      medicalReport: "Paciente com histórico de 5 anos de dor progressiva nos joelhos. RX demonstra pinçamento articular bilateral e osteofitose proeminente. Sem resposta a tratamento conservador.",
+      patientHistory: "Hipertensão arterial. Tabagismo cessante há 2 anos. ASA II. Risco cirúrgico cardiovascular baixo conforme avaliação cardiológica.",
+      surgeryDescription: "Artroplastia total do joelho direito com implante cimentado. Uso de torniquete pneumático. Tempo cirúrgico estimado 2h.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
     await dataSource.query(
@@ -1273,8 +1280,8 @@ async function main() {
   // SR 4 — Status IN_SCHEDULING (Em Agendamento) — paciente 3
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,4,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '20 days',NOW() - INTERVAL '17 days','AMIL-20240358',$13) RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,4,2,false,$7,$8,NOW() - INTERVAL '20 days',NOW() - INTERVAL '17 days','AMIL-20240358',$9) RETURNING id`,
       [
         adminId,
         assistente1Id,
@@ -1282,10 +1289,6 @@ async function main() {
         hospitalIds[0],
         healthPlanIds[1],
         procedureIds[0],
-        'Colelitíase com episódio recente de pancreatite biliar. Indicação de colecistectomia após resolução do quadro agudo.',
-        'Paciente encaminhada da UTI após pancreatite aguda biliar. Amilase normalizada. Alta hospitalar há 3 semanas.',
-        'Gestante com 10 semanas. Pancreatite biliar resolvida. Aguardando avaliação obstétrica para autorização cirúrgica.',
-        'Colecistectomia videolaparoscópica eletiva. Decúbito lateral esquerdo. Insuflação com CO2 a 12mmHg.',
         '5544332211',
         'Apartamento',
         JSON.stringify(
@@ -1306,6 +1309,12 @@ async function main() {
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Colelitíase com episódio recente de pancreatite biliar. Indicação de colecistectomia após resolução do quadro agudo.",
+      medicalReport: "Paciente encaminhada da UTI após pancreatite aguda biliar. Amilase normalizada. Alta hospitalar há 3 semanas.",
+      patientHistory: "Gestante com 10 semanas. Pancreatite biliar resolvida. Aguardando avaliação obstétrica para autorização cirúrgica.",
+      surgeryDescription: "Colecistectomia videolaparoscópica eletiva. Decúbito lateral esquerdo. Insuflação com CO2 a 12mmHg.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
     await recordStatusChange(dataSource, r[0].id, 3, 4);
@@ -1315,8 +1324,8 @@ async function main() {
   {
     const surgeryDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, selected_date_index, hospital_protocol)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,5,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '25 days',NOW() - INTERVAL '22 days','UNIMED-20240612',$13,0,'HCD-2024-8834') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, selected_date_index, hospital_protocol)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,5,3,true,$7,$8,NOW() - INTERVAL '25 days',NOW() - INTERVAL '22 days','UNIMED-20240612',$9,0,'HCD-2024-8834') RETURNING id`,
       [
         adminId,
         adminId,
@@ -1324,16 +1333,18 @@ async function main() {
         hospitalIds[0],
         healthPlanIds[0],
         procedureIds[12],
-        'Doença arterial coronariana trisvasal com fração de ejeção preservada (FE 65%). Coronariografia demonstra lesões críticas em DA, CX e CD.',
-        'Paciente de 72 anos com angina estável refratária ao tratamento clínico. Cintilografia miocárdica com isquemia extensa. Indicado tratamento cirúrgico pelo Heart Team.',
-        'FA paroxística anticoagulada. HAS. DM2. Tabagismo cessante há 10 anos. Score de EuroSCORE II: 2,4%.',
-        'Revascularização do miocárdio com circulação extracorpórea. Enxertos: AMIE para DA, VSM para CX e CD.',
         '6677889900',
         'Apartamento Superior',
         surgeryDate,
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Doença arterial coronariana trisvasal com fração de ejeção preservada (FE 65%). Coronariografia demonstra lesões críticas em DA, CX e CD.",
+      medicalReport: "Paciente de 72 anos com angina estável refratária ao tratamento clínico. Cintilografia miocárdica com isquemia extensa. Indicado tratamento cirúrgico pelo Heart Team.",
+      patientHistory: "FA paroxística anticoagulada. HAS. DM2. Tabagismo cessante há 10 anos. Score de EuroSCORE II: 2,4%.",
+      surgeryDescription: "Revascularização do miocárdio com circulação extracorpórea. Enxertos: AMIE para DA, VSM para CX e CD.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
     await recordStatusChange(dataSource, r[0].id, 3, 4);
@@ -1364,8 +1375,8 @@ async function main() {
   // SR 6 — Status PERFORMED (Realizada) — paciente 0 (segunda cirurgia)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,6,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '45 days',NOW() - INTERVAL '42 days','UNIMED-20240288',NOW() - INTERVAL '15 days',NOW() - INTERVAL '15 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,6,2,false,$7,$8,NOW() - INTERVAL '45 days',NOW() - INTERVAL '42 days','UNIMED-20240288',NOW() - INTERVAL '15 days',NOW() - INTERVAL '15 days') RETURNING id`,
       [
         adminId,
         assistente1Id,
@@ -1373,15 +1384,17 @@ async function main() {
         hospitalIds[1],
         healthPlanIds[0],
         procedureIds[8],
-        'Urolitíase com cálculo ureteral obstrutivo de 12mm no ureter proximal esquerdo. Hidronefrose leve.',
-        'Paciente com episódio de cólica renal intensa. TC demonstra cálculo ureteral obstrutivo. Sem sinais de infecção.',
-        'HAS compensada. Alergia a penicilina. Função renal preservada (creatinina 0,9).',
-        'Nefrolitotripsia percutânea com litotripsora ultrassônica. Acesso percutâneo posterolateral.',
         '0012345678',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Urolitíase com cálculo ureteral obstrutivo de 12mm no ureter proximal esquerdo. Hidronefrose leve.",
+      medicalReport: "Paciente com episódio de cólica renal intensa. TC demonstra cálculo ureteral obstrutivo. Sem sinais de infecção.",
+      patientHistory: "HAS compensada. Alergia a penicilina. Função renal preservada (creatinina 0,9).",
+      surgeryDescription: "Nefrolitotripsia percutânea com litotripsora ultrassônica. Acesso percutâneo posterolateral.",
+    });
     for (const [prev, next] of [
       [1, 2],
       [2, 3],
@@ -1391,27 +1404,13 @@ async function main() {
     ]) {
       await recordStatusChange(dataSource, r[0].id, prev, next);
     }
-    await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Histórico e Diagnóstico', $2, 1)`,
-      [
-        r[0].id,
-        '<p>Histórico clínico e diagnóstico documentados para acompanhamento pós-cirúrgico.</p>',
-      ],
-    );
-    await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Conduta', $2, 2)`,
-      [
-        r[0].id,
-        '<p>Conduta pós-operatória conforme protocolo institucional.</p>',
-      ],
-    );
   }
 
   // SR 7 — Status INVOICED (Faturada) — paciente 1
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '60 days',NOW() - INTERVAL '30 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,NOW() - INTERVAL '60 days',NOW() - INTERVAL '30 days') RETURNING id`,
       [
         adminId,
         adminId,
@@ -1419,15 +1418,17 @@ async function main() {
         hospitalIds[1],
         healthPlanIds[2],
         procedureIds[13],
-        'Dispepsia refratária com suspeita de H. pylori. Indicação de EDA diagnóstica e terapêutica.',
-        'Paciente relata pirose e epigastralgia há 3 meses. Sem resposta a IBP em dose plena.',
-        'DM2 controlada. Sem contraindicações ao procedimento endoscópico.',
-        'Endoscopia digestiva alta com biópsia de antro e corpo gástrico para pesquisa de H. pylori.',
         '9876543210',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Dispepsia refratária com suspeita de H. pylori. Indicação de EDA diagnóstica e terapêutica.",
+      medicalReport: "Paciente relata pirose e epigastralgia há 3 meses. Sem resposta a IBP em dose plena.",
+      patientHistory: "DM2 controlada. Sem contraindicações ao procedimento endoscópico.",
+      surgeryDescription: "Endoscopia digestiva alta com biópsia de antro e corpo gástrico para pesquisa de H. pylori.",
+    });
     for (const [prev, next] of [
       [1, 2],
       [2, 3],
@@ -1448,8 +1449,8 @@ async function main() {
   // SR 8 — Status FINALIZED (Finalizada) — paciente 2
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,8,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '90 days',NOW() - INTERVAL '60 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,8,2,false,$7,$8,NOW() - INTERVAL '90 days',NOW() - INTERVAL '60 days') RETURNING id`,
       [
         adminId,
         assistente1Id,
@@ -1457,15 +1458,17 @@ async function main() {
         hospitalIds[1],
         healthPlanIds[2],
         procedureIds[9],
-        'Desvio septal grau III com rinite obstrutiva crônica e roncopatia. Sem resposta ao tratamento clínico.',
-        'Paciente relata obstrução nasal bilateral há 5 anos, rinorreia, ronco e apneia do sono leve.',
-        'Alérgico a dipirona. Sem comorbidades relevantes. ASA I.',
-        'Septoplastia com turbinectomia parcial inferior bilateral. Anestesia geral. Uso de tamponamento nasal por 24h.',
         '1122334455',
         'Enfermaria',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Desvio septal grau III com rinite obstrutiva crônica e roncopatia. Sem resposta ao tratamento clínico.",
+      medicalReport: "Paciente relata obstrução nasal bilateral há 5 anos, rinorreia, ronco e apneia do sono leve.",
+      patientHistory: "Alérgico a dipirona. Sem comorbidades relevantes. ASA I.",
+      surgeryDescription: "Septoplastia com turbinectomia parcial inferior bilateral. Anestesia geral. Uso de tamponamento nasal por 24h.",
+    });
     for (const [prev, next] of [
       [1, 2],
       [2, 3],
@@ -1487,8 +1490,8 @@ async function main() {
   // SR 9 — Status CLOSED (Encerrada / recusada) — paciente 3
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '40 days','Convênio negou autorização alegando documentação incompleta. Decisão contestada e aguardando reanálise em nova solicitação.',NOW() - INTERVAL '5 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,NOW() - INTERVAL '40 days','Convênio negou autorização alegando documentação incompleta. Decisão contestada e aguardando reanálise em nova solicitação.',NOW() - INTERVAL '5 days') RETURNING id`,
       [
         adminId,
         adminId,
@@ -1496,15 +1499,17 @@ async function main() {
         hospitalIds[0],
         healthPlanIds[1],
         procedureIds[14],
-        'Pólipo de cólon de 18mm no sigmóide. Colonoscopia prévia com biópsia: adenoma tubular sem displasia de alto grau.',
-        'Colonoscopia de rotina identificou pólipo sessil de 18mm. Indicada polipectomia endoscópica.',
-        'Sem comorbidades relevantes. Colonoscopia prévia sem intercorrências. ASA I.',
-        'Colonoscopia com polipectomia por alça fria. Sedação com propofol. Preparo intestinal com manitol.',
         '5544332211',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Pólipo de cólon de 18mm no sigmóide. Colonoscopia prévia com biópsia: adenoma tubular sem displasia de alto grau.",
+      medicalReport: "Colonoscopia de rotina identificou pólipo sessil de 18mm. Indicada polipectomia endoscópica.",
+      patientHistory: "Sem comorbidades relevantes. Colonoscopia prévia sem intercorrências. ASA I.",
+      surgeryDescription: "Colonoscopia com polipectomia por alça fria. Sedação com propofol. Preparo intestinal com manitol.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 9);
   }
@@ -1512,8 +1517,8 @@ async function main() {
   // SR 10 — Dra. Fernanda Rocha (neurocirurgia) — paciente 5
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '12 days',NOW() - INTERVAL '9 days','BRAD-20241122') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,3,true,$7,$8,NOW() - INTERVAL '12 days',NOW() - INTERVAL '9 days','BRAD-20241122') RETURNING id`,
       [
         collabMedicaId,
         collabMedicaId,
@@ -1521,15 +1526,17 @@ async function main() {
         hospitalIds[2],
         healthPlanIds[3],
         procedureIds[6],
-        'Hérnia discal L4-L5 com radiculopatia L5 direita. RNM: extrusão foraminal com compressão radicular.',
-        'Paciente com lombalgia irradiada para MID há 18 meses. Testes de provocação positivos. EMG: radiculopatia L5 direita.',
-        'Sem comorbidades. Fisioterapia e bloqueio epidural sem melhora. IMC 24. ASA I.',
-        'Discectomia lombar por via posterior (microdiscectomia). Acesso interlaminar L4-L5.',
         '1029384756',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Hérnia discal L4-L5 com radiculopatia L5 direita. RNM: extrusão foraminal com compressão radicular.",
+      medicalReport: "Paciente com lombalgia irradiada para MID há 18 meses. Testes de provocação positivos. EMG: radiculopatia L5 direita.",
+      patientHistory: "Sem comorbidades. Fisioterapia e bloqueio epidural sem melhora. IMC 24. ASA I.",
+      surgeryDescription: "Discectomia lombar por via posterior (microdiscectomia). Acesso interlaminar L4-L5.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
     const opme10a = await dataSource.query(
@@ -1558,8 +1565,8 @@ async function main() {
   // SR 11 — Dra. Fernanda Rocha — paciente 6 — PENDING
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,NULL,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,NULL,$7,$8) RETURNING id`,
       [
         collabMedicaId,
         assistente2Id,
@@ -1567,15 +1574,17 @@ async function main() {
         hospitalIds[2],
         healthPlanIds[3],
         procedureIds[19],
-        'Espondilolistese degenerativa L4-L5 grau II com estenose do canal vertebral e síndrome de cauda equina incipiente.',
-        'RM revela listese grau II com estenose foraminal bilateral. Déficit neurológico progressivo.',
-        'Sem comorbidades cardiovasculares. Tabagismo cessante há 3 anos. ASA II.',
-        'Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão canal.',
         '5647382910',
         'Apartamento',
       ],
     );
     srIds2.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Espondilolistese degenerativa L4-L5 grau II com estenose do canal vertebral e síndrome de cauda equina incipiente.",
+      medicalReport: "RM revela listese grau II com estenose foraminal bilateral. Déficit neurológico progressivo.",
+      patientHistory: "Sem comorbidades cardiovasculares. Tabagismo cessante há 3 anos. ASA II.",
+      surgeryDescription: "Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão canal.",
+    });
   }
 
   logger.log(`  ✅ ${srIds2.length} solicitações criadas para conta 2\n`);
@@ -1591,8 +1600,8 @@ async function main() {
   {
     const surgDate = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, hospital_protocol)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,5,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '30 days',NOW() - INTERVAL '27 days','UNIMED-20241087',$13,'HEIN-2024-5531') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, hospital_protocol)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,5,3,true,$7,$8,NOW() - INTERVAL '30 days',NOW() - INTERVAL '27 days','UNIMED-20241087',$9,'HEIN-2024-5531') RETURNING id`,
       [
         adminMedicoId,
         adminMedicoId,
@@ -1600,16 +1609,18 @@ async function main() {
         hospitalIds[3],
         healthPlanIds[4],
         procedureIdsConta1[4],
-        'Gonartrose bilateral grau IV (KL). Dor intensa e incapacitante bilateral. Sem resposta a tratamento clínico e infiltrações.',
-        'Paciente 64 anos com artrose avançada dos joelhos. Cintilografia óssea com hipercaptação bilateral. Indicação absoluta de ATJ.',
-        'HAS, DM2. Risco cirúrgico baixo (cardiologista). IMC 28. Sem antecedentes de TVP.',
-        'Artroplastia total do joelho direito com prótese de superfície cimentada. Uso de torniquete, acesso medial parapatelar.',
         '1122334455',
         'Apartamento',
         surgDate,
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Gonartrose bilateral grau IV (KL). Dor intensa e incapacitante bilateral. Sem resposta a tratamento clínico e infiltrações.",
+      medicalReport: "Paciente 64 anos com artrose avançada dos joelhos. Cintilografia óssea com hipercaptação bilateral. Indicação absoluta de ATJ.",
+      patientHistory: "HAS, DM2. Risco cirúrgico baixo (cardiologista). IMC 28. Sem antecedentes de TVP.",
+      surgeryDescription: "Artroplastia total do joelho direito com prótese de superfície cimentada. Uso de torniquete, acesso medial parapatelar.",
+    });
     for (const [p, n] of [
       [1, 2],
       [2, 3],
@@ -1656,8 +1667,8 @@ async function main() {
   // SR C1-2 — ATQ urgente — IN_SCHEDULING
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,4,4,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '5 days',NOW() - INTERVAL '3 days','PORTO-20240777',$13) RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,4,4,true,$7,$8,NOW() - INTERVAL '5 days',NOW() - INTERVAL '3 days','PORTO-20240777',$9) RETURNING id`,
       [
         adminMedicoId,
         assistenteOrtId,
@@ -1665,10 +1676,6 @@ async function main() {
         hospitalIds[3],
         healthPlanIds[5],
         procedureIdsConta1[7],
-        'Fratura do colo do fêmur direito Garden III em paciente idosa. Queda da própria altura em domicílio.',
-        'RX confirma fratura do colo femoral direito deslocada. Indicação de tratamento cirúrgico de urgência.',
-        'Osteoporose severa. HAS. Uso de anticoagulantes (suspenso). Risco cirúrgico moderado (ASA III).',
-        'Artroplastia total do quadril direito cimentada. Via póstero-lateral. Prótese cimentada com cimento antibiótico.',
         '9988776655',
         'Apartamento Superior',
         JSON.stringify(
@@ -1689,6 +1696,12 @@ async function main() {
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Fratura do colo do fêmur direito Garden III em paciente idosa. Queda da própria altura em domicílio.",
+      medicalReport: "RX confirma fratura do colo femoral direito deslocada. Indicação de tratamento cirúrgico de urgência.",
+      patientHistory: "Osteoporose severa. HAS. Uso de anticoagulantes (suspenso). Risco cirúrgico moderado (ASA III).",
+      surgeryDescription: "Artroplastia total do quadril direito cimentada. Via póstero-lateral. Prótese cimentada com cimento antibiótico.",
+    });
     for (const [p, n] of [
       [1, 2],
       [2, 3],
@@ -1716,8 +1729,8 @@ async function main() {
   // SR C1-3 — Artroscopia — PENDING
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,false,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,false,$7,$8) RETURNING id`,
       [
         adminMedicoId,
         adminMedicoId,
@@ -1725,22 +1738,24 @@ async function main() {
         hospitalIds[4],
         healthPlanIds[4],
         procedureIdsConta1[5],
-        'Lesão meniscal medial posterior direita em paciente jovem e ativa. RNM confirma rotura complexa.',
-        'Paciente com dor medial no joelho após torção durante corrida. RNM: rotura complexa de menisco medial. Bloqueio articular intermitente.',
-        'ASA I. Atleta amadora. Sem comorbidades.',
-        'Artroscopia diagnóstica e terapêutica com meniscectomia parcial ou sutura meniscal conforme avaliação intraoperatória.',
         '7766554433',
         'Apartamento',
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Lesão meniscal medial posterior direita em paciente jovem e ativa. RNM confirma rotura complexa.",
+      medicalReport: "Paciente com dor medial no joelho após torção durante corrida. RNM: rotura complexa de menisco medial. Bloqueio articular intermitente.",
+      patientHistory: "ASA I. Atleta amadora. Sem comorbidades.",
+      surgeryDescription: "Artroscopia diagnóstica e terapêutica com meniscectomia parcial ou sutura meniscal conforme avaliação intraoperatória.",
+    });
   }
 
   // SR C1-4 — FINALIZED com billing e contestação
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,8,2,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '120 days',NOW() - INTERVAL '80 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,8,2,true,$7,$8,NOW() - INTERVAL '120 days',NOW() - INTERVAL '80 days') RETURNING id`,
       [
         adminMedicoId,
         assistenteOrtId,
@@ -1748,15 +1763,17 @@ async function main() {
         hospitalIds[4],
         healthPlanIds[6],
         procedureIdsConta1[4],
-        'Gonartrose severa unilateral esquerda com deformidade em varo. Falha do tratamento conservador por 2 anos.',
-        'Paciente com artrose avançada do joelho esquerdo. Deformidade em varo de 12 graus. RX: pinçamento total.',
-        'Sem comorbidades. ASA I. IMC 23. Bom estado geral.',
-        'ATJ esquerda com correção de deformidade em varo.',
         '4433221100',
         'Enfermaria',
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Gonartrose severa unilateral esquerda com deformidade em varo. Falha do tratamento conservador por 2 anos.",
+      medicalReport: "Paciente com artrose avançada do joelho esquerdo. Deformidade em varo de 12 graus. RX: pinçamento total.",
+      patientHistory: "Sem comorbidades. ASA I. IMC 23. Bom estado geral.",
+      surgeryDescription: "ATJ esquerda com correção de deformidade em varo.",
+    });
     for (const [p, n] of [
       [1, 2],
       [2, 3],
@@ -1784,27 +1801,13 @@ async function main() {
       `INSERT INTO contestations (surgery_request_id, created_by_id, type, reason) VALUES ($1,$2,'payment','Valor recebido inferior ao faturado. Glosa indevida de R$ 4.600,00 referente ao implante de joelho autorizado previamente.')`,
       [r[0].id, adminMedicoId],
     );
-    await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Histórico e Diagnóstico', $2, 1)`,
-      [
-        r[0].id,
-        '<p>Histórico clínico e diagnóstico documentados para acompanhamento pós-cirúrgico.</p>',
-      ],
-    );
-    await dataSource.query(
-      `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Conduta', $2, 2)`,
-      [
-        r[0].id,
-        '<p>Conduta pós-operatória conforme protocolo institucional.</p>',
-      ],
-    );
   }
 
   // SR C1-5 — SENT (Enviada) — Eduardo Luiz Teixeira
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, send_method)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,2,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '4 days','email') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, send_method)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,2,2,false,$7,$8,NOW() - INTERVAL '4 days','email') RETURNING id`,
       [
         adminMedicoId,
         adminMedicoId,
@@ -1812,23 +1815,25 @@ async function main() {
         hospitalIds[3],
         healthPlanIds[4],
         procedureIdsConta1[19],
-        'Espondilolistese degenerativa L4-L5 grau II com estenose foraminal e dor radicular bilateral. Sem resposta ao tratamento conservador por 18 meses.',
-        'Paciente de 80 anos com lombalgia crônica irradiada para membros inferiores. RM confirma listese e estenose foraminal bilateral grave. Fisioterapia e bloqueio epidural sem resultado.',
-        'Osteoporose severa. HAS controlada. Uso de bifosfonatos. Risco cirúrgico moderado (ASA III). Avaliação cardiológica favorável ao procedimento.',
-        'Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão do canal vertebral.',
         '2211009988',
         'Apartamento',
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Espondilolistese degenerativa L4-L5 grau II com estenose foraminal e dor radicular bilateral. Sem resposta ao tratamento conservador por 18 meses.",
+      medicalReport: "Paciente de 80 anos com lombalgia crônica irradiada para membros inferiores. RM confirma listese e estenose foraminal bilateral grave. Fisioterapia e bloqueio epidural sem resultado.",
+      patientHistory: "Osteoporose severa. HAS controlada. Uso de bifosfonatos. Risco cirúrgico moderado (ASA III). Avaliação cardiológica favorável ao procedimento.",
+      surgeryDescription: "Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão do canal vertebral.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
   }
 
   // SR C1-6 — IN_ANALYSIS (Em Análise) — Fernando Augusto Costa (segunda cirurgia)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '15 days',NOW() - INTERVAL '12 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,false,$7,$8,NOW() - INTERVAL '15 days',NOW() - INTERVAL '12 days') RETURNING id`,
       [
         adminMedicoId,
         assistenteOrtId,
@@ -1836,15 +1841,17 @@ async function main() {
         hospitalIds[4],
         healthPlanIds[5],
         procedureIdsConta1[1],
-        'Hérnia inguinal bilateral volumosa com episódios de encarceramento. Indicação cirúrgica de urgência relativa.',
-        'Paciente com abaulamento inguinal bilateral há 3 anos com progressão nos últimos 6 meses e dois episódios de encarceramento. Exame clínico confirma hérnia inguinal direta bilateral redutível.',
-        'HAS controlada. DM2 compensada. ASA II. Avaliação pré-operatória em andamento.',
-        'Herniorrafia inguinal bilateral com tela de polipropileno por via aberta (técnica de Lichtenstein bilateral).',
         '1122334455',
         'Apartamento',
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Hérnia inguinal bilateral volumosa com episódios de encarceramento. Indicação cirúrgica de urgência relativa.",
+      medicalReport: "Paciente com abaulamento inguinal bilateral há 3 anos com progressão nos últimos 6 meses e dois episódios de encarceramento. Exame clínico confirma hérnia inguinal direta bilateral redutível.",
+      patientHistory: "HAS controlada. DM2 compensada. ASA II. Avaliação pré-operatória em andamento.",
+      surgeryDescription: "Herniorrafia inguinal bilateral com tela de polipropileno por via aberta (técnica de Lichtenstein bilateral).",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
     await recordStatusChange(dataSource, r[0].id, 2, 3, adminMedicoId);
     await dataSource.query(
@@ -1857,8 +1864,8 @@ async function main() {
   // SR C1-7 — PERFORMED (Realizada) — Beatriz Helena Santos (segunda cirurgia)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,6,3,true,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '55 days',NOW() - INTERVAL '52 days','UNIMED-20241243',NOW() - INTERVAL '20 days',NOW() - INTERVAL '20 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,6,3,true,$7,$8,NOW() - INTERVAL '55 days',NOW() - INTERVAL '52 days','UNIMED-20241243',NOW() - INTERVAL '20 days',NOW() - INTERVAL '20 days') RETURNING id`,
       [
         adminMedicoId,
         adminMedicoId,
@@ -1866,10 +1873,6 @@ async function main() {
         hospitalIds[3],
         healthPlanIds[4],
         procedureIdsConta1[17],
-        'Catarata nuclear densa grau IV no olho direito. Acuidade visual inferior a 20/200 com piora progressiva nos últimos 6 meses.',
-        'Paciente de 70 anos com redução progressiva da acuidade visual. Oftalmoscopia confirma catarata densa bilateral. Indicação de tratamento cirúrgico pelo olho direito.',
-        'HAS controlada. Osteoporose. Uso de anticoagulantes suspensos 5 dias antes do procedimento. ASA II.',
-        'Facoemulsificação com implante de LIO monofocal no olho direito. Anestesia tópica com sedação leve.',
         '9988776655',
         'Apartamento Superior',
       ],
@@ -1896,14 +1899,14 @@ async function main() {
       `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Diagnóstico e Indicação', $2, 1)`,
       [
         r[0].id,
-        '<p>Diagnóstico de catarata senil e indicação de facectomia com implante de LIO.</p>',
+        '<p>Catarata nuclear densa grau IV no olho direito. Acuidade visual inferior a 20/200 com piora progressiva nos últimos 6 meses.</p><p>HAS controlada. Osteoporose. Uso de anticoagulantes suspensos 5 dias antes do procedimento. ASA II.</p>',
       ],
     );
     await dataSource.query(
       `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Procedimento Realizado', $2, 2)`,
       [
         r[0].id,
-        '<p>Facectomia com implante de lente intraocular monofocal realizada sem intercorrências.</p>',
+        '<p>Facoemulsificação com implante de LIO monofocal no olho direito. Anestesia tópica com sedação leve.</p><p>Paciente de 70 anos com redução progressiva da acuidade visual. Oftalmoscopia confirma catarata densa bilateral. Facectomia com implante de lente intraocular monofocal realizada sem intercorrências.</p>',
       ],
     );
   }
@@ -1911,8 +1914,8 @@ async function main() {
   // SR C1-8 — INVOICED (Faturada) — Marcos Antônio Ribeiro (segunda cirurgia)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '65 days',NOW() - INTERVAL '35 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,NOW() - INTERVAL '65 days',NOW() - INTERVAL '35 days') RETURNING id`,
       [
         adminMedicoId,
         assistenteOrtId,
@@ -1920,15 +1923,17 @@ async function main() {
         hospitalIds[4],
         healthPlanIds[4],
         procedureIdsConta1[18],
-        'Desvio septal esquerdo grau III com obstrução nasal crônica e hipertrofia de cornetos inferiores bilaterais.',
-        'Paciente com obstrução nasal crônica bilateral predominante à esquerda há 4 anos. Sem resposta a corticosteroides tópicos por 6 meses. Desvio septal confirmado por rinoscopia.',
-        'Sem comorbidades. ASA I. Exames pré-operatórios normais.',
-        'Rinoplastia funcional com septoplastia e turbinoplastia por redução. Anestesia geral.',
         '4433221100',
         'Enfermaria',
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Desvio septal esquerdo grau III com obstrução nasal crônica e hipertrofia de cornetos inferiores bilaterais.",
+      medicalReport: "Paciente com obstrução nasal crônica bilateral predominante à esquerda há 4 anos. Sem resposta a corticosteroides tópicos por 6 meses. Desvio septal confirmado por rinoscopia.",
+      patientHistory: "Sem comorbidades. ASA I. Exames pré-operatórios normais.",
+      surgeryDescription: "Rinoplastia funcional com septoplastia e turbinoplastia por redução. Anestesia geral.",
+    });
     for (const [prev, next] of [
       [1, 2],
       [2, 3],
@@ -1949,8 +1954,8 @@ async function main() {
   // SR C1-9 — CLOSED (Encerrada) — Patrícia Gonçalves Ferraz (segunda solicitação)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, diagnosis, medical_report, patient_history, surgery_description, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,$9,$10,$11,$12,NOW() - INTERVAL '35 days','Convênio negou autorização por carência contratual do plano. Paciente optou por reagendamento após período de carência.',NOW() - INTERVAL '10 days') RETURNING id`,
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
+       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,NOW() - INTERVAL '35 days','Convênio negou autorização por carência contratual do plano. Paciente optou por reagendamento após período de carência.',NOW() - INTERVAL '10 days') RETURNING id`,
       [
         adminMedicoId,
         adminMedicoId,
@@ -1958,15 +1963,17 @@ async function main() {
         hospitalIds[4],
         healthPlanIds[6],
         procedureIdsConta1[10],
-        'Nódulo tireoidiano sólido de 2,8 cm com PAAF indeterminada (Bethesda IV). Indicação de tireoidectomia total para diagnóstico definitivo e tratamento.',
-        'Paciente com nódulo tireoidiano palpável identificado há 6 meses. USG confirma nódulo sólido hipoecogênico de 2,8 cm. PAAF: neoplasia folicular (Bethesda IV).',
-        'Sem comorbidades. ASA I. Avaliação laringoscópica normal.',
-        'Tireoidectomia total com linfadenectomia do compartimento central por cervicotomia.',
         '7766554433',
         'Apartamento',
       ],
     );
     srIds1.push(r[0].id);
+    await seedClinicalReportSections(dataSource, r[0].id, {
+      diagnosis: "Nódulo tireoidiano sólido de 2,8 cm com PAAF indeterminada (Bethesda IV). Indicação de tireoidectomia total para diagnóstico definitivo e tratamento.",
+      medicalReport: "Paciente com nódulo tireoidiano palpável identificado há 6 meses. USG confirma nódulo sólido hipoecogênico de 2,8 cm. PAAF: neoplasia folicular (Bethesda IV).",
+      patientHistory: "Sem comorbidades. ASA I. Avaliação laringoscópica normal.",
+      surgeryDescription: "Tireoidectomia total com linfadenectomia do compartimento central por cervicotomia.",
+    });
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
     await recordStatusChange(dataSource, r[0].id, 2, 9, adminMedicoId);
   }

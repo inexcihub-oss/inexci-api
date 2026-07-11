@@ -21,9 +21,7 @@ export class UpdateSurgeryRequestHealthPlanDto {
 
 export class UpdateSurgeryRequestCidDto {
   @Allow()
-  id: string;
-  @Allow()
-  description: string;
+  code: string;
 }
 
 export class UpdateSurgeryRequestHospitalDto {
@@ -55,18 +53,6 @@ export class UpdateSurgeryRequestDto {
   @Allow()
   @Type(() => UpdateSurgeryRequestCidDto)
   cid?: UpdateSurgeryRequestCidDto;
-
-  @IsOptional()
-  @IsString()
-  diagnosis?: string;
-
-  @IsOptional()
-  @IsString()
-  medicalReport?: string;
-
-  @IsOptional()
-  @IsString()
-  patientHistory?: string;
 
   @IsOptional()
   @Allow()

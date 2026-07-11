@@ -28,6 +28,8 @@ import {
 // DTOs gerais
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
+import { FindManyKanbanDto } from './dto/find-many-kanban.dto';
+import { FindAgendaDto } from './dto/find-agenda.dto';
 import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
@@ -115,6 +117,29 @@ export class SurgeryRequestsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.surgeryRequestsService.findAll(query, user.userId);
+  }
+
+  @Get('kanban')
+  @ApiOperation({
+    summary:
+      'Listar cards do kanban (payload enxuto + contadores de pendência já embutidos)',
+  })
+  findAllForKanban(
+    @Query() query: FindManyKanbanDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.findAllForKanban(query, user.userId);
+  }
+
+  @Get('agenda')
+  @ApiOperation({
+    summary: 'Listar cirurgias da agenda por intervalo de data (surgeryDate)',
+  })
+  findAgenda(
+    @Query() query: FindAgendaDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.surgeryRequestsService.findAgenda(query, user.userId);
   }
 
   @Get('one')

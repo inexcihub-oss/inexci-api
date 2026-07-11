@@ -1,6 +1,11 @@
 import { Global, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, QueryDeepPartialEntity } from 'typeorm';
+import {
+  Repository,
+  FindOptionsWhere,
+  QueryDeepPartialEntity,
+  In,
+} from 'typeorm';
 import { User } from '../entities/user.entity';
 import { BaseRepository } from './base.repository';
 
@@ -73,6 +78,42 @@ export class UserRepository extends BaseRepository<User> {
         gender: true,
         birthDate: true,
         avatarUrl: true,
+        emailVerified: true,
+        privacyPolicyAcceptedAt: true,
+        termsOfUseAcceptedAt: true,
+        aiConsentAcceptedAt: true,
+        ownerId: true,
+        adminId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  /**
+   * Carrega vários usuários (com doctorProfile) em uma única query (WHERE id IN),
+   * evitando o N+1 de buscar um a um. Mesmo shape de select do findOneWithProfile.
+   */
+  async findManyWithProfileByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return [];
+    return await this.repository.find({
+      where: { id: In(ids) },
+      relations: ['doctorProfile'],
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        email: true,
+        name: true,
+        phone: true,
+        cpf: true,
+        gender: true,
+        birthDate: true,
+        avatarUrl: true,
+        emailVerified: true,
+        privacyPolicyAcceptedAt: true,
+        termsOfUseAcceptedAt: true,
+        aiConsentAcceptedAt: true,
         ownerId: true,
         adminId: true,
         createdAt: true,

@@ -21,6 +21,7 @@ import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-req
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { parseCalendarDate } from 'src/shared/utils/date.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
 import { SurgeryRequestNotificationService } from '../surgery-request-notification.service';
 import { SurgeryRequestPdfAssemblyService } from '../surgery-request-pdf-assembly.service';
@@ -131,20 +132,51 @@ export class SendAnalysisHandler {
         contentType: string;
       }> = [];
 
-      try {
-        const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
-          request,
-          userId,
+      if (dto.useSourceDocument) {
+        const sourceDoc = (request.documents ?? []).find(
+          (doc) => doc.key === DOCUMENT_KEYS.SC_CREATION_SOURCE && doc.uri,
         );
-        mailAttachments.push({
-          filename: `solicitacao-${request.protocol ?? id}.pdf`,
-          content: Buffer.from(pdf, 'base64'),
-          contentType: 'application/pdf',
-        });
-      } catch (err) {
-        this.logger.warn(
-          `[sendRequest] Não foi possível gerar PDF para anexar ao e-mail da solicitação ${id}: ${(err as Error)?.message}`,
-        );
+        if (!sourceDoc?.uri) {
+          throw new BadRequestException(
+            'Documento de origem não encontrado nesta solicitação.',
+          );
+        }
+        try {
+          const buffer = await this.storageService.download(sourceDoc.uri);
+          if (buffer) {
+            mailAttachments.push({
+              filename:
+                sourceDoc.name ||
+                sourceDoc.uri.split('/').pop() ||
+                `documento-origem-${id}`,
+              content: buffer,
+              contentType: 'application/octet-stream',
+            });
+          }
+        } catch (err) {
+          this.logger.warn(
+            `[sendRequest] Falha ao baixar documento de origem ${sourceDoc.id}: ${(err as Error)?.message}`,
+          );
+          throw new BadRequestException(
+            'Não foi possível anexar o documento de origem ao e-mail.',
+          );
+        }
+      } else {
+        try {
+          const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
+            request,
+            userId,
+          );
+          mailAttachments.push({
+            filename: `solicitacao-${request.protocol ?? id}.pdf`,
+            content: Buffer.from(pdf, 'base64'),
+            contentType: 'application/pdf',
+          });
+        } catch (err) {
+          this.logger.warn(
+            `[sendRequest] Não foi possível gerar PDF para anexar ao e-mail da solicitação ${id}: ${(err as Error)?.message}`,
+          );
+        }
       }
 
       // Resolve documentos extras pedidos pelo cliente (IDs em
@@ -203,6 +235,13 @@ export class SendAnalysisHandler {
     if (dto.method === SendMethod.DOWNLOAD) {
       this.logger.log(`[sendRequest] Solicitação ${id} enviada via download`);
       return this.pdfAssemblyService.generateLaudoPdf(request, userId);
+    }
+
+    if (dto.method === SendMethod.DOCUMENT) {
+      this.logger.log(
+        `[sendRequest] Solicitação ${id} confirmada com documento de origem`,
+      );
+      return { sent: true, method: SendMethod.DOCUMENT };
     }
 
     this.logger.log(`[sendRequest] Solicitação ${id} enviada com sucesso`);

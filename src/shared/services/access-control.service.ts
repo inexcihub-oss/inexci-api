@@ -21,6 +21,9 @@ import { User, UserRole } from '../../database/entities/user.entity';
  *
  * Todo service que filtra por `doctorId`/`ownerId` deve usar este service.
  */
+/** TTL curto do cache de acesso: janela de staleness aceitável (segurança). */
+const ACCESSIBLE_DOCTORS_CACHE_TTL_MS = 30_000;
+
 @Injectable()
 export class AccessControlService {
   constructor(
@@ -28,6 +31,24 @@ export class AccessControlService {
     private readonly doctorProfileRepository: DoctorProfileRepository,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
   ) {}
+
+  /**
+   * Cache em memória de `getAccessibleDoctorIds`. Chamado 3–5× por requisição
+   * (SurgeryRequests, Patients, Reports, Documents) com o mesmo userId. TTL curto
+   * (30s) limita a janela de staleness; mutações de vínculo chamam `invalidate`.
+   */
+  private readonly accessibleDoctorsCache = new Map<
+    string,
+    { ids: string[]; expiresAt: number }
+  >();
+
+  /**
+   * Invalida o cache de acesso de um usuário. Deve ser chamado sempre que um
+   * vínculo `user_doctor_access` do usuário for criado/reativado/desativado.
+   */
+  invalidateAccessibleDoctors(userId: string): void {
+    this.accessibleDoctorsCache.delete(userId);
+  }
 
   /**
    * Retorna os IDs de médicos cujos dados o usuário pode ver.
@@ -39,6 +60,20 @@ export class AccessControlService {
    * Usado por: SurgeryRequests, Patients, Reports, Documents.
    */
   async getAccessibleDoctorIds(userId: string): Promise<string[]> {
+    const cached = this.accessibleDoctorsCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.ids;
+    }
+
+    const ids = await this.computeAccessibleDoctorIds(userId);
+    this.accessibleDoctorsCache.set(userId, {
+      ids,
+      expiresAt: Date.now() + ACCESSIBLE_DOCTORS_CACHE_TTL_MS,
+    });
+    return ids;
+  }
+
+  private async computeAccessibleDoctorIds(userId: string): Promise<string[]> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
 
@@ -84,14 +119,11 @@ export class AccessControlService {
 
     const accesses =
       await this.userDoctorAccessRepository.findActiveByUserId(userId);
-    for (const access of accesses) {
-      const doctorUser = await this.userRepository.findOneWithProfile({
-        id: access.doctorUserId,
-      });
-      if (doctorUser) {
-        doctors.push(doctorUser);
-      }
-    }
+    const doctorIds = accesses.map((a) => a.doctorUserId);
+    // Carga única em vez de um findOneWithProfile por vínculo (N+1).
+    const doctorUsers =
+      await this.userRepository.findManyWithProfileByIds(doctorIds);
+    doctors.push(...doctorUsers);
 
     const seen = new Set<string>();
     return doctors.filter((d) => {

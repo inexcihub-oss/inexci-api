@@ -21,4 +21,7 @@ export default {
 
   // OUTROS
   additionalDocument: 'additional_document',
+
+  // CRIAÇÃO VIA DOCUMENTO (somente sistema — não aparece no upload manual)
+  scCreationSource: 'sc_creation_source',
 };

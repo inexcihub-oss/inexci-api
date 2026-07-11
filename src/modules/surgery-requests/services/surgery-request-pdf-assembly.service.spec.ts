@@ -18,6 +18,8 @@ describe('SurgeryRequestPdfAssemblyService', () => {
     generateContestAuthorizationPdf: jest
       .fn()
       .mockResolvedValue(Buffer.from('pdf')),
+    fetchBuffer: jest.fn().mockResolvedValue(Buffer.from('attachment')),
+    mergePdfs: jest.fn().mockResolvedValue(Buffer.from('merged')),
   };
 
   const assignedDoctor = {
@@ -44,9 +46,6 @@ describe('SurgeryRequestPdfAssemblyService', () => {
     id: 'sc-1',
     doctorId: 'doctor-carlos-id',
     doctor: assignedDoctor,
-    medicalReport: JSON.stringify({
-      patientData: { name: 'Alessandro Filho', cpf: '14685854608' },
-    }),
     patient: { name: 'Alessandro Filho', cpf: '14685854608' },
     healthPlan: { name: 'Hapvida' },
     hospital: {
@@ -195,6 +194,32 @@ describe('SurgeryRequestPdfAssemblyService', () => {
       expect(mockUserRepository.findOneWithProfile).not.toHaveBeenCalledWith({
         id: 'gestor-user-id',
       });
+    });
+
+    it('não deve mesclar documento de origem da criação via documento no PDF exportado', async () => {
+      const requestWithSourceDoc = {
+        ...baseRequest,
+        documents: [
+          {
+            key: 'sc_creation_source',
+            uri: 'documents/owner-1/laudo-origem.pdf',
+            name: 'laudo-origem.pdf',
+          },
+          {
+            key: 'personal_document',
+            uri: 'documents/owner-1/rg.pdf',
+            name: 'rg.pdf',
+          },
+        ],
+      };
+
+      await service.generateLaudoPdf(requestWithSourceDoc, 'gestor-user-id');
+
+      expect(mockPdfService.fetchBuffer).toHaveBeenCalledTimes(1);
+      expect(mockPdfService.mergePdfs).toHaveBeenCalledWith([
+        Buffer.from('pdf'),
+        Buffer.from('attachment'),
+      ]);
     });
   });
 

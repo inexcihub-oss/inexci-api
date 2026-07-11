@@ -85,6 +85,7 @@ describe('SurgeryRequestWorkflowService', () => {
   let pendencyValidator: { [K: string]: jest.Mock };
   let contestationRepository: { [K: string]: jest.Mock };
   let dataSource: { transaction: jest.Mock };
+  let storageService: { download: jest.Mock; getSignedUrl: jest.Mock; delete: jest.Mock };
 
   beforeEach(async () => {
     surgeryRequestRepository = {
@@ -115,10 +116,18 @@ describe('SurgeryRequestWorkflowService', () => {
     };
 
     pdfAssemblyService = {
-      generateLaudoPdf: jest.fn().mockResolvedValue(Buffer.from('pdf')),
+      generateLaudoPdf: jest
+        .fn()
+        .mockResolvedValue({ pdf: Buffer.from('pdf').toString('base64') }),
       generateContestAuthorizationPdf: jest
         .fn()
         .mockResolvedValue(Buffer.from('pdf')),
+    };
+
+    storageService = {
+      download: jest.fn().mockResolvedValue(Buffer.from('source-doc')),
+      getSignedUrl: jest.fn(),
+      delete: jest.fn(),
     };
 
     billingService = {
@@ -182,7 +191,7 @@ describe('SurgeryRequestWorkflowService', () => {
         },
         {
           provide: StorageService,
-          useValue: { getSignedUrl: jest.fn(), delete: jest.fn() },
+          useValue: storageService,
         },
         {
           provide: DocumentRepository,
@@ -286,7 +295,72 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(mailService.sendSurgeryRequestSent).toHaveBeenCalledWith(
         'test@test.com',
         expect.objectContaining({ patientName: 'Paciente Test' }),
+        [
+          expect.objectContaining({
+            filename: expect.stringContaining('solicitacao-'),
+            contentType: 'application/pdf',
+          }),
+        ],
         undefined,
+      );
+      expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });
+    });
+
+    it('should confirm with source document when method is document', async () => {
+      const request = makeRequest();
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+
+      const result = await service.sendRequest(
+        'req-1',
+        { method: SendMethod.DOCUMENT },
+        'user-1',
+      );
+
+      expect(result).toEqual({ sent: true, method: SendMethod.DOCUMENT });
+      expect(pdfAssemblyService.generateLaudoPdf).not.toHaveBeenCalled();
+      expect(mailService.sendSurgeryRequestSent).not.toHaveBeenCalled();
+    });
+
+    it('should email source document when useSourceDocument is true', async () => {
+      const request = makeRequest({
+        documents: [
+          {
+            id: 'doc-source',
+            key: 'sc_creation_source',
+            name: 'laudo-origem.pdf',
+            uri: 'documents/owner/laudo-origem.pdf',
+          },
+        ] as any,
+      });
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+
+      const result = await service.sendRequest(
+        'req-1',
+        {
+          method: SendMethod.EMAIL,
+          to: 'convenio@test.com',
+          useSourceDocument: true,
+        },
+        'user-1',
+      );
+
+      expect(storageService.download).toHaveBeenCalledWith(
+        'documents/owner/laudo-origem.pdf',
+      );
+      expect(pdfAssemblyService.generateLaudoPdf).not.toHaveBeenCalled();
+      expect(mailService.sendSurgeryRequestSent).toHaveBeenCalledWith(
+        'convenio@test.com',
+        expect.objectContaining({ patientName: 'Paciente Test' }),
+        [
+          expect.objectContaining({
+            filename: 'laudo-origem.pdf',
+            content: Buffer.from('source-doc'),
+          }),
+        ],
         undefined,
       );
       expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });

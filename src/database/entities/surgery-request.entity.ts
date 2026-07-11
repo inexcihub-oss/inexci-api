@@ -191,18 +191,7 @@ export class SurgeryRequest {
   healthPlanProtocol: string | null;
 
   // ============ DADOS MÉDICOS ============
-
-  @Column({ type: 'text', nullable: true })
-  diagnosis: string | null;
-
-  @Column({ name: 'medical_report', type: 'text', nullable: true })
-  medicalReport: string | null;
-
-  @Column({ name: 'patient_history', type: 'text', nullable: true })
-  patientHistory: string | null;
-
-  @Column({ name: 'surgery_description', type: 'text', nullable: true })
-  surgeryDescription: string | null;
+  // Conteúdo clínico do laudo vive em `report_sections` (relação reportSections).
 
   // ============ DATAS ============
 
@@ -258,6 +247,13 @@ export class SurgeryRequest {
     nullable: true,
   })
   lastStatusChangedAt: Date | null;
+
+  /**
+   * Última atividade relevante (materializada via trigger no banco).
+   * Usada na ordenação indexável da listagem (item 5.2).
+   */
+  @Column({ name: 'last_activity_at', type: 'timestamptz', nullable: true })
+  lastActivityAt: Date | null;
 
   // ============ TIMESTAMPS ============
 

@@ -130,7 +130,7 @@ describe('DocumentVisionFallbackService', () => {
     );
     expect(imagePart).toBeDefined();
     expect(imagePart.image_url.url).toMatch(/^data:image\/png;base64,/);
-    expect(imagePart.image_url.detail).toBe('high');
+    expect(imagePart.image_url.detail).toBe('auto');
 
     expect(result.classification.kind).toBe('identity_document');
     expect(result.classification.suggestedDocumentType).toBe(

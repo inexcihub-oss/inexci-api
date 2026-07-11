@@ -24,9 +24,8 @@ import {
 import { BaseRepository } from './base.repository';
 import { getStatusLabel } from 'src/shared/utils';
 
-/** Ordenação da listagem: última atividade relevante da solicitação. */
-const SURGERY_REQUEST_LIST_SORT_EXPRESSION =
-  'GREATEST(COALESCE(surgeryRequest.lastStatusChangedAt, surgeryRequest.createdAt), surgeryRequest.updatedAt)';
+/** Ordenação da listagem: coluna materializada `last_activity_at` (item 5.2). */
+const SURGERY_REQUEST_LIST_SORT_COLUMN = 'surgeryRequest.lastActivityAt';
 
 @Global()
 @Injectable()
@@ -107,6 +106,83 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     return qb.groupBy('sr.status').orderBy('COUNT(*)', 'DESC').getRawMany();
   }
 
+  /**
+   * Contagens agregadas do dashboard numa ÚNICA query via `COUNT(*) FILTER`
+   * (P13), substituindo os 4 `count` separados (total/agendada/realizada/
+   * faturada). Reaproveita os mesmos filtros de hospital/convênio/período
+   * aplicados às demais agregações.
+   */
+  async countsByStatus(
+    doctorIds: string[],
+    filters?: {
+      hospitalId?: string;
+      healthPlanId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+  ): Promise<{
+    total: number;
+    scheduled: number;
+    performed: number;
+    invoiced: number;
+  }> {
+    const qb = this.repository
+      .createQueryBuilder('sr')
+      .where('sr.doctorId IN (:...doctorIds)', { doctorIds })
+      .select('CAST(COUNT(*) AS INTEGER)', 'total')
+      .addSelect(
+        'CAST(COUNT(*) FILTER (WHERE sr.status = :scheduled) AS INTEGER)',
+        'scheduled',
+      )
+      .addSelect(
+        'CAST(COUNT(*) FILTER (WHERE sr.status = :performed) AS INTEGER)',
+        'performed',
+      )
+      .addSelect(
+        'CAST(COUNT(*) FILTER (WHERE sr.status = :invoiced) AS INTEGER)',
+        'invoiced',
+      )
+      .setParameters({
+        scheduled: SurgeryRequestStatus.SCHEDULED,
+        performed: SurgeryRequestStatus.PERFORMED,
+        invoiced: SurgeryRequestStatus.INVOICED,
+      });
+
+    if (filters?.hospitalId)
+      qb.andWhere('sr.hospitalId = :hospitalId', {
+        hospitalId: filters.hospitalId,
+      });
+    if (filters?.healthPlanId)
+      qb.andWhere('sr.healthPlanId = :healthPlanId', {
+        healthPlanId: filters.healthPlanId,
+      });
+    if (filters?.startDate && filters?.endDate)
+      qb.andWhere('sr.createdAt BETWEEN :startDate AND :endDate', {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+      });
+    else if (filters?.startDate)
+      qb.andWhere('sr.createdAt >= :startDate', {
+        startDate: filters.startDate,
+      });
+    else if (filters?.endDate)
+      qb.andWhere('sr.createdAt <= :endDate', { endDate: filters.endDate });
+
+    const raw = await qb.getRawOne<{
+      total: number;
+      scheduled: number;
+      performed: number;
+      invoiced: number;
+    }>();
+
+    return {
+      total: Number(raw?.total) || 0,
+      scheduled: Number(raw?.scheduled) || 0,
+      performed: Number(raw?.performed) || 0,
+      invoiced: Number(raw?.invoiced) || 0,
+    };
+  }
+
   totalByHealthPlan(
     doctorIds: string[],
     filters?: {
@@ -174,39 +250,57 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async findOne(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
-    const queryBuilder = this.repository
-      .createQueryBuilder('surgeryRequest')
-      .leftJoin('surgeryRequest.createdBy', 'createdBy')
-      .addSelect(['createdBy.id', 'createdBy.name', 'createdBy.avatarUrl'])
-      .leftJoin('surgeryRequest.doctor', 'doctor')
-      .addSelect(['doctor.id', 'doctor.name', 'doctor.avatarUrl'])
-      .leftJoinAndSelect('doctor.doctorProfile', 'doctorProfile')
-      .leftJoinAndSelect('doctorProfile.header', 'doctor_profile_header')
-      .leftJoinAndSelect('surgeryRequest.patient', 'patient')
-      .leftJoinAndSelect('surgeryRequest.hospital', 'hospital')
-      .leftJoinAndSelect('surgeryRequest.healthPlan', 'healthPlan')
-      .leftJoinAndSelect('surgeryRequest.opmeItems', 'opmeItems')
-      .leftJoinAndSelect('opmeItems.suppliers', 'opme_item_suppliers')
-      .leftJoinAndSelect('opmeItems.manufacturers', 'opme_item_manufacturers')
-      .leftJoinAndSelect(
-        'opmeItems.selectedSupplier',
-        'opme_item_selected_supplier',
-      )
-      .leftJoinAndSelect('surgeryRequest.procedure', 'procedure')
-      .leftJoinAndSelect('surgeryRequest.tussItems', 'tussItems')
-      .leftJoinAndSelect('surgeryRequest.documents', 'documents')
-      .leftJoin('documents.creator', 'documents_creator')
-      .addSelect(['documents_creator.id', 'documents_creator.name'])
-      .leftJoinAndSelect('surgeryRequest.quotations', 'quotations')
-      .leftJoinAndSelect('quotations.supplier', 'quotations_supplier')
-      .leftJoinAndSelect('surgeryRequest.activities', 'activities')
-      .leftJoinAndSelect('surgeryRequest.analysis', 'analysis')
-      .leftJoinAndSelect('surgeryRequest.billing', 'billing')
-      .leftJoinAndSelect('surgeryRequest.contestations', 'contestations')
-      .where(where)
-      .orderBy('activities.createdAt', 'DESC');
-
-    const entity = await queryBuilder.getOne();
+    // `relationLoadStrategy: 'query'` carrega cada coleção em uma query separada
+    // (WHERE IN) em vez de um único SELECT com múltiplos leftJoin. Isso elimina o
+    // `activities` e `quotations` foram removidas do payload (P5): a página
+    // de detalhe busca activities em endpoint próprio e quotations não é
+    // consumida a partir da SC. Os selects parciais de createdBy/doctor/
+    // documents.creator são preservados como antes.
+    const entity = await this.repository.findOne({
+      where,
+      relationLoadStrategy: 'query',
+      relations: {
+        createdBy: true,
+        doctor: { doctorProfile: { header: true } },
+        patient: true,
+        hospital: true,
+        healthPlan: true,
+        opmeItems: {
+          suppliers: true,
+          manufacturers: true,
+          selectedSupplier: true,
+        },
+        procedure: true,
+        tussItems: true,
+        documents: { creator: true },
+        analysis: true,
+        billing: true,
+        contestations: true,
+      },
+      select: {
+        createdBy: { id: true, name: true, avatarUrl: true },
+        doctor: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+          email: true,
+          phone: true,
+          doctorProfile: {
+            crm: true,
+            crmState: true,
+            specialty: true,
+            signatureUrl: true,
+            header: {
+              id: true,
+              logoUrl: true,
+              logoPosition: true,
+              contentHtml: true,
+            },
+          },
+        },
+        documents: { creator: { id: true, name: true } },
+      },
+    });
 
     if (entity) {
       const pendencies = this.calculatePendencies(entity);
@@ -321,7 +415,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       .createQueryBuilder('surgeryRequest')
       .select('surgeryRequest.id', 'id')
       .where(where)
-      .orderBy(SURGERY_REQUEST_LIST_SORT_EXPRESSION, 'DESC')
+      .orderBy(SURGERY_REQUEST_LIST_SORT_COLUMN, 'DESC')
       .offset(skip)
       .limit(take)
       .getRawMany<{ id: string }>();
@@ -355,6 +449,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         'surgeryRequest.createdAt',
         'surgeryRequest.updatedAt',
         'surgeryRequest.lastStatusChangedAt',
+        'surgeryRequest.lastActivityAt',
         'surgeryRequest.isIndication',
         'surgeryRequest.indicationName',
         'surgeryRequest.protocol',

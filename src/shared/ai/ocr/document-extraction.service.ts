@@ -17,6 +17,10 @@ export interface ExtractFromBufferInput {
   sessionId: string;
   intent?: DocumentClassificationIntent;
   /**
+   * Limite de páginas no OCR de PDFs escaneados. Omitido = `AI_DOC_MAX_PAGES`.
+   */
+  maxOcrPages?: number;
+  /**
    * Quando `true`, aplica de-tokenização PII nos campos de `extracted` antes
    * de retornar — necessário no fluxo HTTP para que o frontend receba valores
    * reais em vez de placeholders `{{cpf_1}}`.
@@ -39,6 +43,15 @@ export type ExtractFromBufferStatus =
   | 'ocr_exception'
   | 'classifier_failed';
 
+export interface ExtractFromBufferTiming {
+  totalMs: number;
+  ocrMs: number;
+  classifierMs: number;
+  visionRasterizeMs: number;
+  visionMs: number;
+  detokenizeMs: number;
+}
+
 export interface ExtractFromBufferOutput {
   status: ExtractFromBufferStatus;
   classification: DocumentClassification | null;
@@ -46,6 +59,9 @@ export interface ExtractFromBufferOutput {
   usageSnapshots: ClassifierUsageSnapshot[];
   /** Texto OCR já tokenizado pelo PII Vault (quando disponível). */
   ocrTokenizedText: string;
+  /** Origem do texto: pdf-native, pdf-rasterized, image, etc. */
+  ocrSource?: string;
+  timing: ExtractFromBufferTiming;
   errorReason?: string;
 }
 
@@ -76,19 +92,31 @@ export class DocumentExtractionService {
   ): Promise<ExtractFromBufferOutput> {
     const { buffer, mimeType, filename, sessionId, intent } = input;
     const usageSnapshots: ClassifierUsageSnapshot[] = [];
+    const pipelineStartedAt = Date.now();
+    const timing: ExtractFromBufferTiming = {
+      totalMs: 0,
+      ocrMs: 0,
+      classifierMs: 0,
+      visionRasterizeMs: 0,
+      visionMs: 0,
+      detokenizeMs: 0,
+    };
 
     let ocrResult: Awaited<ReturnType<OcrService['extractAndTokenize']>> | null;
     let ocrFailureReason: string | null = null;
+    const ocrStartedAt = Date.now();
     try {
       ocrResult = await this.ocr.extractAndTokenize(
-        { buffer, mimeType, filename },
+        { buffer, mimeType, filename, maxPages: input.maxOcrPages },
         sessionId,
       );
+      timing.ocrMs = ocrResult.durationMs ?? Date.now() - ocrStartedAt;
     } catch (err: any) {
       ocrResult = null;
+      timing.ocrMs = Date.now() - ocrStartedAt;
       ocrFailureReason = err?.message || 'erro desconhecido no OCR';
       this.logger.warn(
-        `[DOC_EXTRACT] sid=${sessionId} status=ocr_exception reason=${ocrFailureReason}`,
+        `[DOC_EXTRACT] sid=${sessionId} status=ocr_exception reason=${ocrFailureReason} ocr_ms=${timing.ocrMs}`,
       );
     }
 
@@ -109,6 +137,7 @@ export class DocumentExtractionService {
     let usedVisionFallback = false;
 
     if (ocrResult && !ocrTextTooShort) {
+      const classifierStartedAt = Date.now();
       try {
         const result = await this.classifier.classifyWithUsage({
           text: ocrResult.tokenizedText,
@@ -116,14 +145,17 @@ export class DocumentExtractionService {
           messageSid: sessionId,
         });
         classification = result.classification;
+        timing.classifierMs =
+          result.usage.latencyMs ?? Date.now() - classifierStartedAt;
         usageSnapshots.push({ stage: 'doc_classifier', ...result.usage });
         this.logger.log(
-          `[DOC_EXTRACT] sid=${sessionId} stage=text_only kind=${classification.kind} confidence=${classification.confidence.toFixed(2)}`,
+          `[DOC_EXTRACT] sid=${sessionId} stage=text_classifier kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} classifier_ms=${timing.classifierMs}`,
         );
       } catch (err: any) {
+        timing.classifierMs = Date.now() - classifierStartedAt;
         classifierError = err?.message || 'classifier indisponível';
         this.logger.warn(
-          `[DOC_EXTRACT] sid=${sessionId} status=classifier_failed reason=${classifierError}`,
+          `[DOC_EXTRACT] sid=${sessionId} status=classifier_failed reason=${classifierError} classifier_ms=${timing.classifierMs}`,
         );
       }
     }
@@ -140,9 +172,15 @@ export class DocumentExtractionService {
     const isImage = this.visionFallback?.isSupportedImageMime(mimeType);
     const visionEnabled = !!this.visionFallback?.isEnabled();
 
+    const hasUsableTextExtraction =
+      !!classification && !this.isExtractedEffectivelyEmpty(classification);
+    const skipVisionForScReview =
+      input.intent === 'create_sc' && hasUsableTextExtraction;
+
     const shouldTryVisionFallback =
       visionEnabled &&
       (isImage || isPdf) &&
+      !skipVisionForScReview &&
       (ocrUnusable ||
         classifierError ||
         classifierConfidenceLow ||
@@ -150,23 +188,26 @@ export class DocumentExtractionService {
         classifierExtractedEmpty);
 
     this.logger.log(
-      `[DOC_EXTRACT] sid=${sessionId} vision_enabled=${visionEnabled} mime_supported=${!!isImage || isPdf} ocr_unusable=${ocrUnusable} classifier_confidence_low=${classifierConfidenceLow} => will_try_vision=${shouldTryVisionFallback}`,
+      `[DOC_EXTRACT] sid=${sessionId} vision_enabled=${visionEnabled} mime_supported=${!!isImage || isPdf} ocr_unusable=${ocrUnusable} classifier_confidence_low=${classifierConfidenceLow} skip_vision_sc_review=${skipVisionForScReview} => will_try_vision=${shouldTryVisionFallback}`,
     );
 
     if (shouldTryVisionFallback && this.visionFallback) {
       let visionImageBuffer: Buffer | null = buffer;
       let visionMimeType = mimeType;
       if (isPdf) {
+        const rasterizeStartedAt = Date.now();
         visionImageBuffer = await this.ocr.rasterizeFirstPdfPage(buffer);
+        timing.visionRasterizeMs = Date.now() - rasterizeStartedAt;
         visionMimeType = 'image/png';
         if (!visionImageBuffer) {
           this.logger.warn(
-            `[DOC_EXTRACT] sid=${sessionId} status=vision_failed reason=pdf_rasterize_failed`,
+            `[DOC_EXTRACT] sid=${sessionId} status=vision_failed reason=pdf_rasterize_failed vision_rasterize_ms=${timing.visionRasterizeMs}`,
           );
         }
       }
 
       if (visionImageBuffer) {
+        const visionStartedAt = Date.now();
         try {
           const visionResult = await this.visionFallback.classifyImage({
             imageBuffer: visionImageBuffer,
@@ -177,44 +218,97 @@ export class DocumentExtractionService {
           });
           classification = visionResult.classification;
           usedVisionFallback = true;
+          timing.visionMs =
+            visionResult.usage.latencyMs ?? Date.now() - visionStartedAt;
           usageSnapshots.push({
             stage: 'doc_vision_fallback',
             ...visionResult.usage,
           });
           classifierError = null;
           this.logger.log(
-            `[DOC_EXTRACT] sid=${sessionId} stage=vision_fallback kind=${classification.kind} confidence=${classification.confidence.toFixed(2)}`,
+            `[DOC_EXTRACT] sid=${sessionId} stage=vision_llm kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} vision_ms=${timing.visionMs}`,
           );
         } catch (err: any) {
+          timing.visionMs = Date.now() - visionStartedAt;
           this.logger.warn(
-            `[DOC_EXTRACT] sid=${sessionId} status=vision_failed reason=${err?.message || 'erro'}`,
+            `[DOC_EXTRACT] sid=${sessionId} status=vision_failed reason=${err?.message || 'erro'} vision_ms=${timing.visionMs}`,
           );
         }
       }
     }
 
+    const logTimingSummary = (
+      status: ExtractFromBufferStatus,
+      extra?: string,
+    ) => {
+      timing.totalMs = Date.now() - pipelineStartedAt;
+      const pipeline = usedVisionFallback
+        ? 'ocr→text_classifier→vision_llm'
+        : classification
+          ? 'ocr→text_classifier'
+          : ocrUnusable
+            ? 'ocr→vision_llm_skipped_or_failed'
+            : 'ocr→text_classifier_failed';
+      this.logger.log(
+        [
+          `[DOC_EXTRACT] sid=${sessionId} timing_summary`,
+          `status=${status}`,
+          `pipeline=${pipeline}`,
+          `total_ms=${timing.totalMs}`,
+          `ocr_ms=${timing.ocrMs}`,
+          `classifier_ms=${timing.classifierMs}`,
+          `vision_rasterize_ms=${timing.visionRasterizeMs}`,
+          `vision_ms=${timing.visionMs}`,
+          `detokenize_ms=${timing.detokenizeMs}`,
+          `used_vision=${usedVisionFallback}`,
+          `ocr_source=${ocrResult?.source ?? 'none'}`,
+          extra ?? '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
+    };
+
     if (!classification) {
       if (ocrUnusable && !classifierError) {
+        logTimingSummary(
+          ocrFailureReason ? 'ocr_exception' : 'ocr_empty',
+        );
         return {
           status: ocrFailureReason ? 'ocr_exception' : 'ocr_empty',
           classification: null,
           usedVisionFallback: false,
           usageSnapshots,
           ocrTokenizedText: '',
+          ocrSource: ocrResult?.source,
+          timing,
           errorReason: ocrFailureReason ?? 'texto insuficiente no documento',
         };
       }
+      logTimingSummary('classifier_failed');
       return {
         status: 'classifier_failed',
         classification: null,
         usedVisionFallback: false,
         usageSnapshots,
         ocrTokenizedText: ocrResult?.tokenizedText ?? '',
+        ocrSource: ocrResult?.source,
+        timing,
         errorReason: classifierError ?? 'classificador indisponível',
       };
     }
 
+    classification = {
+      ...classification,
+      extracted: this.enrichExtractedFromOcrPii(
+        sessionId,
+        classification.extracted,
+        ocrResult?.tokenizedText ?? '',
+      ),
+    };
+
     if (input.detokenizeExtracted && this.piiVault) {
+      const detokenizeStartedAt = Date.now();
       classification = {
         ...classification,
         extracted: this.detokenizeExtractedFields(
@@ -222,7 +316,10 @@ export class DocumentExtractionService {
           classification.extracted,
         ),
       };
+      timing.detokenizeMs = Date.now() - detokenizeStartedAt;
     }
+
+    logTimingSummary('ok');
 
     return {
       status: 'ok',
@@ -230,6 +327,8 @@ export class DocumentExtractionService {
       usedVisionFallback,
       usageSnapshots,
       ocrTokenizedText: ocrResult?.tokenizedText ?? '',
+      ocrSource: ocrResult?.source,
+      timing,
     };
   }
 
@@ -253,6 +352,80 @@ export class DocumentExtractionService {
       (e.reportSections?.length ?? 0) > 0
     );
     return !hasPatient && !hasContext;
+  }
+
+  /**
+   * Quando o classificador omite CPF/telefone que o OCR já tokenizou,
+   * reaproveita os placeholders `{{cpf_N}}` / `{{phone_N}}` do texto OCR
+   * (ou os bindings do PII Vault) para que o detokenize devolva o valor real.
+   */
+  private enrichExtractedFromOcrPii(
+    sessionId: string,
+    extracted: DocumentClassificationExtracted,
+    ocrTokenizedText: string,
+  ): DocumentClassificationExtracted {
+    const patient = extracted.patient;
+    if (!patient?.name?.trim()) return extracted;
+
+    const patch: NonNullable<DocumentClassificationExtracted['patient']> = {
+      ...patient,
+    };
+    let changed = false;
+
+    if (!patient.cpf?.trim()) {
+      const cpfToken = this.resolvePiiTokenFromOcr(
+        sessionId,
+        ocrTokenizedText,
+        'cpf',
+      );
+      if (cpfToken) {
+        patch.cpf = cpfToken;
+        changed = true;
+      }
+    }
+
+    if (!patient.phone?.trim()) {
+      const phoneToken = this.resolvePiiTokenFromOcr(
+        sessionId,
+        ocrTokenizedText,
+        'phone',
+      );
+      if (phoneToken) {
+        patch.phone = phoneToken;
+        changed = true;
+      }
+    }
+
+    if (!changed) return extracted;
+    return { ...extracted, patient: patch };
+  }
+
+  private resolvePiiTokenFromOcr(
+    sessionId: string,
+    ocrTokenizedText: string,
+    category: 'cpf' | 'phone',
+  ): string | undefined {
+    const tokenRegex = new RegExp(`\\{\\{${category}_\\d+\\}\\}`, 'g');
+    const tokensInText = [
+      ...new Set(ocrTokenizedText.match(tokenRegex) ?? []),
+    ];
+    if (tokensInText.length === 1) return tokensInText[0];
+
+    if (!this.piiVault) return undefined;
+
+    const bindings = this.piiVault
+      .serializeSession(sessionId)
+      .filter((binding) => binding.category === category);
+
+    if (tokensInText.length > 1) {
+      const inText = bindings.find((binding) =>
+        tokensInText.includes(binding.token),
+      );
+      return inText?.token ?? tokensInText[0];
+    }
+
+    if (bindings.length === 1) return bindings[0].token;
+    return undefined;
   }
 
   private detokenizeExtractedFields(

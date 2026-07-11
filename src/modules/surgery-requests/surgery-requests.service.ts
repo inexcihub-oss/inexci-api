@@ -1,7 +1,15 @@
-import { FindOptionsWhere, In } from 'typeorm';
+import { Between, FindOptionsWhere, In } from 'typeorm';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
+import { FindManyKanbanDto, KANBAN_MAX_TAKE } from './dto/find-many-kanban.dto';
+import { AGENDA_MAX_TAKE, FindAgendaDto } from './dto/find-agenda.dto';
+import {
+  mapDetailDoctor,
+  mapSurgeryRequestDetail,
+  type SurgeryRequestDetailInput,
+} from './mappers/surgery-request-detail.mapper';
+import { PendencyValidatorService } from './pendencies/pendency-validator.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
@@ -12,6 +20,7 @@ import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { withActiveSpan } from 'src/shared/observability/span.util';
 
 // ── DTOs de transição ────────────────────────────────────────────────────────
 import { SendRequestDto } from './dto/send-request.dto';
@@ -44,6 +53,7 @@ import { SurgeryRequestTemplateService } from './services/surgery-request-templa
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { CidService } from './cid/cid.service';
 
 @Injectable()
 export class SurgeryRequestsService {
@@ -56,11 +66,13 @@ export class SurgeryRequestsService {
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
+    private readonly pendencyValidatorService: PendencyValidatorService,
     // ── Sub-services ───────────────────────────────────────────────────────
     private readonly mutationService: SurgeryRequestMutationService,
     private readonly workflowService: SurgeryRequestWorkflowService,
     private readonly reportService: SurgeryRequestReportService,
     private readonly templateService: SurgeryRequestTemplateService,
+    private readonly cidService: CidService,
   ) {}
 
   // ============================================================
@@ -80,9 +92,8 @@ export class SurgeryRequestsService {
   // ============================================================
 
   async findAll(query: FindManySurgeryRequestDto, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
-
+    // O JwtAuthGuard já validou a existência do usuário; getAccessibleDoctorIds
+    // retorna [] para usuário inexistente. Sem findOne redundante (P9).
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
     if (doctorIds.length === 0) return { total: 0, records: [] };
@@ -102,38 +113,162 @@ export class SurgeryRequestsService {
     return { total, records };
   }
 
-  async findOne(id: string, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
+  /**
+   * Listagem enxuta para o kanban (P8). Diferente de `findAll`:
+   * - Retorna apenas os campos consumidos pelos cards (sem relações pesadas).
+   * - Já embute os contadores de pendência REAIS (via
+   *   `PendencyValidatorService.getBatchSummary`, carga em lote com
+   *   `relationLoadStrategy: 'query'`), eliminando o segundo round-trip que o
+   *   frontend fazia ao endpoint `batch-summary` (P4).
+   * - Carrega todos os cards do tenant de uma vez (teto `KANBAN_MAX_TAKE`),
+   *   corrigindo o bug histórico do `take = 20`.
+   */
+  async findAllForKanban(query: FindManyKanbanDto, userId: string) {
+    return withActiveSpan(
+      'surgery_request.kanban',
+      { 'user.id': userId },
+      async () => {
+        const doctorIds =
+          await this.accessControlService.getAccessibleDoctorIds(userId);
+        if (doctorIds.length === 0) return { total: 0, records: [] };
 
-    const where = await this.buildAccessWhere({ id }, userId);
-    const surgeryRequest = await this.surgeryRequestRepository.findOne(where);
-    if (!surgeryRequest)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+        let where: FindOptionsWhere<SurgeryRequest> = {
+          doctorId: In(doctorIds),
+        };
+        if (query.status) where = { ...where, status: In(query.status) };
 
-    if (Array.isArray(surgeryRequest.documents)) {
-      surgeryRequest.documents = await transformDocumentUrls(
-        surgeryRequest.documents,
-        this.storageService,
-      );
-    }
-    if (surgeryRequest.doctor) {
-      surgeryRequest.doctor = await transformDoctorSignatureUrl(
-        surgeryRequest.doctor,
-        this.storageService,
-      );
-    }
+        const take = query.take ?? KANBAN_MAX_TAKE;
+        const skip = query.skip ?? 0;
+
+        const [total, records] = await Promise.all([
+          this.surgeryRequestRepository.total(where),
+          this.surgeryRequestRepository.findMany(where, skip, take),
+        ]);
+
+        const ids = records.map((record) => String(record.id));
+        const summaries = ids.length
+          ? await this.pendencyValidatorService.getBatchSummary(ids.join(','))
+          : {};
+
+        const cards = records.map((record) =>
+          this.toKanbanCard(record, summaries[String(record.id)]),
+        );
+
+        return { total, records: cards };
+      },
+    );
+  }
+
+  private toKanbanCard(
+    record: SurgeryRequest & {
+      pendenciesCount: number;
+      totalPendencies: number;
+      hasIncompletePayment: boolean;
+    },
+    summary?: { pending: number; total: number; canAdvance: boolean },
+  ) {
+    const ref = (
+      entity?: { id: string; name: string } | null,
+    ): { id: string; name: string } | null =>
+      entity ? { id: entity.id, name: entity.name } : null;
 
     return {
-      ...surgeryRequest,
-      receipt: this.buildReceipt(surgeryRequest.billing),
+      id: record.id,
+      status: record.status,
+      protocol: record.protocol ?? null,
+      priority: record.priority,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      lastStatusChangedAt: record.lastStatusChangedAt ?? null,
+      surgeryDate: record.surgeryDate ?? null,
+      isIndication: record.isIndication ?? false,
+      indicationName: record.indicationName ?? null,
+      patient: ref(record.patient),
+      doctor: ref(record.doctor),
+      healthPlan: ref(record.healthPlan),
+      procedure: ref(record.procedure),
+      pendenciesCount: summary?.pending ?? record.pendenciesCount,
+      totalPendencies: summary?.total ?? record.totalPendencies,
+      canAdvance: summary?.canAdvance ?? true,
+      hasIncompletePayment: record.hasIncompletePayment,
     };
   }
 
-  async findOneSimple(id: string, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
+  /**
+   * Agenda por intervalo de `surgeryDate` (P7/P8). Substitui o antigo
+   * `status=5,6,7,8` (que trazia todas as cirurgias agendadas): consulta apenas
+   * as cirurgias com data dentro do período visível. Cards enxutos (mesmo
+   * formato do kanban) — a agenda não usa contadores de pendência.
+   */
+  async findAgenda(query: FindAgendaDto, userId: string) {
+    return withActiveSpan(
+      'surgery_request.agenda',
+      { 'user.id': userId },
+      async () => {
+        const doctorIds =
+          await this.accessControlService.getAccessibleDoctorIds(userId);
+        if (doctorIds.length === 0) return { total: 0, records: [] };
 
+        const from = new Date(query.from);
+        const to = new Date(query.to);
+
+        const where: FindOptionsWhere<SurgeryRequest> = {
+          doctorId: In(doctorIds),
+          surgeryDate: Between(from, to),
+        };
+
+        const [total, records] = await Promise.all([
+          this.surgeryRequestRepository.total(where),
+          this.surgeryRequestRepository.findMany(where, 0, AGENDA_MAX_TAKE),
+        ]);
+
+        return {
+          total,
+          records: records.map((record) => this.toKanbanCard(record)),
+        };
+      },
+    );
+  }
+
+  async findOne(id: string, userId: string) {
+    return withActiveSpan(
+      'surgery_request.findOne',
+      { 'surgery_request.id': id, 'user.id': userId },
+      async () => {
+        // JwtAuthGuard já validou o usuário; buildAccessWhere restringe por acesso (P9).
+        const where = await this.buildAccessWhere({ id }, userId);
+        const surgeryRequest = await this.surgeryRequestRepository.findOne(where);
+        if (!surgeryRequest)
+          throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+        if (Array.isArray(surgeryRequest.documents)) {
+          surgeryRequest.documents = await transformDocumentUrls(
+            surgeryRequest.documents,
+            this.storageService,
+          );
+        }
+        let doctor = surgeryRequest.doctor;
+        if (doctor) {
+          doctor = await transformDoctorSignatureUrl(doctor, this.storageService);
+        }
+
+        const resolvedCid = surgeryRequest.cidCode
+          ? this.cidService.findByExactCode(surgeryRequest.cidCode)
+          : null;
+
+        // Resposta explícita (P11 / item 3.6): DTO por relação em vez de spread da entidade.
+        return mapSurgeryRequestDetail(
+          surgeryRequest as SurgeryRequestDetailInput,
+          mapDetailDoctor(doctor),
+          this.buildReceipt(surgeryRequest.billing),
+          resolvedCid,
+        );
+      },
+    );
+  }
+
+  async findOneSimple(id: string, userId: string) {
+    // JwtAuthGuard já validou o usuário; buildAccessWhere restringe por acesso (P9).
     const where = await this.buildAccessWhere({ id }, userId);
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
@@ -333,6 +468,14 @@ export class SurgeryRequestsService {
 
   createReportSection(id: string, dto: CreateReportSectionDto, userId: string) {
     return this.reportService.createReportSection(id, dto, userId);
+  }
+
+  upsertReportSectionByTitle(
+    id: string,
+    title: string,
+    description: string,
+  ): Promise<void> {
+    return this.reportService.upsertReportSectionByTitle(id, title, description);
   }
 
   updateReportSection(

@@ -40,6 +40,10 @@ export class CreateSurgeryRequestSimpleDto {
   @IsString()
   hospitalId?: string;
 
+  @IsOptional()
+  @IsString()
+  healthPlanRegistration?: string;
+
   @Type(() => Number)
   @IsNumber()
   priority: SurgeryRequestPriority;

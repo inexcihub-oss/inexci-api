@@ -36,6 +36,12 @@ export class PatientsController {
     return this.patientsService.findAll(query, user.userId);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Buscar paciente por ID' })
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.patientsService.findOne(id, user.userId);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Criar paciente' })
   create(

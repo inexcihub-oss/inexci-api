@@ -5,6 +5,13 @@ import { ActivityType } from '../../../../../database/entities/surgery-request-a
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { FlowDraftDeps } from '../_types';
 
+const CLINICAL_SECTION_TITLES: Record<string, string> = {
+  diagnosis: 'Diagnóstico e Indicação',
+  patientHistory: 'Histórico Clínico',
+  medicalReport: 'Laudo',
+  surgeryDescription: 'Descrição do Procedimento',
+};
+
 export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const {
     draftService,
@@ -79,20 +86,22 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
         } else {
           const changes = (f.changes ?? {}) as Record<string, any>;
 
-          // Monta UpdateSurgeryRequestDto com os campos que pertencem ao DTO
           const dto: Record<string, any> = { id: f.surgeryRequestId! };
           const extraChanges: Record<string, any> = {};
+          const clinicalSectionUpdates: Array<{ title: string; value: string }> =
+            [];
 
           if (f.scope === 'clinical') {
             for (const [key, value] of Object.entries(changes)) {
-              if (
-                key === 'diagnosis' ||
-                key === 'medicalReport' ||
-                key === 'patientHistory'
-              ) {
-                dto[key] = value;
-              } else if (key === 'cidCode') {
-                dto['cid'] = { id: value, description: '' };
+              if (key === 'cidCode') {
+                dto['cid'] = { code: value };
+              } else if (CLINICAL_SECTION_TITLES[key]) {
+                if (typeof value === 'string' && value.trim()) {
+                  clinicalSectionUpdates.push({
+                    title: CLINICAL_SECTION_TITLES[key],
+                    value,
+                  });
+                }
               } else {
                 extraChanges[key] = value;
               }
@@ -112,7 +121,7 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
             }
           }
 
-          if (Object.keys(dto).length > 1) {
+          if (Object.keys(dto).length > 1 || Object.keys(extraChanges).length) {
             try {
               await surgeryRequestsService.update(
                 { ...dto, ...extraChanges } as any,
@@ -124,6 +133,14 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
                 message: `Erro ao atualizar: ${translateServiceError(err)}`,
               });
             }
+          }
+
+          for (const section of clinicalSectionUpdates) {
+            await surgeryRequestsService.upsertReportSectionByTitle(
+              f.surgeryRequestId!,
+              section.title,
+              section.value,
+            );
           }
         }
         await activityRepo.create({

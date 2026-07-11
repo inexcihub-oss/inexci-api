@@ -13,6 +13,7 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { withActiveSpan } from 'src/shared/observability/span.util';
 
 export interface ReportFilters {
   hospitalId?: string;
@@ -67,35 +68,25 @@ export class ReportsService {
       };
     }
 
-    const baseWhere: FindOptionsWhere<SurgeryRequest> = {
-      doctorId: In(doctorIds),
-    };
-    const where = this.applyFilters(baseWhere, filters);
+    const [counts, totalInvoiced, rawHealthPlan, rawStatus, rawHospital]: [
+      { total: number; scheduled: number; performed: number; invoiced: number },
+      { invoicedValue: number; receivedValue: number },
+      any,
+      any,
+      any,
+    ] = await Promise.all([
+      // 4 counts (total/agendada/realizada/faturada) em UMA query (P13).
+      this.surgeryRequestRepository.countsByStatus(doctorIds, filters),
+      this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
+      this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
+      this.surgeryRequestRepository.totalByStatus(doctorIds, filters),
+      this.surgeryRequestRepository.totalByHospital(doctorIds, filters),
+    ]);
 
-    const [respTotal, respTotalScheduled, respPerformed, respInvoiced] =
-      await Promise.all([
-        this.surgeryRequestRepository.total(where),
-        this.surgeryRequestRepository.total({
-          ...where,
-          status: SurgeryRequestStatus.SCHEDULED,
-        }),
-        this.surgeryRequestRepository.total({
-          ...where,
-          status: SurgeryRequestStatus.PERFORMED,
-        }),
-        this.surgeryRequestRepository.total({
-          ...where,
-          status: SurgeryRequestStatus.INVOICED,
-        }),
-      ]);
-
-    const [totalInvoiced, rawHealthPlan, rawStatus, rawHospital]: any[] =
-      await Promise.all([
-        this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
-        this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
-        this.surgeryRequestRepository.totalByStatus(doctorIds, filters),
-        this.surgeryRequestRepository.totalByHospital(doctorIds, filters),
-      ]);
+    const respTotal = counts.total;
+    const respTotalScheduled = counts.scheduled;
+    const respPerformed = counts.performed;
+    const respInvoiced = counts.invoiced;
 
     let totalByHealthPlan = rawHealthPlan;
     let totalByStatus = rawStatus;
@@ -222,5 +213,46 @@ export class ReportsService {
       month: item.monthLabel,
       count: parseInt(item.count, 10),
     }));
+  }
+
+  /**
+   * Endpoint consolidado do dashboard (P13): reúne as 5 consultas antes
+   * servidas por endpoints separados numa única resposta/round-trip. Cada
+   * método reusa `getAccessibleDoctorIds` (cache de 30s), então a resolução de
+   * acesso não é refeita 5×.
+   */
+  async dashboardFull(
+    userId: string,
+    filters?: ReportFilters,
+    days: number = 30,
+    months: number = 6,
+  ) {
+    return withActiveSpan(
+      'reports.dashboardFull',
+      { 'user.id': userId },
+      async () => {
+        const [
+          dashboard,
+          temporalEvolution,
+          monthlyEvolution,
+          averageCompletionTime,
+          pendingNotifications,
+        ] = await Promise.all([
+          this.dashboard(userId, filters),
+          this.temporalEvolution(userId, days, filters),
+          this.monthlyEvolution(userId, months, filters),
+          this.averageCompletionTime(userId, filters),
+          this.pendingNotifications(userId, filters),
+        ]);
+
+        return {
+          ...dashboard,
+          temporalEvolution,
+          monthlyEvolution,
+          averageCompletionTime,
+          pendingNotifications,
+        };
+      },
+    );
   }
 }

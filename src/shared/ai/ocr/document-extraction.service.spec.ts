@@ -64,6 +64,7 @@ describe('DocumentExtractionService', () => {
       detokenize: jest.fn((_sessionId: string, text: string) =>
         text.replace('{{cpf_1}}', '12345678901'),
       ),
+      serializeSession: jest.fn(() => []),
     };
 
     service = new DocumentExtractionService(
@@ -201,7 +202,7 @@ describe('DocumentExtractionService', () => {
     expect(result.classification).toBeNull();
   });
 
-  it('regression: ativa Vision quando confidence < 0.75', async () => {
+  it('regression: ativa Vision quando confidence < 0.75 e extração vazia', async () => {
     (classifier.classifyWithUsage as jest.Mock).mockResolvedValueOnce({
       classification: buildClassification({
         kind: 'unknown',
@@ -268,6 +269,37 @@ describe('DocumentExtractionService', () => {
     expect(result.classification?.confidence).toBe(0.75);
   });
 
+  it('não aciona Vision no fluxo create_sc quando extração text-only já é útil', async () => {
+    (classifier.classifyWithUsage as jest.Mock).mockResolvedValueOnce({
+      classification: buildClassification({
+        kind: 'surgery_request',
+        confidence: 0.74,
+        extracted: {
+          patient: { name: 'Maria' },
+          tuss: [{ code: '3.07.15.091', description: 'Descompressão' }],
+        },
+      }),
+      usage: {
+        promptTokens: 200,
+        completionTokens: 30,
+        totalTokens: 230,
+        model: 'gpt-4o-mini',
+        latencyMs: 50,
+      },
+    });
+
+    const result = await service.extractFromBuffer({
+      buffer: Buffer.from('img'),
+      mimeType: 'image/png',
+      sessionId: 'sess-7c',
+      intent: 'create_sc',
+    });
+
+    expect(visionFallback.classifyImage).not.toHaveBeenCalled();
+    expect(result.usedVisionFallback).toBe(false);
+    expect(result.classification?.kind).toBe('surgery_request');
+  });
+
   it('detokenizeExtracted=true substitui placeholders nos campos extraídos', async () => {
     const result = await service.extractFromBuffer({
       buffer: Buffer.from('pdf'),
@@ -291,6 +323,82 @@ describe('DocumentExtractionService', () => {
     expect(result.status).toBe('ok');
     expect(piiVault.detokenize).not.toHaveBeenCalled();
     expect(result.classification?.extracted.patient?.cpf).toBe('{{cpf_1}}');
+  });
+
+  it('preenche CPF ausente a partir do placeholder tokenizado no OCR', async () => {
+    (classifier.classifyWithUsage as jest.Mock).mockResolvedValueOnce({
+      classification: buildClassification({
+        extracted: {
+          patient: {
+            name: 'Lucas Bruno Borges de Medeiros',
+            birthDate: '26/10/1995',
+            phone: '{{phone_1}}',
+          },
+        },
+      }),
+      usage: {
+        promptTokens: 320,
+        completionTokens: 110,
+        totalTokens: 430,
+        model: 'gpt-4o-mini',
+        latencyMs: 50,
+      },
+    });
+    (ocr.extractAndTokenize as jest.Mock).mockResolvedValueOnce({
+      ...buildOcrResult(
+        'Paciente Lucas Bruno Borges de Medeiros CPF 168.508.057-03 Tel 21 97744-0411',
+      ),
+      tokenizedText:
+        'Paciente Lucas Bruno Borges de Medeiros CPF {{cpf_1}} Tel {{phone_1}}',
+    });
+    (piiVault.detokenize as jest.Mock).mockImplementation(
+      (_sessionId: string, text: string) =>
+        text
+          .replace('{{cpf_1}}', '16850805703')
+          .replace('{{phone_1}}', '21977440411'),
+    );
+
+    const result = await service.extractFromBuffer({
+      buffer: Buffer.from('pdf'),
+      mimeType: 'application/pdf',
+      sessionId: 'sess-cpf-backfill',
+      detokenizeExtracted: true,
+    });
+
+    expect(result.classification?.extracted.patient?.cpf).toBe('16850805703');
+    expect(result.classification?.extracted.patient?.phone).toBe(
+      '21977440411',
+    );
+  });
+
+  it('usa binding único do PII Vault quando OCR não contém placeholder explícito', async () => {
+    (classifier.classifyWithUsage as jest.Mock).mockResolvedValueOnce({
+      classification: buildClassification({
+        extracted: { patient: { name: 'Joao Silva' } },
+      }),
+      usage: {
+        promptTokens: 320,
+        completionTokens: 110,
+        totalTokens: 430,
+        model: 'gpt-4o-mini',
+        latencyMs: 50,
+      },
+    });
+    (ocr.extractAndTokenize as jest.Mock).mockResolvedValueOnce(
+      buildOcrResult('Paciente Joao Silva sem token visível'),
+    );
+    (piiVault.serializeSession as jest.Mock).mockReturnValueOnce([
+      { token: '{{cpf_1}}', category: 'cpf', realValue: '12345678901' },
+    ]);
+
+    const result = await service.extractFromBuffer({
+      buffer: Buffer.from('pdf'),
+      mimeType: 'application/pdf',
+      sessionId: 'sess-vault-cpf',
+      detokenizeExtracted: true,
+    });
+
+    expect(result.classification?.extracted.patient?.cpf).toBe('12345678901');
   });
 
   describe('isExtractedEffectivelyEmpty', () => {

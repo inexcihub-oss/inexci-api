@@ -42,4 +42,10 @@ export class SendRequestDto {
   @IsOptional()
   @IsString()
   cc?: string;
+
+  /** Quando true, anexa o documento de origem (`sc_creation_source`) em vez do PDF gerado. */
+  @ValidateIf((o) => o.method === SendMethod.EMAIL)
+  @IsOptional()
+  @IsBoolean()
+  useSourceDocument?: boolean;
 }

@@ -82,4 +82,35 @@ export class PatientRepository extends BaseRepository<Patient> {
 
     return qb.getMany();
   }
+
+  /**
+   * Listagem paginada da tela de pacientes com busca server-side opcional por
+   * nome (acento-insensível via `unaccent`), e-mail ou CPF. Retorna
+   * `[registros, total]` num único round-trip (`getManyAndCount`), evitando o
+   * carregamento da tabela inteira no navegador (P6/P7).
+   */
+  findAndCountWithSearch(
+    ownerId: string,
+    search: string | null | undefined,
+    skip: number,
+    take: number,
+  ): Promise<[Patient[], number]> {
+    const qb = this.repository
+      .createQueryBuilder('p')
+      .where('p.owner_id = :ownerId', { ownerId })
+      .orderBy('p.name', 'ASC')
+      .skip(skip)
+      .take(take);
+
+    const trimmed = search?.trim();
+    if (trimmed) {
+      const term = `%${trimmed}%`;
+      qb.andWhere(
+        '(unaccent(lower(p.name)) ILIKE unaccent(lower(:term)) OR p.email ILIKE :term OR p.cpf ILIKE :term)',
+        { term },
+      );
+    }
+
+    return qb.getManyAndCount();
+  }
 }

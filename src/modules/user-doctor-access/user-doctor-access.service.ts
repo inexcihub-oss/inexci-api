@@ -12,6 +12,7 @@ import { UserDoctorAccessRepository } from 'src/database/repositories/user-docto
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { UserRole } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @Injectable()
 export class UserDoctorAccessService {
@@ -22,6 +23,7 @@ export class UserDoctorAccessService {
     private readonly userRepository: UserRepository,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
     private readonly doctorProfileRepository: DoctorProfileRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   /**
@@ -120,6 +122,10 @@ export class UserDoctorAccessService {
         return { records: updated };
       },
       { logger: this.logger, operationName: 'setAccess' },
-    );
+    ).then((result) => {
+      // Invalida o cache de acesso do colaborador — os vínculos mudaram.
+      this.accessControlService.invalidateAccessibleDoctors(userId);
+      return result;
+    });
   }
 }

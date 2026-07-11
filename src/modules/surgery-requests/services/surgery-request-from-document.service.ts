@@ -20,6 +20,7 @@ import {
   NewPatientFromDocumentDto,
 } from '../dto/create-from-document.dto';
 import { SurgeryRequestPriority } from 'src/database/entities/surgery-request.entity';
+import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 import { v4 as uuid } from 'uuid';
 import * as path from 'path';
 
@@ -63,6 +64,12 @@ export class SurgeryRequestFromDocumentService {
     }
 
     const sessionId = uuid();
+    const pipelineStartedAt = Date.now();
+    const ownerId = await this.accessControl.getOwnerId(userId);
+    const scMaxPages = this.configService.get<number>(
+      'AI_DOC_SC_FROM_DOCUMENT_MAX_PAGES',
+      15,
+    );
 
     const result = await this.extractor.extractFromBuffer({
       buffer: file.buffer,
@@ -70,6 +77,7 @@ export class SurgeryRequestFromDocumentService {
       filename: file.originalname,
       sessionId,
       intent: 'create_sc',
+      maxOcrPages: scMaxPages,
       detokenizeExtracted: true,
     });
 
@@ -81,27 +89,47 @@ export class SurgeryRequestFromDocumentService {
       throw new BadRequestException(msg);
     }
 
-    const ownerId = await this.accessControl.getOwnerId(userId);
     const ext =
       path.extname(file.originalname || 'doc').toLowerCase() || '.bin';
     const safeName = `${uuid()}${ext}`;
-    const tempStoragePath = await this.storage.uploadBuffer(
-      file.buffer,
-      TEMP_FOLDER,
-      safeName,
-      file.mimetype,
-      ownerId,
-    );
 
-    const candidates = await this.entityResolver.resolveCandidates(
-      result.classification.extracted,
-      userId,
-    );
+    const postProcessStartedAt = Date.now();
+    const [tempStoragePath, candidates] = await Promise.all([
+      this.storage.uploadBuffer(
+        file.buffer,
+        TEMP_FOLDER,
+        safeName,
+        file.mimetype,
+        ownerId,
+      ),
+      this.entityResolver.resolveCandidates(
+        result.classification.extracted,
+        userId,
+        ownerId,
+      ),
+    ]);
+    const postProcessMs = Date.now() - postProcessStartedAt;
 
     const { classification } = result;
+    const totalMs = Date.now() - pipelineStartedAt;
+    const t = result.timing;
 
     this.logger.log(
-      `[SC_FROM_DOC] extract sessionId=${sessionId} kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} tempPath=${tempStoragePath}`,
+      [
+        `[SC_FROM_DOC] extract sessionId=${sessionId}`,
+        `kind=${classification.kind}`,
+        `confidence=${classification.confidence.toFixed(2)}`,
+        `used_vision=${result.usedVisionFallback}`,
+        `ocr_source=${result.ocrSource ?? 'none'}`,
+        `total_ms=${totalMs}`,
+        `ocr_ms=${t.ocrMs}`,
+        `classifier_ms=${t.classifierMs}`,
+        `vision_rasterize_ms=${t.visionRasterizeMs}`,
+        `vision_ms=${t.visionMs}`,
+        `detokenize_ms=${t.detokenizeMs}`,
+        `post_process_ms=${postProcessMs}`,
+        `tempPath=${tempStoragePath}`,
+      ].join(' '),
     );
 
     return {
@@ -179,6 +207,10 @@ export class SurgeryRequestFromDocumentService {
         priority: dto.priority ?? SurgeryRequestPriority.LOW,
         hospitalId: resolvedHospitalId,
         healthPlanId: resolvedHealthPlanId,
+        healthPlanRegistration:
+          dto.newPatient?.healthPlanNumber?.trim() ||
+          dto.healthPlanNumber?.trim() ||
+          undefined,
       },
       userId,
     );
@@ -190,6 +222,7 @@ export class SurgeryRequestFromDocumentService {
         title: s.title,
         description: s.description,
       })),
+      suggestedSuppliers: dto.suggestedSuppliers,
       tussItems: dto.tussItems?.map((t) => ({
         code: t.tussCode,
         description: t.name,
@@ -217,9 +250,9 @@ export class SurgeryRequestFromDocumentService {
         await this.documentsService.createFromPath({
           surgeryRequestId: sc.id,
           storagePath: newPath,
-          type: 'additional_document',
+          type: DOCUMENT_KEYS.SC_CREATION_SOURCE,
           name: fileName,
-          key: 'additional_document',
+          key: DOCUMENT_KEYS.SC_CREATION_SOURCE,
           contentType: this.guessMimeFromPath(dto.tempStoragePath),
           createdById: userId,
         });

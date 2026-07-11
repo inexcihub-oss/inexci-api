@@ -10,6 +10,7 @@ import { UserDoctorAccessService } from './user-doctor-access.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 import { UserRole } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 
@@ -44,10 +45,15 @@ describe('UserDoctorAccessService', () => {
   >;
   let doctorProfileRepository: jest.Mocked<Partial<DoctorProfileRepository>>;
   let dataSource: jest.Mocked<Partial<DataSource>>;
+  let accessControlService: jest.Mocked<Partial<AccessControlService>>;
 
   beforeEach(async () => {
     userRepository = {
       findOne: jest.fn(),
+    };
+
+    accessControlService = {
+      invalidateAccessibleDoctors: jest.fn(),
     };
 
     userDoctorAccessRepository = {
@@ -74,6 +80,7 @@ describe('UserDoctorAccessService', () => {
         },
         { provide: DoctorProfileRepository, useValue: doctorProfileRepository },
         { provide: DataSource, useValue: dataSource },
+        { provide: AccessControlService, useValue: accessControlService },
       ],
     }).compile();
 
@@ -181,6 +188,10 @@ describe('UserDoctorAccessService', () => {
         createdById: ADMIN_ID,
       });
       expect(result).toEqual({ records: updatedAccesses });
+      // O cache de acesso do colaborador deve ser invalidado após a mudança.
+      expect(
+        accessControlService.invalidateAccessibleDoctors,
+      ).toHaveBeenCalledWith(USER_ID);
     });
 
     it('throws BadRequestException when a doctorUserId has no doctorProfile', async () => {

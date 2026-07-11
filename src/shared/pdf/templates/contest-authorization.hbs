@@ -383,6 +383,12 @@
             <span class='patient-value'>{{patientCpf}}</span>
           </div>
         {{/if}}
+        {{#if patientPhone}}
+          <div class='patient-row'>
+            <span class='patient-label'>Telefone:</span>
+            <span class='patient-value'>{{patientPhone}}</span>
+          </div>
+        {{/if}}
         {{#if patientAddress}}
           <div class='patient-row'>
             <span class='patient-label'>Endereço:</span>
@@ -395,16 +401,16 @@
             <span class='patient-value'>{{patientZipCode}}</span>
           </div>
         {{/if}}
-        {{#if patientPhone}}
-          <div class='patient-row'>
-            <span class='patient-label'>Telefone:</span>
-            <span class='patient-value'>{{patientPhone}}</span>
-          </div>
-        {{/if}}
         {{#if patientHealthPlan}}
           <div class='patient-row'>
             <span class='patient-label'>Convênio:</span>
             <span class='patient-value'>{{patientHealthPlan}}</span>
+          </div>
+        {{/if}}
+        {{#if patientHealthPlanNumber}}
+          <div class='patient-row'>
+            <span class='patient-label'>Nº da carteirinha:</span>
+            <span class='patient-value'>{{patientHealthPlanNumber}}</span>
           </div>
         {{/if}}
       </div>

@@ -178,6 +178,7 @@ export class SurgeryRequestMutationService {
           status: SurgeryRequestStatus.PENDING,
           isIndication: false,
           healthPlanId: data.healthPlanId || null,
+          healthPlanRegistration: data.healthPlanRegistration?.trim() || null,
           priority: data.priority,
           procedureId: data.procedureId || null,
           requiredDocuments: data.requiredDocuments?.length
@@ -232,12 +233,12 @@ export class SurgeryRequestMutationService {
     }
 
     const { id, hospital: _h, healthPlan, cid, ...validData } = data;
-    // cid.id retorna o código CID diretamente (ex: "A00") — sem FK para tabela
+    // cid.code persiste em cid_code — sem FK para tabela CID
     const cidData: { cidCode?: string | null } = {};
     if (cid === null) {
       cidData.cidCode = null;
-    } else if (cid?.id) {
-      cidData.cidCode = cid.id;
+    } else if (cid?.code) {
+      cidData.cidCode = cid.code;
     }
 
     await this.surgeryRequestRepository.update(data.id, {
@@ -247,7 +248,63 @@ export class SurgeryRequestMutationService {
       ...cidData,
     });
 
+    const shouldSyncPatientInsurance =
+      data.healthPlanRegistration !== undefined ||
+      data.healthPlan !== undefined;
+    if (shouldSyncPatientInsurance && surgeryRequest.patientId) {
+      const ownerId = await this.accessControlService.getOwnerId(userId);
+      const registration =
+        data.healthPlanRegistration !== undefined
+          ? (data.healthPlanRegistration?.trim() || null)
+          : (surgeryRequest.healthPlanRegistration?.trim() || null);
+      await this.syncPatientInsuranceFromSc({
+        patientId: surgeryRequest.patientId,
+        ownerId,
+        healthPlanId,
+        healthPlanNumber: registration,
+      });
+    }
+
     return surgeryRequest;
+  }
+
+  private async syncPatientInsuranceFromSc(input: {
+    patientId: string;
+    ownerId: string;
+    healthPlanId: string | null;
+    healthPlanNumber: string | null;
+  }): Promise<void> {
+    const updateData: Partial<Patient> = {};
+    if (input.healthPlanId) {
+      updateData.healthPlanId = input.healthPlanId;
+    }
+    if (input.healthPlanNumber) {
+      updateData.healthPlanNumber = input.healthPlanNumber;
+    }
+    if (Object.keys(updateData).length === 0) return;
+
+    const patient = await this.patientRepository.findOne({
+      id: input.patientId,
+      ownerId: input.ownerId,
+    });
+    if (!patient) return;
+
+    const patch: Partial<Patient> = {};
+    if (
+      updateData.healthPlanId &&
+      patient.healthPlanId !== updateData.healthPlanId
+    ) {
+      patch.healthPlanId = updateData.healthPlanId;
+    }
+    if (
+      updateData.healthPlanNumber &&
+      patient.healthPlanNumber !== updateData.healthPlanNumber
+    ) {
+      patch.healthPlanNumber = updateData.healthPlanNumber;
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    await this.patientRepository.update(patient.id, patch);
   }
 
   async updateBasic(data: UpdateSurgeryRequestBasicDto, userId: string) {

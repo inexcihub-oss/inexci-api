@@ -1,15 +1,17 @@
-import { IsNumber, IsOptional } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { IsNumber, IsOptional, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PAGINATION_DEFAULTS } from 'src/shared/constants/pagination';
 
 export class FindManySharedDto {
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
-  @Transform(({ value }) => (value ? +value : PAGINATION_DEFAULTS.SKIP))
-  skip?: number;
+  @Min(0)
+  skip?: number = PAGINATION_DEFAULTS.SKIP;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
-  @Transform(({ value }) => (value ? +value : PAGINATION_DEFAULTS.TAKE))
-  take?: number;
+  @Min(1)
+  take?: number = PAGINATION_DEFAULTS.TAKE;
 }

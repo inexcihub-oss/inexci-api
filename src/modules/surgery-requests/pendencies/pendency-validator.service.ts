@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
@@ -67,26 +67,45 @@ export class PendencyValidatorService {
   ) {}
 
   /**
-   * Carrega a solicitação com todas as relações necessárias para avaliação.
+   * Relações realmente consultadas por `checkResolved`/`getCheckItems`.
+   * hospital/healthPlan/procedure/analysis/contestations foram removidas porque
+   * os checks só leem colunas escalares (ex.: `hospitalId`), não os objetos das
+   * relações. `relationLoadStrategy: 'query'` evita o produto cartesiano entre as
+   * coleções to-many (tussItems, opmeItems, documents, reportSections).
+   */
+  private static readonly PENDENCY_RELATIONS = {
+    patient: true,
+    doctor: { doctorProfile: true },
+    tussItems: true,
+    opmeItems: true,
+    documents: true,
+    billing: true,
+    reportSections: true,
+  } as const;
+
+  /**
+   * Carrega a solicitação com as relações necessárias para avaliação.
    */
   private loadRequest(id: string): Promise<SurgeryRequest | null> {
     return this.surgeryRequestRepository.findOne({
       where: { id },
-      relations: [
-        'patient',
-        'hospital',
-        'healthPlan',
-        'procedure',
-        'tussItems',
-        'opmeItems',
-        'documents',
-        'analysis',
-        'billing',
-        'contestations',
-        'doctor',
-        'doctor.doctorProfile',
-        'reportSections',
-      ],
+      relationLoadStrategy: 'query',
+      relations: PendencyValidatorService.PENDENCY_RELATIONS,
+    });
+  }
+
+  /**
+   * Carrega várias solicitações de uma vez (WHERE id IN) para o resumo em lote do
+   * kanban, substituindo o N+1 anterior (uma query pesada por card). Com
+   * `relationLoadStrategy: 'query'` cada relação vira uma query separada com
+   * WHERE IN — total constante (~7 queries) independente do número de cards.
+   */
+  private loadRequestsBatch(ids: string[]): Promise<SurgeryRequest[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.surgeryRequestRepository.find({
+      where: { id: In(ids) },
+      relationLoadStrategy: 'query',
+      relations: PendencyValidatorService.PENDENCY_RELATIONS,
     });
   }
 
@@ -413,7 +432,14 @@ export class PendencyValidatorService {
     if (!request) {
       return { pending: 0, total: 0, canAdvance: true, items: [] };
     }
+    return this.computeSummary(request);
+  }
 
+  /**
+   * Computa o resumo de pendências de uma solicitação já carregada (sem I/O).
+   * Compartilhado por `getSummary` (1 request) e `getBatchSummary` (lote).
+   */
+  private computeSummary(request: SurgeryRequest): PendencySummary {
     const config = getPendenciesForStatus(request.status);
     if (!config || config.pendencies.length === 0) {
       return { pending: 0, total: 0, canAdvance: true, items: [] };
@@ -456,32 +482,38 @@ export class PendencyValidatorService {
       .map((id) => id.trim())
       .filter((id) => id.length > 0);
 
-    const summaries = await Promise.all(
-      ids.map(async (id) => {
-        try {
-          const result = await this.getSummary(id);
-          return {
-            id,
-            pending: result.pending,
-            total: result.total,
-            canAdvance: result.canAdvance,
-          };
-        } catch {
-          return { id, pending: 0, total: 0, canAdvance: true };
-        }
-      }),
-    );
+    // Default seguro para todo id solicitado (inclusive os não encontrados).
+    const result: Record<
+      string,
+      { pending: number; total: number; canAdvance: boolean }
+    > = {};
+    for (const id of ids) {
+      result[id] = { pending: 0, total: 0, canAdvance: true };
+    }
 
-    return summaries.reduce(
-      (acc, { id, ...summary }) => {
-        acc[id] = summary;
-        return acc;
-      },
-      {} as Record<
-        string,
-        { pending: number; total: number; canAdvance: boolean }
-      >,
-    );
+    if (ids.length === 0) return result;
+
+    try {
+      // Uma única carga em lote em vez de N cargas pesadas em paralelo (N+1).
+      const requests = await this.loadRequestsBatch(ids);
+      for (const request of requests) {
+        const summary = this.computeSummary(request);
+        result[request.id] = {
+          pending: summary.pending,
+          total: summary.total,
+          canAdvance: summary.canAdvance,
+        };
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[BATCH_SUMMARY] Falha ao carregar lote de ${ids.length} solicitações: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      // Mantém os defaults já preenchidos.
+    }
+
+    return result;
   }
 
   /**

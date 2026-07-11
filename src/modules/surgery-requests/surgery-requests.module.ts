@@ -44,6 +44,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { BillingModule } from '../billing/billing.module';
 import { AiModule } from 'src/shared/ai/ai.module';
 import { TussModule } from '../tuss/tuss.module';
+import { CidModule } from './cid/cid.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { TussModule } from '../tuss/tuss.module';
     DocumentsModule,
     OpmeModule,
     TussModule,
+    CidModule,
     WhatsappModule,
     NotificationsModule,
     BillingModule,

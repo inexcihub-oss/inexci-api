@@ -4,6 +4,7 @@ import { initOtel } from './shared/observability/otel';
 initOtel();
 
 import * as dayjs from 'dayjs';
+import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { NestFactory, Reflector } from '@nestjs/core';
@@ -41,6 +42,10 @@ async function bootstrap() {
 
   app.use(requestContextMiddleware);
 
+  // Compressão gzip como defesa em profundidade — cobre ambientes sem o nginx
+  // na frente (ngrok, dev). Em produção o nginx já comprime (ver nginx/default.conf).
+  app.use(compression());
+
   app.use(cookieParser());
 
   app.useWebSocketAdapter(new IoAdapter(app));
@@ -48,7 +53,11 @@ async function bootstrap() {
   // Configurar JSON para não escapar caracteres Unicode
   app.getHttpAdapter().getInstance().set('json escape', false);
   app.getHttpAdapter().getInstance().set('json replacer', null);
-  app.getHttpAdapter().getInstance().set('json spaces', 2);
+  // Pretty-print apenas fora de produção. Em produção a indentação inflaria o
+  // payload em ~25–35% e gastaria CPU de serialização sem benefício.
+  if (process.env.NODE_ENV !== 'production') {
+    app.getHttpAdapter().getInstance().set('json spaces', 2);
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({

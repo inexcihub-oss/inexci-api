@@ -26,6 +26,11 @@ import { CompactTypeOrmLogger } from '../../shared/logging/typeorm.logger';
             : ['error', 'warn', 'migration'],
           logger: new CompactTypeOrmLogger(),
           maxQueryExecutionTime: 1000,
+          // Pool de conexões explícito (P4/P16): tamanho ajustável por env para
+          // afinar sob carga sem recompilar. `pg` usa 10 por padrão.
+          extra: {
+            max: Number(configService.get('DATABASE_POOL_MAX')) || 10,
+          },
         };
       },
     }),

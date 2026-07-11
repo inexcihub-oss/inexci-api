@@ -3,7 +3,7 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { FindOptionsWhere, In } from 'typeorm';
+import { In } from 'typeorm';
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -24,12 +24,15 @@ export class PatientsService {
   async findAll(query: FindManyPatientDto, userId: string) {
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    const where: FindOptionsWhere<Patient> = { ownerId };
-
-    const [total, records] = await Promise.all([
-      this.patientRepository.total(where),
-      this.patientRepository.findMany(where, query.skip, query.take),
-    ]);
+    // Busca + paginação server-side num único round-trip (P6/P7). O `total`
+    // reflete o filtro aplicado, permitindo paginação correta no frontend.
+    const [records, total] =
+      await this.patientRepository.findAndCountWithSearch(
+        ownerId,
+        query.search,
+        query.skip ?? 0,
+        query.take ?? 10,
+      );
 
     return { total, records };
   }

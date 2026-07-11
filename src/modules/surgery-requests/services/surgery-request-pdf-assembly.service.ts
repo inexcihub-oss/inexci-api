@@ -14,11 +14,12 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
 import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
 import {
   formatPhone,
-  formatCpf,
-  formatCep,
-  formatDateBR,
 } from 'src/shared/utils';
-import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
+import { buildLaudoPatientFields } from '../utils/laudo-patient-fields.util';
+import {
+  DOCUMENT_KEYS,
+  PDF_EXCLUDED_DOCUMENT_KEYS,
+} from 'src/shared/constants/document-keys';
 import { SendMethod } from 'src/shared/constants/send-method';
 
 function extractOpmeManufacturerNames(item: {
@@ -163,31 +164,7 @@ export class SurgeryRequestPdfAssemblyService {
     const doctorPhoneRaw = doctor?.phone ?? '';
     const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
 
-    // ── Dados do laudo (medicalReport JSON) ───────────────────────────────
-    let reportData: {
-      patientData?: {
-        name?: string;
-        birthDate?: string;
-        rg?: string;
-        cpf?: string;
-        phone?: string;
-        address?: string;
-        zipCode?: string;
-        healthPlan?: string;
-      };
-      historyAndDiagnosis?: string;
-      conduct?: string;
-    } = {};
-    try {
-      if (request.medicalReport) {
-        reportData = JSON.parse(request.medicalReport as unknown as string);
-      }
-    } catch {
-      // fallback vazio
-    }
-
-    const pd = reportData.patientData ?? {};
-    const patient = request.patient;
+    const patientFields = buildLaudoPatientFields(request);
 
     // ── Imagens dos exames ─────────────────────────────────────────────────
     const allDocs = request.documents ?? [];
@@ -282,24 +259,7 @@ export class SurgeryRequestPdfAssemblyService {
 
     const laudoData: SurgeryRequestLaudoPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),
-      patientName: pd.name || patient?.name || undefined,
-      patientBirthDate:
-        pd.birthDate ||
-        (patient?.birthDate ? formatDateBR(patient.birthDate) : undefined),
-      patientRg: pd.rg || patient?.rg || undefined,
-      patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
-      patientPhone: formatPhone(pd.phone || patient?.phone || '') || undefined,
-      patientAddress: pd.address || patient?.address || undefined,
-      patientZipCode:
-        formatCep(pd.zipCode || patient?.zipCode || patient?.cep || '') ||
-        undefined,
-      patientHealthPlan: pd.healthPlan || request.healthPlan?.name || undefined,
-      historyAndDiagnosis: reportSections.length
-        ? undefined
-        : reportData.historyAndDiagnosis || undefined,
-      conduct: reportSections.length
-        ? undefined
-        : reportData.conduct || undefined,
+      ...patientFields,
       sections: reportSections.length
         ? reportSections.map((s: any) => ({
             title: s.title,
@@ -337,7 +297,7 @@ export class SurgeryRequestPdfAssemblyService {
         (d: any) =>
           d.uri &&
           String(d.uri).startsWith('documents/') &&
-          d.key !== DOCUMENT_KEYS.REPORT_IMAGES,
+          !PDF_EXCLUDED_DOCUMENT_KEYS.includes(d.key),
       );
 
       const docBuffers: Buffer[] = [];
@@ -378,33 +338,7 @@ export class SurgeryRequestPdfAssemblyService {
     const { doctor, profile, doctorSignatureUrl, customHeader } =
       await this.loadAssignedDoctorData(request);
 
-    // ── Dados do laudo (medicalReport JSON) ───────────────────────────────
-    let reportData: {
-      patientData?: {
-        name?: string;
-        birthDate?: string;
-        rg?: string;
-        cpf?: string;
-        phone?: string;
-        address?: string;
-        zipCode?: string;
-        healthPlan?: string;
-      };
-      historyAndDiagnosis?: string;
-      surgicalIndication?: string;
-      conduct?: string;
-      technicalJustification?: string;
-    } = {};
-    try {
-      if (request.medicalReport) {
-        reportData = JSON.parse(request.medicalReport as unknown as string);
-      }
-    } catch {
-      // fallback vazio
-    }
-
-    const pd = reportData.patientData ?? {};
-    const patient = request.patient;
+    const patientFields = buildLaudoPatientFields(request);
 
     // ── Imagens dos exames ─────────────────────────────────────────────────
     const allDocs = request.documents ?? [];
@@ -433,32 +367,13 @@ export class SurgeryRequestPdfAssemblyService {
 
     const medicalData: MedicalReportPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),
-      patientName: pd.name || patient?.name || undefined,
-      patientBirthDate:
-        pd.birthDate ||
-        (patient?.birthDate ? formatDateBR(patient.birthDate) : undefined),
-      patientRg: pd.rg || patient?.rg || undefined,
-      patientCpf: formatCpf(pd.cpf || patient?.cpf || '') || undefined,
-      patientPhone: formatPhone(pd.phone || patient?.phone || '') || undefined,
-      patientAddress: pd.address || patient?.address || undefined,
-      patientZipCode:
-        formatCep(pd.zipCode || patient?.zipCode || patient?.cep || '') ||
-        undefined,
-      patientHealthPlan: pd.healthPlan || request.healthPlan?.name || undefined,
+      ...patientFields,
       sections: reportSections.length
         ? reportSections.map((s: any) => ({
             title: s.title,
             description: s.description,
           }))
         : undefined,
-      historyAndDiagnosis: reportSections.length
-        ? undefined
-        : reportData.historyAndDiagnosis ||
-          reportData.surgicalIndication ||
-          undefined,
-      conduct: reportSections.length
-        ? undefined
-        : reportData.conduct || reportData.technicalJustification || undefined,
       examImages: examImages.length ? examImages : undefined,
       doctorName: doctor?.name ?? 'Médico',
       doctorSpecialty: profile?.specialty || undefined,
@@ -603,20 +518,13 @@ export class SurgeryRequestPdfAssemblyService {
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.loadAssignedDoctorData(request);
 
+    const patientFields = buildLaudoPatientFields(request);
+
     const pdfData: ContestAuthorizationPdfData = {
       today: new Date().toLocaleDateString('pt-BR'),
       reason,
       message,
-      patientName: patient?.name ?? undefined,
-      patientBirthDate: patient?.birthDate
-        ? new Date(patient.birthDate).toLocaleDateString('pt-BR')
-        : undefined,
-      patientRg: patient?.rg ?? undefined,
-      patientCpf: patient?.cpf ?? undefined,
-      patientPhone: patient?.phone ?? undefined,
-      patientAddress: patient?.address ?? undefined,
-      patientZipCode: patient?.zipCode ?? patient?.cep ?? undefined,
-      patientHealthPlan: request.healthPlan?.name ?? undefined,
+      ...patientFields,
       procedures: procedures.length ? procedures : undefined,
       opmeItems: opmeItems.length ? opmeItems : undefined,
       attachments: imageAttachments.length ? imageAttachments : undefined,

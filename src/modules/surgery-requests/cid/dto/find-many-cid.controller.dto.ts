@@ -1,5 +1,5 @@
-import { IsOptional, IsString, Max, Min } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { FindManySharedDto } from 'src/shared/dto/find-many.dto';
 
 export class FindManyCidDto extends FindManySharedDto {
@@ -8,8 +8,9 @@ export class FindManyCidDto extends FindManySharedDto {
   search?: string;
 
   @IsOptional()
-  @Max(100)
+  @Type(() => Number)
+  @IsNumber()
   @Min(1)
-  @Transform(({ value }) => (value ? +value : 50))
-  declare take?: number;
+  @Max(100)
+  take?: number = 50;
 }

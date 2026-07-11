@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as sharp from 'sharp';
 import { createWorker, Worker as TesseractWorker } from 'tesseract.js';
@@ -59,11 +59,14 @@ type PdfParseCtor = new (opts: { data: Buffer }) => PdfParseInstance;
 const PDF_RASTER_SCALE = 2;
 
 @Injectable()
-export class OcrService implements OnModuleDestroy {
+export class OcrService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OcrService.name);
+  /** @deprecated Mantido só para compatibilidade de testes legados. */
   private workerPromise: Promise<TesseractWorker> | null = null;
+  private workerPool: Array<Promise<TesseractWorker>> = [];
   private readonly lang: string;
   private readonly maxPages: number;
+  private readonly parallelWorkers: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -72,26 +75,54 @@ export class OcrService implements OnModuleDestroy {
     const rawLang = this.configService.get<string>('AI_DOC_OCR_LANG', 'por');
     this.lang = (rawLang && rawLang.trim()) || 'por';
 
-    const rawMaxPages = this.configService.get<number>('AI_DOC_MAX_PAGES', 5);
+    const rawMaxPages = this.configService.get<number>('AI_DOC_MAX_PAGES', 15);
     const numericMaxPages = Number(rawMaxPages);
     this.maxPages =
       Number.isFinite(numericMaxPages) && numericMaxPages > 0
         ? Math.floor(numericMaxPages)
-        : 5;
+        : 15;
+
+    const rawParallelWorkers = this.configService.get<number>(
+      'AI_DOC_OCR_PARALLEL_WORKERS',
+      3,
+    );
+    const numericParallelWorkers = Number(rawParallelWorkers);
+    this.parallelWorkers =
+      Number.isFinite(numericParallelWorkers) && numericParallelWorkers > 0
+        ? Math.max(1, Math.min(8, Math.floor(numericParallelWorkers)))
+        : 3;
+  }
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.ensureWorkerPool();
+      this.logger.log(
+        `[AI_DOC_OCR] pool Tesseract pré-carregado workers=${this.parallelWorkers}`,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `[AI_DOC_OCR] warmup do pool falhou: ${err?.message || 'erro desconhecido'}`,
+      );
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (!this.workerPromise) return;
-    try {
-      const worker = await this.workerPromise;
-      await worker.terminate();
-    } catch (err: any) {
-      this.logger.debug(
-        `[AI_DOC_OCR] terminate falhou: ${err?.message || 'erro desconhecido'}`,
-      );
-    } finally {
-      this.workerPromise = null;
-    }
+    const pool = [...this.workerPool];
+    this.workerPool = [];
+    this.workerPromise = null;
+
+    await Promise.allSettled(
+      pool.map(async (workerPromise) => {
+        try {
+          const worker = await workerPromise;
+          await worker.terminate();
+        } catch (err: any) {
+          this.logger.debug(
+            `[AI_DOC_OCR] terminate falhou: ${err?.message || 'erro desconhecido'}`,
+          );
+        }
+      }),
+    );
   }
 
   isImage(mimeType: string): boolean {
@@ -100,6 +131,17 @@ export class OcrService implements OnModuleDestroy {
 
   isPdf(mimeType: string): boolean {
     return (mimeType ?? '').toLowerCase() === 'application/pdf';
+  }
+
+  private resolveMaxPages(override?: number): number {
+    if (
+      typeof override === 'number' &&
+      Number.isFinite(override) &&
+      override > 0
+    ) {
+      return Math.floor(override);
+    }
+    return this.maxPages;
   }
 
   /**
@@ -331,10 +373,12 @@ export class OcrService implements OnModuleDestroy {
     }
 
     // Tentativa 2: rasterizar e rodar Tesseract.
+    const maxPages = this.resolveMaxPages(input.maxPages);
     const ocrPages = await this.rasterizeAndOcrPdf(
       PDFParseCtor,
       input.buffer,
       warnings,
+      maxPages,
     );
 
     if (!pageCount && ocrPages.length) {
@@ -342,11 +386,16 @@ export class OcrService implements OnModuleDestroy {
     }
     const truncatedPages = Math.max(
       0,
-      pageCount > this.maxPages ? pageCount - this.maxPages : 0,
+      pageCount > maxPages ? pageCount - maxPages : 0,
     );
 
     const text = ocrPages
-      .map((p) => p.text.trim())
+      .slice()
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+      .map((p) => {
+        const trimmed = p.text.trim();
+        return trimmed ? `[PÁGINA ${p.pageNumber}]\n${trimmed}` : '';
+      })
       .filter(Boolean)
       .join('\n\n');
     const confidence =
@@ -372,6 +421,7 @@ export class OcrService implements OnModuleDestroy {
     PDFParseCtor: PdfParseCtor,
     buffer: Buffer,
     warnings: string[],
+    maxPages: number,
   ): Promise<OcrPageResult[]> {
     const pages: OcrPageResult[] = [];
     let parser: PdfParseInstance | undefined;
@@ -379,7 +429,7 @@ export class OcrService implements OnModuleDestroy {
       parser = new PDFParseCtor({ data: buffer });
       const screenshot = await parser.getScreenshot({
         scale: PDF_RASTER_SCALE,
-        first: this.maxPages,
+        first: maxPages,
         imageBuffer: true,
         imageDataUrl: false,
       });
@@ -388,28 +438,51 @@ export class OcrService implements OnModuleDestroy {
         ? screenshot.pages
         : [];
 
-      for (let i = 0; i < screenshotPages.length; i++) {
-        const page = screenshotPages[i];
-        const pageNumber = Number(page?.pageNumber ?? i + 1);
-        const data: Buffer | undefined = page?.data;
-        if (!data) {
-          warnings.push(`page_${pageNumber}_no_buffer`);
+      const pageJobs = screenshotPages
+        .map((page, index) => ({
+          pageNumber: Number(page?.pageNumber ?? index + 1),
+          data: page?.data,
+        }))
+        .filter((job) => {
+          if (!job.data) {
+            warnings.push(`page_${job.pageNumber}_no_buffer`);
+            return false;
+          }
+          return true;
+        });
+
+      if (!pageJobs.length) {
+        return pages;
+      }
+
+      const preprocessed = await Promise.all(
+        pageJobs.map(async (job) => {
+          const data = job.data as Buffer;
+          const buffer = await this.preprocessImage(data, warnings);
+          return { pageNumber: job.pageNumber, buffer };
+        }),
+      );
+
+      const ocrResults = await this.runTesseractParallel(
+        preprocessed.map((job) => job.buffer),
+      );
+
+      for (let i = 0; i < preprocessed.length; i++) {
+        const job = preprocessed[i];
+        const ocr = ocrResults[i];
+        if (!ocr) {
+          warnings.push(`page_${job.pageNumber}_ocr_failed:resultado_vazio`);
           continue;
         }
-        try {
-          const { text, confidence } = await this.runTesseract(data);
-          pages.push({
-            pageNumber,
-            text,
-            confidence,
-            source: 'ocr',
-          });
-        } catch (err: any) {
-          warnings.push(
-            `page_${pageNumber}_ocr_failed:${err?.message || 'erro'}`,
-          );
-        }
+        pages.push({
+          pageNumber: job.pageNumber,
+          text: ocr.text,
+          confidence: ocr.confidence,
+          source: 'ocr',
+        });
       }
+
+      pages.sort((a, b) => a.pageNumber - b.pageNumber);
     } catch (err: any) {
       warnings.push(`pdf_screenshot_failed:${err?.message || 'erro'}`);
     } finally {
@@ -472,7 +545,48 @@ export class OcrService implements OnModuleDestroy {
   private async runTesseract(
     buffer: Buffer,
   ): Promise<{ text: string; confidence: number }> {
-    const worker = await this.getWorker();
+    const workers = await this.ensureWorkerPool();
+    return this.runTesseractWithWorker(workers[0], buffer);
+  }
+
+  private async runTesseractParallel(
+    buffers: Buffer[],
+  ): Promise<Array<{ text: string; confidence: number } | null>> {
+    if (!buffers.length) return [];
+
+    const workers = await this.ensureWorkerPool();
+    const results: Array<{ text: string; confidence: number } | null> =
+      new Array(buffers.length).fill(null);
+    let nextIndex = 0;
+
+    const workerLoop = async (worker: TesseractWorker): Promise<void> => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= buffers.length) return;
+
+        try {
+          results[index] = await this.runTesseractWithWorker(
+            worker,
+            buffers[index],
+          );
+        } catch (err: any) {
+          results[index] = null;
+          this.logger.warn(
+            `[AI_DOC_OCR] page_ocr_failed index=${index} reason=${err?.message || 'erro'}`,
+          );
+        }
+      }
+    };
+
+    await Promise.all(workers.map((worker) => workerLoop(worker)));
+    return results;
+  }
+
+  private async runTesseractWithWorker(
+    worker: TesseractWorker,
+    buffer: Buffer,
+  ): Promise<{ text: string; confidence: number }> {
     const result: any = await worker.recognize(buffer);
     const text = (result?.data?.text || '').toString();
     const confidencePercent = Number(result?.data?.confidence ?? 0);
@@ -486,17 +600,23 @@ export class OcrService implements OnModuleDestroy {
     return { text, confidence };
   }
 
+  private async ensureWorkerPool(): Promise<TesseractWorker[]> {
+    while (this.workerPool.length < this.parallelWorkers) {
+      const workerPromise = createWorker(this.lang).catch((err) => {
+        throw err;
+      });
+      this.workerPool.push(workerPromise);
+    }
+    return Promise.all(this.workerPool);
+  }
+
   /**
-   * Worker Tesseract singleton (lazy). Reaproveita o `traineddata` carregado
-   * (~10MB) entre chamadas, reduzindo drasticamente o cold-start a partir da
-   * segunda imagem/página.
+   * Worker Tesseract singleton (lazy). Mantido para compatibilidade interna;
+   * o pool paralelo é o caminho preferido para PDFs multi-página.
    */
   private async getWorker(): Promise<TesseractWorker> {
     if (!this.workerPromise) {
-      this.workerPromise = createWorker(this.lang).catch((err) => {
-        this.workerPromise = null;
-        throw err;
-      });
+      this.workerPromise = this.ensureWorkerPool().then((workers) => workers[0]);
     }
     return this.workerPromise;
   }

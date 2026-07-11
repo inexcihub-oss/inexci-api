@@ -293,6 +293,7 @@ export class DocumentVisionFallbackService {
     const model = this.getModel();
 
     const dataUrl = `data:${input.imageMimeType};base64,${input.imageBuffer.toString('base64')}`;
+    const visionDetail = this.getVisionDetail();
     const userContent: OpenAI.ChatCompletionContentPart[] = [
       {
         type: 'text',
@@ -300,7 +301,7 @@ export class DocumentVisionFallbackService {
       },
       {
         type: 'image_url',
-        image_url: { url: dataUrl, detail: 'high' },
+        image_url: { url: dataUrl, detail: visionDetail },
       } as any,
     ];
 
@@ -380,6 +381,15 @@ export class DocumentVisionFallbackService {
       'gpt-4o',
     );
     return (raw && raw.trim()) || 'gpt-4o';
+  }
+
+  private getVisionDetail(): 'auto' | 'low' | 'high' {
+    const raw = this.configService.get<string>('AI_DOC_VISION_DETAIL', 'auto');
+    const normalized = (raw || 'auto').trim().toLowerCase();
+    if (normalized === 'high' || normalized === 'low') {
+      return normalized;
+    }
+    return 'auto';
   }
 
   /**

@@ -169,3 +169,80 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
     await expect(service.assertCanAdvance('req-sent')).resolves.toBeUndefined();
   });
 });
+
+describe('PendencyValidatorService — getBatchSummary', () => {
+  const mockRepository = { findOne: jest.fn(), find: jest.fn() };
+  const service = new PendencyValidatorService(mockRepository as any);
+
+  const completeRequest = {
+    id: 'req-ok',
+    status: SurgeryRequestStatus.PENDING,
+    patient: { name: 'Ana Lima', cpf: '98765432100' },
+    hospitalId: 'h-1',
+    tussItems: [{ id: 't-1' }],
+    hasOpme: false,
+    reportSections: [{ id: 's-1' }],
+    doctor: { doctorProfile: { signatureUrl: 'https://sig.url' } },
+    documents: [],
+    opmeItems: [],
+  } as unknown as SurgeryRequest;
+
+  const incompleteRequest = {
+    id: 'req-bad',
+    status: SurgeryRequestStatus.PENDING,
+    patient: { name: 'Fulano' },
+    hospitalId: null,
+    tussItems: [],
+    hasOpme: null,
+    reportSections: [],
+    doctor: { doctorProfile: { signatureUrl: null } },
+    documents: [],
+    opmeItems: [],
+  } as unknown as SurgeryRequest;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('carrega o lote em uma única query (sem N+1) e resume cada SC', async () => {
+    mockRepository.find.mockResolvedValue([completeRequest, incompleteRequest]);
+
+    const result = await service.getBatchSummary('req-ok, req-bad');
+
+    // Uma única carga em lote, não uma por id.
+    expect(mockRepository.find).toHaveBeenCalledTimes(1);
+    expect(mockRepository.findOne).not.toHaveBeenCalled();
+
+    expect(result['req-ok'].canAdvance).toBe(true);
+    expect(result['req-bad'].canAdvance).toBe(false);
+    expect(result['req-bad'].pending).toBeGreaterThan(0);
+  });
+
+  it('devolve default seguro para ids não encontrados', async () => {
+    mockRepository.find.mockResolvedValue([completeRequest]);
+
+    const result = await service.getBatchSummary('req-ok,missing-id');
+
+    expect(result['req-ok'].canAdvance).toBe(true);
+    expect(result['missing-id']).toEqual({
+      pending: 0,
+      total: 0,
+      canAdvance: true,
+    });
+  });
+
+  it('mantém defaults quando a carga em lote falha', async () => {
+    mockRepository.find.mockRejectedValue(new Error('db down'));
+
+    const result = await service.getBatchSummary('a,b');
+
+    expect(result).toEqual({
+      a: { pending: 0, total: 0, canAdvance: true },
+      b: { pending: 0, total: 0, canAdvance: true },
+    });
+  });
+
+  it('devolve objeto vazio para lista de ids vazia', async () => {
+    const result = await service.getBatchSummary('  ,  ');
+    expect(result).toEqual({});
+    expect(mockRepository.find).not.toHaveBeenCalled();
+  });
+});

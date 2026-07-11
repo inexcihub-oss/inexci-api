@@ -7,8 +7,7 @@ import { PiiCategory } from '../services/pii-vault.service';
  * Regras:
  * - Lista vazia (`[]`) = a tool NÃO pode tokenizar nenhuma PII (apenas dados não pessoais).
  * - `protocol` é considerado pseudo-identificador interno; toda tool que opera em SC pode listá-lo.
- * - Conteúdo clínico longo (`medical_report`, `patient_history`, `diagnosis`, `surgery_description`)
- *   NUNCA aparece em tool de leitura — só em mutações que já recebem `payload_blob`.
+ * - Conteúdo clínico do laudo vive em `report_sections` — não é exposto em tools de leitura.
  * - Quando uma tool precisa expor identificadores pessoais (nome, hospital, convênio etc.),
  *   declarar explicitamente aqui.
  */

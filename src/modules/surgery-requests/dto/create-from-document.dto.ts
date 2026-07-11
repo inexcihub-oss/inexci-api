@@ -193,6 +193,12 @@ export class CreateFromDocumentDto {
   @Type(() => OpmeItemFromDocumentDto)
   opmeItems?: OpmeItemFromDocumentDto[];
 
+  /** Fornecedores sugeridos pelo classificador (aplicados aos itens OPME). */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  suggestedSuppliers?: string[];
+
   /** Caminho no storage retornado pelo endpoint de extração. */
   @IsOptional()
   @IsString()

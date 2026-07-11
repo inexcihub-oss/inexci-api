@@ -8,6 +8,7 @@ import { CreateReportSectionDto } from '../dto/create-report-section.dto';
 import { UpdateReportSectionDto } from '../dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from '../dto/reorder-report-sections.dto';
 import { SurgeryRequestPdfAssemblyService } from './surgery-request-pdf-assembly.service';
+import { upsertClinicalReportSection } from '../utils/clinical-report-sections.util';
 
 const SECTION_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ['b', 'i', 'u', 'strong', 'em', 'p', 'br', 'ul', 'ol', 'li'],
@@ -71,6 +72,19 @@ export class SurgeryRequestReportService {
           ? sanitizeHtml(dto.description, SECTION_SANITIZE_OPTIONS)
           : null;
     return this.reportSectionRepository.save(section);
+  }
+
+  async upsertReportSectionByTitle(
+    surgeryRequestId: string,
+    title: string,
+    description: string,
+  ): Promise<void> {
+    await upsertClinicalReportSection(
+      this.reportSectionRepository,
+      surgeryRequestId,
+      title,
+      description,
+    );
   }
 
   async deleteReportSection(

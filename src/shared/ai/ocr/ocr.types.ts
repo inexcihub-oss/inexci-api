@@ -7,6 +7,12 @@ export interface OcrInput {
   mimeType: string;
   /** Nome opcional para logs (sem PII). */
   filename?: string;
+  /**
+   * Limite de páginas a rasterizar/OCR por chamada. Quando omitido, usa
+   * `AI_DOC_MAX_PAGES` (default 15). Fluxos HTTP de SC via documento podem
+   * usar override próprio via `AI_DOC_SC_FROM_DOCUMENT_MAX_PAGES`.
+   */
+  maxPages?: number;
 }
 
 export interface OcrPageResult {

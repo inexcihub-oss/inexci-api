@@ -28,6 +28,15 @@ const buildClassification = () => ({
   model: 'gpt-4o-mini',
 });
 
+const buildExtractTiming = () => ({
+  totalMs: 120,
+  ocrMs: 45,
+  classifierMs: 60,
+  visionRasterizeMs: 0,
+  visionMs: 0,
+  detokenizeMs: 2,
+});
+
 describe('SurgeryRequestFromDocumentService', () => {
   let extractor: any;
   let storage: any;
@@ -50,6 +59,8 @@ describe('SurgeryRequestFromDocumentService', () => {
         usedVisionFallback: false,
         usageSnapshots: [],
         ocrTokenizedText: 'texto...',
+        ocrSource: 'pdf-native',
+        timing: buildExtractTiming(),
       }),
     };
     storage = {
@@ -89,7 +100,11 @@ describe('SurgeryRequestFromDocumentService', () => {
       createFromPath: jest.fn().mockResolvedValue({ id: 'doc-1' }),
     };
     configService = {
-      get: jest.fn().mockReturnValue(10 * 1024 * 1024),
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        if (key === 'AI_DOC_SC_FROM_DOCUMENT_MAX_PAGES') return 15;
+        if (key === 'AI_DOC_MAX_BYTES') return 10 * 1024 * 1024;
+        return defaultValue;
+      }),
     };
     dataSource = {
       getRepository: jest.fn(),
@@ -123,6 +138,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         mimeType: 'application/pdf',
         filename: 'laudo.pdf',
         intent: 'create_sc',
+        maxOcrPages: 15,
       }),
     );
     expect(storage.uploadBuffer).toHaveBeenCalled();
@@ -203,7 +219,12 @@ describe('SurgeryRequestFromDocumentService', () => {
       'documents/owner-1',
     );
     expect(documentsService.createFromPath).toHaveBeenCalledWith(
-      expect.objectContaining({ surgeryRequestId: 'sc-1', name: 'laudo.pdf' }),
+      expect.objectContaining({
+        surgeryRequestId: 'sc-1',
+        name: 'laudo.pdf',
+        type: 'sc_creation_source',
+        key: 'sc_creation_source',
+      }),
     );
     expect(result.id).toBe('sc-1');
     expect(result.protocol).toBe('SC-2024-0001');

@@ -19,6 +19,9 @@ export const envValidationSchema = Joi.object({
 
   // ── Database ─────────────────────────────────────────
   DATABASE_URL: Joi.string().required(),
+  // Tamanho máximo do pool de conexões do Postgres (P4/P16). Default = 10
+  // (default histórico do driver `pg`), agora explícito e ajustável por env.
+  DATABASE_POOL_MAX: Joi.number().default(10),
 
   // ── CORS ─────────────────────────────────────────────
   CORS_ORIGINS: Joi.string().required(),
@@ -71,10 +74,11 @@ export const envValidationSchema = Joi.object({
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
   // ── Observabilidade / OpenTelemetry ─────────────────
-  /** URL do coletor OTLP (Jaeger, Tempo, Grafana Cloud). Omitir = ConsoleExporter em dev, noop em prod. */
+  /** URL do coletor OTLP. Omitir = OTel desligado (logs Nest/Dozzle bastam). */
   OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().allow('').optional(),
   /** Fração de traces amostrados (0–1). Default automático: 1.0 em dev, 0.1 em prod. */
   OTEL_TRACES_SAMPLER_ARG: Joi.number().min(0).max(1).optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: Joi.string().allow('').optional(),
 
   // ── RAG ─────────────────────────────────────────────
   /** Número de resultados retornados pelo RAG (default 3). */
@@ -113,14 +117,20 @@ export const envValidationSchema = Joi.object({
     .allow('')
     .default('image/jpeg,image/jpg,image/png,image/webp'),
   AI_DOC_ALLOWED_PDF_MIME: Joi.string().allow('').default('application/pdf'),
-  AI_DOC_MAX_PAGES: Joi.number().default(5),
+  AI_DOC_MAX_PAGES: Joi.number().default(15),
+  AI_DOC_OCR_PARALLEL_WORKERS: Joi.number().default(3),
   AI_DOC_PENDING_TTL_MINUTES: Joi.number().default(10),
   AI_DOC_TMP_FOLDER: Joi.string().allow('').default('whatsapp-tmp'),
   AI_DOC_TMP_RETENTION_HOURS: Joi.number().default(1),
   AI_DOC_OCR_LANG: Joi.string().allow('').default('por'),
   AI_DOC_CLASSIFIER_MODEL: Joi.string().allow('').default('gpt-4o-mini'),
+  AI_DOC_CLASSIFIER_MAX_INPUT_CHARS: Joi.number().default(22000),
+  AI_DOC_SC_FROM_DOCUMENT_MAX_PAGES: Joi.number().default(15),
   AI_DOC_VISION_FALLBACK_ENABLED: Joi.string().allow('').default('true'),
   AI_DOC_VISION_FALLBACK_MODEL: Joi.string().allow('').default('gpt-4o'),
+  AI_DOC_VISION_DETAIL: Joi.string()
+    .valid('auto', 'low', 'high')
+    .default('auto'),
 
   // ── Puppeteer ────────────────────────────────────────
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),

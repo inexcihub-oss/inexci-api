@@ -14,6 +14,7 @@ describe('AccessControlService', () => {
   beforeEach(async () => {
     userRepository = {
       findOneWithProfile: jest.fn(),
+      findManyWithProfileByIds: jest.fn().mockResolvedValue([]),
       findDoctorsByOwnerId: jest.fn(),
       findOne: jest.fn(),
     };
@@ -123,6 +124,46 @@ describe('AccessControlService', () => {
       // No duplicates
       expect(result.filter((id) => id === 'doctor-user-id')).toHaveLength(1);
     });
+
+    it('should cache results and not re-query on the second call', async () => {
+      const adminUser = {
+        id: 'admin-id',
+        role: UserRole.ADMIN,
+        ownerId: 'account-1',
+      };
+      userRepository.findOneWithProfile.mockResolvedValue(adminUser as any);
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
+        { id: 'doc-1' },
+      ] as any);
+
+      const first = await service.getAccessibleDoctorIds('admin-id');
+      const second = await service.getAccessibleDoctorIds('admin-id');
+
+      expect(first).toEqual(['doc-1']);
+      expect(second).toEqual(['doc-1']);
+      // Só uma consulta ao banco graças ao cache.
+      expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(1);
+      expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledTimes(1);
+    });
+
+    it('should re-query after invalidateAccessibleDoctors', async () => {
+      const adminUser = {
+        id: 'admin-id',
+        role: UserRole.ADMIN,
+        ownerId: 'account-1',
+      };
+      userRepository.findOneWithProfile.mockResolvedValue(adminUser as any);
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
+        { id: 'doc-1' },
+      ] as any);
+
+      await service.getAccessibleDoctorIds('admin-id');
+      service.invalidateAccessibleDoctors('admin-id');
+      await service.getAccessibleDoctorIds('admin-id');
+
+      // Invalidação força nova consulta.
+      expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(2);
+    });
   });
 
   // ─── getAvailableDoctorsForCreation ───
@@ -183,17 +224,22 @@ describe('AccessControlService', () => {
         name: 'Linked Doctor',
         doctorProfile: { id: 'dp-1' },
       };
-      userRepository.findOneWithProfile
-        .mockResolvedValueOnce(collaborator as any) // initial call
-        .mockResolvedValueOnce(linkedDoctor as any); // loading linked doctor
+      userRepository.findOneWithProfile.mockResolvedValue(collaborator as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'linked-doc-id', doctor: { id: 'linked-doc-id' } },
+      ] as any);
+      // Carga única por IDs (substitui o N+1 de findOneWithProfile por vínculo).
+      userRepository.findManyWithProfileByIds.mockResolvedValue([
+        linkedDoctor,
       ] as any);
 
       const result = await service.getAvailableDoctorsForCreation('collab-id');
 
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('linked-doc-id');
+      expect(userRepository.findManyWithProfileByIds).toHaveBeenCalledWith([
+        'linked-doc-id',
+      ]);
     });
 
     it('should deduplicate doctors by ID', async () => {
@@ -202,11 +248,13 @@ describe('AccessControlService', () => {
         role: UserRole.COLLABORATOR,
         doctorProfile: { id: 'profile-1' },
       };
-      userRepository.findOneWithProfile
-        .mockResolvedValueOnce(doctorUser as any) // initial call
-        .mockResolvedValueOnce(doctorUser as any); // loading same doctor via access
+      userRepository.findOneWithProfile.mockResolvedValue(doctorUser as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-id', doctor: { id: 'doctor-id' } },
+      ] as any);
+      // Mesmo médico via vínculo — deve ser deduplicado com o "self".
+      userRepository.findManyWithProfileByIds.mockResolvedValue([
+        doctorUser,
       ] as any);
 
       const result = await service.getAvailableDoctorsForCreation('doctor-id');

@@ -116,6 +116,7 @@ export interface MedicalReportPdfData {
   patientAddress?: string;
   patientZipCode?: string;
   patientHealthPlan?: string;
+  patientHealthPlanNumber?: string;
   // Seções dinâmicas do laudo (substitui historyAndDiagnosis / conduct)
   sections?: Array<{ title: string; description?: string | null }>;
   // Campos legados (mantidos para compatibilidade com laudos antigos)
@@ -147,6 +148,7 @@ export interface ContestAuthorizationPdfData {
   patientAddress?: string;
   patientZipCode?: string;
   patientHealthPlan?: string;
+  patientHealthPlanNumber?: string;
   // Procedimentos solicitados
   procedures?: Array<{
     description: string;
@@ -187,6 +189,7 @@ export interface SurgeryRequestLaudoPdfData {
   patientAddress?: string;
   patientZipCode?: string;
   patientHealthPlan?: string;
+  patientHealthPlanNumber?: string;
   // Laudo
   historyAndDiagnosis?: string;
   conduct?: string;

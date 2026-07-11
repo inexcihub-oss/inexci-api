@@ -162,6 +162,7 @@ describe('SurgeryRequestAssemblyService', () => {
 
     const call = opmeService.create.mock.calls[0][0];
     expect(call.supplierNames).toEqual(['Sintex', 'BW Medic', 'Las Brasil']);
+    expect(call.manufacturerNames).toEqual(['Outros', 'Outros', 'Outros']);
   });
 
   it('usa o array suppliers/manufacturers do item quando fornecido', async () => {
