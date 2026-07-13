@@ -250,32 +250,28 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async findOne(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
-    // `relationLoadStrategy: 'query'` carrega cada coleção em uma query separada
-    // (WHERE IN) em vez de um único SELECT com múltiplos leftJoin. Isso elimina o
-    // `activities` e `quotations` foram removidas do payload (P5): a página
-    // de detalhe busca activities em endpoint próprio e quotations não é
-    // consumida a partir da SC. Os selects parciais de createdBy/doctor/
-    // documents.creator são preservados como antes.
-    const entity = await this.repository.findOne({
+    // Split em 2 queries em vez de uma única com `relationLoadStrategy: 'query'`
+    // para todas as relações (que gerava ~15 round-trips sequenciais — cada um
+    // pagando a latência de rede até o Postgres, dominante no tempo total).
+    // Relações *ToOne/OneToOne nunca multiplicam linhas, então vão todas juntas
+    // num único SELECT com leftJoin (`relationLoadStrategy: 'join'`). Só as
+    // coleções *ToMany reais (que multiplicariam linhas se juntadas na mesma
+    // query) seguem em queries separadas via `relationLoadStrategy: 'query'`.
+    // `activities` e `quotations` continuam fora do payload (P5): a página de
+    // detalhe busca activities em endpoint próprio e quotations não é
+    // consumida a partir da SC.
+    const base = await this.repository.findOne({
       where,
-      relationLoadStrategy: 'query',
+      relationLoadStrategy: 'join',
       relations: {
         createdBy: true,
         doctor: { doctorProfile: { header: true } },
         patient: true,
         hospital: true,
         healthPlan: true,
-        opmeItems: {
-          suppliers: true,
-          manufacturers: true,
-          selectedSupplier: true,
-        },
         procedure: true,
-        tussItems: true,
-        documents: { creator: true },
         analysis: true,
         billing: true,
-        contestations: true,
       },
       select: {
         createdBy: { id: true, name: true, avatarUrl: true },
@@ -298,25 +294,48 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
             },
           },
         },
+      },
+    });
+
+    if (!base) return null;
+
+    const collections = await this.repository.findOne({
+      where,
+      relationLoadStrategy: 'query',
+      relations: {
+        opmeItems: {
+          suppliers: true,
+          manufacturers: true,
+          selectedSupplier: true,
+        },
+        tussItems: true,
+        documents: { creator: true },
+        contestations: true,
+      },
+      select: {
         documents: { creator: { id: true, name: true } },
       },
     });
 
-    if (entity) {
-      const pendencies = this.calculatePendencies(entity);
-      return {
-        ...entity,
-        pendenciesCount: pendencies.pendingCount,
-        completedCount: pendencies.completedCount,
-        totalPendencies: pendencies.totalCount,
-      } as SurgeryRequest & {
-        pendenciesCount: number;
-        completedCount: number;
-        totalPendencies: number;
-      };
-    }
+    const entity: SurgeryRequest = {
+      ...base,
+      opmeItems: collections?.opmeItems ?? [],
+      tussItems: collections?.tussItems ?? [],
+      documents: collections?.documents ?? [],
+      contestations: collections?.contestations ?? [],
+    };
 
-    return entity;
+    const pendencies = this.calculatePendencies(entity);
+    return {
+      ...entity,
+      pendenciesCount: pendencies.pendingCount,
+      completedCount: pendencies.completedCount,
+      totalPendencies: pendencies.totalCount,
+    } as SurgeryRequest & {
+      pendenciesCount: number;
+      completedCount: number;
+      totalPendencies: number;
+    };
   }
 
   async findOneSimple(

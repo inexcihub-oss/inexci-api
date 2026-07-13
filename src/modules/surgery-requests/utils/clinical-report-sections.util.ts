@@ -13,7 +13,9 @@ function buildParagraph(text: string): string {
   return `<p>${text.replace(/\n/g, '<br/>')}</p>`;
 }
 
-function joinParagraphs(parts: Array<string | null | undefined>): string | null {
+function joinParagraphs(
+  parts: Array<string | null | undefined>,
+): string | null {
   const filtered = parts
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
@@ -38,10 +40,7 @@ export async function seedClinicalReportSections(
 
   const sections: Array<{ title: string; description: string | null }> = [];
 
-  const history = joinParagraphs([
-    clinical.diagnosis,
-    clinical.patientHistory,
-  ]);
+  const history = joinParagraphs([clinical.diagnosis, clinical.patientHistory]);
   if (history) {
     sections.push({ title: 'Histórico e Diagnóstico', description: history });
   }

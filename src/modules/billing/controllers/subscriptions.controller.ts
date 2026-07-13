@@ -1,4 +1,11 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import {
@@ -64,7 +71,9 @@ export class SubscriptionsController {
 
   @Post('checkout')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Inicia uma Checkout Session no Stripe para o plano escolhido' })
+  @ApiOperation({
+    summary: 'Inicia uma Checkout Session no Stripe para o plano escolhido',
+  })
   async checkout(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: StartCheckoutDto,
@@ -74,7 +83,9 @@ export class SubscriptionsController {
 
   @Post('portal')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Abre o Customer Portal da Stripe para gerenciar a assinatura' })
+  @ApiOperation({
+    summary: 'Abre o Customer Portal da Stripe para gerenciar a assinatura',
+  })
   async portal(@CurrentUser() user: AuthenticatedUser) {
     return this.subscriptionService.openBillingPortal(user.userId);
   }

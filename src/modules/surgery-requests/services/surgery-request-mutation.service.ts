@@ -33,6 +33,7 @@ import { CreateSurgeryRequestDto } from '../dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from '../dto/create-surgery-request-simple.dto';
 import { UpdateSurgeryRequestDto } from '../dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from '../dto/update-surgery-request-basic.dto';
+import { SurgeryRequestRealtimeService } from './surgery-request-realtime.service';
 import { FindOptionsWhere, In } from 'typeorm';
 
 @Injectable()
@@ -50,6 +51,7 @@ export class SurgeryRequestMutationService {
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly procedureRepository: ProcedureRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
+    private readonly realtimeService: SurgeryRequestRealtimeService,
   ) {}
 
   /**
@@ -147,6 +149,11 @@ export class SurgeryRequestMutationService {
     this.logger.log(
       `[create] Solicitação ${result.request.id} criada com sucesso`,
     );
+    await this.realtimeService.broadcastChange(
+      result.request.id,
+      'created',
+      userId,
+    );
     return result.request;
   }
 
@@ -200,6 +207,11 @@ export class SurgeryRequestMutationService {
       { logger: this.logger, operationName: 'createSurgeryRequest' },
     );
 
+    await this.realtimeService.broadcastChange(
+      newRequest.id,
+      'created',
+      userId,
+    );
     return newRequest;
   }
 
@@ -255,8 +267,8 @@ export class SurgeryRequestMutationService {
       const ownerId = await this.accessControlService.getOwnerId(userId);
       const registration =
         data.healthPlanRegistration !== undefined
-          ? (data.healthPlanRegistration?.trim() || null)
-          : (surgeryRequest.healthPlanRegistration?.trim() || null);
+          ? data.healthPlanRegistration?.trim() || null
+          : surgeryRequest.healthPlanRegistration?.trim() || null;
       await this.syncPatientInsuranceFromSc({
         patientId: surgeryRequest.patientId,
         ownerId,
@@ -265,6 +277,7 @@ export class SurgeryRequestMutationService {
       });
     }
 
+    await this.realtimeService.broadcastChange(data.id, 'updated', userId);
     return surgeryRequest;
   }
 
@@ -338,6 +351,7 @@ export class SurgeryRequestMutationService {
 
     await this.surgeryRequestRepository.update(data.id, updateData);
 
+    await this.realtimeService.broadcastChange(data.id, 'updated', userId);
     return this.surgeryRequestRepository.findOneSimple({ id: data.id });
   }
 
@@ -348,6 +362,7 @@ export class SurgeryRequestMutationService {
     const _surgeryRequest = await this.findWithAccess(id, userId);
 
     await this.surgeryRequestRepository.update(id, { hasOpme: hasOpme });
+    await this.realtimeService.broadcastChange(id, 'updated', userId);
     return this.surgeryRequestRepository.findOneSimple({ id });
   }
 

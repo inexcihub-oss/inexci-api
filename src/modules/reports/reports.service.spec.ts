@@ -20,16 +20,14 @@ describe('ReportsService — dashboard consolidado', () => {
         .mockResolvedValue(overrides.doctorIds ?? ['d-1']),
     };
     const surgeryRequestRepository = {
-      countsByStatus: jest
-        .fn()
-        .mockResolvedValue(
-          overrides.counts ?? {
-            total: 10,
-            scheduled: 3,
-            performed: 2,
-            invoiced: 1,
-          },
-        ),
+      countsByStatus: jest.fn().mockResolvedValue(
+        overrides.counts ?? {
+          total: 10,
+          scheduled: 3,
+          performed: 2,
+          invoiced: 1,
+        },
+      ),
       sumInvoiced: jest
         .fn()
         .mockResolvedValue({ invoicedValue: 500, receivedValue: 200 }),
@@ -80,7 +78,9 @@ describe('ReportsService — dashboard consolidado', () => {
   });
 
   it('retorna zeros quando o usuário não enxerga médicos', async () => {
-    const { service, surgeryRequestRepository } = makeService({ doctorIds: [] });
+    const { service, surgeryRequestRepository } = makeService({
+      doctorIds: [],
+    });
 
     const result = await service.dashboard('user-1');
 

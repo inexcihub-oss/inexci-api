@@ -30,7 +30,10 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('deve bloquear quando status não é PENDING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      const pendencies = sm.getBlockingPendencies(req, SurgeryRequestStatus.SENT);
+      const pendencies = sm.getBlockingPendencies(
+        req,
+        SurgeryRequestStatus.SENT,
+      );
       expect(pendencies).toContain(
         'A solicitação precisa estar com status Pendente para ser enviada.',
       );
@@ -42,12 +45,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('SENT → IN_ANALYSIS', () => {
     it('deve permitir transição de SENT', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SENT });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(
+        true,
+      );
     });
 
     it('deve bloquear de status diferente de SENT', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.PENDING });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_ANALYSIS)).toBe(
+        false,
+      );
     });
   });
 
@@ -56,12 +63,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('IN_ANALYSIS → IN_SCHEDULING', () => {
     it('deve permitir transição de IN_ANALYSIS', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(
+        true,
+      );
     });
 
     it('deve bloquear de status diferente de IN_ANALYSIS', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SENT });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.IN_SCHEDULING)).toBe(
+        false,
+      );
     });
   });
 
@@ -70,12 +81,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('IN_SCHEDULING → SCHEDULED', () => {
     it('deve permitir transição de IN_SCHEDULING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.SCHEDULED)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.SCHEDULED)).toBe(
+        true,
+      );
     });
 
     it('deve bloquear de status diferente de IN_SCHEDULING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.SCHEDULED)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.SCHEDULED)).toBe(
+        false,
+      );
     });
   });
 
@@ -84,12 +99,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('SCHEDULED → PERFORMED', () => {
     it('deve permitir transição de SCHEDULED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SCHEDULED });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.PERFORMED)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.PERFORMED)).toBe(
+        true,
+      );
     });
 
     it('deve bloquear de status diferente de SCHEDULED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.PERFORMED)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.PERFORMED)).toBe(
+        false,
+      );
     });
   });
 
@@ -103,7 +122,9 @@ describe('SurgeryRequestStateMachine', () => {
 
     it('deve bloquear de status diferente de PERFORMED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SCHEDULED });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.INVOICED)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.INVOICED)).toBe(
+        false,
+      );
     });
   });
 
@@ -112,12 +133,16 @@ describe('SurgeryRequestStateMachine', () => {
   describe('INVOICED → FINALIZED', () => {
     it('deve permitir transição de INVOICED (dados do DTO, não pré-checados)', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.INVOICED });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(true);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(
+        true,
+      );
     });
 
     it('deve bloquear de status diferente de INVOICED', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.PERFORMED });
-      expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(false);
+      expect(sm.canTransitionTo(req, SurgeryRequestStatus.FINALIZED)).toBe(
+        false,
+      );
     });
   });
 
@@ -125,15 +150,30 @@ describe('SurgeryRequestStateMachine', () => {
 
   describe('→ CLOSED', () => {
     it('deve permitir encerrar de PENDING', () => {
-      expect(sm.canTransitionTo(makeRequest({ status: SurgeryRequestStatus.PENDING }), SurgeryRequestStatus.CLOSED)).toBe(true);
+      expect(
+        sm.canTransitionTo(
+          makeRequest({ status: SurgeryRequestStatus.PENDING }),
+          SurgeryRequestStatus.CLOSED,
+        ),
+      ).toBe(true);
     });
 
     it('deve permitir encerrar de IN_ANALYSIS', () => {
-      expect(sm.canTransitionTo(makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS }), SurgeryRequestStatus.CLOSED)).toBe(true);
+      expect(
+        sm.canTransitionTo(
+          makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS }),
+          SurgeryRequestStatus.CLOSED,
+        ),
+      ).toBe(true);
     });
 
     it('deve permitir encerrar de INVOICED', () => {
-      expect(sm.canTransitionTo(makeRequest({ status: SurgeryRequestStatus.INVOICED }), SurgeryRequestStatus.CLOSED)).toBe(true);
+      expect(
+        sm.canTransitionTo(
+          makeRequest({ status: SurgeryRequestStatus.INVOICED }),
+          SurgeryRequestStatus.CLOSED,
+        ),
+      ).toBe(true);
     });
 
     it('deve bloquear encerrar de FINALIZED', () => {
@@ -158,7 +198,9 @@ describe('SurgeryRequestStateMachine', () => {
   describe('assertCanTransition', () => {
     it('não deve lançar para transição estruturalmente válida', () => {
       const req = makeRequest();
-      expect(() => sm.assertCanTransition(req, SurgeryRequestStatus.SENT)).not.toThrow();
+      expect(() =>
+        sm.assertCanTransition(req, SurgeryRequestStatus.SENT),
+      ).not.toThrow();
     });
 
     it('deve lançar BadRequestException quando status atual é errado', () => {

@@ -5,7 +5,10 @@ import { ActivityType } from '../../../../../database/entities/surgery-request-a
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { SendMethod } from '../../../../constants/send-method';
 import { FlowDraftTransitionDeps } from '../_types';
-import { assertCurrentStatusIs, extractTransitionErrorMessage } from '../_helpers';
+import {
+  assertCurrentStatusIs,
+  extractTransitionErrorMessage,
+} from '../_helpers';
 import { STORAGE_FOLDERS } from '../../../../../config/storage.config';
 
 export function buildSendScDraftCommitTool(

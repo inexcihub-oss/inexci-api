@@ -154,6 +154,10 @@ import { BillingModule } from './modules/billing/billing.module';
       name: 'ai-messages',
       adapter: BullAdapter,
     }),
+    BullBoardModule.forFeature({
+      name: 'document-extraction',
+      adapter: BullAdapter,
+    }),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     CronModule,

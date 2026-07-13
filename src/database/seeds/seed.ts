@@ -251,14 +251,14 @@ async function main() {
 
   // Popula gateway_price_id a partir das vars de ambiente (idempotente)
   const priceMap: Record<string, string | undefined> = {
-    'starter':            process.env.STRIPE_PRICE_STARTER_MONTHLY,
-    'starter-anual':      process.env.STRIPE_PRICE_STARTER_YEARLY,
-    'essencial':          process.env.STRIPE_PRICE_ESSENCIAL_MONTHLY,
-    'essencial-anual':    process.env.STRIPE_PRICE_ESSENCIAL_YEARLY,
-    'profissional':       process.env.STRIPE_PRICE_PROFISSIONAL_MONTHLY,
+    starter: process.env.STRIPE_PRICE_STARTER_MONTHLY,
+    'starter-anual': process.env.STRIPE_PRICE_STARTER_YEARLY,
+    essencial: process.env.STRIPE_PRICE_ESSENCIAL_MONTHLY,
+    'essencial-anual': process.env.STRIPE_PRICE_ESSENCIAL_YEARLY,
+    profissional: process.env.STRIPE_PRICE_PROFISSIONAL_MONTHLY,
     'profissional-anual': process.env.STRIPE_PRICE_PROFISSIONAL_YEARLY,
-    'avancado':           process.env.STRIPE_PRICE_AVANCADO_MONTHLY,
-    'avancado-anual':     process.env.STRIPE_PRICE_AVANCADO_YEARLY,
+    avancado: process.env.STRIPE_PRICE_AVANCADO_MONTHLY,
+    'avancado-anual': process.env.STRIPE_PRICE_AVANCADO_YEARLY,
   };
   let priceIdsSet = 0;
   for (const [slug, priceId] of Object.entries(priceMap)) {
@@ -271,7 +271,9 @@ async function main() {
     if ((result as any).rowCount > 0) priceIdsSet++;
   }
   if (priceIdsSet > 0) {
-    logger.log(`  ↳ ${priceIdsSet} gateway_price_id(s) atualizados via STRIPE_PRICE_*`);
+    logger.log(
+      `  ↳ ${priceIdsSet} gateway_price_id(s) atualizados via STRIPE_PRICE_*`,
+    );
   }
 
   const profPlanRow = await dataSource.query(
@@ -1189,10 +1191,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Colelitíase sintomática com episódios repetidos de colecistite aguda. USG revelou cálculos múltiplos com espessamento de parede.",
-      medicalReport: "Paciente apresenta quadro de dor em hipocôndrio direito há 8 meses com irradiação para escápula direita. Diagnóstico confirmado por ultrassonografia.",
-      patientHistory: "Hipertensão arterial sistêmica controlada. Alergia a penicilina documentada. ASA II.",
-      surgeryDescription: "Colecistectomia videolaparoscópica com clipagem do ducto e artéria cística. Acesso de 4 portais.",
+      diagnosis:
+        'Colelitíase sintomática com episódios repetidos de colecistite aguda. USG revelou cálculos múltiplos com espessamento de parede.',
+      medicalReport:
+        'Paciente apresenta quadro de dor em hipocôndrio direito há 8 meses com irradiação para escápula direita. Diagnóstico confirmado por ultrassonografia.',
+      patientHistory:
+        'Hipertensão arterial sistêmica controlada. Alergia a penicilina documentada. ASA II.',
+      surgeryDescription:
+        'Colecistectomia videolaparoscópica com clipagem do ducto e artéria cística. Acesso de 4 portais.',
     });
   }
 
@@ -1214,10 +1220,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Hérnia umbilical de 3 cm com conteúdo epiplóico. Assintomática mas com aumento progressivo.",
-      medicalReport: "Paciente relata abaulamento umbilical há 2 anos com progressão nos últimos 6 meses. Exame físico confirma hérnia redutível.",
-      patientHistory: "Diabetes mellitus tipo 2 em controle. Hemoglobina glicada 6,8%. HAS compensada.",
-      surgeryDescription: "Herniorrafia umbilical com tela de polipropileno. Acesso por incisão periumbilical.",
+      diagnosis:
+        'Hérnia umbilical de 3 cm com conteúdo epiplóico. Assintomática mas com aumento progressivo.',
+      medicalReport:
+        'Paciente relata abaulamento umbilical há 2 anos com progressão nos últimos 6 meses. Exame físico confirma hérnia redutível.',
+      patientHistory:
+        'Diabetes mellitus tipo 2 em controle. Hemoglobina glicada 6,8%. HAS compensada.',
+      surgeryDescription:
+        'Herniorrafia umbilical com tela de polipropileno. Acesso por incisão periumbilical.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
   }
@@ -1240,10 +1250,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Gonartrose severa bilateral (KL grau IV). Dor intratável em ambos os joelhos limitando deambulação.",
-      medicalReport: "Paciente com histórico de 5 anos de dor progressiva nos joelhos. RX demonstra pinçamento articular bilateral e osteofitose proeminente. Sem resposta a tratamento conservador.",
-      patientHistory: "Hipertensão arterial. Tabagismo cessante há 2 anos. ASA II. Risco cirúrgico cardiovascular baixo conforme avaliação cardiológica.",
-      surgeryDescription: "Artroplastia total do joelho direito com implante cimentado. Uso de torniquete pneumático. Tempo cirúrgico estimado 2h.",
+      diagnosis:
+        'Gonartrose severa bilateral (KL grau IV). Dor intratável em ambos os joelhos limitando deambulação.',
+      medicalReport:
+        'Paciente com histórico de 5 anos de dor progressiva nos joelhos. RX demonstra pinçamento articular bilateral e osteofitose proeminente. Sem resposta a tratamento conservador.',
+      patientHistory:
+        'Hipertensão arterial. Tabagismo cessante há 2 anos. ASA II. Risco cirúrgico cardiovascular baixo conforme avaliação cardiológica.',
+      surgeryDescription:
+        'Artroplastia total do joelho direito com implante cimentado. Uso de torniquete pneumático. Tempo cirúrgico estimado 2h.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
@@ -1310,10 +1324,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Colelitíase com episódio recente de pancreatite biliar. Indicação de colecistectomia após resolução do quadro agudo.",
-      medicalReport: "Paciente encaminhada da UTI após pancreatite aguda biliar. Amilase normalizada. Alta hospitalar há 3 semanas.",
-      patientHistory: "Gestante com 10 semanas. Pancreatite biliar resolvida. Aguardando avaliação obstétrica para autorização cirúrgica.",
-      surgeryDescription: "Colecistectomia videolaparoscópica eletiva. Decúbito lateral esquerdo. Insuflação com CO2 a 12mmHg.",
+      diagnosis:
+        'Colelitíase com episódio recente de pancreatite biliar. Indicação de colecistectomia após resolução do quadro agudo.',
+      medicalReport:
+        'Paciente encaminhada da UTI após pancreatite aguda biliar. Amilase normalizada. Alta hospitalar há 3 semanas.',
+      patientHistory:
+        'Gestante com 10 semanas. Pancreatite biliar resolvida. Aguardando avaliação obstétrica para autorização cirúrgica.',
+      surgeryDescription:
+        'Colecistectomia videolaparoscópica eletiva. Decúbito lateral esquerdo. Insuflação com CO2 a 12mmHg.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
@@ -1340,10 +1358,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Doença arterial coronariana trisvasal com fração de ejeção preservada (FE 65%). Coronariografia demonstra lesões críticas em DA, CX e CD.",
-      medicalReport: "Paciente de 72 anos com angina estável refratária ao tratamento clínico. Cintilografia miocárdica com isquemia extensa. Indicado tratamento cirúrgico pelo Heart Team.",
-      patientHistory: "FA paroxística anticoagulada. HAS. DM2. Tabagismo cessante há 10 anos. Score de EuroSCORE II: 2,4%.",
-      surgeryDescription: "Revascularização do miocárdio com circulação extracorpórea. Enxertos: AMIE para DA, VSM para CX e CD.",
+      diagnosis:
+        'Doença arterial coronariana trisvasal com fração de ejeção preservada (FE 65%). Coronariografia demonstra lesões críticas em DA, CX e CD.',
+      medicalReport:
+        'Paciente de 72 anos com angina estável refratária ao tratamento clínico. Cintilografia miocárdica com isquemia extensa. Indicado tratamento cirúrgico pelo Heart Team.',
+      patientHistory:
+        'FA paroxística anticoagulada. HAS. DM2. Tabagismo cessante há 10 anos. Score de EuroSCORE II: 2,4%.',
+      surgeryDescription:
+        'Revascularização do miocárdio com circulação extracorpórea. Enxertos: AMIE para DA, VSM para CX e CD.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
@@ -1390,10 +1412,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Urolitíase com cálculo ureteral obstrutivo de 12mm no ureter proximal esquerdo. Hidronefrose leve.",
-      medicalReport: "Paciente com episódio de cólica renal intensa. TC demonstra cálculo ureteral obstrutivo. Sem sinais de infecção.",
-      patientHistory: "HAS compensada. Alergia a penicilina. Função renal preservada (creatinina 0,9).",
-      surgeryDescription: "Nefrolitotripsia percutânea com litotripsora ultrassônica. Acesso percutâneo posterolateral.",
+      diagnosis:
+        'Urolitíase com cálculo ureteral obstrutivo de 12mm no ureter proximal esquerdo. Hidronefrose leve.',
+      medicalReport:
+        'Paciente com episódio de cólica renal intensa. TC demonstra cálculo ureteral obstrutivo. Sem sinais de infecção.',
+      patientHistory:
+        'HAS compensada. Alergia a penicilina. Função renal preservada (creatinina 0,9).',
+      surgeryDescription:
+        'Nefrolitotripsia percutânea com litotripsora ultrassônica. Acesso percutâneo posterolateral.',
     });
     for (const [prev, next] of [
       [1, 2],
@@ -1424,10 +1450,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Dispepsia refratária com suspeita de H. pylori. Indicação de EDA diagnóstica e terapêutica.",
-      medicalReport: "Paciente relata pirose e epigastralgia há 3 meses. Sem resposta a IBP em dose plena.",
-      patientHistory: "DM2 controlada. Sem contraindicações ao procedimento endoscópico.",
-      surgeryDescription: "Endoscopia digestiva alta com biópsia de antro e corpo gástrico para pesquisa de H. pylori.",
+      diagnosis:
+        'Dispepsia refratária com suspeita de H. pylori. Indicação de EDA diagnóstica e terapêutica.',
+      medicalReport:
+        'Paciente relata pirose e epigastralgia há 3 meses. Sem resposta a IBP em dose plena.',
+      patientHistory:
+        'DM2 controlada. Sem contraindicações ao procedimento endoscópico.',
+      surgeryDescription:
+        'Endoscopia digestiva alta com biópsia de antro e corpo gástrico para pesquisa de H. pylori.',
     });
     for (const [prev, next] of [
       [1, 2],
@@ -1464,10 +1494,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Desvio septal grau III com rinite obstrutiva crônica e roncopatia. Sem resposta ao tratamento clínico.",
-      medicalReport: "Paciente relata obstrução nasal bilateral há 5 anos, rinorreia, ronco e apneia do sono leve.",
-      patientHistory: "Alérgico a dipirona. Sem comorbidades relevantes. ASA I.",
-      surgeryDescription: "Septoplastia com turbinectomia parcial inferior bilateral. Anestesia geral. Uso de tamponamento nasal por 24h.",
+      diagnosis:
+        'Desvio septal grau III com rinite obstrutiva crônica e roncopatia. Sem resposta ao tratamento clínico.',
+      medicalReport:
+        'Paciente relata obstrução nasal bilateral há 5 anos, rinorreia, ronco e apneia do sono leve.',
+      patientHistory:
+        'Alérgico a dipirona. Sem comorbidades relevantes. ASA I.',
+      surgeryDescription:
+        'Septoplastia com turbinectomia parcial inferior bilateral. Anestesia geral. Uso de tamponamento nasal por 24h.',
     });
     for (const [prev, next] of [
       [1, 2],
@@ -1505,10 +1539,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Pólipo de cólon de 18mm no sigmóide. Colonoscopia prévia com biópsia: adenoma tubular sem displasia de alto grau.",
-      medicalReport: "Colonoscopia de rotina identificou pólipo sessil de 18mm. Indicada polipectomia endoscópica.",
-      patientHistory: "Sem comorbidades relevantes. Colonoscopia prévia sem intercorrências. ASA I.",
-      surgeryDescription: "Colonoscopia com polipectomia por alça fria. Sedação com propofol. Preparo intestinal com manitol.",
+      diagnosis:
+        'Pólipo de cólon de 18mm no sigmóide. Colonoscopia prévia com biópsia: adenoma tubular sem displasia de alto grau.',
+      medicalReport:
+        'Colonoscopia de rotina identificou pólipo sessil de 18mm. Indicada polipectomia endoscópica.',
+      patientHistory:
+        'Sem comorbidades relevantes. Colonoscopia prévia sem intercorrências. ASA I.',
+      surgeryDescription:
+        'Colonoscopia com polipectomia por alça fria. Sedação com propofol. Preparo intestinal com manitol.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 9);
@@ -1532,10 +1570,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Hérnia discal L4-L5 com radiculopatia L5 direita. RNM: extrusão foraminal com compressão radicular.",
-      medicalReport: "Paciente com lombalgia irradiada para MID há 18 meses. Testes de provocação positivos. EMG: radiculopatia L5 direita.",
-      patientHistory: "Sem comorbidades. Fisioterapia e bloqueio epidural sem melhora. IMC 24. ASA I.",
-      surgeryDescription: "Discectomia lombar por via posterior (microdiscectomia). Acesso interlaminar L4-L5.",
+      diagnosis:
+        'Hérnia discal L4-L5 com radiculopatia L5 direita. RNM: extrusão foraminal com compressão radicular.',
+      medicalReport:
+        'Paciente com lombalgia irradiada para MID há 18 meses. Testes de provocação positivos. EMG: radiculopatia L5 direita.',
+      patientHistory:
+        'Sem comorbidades. Fisioterapia e bloqueio epidural sem melhora. IMC 24. ASA I.',
+      surgeryDescription:
+        'Discectomia lombar por via posterior (microdiscectomia). Acesso interlaminar L4-L5.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2);
     await recordStatusChange(dataSource, r[0].id, 2, 3);
@@ -1580,10 +1622,14 @@ async function main() {
     );
     srIds2.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Espondilolistese degenerativa L4-L5 grau II com estenose do canal vertebral e síndrome de cauda equina incipiente.",
-      medicalReport: "RM revela listese grau II com estenose foraminal bilateral. Déficit neurológico progressivo.",
-      patientHistory: "Sem comorbidades cardiovasculares. Tabagismo cessante há 3 anos. ASA II.",
-      surgeryDescription: "Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão canal.",
+      diagnosis:
+        'Espondilolistese degenerativa L4-L5 grau II com estenose do canal vertebral e síndrome de cauda equina incipiente.',
+      medicalReport:
+        'RM revela listese grau II com estenose foraminal bilateral. Déficit neurológico progressivo.',
+      patientHistory:
+        'Sem comorbidades cardiovasculares. Tabagismo cessante há 3 anos. ASA II.',
+      surgeryDescription:
+        'Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão canal.',
     });
   }
 
@@ -1616,10 +1662,14 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Gonartrose bilateral grau IV (KL). Dor intensa e incapacitante bilateral. Sem resposta a tratamento clínico e infiltrações.",
-      medicalReport: "Paciente 64 anos com artrose avançada dos joelhos. Cintilografia óssea com hipercaptação bilateral. Indicação absoluta de ATJ.",
-      patientHistory: "HAS, DM2. Risco cirúrgico baixo (cardiologista). IMC 28. Sem antecedentes de TVP.",
-      surgeryDescription: "Artroplastia total do joelho direito com prótese de superfície cimentada. Uso de torniquete, acesso medial parapatelar.",
+      diagnosis:
+        'Gonartrose bilateral grau IV (KL). Dor intensa e incapacitante bilateral. Sem resposta a tratamento clínico e infiltrações.',
+      medicalReport:
+        'Paciente 64 anos com artrose avançada dos joelhos. Cintilografia óssea com hipercaptação bilateral. Indicação absoluta de ATJ.',
+      patientHistory:
+        'HAS, DM2. Risco cirúrgico baixo (cardiologista). IMC 28. Sem antecedentes de TVP.',
+      surgeryDescription:
+        'Artroplastia total do joelho direito com prótese de superfície cimentada. Uso de torniquete, acesso medial parapatelar.',
     });
     for (const [p, n] of [
       [1, 2],
@@ -1697,10 +1747,14 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Fratura do colo do fêmur direito Garden III em paciente idosa. Queda da própria altura em domicílio.",
-      medicalReport: "RX confirma fratura do colo femoral direito deslocada. Indicação de tratamento cirúrgico de urgência.",
-      patientHistory: "Osteoporose severa. HAS. Uso de anticoagulantes (suspenso). Risco cirúrgico moderado (ASA III).",
-      surgeryDescription: "Artroplastia total do quadril direito cimentada. Via póstero-lateral. Prótese cimentada com cimento antibiótico.",
+      diagnosis:
+        'Fratura do colo do fêmur direito Garden III em paciente idosa. Queda da própria altura em domicílio.',
+      medicalReport:
+        'RX confirma fratura do colo femoral direito deslocada. Indicação de tratamento cirúrgico de urgência.',
+      patientHistory:
+        'Osteoporose severa. HAS. Uso de anticoagulantes (suspenso). Risco cirúrgico moderado (ASA III).',
+      surgeryDescription:
+        'Artroplastia total do quadril direito cimentada. Via póstero-lateral. Prótese cimentada com cimento antibiótico.',
     });
     for (const [p, n] of [
       [1, 2],
@@ -1744,10 +1798,13 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Lesão meniscal medial posterior direita em paciente jovem e ativa. RNM confirma rotura complexa.",
-      medicalReport: "Paciente com dor medial no joelho após torção durante corrida. RNM: rotura complexa de menisco medial. Bloqueio articular intermitente.",
-      patientHistory: "ASA I. Atleta amadora. Sem comorbidades.",
-      surgeryDescription: "Artroscopia diagnóstica e terapêutica com meniscectomia parcial ou sutura meniscal conforme avaliação intraoperatória.",
+      diagnosis:
+        'Lesão meniscal medial posterior direita em paciente jovem e ativa. RNM confirma rotura complexa.',
+      medicalReport:
+        'Paciente com dor medial no joelho após torção durante corrida. RNM: rotura complexa de menisco medial. Bloqueio articular intermitente.',
+      patientHistory: 'ASA I. Atleta amadora. Sem comorbidades.',
+      surgeryDescription:
+        'Artroscopia diagnóstica e terapêutica com meniscectomia parcial ou sutura meniscal conforme avaliação intraoperatória.',
     });
   }
 
@@ -1769,10 +1826,12 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Gonartrose severa unilateral esquerda com deformidade em varo. Falha do tratamento conservador por 2 anos.",
-      medicalReport: "Paciente com artrose avançada do joelho esquerdo. Deformidade em varo de 12 graus. RX: pinçamento total.",
-      patientHistory: "Sem comorbidades. ASA I. IMC 23. Bom estado geral.",
-      surgeryDescription: "ATJ esquerda com correção de deformidade em varo.",
+      diagnosis:
+        'Gonartrose severa unilateral esquerda com deformidade em varo. Falha do tratamento conservador por 2 anos.',
+      medicalReport:
+        'Paciente com artrose avançada do joelho esquerdo. Deformidade em varo de 12 graus. RX: pinçamento total.',
+      patientHistory: 'Sem comorbidades. ASA I. IMC 23. Bom estado geral.',
+      surgeryDescription: 'ATJ esquerda com correção de deformidade em varo.',
     });
     for (const [p, n] of [
       [1, 2],
@@ -1821,10 +1880,14 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Espondilolistese degenerativa L4-L5 grau II com estenose foraminal e dor radicular bilateral. Sem resposta ao tratamento conservador por 18 meses.",
-      medicalReport: "Paciente de 80 anos com lombalgia crônica irradiada para membros inferiores. RM confirma listese e estenose foraminal bilateral grave. Fisioterapia e bloqueio epidural sem resultado.",
-      patientHistory: "Osteoporose severa. HAS controlada. Uso de bifosfonatos. Risco cirúrgico moderado (ASA III). Avaliação cardiológica favorável ao procedimento.",
-      surgeryDescription: "Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão do canal vertebral.",
+      diagnosis:
+        'Espondilolistese degenerativa L4-L5 grau II com estenose foraminal e dor radicular bilateral. Sem resposta ao tratamento conservador por 18 meses.',
+      medicalReport:
+        'Paciente de 80 anos com lombalgia crônica irradiada para membros inferiores. RM confirma listese e estenose foraminal bilateral grave. Fisioterapia e bloqueio epidural sem resultado.',
+      patientHistory:
+        'Osteoporose severa. HAS controlada. Uso de bifosfonatos. Risco cirúrgico moderado (ASA III). Avaliação cardiológica favorável ao procedimento.',
+      surgeryDescription:
+        'Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão do canal vertebral.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
   }
@@ -1847,10 +1910,14 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Hérnia inguinal bilateral volumosa com episódios de encarceramento. Indicação cirúrgica de urgência relativa.",
-      medicalReport: "Paciente com abaulamento inguinal bilateral há 3 anos com progressão nos últimos 6 meses e dois episódios de encarceramento. Exame clínico confirma hérnia inguinal direta bilateral redutível.",
-      patientHistory: "HAS controlada. DM2 compensada. ASA II. Avaliação pré-operatória em andamento.",
-      surgeryDescription: "Herniorrafia inguinal bilateral com tela de polipropileno por via aberta (técnica de Lichtenstein bilateral).",
+      diagnosis:
+        'Hérnia inguinal bilateral volumosa com episódios de encarceramento. Indicação cirúrgica de urgência relativa.',
+      medicalReport:
+        'Paciente com abaulamento inguinal bilateral há 3 anos com progressão nos últimos 6 meses e dois episódios de encarceramento. Exame clínico confirma hérnia inguinal direta bilateral redutível.',
+      patientHistory:
+        'HAS controlada. DM2 compensada. ASA II. Avaliação pré-operatória em andamento.',
+      surgeryDescription:
+        'Herniorrafia inguinal bilateral com tela de polipropileno por via aberta (técnica de Lichtenstein bilateral).',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
     await recordStatusChange(dataSource, r[0].id, 2, 3, adminMedicoId);
@@ -1929,10 +1996,14 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Desvio septal esquerdo grau III com obstrução nasal crônica e hipertrofia de cornetos inferiores bilaterais.",
-      medicalReport: "Paciente com obstrução nasal crônica bilateral predominante à esquerda há 4 anos. Sem resposta a corticosteroides tópicos por 6 meses. Desvio septal confirmado por rinoscopia.",
-      patientHistory: "Sem comorbidades. ASA I. Exames pré-operatórios normais.",
-      surgeryDescription: "Rinoplastia funcional com septoplastia e turbinoplastia por redução. Anestesia geral.",
+      diagnosis:
+        'Desvio septal esquerdo grau III com obstrução nasal crônica e hipertrofia de cornetos inferiores bilaterais.',
+      medicalReport:
+        'Paciente com obstrução nasal crônica bilateral predominante à esquerda há 4 anos. Sem resposta a corticosteroides tópicos por 6 meses. Desvio septal confirmado por rinoscopia.',
+      patientHistory:
+        'Sem comorbidades. ASA I. Exames pré-operatórios normais.',
+      surgeryDescription:
+        'Rinoplastia funcional com septoplastia e turbinoplastia por redução. Anestesia geral.',
     });
     for (const [prev, next] of [
       [1, 2],
@@ -1969,10 +2040,14 @@ async function main() {
     );
     srIds1.push(r[0].id);
     await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis: "Nódulo tireoidiano sólido de 2,8 cm com PAAF indeterminada (Bethesda IV). Indicação de tireoidectomia total para diagnóstico definitivo e tratamento.",
-      medicalReport: "Paciente com nódulo tireoidiano palpável identificado há 6 meses. USG confirma nódulo sólido hipoecogênico de 2,8 cm. PAAF: neoplasia folicular (Bethesda IV).",
-      patientHistory: "Sem comorbidades. ASA I. Avaliação laringoscópica normal.",
-      surgeryDescription: "Tireoidectomia total com linfadenectomia do compartimento central por cervicotomia.",
+      diagnosis:
+        'Nódulo tireoidiano sólido de 2,8 cm com PAAF indeterminada (Bethesda IV). Indicação de tireoidectomia total para diagnóstico definitivo e tratamento.',
+      medicalReport:
+        'Paciente com nódulo tireoidiano palpável identificado há 6 meses. USG confirma nódulo sólido hipoecogênico de 2,8 cm. PAAF: neoplasia folicular (Bethesda IV).',
+      patientHistory:
+        'Sem comorbidades. ASA I. Avaliação laringoscópica normal.',
+      surgeryDescription:
+        'Tireoidectomia total com linfadenectomia do compartimento central por cervicotomia.',
     });
     await recordStatusChange(dataSource, r[0].id, 1, 2, adminMedicoId);
     await recordStatusChange(dataSource, r[0].id, 2, 9, adminMedicoId);

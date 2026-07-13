@@ -36,5 +36,4 @@ export class SubscriptionRepository extends BaseRepository<Subscription> {
       relations: ['plan'],
     });
   }
-
 }

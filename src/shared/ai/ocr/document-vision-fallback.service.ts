@@ -308,7 +308,7 @@ export class DocumentVisionFallbackService {
     const response = await this.openai.chatCompletion({
       model,
       temperature: 0,
-      maxTokens: 800,
+      maxTokens: this.getMaxTokens(),
       timeoutMs: 45000,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -381,6 +381,16 @@ export class DocumentVisionFallbackService {
       'gpt-4o',
     );
     return (raw && raw.trim()) || 'gpt-4o';
+  }
+
+  private getMaxTokens(): number {
+    const raw = this.configService.get<string>(
+      'AI_DOC_VISION_FALLBACK_MAX_TOKENS',
+      '2500',
+    );
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 2500;
+    return Math.max(600, Math.min(4000, Math.floor(parsed)));
   }
 
   private getVisionDetail(): 'auto' | 'low' | 'high' {

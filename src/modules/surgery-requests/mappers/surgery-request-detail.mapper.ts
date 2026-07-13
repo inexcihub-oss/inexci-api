@@ -182,13 +182,16 @@ function mapDetailPatient(
 }
 
 function mapDetailTussItems(
-  items: Array<{
-    id?: string;
-    name?: string;
-    tussCode?: string;
-    quantity?: number;
-    authorizedQuantity?: number | null;
-  }> | null | undefined,
+  items:
+    | Array<{
+        id?: string;
+        name?: string;
+        tussCode?: string;
+        quantity?: number;
+        authorizedQuantity?: number | null;
+      }>
+    | null
+    | undefined,
 ) {
   if (!items?.length) return [];
   return items.map((item) => ({

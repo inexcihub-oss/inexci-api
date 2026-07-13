@@ -366,9 +366,7 @@ describe('DocumentExtractionService', () => {
     });
 
     expect(result.classification?.extracted.patient?.cpf).toBe('16850805703');
-    expect(result.classification?.extracted.patient?.phone).toBe(
-      '21977440411',
-    );
+    expect(result.classification?.extracted.patient?.phone).toBe('21977440411');
   });
 
   it('usa binding único do PII Vault quando OCR não contém placeholder explícito', async () => {

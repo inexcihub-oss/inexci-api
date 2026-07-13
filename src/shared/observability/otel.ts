@@ -48,9 +48,7 @@ export function initOtel(): void {
   sdk = new NodeSDK({
     resource: resourceFromAttributes({ 'service.name': 'inexci-api' }),
     spanProcessors: [
-      new BatchSpanProcessor(
-        new OTLPTraceExporter({ url: endpoint, headers }),
-      ),
+      new BatchSpanProcessor(new OTLPTraceExporter({ url: endpoint, headers })),
     ],
     sampler: new ParentBasedSampler({
       root: new TraceIdRatioBasedSampler(samplerArg),

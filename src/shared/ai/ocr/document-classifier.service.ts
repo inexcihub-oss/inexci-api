@@ -30,6 +30,59 @@ const SUPPORTED_DOCUMENT_TYPES = [
   'additional_document',
 ];
 
+const ADMIN_REPORT_SECTION_TITLE_PATTERNS: RegExp[] = [
+  /\bidentifica(?:cao|ção)\b.*\bobjetivo\b/,
+  /\bidentifica(?:cao|ção)\b.*\brelat(?:orio|ório)\b/,
+  /\bdados\b.*\bpaciente\b/,
+  /\bdados\b.*\bcadastrais\b/,
+  /\bqualifica(?:cao|ção)\b.*\bpaciente\b/,
+  /\bobjetivo\b.*\brelat(?:orio|ório)\b/,
+  /\bc(?:ó|o)digos?\b.*\bsolicitados?\b/,
+  /\btuss\b/,
+  /\bcbhpm\b/,
+  /\bopme\b/,
+  /\bmateriais?\b.*\bsolicitados?\b/,
+  /\bfornecedores?\b/,
+];
+
+const ADMIN_REPORT_SECTION_DESCRIPTION_MARKERS = [
+  'cpf',
+  'rg',
+  'endereco',
+  'endereço',
+  'cep',
+  'carteirinha',
+  'convenio',
+  'convênio',
+  'plano',
+  'telefone',
+  'tel.',
+  'dn',
+  'data de nascimento',
+  'id:',
+  'paciente:',
+];
+
+const CLINICAL_REPORT_SECTION_DESCRIPTION_MARKERS = [
+  'diagnostico',
+  'diagnóstico',
+  'queixa',
+  'dor',
+  'exame',
+  'rnm',
+  'ressonancia',
+  'ressonância',
+  'tomografia',
+  'conduta',
+  'indicacao cirurgica',
+  'indicação cirúrgica',
+  'hernia',
+  'hérnia',
+  'radiculopatia',
+  'compressao',
+  'compressão',
+];
+
 const DOCUMENT_RESPONSE_SCHEMA = {
   name: 'DocumentClassification',
   strict: true,
@@ -330,9 +383,12 @@ const SYSTEM_PROMPT = [
   'numerados de RX/RNM forma UMA seção só, título "Histórico e',
   'Diagnóstico"; o parágrafo de raciocínio/justificativa clínica — e',
   'qualquer parágrafo seguinte que dê continuidade a essa mesma linha de',
-  'raciocínio, como otimização de custos ou explicação do propósito de',
-  'cada material — forma a seção "Conduta"). Se o documento não tiver uma',
+  'raciocínio — forma a seção "Conduta"). Se o documento não tiver uma',
   'divisão clara, use um título genérico como "Laudo" com todo o texto.',
+  'NÃO crie seções administrativas ou de cadastro. Em `reportSections`,',
+  'NÃO inclua blocos de identificação do paciente/plano/endereço, nem listas',
+  'de TUSS/CBHPM, OPME/materiais, fornecedores ou códigos solicitados —',
+  'esses dados já têm campos específicos no sistema.',
   'Cada `description` deve ser objetiva e útil, com no máximo ~1200',
   'caracteres por seção. Priorize informação clínica central e itens com',
   'impacto na solicitação (diagnóstico, justificativa, exames, conduta).',
@@ -448,9 +504,8 @@ export class DocumentClassifierService {
       model,
       temperature: 0,
       // Mantemos configurável via env para ajuste fino sem deploy.
-      // Default mais enxuto reduz latência e risco de JSON truncado.
       maxTokens,
-      timeoutMs: 30000,
+      timeoutMs: this.getTimeoutMs(),
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
@@ -519,19 +574,36 @@ export class DocumentClassifierService {
   private getModel(): string {
     const raw = this.configService.get<string>(
       'AI_DOC_CLASSIFIER_MODEL',
-      'gpt-4o-mini',
+      'gpt-5.4-nano',
     );
-    return (raw && raw.trim()) || 'gpt-4o-mini';
+    return (raw && raw.trim()) || 'gpt-5.4-nano';
   }
 
+  /**
+   * Default subiu de 2500 para 4000 no Bloco 3 do
+   * PLANO-CORRECAO-PERFORMANCE-DOC-EXTRACTION.md: o `gpt-5.4-nano` (novo
+   * default) precisa de mais tokens de saída que o `gpt-4o-mini` para o
+   * mesmo schema — com 2500 o JSON truncava de forma determinística
+   * (`Unterminated string`) em todos os testes do spike.
+   */
   private getMaxTokens(): number {
     const raw = this.configService.get<string>(
       'AI_DOC_CLASSIFIER_MAX_TOKENS',
-      '1800',
+      '4000',
     );
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return 1800;
-    return Math.max(600, Math.min(4000, Math.floor(parsed)));
+    if (!Number.isFinite(parsed)) return 4000;
+    return Math.max(600, Math.min(6000, Math.floor(parsed)));
+  }
+
+  private getTimeoutMs(): number {
+    const raw = this.configService.get<string>(
+      'AI_DOC_CLASSIFIER_TIMEOUT_MS',
+      '60000',
+    );
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return 60000;
+    return Math.max(5000, Math.min(120000, Math.floor(parsed)));
   }
 
   /**
@@ -564,10 +636,7 @@ export class DocumentClassifierService {
     return `${head}\n\n[...trecho intermediário omitido para performance...]\n\n${tail}`;
   }
 
-  private truncateByPageMarkers(
-    text: string,
-    maxChars: number,
-  ): string | null {
+  private truncateByPageMarkers(text: string, maxChars: number): string | null {
     const chunks = text
       .split(/\n\n(?=\[PÁGINA \d+\]\n)/)
       .map((chunk) => chunk.trim())
@@ -814,7 +883,12 @@ export class DocumentClassifierService {
               ? item.description.trim()
               : '',
         }))
-        .filter((item: any) => item.title && item.description);
+        .filter(
+          (item: any) =>
+            item.title &&
+            item.description &&
+            !this.isAdministrativeReportSection(item.title, item.description),
+        );
       if (sections.length) out.reportSections = sections;
     }
 
@@ -844,5 +918,39 @@ export class DocumentClassifierService {
       }
     }
     return hasValue ? (obj as T) : undefined;
+  }
+
+  private isAdministrativeReportSection(
+    title: string,
+    description: string,
+  ): boolean {
+    const normalizedTitle = this.normalizeForSectionFilter(title);
+    const normalizedDescription = this.normalizeForSectionFilter(description);
+
+    if (
+      ADMIN_REPORT_SECTION_TITLE_PATTERNS.some((pattern) =>
+        pattern.test(normalizedTitle),
+      )
+    ) {
+      return true;
+    }
+
+    const adminHits = ADMIN_REPORT_SECTION_DESCRIPTION_MARKERS.filter(
+      (marker) => normalizedDescription.includes(marker),
+    ).length;
+    const clinicalHits = CLINICAL_REPORT_SECTION_DESCRIPTION_MARKERS.filter(
+      (marker) => normalizedDescription.includes(marker),
+    ).length;
+
+    return adminHits >= 2 && clinicalHits === 0;
+  }
+
+  private normalizeForSectionFilter(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 }

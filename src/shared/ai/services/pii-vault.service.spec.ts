@@ -105,9 +105,7 @@ describe('PiiVaultService', () => {
     });
 
     it('detecta RG não tokenizado', () => {
-      const findings = service.detectResidualPii(
-        'ID: 27.903.040-7 DETRAN-RJ',
-      );
+      const findings = service.detectResidualPii('ID: 27.903.040-7 DETRAN-RJ');
       expect(findings.some((f) => f.category === 'rg')).toBe(true);
     });
 

@@ -12,9 +12,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
-import {
-  formatPhone,
-} from 'src/shared/utils';
+import { formatPhone } from 'src/shared/utils';
 import { buildLaudoPatientFields } from '../utils/laudo-patient-fields.util';
 import {
   DOCUMENT_KEYS,

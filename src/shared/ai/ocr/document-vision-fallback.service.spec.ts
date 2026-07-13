@@ -117,6 +117,7 @@ describe('DocumentVisionFallbackService', () => {
     const callArgs = openai.chatCompletion.mock.calls[0][0];
     expect(callArgs.model).toBe('gpt-4o');
     expect(callArgs.temperature).toBe(0);
+    expect(callArgs.maxTokens).toBe(2500);
     expect(callArgs.responseFormat).toEqual(
       expect.objectContaining({ type: 'json_schema' }),
     );

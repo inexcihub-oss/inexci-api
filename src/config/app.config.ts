@@ -123,11 +123,15 @@ export const envValidationSchema = Joi.object({
   AI_DOC_TMP_FOLDER: Joi.string().allow('').default('whatsapp-tmp'),
   AI_DOC_TMP_RETENTION_HOURS: Joi.number().default(1),
   AI_DOC_OCR_LANG: Joi.string().allow('').default('por'),
-  AI_DOC_CLASSIFIER_MODEL: Joi.string().allow('').default('gpt-4o-mini'),
+  AI_DOC_CLASSIFIER_MODEL: Joi.string().allow('').default('gpt-5.4-nano'),
   AI_DOC_CLASSIFIER_MAX_INPUT_CHARS: Joi.number().default(22000),
+  AI_DOC_CLASSIFIER_MAX_TOKENS: Joi.number().default(4000),
+  AI_DOC_CLASSIFIER_TIMEOUT_MS: Joi.number().default(60000),
   AI_DOC_SC_FROM_DOCUMENT_MAX_PAGES: Joi.number().default(15),
+  AI_DOC_SC_EXTRACT_JOB_TTL_SECONDS: Joi.number().default(1200),
   AI_DOC_VISION_FALLBACK_ENABLED: Joi.string().allow('').default('true'),
   AI_DOC_VISION_FALLBACK_MODEL: Joi.string().allow('').default('gpt-4o'),
+  AI_DOC_VISION_FALLBACK_MAX_TOKENS: Joi.number().default(2500),
   AI_DOC_VISION_DETAIL: Joi.string()
     .valid('auto', 'low', 'high')
     .default('auto'),

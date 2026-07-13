@@ -16,7 +16,9 @@ describe('SurgeryRequestAssemblyService', () => {
       create: jest.fn().mockResolvedValue({ id: 'opme-1' }),
     };
     tussService = {
-      lookup: jest.fn().mockReturnValue([{ code: '3.07.15.091', name: 'Descompressão' }]),
+      lookup: jest
+        .fn()
+        .mockReturnValue([{ code: '3.07.15.091', name: 'Descompressão' }]),
     };
 
     service = new SurgeryRequestAssemblyService(
@@ -49,13 +51,18 @@ describe('SurgeryRequestAssemblyService', () => {
   it('adiciona TUSS usando descrição fornecida', async () => {
     await service.assembleFromExtracted({
       scId: 'sc-2',
-      tussItems: [{ code: '3.07.15.091', description: 'Descompressão cervical' }],
+      tussItems: [
+        { code: '3.07.15.091', description: 'Descompressão cervical' },
+      ],
       userId: 'user-2',
     });
 
     expect(surgeryRequestsService.addTussItem).toHaveBeenCalledWith(
       'sc-2',
-      expect.objectContaining({ tussCode: '3.07.15.091', name: 'Descompressão cervical' }),
+      expect.objectContaining({
+        tussCode: '3.07.15.091',
+        name: 'Descompressão cervical',
+      }),
       'user-2',
     );
     expect(tussService.lookup).not.toHaveBeenCalled();
@@ -65,7 +72,11 @@ describe('SurgeryRequestAssemblyService', () => {
     await service.assembleFromExtracted({
       scId: 'sc-2b',
       tussItems: [
-        { code: '3.07.15.091', description: 'Descompressão cervical', quantity: 3 },
+        {
+          code: '3.07.15.091',
+          description: 'Descompressão cervical',
+          quantity: 3,
+        },
       ],
       userId: 'user-2b',
     });
@@ -80,7 +91,9 @@ describe('SurgeryRequestAssemblyService', () => {
   it('usa quantity=1 quando o item TUSS não informa quantity', async () => {
     await service.assembleFromExtracted({
       scId: 'sc-2c',
-      tussItems: [{ code: '3.07.15.091', description: 'Descompressão cervical' }],
+      tussItems: [
+        { code: '3.07.15.091', description: 'Descompressão cervical' },
+      ],
       userId: 'user-2c',
     });
 
@@ -123,7 +136,13 @@ describe('SurgeryRequestAssemblyService', () => {
   it('adiciona OPME com 3 fornecedores quando só 1 é informado', async () => {
     await service.assembleFromExtracted({
       scId: 'sc-5',
-      opmeItems: [{ description: 'Parafuso pedicular', supplier: 'Synthes', manufacturer: 'Synthes' }],
+      opmeItems: [
+        {
+          description: 'Parafuso pedicular',
+          supplier: 'Synthes',
+          manufacturer: 'Synthes',
+        },
+      ],
       userId: 'user-5',
     });
 
@@ -210,6 +229,41 @@ describe('SurgeryRequestAssemblyService', () => {
     expect(result.warnings).toHaveLength(0);
   });
 
+  it('ignora sections administrativas (identificação, TUSS/CBHPM e OPME)', async () => {
+    await service.assembleFromExtracted({
+      scId: 'sc-14',
+      sections: [
+        {
+          title: 'Identificação e objetivo do relatório',
+          description: 'Paciente, CPF e plano.',
+        },
+        {
+          title: 'Códigos solicitados (TUSS/CBHPM)',
+          description: '3.07.15.091',
+        },
+        {
+          title: 'OPME / Materiais solicitados e fornecedores',
+          description: 'Cage e parafusos.',
+        },
+        {
+          title: 'Histórico clínico',
+          description: 'Dor lombar e radiculopatia refratária.',
+        },
+      ],
+      userId: 'user-14',
+    });
+
+    expect(surgeryRequestsService.createReportSection).toHaveBeenCalledTimes(1);
+    expect(surgeryRequestsService.createReportSection).toHaveBeenCalledWith(
+      'sc-14',
+      {
+        title: 'Histórico clínico',
+        description: 'Dor lombar e radiculopatia refratária.',
+      },
+      'user-14',
+    );
+  });
+
   it('chama setHasOpme quando ao menos 1 OPME é adicionada', async () => {
     await service.assembleFromExtracted({
       scId: 'sc-7',
@@ -217,7 +271,11 @@ describe('SurgeryRequestAssemblyService', () => {
       userId: 'user-7',
     });
 
-    expect(surgeryRequestsService.setHasOpme).toHaveBeenCalledWith('sc-7', true, 'user-7');
+    expect(surgeryRequestsService.setHasOpme).toHaveBeenCalledWith(
+      'sc-7',
+      true,
+      'user-7',
+    );
   });
 
   it('não chama setHasOpme quando lista de OPME é vazia', async () => {

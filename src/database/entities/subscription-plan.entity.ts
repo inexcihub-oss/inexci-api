@@ -77,7 +77,12 @@ export class SubscriptionPlan {
    * Null para planos sem cobrança direta (enterprise = "fale conosco").
    * Populado via `yarn seed:prices` após configurar STRIPE_PRICE_* no .env.
    */
-  @Column({ name: 'gateway_price_id', type: 'varchar', length: 100, nullable: true })
+  @Column({
+    name: 'gateway_price_id',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
   gatewayPriceId: string | null;
 
   @Column({ name: 'sort_order', type: 'int', default: 0 })

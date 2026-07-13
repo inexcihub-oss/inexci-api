@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as sharp from 'sharp';
 import { createWorker, Worker as TesseractWorker } from 'tesseract.js';
@@ -616,7 +621,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
    */
   private async getWorker(): Promise<TesseractWorker> {
     if (!this.workerPromise) {
-      this.workerPromise = this.ensureWorkerPool().then((workers) => workers[0]);
+      this.workerPromise = this.ensureWorkerPool().then(
+        (workers) => workers[0],
+      );
     }
     return this.workerPromise;
   }

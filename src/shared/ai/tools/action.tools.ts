@@ -285,7 +285,10 @@ export function buildActionTools(
         });
         return `Solicitação *${request.protocol}* avançada de *${currentLabel}* para *${nextLabel}* com sucesso.`;
       } catch (err: any) {
-        return extractTransitionErrorMessage(err, 'Erro ao avançar a solicitação');
+        return extractTransitionErrorMessage(
+          err,
+          'Erro ao avançar a solicitação',
+        );
       }
     },
   };

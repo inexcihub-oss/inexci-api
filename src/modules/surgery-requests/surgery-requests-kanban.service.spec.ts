@@ -43,7 +43,9 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
     };
     const surgeryRequestRepository = {
       total: jest.fn().mockResolvedValue(overrides.total ?? 1),
-      findMany: jest.fn().mockResolvedValue(overrides.records ?? [buildRecord()]),
+      findMany: jest
+        .fn()
+        .mockResolvedValue(overrides.records ?? [buildRecord()]),
     };
     const pendencyValidatorService = {
       getBatchSummary: jest.fn().mockResolvedValue(overrides.batch ?? {}),
@@ -73,7 +75,9 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
   }
 
   it('retorna vazio quando o usuário não enxerga nenhum médico', async () => {
-    const { service, surgeryRequestRepository } = makeService({ doctorIds: [] });
+    const { service, surgeryRequestRepository } = makeService({
+      doctorIds: [],
+    });
 
     const result = await service.findAllForKanban({}, 'user-1');
 

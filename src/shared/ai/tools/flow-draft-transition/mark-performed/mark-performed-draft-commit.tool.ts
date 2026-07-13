@@ -4,7 +4,11 @@ import { buildToolResult } from '../../tool-result';
 import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
-import { assertCurrentStatusIs, checkPostSurgeryDocuments, extractTransitionErrorMessage } from '../_helpers';
+import {
+  assertCurrentStatusIs,
+  checkPostSurgeryDocuments,
+  extractTransitionErrorMessage,
+} from '../_helpers';
 
 export function buildMarkPerformedDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -78,7 +82,10 @@ export function buildMarkPerformedDraftCommitTool(
       try {
         await workflowService.markPerformed(
           surgeryRequestId,
-          { surgeryPerformedAt: f.surgeryPerformedAt!, notifyPatient: f.notifyPatient } as any,
+          {
+            surgeryPerformedAt: f.surgeryPerformedAt!,
+            notifyPatient: f.notifyPatient,
+          } as any,
           context.userId,
         );
         await activityRepo.create({
@@ -98,7 +105,10 @@ export function buildMarkPerformedDraftCommitTool(
       } catch (err: any) {
         return buildToolResult({
           status: 'error',
-          message: extractTransitionErrorMessage(err, 'Erro ao marcar como realizada'),
+          message: extractTransitionErrorMessage(
+            err,
+            'Erro ao marcar como realizada',
+          ),
         });
       }
     },

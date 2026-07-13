@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
 
 const mockCreate = jest.fn();
@@ -44,6 +45,24 @@ describe('OpenaiService', () => {
 
     service = module.get<OpenaiService>(OpenaiService);
     jest.clearAllMocks();
+  });
+
+  it('cria o client OpenAI com maxRetries: 0 (retry único, controlado manualmente em chatCompletionWithRetry)', async () => {
+    // beforeEach já limpou o histórico de chamadas do mock (jest.clearAllMocks);
+    // criamos um módulo próprio aqui para capturar os args do construtor antes
+    // de qualquer clear subsequente.
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        OpenaiService,
+        { provide: ConfigService, useValue: configServiceMock },
+      ],
+    }).compile();
+    module.get<OpenaiService>(OpenaiService);
+
+    const OpenAIMock = OpenAI as unknown as jest.Mock;
+    const lastCallArgs =
+      OpenAIMock.mock.calls[OpenAIMock.mock.calls.length - 1][0];
+    expect(lastCallArgs.maxRetries).toBe(0);
   });
 
   it('deve chamar chatCompletion corretamente', async () => {

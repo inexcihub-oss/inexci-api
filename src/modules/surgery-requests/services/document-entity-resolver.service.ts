@@ -88,8 +88,7 @@ export class DocumentEntityResolverService {
     ownerIdOverride?: string,
   ): Promise<ResolvedCandidates> {
     const ownerId =
-      ownerIdOverride ??
-      (await this.accessControlService.getOwnerId(userId));
+      ownerIdOverride ?? (await this.accessControlService.getOwnerId(userId));
 
     const [patient, hospital, healthPlan, procedure] = await Promise.all([
       this.resolvePatient(extracted, ownerId),

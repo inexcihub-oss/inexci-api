@@ -296,7 +296,9 @@ describe('WhatsappDocumentProcessorService', () => {
     });
 
     expect(result.status).toBe('ok');
-    expect(result.userSummary).toContain('Já vou montar a solicitação cirúrgica');
+    expect(result.userSummary).toContain(
+      'Já vou montar a solicitação cirúrgica',
+    );
     expect(result.userSummary).not.toContain('Posso seguir?');
   });
 });

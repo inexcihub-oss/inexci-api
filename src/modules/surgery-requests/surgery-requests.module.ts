@@ -26,6 +26,9 @@ import { SurgeryRequestBillingService } from './services/surgery-request-billing
 import { SurgeryRequestAssemblyService } from './services/surgery-request-assembly.service';
 import { DocumentEntityResolverService } from './services/document-entity-resolver.service';
 import { SurgeryRequestFromDocumentService } from './services/surgery-request-from-document.service';
+import { SurgeryRequestDocumentExtractionJobsService } from './services/surgery-request-document-extraction-jobs.service';
+import { SurgeryRequestDocumentExtractionProcessor } from './services/surgery-request-document-extraction.processor';
+import { SurgeryRequestRealtimeService } from './services/surgery-request-realtime.service';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { SurgeryRequestsController } from './surgery-requests.controller';
 import { UsersModule } from '../users/users.module';
@@ -94,6 +97,9 @@ import { CidModule } from './cid/cid.module';
     SurgeryRequestAssemblyService,
     DocumentEntityResolverService,
     SurgeryRequestFromDocumentService,
+    SurgeryRequestDocumentExtractionJobsService,
+    SurgeryRequestDocumentExtractionProcessor,
+    SurgeryRequestRealtimeService,
     DoctorResolutionService,
     StorageService,
     DoctorHeaderRepository,

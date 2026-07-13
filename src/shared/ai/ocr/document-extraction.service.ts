@@ -70,7 +70,7 @@ const VISION_TRIGGER_MIN_CONFIDENCE = 0.75;
 
 /**
  * Pipeline puro de extração de documento a partir de um buffer.
- * Orquestra: OCR → tokenização PII → classificação (gpt-4o-mini) → Vision
+ * Orquestra: OCR → tokenização PII → classificação (AI_DOC_CLASSIFIER_MODEL) → Vision
  * fallback (gpt-4o quando necessário). Não acessa storage, filas nem banco —
  * é chamado tanto pelo fluxo WhatsApp quanto pelo endpoint HTTP.
  */
@@ -271,9 +271,7 @@ export class DocumentExtractionService {
 
     if (!classification) {
       if (ocrUnusable && !classifierError) {
-        logTimingSummary(
-          ocrFailureReason ? 'ocr_exception' : 'ocr_empty',
-        );
+        logTimingSummary(ocrFailureReason ? 'ocr_exception' : 'ocr_empty');
         return {
           status: ocrFailureReason ? 'ocr_exception' : 'ocr_empty',
           classification: null,
@@ -406,9 +404,7 @@ export class DocumentExtractionService {
     category: 'cpf' | 'phone',
   ): string | undefined {
     const tokenRegex = new RegExp(`\\{\\{${category}_\\d+\\}\\}`, 'g');
-    const tokensInText = [
-      ...new Set(ocrTokenizedText.match(tokenRegex) ?? []),
-    ];
+    const tokensInText = [...new Set(ocrTokenizedText.match(tokenRegex) ?? [])];
     if (tokensInText.length === 1) return tokensInText[0];
 
     if (!this.piiVault) return undefined;

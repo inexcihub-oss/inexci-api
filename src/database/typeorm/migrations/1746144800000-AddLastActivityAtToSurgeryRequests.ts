@@ -7,9 +7,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * A coluna é mantida por trigger BEFORE INSERT OR UPDATE porque fluxos de
  * domínio usam `repo.update()`, que ignora hooks `@BeforeUpdate`.
  */
-export class AddLastActivityAtToSurgeryRequests1746144800000
-  implements MigrationInterface
-{
+export class AddLastActivityAtToSurgeryRequests1746144800000 implements MigrationInterface {
   name = 'AddLastActivityAtToSurgeryRequests1746144800000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

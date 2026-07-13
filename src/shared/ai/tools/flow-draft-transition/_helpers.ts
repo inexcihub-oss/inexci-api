@@ -102,13 +102,15 @@ export function extractTransitionErrorMessage(
   err: any,
   defaultPrefix: string,
 ): string {
-  const response = typeof err?.getResponse === 'function'
-    ? err.getResponse()
-    : err?.response;
+  const response =
+    typeof err?.getResponse === 'function' ? err.getResponse() : err?.response;
 
   if (response && typeof response === 'object') {
-    const pendencies: Array<{ key: string; name: string }> =
-      Array.isArray(response.pendencies) ? response.pendencies : [];
+    const pendencies: Array<{ key: string; name: string }> = Array.isArray(
+      response.pendencies,
+    )
+      ? response.pendencies
+      : [];
     const baseMessage: string =
       typeof response.message === 'string'
         ? response.message

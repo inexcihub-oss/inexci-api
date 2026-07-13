@@ -20,11 +20,27 @@ export interface NotificationPayload {
   createdAt: Date;
 }
 
+export interface DocumentExtractionStatusPayload {
+  jobId: string;
+  status: 'processing' | 'done' | 'error';
+  result?: unknown;
+  message?: string;
+}
+
+export interface SurgeryRequestChangedPayload {
+  surgeryRequestId: string;
+  action: 'created' | 'updated' | 'status-updated';
+  actorId?: string;
+  occurredAt: string;
+}
+
 /**
  * Eventos emitidos para o cliente:
  *  - `notification:new` — nova notificação criada (payload completo).
  *  - `notification:unread-count` — contagem atual de não lidas. Emitido na
  *    conexão e sempre que muda no servidor (mark as read, delete, etc.).
+ *  - `surgery-request:changed` — sinaliza criação/atualização de SC para
+ *    sincronização de telas (kanban/lista) em tempo real.
  */
 @WebSocketGateway({ namespace: '/notifications', cors: { origin: '*' } })
 export class NotificationsGateway
@@ -88,6 +104,25 @@ export class NotificationsGateway
   emitUnreadCount(userId: string, count: number) {
     this.server.to(`user:${userId}`).emit('notification:unread-count', {
       count,
+    });
+  }
+
+  emitDocumentExtractionStatus(
+    userId: string,
+    payload: DocumentExtractionStatusPayload,
+  ) {
+    this.server
+      .to(`user:${userId}`)
+      .emit('document-extraction:status', payload);
+  }
+
+  emitSurgeryRequestChanged(
+    userIds: string[],
+    payload: SurgeryRequestChangedPayload,
+  ) {
+    const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+    uniqueUserIds.forEach((userId) => {
+      this.server.to(`user:${userId}`).emit('surgery-request:changed', payload);
     });
   }
 }

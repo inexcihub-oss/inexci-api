@@ -52,6 +52,18 @@ export interface AssembleFromExtractedOutput {
 
 const MIN_OPME_OPTIONS = 3;
 const FALLBACK_OPME_NAME = 'Outros';
+const EXCLUDED_REPORT_SECTION_TITLE_PATTERNS: RegExp[] = [
+  /\bidentifica(?:cao|ção)\b.*\bobjetivo\b/i,
+  /\bidentifica(?:cao|ção)\b.*\brelat(?:orio|ório)\b/i,
+  /\bdados\b.*\bpaciente\b/i,
+  /\bdados\b.*\bcadastrais\b/i,
+  /\bc(?:ó|o)digos?\b.*\bsolicitados?\b/i,
+  /\btuss\b/i,
+  /\bcbhpm\b/i,
+  /\bopme\b/i,
+  /\bmateriais?\b.*\bsolicitados?\b/i,
+  /\bfornecedores?\b/i,
+];
 
 function dedupeNames(names: (string | undefined)[]): string[] {
   const seen = new Set<string>();
@@ -73,6 +85,14 @@ function padNames(names: string[], min: number, fallback: string): string[] {
   return out;
 }
 
+function shouldPersistReportSection(title: string): boolean {
+  const normalized = title.trim();
+  if (!normalized) return false;
+  return !EXCLUDED_REPORT_SECTION_TITLE_PATTERNS.some((pattern) =>
+    pattern.test(normalized),
+  );
+}
+
 /**
  * Popula laudo, TUSS e OPME numa SC já criada a partir dos dados extraídos
  * de um documento (seja via WhatsApp ou via upload web). Toda falha é
@@ -92,13 +112,22 @@ export class SurgeryRequestAssemblyService {
   async assembleFromExtracted(
     input: AssembleFromExtractedInput,
   ): Promise<AssembleFromExtractedOutput> {
-    const { scId, notes, sections, suggestedSuppliers, tussItems, opmeItems, userId } =
-      input;
+    const {
+      scId,
+      notes,
+      sections,
+      suggestedSuppliers,
+      tussItems,
+      opmeItems,
+      userId,
+    } = input;
     const warnings: string[] = [];
 
     if (sections?.length) {
       for (const section of sections) {
-        if (!section?.title) continue;
+        if (!section?.title || !shouldPersistReportSection(section.title)) {
+          continue;
+        }
         try {
           await this.surgeryRequestsService.createReportSection(
             scId,
@@ -121,7 +150,9 @@ export class SurgeryRequestAssemblyService {
         );
       } catch (err: any) {
         warnings.push(`laudo (${err?.message || 'erro'})`);
-        this.logger.warn(`[SC_ASSEMBLY] scId=${scId} laudo failed: ${err?.message}`);
+        this.logger.warn(
+          `[SC_ASSEMBLY] scId=${scId} laudo failed: ${err?.message}`,
+        );
       }
     }
 
@@ -164,7 +195,11 @@ export class SurgeryRequestAssemblyService {
       // que o documento trouxe (item + sugestões gerais) e preenchemos o
       // restante com "Outros" (fornecedor/fabricante fallback reaproveitável).
       const supplierNames = padNames(
-        dedupeNames([item.supplier, ...(item.suppliers ?? []), ...(suggestedSuppliers ?? [])]),
+        dedupeNames([
+          item.supplier,
+          ...(item.suppliers ?? []),
+          ...(suggestedSuppliers ?? []),
+        ]),
         MIN_OPME_OPTIONS,
         FALLBACK_OPME_NAME,
       );

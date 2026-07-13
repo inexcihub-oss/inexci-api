@@ -51,6 +51,7 @@ import { SurgeryRequestWorkflowService } from './services/surgery-request-workfl
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
+import { SurgeryRequestRealtimeService } from './services/surgery-request-realtime.service';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { CidService } from './cid/cid.service';
@@ -72,6 +73,7 @@ export class SurgeryRequestsService {
     private readonly workflowService: SurgeryRequestWorkflowService,
     private readonly reportService: SurgeryRequestReportService,
     private readonly templateService: SurgeryRequestTemplateService,
+    private readonly realtimeService: SurgeryRequestRealtimeService,
     private readonly cidService: CidService,
   ) {}
 
@@ -237,7 +239,8 @@ export class SurgeryRequestsService {
       async () => {
         // JwtAuthGuard já validou o usuário; buildAccessWhere restringe por acesso (P9).
         const where = await this.buildAccessWhere({ id }, userId);
-        const surgeryRequest = await this.surgeryRequestRepository.findOne(where);
+        const surgeryRequest =
+          await this.surgeryRequestRepository.findOne(where);
         if (!surgeryRequest)
           throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
@@ -249,7 +252,10 @@ export class SurgeryRequestsService {
         }
         let doctor = surgeryRequest.doctor;
         if (doctor) {
-          doctor = await transformDoctorSignatureUrl(doctor, this.storageService);
+          doctor = await transformDoctorSignatureUrl(
+            doctor,
+            this.storageService,
+          );
         }
 
         const resolvedCid = surgeryRequest.cidCode
@@ -369,64 +375,118 @@ export class SurgeryRequestsService {
   // DELEGAÇÃO → WORKFLOW SERVICE
   // ============================================================
 
-  sendRequest(id: string, dto: SendRequestDto, userId: string) {
-    return this.workflowService.sendRequest(id, dto, userId);
+  async sendRequest(id: string, dto: SendRequestDto, userId: string) {
+    const result = await this.workflowService.sendRequest(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  startAnalysis(id: string, dto: StartAnalysisDto, userId: string) {
-    return this.workflowService.startAnalysis(id, dto, userId);
+  async startAnalysis(id: string, dto: StartAnalysisDto, userId: string) {
+    const result = await this.workflowService.startAnalysis(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  acceptAuthorization(id: string, dto: AcceptAuthorizationDto, userId: string) {
-    return this.workflowService.acceptAuthorization(id, dto, userId);
+  async acceptAuthorization(
+    id: string,
+    dto: AcceptAuthorizationDto,
+    userId: string,
+  ) {
+    const result = await this.workflowService.acceptAuthorization(
+      id,
+      dto,
+      userId,
+    );
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  contestAuthorization(
+  async contestAuthorization(
     id: string,
     dto: ContestAuthorizationDto,
     userId: string,
   ) {
-    return this.workflowService.contestAuthorization(id, dto, userId);
+    const result = await this.workflowService.contestAuthorization(
+      id,
+      dto,
+      userId,
+    );
+    await this.realtimeService.broadcastChange(id, 'updated', userId);
+    return result;
   }
 
   generateContestAuthorizationPdf(id: string, userId: string) {
     return this.workflowService.generateContestAuthorizationPdf(id, userId);
   }
 
-  confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
-    return this.workflowService.confirmDate(id, dto, userId);
+  async confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
+    const result = await this.workflowService.confirmDate(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  updateDateOptions(id: string, dto: UpdateDateOptionsDto, userId: string) {
-    return this.workflowService.updateDateOptions(id, dto, userId);
+  async updateDateOptions(
+    id: string,
+    dto: UpdateDateOptionsDto,
+    userId: string,
+  ) {
+    const result = await this.workflowService.updateDateOptions(
+      id,
+      dto,
+      userId,
+    );
+    await this.realtimeService.broadcastChange(id, 'updated', userId);
+    return result;
   }
 
-  reschedule(id: string, dto: RescheduleDto, userId: string) {
-    return this.workflowService.reschedule(id, dto, userId);
+  async reschedule(id: string, dto: RescheduleDto, userId: string) {
+    const result = await this.workflowService.reschedule(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'updated', userId);
+    return result;
   }
 
-  markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
-    return this.workflowService.markPerformed(id, dto, userId);
+  async markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
+    const result = await this.workflowService.markPerformed(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
-    return this.workflowService.invoiceRequest(id, dto, userId);
+  async invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
+    const result = await this.workflowService.invoiceRequest(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  confirmReceipt(id: string, dto: ConfirmReceiptDto, userId: string) {
-    return this.workflowService.confirmReceipt(id, dto, userId);
+  async confirmReceipt(id: string, dto: ConfirmReceiptDto, userId: string) {
+    const result = await this.workflowService.confirmReceipt(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
-  contestPayment(id: string, dto: ContestPaymentDto, userId: string) {
-    return this.workflowService.contestPayment(id, dto, userId);
+  async contestPayment(id: string, dto: ContestPaymentDto, userId: string) {
+    const result = await this.workflowService.contestPayment(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'updated', userId);
+    return result;
   }
 
-  updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
-    return this.workflowService.updateReceipt(id, dto, userId);
+  async updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
+    const result = await this.workflowService.updateReceipt(id, dto, userId);
+    await this.realtimeService.broadcastChange(id, 'updated', userId);
+    return result;
   }
 
-  closeSurgeryRequest(id: string, dto: CloseSurgeryRequestDto, userId: string) {
-    return this.workflowService.closeSurgeryRequest(id, dto, userId);
+  async closeSurgeryRequest(
+    id: string,
+    dto: CloseSurgeryRequestDto,
+    userId: string,
+  ) {
+    const result = await this.workflowService.closeSurgeryRequest(
+      id,
+      dto,
+      userId,
+    );
+    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
+    return result;
   }
 
   notify(
@@ -442,20 +502,32 @@ export class SurgeryRequestsService {
     return this.workflowService.notify(id, dto, userId);
   }
 
-  send(data: { id: string }, userId: string) {
-    return this.workflowService.sendRequest(
+  async send(data: { id: string }, userId: string) {
+    const result = await this.workflowService.sendRequest(
       data.id,
       { method: SendMethod.DOWNLOAD },
       userId,
     );
+    await this.realtimeService.broadcastChange(
+      data.id,
+      'status-updated',
+      userId,
+    );
+    return result;
   }
 
-  cancel(data: { id: string; reason?: string }, userId: string) {
-    return this.workflowService.closeSurgeryRequest(
+  async cancel(data: { id: string; reason?: string }, userId: string) {
+    const result = await this.workflowService.closeSurgeryRequest(
       data.id,
       { reason: data.reason },
       userId,
     );
+    await this.realtimeService.broadcastChange(
+      data.id,
+      'status-updated',
+      userId,
+    );
+    return result;
   }
 
   // ============================================================
@@ -475,7 +547,11 @@ export class SurgeryRequestsService {
     title: string,
     description: string,
   ): Promise<void> {
-    return this.reportService.upsertReportSectionByTitle(id, title, description);
+    return this.reportService.upsertReportSectionByTitle(
+      id,
+      title,
+      description,
+    );
   }
 
   updateReportSection(

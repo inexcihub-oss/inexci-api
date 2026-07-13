@@ -88,8 +88,10 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
 
           const dto: Record<string, any> = { id: f.surgeryRequestId! };
           const extraChanges: Record<string, any> = {};
-          const clinicalSectionUpdates: Array<{ title: string; value: string }> =
-            [];
+          const clinicalSectionUpdates: Array<{
+            title: string;
+            value: string;
+          }> = [];
 
           if (f.scope === 'clinical') {
             for (const [key, value] of Object.entries(changes)) {

@@ -229,10 +229,7 @@ export interface SurgeryRequestLaudoPdfData {
   customHeader?: CustomHeaderData | null;
 }
 
-const ALLOWED_URL_HOSTS = [
-  'r2.cloudflarestorage.com',
-  'amazonaws.com',
-];
+const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com', 'amazonaws.com'];
 
 function isAllowedHost(url: string): boolean {
   try {

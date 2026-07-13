@@ -85,7 +85,11 @@ describe('SurgeryRequestWorkflowService', () => {
   let pendencyValidator: { [K: string]: jest.Mock };
   let contestationRepository: { [K: string]: jest.Mock };
   let dataSource: { transaction: jest.Mock };
-  let storageService: { download: jest.Mock; getSignedUrl: jest.Mock; delete: jest.Mock };
+  let storageService: {
+    download: jest.Mock;
+    getSignedUrl: jest.Mock;
+    delete: jest.Mock;
+  };
 
   beforeEach(async () => {
     surgeryRequestRepository = {

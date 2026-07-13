@@ -451,7 +451,6 @@ export class WhatsappDocumentProcessorService {
     const hasRichScData =
       intent === 'create_sc' && this.hasRichSurgeryRequestData(classification);
 
-
     switch (intent) {
       case 'attach':
         lines.push(

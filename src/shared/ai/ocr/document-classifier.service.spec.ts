@@ -376,6 +376,72 @@ describe('DocumentClassifierService', () => {
     expect(result.extracted.laudoText).toContain('RNM cervical');
   });
 
+  it('remove reportSections administrativas (identificação, TUSS/CBHPM e OPME) mantendo seções clínicas', async () => {
+    openai.chatCompletion.mockResolvedValueOnce(
+      buildLlmResponse({
+        kind: 'surgery_request',
+        confidence: 0.94,
+        suggestedDocumentType: 'medical_report',
+        ambiguity: null,
+        extracted: {
+          patient: null,
+          hospital: null,
+          healthPlan: null,
+          tuss: null,
+          cid: null,
+          opme: null,
+          suggestedSuppliers: null,
+          diagnosis: null,
+          suggestedProcedureName: null,
+          reportSections: [
+            {
+              title: 'Identificação e objetivo do relatório',
+              description:
+                'Paciente: Fulano, CPF 000.000.000-00, endereço e plano de saúde.',
+            },
+            {
+              title: 'Códigos solicitados (TUSS/CBHPM)',
+              description: '3.07.15.09-1 e 3.07.15.18-0',
+            },
+            {
+              title: 'OPME / Materiais solicitados e fornecedores',
+              description: 'Cage stand alone, parafusos e fornecedores.',
+            },
+            {
+              title: 'Histórico clínico e diagnóstico',
+              description:
+                'Paciente com dor lombar irradiada e RNM com hérnia discal L4-L5.',
+            },
+            {
+              title: 'Conduta e justificativa cirúrgica',
+              description:
+                'Falha terapêutica conservadora e indicação de descompressão cirúrgica.',
+            },
+          ],
+          laudoText: null,
+          notes: null,
+        },
+      }),
+    );
+
+    const result = await service.classify({
+      text: 'laudo com múltiplas seções',
+    });
+
+    expect(result.extracted.reportSections).toEqual([
+      {
+        title: 'Histórico clínico e diagnóstico',
+        description:
+          'Paciente com dor lombar irradiada e RNM com hérnia discal L4-L5.',
+      },
+      {
+        title: 'Conduta e justificativa cirúrgica',
+        description:
+          'Falha terapêutica conservadora e indicação de descompressão cirúrgica.',
+      },
+    ]);
+  });
+
   it('propaga erro quando o LLM devolve JSON inválido', async () => {
     openai.chatCompletion.mockResolvedValueOnce({
       choices: [{ message: { content: 'isto não é json' } }],
@@ -398,7 +464,7 @@ describe('DocumentClassifierService', () => {
     expect(result.ambiguity).toContain('payload_blob');
   });
 
-  it('usa maxTokens default 1800 (configurável por env)', async () => {
+  it('usa maxTokens default 4000 (configurável por env)', async () => {
     openai.chatCompletion.mockResolvedValueOnce(
       buildLlmResponse({
         kind: 'medical_report',
@@ -430,6 +496,41 @@ describe('DocumentClassifierService', () => {
       text: 'Texto qualquer com mais de 60 chars para evitar curto-circuito de blob.',
     });
     const callArgs = openai.chatCompletion.mock.calls[0][0];
-    expect(callArgs.maxTokens).toBe(1800);
+    expect(callArgs.maxTokens).toBe(4000);
+  });
+
+  it('usa timeoutMs default 60000 (configurável por env)', async () => {
+    openai.chatCompletion.mockResolvedValueOnce(
+      buildLlmResponse({
+        kind: 'medical_report',
+        confidence: 0.9,
+        suggestedDocumentType: 'medical_report',
+        ambiguity: null,
+        extracted: {
+          patient: {
+            name: null,
+            cpf: null,
+            birthDate: null,
+            rg: null,
+            motherName: null,
+            address: null,
+            phone: null,
+          },
+          hospital: null,
+          healthPlan: null,
+          tuss: null,
+          cid: null,
+          opme: null,
+          laudoText: null,
+          notes: null,
+        },
+      }),
+    );
+
+    await service.classify({
+      text: 'Texto qualquer com mais de 60 chars para evitar curto-circuito de blob.',
+    });
+    const callArgs = openai.chatCompletion.mock.calls[0][0];
+    expect(callArgs.timeoutMs).toBe(60000);
   });
 });

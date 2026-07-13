@@ -21,6 +21,9 @@ import { BullModule } from '@nestjs/bull';
         removeOnFail: 100,
       },
     }),
+    BullModule.registerQueue({
+      name: 'document-extraction',
+    }),
   ],
   exports: [BullModule],
 })

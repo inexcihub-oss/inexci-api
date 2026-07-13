@@ -14,9 +14,7 @@ describe('UploadService — IDOR (VULN-03)', () => {
     };
 
     mockStorageService = {
-      getSignedUrl: jest
-        .fn()
-        .mockResolvedValue('https://example.com/signed'),
+      getSignedUrl: jest.fn().mockResolvedValue('https://example.com/signed'),
     };
 
     service = new UploadService(

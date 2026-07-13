@@ -12,18 +12,29 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFile,
+  HttpCode,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { SurgeryRequestsService } from './surgery-requests.service';
 import { SurgeryRequestFromDocumentService } from './services/surgery-request-from-document.service';
 import { CreateFromDocumentDto } from './dto/create-from-document.dto';
 import {
+  ExtractFromDocumentJobStatusResponseDto,
+  ExtractFromDocumentQueuedResponseDto,
+} from './dto/extract-from-document-job.dto';
+import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { SurgeryRequestDocumentExtractionJobsService } from './services/surgery-request-document-extraction-jobs.service';
 
 // DTOs gerais
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
@@ -61,6 +72,7 @@ export class SurgeryRequestsController {
   constructor(
     private readonly surgeryRequestsService: SurgeryRequestsService,
     private readonly fromDocumentService: SurgeryRequestFromDocumentService,
+    private readonly documentExtractionJobsService: SurgeryRequestDocumentExtractionJobsService,
   ) {}
 
   // ============================================================
@@ -87,11 +99,24 @@ export class SurgeryRequestsController {
   @UseInterceptors(
     FileInterceptor('document', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
+  @HttpCode(HttpStatus.ACCEPTED)
   extractFromDocument(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.fromDocumentService.extractFromDocument(file, user.userId);
+  ): Promise<ExtractFromDocumentQueuedResponseDto> {
+    return this.documentExtractionJobsService.enqueue(file, user.userId);
+  }
+
+  @Get('extract-from-document/:jobId')
+  @Throttle({ short: { ttl: 60000, limit: 120 } })
+  @ApiOperation({
+    summary: 'Consultar status da extração assíncrona de documento.',
+  })
+  getExtractFromDocumentStatus(
+    @Param('jobId') jobId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ExtractFromDocumentJobStatusResponseDto> {
+    return this.documentExtractionJobsService.getStatus(jobId, user.userId);
   }
 
   @Post('from-document')

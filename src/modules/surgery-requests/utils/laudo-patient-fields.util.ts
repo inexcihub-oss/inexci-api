@@ -64,9 +64,7 @@ const filledCep = (value?: string | null): string | undefined => {
   return formatCep(digits);
 };
 
-const filledBirthDate = (
-  value?: string | Date | null,
-): string | undefined => {
+const filledBirthDate = (value?: string | Date | null): string | undefined => {
   if (!value) return undefined;
   const formatted = formatDateBR(String(value));
   return formatted || undefined;

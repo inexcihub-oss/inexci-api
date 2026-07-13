@@ -30,6 +30,11 @@ export class OpenaiService {
     this.client = new OpenAI({
       apiKey: this.configService.get<string>('OPENAI_API_KEY', ''),
       timeout: this.requestTimeoutMs,
+      // Retry é feito manualmente em `chatCompletionWithRetry` (loga tentativa,
+      // filtra por status/código específico). `maxRetries: 0` evita que o SDK
+      // some seu próprio retry automático por cima, multiplicando o tempo até
+      // o timeout final ser reportado ao chamador.
+      maxRetries: 0,
     });
   }
 

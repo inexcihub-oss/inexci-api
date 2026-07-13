@@ -101,9 +101,14 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
         const { warnings } = assemblyService
           ? await assemblyService.assembleFromExtracted({
               scId: created.id,
-              notes: typeof fields.notes === 'string' ? fields.notes : undefined,
-              tussItems: Array.isArray(fields.tussItems) ? fields.tussItems : [],
-              opmeItems: Array.isArray(fields.opmeItems) ? fields.opmeItems : [],
+              notes:
+                typeof fields.notes === 'string' ? fields.notes : undefined,
+              tussItems: Array.isArray(fields.tussItems)
+                ? fields.tussItems
+                : [],
+              opmeItems: Array.isArray(fields.opmeItems)
+                ? fields.opmeItems
+                : [],
               userId: context.userId,
             })
           : { warnings: [] as string[] };
