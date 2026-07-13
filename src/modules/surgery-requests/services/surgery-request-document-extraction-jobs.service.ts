@@ -172,6 +172,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     jobId: string,
     userId: string,
     result: ExtractFromDocumentResponseDto,
+    documentName?: string,
   ): Promise<void> {
     await this.setState(jobId, {
       userId,
@@ -180,13 +181,14 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
       updatedAt: new Date().toISOString(),
     });
     this.emitStatus(userId, { jobId, status: 'done', result });
-    await this.notifyBackgroundDone(userId, jobId);
+    await this.notifyBackgroundDone(userId, jobId, documentName);
   }
 
   async markError(
     jobId: string,
     userId: string,
     message = FRIENDLY_ERROR_MESSAGE,
+    documentName?: string,
   ): Promise<void> {
     await this.setState(jobId, {
       userId,
@@ -195,7 +197,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
       updatedAt: new Date().toISOString(),
     });
     this.emitStatus(userId, { jobId, status: 'error', message });
-    await this.notifyBackgroundError(userId, jobId, message);
+    await this.notifyBackgroundError(userId, jobId, message, documentName);
   }
 
   private buildNotificationLink(jobId: string): string {
@@ -203,19 +205,30 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     return `${DOCUMENT_EXTRACTION_LINK_BASE}?${params.toString()}`;
   }
 
-  private async notifyBackgroundDone(userId: string, jobId: string) {
+  private async notifyBackgroundDone(
+    userId: string,
+    jobId: string,
+    documentName?: string,
+  ) {
     if (!this.notificationsService) return;
+    const normalizedDocumentName = documentName?.trim();
+    const message = normalizedDocumentName
+      ? `A análise do documento "${normalizedDocumentName}" terminou. Clique para continuar a criação da solicitação.`
+      : 'A análise do documento terminou. Clique para continuar a criação da solicitação.';
+
     await this.notificationsService.createNotification({
       userId,
       type: NotificationType.INFO,
       title: 'Análise de documento concluída',
-      message:
-        'A análise do documento terminou. Clique para continuar a criação da solicitação.',
+      message,
       link: this.buildNotificationLink(jobId),
       metadata: {
         category: 'document_extraction',
         jobId,
         status: 'done',
+        ...(normalizedDocumentName
+          ? { documentName: normalizedDocumentName }
+          : {}),
       },
     });
   }
@@ -224,20 +237,28 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     userId: string,
     jobId: string,
     message: string,
+    documentName?: string,
   ) {
     if (!this.notificationsService) return;
+    const normalizedDocumentName = documentName?.trim();
+    const composedMessage = normalizedDocumentName
+      ? `Não foi possível concluir a análise de "${normalizedDocumentName}". ${message || 'Clique para tentar novamente.'}`
+      : message ||
+        'Não foi possível concluir a análise. Clique para tentar novamente.';
+
     await this.notificationsService.createNotification({
       userId,
       type: NotificationType.INFO,
       title: 'Falha na análise do documento',
-      message:
-        message ||
-        'Não foi possível concluir a análise. Clique para tentar novamente.',
+      message: composedMessage,
       link: this.buildNotificationLink(jobId),
       metadata: {
         category: 'document_extraction',
         jobId,
         status: 'error',
+        ...(normalizedDocumentName
+          ? { documentName: normalizedDocumentName }
+          : {}),
       },
     });
   }

@@ -5,6 +5,9 @@ import { ConfigService } from '@nestjs/config';
 import { WebhookController } from '../../src/modules/webhook/webhook.controller';
 import { WebhookService } from '../../src/modules/webhook/webhook.service';
 import { AiOrchestratorService } from '../../src/shared/ai/services/ai-orchestrator.service';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 
 /**
  * E2E do Sprint 4 — exercita o webhook Twilio recebendo:
@@ -39,6 +42,18 @@ describe('Webhook Documentos (e2e)', () => {
               return defaultValue;
             },
           },
+        },
+        {
+          provide: SurgeryRequestRepository,
+          useValue: {},
+        },
+        {
+          provide: SurgeryRequestActivityRepository,
+          useValue: {},
+        },
+        {
+          provide: WhatsappService,
+          useValue: { sendMessage: jest.fn(), sendTemplate: jest.fn() },
         },
       ],
     }).compile();

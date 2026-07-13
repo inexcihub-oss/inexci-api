@@ -50,6 +50,7 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
       'job-1',
       'user-1',
       expect.objectContaining({ kind: 'medical_report' }),
+      'doc.pdf',
     );
   });
 
@@ -67,6 +68,7 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
       'job-2',
       'user-2',
       'Não foi possível processar o documento. Tente novamente.',
+      undefined,
     );
   });
 });

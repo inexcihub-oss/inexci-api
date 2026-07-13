@@ -1,5 +1,11 @@
 import * as request from 'supertest';
 import { INestApplication } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { createUserWithRole } from './test-setup';
+import {
+  JWT_DEFAULT_AUDIENCE,
+  JWT_DEFAULT_ISSUER,
+} from 'src/modules/auth/jwt-payload.interface';
 
 export interface RegisterData {
   email: string;
@@ -60,8 +66,11 @@ export async function loginUser(
 ): Promise<AuthTokens> {
   const response = await request(app.getHttpServer())
     .post('/auth/login')
-    .send({ email, password })
-    .expect(201);
+    .send({ email, password });
+
+  if (![200, 201].includes(response.status)) {
+    throw new Error(`Falha no login (${response.status})`);
+  }
 
   return {
     accessToken: response.body.access_token,
@@ -74,17 +83,40 @@ export async function getAuthenticatedRequest(
   userData?: RegisterData,
 ): Promise<{ token: string; user: any }> {
   const user = userData || testUsers.admin;
+  const dataSource = app.get(DataSource);
 
-  // Tentar fazer login primeiro
-  try {
-    const auth = await loginUser(app, user.email, user.password);
-    return { token: auth.accessToken, user: auth.user };
-  } catch (error) {
-    // Se falhar, registrar o usuário
-    await registerUser(app, user);
-    const auth = await loginUser(app, user.email, user.password);
-    return { token: auth.accessToken, user: auth.user };
-  }
+  const existing = await dataSource.query(
+    `
+    SELECT id, email, name, role, owner_id
+    FROM users
+    WHERE email = $1
+    LIMIT 1
+  `,
+    [user.email],
+  );
+
+  const dbUser =
+    existing[0] ??
+    (await createUserWithRole(app, {
+      name: user.name,
+      email: user.email,
+      password: user.password,
+      role: 'admin',
+      status: 'active',
+    }));
+
+  const token = generateTestToken(dbUser.id);
+
+  return {
+    token,
+    user: {
+      id: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name,
+      role: dbUser.role,
+      ownerId: dbUser.owner_id ?? dbUser.account_id ?? dbUser.id,
+    },
+  };
 }
 
 export function getAuthHeader(token: string): { Authorization: string } {
@@ -94,9 +126,13 @@ export function getAuthHeader(token: string): { Authorization: string } {
 /**
  * Gera um token JWT para um usuário específico (útil para testar rotas com diferentes permissões)
  */
-export function generateTestToken(userId: number): string {
+export function generateTestToken(userId: string | number): string {
   const jwt = require('jsonwebtoken');
   const secret =
     process.env.JWT_SECRET || 'test-jwt-secret-key-for-e2e-tests-123456789';
-  return jwt.sign({ userId }, secret, { expiresIn: '1h' });
+  return jwt.sign({ userId }, secret, {
+    expiresIn: '1h',
+    issuer: process.env.JWT_ISSUER || JWT_DEFAULT_ISSUER,
+    audience: process.env.JWT_AUDIENCE || JWT_DEFAULT_AUDIENCE,
+  });
 }

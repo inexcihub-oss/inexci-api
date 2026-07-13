@@ -64,6 +64,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     return {
@@ -149,6 +150,7 @@ describe('SurgeryRequestsService.findAgenda', () => {
       accessControlService as never,
       {} as never,
       surgeryRequestRepository as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

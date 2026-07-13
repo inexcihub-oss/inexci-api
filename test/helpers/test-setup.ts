@@ -6,6 +6,9 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 import { getQueueToken } from '@nestjs/bull';
 import { Queue } from 'bull';
+import { randomUUID } from 'crypto';
+
+let cachedTruncateTableNames: string | null = null;
 
 // Carregar variáveis de ambiente para testes
 config({ path: resolve(__dirname, '../../.env') });
@@ -45,32 +48,22 @@ export async function createTestApp(): Promise<INestApplication> {
 export async function cleanDatabase(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
 
-  try {
-    // Obter todas as tabelas
+  if (!cachedTruncateTableNames) {
+    // Resolve uma vez por processo de teste para evitar custo repetido no beforeEach.
     const tables = await dataSource.query(`
-      SELECT tablename FROM pg_tables 
-      WHERE schemaname = 'public' 
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public'
       AND tablename != 'migrations'
     `);
-
-    // Desabilitar triggers e fazer TRUNCATE em uma única transação
-    await dataSource.query('BEGIN');
-    await dataSource.query('SET CONSTRAINTS ALL DEFERRED');
-
-    // Construir e executar TRUNCATE único para todas as tabelas
-    const tableNames = tables
+    cachedTruncateTableNames = tables
       .map((table: { tablename: string }) => `"${table.tablename}"`)
       .join(', ');
-    if (tableNames) {
-      await dataSource.query(
-        `TRUNCATE TABLE ${tableNames} RESTART IDENTITY CASCADE`,
-      );
-    }
+  }
 
-    await dataSource.query('COMMIT');
-  } catch (error) {
-    await dataSource.query('ROLLBACK');
-    throw error;
+  if (cachedTruncateTableNames) {
+    await dataSource.query(
+      `TRUNCATE TABLE ${cachedTruncateTableNames} RESTART IDENTITY CASCADE`,
+    );
   }
 }
 
@@ -78,20 +71,30 @@ export async function cleanDatabase(app: INestApplication): Promise<void> {
 export async function seedTestData(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
 
-  // Criar procedimentos de teste se não existirem
-  const existingProcedures = await dataSource.query(`
-    SELECT COUNT(*) as count FROM procedure
+  // O catálogo agora é por tenant (`procedures.owner_id`).
+  // Em cenários sem usuário criado, não há owner para seed.
+  const owners = await dataSource.query(`
+    SELECT id FROM users ORDER BY created_at ASC LIMIT 1
   `);
+  const ownerId = owners[0]?.id as string | undefined;
+  if (!ownerId) return;
 
-  if (parseInt(existingProcedures[0].count) === 0) {
-    await dataSource.query(`
-      INSERT INTO procedure (name)
-      VALUES 
-        ('Cirurgia de Catarata'),
-        ('Cirurgia de Hérnia'),
-        ('Cirurgia de Vesícula')
-      ON CONFLICT DO NOTHING
-    `);
+  const existingProcedures = await dataSource.query(
+    `SELECT COUNT(*)::int as count FROM procedures WHERE owner_id = $1`,
+    [ownerId],
+  );
+
+  if ((existingProcedures[0]?.count ?? 0) === 0) {
+    await dataSource.query(
+      `
+      INSERT INTO procedures (name, owner_id)
+      VALUES
+        ('Cirurgia de Catarata', $1),
+        ('Cirurgia de Hérnia', $1),
+        ('Cirurgia de Vesícula', $1)
+    `,
+      [ownerId],
+    );
   }
 }
 
@@ -125,26 +128,63 @@ export async function createUserWithRole(
   const status = options.status || 'active';
 
   if (role === 'admin' && !options.account_id) {
-    // Admin: account_id = self.id — precisa gerar UUID antes
-    const [{ id: generatedId }] = await dataSource.query(
-      `SELECT uuid_generate_v4() AS id`,
-    );
+    // Admin: owner_id = self.id
+    const generatedId = randomUUID();
     const result = await dataSource.query(
       `
-      INSERT INTO "user" (id, name, email, password, role, status, account_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $1)
-      RETURNING id, email, name, role, status, account_id
+      INSERT INTO users (
+        id,
+        name,
+        email,
+        password,
+        role,
+        status,
+        owner_id,
+        admin_id,
+        phone,
+        email_verified,
+        email_verified_at,
+        privacy_policy_accepted_at,
+        terms_of_use_accepted_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $1, NULL, $7, true, NOW(), NOW(), NOW())
+      RETURNING id, email, name, role, status, owner_id as account_id
     `,
-      [generatedId, options.name, options.email, hashedPassword, role, status],
+      [
+        generatedId,
+        options.name,
+        options.email,
+        hashedPassword,
+        role,
+        status,
+        '11999999999',
+      ],
     );
     return result[0];
   } else {
-    // Collaborator: precisa de account_id fornecido
+    // Collaborator: precisa de owner/admin
+    const ownerId = options.account_id;
+    if (!ownerId) {
+      throw new Error('account_id (owner_id) é obrigatório para collaborator');
+    }
     const result = await dataSource.query(
       `
-      INSERT INTO "user" (name, email, password, role, status, account_id, admin_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $6)
-      RETURNING id, email, name, role, status, account_id
+      INSERT INTO users (
+        name,
+        email,
+        password,
+        role,
+        status,
+        owner_id,
+        admin_id,
+        phone,
+        email_verified,
+        email_verified_at,
+        privacy_policy_accepted_at,
+        terms_of_use_accepted_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $6, $7, true, NOW(), NOW(), NOW())
+      RETURNING id, email, name, role, status, owner_id as account_id
     `,
       [
         options.name,
@@ -152,7 +192,8 @@ export async function createUserWithRole(
         hashedPassword,
         role,
         status,
-        options.account_id,
+        ownerId,
+        '11999999998',
       ],
     );
     return result[0];
@@ -170,6 +211,7 @@ export async function closeTestApp(app: INestApplication): Promise<void> {
     const queueNames = [
       'mail',
       'pdf-generation',
+      'document-extraction',
       'whatsapp-messages',
       'surgery-request-status',
       'surgery-request-update',
