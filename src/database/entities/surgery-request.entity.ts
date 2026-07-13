@@ -235,8 +235,8 @@ export class SurgeryRequest {
 
   // ============ ENCERRAMENTO ============
 
-  @Column({ name: 'cancel_reason', type: 'text', nullable: true })
-  cancelReason: string | null;
+  @Column({ name: 'closed_reason', type: 'text', nullable: true })
+  closedReason: string | null;
 
   @Column({ name: 'closed_at', type: 'timestamp', nullable: true })
   closedAt: Date | null;

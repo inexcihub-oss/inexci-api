@@ -824,6 +824,15 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
+      expect(surgeryRequestRepository.recordStatusChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'req-1',
+        SurgeryRequestStatus.PENDING,
+        SurgeryRequestStatus.CLOSED,
+        'user-1',
+        undefined,
+        'Desistiu',
+      );
     });
 
     it('should succeed when status is IN_ANALYSIS', async () => {
@@ -838,6 +847,24 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
+    });
+
+    it('should succeed with no reason (optional field)', async () => {
+      surgeryRequestRepository.findOneSimple.mockResolvedValue(
+        makeRequest({ status: SurgeryRequestStatus.PENDING }),
+      );
+
+      await service.closeSurgeryRequest('req-1', {}, 'user-1');
+
+      expect(surgeryRequestRepository.recordStatusChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'req-1',
+        SurgeryRequestStatus.PENDING,
+        SurgeryRequestStatus.CLOSED,
+        'user-1',
+        undefined,
+        undefined,
+      );
     });
   });
 

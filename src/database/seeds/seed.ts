@@ -1490,7 +1490,7 @@ async function main() {
   // SR 9 — Status CLOSED (Encerrada / recusada) — paciente 3
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, closed_reason, closed_at)
        VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,NOW() - INTERVAL '40 days','Convênio negou autorização alegando documentação incompleta. Decisão contestada e aguardando reanálise em nova solicitação.',NOW() - INTERVAL '5 days') RETURNING id`,
       [
         adminId,
@@ -1954,7 +1954,7 @@ async function main() {
   // SR C1-9 — CLOSED (Encerrada) — Patrícia Gonçalves Ferraz (segunda solicitação)
   {
     const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, cancel_reason, closed_at)
+      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, closed_reason, closed_at)
        VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,NOW() - INTERVAL '35 days','Convênio negou autorização por carência contratual do plano. Paciente optou por reagendamento após período de carência.',NOW() - INTERVAL '10 days') RETURNING id`,
       [
         adminMedicoId,

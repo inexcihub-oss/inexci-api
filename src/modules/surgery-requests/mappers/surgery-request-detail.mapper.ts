@@ -289,6 +289,8 @@ export interface SurgeryRequestDetailInput {
   hasOpme?: boolean | null;
   surgeryDate?: Date | string | null;
   surgeryPerformedAt?: Date | string | null;
+  closedAt?: Date | string | null;
+  closedReason?: string | null;
   cidCode?: string | null;
   dateOptions?: string[] | null;
   selectedDateIndex?: number | null;
@@ -340,6 +342,8 @@ export function mapSurgeryRequestDetail(
     hasOpme: sc.hasOpme ?? null,
     surgeryDate: sc.surgeryDate ?? null,
     surgeryPerformedAt: sc.surgeryPerformedAt ?? null,
+    closedAt: sc.closedAt ?? null,
+    closedReason: sc.closedReason ?? null,
     cid,
     dateOptions: sc.dateOptions ?? null,
     selectedDateIndex: sc.selectedDateIndex ?? null,

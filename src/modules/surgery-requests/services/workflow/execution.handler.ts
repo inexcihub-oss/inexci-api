@@ -99,7 +99,7 @@ export class ExecutionHandler {
           {
             status: SurgeryRequestStatus.CLOSED,
             closedAt: new Date(),
-            cancelReason: dto.reason,
+            closedReason: dto.reason,
           },
         );
         await this.surgeryRequestRepository.recordStatusChange(
@@ -108,6 +108,8 @@ export class ExecutionHandler {
           request.status as SurgeryRequestStatus,
           SurgeryRequestStatus.CLOSED,
           userId,
+          undefined,
+          dto.reason,
         );
       },
       { logger: this.logger, operationName: 'closeSurgeryRequest' },

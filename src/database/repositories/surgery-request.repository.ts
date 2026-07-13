@@ -655,6 +655,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     newStatus: SurgeryRequestStatus,
     userId: string | null = null,
     statusChangedAt?: Date,
+    note?: string | null,
   ): Promise<void> {
     const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
     await surgeryRequestRepo.update(surgeryRequestId, {
@@ -664,11 +665,15 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     const activityRepo = manager.getRepository(SurgeryRequestActivity);
     const prevLabel = getStatusLabel(prevStatus);
     const newLabel = getStatusLabel(newStatus);
+    const trimmedNote = note?.trim();
+    const content = trimmedNote
+      ? `Status alterado de "${prevLabel}" para "${newLabel}" — Motivo: ${trimmedNote}`
+      : `Status alterado de "${prevLabel}" para "${newLabel}"`;
     await activityRepo.save({
       surgeryRequestId,
       userId,
       type: ActivityType.STATUS_CHANGE,
-      content: `Status alterado de "${prevLabel}" para "${newLabel}"`,
+      content,
     });
   }
 
