@@ -18,6 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:e2e:fast": "jest --config ./test/jest-e2e.json --maxWorkers=50%",
+    "test:e2e:changed": "jest --config ./test/jest-e2e.json --onlyChanged --maxWorkers=50%",
     "test:e2e:watch": "jest --config ./test/jest-e2e.json --watch",
     "test:e2e:cov": "jest --config ./test/jest-e2e.json --coverage",
     "test:e2e:script": "./run-e2e-tests.sh",

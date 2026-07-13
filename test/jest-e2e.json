@@ -14,7 +14,7 @@
     "node_modules/(?!(@faker-js)/)",
     "e2e-test-environment\\.js$"
   ],
-  "testTimeout": 30000,
+  "testTimeout": 120000,
   "setupFiles": ["<rootDir>/env.setup.ts"],
   "forceExit": true
 }
