@@ -57,6 +57,14 @@ const workflowTransitionCount = getMeter().createCounter(
   },
 );
 
+const queueJobDuration = getMeter().createHistogram(
+  'inexci.queue.job.duration',
+  {
+    unit: 'ms',
+    description: 'Duração de processamento de um job de fila Bull.',
+  },
+);
+
 export function recordAiProcessingDuration(
   durationMs: number,
   attributes: { channel: string; intent: string; hadTools: boolean },
@@ -99,4 +107,11 @@ export function recordWorkflowTransition(attributes: {
     to: String(attributes.to),
     result: attributes.result,
   });
+}
+
+export function recordQueueJobDuration(
+  durationMs: number,
+  attributes: { queue: string; status: 'completed' | 'failed' },
+): void {
+  queueJobDuration.record(durationMs, attributes);
 }

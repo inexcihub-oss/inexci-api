@@ -19,6 +19,7 @@ import {
   recordOpenaiRequestDuration,
   recordOpenaiTokens,
   recordWorkflowTransition,
+  recordQueueJobDuration,
 } from './metrics.util';
 
 describe('metrics.util', () => {
@@ -32,7 +33,7 @@ describe('metrics.util', () => {
     expect(getMeterMock).toHaveBeenCalledWith(METER_NAME);
   });
 
-  it('cria os 3 histogramas e os 2 contadores customizados na carga do módulo', () => {
+  it('cria os 4 histogramas e os 2 contadores customizados na carga do módulo', () => {
     expect(createHistogramMock).toHaveBeenCalledWith(
       'inexci.ai.processing.duration',
       expect.objectContaining({ unit: 'ms' }),
@@ -43,6 +44,10 @@ describe('metrics.util', () => {
     );
     expect(createHistogramMock).toHaveBeenCalledWith(
       'inexci.openai.request.duration',
+      expect.objectContaining({ unit: 'ms' }),
+    );
+    expect(createHistogramMock).toHaveBeenCalledWith(
+      'inexci.queue.job.duration',
       expect.objectContaining({ unit: 'ms' }),
     );
     expect(createCounterMock).toHaveBeenCalledWith(
@@ -121,6 +126,27 @@ describe('metrics.util', () => {
       from: 'SENT',
       to: 'IN_ANALYSIS',
       result: 'blocked',
+    });
+  });
+
+  it('recordQueueJobDuration repassa duração, fila e status', () => {
+    recordQueueJobDuration(250, { queue: 'mail', status: 'completed' });
+
+    expect(recordMock).toHaveBeenCalledWith(250, {
+      queue: 'mail',
+      status: 'completed',
+    });
+  });
+
+  it('recordQueueJobDuration aceita status "failed"', () => {
+    recordQueueJobDuration(500, {
+      queue: 'whatsapp-messages',
+      status: 'failed',
+    });
+
+    expect(recordMock).toHaveBeenCalledWith(500, {
+      queue: 'whatsapp-messages',
+      status: 'failed',
     });
   });
 });

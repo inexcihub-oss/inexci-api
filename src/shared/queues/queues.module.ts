@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
+import { QueueMetricsListener } from 'src/shared/observability/queue-metrics.listener';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { BullModule } from '@nestjs/bull';
       name: 'document-extraction',
     }),
   ],
+  providers: [QueueMetricsListener],
   exports: [BullModule],
 })
 export class QueuesModule {}
