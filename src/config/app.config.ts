@@ -74,11 +74,13 @@ export const envValidationSchema = Joi.object({
   CONVERSATION_CLEANUP_DAYS: Joi.number().default(15),
 
   // ── Observabilidade / OpenTelemetry ─────────────────
-  /** URL do coletor OTLP. Omitir = OTel desligado (logs Nest/Dozzle bastam). */
+  /** URL do coletor OTLP. Omitir = OTel desligado (acompanhamento via logs). */
   OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri().allow('').optional(),
   /** Fração de traces amostrados (0–1). Default automático: 1.0 em dev, 0.1 em prod. */
   OTEL_TRACES_SAMPLER_ARG: Joi.number().min(0).max(1).optional(),
   OTEL_EXPORTER_OTLP_HEADERS: Joi.string().allow('').optional(),
+  /** Liga o pipeline de métricas OTel (histogramas p50/p90/p99). Fase 2 do PLANO-OBSERVABILIDADE-GRAFANA.md. */
+  OTEL_METRICS_ENABLED: Joi.string().allow('').default('false'),
 
   // ── RAG ─────────────────────────────────────────────
   /** Número de resultados retornados pelo RAG (default 3). */

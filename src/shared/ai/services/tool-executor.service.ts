@@ -70,6 +70,7 @@ export class ToolExecutorService {
 
     for (const call of toolCalls) {
       const fn = (call as any).function as { name: string; arguments: string };
+      const startMs = Date.now();
       try {
         const args = JSON.parse(fn.arguments);
 
@@ -87,8 +88,6 @@ export class ToolExecutorService {
           ...telemetryBase,
           durationMs: 0,
         } satisfies ToolTelemetryEvent);
-
-        const startMs = Date.now();
 
         if (cacheConfig) {
           const cacheKey = this.buildCacheKey(context.ownerId, fn.name, args);
@@ -149,7 +148,7 @@ export class ToolExecutorService {
           ownerId: context.ownerId,
           bypassedService:
             this.toolRegistry.getTool(fn.name)?.bypassesService ?? false,
-          durationMs: 0,
+          durationMs: Date.now() - startMs,
           errorMessage: error?.message ?? String(error),
         } satisfies ToolTelemetryEvent);
         results.push({

@@ -3,6 +3,7 @@ import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
+import { recordWorkflowTransition } from '../observability/metrics.util';
 
 /**
  * SurgeryRequestStateMachine
@@ -111,6 +112,11 @@ export class SurgeryRequestStateMachine {
     targetStatus: SurgeryRequestStatus,
   ): void {
     const blocking = this.getBlockingPendencies(request, targetStatus);
+    recordWorkflowTransition({
+      from: request.status,
+      to: targetStatus,
+      result: blocking.length > 0 ? 'blocked' : 'allowed',
+    });
     if (blocking.length > 0) {
       throw new BadRequestException({
         message: 'Não é possível realizar esta transição.',

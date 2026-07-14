@@ -318,6 +318,7 @@ export class DocumentVisionFallbackService {
         type: 'json_schema',
         json_schema: DOCUMENT_RESPONSE_SCHEMA as any,
       } as OpenAI.ChatCompletionCreateParams['response_format'],
+      stage: 'doc_vision_fallback',
     });
 
     const latencyMs = Date.now() - startedAt;

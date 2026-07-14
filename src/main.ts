@@ -1,5 +1,13 @@
-// OTel deve ser inicializado ANTES do bootstrap para que os instrumentors
-// se registrem antes de qualquer módulo Nest ser instanciado.
+// O ConfigModule do Nest só carrega o `.env` quando o AppModule é
+// instanciado (dentro de bootstrap(), mais abaixo) — tarde demais para o
+// initOtel(), que precisa rodar ANTES de qualquer módulo Nest para os
+// instrumentors se registrarem a tempo. Por isso o dotenv é carregado aqui,
+// manualmente, só para preencher o process.env a tempo do initOtel() ler as
+// envs OTEL_*. Não sobrescreve variáveis já definidas no ambiente real
+// (produção injeta via env_file do Docker, não via arquivo .env).
+import { config as loadDotenv } from 'dotenv';
+loadDotenv();
+
 import { initOtel } from './shared/observability/otel';
 initOtel();
 

@@ -5,6 +5,12 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 
+const recordWorkflowTransitionMock = jest.fn();
+jest.mock('../observability/metrics.util', () => ({
+  recordWorkflowTransition: (...args: unknown[]) =>
+    recordWorkflowTransitionMock(...args),
+}));
+
 function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
   return {
     id: 'test-id',
@@ -196,6 +202,10 @@ describe('SurgeryRequestStateMachine', () => {
   // ── assertCanTransition ────────────────────────────────────────────────
 
   describe('assertCanTransition', () => {
+    beforeEach(() => {
+      recordWorkflowTransitionMock.mockClear();
+    });
+
     it('não deve lançar para transição estruturalmente válida', () => {
       const req = makeRequest();
       expect(() =>
@@ -213,6 +223,30 @@ describe('SurgeryRequestStateMachine', () => {
         const response = (err as BadRequestException).getResponse() as any;
         expect(response.pendencies[0]).toContain('Pendente');
       }
+    });
+
+    it('registra a métrica inexci.workflow.transition.count com result=allowed', () => {
+      const req = makeRequest({ status: SurgeryRequestStatus.PENDING });
+      sm.assertCanTransition(req, SurgeryRequestStatus.SENT);
+
+      expect(recordWorkflowTransitionMock).toHaveBeenCalledWith({
+        from: SurgeryRequestStatus.PENDING,
+        to: SurgeryRequestStatus.SENT,
+        result: 'allowed',
+      });
+    });
+
+    it('registra a métrica inexci.workflow.transition.count com result=blocked', () => {
+      const req = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
+      expect(() =>
+        sm.assertCanTransition(req, SurgeryRequestStatus.SENT),
+      ).toThrow(BadRequestException);
+
+      expect(recordWorkflowTransitionMock).toHaveBeenCalledWith({
+        from: SurgeryRequestStatus.IN_ANALYSIS,
+        to: SurgeryRequestStatus.SENT,
+        result: 'blocked',
+      });
     });
   });
 

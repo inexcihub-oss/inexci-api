@@ -429,6 +429,7 @@ export class ConversationContextService {
         temperature: 0.1,
         maxTokens: this.getSummaryMaxTokens(),
         timeoutMs: 20000,
+        stage: 'summary',
       });
 
       const raw = completion.choices?.[0]?.message?.content?.trim() || '';

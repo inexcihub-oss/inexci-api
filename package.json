@@ -30,8 +30,6 @@
     "typeorm:migration:revert": "node -r tsconfig-paths/register node_modules/typeorm/cli-ts-node-commonjs.js migration:revert -d src/database/typeorm/data-source.ts",
     "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
     "check:pgvector": "ts-node -r tsconfig-paths/register scripts/check-pgvector.ts",
-    "audit:ai-code": "ts-node -r tsconfig-paths/register scripts/audit-ai-code.ts",
-    "audit:ai-code:check": "ts-node -r tsconfig-paths/register scripts/audit-ai-code.ts --check --baseline ../planos-implementacao/baselines/ai-code-baseline-2026-05-13.json",
     "predeploy": "yarn check:pgvector"
   },
   "dependencies": {
@@ -58,7 +56,9 @@
     "@nestjs/websockets": "^10.3.9",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/auto-instrumentations-node": "^0.76.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.218.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/sdk-metrics": "^2.7.1",
     "@opentelemetry/sdk-node": "^0.218.0",
     "@tboerc/maskfy": "1.0.0",
     "@types/bcryptjs": "^2.4.6",

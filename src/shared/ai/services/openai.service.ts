@@ -5,6 +5,10 @@ import {
   inexciTracer,
   SpanStatusCode,
 } from '../../../shared/observability/tracer';
+import {
+  recordOpenaiRequestDuration,
+  recordOpenaiTokens,
+} from '../../../shared/observability/metrics.util';
 
 @Injectable()
 export class OpenaiService {
@@ -62,6 +66,13 @@ export class OpenaiService {
      * já que a API HTTP aceita normalmente.
      */
     cacheKey?: string;
+    /**
+     * Etapa do pipeline de IA que originou a chamada — usada apenas como
+     * label da métrica `inexci.openai.request.duration`/`.tokens`
+     * (dashboards de IA/WhatsApp, seção 6.4 do PLANO-OBSERVABILIDADE-GRAFANA.md).
+     * Default `chat` cobre o fluxo principal do orquestrador.
+     */
+    stage?: 'chat' | 'summary' | 'doc_classifier' | 'doc_vision_fallback';
   }): Promise<OpenAI.ChatCompletion> {
     return inexciTracer.startActiveSpan(
       'openai.chatCompletion',
@@ -69,11 +80,17 @@ export class OpenaiService {
         const model =
           params.model ??
           this.configService.get<string>('OPENAI_MODEL', 'gpt-4o');
+        const stage = params.stage ?? 'chat';
         span.setAttribute('ai.model', model);
         span.setAttribute('ai.tools.count', params.tools?.length ?? 0);
         if (params.cacheKey) span.setAttribute('ai.cache.key', params.cacheKey);
+        const startedAt = Date.now();
         try {
           const result = await this.chatCompletionWithRetry(params);
+          recordOpenaiRequestDuration(Date.now() - startedAt, {
+            model,
+            stage,
+          });
           const usage = result.usage;
           if (usage) {
             span.setAttribute('ai.usage.prompt_tokens', usage.prompt_tokens);
@@ -82,6 +99,16 @@ export class OpenaiService {
               usage.completion_tokens,
             );
             span.setAttribute('ai.usage.total_tokens', usage.total_tokens);
+            recordOpenaiTokens(usage.prompt_tokens, {
+              model,
+              stage,
+              type: 'prompt',
+            });
+            recordOpenaiTokens(usage.completion_tokens, {
+              model,
+              stage,
+              type: 'completion',
+            });
             const cached =
               (usage as any).prompt_tokens_details?.cached_tokens ?? 0;
             if (cached) span.setAttribute('ai.usage.cached_tokens', cached);
@@ -89,6 +116,10 @@ export class OpenaiService {
           span.setStatus({ code: SpanStatusCode.OK });
           return result;
         } catch (e: any) {
+          recordOpenaiRequestDuration(Date.now() - startedAt, {
+            model,
+            stage,
+          });
           span.recordException(e);
           span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
           throw e;

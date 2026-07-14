@@ -48,6 +48,7 @@ import { PrivacyModule } from './modules/privacy/privacy.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdminModule } from './modules/admin/admin.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { ObservabilityModule } from './shared/observability/observability.module';
 
 @Module({
   imports: [
@@ -138,6 +139,7 @@ import { BillingModule } from './modules/billing/billing.module';
     PrivacyModule,
     AdminModule,
     BillingModule,
+    ObservabilityModule,
     BullBoardModule.forRoot({
       route: '/admin/queues',
       adapter: ExpressAdapter,

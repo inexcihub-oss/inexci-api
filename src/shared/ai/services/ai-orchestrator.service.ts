@@ -37,6 +37,7 @@ import {
 import { ToolLoopRunnerService } from './orchestrator/tool-loop-runner.service';
 import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
+import { recordAiProcessingDuration } from '../../observability/metrics.util';
 import { SimpleCache } from '../utils/simple-cache';
 import { OperationDraftType } from '../drafts/operation-draft.types';
 
@@ -578,6 +579,7 @@ export class AiOrchestratorService {
             },
           );
           let responseMessage = completion.choices[0].message;
+          const hadTools = Boolean(responseMessage.tool_calls?.length);
 
           const toolContext: ToolContext = {
             userId,
@@ -741,6 +743,12 @@ export class AiOrchestratorService {
           this.logger.log(
             `Resposta enviada para ${maskedPhone} (${safeText.length} chars)`,
           );
+
+          recordAiProcessingDuration(Date.now() - processStartedAt, {
+            channel: 'whatsapp',
+            intent: activeDraftType ?? 'none',
+            hadTools,
+          });
         } catch (error: any) {
           span.recordException(error);
           span.setStatus({

@@ -514,6 +514,7 @@ export class DocumentClassifierService {
         type: 'json_schema',
         json_schema: DOCUMENT_RESPONSE_SCHEMA as any,
       } as OpenAI.ChatCompletionCreateParams['response_format'],
+      stage: 'doc_classifier',
     });
 
     const choice = response.choices?.[0];
