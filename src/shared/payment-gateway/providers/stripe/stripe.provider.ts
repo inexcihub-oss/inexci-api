@@ -51,7 +51,7 @@ export class StripeProvider implements PaymentGateway {
     );
     this.webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET', '');
     this.stripe = new StripeLib(secretKey, {
-      apiVersion: '2026-04-22.dahlia',
+      apiVersion: '2026-06-24.dahlia',
       timeout: timeoutMs,
       appInfo: { name: 'inexci-api', version: '1.0' },
     });
