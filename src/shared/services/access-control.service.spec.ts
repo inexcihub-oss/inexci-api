@@ -146,6 +146,46 @@ describe('AccessControlService', () => {
       expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledTimes(1);
     });
 
+    it('should still use cache just before the 90s TTL expires', async () => {
+      jest.useFakeTimers({ now: Date.now() });
+      const adminUser = {
+        id: 'admin-id',
+        role: UserRole.ADMIN,
+        ownerId: 'account-1',
+      };
+      userRepository.findOneWithProfile.mockResolvedValue(adminUser as any);
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
+        { id: 'doc-1' },
+      ] as any);
+
+      await service.getAccessibleDoctorIds('admin-id');
+      jest.advanceTimersByTime(89_000);
+      await service.getAccessibleDoctorIds('admin-id');
+
+      expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(1);
+      jest.useRealTimers();
+    });
+
+    it('should re-query once the 90s TTL has elapsed', async () => {
+      jest.useFakeTimers({ now: Date.now() });
+      const adminUser = {
+        id: 'admin-id',
+        role: UserRole.ADMIN,
+        ownerId: 'account-1',
+      };
+      userRepository.findOneWithProfile.mockResolvedValue(adminUser as any);
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
+        { id: 'doc-1' },
+      ] as any);
+
+      await service.getAccessibleDoctorIds('admin-id');
+      jest.advanceTimersByTime(90_001);
+      await service.getAccessibleDoctorIds('admin-id');
+
+      expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(2);
+      jest.useRealTimers();
+    });
+
     it('should re-query after invalidateAccessibleDoctors', async () => {
       const adminUser = {
         id: 'admin-id',

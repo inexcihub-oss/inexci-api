@@ -80,6 +80,9 @@ export interface RequiredDocumentSpec {
 @Index('idx_sr_health_plan_id', ['healthPlanId'])
 @Index('idx_sr_hospital_id', ['hospitalId'])
 @Index('idx_sr_status', ['status'])
+// Ordenação real é `last_activity_at DESC`; o decorator não expressa sort
+// order por coluna — a migration cria o índice com DESC explícito via SQL.
+@Index('idx_sr_doctor_last_activity', ['doctorId', 'lastActivityAt'])
 export class SurgeryRequest {
   @PrimaryGeneratedColumn('uuid')
   id: string;

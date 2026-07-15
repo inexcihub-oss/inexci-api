@@ -163,7 +163,7 @@ export function buildDoctorProfileTools(
       //       anterior, ainda dentro do TTL — ex.: usuário mandou a foto,
       //       respondeu "configurar minha assinatura" no turno seguinte).
       //    Sem essa fallback a IA pedia eternamente "envie a foto" mesmo
-      //    quando ela já estava no Supabase tmp (regressão 2026-05-14).
+      //    quando ela já estava no R2 tmp (regressão 2026-05-14).
       const inboundMedia = context.inboundMedia || [];
       const rawIndex = args.mediaIndex;
 

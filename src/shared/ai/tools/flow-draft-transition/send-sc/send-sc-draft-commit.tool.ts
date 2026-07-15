@@ -101,7 +101,7 @@ export function buildSendScDraftCommitTool(
         }
 
         // DOWNLOAD: tenta subir o PDF retornado pelo handler para o
-        // Supabase e devolver uma signed URL ao usuário. Quando o upload
+        // R2 e devolver uma signed URL ao usuário. Quando o upload
         // falha, ainda confirmamos a transição (ela já aconteceu) e
         // pedimos ao usuário para baixar pela plataforma.
         const pdfPayload = sendResult as

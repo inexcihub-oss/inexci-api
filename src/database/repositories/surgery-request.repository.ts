@@ -21,6 +21,10 @@ import {
   SurgeryRequestActivity,
   ActivityType,
 } from '../entities/surgery-request-activity.entity';
+import { OpmeItem } from '../entities/opme-item.entity';
+import { SurgeryRequestTussItem } from '../entities/surgery-request-tuss-item.entity';
+import { Document } from '../entities/document.entity';
+import { Contestation } from '../entities/contestation.entity';
 import { BaseRepository } from './base.repository';
 import { getStatusLabel } from 'src/shared/utils';
 
@@ -250,15 +254,16 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
   async findOne(
     where: FindOptionsWhere<SurgeryRequest>,
   ): Promise<SurgeryRequest | null> {
-    // Split em 2 queries em vez de uma única com `relationLoadStrategy: 'query'`
+    // Split em 2 blocos em vez de uma única query com `relationLoadStrategy: 'query'`
     // para todas as relações (que gerava ~15 round-trips sequenciais — cada um
     // pagando a latência de rede até o Postgres, dominante no tempo total).
     // Relações *ToOne/OneToOne nunca multiplicam linhas, então vão todas juntas
-    // num único SELECT com leftJoin (`relationLoadStrategy: 'join'`). Só as
+    // num único SELECT com leftJoin (`relationLoadStrategy: 'join'`). As
     // coleções *ToMany reais (que multiplicariam linhas se juntadas na mesma
-    // query) seguem em queries separadas via `relationLoadStrategy: 'query'`.
-    // `activities` e `quotations` continuam fora do payload (P5): a página de
-    // detalhe busca activities em endpoint próprio e quotations não é
+    // query base) são buscadas em `Promise.all` (paralelo, WHERE por
+    // `surgeryRequestId` já resolvido pelo bloco base — evita repetir o filtro
+    // de acesso). `activities` e `quotations` continuam fora do payload (P5): a
+    // página de detalhe busca activities em endpoint próprio e quotations não é
     // consumida a partir da SC.
     const base = await this.repository.findOne({
       where,
@@ -299,30 +304,44 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
 
     if (!base) return null;
 
-    const collections = await this.repository.findOne({
-      where,
-      relationLoadStrategy: 'query',
-      relations: {
-        opmeItems: {
-          suppliers: true,
-          manufacturers: true,
-          selectedSupplier: true,
-        },
-        tussItems: true,
-        documents: { creator: true },
-        contestations: true,
-      },
-      select: {
-        documents: { creator: { id: true, name: true } },
-      },
-    });
+    // As 4 coleções em paralelo (1 round-trip de wall-time). `opmeItems` entra
+    // com `relationLoadStrategy: 'join'` para as 3 relações aninhadas
+    // (suppliers/manufacturers/selectedSupplier) numa única query — o produto
+    // cartesiano opme×suppliers×manufacturers é pequeno e o TypeORM hidrata
+    // corretamente os arrays por item. `documents.creator` é *ToOne, entra via
+    // join sem multiplicar linhas.
+    const [opmeItems, tussItems, documents, contestations] = await Promise.all(
+      [
+        this.dataSource.getRepository(OpmeItem).find({
+          where: { surgeryRequestId: base.id },
+          relationLoadStrategy: 'join',
+          relations: {
+            suppliers: true,
+            manufacturers: true,
+            selectedSupplier: true,
+          },
+        }),
+        this.dataSource
+          .getRepository(SurgeryRequestTussItem)
+          .find({ where: { surgeryRequestId: base.id } }),
+        this.dataSource.getRepository(Document).find({
+          where: { surgeryRequestId: base.id },
+          relationLoadStrategy: 'join',
+          relations: { creator: true },
+          select: { creator: { id: true, name: true } },
+        }),
+        this.dataSource
+          .getRepository(Contestation)
+          .find({ where: { surgeryRequestId: base.id } }),
+      ],
+    );
 
     const entity: SurgeryRequest = {
       ...base,
-      opmeItems: collections?.opmeItems ?? [],
-      tussItems: collections?.tussItems ?? [],
-      documents: collections?.documents ?? [],
-      contestations: collections?.contestations ?? [],
+      opmeItems,
+      tussItems,
+      documents,
+      contestations,
     };
 
     const pendencies = this.calculatePendencies(entity);

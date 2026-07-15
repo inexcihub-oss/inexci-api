@@ -5,12 +5,28 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 
+/** Repositórios de coleções to-many não são usados pelos testes que só passam por `loadRequest` (singular). */
+const buildCollectionRepoMocks = () => ({
+  opmeItemRepository: { findMany: jest.fn() } as any,
+  documentRepository: { findMany: jest.fn() } as any,
+  tussItemRepository: { findMany: jest.fn() } as any,
+  reportSectionRepository: { find: jest.fn() } as any,
+});
+
 describe('PendencyValidatorService — patient_data', () => {
   const mockRepository = {
     findOne: jest.fn(),
   };
 
-  const service = new PendencyValidatorService(mockRepository as any);
+  const { opmeItemRepository, documentRepository, tussItemRepository, reportSectionRepository } =
+    buildCollectionRepoMocks();
+  const service = new PendencyValidatorService(
+    mockRepository as any,
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  );
 
   const baseRequest = {
     id: 'req-1',
@@ -98,7 +114,15 @@ describe('PendencyValidatorService — patient_data', () => {
 
 describe('PendencyValidatorService — assertCanAdvance', () => {
   const mockRepository = { findOne: jest.fn() };
-  const service = new PendencyValidatorService(mockRepository as any);
+  const { opmeItemRepository, documentRepository, tussItemRepository, reportSectionRepository } =
+    buildCollectionRepoMocks();
+  const service = new PendencyValidatorService(
+    mockRepository as any,
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  );
 
   const completeRequest = {
     id: 'req-ok',
@@ -172,43 +196,67 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
 
 describe('PendencyValidatorService — getBatchSummary', () => {
   const mockRepository = { findOne: jest.fn(), find: jest.fn() };
-  const service = new PendencyValidatorService(mockRepository as any);
+  const opmeItemRepository = { findMany: jest.fn() };
+  const documentRepository = { findMany: jest.fn() };
+  const tussItemRepository = { findMany: jest.fn() };
+  const reportSectionRepository = { find: jest.fn() };
+  const service = new PendencyValidatorService(
+    mockRepository as any,
+    opmeItemRepository as any,
+    documentRepository as any,
+    tussItemRepository as any,
+    reportSectionRepository as any,
+  );
 
-  const completeRequest = {
+  // Bases sem as coleções to-many embutidas: agora elas chegam via `Promise.all`
+  // separado (join to-one + 4 buscas paralelas por `surgeryRequestId`), não mais
+  // dentro do mesmo `find` da SC.
+  const completeRequestBase = {
     id: 'req-ok',
     status: SurgeryRequestStatus.PENDING,
     patient: { name: 'Ana Lima', cpf: '98765432100' },
     hospitalId: 'h-1',
-    tussItems: [{ id: 't-1' }],
     hasOpme: false,
-    reportSections: [{ id: 's-1' }],
     doctor: { doctorProfile: { signatureUrl: 'https://sig.url' } },
-    documents: [],
-    opmeItems: [],
   } as unknown as SurgeryRequest;
 
-  const incompleteRequest = {
+  const incompleteRequestBase = {
     id: 'req-bad',
     status: SurgeryRequestStatus.PENDING,
     patient: { name: 'Fulano' },
     hospitalId: null,
-    tussItems: [],
     hasOpme: null,
-    reportSections: [],
     doctor: { doctorProfile: { signatureUrl: null } },
-    documents: [],
-    opmeItems: [],
   } as unknown as SurgeryRequest;
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    opmeItemRepository.findMany.mockResolvedValue([]);
+    documentRepository.findMany.mockResolvedValue([]);
+    tussItemRepository.findMany.mockResolvedValue([]);
+    reportSectionRepository.find.mockResolvedValue([]);
+  });
 
-  it('carrega o lote em uma única query (sem N+1) e resume cada SC', async () => {
-    mockRepository.find.mockResolvedValue([completeRequest, incompleteRequest]);
+  it('carrega o lote em paralelo (join to-one + 4 coleções, sem N+1 sequencial) e resume cada SC', async () => {
+    mockRepository.find.mockResolvedValue([
+      completeRequestBase,
+      incompleteRequestBase,
+    ]);
+    tussItemRepository.findMany.mockResolvedValue([
+      { id: 't-1', surgeryRequestId: 'req-ok' },
+    ]);
+    reportSectionRepository.find.mockResolvedValue([
+      { id: 's-1', surgeryRequestId: 'req-ok' },
+    ]);
 
     const result = await service.getBatchSummary('req-ok, req-bad');
 
-    // Uma única carga em lote, não uma por id.
+    // 1 query base (to-one) + 4 buscas de coleções, todas em paralelo — não sequenciais.
     expect(mockRepository.find).toHaveBeenCalledTimes(1);
+    expect(tussItemRepository.findMany).toHaveBeenCalledTimes(1);
+    expect(opmeItemRepository.findMany).toHaveBeenCalledTimes(1);
+    expect(documentRepository.findMany).toHaveBeenCalledTimes(1);
+    expect(reportSectionRepository.find).toHaveBeenCalledTimes(1);
     expect(mockRepository.findOne).not.toHaveBeenCalled();
 
     expect(result['req-ok'].canAdvance).toBe(true);
@@ -217,7 +265,13 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   });
 
   it('devolve default seguro para ids não encontrados', async () => {
-    mockRepository.find.mockResolvedValue([completeRequest]);
+    mockRepository.find.mockResolvedValue([completeRequestBase]);
+    tussItemRepository.findMany.mockResolvedValue([
+      { id: 't-1', surgeryRequestId: 'req-ok' },
+    ]);
+    reportSectionRepository.find.mockResolvedValue([
+      { id: 's-1', surgeryRequestId: 'req-ok' },
+    ]);
 
     const result = await service.getBatchSummary('req-ok,missing-id');
 

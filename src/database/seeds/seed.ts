@@ -293,7 +293,6 @@ async function main() {
   // ========================================
   logger.log('🔧 Preparando procedimentos padrão por conta...');
   const procedureNames = DEFAULT_PROCEDURE_NAMES;
-  let procedureIds: string[] = [];
 
   // ========================================
   // 3. CONTA 1 — Dr. Carlos Mendonça (Admin + Médico)
@@ -317,197 +316,23 @@ async function main() {
   await createActiveSubscription(dataSource, adminMedicoId, professionalPlanId);
   logger.log('  ✅ medico@inexci.com criado (admin + médico, Ortopedia)\n');
 
-  // ========================================
-  // 4. CONTA 2 — Dr. Rafael Andrade (Admin + Médico)
-  //    admin@inexci.com — cardiologista, admin
-  // ========================================
-  logger.log('👤 Criando conta 2: admin@inexci.com (admin + médico)...');
-
-  const preGen2 = await dataSource.query(`SELECT uuid_generate_v4() AS id`);
-  const adminId = preGen2[0].id;
-
-  await dataSource.query(
-    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ($1,'Dr. Rafael Andrade','admin@inexci.com',$2,'21998765432','${generateCPF()}','M','1968-09-22','admin','active',$1,NULL,true,NOW(),NOW(),NOW(),NOW())`,
-    [adminId, hashedPassword],
-  );
-  await dataSource.query(
-    `INSERT INTO doctor_profiles (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
-     VALUES ($1,'98765','RJ','Cardiologia Intervencionista','Instituto Cardíaco Andrade','${generateCNPJ()}','Rua das Laranjeiras, 300 - Laranjeiras - Rio de Janeiro, RJ - CEP 22240-003')`,
-    [adminId],
-  );
-  await createActiveSubscription(dataSource, adminId, professionalPlanId);
-  logger.log('  ✅ admin@inexci.com criado (admin + médico, Cardiologia)\n');
-
   const procedureIdsConta1 = await createDefaultProceduresForOwner(
     dataSource,
     adminMedicoId,
   );
-  const procedureIdsConta2 = await createDefaultProceduresForOwner(
-    dataSource,
-    adminId,
-  );
-  // Mantém compatibilidade do restante do seed (majoritariamente conta 2)
-  procedureIds = procedureIdsConta2;
   logger.log(
-    `✅ Procedimentos criados por conta: conta1=${procedureIdsConta1.length}, conta2=${procedureIdsConta2.length}\n`,
+    `✅ Procedimentos criados para a conta: ${procedureIdsConta1.length}\n`,
   );
-
-  // ========================================
-  // 5. COLABORADORES DA CONTA 2 (admin@inexci.com)
-  // ========================================
-  logger.log('👩‍💼 Criando colaboradores da conta 2...');
-
-  // Médica colaboradora — Dra. Fernanda Rocha (neurocirurgiã)
-  const collabMedicaResult = await dataSource.query(
-    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ('Dra. Fernanda Rocha','medica@inexci.com',$1,'21976543210','${generateCPF()}','F','1980-03-15','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
-     RETURNING id`,
-    [hashedPassword, adminId],
-  );
-  const collabMedicaId = collabMedicaResult[0].id;
-  await dataSource.query(
-    `INSERT INTO doctor_profiles (user_id, crm, crm_state, specialty, clinic_name, clinic_cnpj, clinic_address)
-     VALUES ($1,'55443','RJ','Neurocirurgia','Clínica Neuro Rocha','${generateCNPJ()}','Av. Nossa Senhora de Copacabana, 680 - Copacabana - Rio de Janeiro, RJ')`,
-    [collabMedicaId],
-  );
-  logger.log('  ➕ medica@inexci.com — Dra. Fernanda Rocha (neurocirurgiã)');
-
-  // Assistente 1 — Camila Borges
-  const assistente1Result = await dataSource.query(
-    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ('Camila Borges','assistente1@inexci.com',$1,'21965432109','${generateCPF()}','F','1993-07-28','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
-     RETURNING id`,
-    [hashedPassword, adminId],
-  );
-  const assistente1Id = assistente1Result[0].id;
-  logger.log('  ➕ assistente1@inexci.com — Camila Borges (assistente)');
-
-  // Assistente 2 — Lucas Teixeira
-  const assistente2Result = await dataSource.query(
-    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ('Lucas Teixeira','assistente2@inexci.com',$1,'21954321098','${generateCPF()}','M','1997-11-05','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
-     RETURNING id`,
-    [hashedPassword, adminId],
-  );
-  const assistente2Id = assistente2Result[0].id;
-  logger.log('  ➕ assistente2@inexci.com — Lucas Teixeira (assistente)');
-
-  // Secretária — Juliana Matos (pendente de ativação)
-  const secretariaResult = await dataSource.query(
-    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ('Juliana Matos','secretaria@inexci.com',$1,'21943210987','${generateCPF()}','F','1991-02-14','collaborator','pending',$2,$2,true,NOW(),NOW(),NOW(),NOW())
-     RETURNING id`,
-    [hashedPassword, adminId],
-  );
-  const secretariaId = secretariaResult[0].id;
-  logger.log(
-    '  ➕ secretaria@inexci.com — Juliana Matos (secretária, pendente)',
-  );
-  logger.log('  ✅ 4 colaboradores criados\n');
-
-  // ========================================
-  // 6. COLABORADORES DA CONTA 1 (medico@inexci.com)
-  // ========================================
-  logger.log('👩‍💼 Criando colaboradores da conta 1...');
-
-  const assistenteOrtResult = await dataSource.query(
-    `INSERT INTO "users" (name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ('Patricia Souza','assistente.ort@inexci.com',$1,'11976543210','${generateCPF()}','F','1995-06-18','collaborator','active',$2,$2,true,NOW(),NOW(),NOW(),NOW())
-     RETURNING id`,
-    [hashedPassword, adminMedicoId],
-  );
-  const assistenteOrtId = assistenteOrtResult[0].id;
-  logger.log('  ➕ assistente.ort@inexci.com — Patricia Souza (assistente)');
-  logger.log('  ✅ 1 colaborador criado\n');
-
-  // ========================================
-  // 7. VÍNCULOS user_doctor_access
-  // ========================================
-  logger.log('🔗 Criando vínculos de acesso...');
-
-  // Conta 2: assistente1 → admin + medica
-  await dataSource.query(
-    `INSERT INTO user_doctor_accesses (user_id, doctor_user_id, status, created_by_id) VALUES ($1,$2,'active',$3)`,
-    [assistente1Id, adminId, adminId],
-  );
-  await dataSource.query(
-    `INSERT INTO user_doctor_accesses (user_id, doctor_user_id, status, created_by_id) VALUES ($1,$2,'active',$3)`,
-    [assistente1Id, collabMedicaId, adminId],
-  );
-  // Conta 2: assistente2 → apenas medica
-  await dataSource.query(
-    `INSERT INTO user_doctor_accesses (user_id, doctor_user_id, status, created_by_id) VALUES ($1,$2,'active',$3)`,
-    [assistente2Id, collabMedicaId, adminId],
-  );
-  // Conta 2: secretaria → admin
-  await dataSource.query(
-    `INSERT INTO user_doctor_accesses (user_id, doctor_user_id, status, created_by_id) VALUES ($1,$2,'active',$3)`,
-    [secretariaId, adminId, adminId],
-  );
-  // Conta 1: assistenteOrt → adminMedico
-  await dataSource.query(
-    `INSERT INTO user_doctor_accesses (user_id, doctor_user_id, status, created_by_id) VALUES ($1,$2,'active',$3)`,
-    [assistenteOrtId, adminMedicoId, adminMedicoId],
-  );
-  logger.log('  ✅ 5 vínculos de acesso criados\n');
 
   // ========================================
   // 8. HOSPITAIS
   // ========================================
   logger.log('🏥 Criando hospitais...');
 
-  // Hospitais pertencem à clínica (tenant), via owner_id. Os hospitais 0..2
-  // são da conta 2 (owner = adminId) e os hospitais 3..4 são da conta 1
-  // (owner = adminMedicoId). Qualquer médico/colaborador da mesma conta
-  // pode usá-los nas solicitações cirúrgicas.
+  // Hospitais pertencem à clínica (tenant), via owner_id. Todos são da
+  // conta 1 (owner = adminMedicoId). Qualquer médico/colaborador da mesma
+  // conta pode usá-los nas solicitações cirúrgicas.
   const hospitalsData = [
-    // Conta 2 (admin@inexci.com)
-    {
-      name: "Hospital Copa D'Or",
-      cnpj: generateCNPJ(),
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      zip_code: '22031-011',
-      address: 'Rua Figueiredo Magalhães',
-      address_number: '875',
-      neighborhood: 'Copacabana',
-      phone: '2125451212',
-      contact_name: 'Roberto Alves',
-      contact_phone: '21998001234',
-      contact_email: 'autorizacoes@copador.com.br',
-      owner_id: adminId,
-    },
-    {
-      name: "Hospital Barra D'Or",
-      cnpj: generateCNPJ(),
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      zip_code: '22793-080',
-      address: 'Av. Ayrton Senna',
-      address_number: '2541',
-      neighborhood: 'Barra da Tijuca',
-      phone: '2135550000',
-      contact_name: 'Sônia Lima',
-      contact_phone: '21997654321',
-      contact_email: 'autorizacoes@barrador.com.br',
-      owner_id: adminId,
-    },
-    {
-      name: 'Casa de Saúde São José',
-      cnpj: generateCNPJ(),
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      zip_code: '22241-001',
-      address: 'Rua Mário Pederneiras',
-      address_number: '10',
-      neighborhood: 'Humaitá',
-      phone: '2125271300',
-      contact_name: 'Ana Cristina',
-      contact_phone: '21996543210',
-      contact_email: 'cirurgia@saosejorj.com.br',
-      owner_id: adminId,
-    },
     // Conta 1 (medico@inexci.com)
     {
       name: 'Hospital Albert Einstein',
@@ -566,58 +391,15 @@ async function main() {
     hospitalIds.push(r[0].id);
   }
   logger.log(`  ✅ ${hospitalIds.length} hospitais criados\n`);
-  // hospitalIds[0..2] = conta 2, hospitalIds[3..4] = conta 1
 
   // ========================================
   // 9. CONVÊNIOS
   // ========================================
   logger.log('💳 Criando convênios...');
 
-  // Convênios pertencem à clínica (tenant), via owner_id. Os 4 primeiros
-  // são da conta 2 (owner = adminId) e os 3 últimos da conta 1
-  // (owner = adminMedicoId).
+  // Convênios pertencem à clínica (tenant), via owner_id. Todos são da
+  // conta 1 (owner = adminMedicoId).
   const healthPlansData = [
-    // Conta 2
-    {
-      name: 'Unimed-Rio',
-      ans_code: '301337',
-      phone: '2130030300',
-      auth_phone: '2130030301',
-      auth_email: 'autorizacoes@unimedrio.com.br',
-      website: 'https://www.unimedrio.com.br',
-      default_payment_days: 30,
-      owner_id: adminId,
-    },
-    {
-      name: 'Amil',
-      ans_code: '326305',
-      phone: '2140042424',
-      auth_phone: '2140042425',
-      auth_email: 'autorizacoes@amil.com.br',
-      website: 'https://www.amil.com.br',
-      default_payment_days: 28,
-      owner_id: adminId,
-    },
-    {
-      name: 'SulAmérica Saúde',
-      ans_code: '006246',
-      phone: '2140031212',
-      auth_phone: '2140031213',
-      auth_email: 'autorizacoes@sulamerica.com.br',
-      website: 'https://portal.sulamerica.com.br',
-      default_payment_days: 30,
-      owner_id: adminId,
-    },
-    {
-      name: 'Bradesco Saúde',
-      ans_code: '005711',
-      phone: '1140041111',
-      auth_phone: '1140041112',
-      auth_email: 'autorizacoes@bradesaude.com.br',
-      website: 'https://www.bradescosaude.com.br',
-      default_payment_days: 35,
-      owner_id: adminId,
-    },
     // Conta 1
     {
       name: 'Unimed Paulistana',
@@ -673,45 +455,15 @@ async function main() {
     healthPlanIds.push(r[0].id);
   }
   logger.log(`  ✅ ${healthPlanIds.length} convênios criados\n`);
-  // healthPlanIds[0..3] = conta 2, healthPlanIds[4..6] = conta 1
 
   // ========================================
   // 10. FORNECEDORES DE OPME
   // ========================================
   logger.log('📦 Criando fornecedores...');
 
-  // Fornecedores pertencem à clínica (tenant), via owner_id. Índices 0..2
-  // são da conta 2 (owner = adminId) e índices 3..4 da conta 1
-  // (owner = adminMedicoId).
+  // Fornecedores pertencem à clínica (tenant), via owner_id. Todos são da
+  // conta 1 (owner = adminMedicoId).
   const suppliersData = [
-    // Conta 2
-    {
-      name: 'BioMed Implantes Ltda',
-      contact_name: 'Rodrigo Faria',
-      contact_phone: '21997001234',
-      contact_email: 'rodrigo@biomed.com.br',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      owner_id: adminId,
-    },
-    {
-      name: 'Stryker do Brasil',
-      contact_name: 'Tatiana Melo',
-      contact_phone: '21996005678',
-      contact_email: 'tatiana@stryker.com.br',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      owner_id: adminId,
-    },
-    {
-      name: 'Synthes Johnson & Johnson',
-      contact_name: 'Marcelo Gomes',
-      contact_phone: '21995009012',
-      contact_email: 'marcelo@synthes.com.br',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      owner_id: adminId,
-    },
     // Conta 1
     {
       name: 'Zimmer Biomet Brasil',
@@ -761,25 +513,6 @@ async function main() {
   logger.log('🏭 Criando fabricantes...');
 
   const manufacturersData = [
-    // Conta 2
-    {
-      name: 'Stryker',
-      owner_id: adminId,
-      website: 'https://www.stryker.com/br/pt',
-      country: 'Brasil',
-      contact_name: 'Tatiana Melo',
-      contact_phone: '21996005678',
-      contact_email: 'tatiana@stryker.com.br',
-    },
-    {
-      name: 'Johnson & Johnson MedTech',
-      owner_id: adminId,
-      website: 'https://www.jnjmedtech.com/pt-BR',
-      country: 'Brasil',
-      contact_name: 'Marcelo Gomes',
-      contact_phone: '21995009012',
-      contact_email: 'marcelo@synthes.com.br',
-    },
     // Conta 1
     {
       name: 'Zimmer Biomet',
@@ -842,199 +575,6 @@ async function main() {
   logger.log(`  ✅ ${manufacturerIds.length} fabricantes criados\n`);
 
   // ========================================
-  // 11. PACIENTES — Conta 2 (admin@inexci.com)
-  // ========================================
-  logger.log('🧑‍🤝‍🧑 Criando pacientes da conta 2...');
-
-  const patientsData2 = [
-    {
-      doctor_id: adminId,
-      name: 'Roberto Carlos Ferreira',
-      email: 'roberto.ferreira@gmail.com',
-      gender: 'M',
-      birth: '1958-11-14',
-      cpf: generateCPF(),
-      phone: '21998001111',
-      zip_code: '22041-001',
-      address: 'Rua Barata Ribeiro',
-      address_number: '500',
-      neighborhood: 'Copacabana',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 0,
-      hp_number: '0012345678',
-      hp_type: 'Apartamento',
-      notes: 'Hipertensão arterial controlada. Alergia a penicilina.',
-    },
-    {
-      doctor_id: adminId,
-      name: 'Sandra Aparecida Lima',
-      email: 'sandra.lima@hotmail.com',
-      gender: 'F',
-      birth: '1965-06-03',
-      cpf: generateCPF(),
-      phone: '21987002222',
-      zip_code: '22441-110',
-      address: 'Rua Voluntários da Pátria',
-      address_number: '220',
-      neighborhood: 'Botafogo',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 1,
-      hp_number: '9876543210',
-      hp_type: 'Apartamento',
-      notes: 'Diabética tipo 2. Uso contínuo de metformina.',
-    },
-    {
-      doctor_id: adminId,
-      name: 'Antônio José Nascimento',
-      email: 'antonio.nascimento@yahoo.com.br',
-      gender: 'M',
-      birth: '1972-02-28',
-      cpf: generateCPF(),
-      phone: '21976003333',
-      zip_code: '22793-080',
-      address: 'Av. das Américas',
-      address_number: '3434',
-      neighborhood: 'Barra da Tijuca',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 2,
-      hp_number: '1122334455',
-      hp_type: 'Enfermaria',
-      notes: null,
-    },
-    {
-      doctor_id: adminId,
-      name: 'Maria Eduarda Silveira',
-      email: 'mariaedu.silveira@gmail.com',
-      gender: 'F',
-      birth: '1989-09-17',
-      cpf: generateCPF(),
-      phone: '21965004444',
-      zip_code: '20040-020',
-      address: 'Av. Rio Branco',
-      address_number: '1500',
-      neighborhood: 'Centro',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 0,
-      hp_number: '5544332211',
-      hp_type: 'Apartamento',
-      notes: 'Gestante com 10 semanas. Cirurgia eletiva aguardando puerpério.',
-    },
-    {
-      doctor_id: adminId,
-      name: 'Carlos Eduardo Pinto',
-      email: 'carlos.pinto@terra.com.br',
-      gender: 'M',
-      birth: '1951-04-22',
-      cpf: generateCPF(),
-      phone: '21954005555',
-      zip_code: '22230-010',
-      address: 'Rua Praia do Flamengo',
-      address_number: '100',
-      neighborhood: 'Flamengo',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 1,
-      hp_number: '6677889900',
-      hp_type: 'Apartamento Superior',
-      notes: 'Histórico de fibrilação atrial. Anticoagulado com warfarina.',
-    },
-    {
-      doctor_id: collabMedicaId,
-      name: 'Luciana Mendes Barbosa',
-      email: 'luciana.barbosa@gmail.com',
-      gender: 'F',
-      birth: '1976-12-01',
-      cpf: generateCPF(),
-      phone: '21943006666',
-      zip_code: '22250-040',
-      address: 'Rua das Laranjeiras',
-      address_number: '400',
-      neighborhood: 'Laranjeiras',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 3,
-      hp_number: '1029384756',
-      hp_type: 'Apartamento',
-      notes:
-        'Cefaleia crônica refratária. Indicação de descompressão de nervo occipital.',
-    },
-    {
-      doctor_id: collabMedicaId,
-      name: 'Paulo Henrique Oliveira',
-      email: 'paulo.oliveira@outlook.com',
-      gender: 'M',
-      birth: '1983-07-09',
-      cpf: generateCPF(),
-      phone: '21932007777',
-      zip_code: '22050-001',
-      address: 'Av. Nossa Senhora de Copacabana',
-      address_number: '1200',
-      neighborhood: 'Copacabana',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 3,
-      hp_number: '0918273645',
-      hp_type: 'Enfermaria',
-      notes:
-        'Hérnia de disco L4-L5 com radiculopatia. Tratamento conservador sem resposta.',
-    },
-    {
-      doctor_id: collabMedicaId,
-      name: 'Renata Cristina Alves',
-      email: 'renata.alves@gmail.com',
-      gender: 'F',
-      birth: '1995-03-25',
-      cpf: generateCPF(),
-      phone: '21921008888',
-      zip_code: '22610-210',
-      address: 'Estrada dos Bandeirantes',
-      address_number: '2000',
-      neighborhood: 'Jacarepaguá',
-      city: 'Rio de Janeiro',
-      state: 'RJ',
-      hp_idx: 3,
-      hp_number: '5647382910',
-      hp_type: 'Apartamento',
-      notes: null,
-    },
-  ];
-
-  const patientIds2: string[] = [];
-  for (const p of patientsData2) {
-    const hpId = healthPlanIds[p.hp_idx];
-    const r = await dataSource.query(
-      `INSERT INTO patients (doctor_id, owner_id, name, email, phone, cpf, gender, birth_date, health_plan_id, health_plan_number, health_plan_type, zip_code, address, address_number, neighborhood, city, state, medical_notes, active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,true) RETURNING id`,
-      [
-        p.doctor_id,
-        adminId,
-        p.name,
-        p.email,
-        p.phone,
-        p.cpf,
-        p.gender,
-        p.birth,
-        hpId,
-        p.hp_number,
-        p.hp_type,
-        p.zip_code,
-        p.address,
-        p.address_number,
-        p.neighborhood,
-        p.city,
-        p.state,
-        p.notes,
-      ],
-    );
-    patientIds2.push(r[0].id);
-  }
-  logger.log(`  ✅ ${patientIds2.length} pacientes criados para conta 2\n`);
-
-  // ========================================
   // 12. PACIENTES — Conta 1 (medico@inexci.com)
   // ========================================
   logger.log('🧑‍🤝‍🧑 Criando pacientes da conta 1...');
@@ -1053,7 +593,7 @@ async function main() {
       neighborhood: 'Morumbi',
       city: 'São Paulo',
       state: 'SP',
-      hp_idx: 4,
+      hp_idx: 0,
       hp_number: '1122334455',
       hp_type: 'Apartamento',
       notes:
@@ -1072,7 +612,7 @@ async function main() {
       neighborhood: 'Bela Vista',
       city: 'São Paulo',
       state: 'SP',
-      hp_idx: 5,
+      hp_idx: 1,
       hp_number: '9988776655',
       hp_type: 'Apartamento Superior',
       notes: 'Fratura de quadril após queda. Indicação urgente de ATQ.',
@@ -1090,7 +630,7 @@ async function main() {
       neighborhood: 'Itaim Bibi',
       city: 'São Paulo',
       state: 'SP',
-      hp_idx: 4,
+      hp_idx: 0,
       hp_number: '4433221100',
       hp_type: 'Enfermaria',
       notes: null,
@@ -1108,7 +648,7 @@ async function main() {
       neighborhood: 'Bela Vista',
       city: 'São Paulo',
       state: 'SP',
-      hp_idx: 6,
+      hp_idx: 2,
       hp_number: '7766554433',
       hp_type: 'Apartamento',
       notes: 'Lesão meniscal medial direita. Praticante de corrida.',
@@ -1126,7 +666,7 @@ async function main() {
       neighborhood: 'Itaim Bibi',
       city: 'São Paulo',
       state: 'SP',
-      hp_idx: 4,
+      hp_idx: 0,
       hp_number: '2211009988',
       hp_type: 'Apartamento',
       notes:
@@ -1166,476 +706,6 @@ async function main() {
   logger.log(`  ✅ ${patientIds1.length} pacientes criados para conta 1\n`);
 
   // ========================================
-  // 13. SOLICITAÇÕES CIRÚRGICAS — todos os status
-  //     Conta 2 (admin@inexci.com)
-  // ========================================
-  logger.log('📋 Criando solicitações cirúrgicas (conta 2)...');
-
-  const srIds2: string[] = [];
-
-  // SR 1 — Status PENDING (Pendente) — paciente 0
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,NULL,$7,$8) RETURNING id`,
-      [
-        adminId,
-        adminId,
-        patientIds2[0],
-        hospitalIds[0],
-        healthPlanIds[0],
-        procedureIds[0],
-        '0012345678',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Colelitíase sintomática com episódios repetidos de colecistite aguda. USG revelou cálculos múltiplos com espessamento de parede.',
-      medicalReport:
-        'Paciente apresenta quadro de dor em hipocôndrio direito há 8 meses com irradiação para escápula direita. Diagnóstico confirmado por ultrassonografia.',
-      patientHistory:
-        'Hipertensão arterial sistêmica controlada. Alergia a penicilina documentada. ASA II.',
-      surgeryDescription:
-        'Colecistectomia videolaparoscópica com clipagem do ducto e artéria cística. Acesso de 4 portais.',
-    });
-  }
-
-  // SR 2 — Status SENT (Enviada) — paciente 1
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, send_method)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,2,3,false,$7,$8,NOW() - INTERVAL '3 days','email') RETURNING id`,
-      [
-        adminId,
-        assistente1Id,
-        patientIds2[1],
-        hospitalIds[0],
-        healthPlanIds[1],
-        procedureIds[2],
-        '9876543210',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Hérnia umbilical de 3 cm com conteúdo epiplóico. Assintomática mas com aumento progressivo.',
-      medicalReport:
-        'Paciente relata abaulamento umbilical há 2 anos com progressão nos últimos 6 meses. Exame físico confirma hérnia redutível.',
-      patientHistory:
-        'Diabetes mellitus tipo 2 em controle. Hemoglobina glicada 6,8%. HAS compensada.',
-      surgeryDescription:
-        'Herniorrafia umbilical com tela de polipropileno. Acesso por incisão periumbilical.',
-    });
-    await recordStatusChange(dataSource, r[0].id, 1, 2);
-  }
-
-  // SR 3 — Status IN_ANALYSIS (Em Análise) com analysis record — paciente 2
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, send_method, analysis_started_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,true,$7,$8,NOW() - INTERVAL '10 days','email',NOW() - INTERVAL '8 days') RETURNING id`,
-      [
-        adminId,
-        adminId,
-        patientIds2[2],
-        hospitalIds[1],
-        healthPlanIds[2],
-        procedureIds[4],
-        '1122334455',
-        'Enfermaria',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Gonartrose severa bilateral (KL grau IV). Dor intratável em ambos os joelhos limitando deambulação.',
-      medicalReport:
-        'Paciente com histórico de 5 anos de dor progressiva nos joelhos. RX demonstra pinçamento articular bilateral e osteofitose proeminente. Sem resposta a tratamento conservador.',
-      patientHistory:
-        'Hipertensão arterial. Tabagismo cessante há 2 anos. ASA II. Risco cirúrgico cardiovascular baixo conforme avaliação cardiológica.',
-      surgeryDescription:
-        'Artroplastia total do joelho direito com implante cimentado. Uso de torniquete pneumático. Tempo cirúrgico estimado 2h.',
-    });
-    await recordStatusChange(dataSource, r[0].id, 1, 2);
-    await recordStatusChange(dataSource, r[0].id, 2, 3);
-    await dataSource.query(
-      `INSERT INTO surgery_request_analyses (surgery_request_id, request_number, received_at, quotation_1_number, quotation_1_received_at, notes)
-       VALUES ($1,'SUL-2024-00847',NOW() - INTERVAL '8 days','COT-SUL-001',NOW() - INTERVAL '5 days','Cotação de OPME pendente de 2ª e 3ª via.')`,
-      [r[0].id],
-    );
-    // OPME items
-    const opme3a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Prótese total de joelho cimentada - tamanho 4',1) RETURNING id`,
-      [r[0].id],
-    );
-    await dataSource.query(
-      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opme3a[0].id, supplierIds[1]],
-    );
-    const opme3b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Dreno de Hemovac 10mm',2) RETURNING id`,
-      [r[0].id],
-    );
-    await dataSource.query(
-      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opme3b[0].id, supplierIds[0]],
-    );
-    // Cotação
-    await dataSource.query(
-      `INSERT INTO surgery_request_quotations (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, notes, selected)
-       VALUES ($1,$2,'COT-BIO-2024-112',18500.00,NOW() - INTERVAL '5 days',NOW() + INTERVAL '25 days','Inclui set de instrumentais sem custo adicional.',false)`,
-      [r[0].id, supplierIds[1]],
-    );
-  }
-
-  // SR 4 — Status IN_SCHEDULING (Em Agendamento) — paciente 3
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, date_options)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,4,2,false,$7,$8,NOW() - INTERVAL '20 days',NOW() - INTERVAL '17 days','AMIL-20240358',$9) RETURNING id`,
-      [
-        adminId,
-        assistente1Id,
-        patientIds2[3],
-        hospitalIds[0],
-        healthPlanIds[1],
-        procedureIds[0],
-        '5544332211',
-        'Apartamento',
-        JSON.stringify(
-          (() => {
-            const buildSlot = (daysAhead: number, hour: number, minute = 0) => {
-              const d = new Date();
-              d.setDate(d.getDate() + daysAhead);
-              d.setHours(hour, minute, 0, 0);
-              return d.toISOString();
-            };
-            return [
-              buildSlot(7, 7, 30),
-              buildSlot(14, 13, 0),
-              buildSlot(21, 8, 0),
-            ];
-          })(),
-        ),
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Colelitíase com episódio recente de pancreatite biliar. Indicação de colecistectomia após resolução do quadro agudo.',
-      medicalReport:
-        'Paciente encaminhada da UTI após pancreatite aguda biliar. Amilase normalizada. Alta hospitalar há 3 semanas.',
-      patientHistory:
-        'Gestante com 10 semanas. Pancreatite biliar resolvida. Aguardando avaliação obstétrica para autorização cirúrgica.',
-      surgeryDescription:
-        'Colecistectomia videolaparoscópica eletiva. Decúbito lateral esquerdo. Insuflação com CO2 a 12mmHg.',
-    });
-    await recordStatusChange(dataSource, r[0].id, 1, 2);
-    await recordStatusChange(dataSource, r[0].id, 2, 3);
-    await recordStatusChange(dataSource, r[0].id, 3, 4);
-  }
-
-  // SR 5 — Status SCHEDULED (Agendada) — paciente 4
-  {
-    const surgeryDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, selected_date_index, hospital_protocol)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,5,3,true,$7,$8,NOW() - INTERVAL '25 days',NOW() - INTERVAL '22 days','UNIMED-20240612',$9,0,'HCD-2024-8834') RETURNING id`,
-      [
-        adminId,
-        adminId,
-        patientIds2[4],
-        hospitalIds[0],
-        healthPlanIds[0],
-        procedureIds[12],
-        '6677889900',
-        'Apartamento Superior',
-        surgeryDate,
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Doença arterial coronariana trisvasal com fração de ejeção preservada (FE 65%). Coronariografia demonstra lesões críticas em DA, CX e CD.',
-      medicalReport:
-        'Paciente de 72 anos com angina estável refratária ao tratamento clínico. Cintilografia miocárdica com isquemia extensa. Indicado tratamento cirúrgico pelo Heart Team.',
-      patientHistory:
-        'FA paroxística anticoagulada. HAS. DM2. Tabagismo cessante há 10 anos. Score de EuroSCORE II: 2,4%.',
-      surgeryDescription:
-        'Revascularização do miocárdio com circulação extracorpórea. Enxertos: AMIE para DA, VSM para CX e CD.',
-    });
-    await recordStatusChange(dataSource, r[0].id, 1, 2);
-    await recordStatusChange(dataSource, r[0].id, 2, 3);
-    await recordStatusChange(dataSource, r[0].id, 3, 4);
-    await recordStatusChange(dataSource, r[0].id, 4, 5);
-    const opme5a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Enxerto de veia safena (set)',1,1) RETURNING id`,
-      [r[0].id],
-    );
-    await dataSource.query(
-      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opme5a[0].id, supplierIds[1]],
-    );
-    const opme5b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Oxigenador de membrana',1,1) RETURNING id`,
-      [r[0].id],
-    );
-    await dataSource.query(
-      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opme5b[0].id, supplierIds[0]],
-    );
-    await dataSource.query(
-      `INSERT INTO surgery_request_quotations (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
-       VALUES ($1,$2,'COT-STR-2024-330',32000.00,NOW() - INTERVAL '18 days',NOW() + INTERVAL '12 days',true)`,
-      [r[0].id, supplierIds[1]],
-    );
-  }
-
-  // SR 6 — Status PERFORMED (Realizada) — paciente 0 (segunda cirurgia)
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol, surgery_date, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,6,2,false,$7,$8,NOW() - INTERVAL '45 days',NOW() - INTERVAL '42 days','UNIMED-20240288',NOW() - INTERVAL '15 days',NOW() - INTERVAL '15 days') RETURNING id`,
-      [
-        adminId,
-        assistente1Id,
-        patientIds2[0],
-        hospitalIds[1],
-        healthPlanIds[0],
-        procedureIds[8],
-        '0012345678',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Urolitíase com cálculo ureteral obstrutivo de 12mm no ureter proximal esquerdo. Hidronefrose leve.',
-      medicalReport:
-        'Paciente com episódio de cólica renal intensa. TC demonstra cálculo ureteral obstrutivo. Sem sinais de infecção.',
-      patientHistory:
-        'HAS compensada. Alergia a penicilina. Função renal preservada (creatinina 0,9).',
-      surgeryDescription:
-        'Nefrolitotripsia percutânea com litotripsora ultrassônica. Acesso percutâneo posterolateral.',
-    });
-    for (const [prev, next] of [
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 5],
-      [5, 6],
-    ]) {
-      await recordStatusChange(dataSource, r[0].id, prev, next);
-    }
-  }
-
-  // SR 7 — Status INVOICED (Faturada) — paciente 1
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,NOW() - INTERVAL '60 days',NOW() - INTERVAL '30 days') RETURNING id`,
-      [
-        adminId,
-        adminId,
-        patientIds2[1],
-        hospitalIds[1],
-        healthPlanIds[2],
-        procedureIds[13],
-        '9876543210',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Dispepsia refratária com suspeita de H. pylori. Indicação de EDA diagnóstica e terapêutica.',
-      medicalReport:
-        'Paciente relata pirose e epigastralgia há 3 meses. Sem resposta a IBP em dose plena.',
-      patientHistory:
-        'DM2 controlada. Sem contraindicações ao procedimento endoscópico.',
-      surgeryDescription:
-        'Endoscopia digestiva alta com biópsia de antro e corpo gástrico para pesquisa de H. pylori.',
-    });
-    for (const [prev, next] of [
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 5],
-      [5, 6],
-      [6, 7],
-    ]) {
-      await recordStatusChange(dataSource, r[0].id, prev, next);
-    }
-    await dataSource.query(
-      `INSERT INTO surgery_request_billings (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline)
-       VALUES ($1,$2,'FAT-SUL-2024-00334',NOW() - INTERVAL '10 days',1850.00,NOW() + INTERVAL '20 days')`,
-      [r[0].id, adminId],
-    );
-  }
-
-  // SR 8 — Status FINALIZED (Finalizada) — paciente 2
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, surgery_performed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,8,2,false,$7,$8,NOW() - INTERVAL '90 days',NOW() - INTERVAL '60 days') RETURNING id`,
-      [
-        adminId,
-        assistente1Id,
-        patientIds2[2],
-        hospitalIds[1],
-        healthPlanIds[2],
-        procedureIds[9],
-        '1122334455',
-        'Enfermaria',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Desvio septal grau III com rinite obstrutiva crônica e roncopatia. Sem resposta ao tratamento clínico.',
-      medicalReport:
-        'Paciente relata obstrução nasal bilateral há 5 anos, rinorreia, ronco e apneia do sono leve.',
-      patientHistory:
-        'Alérgico a dipirona. Sem comorbidades relevantes. ASA I.',
-      surgeryDescription:
-        'Septoplastia com turbinectomia parcial inferior bilateral. Anestesia geral. Uso de tamponamento nasal por 24h.',
-    });
-    for (const [prev, next] of [
-      [1, 2],
-      [2, 3],
-      [3, 4],
-      [4, 5],
-      [5, 6],
-      [6, 7],
-      [7, 8],
-    ]) {
-      await recordStatusChange(dataSource, r[0].id, prev, next);
-    }
-    await dataSource.query(
-      `INSERT INTO surgery_request_billings (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes)
-       VALUES ($1,$2,'FAT-SUL-2024-00089',NOW() - INTERVAL '50 days',2400.00,NOW() - INTERVAL '20 days',2400.00,NOW() - INTERVAL '22 days','Pagamento recebido integral sem glosa.')`,
-      [r[0].id, adminId],
-    );
-  }
-
-  // SR 9 — Status CLOSED (Encerrada / recusada) — paciente 3
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, closed_reason, closed_at)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,9,2,false,$7,$8,NOW() - INTERVAL '40 days','Convênio negou autorização alegando documentação incompleta. Decisão contestada e aguardando reanálise em nova solicitação.',NOW() - INTERVAL '5 days') RETURNING id`,
-      [
-        adminId,
-        adminId,
-        patientIds2[3],
-        hospitalIds[0],
-        healthPlanIds[1],
-        procedureIds[14],
-        '5544332211',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Pólipo de cólon de 18mm no sigmóide. Colonoscopia prévia com biópsia: adenoma tubular sem displasia de alto grau.',
-      medicalReport:
-        'Colonoscopia de rotina identificou pólipo sessil de 18mm. Indicada polipectomia endoscópica.',
-      patientHistory:
-        'Sem comorbidades relevantes. Colonoscopia prévia sem intercorrências. ASA I.',
-      surgeryDescription:
-        'Colonoscopia com polipectomia por alça fria. Sedação com propofol. Preparo intestinal com manitol.',
-    });
-    await recordStatusChange(dataSource, r[0].id, 1, 2);
-    await recordStatusChange(dataSource, r[0].id, 2, 9);
-  }
-
-  // SR 10 — Dra. Fernanda Rocha (neurocirurgia) — paciente 5
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type, sent_at, analysis_started_at, health_plan_protocol)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,3,true,$7,$8,NOW() - INTERVAL '12 days',NOW() - INTERVAL '9 days','BRAD-20241122') RETURNING id`,
-      [
-        collabMedicaId,
-        collabMedicaId,
-        patientIds2[5],
-        hospitalIds[2],
-        healthPlanIds[3],
-        procedureIds[6],
-        '1029384756',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Hérnia discal L4-L5 com radiculopatia L5 direita. RNM: extrusão foraminal com compressão radicular.',
-      medicalReport:
-        'Paciente com lombalgia irradiada para MID há 18 meses. Testes de provocação positivos. EMG: radiculopatia L5 direita.',
-      patientHistory:
-        'Sem comorbidades. Fisioterapia e bloqueio epidural sem melhora. IMC 24. ASA I.',
-      surgeryDescription:
-        'Discectomia lombar por via posterior (microdiscectomia). Acesso interlaminar L4-L5.',
-    });
-    await recordStatusChange(dataSource, r[0].id, 1, 2);
-    await recordStatusChange(dataSource, r[0].id, 2, 3);
-    const opme10a = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Cage intersomático TLIF PEEK',1) RETURNING id`,
-      [r[0].id],
-    );
-    await dataSource.query(
-      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opme10a[0].id, supplierIds[2]],
-    );
-    const opme10b = await dataSource.query(
-      `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Parafusos pediculares (kit 4)',1) RETURNING id`,
-      [r[0].id],
-    );
-    await dataSource.query(
-      `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opme10b[0].id, supplierIds[2]],
-    );
-    await dataSource.query(
-      `INSERT INTO surgery_request_quotations (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
-       VALUES ($1,$2,'COT-SYN-2024-778',24500.00,NOW() - INTERVAL '6 days',NOW() + INTERVAL '24 days',false)`,
-      [r[0].id, supplierIds[2]],
-    );
-  }
-
-  // SR 11 — Dra. Fernanda Rocha — paciente 6 — PENDING
-  {
-    const r = await dataSource.query(
-      `INSERT INTO surgery_requests (doctor_id, owner_id, created_by_id, patient_id, hospital_id, health_plan_id, procedure_id, status, priority, has_opme, health_plan_registration, health_plan_type)
-       VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,1,2,NULL,$7,$8) RETURNING id`,
-      [
-        collabMedicaId,
-        assistente2Id,
-        patientIds2[6],
-        hospitalIds[2],
-        healthPlanIds[3],
-        procedureIds[19],
-        '5647382910',
-        'Apartamento',
-      ],
-    );
-    srIds2.push(r[0].id);
-    await seedClinicalReportSections(dataSource, r[0].id, {
-      diagnosis:
-        'Espondilolistese degenerativa L4-L5 grau II com estenose do canal vertebral e síndrome de cauda equina incipiente.',
-      medicalReport:
-        'RM revela listese grau II com estenose foraminal bilateral. Déficit neurológico progressivo.',
-      patientHistory:
-        'Sem comorbidades cardiovasculares. Tabagismo cessante há 3 anos. ASA II.',
-      surgeryDescription:
-        'Artrodese posterolateral L4-L5 com instrumentação pedicular bilateral e descompressão canal.',
-    });
-  }
-
-  logger.log(`  ✅ ${srIds2.length} solicitações criadas para conta 2\n`);
-
-  // ========================================
   // 14. SOLICITAÇÕES CIRÚRGICAS — Conta 1 (medico@inexci.com)
   // ========================================
   logger.log('📋 Criando solicitações cirúrgicas (conta 1)...');
@@ -1652,8 +722,8 @@ async function main() {
         adminMedicoId,
         adminMedicoId,
         patientIds1[0],
-        hospitalIds[3],
-        healthPlanIds[4],
+        hospitalIds[0],
+        healthPlanIds[0],
         procedureIdsConta1[4],
         '1122334455',
         'Apartamento',
@@ -1684,7 +754,7 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC1a[0].id, supplierIds[3]],
+      [opmeC1a[0].id, supplierIds[0]],
     );
     const opmeC1b = await dataSource.query(
       `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Polia tibial ultracongruente',1,1) RETURNING id`,
@@ -1692,7 +762,7 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC1b[0].id, supplierIds[3]],
+      [opmeC1b[0].id, supplierIds[0]],
     );
     const opmeC1c = await dataSource.query(
       `INSERT INTO opme_items (surgery_request_id, name, quantity, authorized_quantity) VALUES ($1,'Cimento ósseo com antibiótico 40g',2,2) RETURNING id`,
@@ -1700,17 +770,17 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC1c[0].id, supplierIds[4]],
+      [opmeC1c[0].id, supplierIds[1]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_quotations (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
        VALUES ($1,$2,'COT-ZIM-2024-221',21500.00,NOW() - INTERVAL '22 days',NOW() + INTERVAL '8 days',true)`,
-      [r[0].id, supplierIds[3]],
+      [r[0].id, supplierIds[0]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_quotations (surgery_request_id, supplier_id, proposal_number, total_value, submission_date, valid_until, selected)
        VALUES ($1,$2,'COT-DEP-2024-445',23200.00,NOW() - INTERVAL '20 days',NOW() + INTERVAL '10 days',false)`,
-      [r[0].id, supplierIds[4]],
+      [r[0].id, supplierIds[1]],
     );
   }
 
@@ -1721,10 +791,10 @@ async function main() {
        VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,4,4,true,$7,$8,NOW() - INTERVAL '5 days',NOW() - INTERVAL '3 days','PORTO-20240777',$9) RETURNING id`,
       [
         adminMedicoId,
-        assistenteOrtId,
+        adminMedicoId,
         patientIds1[1],
-        hospitalIds[3],
-        healthPlanIds[5],
+        hospitalIds[0],
+        healthPlanIds[1],
         procedureIdsConta1[7],
         '9988776655',
         'Apartamento Superior',
@@ -1768,7 +838,7 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC2a[0].id, supplierIds[4]],
+      [opmeC2a[0].id, supplierIds[1]],
     );
     const opmeC2b = await dataSource.query(
       `INSERT INTO opme_items (surgery_request_id, name, quantity) VALUES ($1,'Cimento ósseo Palacos R 40g',3) RETURNING id`,
@@ -1776,7 +846,7 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC2b[0].id, supplierIds[4]],
+      [opmeC2b[0].id, supplierIds[1]],
     );
   }
 
@@ -1789,8 +859,8 @@ async function main() {
         adminMedicoId,
         adminMedicoId,
         patientIds1[3],
-        hospitalIds[4],
-        healthPlanIds[4],
+        hospitalIds[1],
+        healthPlanIds[0],
         procedureIdsConta1[5],
         '7766554433',
         'Apartamento',
@@ -1815,10 +885,10 @@ async function main() {
        VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,8,2,true,$7,$8,NOW() - INTERVAL '120 days',NOW() - INTERVAL '80 days') RETURNING id`,
       [
         adminMedicoId,
-        assistenteOrtId,
+        adminMedicoId,
         patientIds1[2],
-        hospitalIds[4],
-        healthPlanIds[6],
+        hospitalIds[1],
+        healthPlanIds[2],
         procedureIdsConta1[4],
         '4433221100',
         'Enfermaria',
@@ -1849,7 +919,7 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC4a[0].id, supplierIds[3]],
+      [opmeC4a[0].id, supplierIds[0]],
     );
     await dataSource.query(
       `INSERT INTO surgery_request_billings (surgery_request_id, created_by_id, invoice_protocol, invoice_sent_at, invoice_value, payment_deadline, received_value, received_at, receipt_notes, contested_received_value, contested_received_at, contested_receipt_notes)
@@ -1871,8 +941,8 @@ async function main() {
         adminMedicoId,
         adminMedicoId,
         patientIds1[4],
-        hospitalIds[3],
-        healthPlanIds[4],
+        hospitalIds[0],
+        healthPlanIds[0],
         procedureIdsConta1[19],
         '2211009988',
         'Apartamento',
@@ -1899,10 +969,10 @@ async function main() {
        VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,3,2,false,$7,$8,NOW() - INTERVAL '15 days',NOW() - INTERVAL '12 days') RETURNING id`,
       [
         adminMedicoId,
-        assistenteOrtId,
+        adminMedicoId,
         patientIds1[0],
-        hospitalIds[4],
-        healthPlanIds[5],
+        hospitalIds[1],
+        healthPlanIds[1],
         procedureIdsConta1[1],
         '1122334455',
         'Apartamento',
@@ -1937,8 +1007,8 @@ async function main() {
         adminMedicoId,
         adminMedicoId,
         patientIds1[1],
-        hospitalIds[3],
-        healthPlanIds[4],
+        hospitalIds[0],
+        healthPlanIds[0],
         procedureIdsConta1[17],
         '9988776655',
         'Apartamento Superior',
@@ -1960,7 +1030,7 @@ async function main() {
     );
     await dataSource.query(
       `INSERT INTO opme_item_suppliers (opme_item_id, supplier_id) VALUES ($1,$2)`,
-      [opmeC7a[0].id, supplierIds[3]],
+      [opmeC7a[0].id, supplierIds[0]],
     );
     await dataSource.query(
       `INSERT INTO report_sections (surgery_request_id, title, description, "order") VALUES ($1, 'Diagnóstico e Indicação', $2, 1)`,
@@ -1985,10 +1055,10 @@ async function main() {
        VALUES ($1,(SELECT owner_id FROM users WHERE id = $1),$2,$3,$4,$5,$6,7,1,false,$7,$8,NOW() - INTERVAL '65 days',NOW() - INTERVAL '35 days') RETURNING id`,
       [
         adminMedicoId,
-        assistenteOrtId,
+        adminMedicoId,
         patientIds1[2],
-        hospitalIds[4],
-        healthPlanIds[4],
+        hospitalIds[1],
+        healthPlanIds[0],
         procedureIdsConta1[18],
         '4433221100',
         'Enfermaria',
@@ -2031,8 +1101,8 @@ async function main() {
         adminMedicoId,
         adminMedicoId,
         patientIds1[3],
-        hospitalIds[4],
-        healthPlanIds[6],
+        hospitalIds[1],
+        healthPlanIds[2],
         procedureIdsConta1[10],
         '7766554433',
         'Apartamento',
@@ -2259,78 +1329,8 @@ async function main() {
       3,
     ],
   );
-  await dataSource.query(
-    `INSERT INTO surgery_request_templates (doctor_id, owner_id, name, template_data, usage_count) VALUES ($1, (SELECT owner_id FROM users WHERE id = $1), $2, $3, $4)`,
-    [
-      adminId,
-      'Revascularização Miocárdica',
-      JSON.stringify({
-        procedureId: procedureIds[12],
-        procedure: { id: procedureIds[12], name: procedureNames[12] },
-        procedureName: procedureNames[12],
-        opmeItems: [
-          {
-            name: 'Oxigenador de membrana',
-            manufacturers: ['Sorin Group'],
-            quantity: 1,
-          },
-        ],
-        requiredDocuments: [
-          'personal_document',
-          'doctor_request',
-          'medical_report',
-          'preoperative_exams',
-          'cardiac_evaluation',
-        ],
-        requiredExams: [
-          'Coronariografia',
-          'Ecocardiograma',
-          'Cintilografia miocárdica',
-          'Hemograma completo',
-        ],
-      }),
-      2,
-    ],
-  );
-  await dataSource.query(
-    `INSERT INTO surgery_request_templates (doctor_id, owner_id, name, template_data, usage_count) VALUES ($1, (SELECT owner_id FROM users WHERE id = $1), $2, $3, $4)`,
-    [
-      collabMedicaId,
-      'Discectomia Lombar',
-      JSON.stringify({
-        procedureId: procedureIds[6],
-        procedure: { id: procedureIds[6], name: procedureNames[6] },
-        procedureName: procedureNames[6],
-        opmeItems: [
-          {
-            name: 'Cage intersomático TLIF PEEK',
-            manufacturers: ['Medtronic'],
-            quantity: 1,
-          },
-          {
-            name: 'Parafusos pediculares (kit 4)',
-            manufacturers: ['Synthes'],
-            quantity: 1,
-          },
-        ],
-        requiredDocuments: [
-          'personal_document',
-          'doctor_request',
-          'medical_report',
-          'preoperative_exams',
-        ],
-        requiredExams: [
-          'RNM coluna lombar',
-          'EMG membros inferiores',
-          'Hemograma',
-          'Risco cirúrgico',
-        ],
-      }),
-      5,
-    ],
-  );
 
-  logger.log('  ✅ 4 templates criados\n');
+  logger.log('  ✅ 2 templates criados\n');
 
   // ========================================
   // 15f. ATIVIDADES nas solicitações
@@ -2344,7 +1344,7 @@ async function main() {
   );
   await dataSource.query(
     `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Paciente confirmou disponibilidade para cirurgia na data proposta. Exames pré-operatórios em dia.')`,
-    [srIds1[0], assistenteOrtId],
+    [srIds1[0], adminMedicoId],
   );
   await dataSource.query(
     `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'PDF da solicitação gerado e enviado para o convênio via e-mail.')`,
@@ -2365,26 +1365,6 @@ async function main() {
   await dataSource.query(
     `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Em Agendamento para Agendada')`,
     [srIds1[0], adminMedicoId],
-  );
-
-  // SR2 conta 2
-  await dataSource.query(
-    `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'status_change', 'Status alterado de Pendente para Enviada')`,
-    [srIds2[1], assistente1Id],
-  );
-  await dataSource.query(
-    `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Solicitação enviada por e-mail ao convênio Amil.')`,
-    [srIds2[1], assistente1Id],
-  );
-
-  // SR10 — Dra. Fernanda
-  await dataSource.query(
-    `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'system', 'Solicitação criada com OPME. Aguardando cotação.')`,
-    [srIds2[9], collabMedicaId],
-  );
-  await dataSource.query(
-    `INSERT INTO surgery_request_activities (surgery_request_id, user_id, type, content) VALUES ($1, $2, 'comment', 'Cotação da Synthes recebida. Valor R$ 24.500,00. Aguardando aprovação do convênio.')`,
-    [srIds2[9], collabMedicaId],
   );
 
   // SR C1-4 (finalizada com contestação)
@@ -2414,7 +1394,7 @@ async function main() {
 
   const doctorProfileRows = await dataSource.query(
     `SELECT id, user_id FROM doctor_profiles WHERE user_id = ANY($1::uuid[])`,
-    [[adminMedicoId, adminId, collabMedicaId]],
+    [[adminMedicoId]],
   );
   for (const dp of doctorProfileRows) {
     await dataSource.query(
@@ -2445,42 +1425,30 @@ async function main() {
   );
   logger.log('  • 20 procedimentos cirúrgicos');
   logger.log('  • CID/TUSS não são carregados automaticamente (carga manual)');
-  logger.log('  • 2 contas independentes (tenant isolation via owner_id)');
-  logger.log('  • 7 usuários (2 admins/médicos + 5 colaboradores)');
-  logger.log('  • 2 subscriptions ativas (plano Profissional)');
-  logger.log('  • 5 hospitais (3 RJ, 2 SP) com endereços reais');
-  logger.log('  • 7 convênios com contatos de autorização');
-  logger.log('  • 5 fornecedores de OPME');
+  logger.log('  • 1 conta (tenant isolation via owner_id)');
+  logger.log('  • 1 usuário (admin + médico)');
+  logger.log('  • 1 subscription ativa (plano Profissional)');
+  logger.log('  • 2 hospitais (SP) com endereços reais');
+  logger.log('  • 3 convênios com contatos de autorização');
+  logger.log('  • 2 fornecedores de OPME');
+  logger.log('  • 3 fabricantes de OPME (Zimmer Biomet, DePuy Synthes, Alcon)');
   logger.log(
-    '  • 5 fabricantes de OPME (Stryker, J&J MedTech, Zimmer Biomet, DePuy Synthes, Alcon)',
+    '  • 5 pacientes com dados completos (endereço, convênio, histórico)',
   );
-  logger.log(
-    '  • 13 pacientes com dados completos (endereço, convênio, histórico)',
-  );
-  logger.log(
-    '  • 20 solicitações cirúrgicas (todos os 9 status cobertos nas 2 contas)',
-  );
+  logger.log('  • 9 solicitações cirúrgicas (todos os 9 status cobertos)');
   logger.log(
     '  • OPME (com vínculo a fornecedores e fabricantes), cotações, análises, faturamentos, contestações, laudos',
   );
-  logger.log('  • 4 templates de solicitação');
+  logger.log('  • 2 templates de solicitação');
   logger.log('  • Atividades (comentários, mudanças de status, sistema)');
   logger.log(
-    '  • 3 cabeçalhos de médico (doctor_headers — texto apenas, sem logo)',
+    '  • 1 cabeçalho de médico (doctor_headers — texto apenas, sem logo)',
   );
   logger.log('');
-  logger.log('🔐 Credenciais (todos com senha: Teste123@):');
+  logger.log('🔐 Credenciais (senha: Teste123@):');
   logger.log('  ┌─────────────────────────────────────────────────────────┐');
   logger.log('  │ CONTA 1 (Ortopedia — São Paulo)                         │');
   logger.log('  │  medico@inexci.com        Admin + Médico (Ortopedia)    │');
-  logger.log('  │  assistente.ort@inexci.com  Assistente                  │');
-  logger.log('  ├─────────────────────────────────────────────────────────┤');
-  logger.log('  │ CONTA 2 (Cardiologia/Neurocirurgia — Rio de Janeiro)    │');
-  logger.log('  │  admin@inexci.com          Admin + Médico (Cardiologia) │');
-  logger.log('  │  medica@inexci.com          Médica colaboradora (Neuro) │');
-  logger.log('  │  assistente1@inexci.com     Assistente (admin + medica) │');
-  logger.log('  │  assistente2@inexci.com     Assistente (apenas medica)  │');
-  logger.log('  │  secretaria@inexci.com      Assistente (pendente)       │');
   logger.log('  └─────────────────────────────────────────────────────────┘');
 
   await dataSource.destroy();

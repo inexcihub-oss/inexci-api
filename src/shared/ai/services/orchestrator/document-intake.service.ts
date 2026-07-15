@@ -44,7 +44,7 @@ export class DocumentIntakeService {
    * caption).
    *
    * Pipeline (Sprint 1–3):
-   * - Mídia nova → staging no Supabase tmp, salva pendência por telefone e
+   * - Mídia nova → staging no R2 tmp, salva pendência por telefone e
    *   envia mensagem de intent (1/2/3).
    * - Pendência ativa + "cancelar" → apaga staging + pendência.
    * - Pendência ativa + intent reconhecida → roda OCR + classifier; injeta

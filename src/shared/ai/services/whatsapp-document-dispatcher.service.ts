@@ -24,7 +24,7 @@ export type DocumentIntent = 'attach' | 'create_sc' | 'create_patient';
  * a restarts do worker; cai num cache in-memory quando Redis indisponível.
  */
 export interface PendingDocumentRequest {
-  /** Path completo no bucket Supabase (ex.: `whatsapp-tmp/<uuid>-<file>`). */
+  /** Path completo no bucket R2 (ex.: `whatsapp-tmp/<uuid>-<file>`). */
   storagePath: string;
   /** MIME efetivo retornado pelo Twilio (ex.: `application/pdf`). */
   contentType: string;

@@ -5,11 +5,15 @@ import {
   SurgeryRequest,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
+import { ReportSection } from 'src/database/entities/report-section.entity';
 import {
   getPendenciesForStatus,
   PendencyConfig,
 } from 'src/config/pendencies.config';
 import { POST_SURGERY_REQUIRED_DOCS } from 'src/config/post-surgery-documents.config';
+import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
+import { DocumentRepository } from 'src/database/repositories/document.repository';
+import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 
 export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
@@ -64,6 +68,11 @@ export class PendencyValidatorService {
   constructor(
     @InjectRepository(SurgeryRequest)
     private readonly surgeryRequestRepository: Repository<SurgeryRequest>,
+    private readonly opmeItemRepository: OpmeItemRepository,
+    private readonly documentRepository: DocumentRepository,
+    private readonly tussItemRepository: SurgeryRequestTussItemRepository,
+    @InjectRepository(ReportSection)
+    private readonly reportSectionRepository: Repository<ReportSection>,
   ) {}
 
   /**
@@ -96,17 +105,55 @@ export class PendencyValidatorService {
 
   /**
    * Carrega várias solicitações de uma vez (WHERE id IN) para o resumo em lote do
-   * kanban, substituindo o N+1 anterior (uma query pesada por card). Com
-   * `relationLoadStrategy: 'query'` cada relação vira uma query separada com
-   * WHERE IN — total constante (~7 queries) independente do número de cards.
+   * kanban. Antes eram 7-8 round-trips SEQUENCIAIS (`relationLoadStrategy: 'query'`
+   * com todas as relações numa única chamada `find`); agora são 2 round-trips de
+   * wall-time: (a) 1 query com `join` para as relações *ToOne (não multiplicam
+   * linhas: `patient`, `billing`, `doctor.doctorProfile`) e (b) as 4 coleções
+   * *ToMany reais em paralelo via `Promise.all` (WHERE IN), evitando o produto
+   * cartesiano que um join direto causaria.
    */
-  private loadRequestsBatch(ids: string[]): Promise<SurgeryRequest[]> {
-    if (ids.length === 0) return Promise.resolve([]);
-    return this.surgeryRequestRepository.find({
-      where: { id: In(ids) },
-      relationLoadStrategy: 'query',
-      relations: PendencyValidatorService.PENDENCY_RELATIONS,
-    });
+  private async loadRequestsBatch(ids: string[]): Promise<SurgeryRequest[]> {
+    if (ids.length === 0) return [];
+
+    const [base, tussItems, opmeItems, documents, reportSections] =
+      await Promise.all([
+        this.surgeryRequestRepository.find({
+          where: { id: In(ids) },
+          relationLoadStrategy: 'join',
+          relations: { patient: true, billing: true, doctor: { doctorProfile: true } },
+        }),
+        this.tussItemRepository.findMany({ surgeryRequestId: In(ids) }),
+        this.opmeItemRepository.findMany({ surgeryRequestId: In(ids) }),
+        this.documentRepository.findMany({ surgeryRequestId: In(ids) }),
+        this.reportSectionRepository.find({
+          where: { surgeryRequestId: In(ids) },
+        }),
+      ]);
+
+    const groupBySurgeryRequestId = <T extends { surgeryRequestId: string }>(
+      rows: T[],
+    ): Map<string, T[]> => {
+      const map = new Map<string, T[]>();
+      for (const row of rows) {
+        const list = map.get(row.surgeryRequestId);
+        if (list) list.push(row);
+        else map.set(row.surgeryRequestId, [row]);
+      }
+      return map;
+    };
+
+    const tussById = groupBySurgeryRequestId(tussItems);
+    const opmeById = groupBySurgeryRequestId(opmeItems);
+    const documentsById = groupBySurgeryRequestId(documents);
+    const reportSectionsById = groupBySurgeryRequestId(reportSections);
+
+    return base.map((request) => ({
+      ...request,
+      tussItems: tussById.get(request.id) ?? [],
+      opmeItems: opmeById.get(request.id) ?? [],
+      documents: documentsById.get(request.id) ?? [],
+      reportSections: reportSectionsById.get(request.id) ?? [],
+    }));
   }
 
   /**

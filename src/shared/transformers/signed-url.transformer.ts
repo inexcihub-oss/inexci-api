@@ -5,7 +5,7 @@ const logger = new Logger('SignedUrlTransformer');
 
 /**
  * Transforma os documentos de uma solicitação cirúrgica, substituindo
- * os `uri` internos por URLs assinadas do Supabase.
+ * os `uri` internos por URLs assinadas do R2.
  */
 export function transformDocumentUrls(
   documents: any[],
@@ -31,7 +31,7 @@ export function transformDocumentUrls(
 
 /**
  * Transforma a `signatureUrl` do médico substituindo o path interno
- * por uma URL assinada do Supabase, quando necessário.
+ * por uma URL assinada do R2, quando necessário.
  */
 export async function transformDoctorSignatureUrl(
   doctor: any,

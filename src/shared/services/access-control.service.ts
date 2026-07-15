@@ -21,8 +21,14 @@ import { User, UserRole } from '../../database/entities/user.entity';
  *
  * Todo service que filtra por `doctorId`/`ownerId` deve usar este service.
  */
-/** TTL curto do cache de acesso: janela de staleness aceitável (segurança). */
-const ACCESSIBLE_DOCTORS_CACHE_TTL_MS = 30_000;
+/**
+ * TTL do cache de acesso: janela de staleness aceitável (segurança).
+ * `invalidateAccessibleDoctors` já é chamado nas mutações de vínculo
+ * (`user_doctor_access`), então esse TTL só cobre o intervalo entre a
+ * mutação e a invalidação explícita — 90s reduz round-trips repetidos
+ * (chamado 3-5x por request) sem abrir uma janela de staleness relevante.
+ */
+const ACCESSIBLE_DOCTORS_CACHE_TTL_MS = 90_000;
 
 @Injectable()
 export class AccessControlService {
@@ -34,8 +40,8 @@ export class AccessControlService {
 
   /**
    * Cache em memória de `getAccessibleDoctorIds`. Chamado 3–5× por requisição
-   * (SurgeryRequests, Patients, Reports, Documents) com o mesmo userId. TTL curto
-   * (30s) limita a janela de staleness; mutações de vínculo chamam `invalidate`.
+   * (SurgeryRequests, Patients, Reports, Documents) com o mesmo userId. TTL
+   * (90s) limita a janela de staleness; mutações de vínculo chamam `invalidate`.
    */
   private readonly accessibleDoctorsCache = new Map<
     string,
