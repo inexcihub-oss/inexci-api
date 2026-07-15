@@ -22,6 +22,9 @@ export interface MailJobData {
   attachments?: MailAttachment[];
   /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
+  /** Usuário/tenant da request que originou o envio (logging end-to-end). */
+  userId?: string | null;
+  tenantId?: string | null;
 }
 
 @Injectable()
@@ -52,12 +55,17 @@ export class MailService {
   }
 
   private async enqueue(data: MailJobData): Promise<void> {
-    const requestId = getRequestContext()?.requestId;
+    const ctx = getRequestContext();
     const masked = maskEmail(data.to);
     try {
       await this.mailQueue.add(
         'send-mail',
-        { ...data, requestId },
+        {
+          ...data,
+          requestId: ctx?.requestId,
+          userId: ctx?.userId ?? null,
+          tenantId: ctx?.tenantId ?? null,
+        },
         {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },

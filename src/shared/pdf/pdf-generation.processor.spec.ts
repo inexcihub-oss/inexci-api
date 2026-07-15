@@ -10,6 +10,7 @@ import {
   ActivityType,
   SurgeryRequestActivity,
 } from 'src/database/entities/surgery-request-activity.entity';
+import { getRequestContext } from 'src/shared/logging/request-context';
 
 describe('PdfGenerationProcessor', () => {
   let processor: PdfGenerationProcessor;
@@ -95,5 +96,27 @@ describe('PdfGenerationProcessor', () => {
         type: ActivityType.PDF_GENERATED,
       }),
     );
+  });
+
+  it('propaga userId do job para o contexto de log (AsyncLocalStorage)', async () => {
+    let capturedUserId: string | null | undefined;
+    mockSurgeryRequestRepository.findOneWithAllRelations.mockImplementation(
+      () => {
+        capturedUserId = getRequestContext()?.userId;
+        return { id: 'sc-2', opmeItems: [] };
+      },
+    );
+    mockPdfAssemblyService.generateLaudoPdf.mockResolvedValue({
+      pdf: Buffer.from('pdf-content').toString('base64'),
+    });
+    mockStorageService.create.mockResolvedValue('pdfs/solicitacao-sc-2.pdf');
+    mockActivityRepo.save.mockResolvedValue(undefined);
+
+    await processor.handleGeneratePdf({
+      data: { surgeryRequestId: 'sc-2', userId: 'user-42' },
+    } as Job);
+
+    expect(capturedUserId).toBe('user-42');
+    expect(getRequestContext()).toBeUndefined();
   });
 });

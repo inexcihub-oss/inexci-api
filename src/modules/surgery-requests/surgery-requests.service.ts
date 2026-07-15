@@ -21,6 +21,7 @@ import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { withActiveSpan } from 'src/shared/observability/span.util';
+import { trace } from '@opentelemetry/api';
 
 // ── DTOs de transição ────────────────────────────────────────────────────────
 import { SendRequestDto } from './dto/send-request.dto';
@@ -127,8 +128,13 @@ export class SurgeryRequestsService {
    */
   async findAllForKanban(query: FindManyKanbanDto, userId: string) {
     return withActiveSpan(
-      'surgery_request.kanban',
-      { 'user.id': userId },
+      'surgeryRequest.kanban',
+      {
+        'user.id': userId,
+        ...(query.status?.length && {
+          'surgeryRequest.statusFilter': query.status.join(','),
+        }),
+      },
       async () => {
         const doctorIds =
           await this.accessControlService.getAccessibleDoctorIds(userId);
@@ -204,8 +210,8 @@ export class SurgeryRequestsService {
    */
   async findAgenda(query: FindAgendaDto, userId: string) {
     return withActiveSpan(
-      'surgery_request.agenda',
-      { 'user.id': userId },
+      'surgeryRequest.agenda',
+      { 'user.id': userId, 'date.from': query.from, 'date.to': query.to },
       async () => {
         const doctorIds =
           await this.accessControlService.getAccessibleDoctorIds(userId);
@@ -234,8 +240,8 @@ export class SurgeryRequestsService {
 
   async findOne(id: string, userId: string) {
     return withActiveSpan(
-      'surgery_request.findOne',
-      { 'surgery_request.id': id, 'user.id': userId },
+      'surgeryRequest.findDetail',
+      { 'surgeryRequest.id': id, 'user.id': userId },
       async () => {
         // JwtAuthGuard já validou o usuário; buildAccessWhere restringe por acesso (P9).
         const where = await this.buildAccessWhere({ id }, userId);
@@ -243,6 +249,13 @@ export class SurgeryRequestsService {
           await this.surgeryRequestRepository.findOne(where);
         if (!surgeryRequest)
           throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+        trace
+          .getActiveSpan()
+          ?.setAttribute('surgeryRequest.status', surgeryRequest.status);
+        trace
+          .getActiveSpan()
+          ?.setAttribute('tenantId', surgeryRequest.ownerId ?? '');
 
         if (Array.isArray(surgeryRequest.documents)) {
           surgeryRequest.documents = await transformDocumentUrls(

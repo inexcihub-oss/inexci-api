@@ -109,8 +109,13 @@ export class MailProcessor implements OnModuleInit {
   @Process('send-mail')
   async handleSendMail(job: Job<MailJobData>) {
     const requestId = job.data.requestId || randomUUID();
-    return requestContextStorage.run({ requestId }, () =>
-      this.processSendMail(job),
+    return requestContextStorage.run(
+      {
+        requestId,
+        userId: job.data.userId ?? null,
+        tenantId: job.data.tenantId ?? null,
+      },
+      () => this.processSendMail(job),
     );
   }
 

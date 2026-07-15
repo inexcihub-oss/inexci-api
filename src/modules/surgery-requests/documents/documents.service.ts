@@ -96,8 +96,9 @@ export class DocumentsService {
           try {
             await this.storageService.delete(document.uri);
           } catch (error) {
-            this.logger.error('Erro ao deletar arquivo do storage', error);
-            // Não falha a transação se o arquivo não existir no storage
+            // Não falha a transação se o arquivo não existir no storage —
+            // falha tolerada/esperada, não é um problema acionável.
+            this.logger.warn('Erro ao deletar arquivo do storage', error);
           }
         }
       },

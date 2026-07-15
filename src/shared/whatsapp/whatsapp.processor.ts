@@ -65,8 +65,13 @@ export class WhatsappProcessor {
   @Process('send-whatsapp')
   async handleSendWhatsapp(job: Job<WhatsappJobData>): Promise<void> {
     const requestId = job.data.requestId || randomUUID();
-    return requestContextStorage.run({ requestId }, () =>
-      this.processSendWhatsapp(job),
+    return requestContextStorage.run(
+      {
+        requestId,
+        userId: job.data.userId ?? null,
+        tenantId: job.data.tenantId ?? null,
+      },
+      () => this.processSendWhatsapp(job),
     );
   }
 

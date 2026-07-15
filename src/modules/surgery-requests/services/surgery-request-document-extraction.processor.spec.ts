@@ -1,5 +1,6 @@
 import { Job } from 'bull';
 import { SurgeryRequestDocumentExtractionProcessor } from './surgery-request-document-extraction.processor';
+import { getRequestContext } from 'src/shared/logging/request-context';
 
 describe('SurgeryRequestDocumentExtractionProcessor', () => {
   let fromDocumentService: { extractFromDocument: jest.Mock };
@@ -52,6 +53,33 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
       expect.objectContaining({ kind: 'medical_report' }),
       'doc.pdf',
     );
+  });
+
+  it('propaga userId do job para o contexto de log (AsyncLocalStorage)', async () => {
+    let capturedUserId: string | null | undefined;
+    fromDocumentService.extractFromDocument.mockImplementation(() => {
+      capturedUserId = getRequestContext()?.userId;
+      return Promise.resolve({ kind: 'medical_report' });
+    });
+
+    const job = {
+      id: 'job-3',
+      data: {
+        userId: 'user-99',
+        file: {
+          originalname: 'doc.pdf',
+          mimetype: 'application/pdf',
+          size: 100,
+          bufferBase64: Buffer.from('abc').toString('base64'),
+        },
+      },
+      attemptsMade: 0,
+    } as Job<any>;
+
+    await processor.handleExtractFromDocument(job);
+
+    expect(capturedUserId).toBe('user-99');
+    expect(getRequestContext()).toBeUndefined();
   });
 
   it('registra erro amigável no dead-letter quando esgota tentativas', async () => {

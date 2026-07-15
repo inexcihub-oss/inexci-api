@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import OpenAI from 'openai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ToolRegistryService } from './tool-registry.service';
@@ -142,7 +142,16 @@ export class ToolExecutorService {
           }
         }
       } catch (error: any) {
-        this.logger.error(`Erro na tool ${fn.name}: ${error.message}`);
+        // Exceções de negócio (4xx — validação, "não encontrado", etc.) são
+        // esperadas no fluxo conversacional e viram apenas texto de resposta
+        // ao LLM; não devem poluir `level=error` no Loki. Só falhas
+        // inesperadas (infra, bug) merecem `error`.
+        const logMessage = `Erro na tool ${fn.name}: ${error.message}`;
+        if (error instanceof HttpException && error.getStatus() < 500) {
+          this.logger.warn(logMessage);
+        } else {
+          this.logger.error(logMessage);
+        }
         this.eventEmitter?.emit('tool_failed', {
           toolName: fn.name,
           ownerId: context.ownerId,

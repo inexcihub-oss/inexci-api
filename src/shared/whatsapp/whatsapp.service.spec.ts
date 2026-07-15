@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bull';
 import { WhatsappService } from './whatsapp.service';
 import { WHATSAPP_TEMPLATES } from './whatsapp-templates.constants';
+import { requestContextStorage } from '../logging/request-context';
 
 describe('WhatsappService', () => {
   let service: WhatsappService;
@@ -36,7 +37,7 @@ describe('WhatsappService', () => {
 
       expect(mockQueue.add).toHaveBeenCalledWith(
         'send-whatsapp',
-        { to: '+5511999999999', body: 'Olá!' },
+        expect.objectContaining({ to: '+5511999999999', body: 'Olá!' }),
         expect.objectContaining({
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -44,6 +45,18 @@ describe('WhatsappService', () => {
           removeOnFail: false,
         }),
       );
+    });
+
+    it('propaga userId/tenantId do contexto de request para o job', async () => {
+      await requestContextStorage.run(
+        { requestId: 'req-1', userId: 'user-1', tenantId: 'tenant-1' },
+        () => service.sendMessage('+5511999999999', 'Olá!'),
+      );
+
+      const [, jobData] = mockQueue.add.mock.calls[0];
+      expect(jobData.userId).toBe('user-1');
+      expect(jobData.tenantId).toBe('tenant-1');
+      expect(jobData.requestId).toBe('req-1');
     });
 
     it('não deve propagar exceção se a fila falhar (FR-4)', async () => {
@@ -77,11 +90,11 @@ describe('WhatsappService', () => {
 
       expect(mockQueue.add).toHaveBeenCalledWith(
         'send-whatsapp',
-        {
+        expect.objectContaining({
           to: '+5511999999999',
           contentSid: 'HXabc123',
           variables: { '1': 'João', '2': 'Em Análise', '3': 'Hospital Geral' },
-        },
+        }),
         expect.objectContaining({
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },

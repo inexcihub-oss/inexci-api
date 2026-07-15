@@ -6,6 +6,8 @@ import {
   DocumentExtractionJobData,
   SurgeryRequestDocumentExtractionJobsService,
 } from './surgery-request-document-extraction-jobs.service';
+import { requestContextStorage } from 'src/shared/logging/request-context';
+import { randomUUID } from 'crypto';
 
 const DOCUMENT_EXTRACTION_QUEUE = 'document-extraction';
 const DOCUMENT_EXTRACTION_JOB = 'extract-from-document';
@@ -26,6 +28,16 @@ export class SurgeryRequestDocumentExtractionProcessor {
 
   @Process(DOCUMENT_EXTRACTION_JOB)
   async handleExtractFromDocument(job: Job<DocumentExtractionJobData>) {
+    const requestId = job.data.requestId || randomUUID();
+    return requestContextStorage.run(
+      { requestId, userId: job.data.userId ?? null },
+      () => this.processExtractFromDocument(job),
+    );
+  }
+
+  private async processExtractFromDocument(
+    job: Job<DocumentExtractionJobData>,
+  ) {
     const jobId = String(job.id);
     const { userId, file } = job.data;
 

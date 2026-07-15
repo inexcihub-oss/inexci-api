@@ -10,12 +10,18 @@ import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 import { getRequestContext, setRequestContext } from './request-context';
 
+/** Acima deste limite, além do `http_request`, emite um `event=slow_request` dedicado. */
+const DEFAULT_SLOW_REQUEST_THRESHOLD_MS = 1500;
+
 /**
  * Interceptor global que loga uma linha estruturada por request HTTP
  * (`event=http_request`) com método, URL sanitizada, status, duração,
- * userId quando disponível e IP. Também espelha o `userId`/`tenantId` do
- * `request.user` (populado pelo `JwtAuthGuard`) no `AsyncLocalStorage`,
- * permitindo que logs subsequentes herdem esses campos.
+ * handler (`Class.method`), userId quando disponível e IP. Também espelha o
+ * `userId`/`tenantId` do `request.user` (populado pelo `JwtAuthGuard`) no
+ * `AsyncLocalStorage`, permitindo que logs subsequentes herdem esses campos.
+ * Requests mais lentas que `SLOW_REQUEST_THRESHOLD_MS` (default 1500ms)
+ * também emitem um `event=slow_request` — facilita alerta/consulta no Loki
+ * sem precisar filtrar por `durationMs > N` em toda query.
  *
  * Saída intencionalmente compacta — campos detalhados (headers, body) NUNCA
  * são logados aqui para não vazar PII.
@@ -24,6 +30,7 @@ import { getRequestContext, setRequestContext } from './request-context';
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger('Http');
   private readonly traceLogger = new Logger('Trace');
+  private readonly slowRequestThresholdMs = this.resolveSlowThreshold();
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (context.getType() !== 'http') {
@@ -56,7 +63,7 @@ export class LoggingInterceptor implements NestInterceptor {
           this.traceLogger.log(
             `← ${handlerLabel} (${Date.now() - startedAt}ms)`,
           );
-          this.emit(req, res, startedAt);
+          this.emit(req, res, startedAt, handlerLabel);
         },
         error: (err: unknown) => {
           const reason =
@@ -64,7 +71,7 @@ export class LoggingInterceptor implements NestInterceptor {
           this.traceLogger.error(
             `✗ ${handlerLabel} (${Date.now() - startedAt}ms) — ${reason}`,
           );
-          this.emit(req, res, startedAt, err);
+          this.emit(req, res, startedAt, handlerLabel, err);
         },
       }),
     );
@@ -74,6 +81,7 @@ export class LoggingInterceptor implements NestInterceptor {
     req: Request,
     res: Response,
     startedAt: number,
+    handler: string,
     err?: unknown,
   ): void {
     const ctx = getRequestContext();
@@ -82,16 +90,19 @@ export class LoggingInterceptor implements NestInterceptor {
     const method = req.method;
     const statusCode = this.resolveStatusCode(err, res.statusCode);
 
-    const payload = JSON.stringify({
+    // Objeto estruturado (não pré-serializado) — o InexciLogger achata estes
+    // campos no nível raiz do JSON em vez de aninhá-los dentro de "message".
+    const payload = {
       event: 'http_request',
       method,
       url,
+      handler,
       statusCode,
       durationMs,
       userId: ctx?.userId ?? null,
       tenantId: ctx?.tenantId ?? null,
       ip: req.ip || null,
-    });
+    };
 
     if (statusCode >= 500) {
       this.logger.error(payload);
@@ -100,6 +111,17 @@ export class LoggingInterceptor implements NestInterceptor {
     } else {
       this.logger.log(payload);
     }
+
+    if (durationMs > this.slowRequestThresholdMs) {
+      this.logger.warn({ ...payload, event: 'slow_request' });
+    }
+  }
+
+  private resolveSlowThreshold(): number {
+    const raw = Number(process.env.SLOW_REQUEST_THRESHOLD_MS);
+    return Number.isFinite(raw) && raw > 0
+      ? raw
+      : DEFAULT_SLOW_REQUEST_THRESHOLD_MS;
   }
 
   private resolveStatusCode(err: unknown, currentStatusCode: number): number {

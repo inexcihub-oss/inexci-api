@@ -33,7 +33,9 @@ export class NotificationsHealthService extends HealthIndicator {
         username: username ?? undefined,
       });
     } catch (error) {
-      this.logger.warn(`Redis health check failed: ${error}`);
+      // Redis fora do ar derruba as 5 filas Bull (mail, whatsapp, pdf,
+      // ai-messages, document-extraction) — falha crítica, não trivial.
+      this.logger.error(`Redis health check failed: ${error}`);
       throw new HealthCheckError(
         'Redis check failed',
         this.getStatus('redis', false, { host, port, error: String(error) }),
@@ -52,7 +54,8 @@ export class NotificationsHealthService extends HealthIndicator {
       await this.checkTcpConnection(host, port, 5000);
       return this.getStatus('smtp', true, { host, port });
     } catch (error) {
-      this.logger.warn(`SMTP health check failed: ${error}`);
+      // Canal de e-mail totalmente indisponível — falha crítica.
+      this.logger.error(`SMTP health check failed: ${error}`);
       throw new HealthCheckError(
         'SMTP check failed',
         this.getStatus('smtp', false, { host, port, error: String(error) }),

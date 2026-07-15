@@ -102,10 +102,11 @@ export class InexciLogger extends ConsoleLogger {
   ): void {
     const ctx = getRequestContext();
     const now = new Date().toISOString();
-    const message = this.normalizeMessage(rawMessage);
+    const structured = this.isStructuredPayload(rawMessage);
 
     if (this.pretty) {
-      this.writePretty(level, now, message, context, ctx, stack);
+      const prettyMessage = this.normalizeMessage(rawMessage);
+      this.writePretty(level, now, prettyMessage, context, ctx, stack);
       return;
     }
 
@@ -116,11 +117,24 @@ export class InexciLogger extends ConsoleLogger {
       timestamp: now,
       level,
       context: context ?? this.context ?? null,
-      message,
     };
+
+    // Mensagens estruturadas (ex.: evento http_request) são achatadas no
+    // nível raiz do JSON — não aninhadas dentro de "message" — para que
+    // cada campo (event, userId, statusCode...) vire coluna filtrável no
+    // Loki em vez de texto escapado ilegível.
+    if (structured) {
+      Object.assign(payload, rawMessage as Record<string, unknown>);
+    } else {
+      payload.message = this.normalizeMessage(rawMessage);
+    }
+
     if (ctx?.requestId) payload.requestId = ctx.requestId;
-    if (ctx?.userId) payload.userId = ctx.userId;
-    if (ctx?.tenantId) payload.tenantId = ctx.tenantId;
+    if (ctx?.userId && payload.userId === undefined)
+      payload.userId = ctx.userId;
+    if (ctx?.tenantId && payload.tenantId === undefined) {
+      payload.tenantId = ctx.tenantId;
+    }
     if (traceId) payload.traceId = traceId;
     if (stack) payload.stack = stack;
 
@@ -128,6 +142,17 @@ export class InexciLogger extends ConsoleLogger {
     const stream =
       level === 'error' || level === 'warn' ? process.stderr : process.stdout;
     stream.write(line + '\n');
+  }
+
+  private isStructuredPayload(
+    value: unknown,
+  ): value is Record<string, unknown> {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      !(value instanceof Error) &&
+      !Array.isArray(value)
+    );
   }
 
   private writePretty(

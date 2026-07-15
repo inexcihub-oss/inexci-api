@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
+import { getRequestContext } from 'src/shared/logging/request-context';
 
 export interface PdfGenerationJobData {
   surgeryRequestId: string;
   userId: string;
+  /** Correlation ID propagado para o processor (logging end-to-end). */
+  requestId?: string;
 }
 
 @Injectable()
@@ -26,9 +29,14 @@ export class PdfGenerationService {
     userId: string,
   ): Promise<void> {
     try {
+      const requestId = getRequestContext()?.requestId;
       await this.pdfGenerationQueue.add(
         'generate-pdf',
-        { surgeryRequestId, userId } satisfies PdfGenerationJobData,
+        {
+          surgeryRequestId,
+          userId,
+          requestId,
+        } satisfies PdfGenerationJobData,
         {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },

@@ -15,6 +15,9 @@ export interface WhatsappJobData {
   variables?: Record<string, string>;
   /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
+  /** Usuário/tenant da request que originou o envio (logging end-to-end). */
+  userId?: string | null;
+  tenantId?: string | null;
 }
 
 @Injectable()
@@ -31,12 +34,18 @@ export class WhatsappService {
    * Só funciona dentro da janela de 24h de uma conversa iniciada pelo usuário.
    */
   async sendMessage(to: string, body: string): Promise<void> {
-    const requestId = getRequestContext()?.requestId;
+    const ctx = getRequestContext();
     const masked = maskPhone(to);
     try {
       await this.whatsappQueue.add(
         'send-whatsapp',
-        { to, body, requestId } satisfies WhatsappJobData,
+        {
+          to,
+          body,
+          requestId: ctx?.requestId,
+          userId: ctx?.userId ?? null,
+          tenantId: ctx?.tenantId ?? null,
+        } satisfies WhatsappJobData,
         {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -61,12 +70,19 @@ export class WhatsappService {
     contentSid: string,
     variables: Record<string, string>,
   ): Promise<void> {
-    const requestId = getRequestContext()?.requestId;
+    const ctx = getRequestContext();
     const masked = maskPhone(to);
     try {
       await this.whatsappQueue.add(
         'send-whatsapp',
-        { to, contentSid, variables, requestId } satisfies WhatsappJobData,
+        {
+          to,
+          contentSid,
+          variables,
+          requestId: ctx?.requestId,
+          userId: ctx?.userId ?? null,
+          tenantId: ctx?.tenantId ?? null,
+        } satisfies WhatsappJobData,
         {
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },

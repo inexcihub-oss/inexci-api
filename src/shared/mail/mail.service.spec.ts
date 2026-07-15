@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bull';
 import { MailService } from './mail.service';
+import { requestContextStorage } from '../logging/request-context';
 
 describe('MailService', () => {
   let service: MailService;
@@ -93,6 +94,21 @@ describe('MailService', () => {
           backoff: { type: 'exponential', delay: 5000 },
         }),
       );
+    });
+
+    it('propaga userId/tenantId do contexto de request para o job', async () => {
+      await requestContextStorage.run(
+        { requestId: 'req-1', userId: 'user-1', tenantId: 'tenant-1' },
+        () =>
+          service.send('surgery-request-sent', 'test@email.com', 'Assunto', {
+            key: 'value',
+          }),
+      );
+
+      const jobData = mockQueue.add.mock.calls[0][1];
+      expect(jobData.userId).toBe('user-1');
+      expect(jobData.tenantId).toBe('tenant-1');
+      expect(jobData.requestId).toBe('req-1');
     });
   });
 });

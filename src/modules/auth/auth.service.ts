@@ -496,7 +496,9 @@ export class AuthService {
     const consumed = await this.refreshTokenStore.consume(token);
 
     if (consumed.status === 'reused') {
-      this.logger.warn(
+      // Sinal de possível roubo de token — incidente de segurança acionável,
+      // não um evento operacional trivial (ver comentário do método acima).
+      this.logger.error(
         `[AUTH_REUSE_DETECTED] Reuso de refresh token detectado para userId=${consumed.userId}. Revogando todos os tokens da família.`,
       );
       await this.revokeRefreshTokens(consumed.userId);

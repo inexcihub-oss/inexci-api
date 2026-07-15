@@ -12,6 +12,8 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { PdfGenerationJobData } from './pdf-generation.service';
 import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
+import { requestContextStorage } from 'src/shared/logging/request-context';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 @Processor('pdf-generation')
@@ -28,6 +30,16 @@ export class PdfGenerationProcessor {
 
   @Process('generate-pdf')
   async handleGeneratePdf(job: Job<PdfGenerationJobData>): Promise<void> {
+    const requestId = job.data.requestId || randomUUID();
+    return requestContextStorage.run(
+      { requestId, userId: job.data.userId ?? null },
+      () => this.processGeneratePdf(job),
+    );
+  }
+
+  private async processGeneratePdf(
+    job: Job<PdfGenerationJobData>,
+  ): Promise<void> {
     const { surgeryRequestId, userId } = job.data;
     this.logger.log(
       `[PDF] Iniciando geração para solicitação: ${surgeryRequestId}`,

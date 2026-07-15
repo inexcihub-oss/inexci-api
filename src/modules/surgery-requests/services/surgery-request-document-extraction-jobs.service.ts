@@ -20,6 +20,7 @@ import {
 import { NotificationsGateway } from 'src/modules/notifications/notifications.gateway';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
+import { getRequestContext } from 'src/shared/logging/request-context';
 
 const DOCUMENT_EXTRACTION_QUEUE = 'document-extraction';
 const DOCUMENT_EXTRACTION_JOB = 'extract-from-document';
@@ -40,6 +41,8 @@ export interface DocumentExtractionJobData {
     size: number;
     bufferBase64: string;
   };
+  /** Correlation ID propagado para o processor (logging end-to-end). */
+  requestId?: string;
 }
 
 export interface DocumentExtractionStatusEvent {
@@ -104,6 +107,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
             size: file.size,
             bufferBase64: file.buffer.toString('base64'),
           },
+          requestId: getRequestContext()?.requestId,
         } satisfies DocumentExtractionJobData,
         {
           jobId,

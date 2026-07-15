@@ -9,6 +9,7 @@ import {
   NotificationDirection,
   NotificationSendType,
 } from 'src/database/entities/notification-send-log.entity';
+import { getRequestContext } from 'src/shared/logging/request-context';
 
 describe('WhatsappProcessor', () => {
   let processor: WhatsappProcessor;
@@ -151,6 +152,34 @@ describe('WhatsappProcessor', () => {
 
       const savedLog = mockSendLogRepository.save.mock.calls[0][0];
       expect(savedLog.errorMessage).toBeNull();
+    });
+
+    it('propaga userId/tenantId do job para o contexto de log (AsyncLocalStorage)', async () => {
+      let capturedUserId: string | null | undefined;
+      let capturedTenantId: string | null | undefined;
+      mockSendLogRepository.create.mockImplementation((data: any) => {
+        const ctx = getRequestContext();
+        capturedUserId = ctx?.userId;
+        capturedTenantId = ctx?.tenantId;
+        return { ...data };
+      });
+
+      const job = {
+        data: {
+          to: '+5511999999999',
+          body: 'Teste',
+          userId: 'user-55',
+          tenantId: 'tenant-55',
+        },
+        id: '3',
+        attemptsMade: 0,
+      } as any;
+
+      await processor.handleSendWhatsapp(job);
+
+      expect(capturedUserId).toBe('user-55');
+      expect(capturedTenantId).toBe('tenant-55');
+      expect(getRequestContext()).toBeUndefined();
     });
 
     it('deve normalizar telefone BR para E.164 (mascarado no log)', async () => {

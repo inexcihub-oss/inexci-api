@@ -171,4 +171,5 @@ export const envValidationSchema = Joi.object({
   LOG_RETENTION_AI_USAGE_DAYS: Joi.number().default(365),
   LOG_RETENTION_PII_DAYS: Joi.number().default(180),
   LOG_RETENTION_STALE_DAYS: Joi.number().default(60),
+  SLOW_REQUEST_THRESHOLD_MS: Joi.number().positive().default(1500),
 }).options({ allowUnknown: true });

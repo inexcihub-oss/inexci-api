@@ -119,20 +119,68 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
       );
     });
 
-    const httpCalls = logSpy.mock.calls.filter((call) =>
-      String(call[0] ?? '').includes('http_request'),
+    const httpCalls = logSpy.mock.calls.filter(
+      (call) => (call[0] as any)?.event === 'http_request',
     );
     expect(httpCalls.length).toBe(1);
-    const payload = JSON.parse(httpCalls[0][0] as string);
+    const payload = httpCalls[0][0] as Record<string, unknown>;
     expect(payload).toMatchObject({
       event: 'http_request',
       method: 'POST',
       url: '/auth/login',
+      handler: 'FakeController.fakeHandler',
       statusCode: 200,
       userId: 'u-1',
       tenantId: 'owner-1',
     });
     expect(payload).not.toHaveProperty('userEmail');
+  });
+
+  it('emite também event=slow_request quando durationMs excede o limite (default 1500ms)', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+    jest.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(2000);
+
+    const req = {
+      method: 'GET',
+      originalUrl: '/slow',
+      url: '/slow',
+      user: { userId: 'u-slow' },
+    };
+    const res = { statusCode: 200 };
+    const handler: CallHandler = { handle: () => of('ok') };
+
+    await requestContextStorage.run({ requestId: 'req-slow' }, async () => {
+      await lastValueFrom(
+        interceptor.intercept(buildExecutionContext(req, res), handler),
+      );
+    });
+
+    const slowCalls = warnSpy.mock.calls.filter(
+      (call) => (call[0] as any)?.event === 'slow_request',
+    );
+    expect(slowCalls.length).toBe(1);
+    const payload = slowCalls[0][0] as Record<string, unknown>;
+    expect(payload.durationMs).toBe(2000);
+    expect(payload.url).toBe('/slow');
+    expect(payload.userId).toBe('u-slow');
+  });
+
+  it('não emite event=slow_request quando durationMs está dentro do limite', async () => {
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn');
+    const req = { method: 'GET', originalUrl: '/fast', url: '/fast' };
+    const res = { statusCode: 200 };
+    const handler: CallHandler = { handle: () => of('ok') };
+
+    await requestContextStorage.run({ requestId: 'req-fast' }, async () => {
+      await lastValueFrom(
+        interceptor.intercept(buildExecutionContext(req, res), handler),
+      );
+    });
+
+    const slowCalls = warnSpy.mock.calls.filter(
+      (call) => (call[0] as any)?.event === 'slow_request',
+    );
+    expect(slowCalls.length).toBe(0);
   });
 
   it('em caso de erro, ainda emite o payload http_request', async () => {
@@ -156,11 +204,11 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
       ).rejects.toThrow('explodiu');
     });
 
-    const httpErrorCalls = errorSpy.mock.calls.filter((call) =>
-      String(call[0] ?? '').includes('http_request'),
+    const httpErrorCalls = errorSpy.mock.calls.filter(
+      (call) => (call[0] as any)?.event === 'http_request',
     );
     expect(httpErrorCalls.length).toBe(1);
-    const payload = JSON.parse(httpErrorCalls[0][0] as string);
+    const payload = httpErrorCalls[0][0] as Record<string, unknown>;
     expect(payload.statusCode).toBe(500);
     expect(payload.userId).toBe('u-x');
   });
@@ -186,11 +234,11 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
       ).rejects.toThrow('db falhou');
     });
 
-    const httpErrorCalls = errorSpy.mock.calls.filter((call) =>
-      String(call[0] ?? '').includes('http_request'),
+    const httpErrorCalls = errorSpy.mock.calls.filter(
+      (call) => (call[0] as any)?.event === 'http_request',
     );
     expect(httpErrorCalls.length).toBe(1);
-    const payload = JSON.parse(httpErrorCalls[0][0] as string);
+    const payload = httpErrorCalls[0][0] as Record<string, unknown>;
     expect(payload.statusCode).toBe(500);
     expect(payload.method).toBe('POST');
     expect(payload.url).toBe('/surgery-requests/templates');

@@ -63,8 +63,8 @@ jobs:
             echo "==> Reconstruindo imagem da API..."
             $COMPOSE build api
 
-            echo "==> Subindo redis, stt-service, api e dozzle..."
-            $COMPOSE up -d redis stt-service api dozzle || true
+            echo "==> Subindo redis, stt-service, api e alloy..."
+            $COMPOSE up -d redis stt-service api alloy || true
 
             echo "==> Aguardando API ficar healthy..."
             HEALTHY=false

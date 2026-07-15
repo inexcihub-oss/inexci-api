@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bull';
 import { context, propagation } from '@opentelemetry/api';
 import { AiOrchestratorService } from './services/ai-orchestrator.service';
+import { requestContextStorage } from 'src/shared/logging/request-context';
 
 interface InboundMessageJob {
   from: string;
@@ -35,8 +36,13 @@ export class AiMessageProcessor {
     );
     const { _otelCarrier, ...messageData } = job.data;
     void _otelCarrier; // já consumido por propagation.extract acima
+    // requestId de correlação de log = messageSid (userId é injetado depois
+    // no contexto pelo orchestrator, assim que o usuário é identificado —
+    // ver AiOrchestratorService.processMessage).
     return context.with(parentCtx, () =>
-      this.orchestrator.processMessage(messageData),
+      requestContextStorage.run({ requestId: job.data.messageSid }, () =>
+        this.orchestrator.processMessage(messageData),
+      ),
     );
   }
 

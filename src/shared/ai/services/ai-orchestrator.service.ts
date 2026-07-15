@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { setRequestContext } from 'src/shared/logging/request-context';
 import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
 import { ConversationService } from './conversation.service';
@@ -251,6 +252,12 @@ export class AiOrchestratorService {
           );
           if (preflight.status !== 'continue') return;
           const { user, userId } = preflight;
+          const ownerId = user?.ownerId || null;
+          // Injeta userId/tenantId no contexto de log (AsyncLocalStorage) assim
+          // que o usuário é identificado — mesma técnica do LoggingInterceptor
+          // no caminho HTTP — para que todo log a partir daqui (inclusive em
+          // services chamados profundamente) carregue esses campos.
+          setRequestContext({ userId, tenantId: ownerId });
 
           const cachedDoctorIds = this.doctorIdsCache.get(userId);
           const accessibleDoctorIds =
@@ -258,8 +265,6 @@ export class AiOrchestratorService {
             (await this.accessControlService.getAccessibleDoctorIds(userId));
           if (!cachedDoctorIds)
             this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
-
-          const ownerId = user?.ownerId || null;
           const conversation =
             await this.conversationService.getOrCreateConversation(
               phone,
