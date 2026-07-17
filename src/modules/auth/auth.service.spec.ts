@@ -174,6 +174,54 @@ describe('AuthService', () => {
       expect(mockConsentService.buildStatusFromUser).toHaveBeenCalledWith(user);
       expect(mockConsentService.getStatus).not.toHaveBeenCalled();
     });
+
+    it('inclui account (equipe) para colaborador vinculado a um dono médico', async () => {
+      const collaborator = {
+        id: 'collab-1',
+        role: UserRole.COLLABORATOR,
+        name: 'Cláudia',
+        phone: '11999999999',
+        email: 'claudia@example.com',
+        ownerId: 'owner-1',
+        avatarUrl: null,
+        emailVerified: true,
+        doctorProfile: null,
+      };
+      const owner = {
+        id: 'owner-1',
+        name: 'Dr. Diogo',
+        doctorProfile: { id: 'dp-1' },
+      };
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(collaborator) // lookup do próprio usuário
+        .mockResolvedValueOnce(owner); // lookup do dono em buildAccountInfo
+
+      const result = await service.me('collab-1');
+
+      expect(result.account).toEqual({
+        ownerName: 'Dr. Diogo',
+        ownerIsDoctor: true,
+      });
+    });
+
+    it('não inclui account para admin (dono da própria conta)', async () => {
+      const admin = {
+        id: 'user-1',
+        role: UserRole.ADMIN,
+        name: 'Admin',
+        phone: '11999999999',
+        email: 'admin@example.com',
+        ownerId: 'user-1',
+        avatarUrl: null,
+        emailVerified: true,
+        doctorProfile: null,
+      };
+      mockUserRepository.findOneWithProfile.mockResolvedValue(admin);
+
+      const result = await service.me('user-1');
+
+      expect(result.account).toBeNull();
+    });
   });
 
   // ─── validateUser ───────────────────────────────────────────────
@@ -287,6 +335,38 @@ describe('AuthService', () => {
   });
 
   // ─── register ───────────────────────────────────────────────────
+
+  describe('checkEmailAvailability', () => {
+    it('deve retornar available quando o e-mail não existe', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.checkEmailAvailability('novo@example.com'),
+      ).resolves.toEqual({ status: 'available' });
+    });
+
+    it('deve retornar pending_invite quando o e-mail tem convite pendente', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        email: 'pending@example.com',
+        status: UserStatus.PENDING,
+      });
+
+      await expect(
+        service.checkEmailAvailability('pending@example.com'),
+      ).resolves.toEqual({ status: 'pending_invite' });
+    });
+
+    it('deve retornar registered quando o e-mail já tem conta ativa', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        email: 'existing@example.com',
+        status: UserStatus.ACTIVE,
+      });
+
+      await expect(
+        service.checkEmailAvailability('existing@example.com'),
+      ).resolves.toEqual({ status: 'registered' });
+    });
+  });
 
   describe('register', () => {
     const mockPlan = { id: 'plan-1', name: 'Básico', isActive: true };

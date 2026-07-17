@@ -97,6 +97,28 @@ export class AuthService {
     }
   }
 
+  /**
+   * Checagem antecipada de disponibilidade de e-mail para o fluxo de cadastro.
+   * Permite ao wizard barrar logo na primeira etapa quando o e-mail já pertence
+   * a uma conta ativa ou a um convite de colaborador pendente — evitando que a
+   * pessoa percorra todas as etapas (inclusive a seleção de plano) para só então
+   * receber o erro no submit. Não expõe mais informação do que o próprio
+   * `register` já revela.
+   */
+  async checkEmailAvailability(
+    email: string,
+  ): Promise<{ status: 'available' | 'pending_invite' | 'registered' }> {
+    // Espelha exatamente o lookup do `register` para que o resultado seja
+    // consistente com o que o submit fará.
+    const existingUser = await this.userRepository.findOne({ email });
+
+    if (!existingUser) return { status: 'available' };
+    if (existingUser.status === UserStatus.PENDING) {
+      return { status: 'pending_invite' };
+    }
+    return { status: 'registered' };
+  }
+
   async register(data: RegisterDto) {
     // Verifica se o email já existe
     const existingUser = await this.userRepository.findOne({
@@ -220,6 +242,7 @@ export class AuthService {
       );
       // Buscar user com ownerId
       const fullUser = await this.userRepository.findOne({ id: result.id });
+      const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
 
       const refreshToken = await this.createRefreshToken(result.id);
 
@@ -244,6 +267,7 @@ export class AuthService {
           cpf: result.cpf,
           status: result.status,
           ownerId: fullUser?.ownerId,
+          account,
           isDoctor: !!doctorProfile,
           emailVerified: fullUser?.emailVerified ?? false,
           doctorProfile: doctorProfile
@@ -274,9 +298,10 @@ export class AuthService {
     if (!user) throw new NotFoundException('Usuário não encontrado');
     const doctorProfile = user.doctorProfile ?? null;
 
-    const [avatarUrl, signatureUrl] = await Promise.all([
+    const [avatarUrl, signatureUrl, account] = await Promise.all([
       this.resolveStorageUrl(user.avatarUrl),
       this.resolveStorageUrl(doctorProfile?.signatureUrl),
+      this.buildAccountInfo(user.id, user.ownerId),
     ]);
 
     return {
@@ -286,6 +311,7 @@ export class AuthService {
       phone: user.phone,
       email: user.email,
       ownerId: user.ownerId,
+      account,
       avatarUrl,
       isDoctor: !!doctorProfile,
       emailVerified: user.emailVerified ?? false,
@@ -301,6 +327,21 @@ export class AuthService {
         : null,
       consents: this.consentService.buildStatusFromUser(user),
     };
+  }
+
+  /**
+   * Monta a identificação da conta (tenant) à qual o usuário pertence, para que
+   * colaboradores possam ver facilmente "de quem" é a equipe. Retorna `null`
+   * para admins (donos da própria conta), já que `ownerId === self`.
+   */
+  private async buildAccountInfo(
+    userId: string,
+    ownerId?: string | null,
+  ): Promise<{ ownerName: string; ownerIsDoctor: boolean } | null> {
+    if (!ownerId || ownerId === userId) return null;
+    const owner = await this.userRepository.findOneWithProfile({ id: ownerId });
+    if (!owner) return null;
+    return { ownerName: owner.name, ownerIsDoctor: !!owner.doctorProfile };
   }
 
   private async resolveStorageUrl(

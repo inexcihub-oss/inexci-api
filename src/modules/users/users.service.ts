@@ -29,6 +29,7 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
+import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 
 import { generateValidationCode } from 'src/shared/utils';
@@ -567,6 +568,22 @@ export class UsersService {
         crm: data.crm,
         crmState: data.crmState,
         specialty: data.specialty || null,
+      });
+    }
+
+    // Vínculo padrão: se o admin criador é médico (tem doctorProfile), o novo
+    // colaborador já nasce com acesso às solicitações dele. Sem isso, o
+    // colaborador não enxerga nenhum médico no modal de criação de SC até que
+    // o admin faça a atribuição manual em user_doctor_access.
+    const adminDoctorProfile = await this.doctorProfileRepository.findByUserId(
+      admin.id,
+    );
+    if (adminDoctorProfile) {
+      await this.userDoctorAccessRepository.upsert({
+        userId: newUser.id,
+        doctorUserId: admin.id,
+        status: UserDoctorAccessStatus.ACTIVE,
+        createdById: adminId,
       });
     }
 

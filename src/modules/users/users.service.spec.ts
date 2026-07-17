@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 
 /**
  * Testes unitários focados no PRD:
@@ -149,6 +150,8 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce(adminUser); // admin lookup
       mockUserRepository.findOne.mockResolvedValueOnce(null); // sem telefone duplicado
       mockUserRepository.findOneWithDeleted.mockResolvedValue(null); // sem email duplicado
+      // Por padrão o admin não é médico — testes específicos sobrescrevem.
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
     });
 
     it('deve criar colaborador com role COLLABORATOR e status PENDING', async () => {
@@ -310,6 +313,58 @@ describe('UsersService — Colaboradores e Permissões', () => {
         '+5511988888888',
         'Ana',
       );
+    });
+
+    it('deve vincular o colaborador ao admin criador quando o admin é médico', async () => {
+      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+      // Admin possui doctorProfile → é médico
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'dp-admin',
+        userId: 'admin-1',
+      });
+
+      mockUserRepository.create.mockResolvedValue({
+        id: 'new-1',
+        name: 'Novo',
+        email: 'novo@email.com',
+        role: UserRole.COLLABORATOR,
+      });
+
+      await service.createCollaborator(
+        { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
+        'admin-1',
+      );
+
+      expect(mockUserDoctorAccessRepository.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'new-1',
+          doctorUserId: 'admin-1',
+          status: UserDoctorAccessStatus.ACTIVE,
+          createdById: 'admin-1',
+        }),
+      );
+    });
+
+    it('não deve criar vínculo quando o admin criador não é médico', async () => {
+      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+      // Admin sem doctorProfile → não é médico
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
+
+      mockUserRepository.create.mockResolvedValue({
+        id: 'new-1',
+        name: 'Novo',
+        email: 'novo@email.com',
+        role: UserRole.COLLABORATOR,
+      });
+
+      await service.createCollaborator(
+        { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
+        'admin-1',
+      );
+
+      expect(mockUserDoctorAccessRepository.upsert).not.toHaveBeenCalled();
     });
   });
 

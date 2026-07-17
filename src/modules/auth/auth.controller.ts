@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Logger,
   Post,
   Put,
@@ -22,6 +23,7 @@ import {
 
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
+import { CheckEmailDto } from './dto/check-email.dto';
 import { AuthService } from './auth.service';
 import { Public } from 'src/shared/decorator/is-public.decorator';
 import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decorator';
@@ -122,6 +124,21 @@ export class AuthController {
     // O service não emite mais access/refresh token: o usuário precisa confirmar
     // o e-mail antes de logar. Nenhum cookie de sessão é definido aqui.
     return await this.authService.register(req);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Post('check-email')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Checa disponibilidade de e-mail no fluxo de cadastro',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'available | pending_invite | registered',
+  })
+  async checkEmail(@Body() req: CheckEmailDto) {
+    return await this.authService.checkEmailAvailability(req.email);
   }
 
   @Public()
