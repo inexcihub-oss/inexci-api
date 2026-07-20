@@ -3,10 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { FindOptionsWhere, In } from 'typeorm';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
 import { User, UserRole } from '../../database/entities/user.entity';
+import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
 
 /**
  * AccessControlService — centraliza toda a lógica de tenant isolation e
@@ -137,6 +139,27 @@ export class AccessControlService {
       seen.add(d.id);
       return true;
     });
+  }
+
+  /**
+   * Monta um WHERE **fail-closed** escopado por tenant para `SurgeryRequest`.
+   *
+   * SEMPRE inclui `ownerId` (clínica do usuário) e, quando há médicos
+   * acessíveis, restringe também por `doctorId`. Nunca cai em um WHERE sem
+   * escopo de tenant — evita o IDOR cross-tenant (V1) que existia quando
+   * `doctorIds` vinha vazio e o filtro era simplesmente removido.
+   */
+  async buildSurgeryAccessWhere(
+    base: FindOptionsWhere<SurgeryRequest>,
+    userId: string,
+  ): Promise<FindOptionsWhere<SurgeryRequest>> {
+    const [doctorIds, ownerId] = await Promise.all([
+      this.getAccessibleDoctorIds(userId),
+      this.getOwnerId(userId),
+    ]);
+    return doctorIds.length > 0
+      ? { ...base, ownerId, doctorId: In(doctorIds) }
+      : { ...base, ownerId };
   }
 
   /**

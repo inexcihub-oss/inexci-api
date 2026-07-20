@@ -7,9 +7,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * podia cair em sort em memória. `DESC` explícito porque o decorator
  * `@Index` do TypeORM não expressa sort order por coluna.
  */
-export class AddSrDoctorLastActivityIndex1752200200000
-  implements MigrationInterface
-{
+export class AddSrDoctorLastActivityIndex1752200200000 implements MigrationInterface {
   name = 'AddSrDoctorLastActivityIndex1752200200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

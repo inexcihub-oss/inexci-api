@@ -146,6 +146,14 @@ export class User {
   @Column({ name: 'admin_id', type: 'uuid', nullable: true })
   adminId: string | null;
 
+  /**
+   * Administrador da PLATAFORMA (INEXCI), distinto do "admin" que é dono do
+   * tenant (todo `register` cria role=ADMIN). Habilita `/admin/*` (V2). Nunca
+   * é setável via cadastro/DTO — apenas por seed/migration/operação manual.
+   */
+  @Column({ name: 'is_platform_admin', type: 'boolean', default: false })
+  isPlatformAdmin: boolean;
+
   // ============ CONSENTIMENTOS LGPD ============
   // Aceitação simples: timestamp do aceite ou NULL se ainda não aceitou.
   // Política e Termos são obrigatórios para usar a plataforma.

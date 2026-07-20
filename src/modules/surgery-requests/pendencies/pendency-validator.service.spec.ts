@@ -18,8 +18,12 @@ describe('PendencyValidatorService — patient_data', () => {
     findOne: jest.fn(),
   };
 
-  const { opmeItemRepository, documentRepository, tussItemRepository, reportSectionRepository } =
-    buildCollectionRepoMocks();
+  const {
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  } = buildCollectionRepoMocks();
   const service = new PendencyValidatorService(
     mockRepository as any,
     opmeItemRepository,
@@ -114,8 +118,12 @@ describe('PendencyValidatorService — patient_data', () => {
 
 describe('PendencyValidatorService — assertCanAdvance', () => {
   const mockRepository = { findOne: jest.fn() };
-  const { opmeItemRepository, documentRepository, tussItemRepository, reportSectionRepository } =
-    buildCollectionRepoMocks();
+  const {
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  } = buildCollectionRepoMocks();
   const service = new PendencyValidatorService(
     mockRepository as any,
     opmeItemRepository,
@@ -194,6 +202,61 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
   });
 });
 
+describe('PendencyValidatorService — consent_term (IN_SCHEDULING)', () => {
+  const mockRepository = { findOne: jest.fn() };
+  const {
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  } = buildCollectionRepoMocks();
+  const service = new PendencyValidatorService(
+    mockRepository as any,
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  );
+
+  const schedulingRequest = {
+    id: 'req-sched',
+    status: SurgeryRequestStatus.IN_SCHEDULING,
+    dateOptions: ['2026-08-01'],
+    selectedDateIndex: 0,
+    documents: [],
+    opmeItems: [],
+    tussItems: [],
+  } as unknown as SurgeryRequest;
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('consent_term é opcional e não bloqueia o avanço quando ausente', async () => {
+    mockRepository.findOne.mockResolvedValue(schedulingRequest);
+
+    const result = await service.validateForStatus('req-sched');
+    const consent = result.pendencies.find((p) => p.key === 'consent_term');
+
+    expect(consent?.isOptional).toBe(true);
+    expect(consent?.isComplete).toBe(false);
+    expect(result.canAdvance).toBe(true);
+    await expect(
+      service.assertCanAdvance('req-sched'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('consent_term é resolvida quando o termo já foi anexado', async () => {
+    mockRepository.findOne.mockResolvedValue({
+      ...schedulingRequest,
+      documents: [{ key: 'consent_term', name: 'Termo' }],
+    });
+
+    const result = await service.validateForStatus('req-sched');
+    const consent = result.pendencies.find((p) => p.key === 'consent_term');
+
+    expect(consent?.isComplete).toBe(true);
+  });
+});
+
 describe('PendencyValidatorService — getBatchSummary', () => {
   const mockRepository = { findOne: jest.fn(), find: jest.fn() };
   const opmeItemRepository = { findMany: jest.fn() };
@@ -249,7 +312,7 @@ describe('PendencyValidatorService — getBatchSummary', () => {
       { id: 's-1', surgeryRequestId: 'req-ok' },
     ]);
 
-    const result = await service.getBatchSummary('req-ok, req-bad');
+    const result = await service.getBatchSummary('req-ok, req-bad', 'owner-1');
 
     // 1 query base (to-one) + 4 buscas de coleções, todas em paralelo — não sequenciais.
     expect(mockRepository.find).toHaveBeenCalledTimes(1);
@@ -273,7 +336,10 @@ describe('PendencyValidatorService — getBatchSummary', () => {
       { id: 's-1', surgeryRequestId: 'req-ok' },
     ]);
 
-    const result = await service.getBatchSummary('req-ok,missing-id');
+    const result = await service.getBatchSummary(
+      'req-ok,missing-id',
+      'owner-1',
+    );
 
     expect(result['req-ok'].canAdvance).toBe(true);
     expect(result['missing-id']).toEqual({
@@ -286,7 +352,7 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   it('mantém defaults quando a carga em lote falha', async () => {
     mockRepository.find.mockRejectedValue(new Error('db down'));
 
-    const result = await service.getBatchSummary('a,b');
+    const result = await service.getBatchSummary('a,b', 'owner-1');
 
     expect(result).toEqual({
       a: { pending: 0, total: 0, canAdvance: true },
@@ -295,7 +361,7 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   });
 
   it('devolve objeto vazio para lista de ids vazia', async () => {
-    const result = await service.getBatchSummary('  ,  ');
+    const result = await service.getBatchSummary('  ,  ', 'owner-1');
     expect(result).toEqual({});
     expect(mockRepository.find).not.toHaveBeenCalled();
   });

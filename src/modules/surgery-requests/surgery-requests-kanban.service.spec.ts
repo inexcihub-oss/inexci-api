@@ -40,6 +40,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       getAccessibleDoctorIds: jest
         .fn()
         .mockResolvedValue(overrides.doctorIds ?? ['d-1']),
+      getOwnerId: jest.fn().mockResolvedValue('owner-1'),
     };
     const surgeryRequestRepository = {
       total: jest.fn().mockResolvedValue(overrides.total ?? 1),
@@ -56,6 +57,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       accessControlService as never,
       {} as never,
       surgeryRequestRepository as never,
+      {} as never,
       {} as never,
       {} as never,
       pendencyValidatorService as never,
@@ -97,6 +99,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
 
     expect(pendencyValidatorService.getBatchSummary).toHaveBeenCalledWith(
       'sr-1',
+      'owner-1',
     );
     expect(result.total).toBe(1);
     const card = result.records[0] as Record<string, unknown>;
@@ -145,12 +148,16 @@ describe('SurgeryRequestsService.findAgenda', () => {
       total: jest.fn().mockResolvedValue(records.length),
       findMany: jest.fn().mockResolvedValue(records),
     };
+    const opmeItemRepository = {
+      findSelectedSuppliersByRequestIds: jest.fn().mockResolvedValue([]),
+    };
     const service = new SurgeryRequestsService(
       {} as never,
       accessControlService as never,
       {} as never,
       surgeryRequestRepository as never,
       {} as never,
+      opmeItemRepository as never,
       {} as never,
       {} as never,
       {} as never,

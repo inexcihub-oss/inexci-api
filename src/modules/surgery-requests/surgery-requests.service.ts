@@ -16,6 +16,7 @@ import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simp
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
+import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
@@ -67,6 +68,7 @@ export class SurgeryRequestsService {
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
+    private readonly opmeItemRepository: OpmeItemRepository,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
     private readonly pendencyValidatorService: PendencyValidatorService,
     // ── Sub-services ───────────────────────────────────────────────────────
@@ -154,8 +156,12 @@ export class SurgeryRequestsService {
         ]);
 
         const ids = records.map((record) => String(record.id));
+        const ownerId = await this.accessControlService.getOwnerId(userId);
         const summaries = ids.length
-          ? await this.pendencyValidatorService.getBatchSummary(ids.join(','))
+          ? await this.pendencyValidatorService.getBatchSummary(
+              ids.join(','),
+              ownerId,
+            )
           : {};
 
         const cards = records.map((record) =>
@@ -174,6 +180,7 @@ export class SurgeryRequestsService {
       hasIncompletePayment: boolean;
     },
     summary?: { pending: number; total: number; canAdvance: boolean },
+    suppliers?: string | null,
   ) {
     const ref = (
       entity?: { id: string; name: string } | null,
@@ -199,6 +206,7 @@ export class SurgeryRequestsService {
       totalPendencies: summary?.total ?? record.totalPendencies,
       canAdvance: summary?.canAdvance ?? true,
       hasIncompletePayment: record.hasIncompletePayment,
+      suppliers: suppliers ?? null,
     };
   }
 
@@ -230,9 +238,26 @@ export class SurgeryRequestsService {
           this.surgeryRequestRepository.findMany(where, 0, AGENDA_MAX_TAKE),
         ]);
 
+        const supplierRows =
+          await this.opmeItemRepository.findSelectedSuppliersByRequestIds(
+            records.map((record) => String(record.id)),
+          );
+        const suppliersById = new Map<string, string[]>();
+        for (const row of supplierRows) {
+          const list = suppliersById.get(row.surgeryRequestId) ?? [];
+          if (!list.includes(row.supplierName)) list.push(row.supplierName);
+          suppliersById.set(row.surgeryRequestId, list);
+        }
+
         return {
           total,
-          records: records.map((record) => this.toKanbanCard(record)),
+          records: records.map((record) =>
+            this.toKanbanCard(
+              record,
+              undefined,
+              suppliersById.get(String(record.id))?.join(', ') ?? null,
+            ),
+          ),
         };
       },
     );
@@ -668,14 +693,12 @@ export class SurgeryRequestsService {
     return recipients;
   }
 
-  private async buildAccessWhere(
+  private buildAccessWhere(
     base: FindOptionsWhere<SurgeryRequest>,
     userId: string,
   ): Promise<FindOptionsWhere<SurgeryRequest>> {
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) return base;
-    return { ...base, doctorId: In(doctorIds) };
+    // Fail-closed: sempre escopa por ownerId (V1). Ver AccessControlService.
+    return this.accessControlService.buildSurgeryAccessWhere(base, userId);
   }
 
   private buildReceipt(billing: SurgeryRequestBilling | null | undefined) {

@@ -1,9 +1,15 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PendencyValidatorService } from './pendency-validator.service';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
+import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
 
 @ApiTags('Pendências')
 @ApiBearerAuth()
+@UseGuards(SurgeryRequestOwnerGuard)
 @Controller('surgery-requests/pendencies')
 export class PendenciesController {
   constructor(
@@ -18,10 +24,12 @@ export class PendenciesController {
   @ApiOperation({ summary: 'Resumo de pendências em lote (Kanban)' })
   getBatchSummary(
     @Query('ids') ids: string,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<
     Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
-    return this.pendencyValidatorService.getBatchSummary(ids);
+    // Escopado por tenant no service — o guard não resolve id em rota de lote.
+    return this.pendencyValidatorService.getBatchSummary(ids, user.ownerId);
   }
 
   /**

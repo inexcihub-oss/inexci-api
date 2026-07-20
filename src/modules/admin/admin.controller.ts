@@ -1,7 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from '../../shared/decorators/roles.decorator';
-import { UserRole } from '../../database/entities/user.entity';
+import { PlatformAdminGuard } from '../../shared/guards/platform-admin.guard';
 import { AiUsageService, AiUsageReportRow } from './ai-usage.service';
 import {
   AiEfficiencyService,
@@ -41,6 +40,7 @@ class NotificationLogsQueryDto {
 
 @ApiTags('Admin')
 @ApiBearerAuth()
+@UseGuards(PlatformAdminGuard)
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -50,7 +50,6 @@ export class AdminController {
   ) {}
 
   @Get('ai-usage/report')
-  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Relatório de uso de IA (custo por usuário/mês/modelo)',
   })
@@ -71,7 +70,6 @@ export class AdminController {
    * `PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.md`.
    */
   @Get('ai-efficiency/report')
-  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary:
       'Relatório de eficiência da IA do WhatsApp (latência, cache, iterations)',
@@ -91,7 +89,6 @@ export class AdminController {
    * registros após `LOG_RETENTION_NOTIFICATION_DAYS` dias.
    */
   @Get('notification-logs')
-  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Lista logs de envio (e-mail + WhatsApp) — somente admin',
   })
@@ -105,7 +102,6 @@ export class AdminController {
   }
 
   @Get('notification-logs/stats')
-  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Estatísticas agregadas de envio por canal e status',
   })

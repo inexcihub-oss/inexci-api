@@ -310,31 +310,29 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     // cartesiano opme×suppliers×manufacturers é pequeno e o TypeORM hidrata
     // corretamente os arrays por item. `documents.creator` é *ToOne, entra via
     // join sem multiplicar linhas.
-    const [opmeItems, tussItems, documents, contestations] = await Promise.all(
-      [
-        this.dataSource.getRepository(OpmeItem).find({
-          where: { surgeryRequestId: base.id },
-          relationLoadStrategy: 'join',
-          relations: {
-            suppliers: true,
-            manufacturers: true,
-            selectedSupplier: true,
-          },
-        }),
-        this.dataSource
-          .getRepository(SurgeryRequestTussItem)
-          .find({ where: { surgeryRequestId: base.id } }),
-        this.dataSource.getRepository(Document).find({
-          where: { surgeryRequestId: base.id },
-          relationLoadStrategy: 'join',
-          relations: { creator: true },
-          select: { creator: { id: true, name: true } },
-        }),
-        this.dataSource
-          .getRepository(Contestation)
-          .find({ where: { surgeryRequestId: base.id } }),
-      ],
-    );
+    const [opmeItems, tussItems, documents, contestations] = await Promise.all([
+      this.dataSource.getRepository(OpmeItem).find({
+        where: { surgeryRequestId: base.id },
+        relationLoadStrategy: 'join',
+        relations: {
+          suppliers: true,
+          manufacturers: true,
+          selectedSupplier: true,
+        },
+      }),
+      this.dataSource
+        .getRepository(SurgeryRequestTussItem)
+        .find({ where: { surgeryRequestId: base.id } }),
+      this.dataSource.getRepository(Document).find({
+        where: { surgeryRequestId: base.id },
+        relationLoadStrategy: 'join',
+        relations: { creator: true },
+        select: { creator: { id: true, name: true } },
+      }),
+      this.dataSource
+        .getRepository(Contestation)
+        .find({ where: { surgeryRequestId: base.id } }),
+    ]);
 
     const entity: SurgeryRequest = {
       ...base,

@@ -4,6 +4,9 @@ export default {
   examReport: 'exam_report', // substitui rnm_report
   medicalReport: 'medical_report',
 
+  // TERMO DE CONSENTIMENTO
+  consentTerm: 'consent_term',
+
   // AUTORIZAÇÃO
   authorizationGuide: 'authorization_guide',
 

@@ -218,11 +218,11 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Token renovado' })
   async refresh(
     @Req() req: Request,
-    @Body('refresh_token') bodyToken: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // Prioriza cookie httpOnly; fallback para body (retrocompatibilidade temporária)
-    const refreshToken = req.cookies?.refresh_token || bodyToken;
+    // Apenas o cookie httpOnly (V5): sem fallback via body, que enfraqueceria a
+    // proteção httpOnly ao expor o token ao JavaScript do cliente.
+    const refreshToken = req.cookies?.refresh_token;
     if (!refreshToken) {
       // Fluxo esperado para visitante anônimo / cookie expirado — não é erro
       // operacional. O frontend (Fase 6a) só dispara refresh com pista de

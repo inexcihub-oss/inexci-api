@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
@@ -6,9 +6,11 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
 
 @ApiTags('Atividades da Solicitação')
 @ApiBearerAuth()
+@UseGuards(SurgeryRequestOwnerGuard)
 @Controller('surgery-requests/:id/activities')
 export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}

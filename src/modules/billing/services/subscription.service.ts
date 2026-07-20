@@ -80,7 +80,7 @@ export class SubscriptionService {
 
     const plan = await this.resolveInitialPlan(planSlug);
 
-    const trialDays = Number(this.config.get<number>('BILLING_TRIAL_DAYS', 30));
+    const trialDays = Number(this.config.get<number>('BILLING_TRIAL_DAYS', 15));
     const now = new Date();
     const trialEnd = this.addDays(now, trialDays);
 

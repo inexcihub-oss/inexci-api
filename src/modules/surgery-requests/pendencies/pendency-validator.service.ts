@@ -112,15 +112,25 @@ export class PendencyValidatorService {
    * *ToMany reais em paralelo via `Promise.all` (WHERE IN), evitando o produto
    * cartesiano que um join direto causaria.
    */
-  private async loadRequestsBatch(ids: string[]): Promise<SurgeryRequest[]> {
+  private async loadRequestsBatch(
+    ids: string[],
+    ownerId: string | null,
+  ): Promise<SurgeryRequest[]> {
     if (ids.length === 0) return [];
 
     const [base, tussItems, opmeItems, documents, reportSections] =
       await Promise.all([
         this.surgeryRequestRepository.find({
-          where: { id: In(ids) },
+          // Fail-closed: só SCs do tenant do usuário (V1). Ids de outra clínica
+          // não carregam e permanecem nos defaults seguros. ownerId null →
+          // In([]) não casa nada.
+          where: { id: In(ids), ownerId: In(ownerId ? [ownerId] : []) },
           relationLoadStrategy: 'join',
-          relations: { patient: true, billing: true, doctor: { doctorProfile: true } },
+          relations: {
+            patient: true,
+            billing: true,
+            doctor: { doctorProfile: true },
+          },
         }),
         this.tussItemRepository.findMany({ surgeryRequestId: In(ids) }),
         this.opmeItemRepository.findMany({ surgeryRequestId: In(ids) }),
@@ -352,6 +362,10 @@ export class PendencyValidatorService {
           request.selectedDateIndex !== undefined
         );
 
+      case 'consent_term':
+        // Resolvida se o termo já foi anexado em qualquer fase (início ou agendamento).
+        return docs.some((d) => d.key === 'consent_term');
+
       // ── SCHEDULED ────────────────────────────────────────────────────────
       case 'surgery_expired':
         // Aviso: data da cirurgia está no passado
@@ -521,6 +535,7 @@ export class PendencyValidatorService {
 
   async getBatchSummary(
     rawIds: string,
+    ownerId: string | null,
   ): Promise<
     Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
@@ -542,7 +557,7 @@ export class PendencyValidatorService {
 
     try {
       // Uma única carga em lote em vez de N cargas pesadas em paralelo (N+1).
-      const requests = await this.loadRequestsBatch(ids);
+      const requests = await this.loadRequestsBatch(ids, ownerId);
       for (const request of requests) {
         const summary = this.computeSummary(request);
         result[request.id] = {

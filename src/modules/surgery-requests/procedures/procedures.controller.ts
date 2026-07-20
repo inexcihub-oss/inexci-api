@@ -4,6 +4,10 @@ import { ProceduresService } from './procedures.service';
 import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-procedure.dto';
 import { UpdateSurgeryRequestProcedureDto } from './dto/update-surgery-request-procedure.dto';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
+import {
+  CurrentUser,
+  AuthenticatedUser,
+} from 'src/shared/decorators/current-user.decorator';
 
 @ApiTags('Procedimentos da Solicitação')
 @ApiBearerAuth()
@@ -13,20 +17,26 @@ export class ProceduresController {
 
   @Post()
   @ApiOperation({ summary: 'Adicionar procedimentos à solicitação' })
-  create(@Body() data: CreateSurgeryRequestProcedureDto) {
-    return this.proceduresService.create(data);
+  create(
+    @Body() data: CreateSurgeryRequestProcedureDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.proceduresService.create(data, user.userId);
   }
 
   @Post('authorize')
   @ApiOperation({ summary: 'Autorizar procedimentos' })
-  authorize(@Body() data: AuthorizeProceduresDto) {
-    return this.proceduresService.authorize(data);
+  authorize(
+    @Body() data: AuthorizeProceduresDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.proceduresService.authorize(data, user.userId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Remover procedimento da solicitação' })
-  delete(@Param('id') id: string) {
-    return this.proceduresService.delete(id);
+  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.proceduresService.delete(id, user.userId);
   }
 
   @Patch(':id')
@@ -36,7 +46,8 @@ export class ProceduresController {
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSurgeryRequestProcedureDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.proceduresService.update(id, dto);
+    return this.proceduresService.update(id, dto, user.userId);
   }
 }

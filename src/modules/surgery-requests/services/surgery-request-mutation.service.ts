@@ -34,7 +34,6 @@ import { CreateSurgeryRequestSimpleDto } from '../dto/create-surgery-request-sim
 import { UpdateSurgeryRequestDto } from '../dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from '../dto/update-surgery-request-basic.dto';
 import { SurgeryRequestRealtimeService } from './surgery-request-realtime.service';
-import { FindOptionsWhere, In } from 'typeorm';
 
 @Injectable()
 export class SurgeryRequestMutationService {
@@ -382,12 +381,11 @@ export class SurgeryRequestMutationService {
     id: string,
     userId: string,
   ): Promise<SurgeryRequest> {
-    let where: FindOptionsWhere<SurgeryRequest> = { id };
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length > 0) {
-      where = { ...where, doctorId: In(doctorIds) };
-    }
+    // Fail-closed: escopa por ownerId (V1). Ver AccessControlService.
+    const where = await this.accessControlService.buildSurgeryAccessWhere(
+      { id },
+      userId,
+    );
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
     if (!surgeryRequest)

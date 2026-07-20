@@ -25,6 +25,21 @@ export class OpmeItemRepository extends BaseRepository<OpmeItem> {
     return this.repository.save(opmeItem);
   }
 
+  /** Fornecedores vencedores (selectedSupplier) por solicitação. Usado na agenda. */
+  async findSelectedSuppliersByRequestIds(
+    requestIds: string[],
+  ): Promise<Array<{ surgeryRequestId: string; supplierName: string }>> {
+    if (requestIds.length === 0) return [];
+    return this.repository
+      .createQueryBuilder('opmeItem')
+      .innerJoin('opmeItem.selectedSupplier', 'supplier')
+      .where('opmeItem.surgeryRequestId IN (:...requestIds)', { requestIds })
+      .select('opmeItem.surgeryRequestId', 'surgeryRequestId')
+      .addSelect('supplier.name', 'supplierName')
+      .distinct(true)
+      .getRawMany<{ surgeryRequestId: string; supplierName: string }>();
+  }
+
   async findSuppliedSurgeryRequestsBySupplierId(supplierId: string): Promise<
     Array<{
       surgeryRequestId: string;

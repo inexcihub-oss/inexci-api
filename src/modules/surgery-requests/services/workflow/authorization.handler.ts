@@ -103,13 +103,13 @@ export class AuthorizationHandler {
       { logger: this.logger, operationName: 'acceptAuthorization' },
     );
 
-    if (dto.notifyPatient === true) {
+    if (dto.notifyPatient === true && (dto.dateOptions?.length ?? 0) > 0) {
       this.logger.log(
         `[acceptAuthorization] Enviando opções de agendamento ao paciente (solicitação ${id})`,
       );
       await this.notificationService.notifyPatientSchedulingOptions(
         request,
-        dto.dateOptions,
+        dto.dateOptions as string[],
       );
     } else {
       this.logger.log(

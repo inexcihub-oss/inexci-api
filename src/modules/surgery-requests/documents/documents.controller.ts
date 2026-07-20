@@ -7,6 +7,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,9 +22,11 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
 
 @ApiTags('Documentos da Solicitação')
 @ApiBearerAuth()
+@UseGuards(SurgeryRequestOwnerGuard)
 @Controller('surgery-requests/documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}

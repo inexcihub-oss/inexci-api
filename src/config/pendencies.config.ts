@@ -87,6 +87,14 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
         blocking: false,
         responsibleRole: 'patient',
       },
+      {
+        key: 'consent_term',
+        label: 'Anexar termo de consentimento assinado',
+        // Opcional: apenas lembra o usuário de anexar o termo antes de agendar.
+        // Resolvida se o termo já foi anexado em qualquer fase (key 'consent_term').
+        blocking: false,
+        responsibleRole: 'collaborator',
+      },
     ],
   },
   {

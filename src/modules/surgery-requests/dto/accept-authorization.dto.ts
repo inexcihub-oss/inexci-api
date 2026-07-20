@@ -1,7 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -55,11 +54,15 @@ export class AcceptAuthorizationDto {
   @IsBoolean()
   notifyPatient?: boolean;
 
-  /** Exatamente 3 datas obrigatórias, cada uma com horário explícito */
+  /**
+   * Datas opcionais (até 3). Se informadas, cada uma precisa ter horário
+   * explícito. Podem ser definidas depois, já em Agendamento (o pendency
+   * bloqueante `schedule_dates` garante as datas antes de ir para Agendada).
+   */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(3)
   @ArrayMaxSize(3)
   @IsDateString({}, { each: true })
   @HasExplicitTime()
-  dateOptions: string[];
+  dateOptions?: string[];
 }

@@ -13,7 +13,7 @@ export const envValidationSchema = Joi.object({
   DASHBOARD_URL: Joi.string().uri().required(),
 
   // ── Auth ─────────────────────────────────────────────
-  JWT_SECRET: Joi.string().required(),
+  JWT_SECRET: Joi.string().min(32).required(),
   JWT_ISSUER: Joi.string().required(),
   JWT_AUDIENCE: Joi.string().required(),
 
@@ -146,7 +146,7 @@ export const envValidationSchema = Joi.object({
   STRIPE_SECRET_KEY: Joi.string().allow('').default(''),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   STRIPE_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
-  BILLING_TRIAL_DAYS: Joi.number().default(30),
+  BILLING_TRIAL_DAYS: Joi.number().default(15),
   // Price IDs da Stripe por plano (Test ou Live conforme o ambiente)
   STRIPE_PRICE_STARTER_MONTHLY: Joi.string().allow('').default(''),
   STRIPE_PRICE_STARTER_YEARLY: Joi.string().allow('').default(''),

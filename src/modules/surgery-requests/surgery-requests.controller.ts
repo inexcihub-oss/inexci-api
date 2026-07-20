@@ -13,7 +13,12 @@ import {
   UseInterceptors,
   UploadedFile,
   HttpCode,
+  UseGuards,
 } from '@nestjs/common';
+import {
+  SurgeryRequestOwnerGuard,
+  SkipSurgeryOwner,
+} from 'src/shared/guards/surgery-request-owner.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -67,6 +72,7 @@ import { BulkDeleteTemplatesDto } from './dto/bulk-delete-templates.dto';
 
 @ApiTags('Solicitações Cirúrgicas')
 @ApiBearerAuth()
+@UseGuards(SurgeryRequestOwnerGuard)
 @Controller('surgery-requests')
 export class SurgeryRequestsController {
   constructor(
@@ -647,6 +653,7 @@ export class SurgeryRequestsController {
    * Exclui um template do médico logado.
    */
   @Delete('templates/:id')
+  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
   @ApiOperation({ summary: 'Excluir template' })
   deleteTemplate(
     @Param('id') id: string,
@@ -664,6 +671,7 @@ export class SurgeryRequestsController {
    * Atualiza um template do médico logado.
    */
   @Patch('templates/:id')
+  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
   @ApiOperation({ summary: 'Atualizar template' })
   updateTemplate(
     @Param('id') id: string,
@@ -679,6 +687,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('templates/:id/increment-usage')
+  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
   @ApiOperation({ summary: 'Incrementar uso do template' })
   incrementTemplateUsage(
     @Param('id') id: string,

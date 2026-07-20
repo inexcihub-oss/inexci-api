@@ -10,7 +10,7 @@ import {
 
 /**
  * PATCH /surgery-requests/:id/date-options
- * Atualiza opções de data sem mudar status (em IN_SCHEDULING) — exige 3 datas
+ * Atualiza opções de data sem mudar status (em IN_SCHEDULING) — 1 a 3 datas
  */
 export class UpdateDateOptionsDto {
   @IsOptional()
@@ -19,7 +19,7 @@ export class UpdateDateOptionsDto {
   notifyPatient?: boolean;
 
   @IsArray()
-  @ArrayMinSize(3)
+  @ArrayMinSize(1)
   @ArrayMaxSize(3)
   @IsDateString({}, { each: true })
   dateOptions: string[];

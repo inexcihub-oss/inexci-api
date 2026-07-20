@@ -104,7 +104,7 @@ describe('AuthController', () => {
 
       const req = mockRequest({ refresh_token: 'old-rt' }) as Request;
       const res = mockResponse() as Response;
-      const result = await controller.refresh(req, undefined as any, res);
+      const result = await controller.refresh(req, res);
 
       // Should have called service with token from cookie
       expect(mockAuthService.refreshAccessToken).toHaveBeenCalledWith('old-rt');
@@ -121,20 +121,15 @@ describe('AuthController', () => {
       expect(result).toHaveProperty('access_token', 'new-jwt');
     });
 
-    it('should fallback to body refresh_token when cookie is absent', async () => {
-      const refreshResult = {
-        access_token: 'new-jwt',
-        refresh_token: 'new-rt',
-      };
-      mockAuthService.refreshAccessToken.mockResolvedValue(refreshResult);
-
+    it('should ignore body refresh_token and require the httpOnly cookie (V5)', async () => {
       const req = mockRequest({}) as Request;
+      (req as unknown as { body: unknown }).body = { refresh_token: 'body-rt' };
       const res = mockResponse() as Response;
-      await controller.refresh(req, 'body-rt', res);
 
-      expect(mockAuthService.refreshAccessToken).toHaveBeenCalledWith(
-        'body-rt',
+      await expect(controller.refresh(req, res)).rejects.toThrow(
+        'Refresh token ausente',
       );
+      expect(mockAuthService.refreshAccessToken).not.toHaveBeenCalled();
     });
 
     it('should clear refresh cookie when token is invalid', async () => {
@@ -145,9 +140,9 @@ describe('AuthController', () => {
       const req = mockRequest({ refresh_token: 'invalid-rt' }) as Request;
       const res = mockResponse() as Response;
 
-      await expect(
-        controller.refresh(req, undefined as any, res),
-      ).rejects.toThrow('Refresh token inválido');
+      await expect(controller.refresh(req, res)).rejects.toThrow(
+        'Refresh token inválido',
+      );
 
       expect(res.clearCookie).toHaveBeenCalledWith(
         'refresh_token',

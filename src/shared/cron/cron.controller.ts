@@ -1,16 +1,18 @@
-import { Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { StaleNotificationService } from 'src/modules/notifications/stale-notification.service';
 import { WeeklySummaryService } from 'src/modules/notifications/weekly-summary.service';
-import {
-  CurrentUser,
-  AuthenticatedUser,
-} from 'src/shared/decorators/current-user.decorator';
-import { UserRole } from 'src/database/entities/user.entity';
-import { ForbiddenException } from '@nestjs/common';
+import { PlatformAdminGuard } from 'src/shared/guards/platform-admin.guard';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
+@UseGuards(PlatformAdminGuard)
 @Controller('admin')
 export class CronController {
   constructor(
@@ -24,12 +26,7 @@ export class CronController {
     summary:
       'Dispara verificação manual de solicitações paradas e envia notificações',
   })
-  async checkStaleRequests(@CurrentUser() user: AuthenticatedUser) {
-    if (user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException(
-        'Apenas administradores podem executar esta ação',
-      );
-    }
+  async checkStaleRequests() {
     const count =
       await this.staleNotificationService.checkAndNotifyStaleRequests();
     return { notified: count };
@@ -41,12 +38,7 @@ export class CronController {
     summary:
       'Dispara manualmente o envio do resumo semanal para todos os usuários elegíveis',
   })
-  async sendWeeklySummary(@CurrentUser() user: AuthenticatedUser) {
-    if (user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException(
-        'Apenas administradores podem executar esta ação',
-      );
-    }
+  async sendWeeklySummary() {
     const dispatched =
       await this.weeklySummaryService.sendWeeklySummariesForAllUsers();
     return { dispatched };

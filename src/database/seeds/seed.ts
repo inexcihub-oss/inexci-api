@@ -314,6 +314,11 @@ async function main() {
     [adminMedicoId],
   );
   await createActiveSubscription(dataSource, adminMedicoId, professionalPlanId);
+  // Admin de PLATAFORMA (V2) — único a acessar `/admin/*`. Setado só via seed.
+  await dataSource.query(
+    `UPDATE "users" SET is_platform_admin = true WHERE id = $1`,
+    [adminMedicoId],
+  );
   logger.log('  ✅ medico@inexci.com criado (admin + médico, Ortopedia)\n');
 
   const procedureIdsConta1 = await createDefaultProceduresForOwner(

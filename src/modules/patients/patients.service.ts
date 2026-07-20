@@ -9,6 +9,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { MailService } from 'src/shared/mail/mail.service';
+import { auditProntuarioAccess } from 'src/shared/logging/audit';
 
 @Injectable()
 export class PatientsService {
@@ -90,6 +91,13 @@ export class PatientsService {
     const patient = await this.patientRepository.findOne({ id });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
     await this.accessControlService.assertSameOwner(userId, patient.ownerId);
+    auditProntuarioAccess({
+      resource: 'patient',
+      resourceId: id,
+      action: 'read',
+      actorUserId: userId,
+      tenantId: patient.ownerId,
+    });
     return patient;
   }
 

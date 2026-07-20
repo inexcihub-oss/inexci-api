@@ -9,6 +9,7 @@ import { SurgeryRequestRepository } from 'src/database/repositories/surgery-requ
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
+import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 
 @Injectable()
 export class ProceduresService {
@@ -16,9 +17,13 @@ export class ProceduresService {
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
+    private readonly accessValidator: SurgeryRequestAccessValidator,
   ) {}
 
-  async create(data: CreateSurgeryRequestProcedureDto) {
+  async create(data: CreateSurgeryRequestProcedureDto, userId: string) {
+    // Fail-closed: garante posse da SC-pai antes de qualquer escrita (V1).
+    await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
+
     // Verifica duplicatas dentro do próprio payload enviado
     const incomingCodes = data.procedures.map((p) => p.tussCode);
     const uniqueIncoming = new Set(incomingCodes);
@@ -60,10 +65,9 @@ export class ProceduresService {
     return itemsCreated;
   }
 
-  async authorize(data: AuthorizeProceduresDto) {
-    await this.surgeryRequestRepository.findOneSimple({
-      id: data.surgeryRequestId,
-    });
+  async authorize(data: AuthorizeProceduresDto, userId: string) {
+    // Fail-closed: garante posse da SC-pai antes de autorizar itens (V1).
+    await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
     await Promise.all(
       data.surgeryRequestProcedures.map((item) =>
@@ -87,24 +91,32 @@ export class ProceduresService {
     return {};
   }
 
-  async update(id: string, dto: UpdateSurgeryRequestProcedureDto) {
+  async update(
+    id: string,
+    dto: UpdateSurgeryRequestProcedureDto,
+    userId: string,
+  ) {
     const item = await this.tussItemRepository.findOne({ id });
 
     if (!item) {
       throw new NotFoundException('Procedimento TUSS não encontrado');
     }
+    // Fail-closed: posse via SC-pai do item (V1).
+    await this.accessValidator.validateAndFetch(item.surgeryRequestId, userId);
 
     await this.tussItemRepository.update(id, { quantity: dto.quantity });
 
     return { ...item, quantity: dto.quantity };
   }
 
-  async delete(id: string) {
+  async delete(id: string, userId: string) {
     const item = await this.tussItemRepository.findOne({ id });
 
     if (!item) {
       throw new NotFoundException('Procedimento TUSS não encontrado');
     }
+    // Fail-closed: posse via SC-pai do item (V1).
+    await this.accessValidator.validateAndFetch(item.surgeryRequestId, userId);
 
     await this.tussItemRepository.delete(id);
 

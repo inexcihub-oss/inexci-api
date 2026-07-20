@@ -33,7 +33,9 @@ describe('SurgeryRequestRepository.findOne', () => {
       findOne: jest
         .fn()
         .mockResolvedValue(
-          overrides.baseResult === undefined ? baseEntity : overrides.baseResult,
+          overrides.baseResult === undefined
+            ? baseEntity
+            : overrides.baseResult,
         ),
     };
 

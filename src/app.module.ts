@@ -40,6 +40,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { TussModule } from './modules/tuss/tuss.module';
 import { WhatsappModule } from './shared/whatsapp/whatsapp.module';
 import { AccessControlModule } from './shared/services/access-control.module';
+import { SurgeryRequestOwnerGuardModule } from './shared/guards/surgery-request-owner.module';
 import { UserDoctorAccessModule } from './modules/user-doctor-access/user-doctor-access.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { AiModule } from './shared/ai/ai.module';
@@ -58,6 +59,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
       load: [storageConfig, mailConfig],
     }),
     R2Module,
+    SurgeryRequestOwnerGuardModule,
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1000, limit: 10 },
       { name: 'medium', ttl: 10000, limit: 50 },

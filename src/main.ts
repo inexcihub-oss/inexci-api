@@ -14,6 +14,7 @@ initOtel();
 import * as dayjs from 'dayjs';
 import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -49,6 +50,11 @@ async function bootstrap() {
   app.useLogger(new InexciLogger());
 
   app.use(requestContextMiddleware);
+
+  // Headers de segurança (V5): HSTS, nosniff, frameguard, remove X-Powered-By.
+  // CSP desabilitada — a API responde JSON e a CSP padrão do helmet quebraria o
+  // Swagger UI em dev; a CSP relevante já vive no frontend.
+  app.use(helmet({ contentSecurityPolicy: false }));
 
   // Compressão gzip como defesa em profundidade — cobre ambientes sem o nginx
   // na frente (ngrok, dev). Em produção o nginx já comprime (ver nginx/default.conf).

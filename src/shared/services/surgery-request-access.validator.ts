@@ -1,7 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { In } from 'typeorm';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { UserRepository } from 'src/database/repositories/user.repository';
 import { AccessControlService } from './access-control.service';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 
@@ -16,7 +14,6 @@ import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 export class SurgeryRequestAccessValidator {
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly userRepository: UserRepository,
     private readonly accessControlService: AccessControlService,
   ) {}
 
@@ -24,17 +21,11 @@ export class SurgeryRequestAccessValidator {
     surgeryRequestId: string,
     userId: string,
   ): Promise<SurgeryRequest> {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
-
-    const where =
-      doctorIds.length > 0
-        ? { id: surgeryRequestId, doctorId: In(doctorIds) }
-        : { id: surgeryRequestId };
-
+    // Fail-closed: escopa por ownerId do tenant do usuário (V1).
+    const where = await this.accessControlService.buildSurgeryAccessWhere(
+      { id: surgeryRequestId },
+      userId,
+    );
     const request = await this.surgeryRequestRepository.findOneSimple(where);
     if (!request)
       throw new NotFoundException('Solicitação cirúrgica não encontrada');
