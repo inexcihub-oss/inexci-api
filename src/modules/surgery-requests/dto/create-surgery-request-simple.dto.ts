@@ -20,9 +20,9 @@ export class RequiredDocumentDto {
 }
 
 export class CreateSurgeryRequestSimpleDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  procedureId: string;
+  procedureId?: string;
 
   @IsString()
   @IsNotEmpty()

@@ -304,13 +304,17 @@ describe('SurgeryRequestFromDocumentService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('lança BadRequestException quando procedureId não é fornecido', async () => {
-    await expect(
-      service.createFromDocument(
-        { doctorId: 'doctor-1', patientId: 'p-1' } as any,
-        'user-1',
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+  it('cria a SC sem procedimento (via documento só exige paciente válido)', async () => {
+    const result = await service.createFromDocument(
+      { doctorId: 'doctor-1', patientId: 'patient-1' } as any,
+      'user-1',
+    );
+
+    expect(result.id).toBe('sc-1');
+    expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ procedureId: undefined }),
+      'user-1',
+    );
   });
 
   it('acumula warning mas não falha quando mover o documento para storage falha', async () => {
@@ -661,20 +665,22 @@ describe('SurgeryRequestFromDocumentService', () => {
     );
   });
 
-  it('não tenta criar procedimento quando nome excede 255 chars e retorna BadRequest', async () => {
+  it('não cria procedimento quando nome excede 255 chars, mas ainda cria a SC sem procedimento', async () => {
     const longName = 'A'.repeat(256);
 
-    await expect(
-      service.createFromDocument(
-        {
-          doctorId: 'doctor-1',
-          patientId: 'patient-1',
-          procedureName: longName,
-        },
-        'user-1',
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    const result = await service.createFromDocument(
+      {
+        doctorId: 'doctor-1',
+        patientId: 'patient-1',
+        procedureName: longName,
+      },
+      'user-1',
+    );
 
-    expect(mutationService.createSurgeryRequest).not.toHaveBeenCalled();
+    expect(result.id).toBe('sc-1');
+    expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ procedureId: undefined }),
+      'user-1',
+    );
   });
 });

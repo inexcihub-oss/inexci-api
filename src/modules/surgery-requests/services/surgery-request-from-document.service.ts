@@ -196,12 +196,6 @@ export class SurgeryRequestFromDocumentService {
       );
     }
 
-    if (!resolvedProcedureId) {
-      throw new BadRequestException(
-        'Informe um procedimento para criar a solicitação.',
-      );
-    }
-
     const sc = await this.mutationService.createSurgeryRequest(
       {
         doctorId: dto.doctorId,

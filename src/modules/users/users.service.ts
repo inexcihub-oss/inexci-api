@@ -445,7 +445,22 @@ export class UsersService {
       requesting.role === UserRole.ADMIN &&
       (target.adminId === requestingUserId || isSelf);
 
-    if (!isSelf && !isAdmin) {
+    // Colaborador vinculado ao médico pode atualizar APENAS a assinatura.
+    // CRM/estado/especialidade continuam restritos ao próprio médico ou admin.
+    const onlySignature =
+      data.crm === undefined &&
+      data.crmState === undefined &&
+      data.specialty === undefined;
+    let isLinkedCollaborator = false;
+    if (!isSelf && !isAdmin && onlySignature) {
+      const accesses =
+        await this.userDoctorAccessRepository.findActiveByUserId(
+          requestingUserId,
+        );
+      isLinkedCollaborator = accesses.some((a) => a.doctorUserId === targetId);
+    }
+
+    if (!isSelf && !isAdmin && !isLinkedCollaborator) {
       throw new ForbiddenException(
         'Sem permissão para atualizar este perfil médico',
       );

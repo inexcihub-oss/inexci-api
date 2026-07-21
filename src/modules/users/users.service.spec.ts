@@ -723,6 +723,61 @@ describe('UsersService — Colaboradores e Permissões', () => {
         ),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('deve permitir colaborador vinculado atualizar a assinatura do médico', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1' },
+          adminId: 'real-admin',
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/x.png' },
+        });
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'doctor-1' },
+      ]);
+
+      await service.updateDoctorProfileById(
+        'doctor-1',
+        { signatureImageUrl: 'signatures/x.png' },
+        'collab-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-1',
+        expect.objectContaining({ signatureUrl: 'signatures/x.png' }),
+      );
+    });
+
+    it('deve barrar colaborador vinculado que tenta editar CRM', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1' },
+          adminId: 'real-admin',
+        });
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'doctor-1' },
+      ]);
+
+      await expect(
+        service.updateDoctorProfileById(
+          'doctor-1',
+          { crm: '123', signatureImageUrl: 'signatures/x.png' },
+          'collab-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 
   // ─── Cabeçalho de Documentos ───
