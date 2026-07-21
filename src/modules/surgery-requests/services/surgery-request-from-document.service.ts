@@ -26,6 +26,9 @@ import * as path from 'path';
 
 const TEMP_FOLDER = 'sc-from-document-tmp';
 const MAX_PROCEDURE_NAME_LENGTH = 255;
+// documents.name é varchar(75); nome de arquivo maior estoura o insert e
+// derruba silenciosamente o anexo do documento de origem.
+const MAX_DOCUMENT_NAME_LENGTH = 75;
 
 @Injectable()
 export class SurgeryRequestFromDocumentService {
@@ -245,8 +248,9 @@ export class SurgeryRequestFromDocumentService {
           dto.tempStoragePath,
           destFolder,
         );
-        const fileName =
-          dto.originalFileName || path.basename(dto.tempStoragePath);
+        const fileName = this.capDocumentName(
+          dto.originalFileName || path.basename(dto.tempStoragePath),
+        );
         await this.documentsService.createFromPath({
           surgeryRequestId: sc.id,
           storagePath: newPath,
@@ -431,5 +435,15 @@ export class SurgeryRequestFromDocumentService {
       '.webp': 'image/webp',
     };
     return map[ext] ?? 'application/octet-stream';
+  }
+
+  /** Trunca o nome para caber em documents.name (varchar 75), preservando a extensão. */
+  private capDocumentName(name: string): string {
+    if (name.length <= MAX_DOCUMENT_NAME_LENGTH) return name;
+    const ext = path.extname(name);
+    const base = path
+      .basename(name, ext)
+      .slice(0, MAX_DOCUMENT_NAME_LENGTH - ext.length);
+    return `${base}${ext}`;
   }
 }

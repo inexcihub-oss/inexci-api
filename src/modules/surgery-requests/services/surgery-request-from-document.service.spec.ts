@@ -231,6 +231,24 @@ describe('SurgeryRequestFromDocumentService', () => {
     expect(result.warnings).toHaveLength(0);
   });
 
+  it('trunca nome de arquivo longo para caber em documents.name (varchar 75), preservando extensão', async () => {
+    const longName = `${'a'.repeat(120)}.pdf`;
+    await service.createFromDocument(
+      {
+        doctorId: 'doctor-1',
+        patientId: 'patient-1',
+        procedureId: 'proc-1',
+        tempStoragePath: 'sc-from-document-tmp/doc.pdf',
+        originalFileName: longName,
+      },
+      'user-1',
+    );
+
+    const { name } = documentsService.createFromPath.mock.calls[0][0];
+    expect(name.length).toBeLessThanOrEqual(75);
+    expect(name.endsWith('.pdf')).toBe(true);
+  });
+
   it('cria novo paciente quando newPatient é fornecido em vez de patientId', async () => {
     const result = await service.createFromDocument(
       {
