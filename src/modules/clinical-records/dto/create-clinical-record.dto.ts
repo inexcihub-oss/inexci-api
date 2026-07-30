@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -41,4 +42,9 @@ export class CreateClinicalRecordDto {
   @IsOptional()
   @IsString()
   conduct?: string;
+
+  /** Marca o paciente como cirúrgico; a SC é criada ao finalizar. */
+  @IsOptional()
+  @IsBoolean()
+  surgicalIndication?: boolean;
 }

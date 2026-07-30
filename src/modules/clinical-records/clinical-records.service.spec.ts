@@ -131,6 +131,19 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.findOne).not.toHaveBeenCalled();
       expect(result).toMatchObject({ appointmentId: null });
     });
+
+    it('persiste o marcador de paciente cirúrgico', async () => {
+      const result = await service.create(
+        { patientId, surgicalIndication: true },
+        userId,
+      );
+      expect(result).toMatchObject({ surgicalIndication: true });
+    });
+
+    it('grava o marcador como falso quando não informado', async () => {
+      const result = await service.create({ patientId }, userId);
+      expect(result).toMatchObject({ surgicalIndication: false });
+    });
   });
 
   describe('update', () => {
@@ -156,6 +169,21 @@ describe('ClinicalRecordsService', () => {
       await service.update('cr-1', { conduct: 'repouso' }, userId);
       expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
         conduct: 'repouso',
+      });
+    });
+
+    it('atualiza o marcador de paciente cirúrgico', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+
+      await service.update('cr-1', { surgicalIndication: true }, userId);
+
+      expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
+        surgicalIndication: true,
       });
     });
   });

@@ -12,6 +12,7 @@ import {
 import { User } from './user.entity';
 import { Patient } from './patient.entity';
 import { Appointment } from './appointment.entity';
+import { SurgeryRequest } from './surgery-request.entity';
 
 /** Código CID-10 associado a um atendimento. */
 export interface ClinicalCidCode {
@@ -33,6 +34,11 @@ export interface ClinicalCidCode {
 @Index('idx_clinical_records_appointment_unique', ['appointmentId'], {
   unique: true,
   where: 'appointment_id IS NOT NULL AND deleted_at IS NULL',
+})
+// Outbox do marcador cirúrgico: fichas finalizadas com indicação e sem SC.
+@Index('idx_clinical_records_indication_pending', ['finalizedAt'], {
+  where:
+    'surgical_indication = true AND surgery_request_id IS NULL AND finalized_at IS NOT NULL AND deleted_at IS NULL',
 })
 export class ClinicalRecord {
   @PrimaryGeneratedColumn('uuid')
@@ -67,6 +73,18 @@ export class ClinicalRecord {
   @Column({ type: 'text', nullable: true })
   conduct: string | null;
 
+  /** Médico marcou o paciente como cirúrgico durante o atendimento. */
+  @Column({ name: 'surgical_indication', type: 'boolean', default: false })
+  surgicalIndication: boolean;
+
+  /**
+   * SC gerada ao finalizar o atendimento. Enquanto a ficha estiver finalizada
+   * com `surgicalIndication` e este campo nulo, a criação está pendente e o
+   * sweeper do `SurgicalIndicationService` vai retomá-la.
+   */
+  @Column({ name: 'surgery_request_id', type: 'uuid', nullable: true })
+  surgeryRequestId: string | null;
+
   /** Quando preenchido, o registro está fechado e não pode mais ser editado. */
   @Column({ name: 'finalized_at', type: 'timestamptz', nullable: true })
   finalizedAt: Date | null;
@@ -97,4 +115,8 @@ export class ClinicalRecord {
   @ManyToOne(() => Appointment, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'appointment_id' })
   appointment: Appointment | null;
+
+  @ManyToOne(() => SurgeryRequest, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'surgery_request_id' })
+  surgeryRequest: SurgeryRequest | null;
 }

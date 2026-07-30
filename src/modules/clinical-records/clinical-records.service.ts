@@ -128,6 +128,7 @@ export class ClinicalRecordsService {
       diagnosis: data.diagnosis ?? null,
       cidCodes: data.cidCodes ?? null,
       conduct: data.conduct ?? null,
+      surgicalIndication: data.surgicalIndication ?? false,
     });
   }
 
@@ -145,6 +146,8 @@ export class ClinicalRecordsService {
     if (data.diagnosis !== undefined) updateData.diagnosis = data.diagnosis;
     if (data.cidCodes !== undefined) updateData.cidCodes = data.cidCodes;
     if (data.conduct !== undefined) updateData.conduct = data.conduct;
+    if (data.surgicalIndication !== undefined)
+      updateData.surgicalIndication = data.surgicalIndication;
 
     return (await this.clinicalRecordRepository.update(record.id, updateData))!;
   }

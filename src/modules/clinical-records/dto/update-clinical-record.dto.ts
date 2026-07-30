@@ -1,4 +1,10 @@
-import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { CidCodeDto } from './cid-code.dto';
 
@@ -25,4 +31,9 @@ export class UpdateClinicalRecordDto {
   @IsOptional()
   @IsString()
   conduct?: string;
+
+  /** Marca o paciente como cirúrgico; a SC é criada ao finalizar. */
+  @IsOptional()
+  @IsBoolean()
+  surgicalIndication?: boolean;
 }
