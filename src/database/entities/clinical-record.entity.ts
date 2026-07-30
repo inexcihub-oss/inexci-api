@@ -28,6 +28,12 @@ export interface ClinicalCidCode {
 @Index('idx_clinical_records_owner_id', ['ownerId'])
 @Index('idx_clinical_records_patient_id', ['patientId'])
 @Index('idx_clinical_records_appointment_id', ['appointmentId'])
+// Uma consulta tem no máximo uma ficha viva; registro avulso (appointment_id
+// nulo) e soft delete ficam de fora do índice.
+@Index('idx_clinical_records_appointment_unique', ['appointmentId'], {
+  unique: true,
+  where: 'appointment_id IS NOT NULL AND deleted_at IS NULL',
+})
 export class ClinicalRecord {
   @PrimaryGeneratedColumn('uuid')
   id: string;

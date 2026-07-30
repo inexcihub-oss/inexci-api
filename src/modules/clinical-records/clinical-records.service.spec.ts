@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -85,6 +86,50 @@ describe('ClinicalRecordsService', () => {
       await expect(
         service.create({ patientId, appointmentId: 'a1' }, userId),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('cria a ficha da consulta quando ainda não existe nenhuma', async () => {
+      mockAppointmentRepo.findOne.mockResolvedValue({
+        id: 'a1',
+        ownerId,
+        patientId,
+      });
+      mockClinicalRepo.findOne.mockResolvedValue(null);
+
+      const result = await service.create(
+        { patientId, appointmentId: 'a1' },
+        userId,
+      );
+
+      expect(mockClinicalRepo.findOne).toHaveBeenCalledWith({
+        appointmentId: 'a1',
+      });
+      expect(result).toMatchObject({ appointmentId: 'a1', patientId });
+    });
+
+    it('rejeita segunda ficha para a mesma consulta', async () => {
+      mockAppointmentRepo.findOne.mockResolvedValue({
+        id: 'a1',
+        ownerId,
+        patientId,
+      });
+      mockClinicalRepo.findOne.mockResolvedValue({ id: 'cr-existente' });
+
+      await expect(
+        service.create({ patientId, appointmentId: 'a1' }, userId),
+      ).rejects.toThrow(ConflictException);
+      expect(mockClinicalRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('não checa duplicidade em atendimento avulso (sem consulta)', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-de-outra-consulta',
+      });
+
+      const result = await service.create({ patientId }, userId);
+
+      expect(mockClinicalRepo.findOne).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ appointmentId: null });
     });
   });
 

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -78,7 +79,9 @@ export class ClinicalRecordsService {
   ): Promise<ClinicalRecord> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    const patient = await this.patientRepository.findOne({ id: data.patientId });
+    const patient = await this.patientRepository.findOne({
+      id: data.patientId,
+    });
     if (!patient || patient.ownerId !== ownerId) {
       throw new NotFoundException('Paciente não encontrado');
     }
@@ -100,6 +103,19 @@ export class ClinicalRecordsService {
         ownerId,
         data.patientId,
       );
+
+      // Duas abas abertas na mesma consulta, ou uma retentativa depois de uma
+      // resposta perdida, criariam prontuários duplicados — e
+      // `findByAppointment` devolveria só um deles, deixando o outro órfão.
+      // O banco também barra (índice único parcial), mas aqui o erro é claro.
+      const existing = await this.clinicalRecordRepository.findOne({
+        appointmentId: data.appointmentId,
+      });
+      if (existing) {
+        throw new ConflictException(
+          'Esta consulta já possui uma ficha de atendimento.',
+        );
+      }
     }
 
     return this.clinicalRecordRepository.create({
@@ -194,9 +210,7 @@ export class ClinicalRecordsService {
       appointment.ownerId !== ownerId ||
       appointment.patientId !== patientId
     ) {
-      throw new BadRequestException(
-        'Consulta inválida para este atendimento.',
-      );
+      throw new BadRequestException('Consulta inválida para este atendimento.');
     }
   }
 }
