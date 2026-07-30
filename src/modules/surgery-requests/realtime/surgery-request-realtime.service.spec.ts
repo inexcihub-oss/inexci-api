@@ -52,9 +52,9 @@ describe('SurgeryRequestRealtimeService', () => {
       'doctor-1',
     );
 
-    expect(notificationsGateway.emitSurgeryRequestChanged).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(
+      notificationsGateway.emitSurgeryRequestChanged,
+    ).toHaveBeenCalledTimes(1);
     const [targets, payload] =
       notificationsGateway.emitSurgeryRequestChanged.mock.calls[0];
     expect(targets).toContain('doctor-1');

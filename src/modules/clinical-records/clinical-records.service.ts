@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
@@ -14,14 +15,18 @@ import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 import { CreateClinicalRecordDto } from './dto/create-clinical-record.dto';
 import { UpdateClinicalRecordDto } from './dto/update-clinical-record.dto';
+import { SurgicalIndicationService } from './surgical-indication/surgical-indication.service';
 
 @Injectable()
 export class ClinicalRecordsService {
+  private readonly logger = new Logger(ClinicalRecordsService.name);
+
   constructor(
     private readonly clinicalRecordRepository: ClinicalRecordRepository,
     private readonly patientRepository: PatientRepository,
     private readonly appointmentRepository: AppointmentRepository,
     private readonly accessControlService: AccessControlService,
+    private readonly surgicalIndicationService: SurgicalIndicationService,
   ) {}
 
   /** Linha do tempo de atendimentos de um paciente. */
@@ -153,8 +158,9 @@ export class ClinicalRecordsService {
   }
 
   /**
-   * Finaliza o atendimento: torna a ficha imutável e marca a consulta vinculada
-   * como realizada (se houver).
+   * Finaliza o atendimento: torna a ficha imutável, marca a consulta vinculada
+   * como realizada (se houver) e, quando o paciente foi marcado como cirúrgico,
+   * cria a solicitação cirúrgica em Pendente.
    */
   async finalize(id: string, userId: string): Promise<ClinicalRecord> {
     const record = await this.getEditable(id, userId);
@@ -167,6 +173,26 @@ export class ClinicalRecordsService {
       await this.appointmentRepository.update(record.appointmentId, {
         status: AppointmentStatus.COMPLETED,
       });
+    }
+
+    if (record.surgicalIndication) {
+      // Best-effort de propósito: a ficha já está finalizada e é imutável, então
+      // falhar aqui não pode derrubar a resposta. A própria ficha (indicação sem
+      // SC) é o registro pendente que o sweeper retoma.
+      try {
+        const surgeryRequest =
+          await this.surgicalIndicationService.createForRecord(
+            record.id,
+            userId,
+          );
+        if (surgeryRequest) {
+          finalized.surgeryRequestId = surgeryRequest.id;
+        }
+      } catch (err: any) {
+        this.logger.error(
+          `Ficha ${record.id} finalizada, mas a SC falhou; o sweeper vai retomar: ${err?.message}`,
+        );
+      }
     }
 
     return finalized;

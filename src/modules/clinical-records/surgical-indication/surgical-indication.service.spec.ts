@@ -29,7 +29,9 @@ describe('SurgicalIndicationService', () => {
     jest.clearAllMocks();
     recordRepo.findOne.mockResolvedValue(finalizedRecord);
     recordRepo.update.mockResolvedValue({ affected: 1 });
-    fromIndication.createPendingFromIndication.mockResolvedValue({ id: 'sc-1' });
+    fromIndication.createPendingFromIndication.mockResolvedValue({
+      id: 'sc-1',
+    });
     realtime.broadcastChange.mockResolvedValue(undefined);
 
     service = new SurgicalIndicationService(
@@ -134,8 +136,10 @@ describe('SurgicalIndicationService', () => {
       );
       // Fora da transação: o broadcast relê a SC no banco e não veria uma linha
       // ainda não commitada.
-      const transactionCall = dataSource.transaction.mock.invocationCallOrder[0];
-      const broadcastCall = realtime.broadcastChange.mock.invocationCallOrder[0];
+      const transactionCall =
+        dataSource.transaction.mock.invocationCallOrder[0];
+      const broadcastCall =
+        realtime.broadcastChange.mock.invocationCallOrder[0];
       expect(broadcastCall).toBeGreaterThan(transactionCall);
     });
 
@@ -146,6 +150,42 @@ describe('SurgicalIndicationService', () => {
 
       expect(sc).toEqual({ id: 'sc-1' });
       expect(recordRepo.update).toHaveBeenCalled();
+    });
+  });
+
+  describe('sweepPendingIndications', () => {
+    it('cria a SC de cada ficha pendente', async () => {
+      clinicalRecordRepository.findPendingSurgicalIndications.mockResolvedValue(
+        [{ id: 'cr-1' }, { id: 'cr-2' }],
+      );
+
+      const created = await service.sweepPendingIndications();
+
+      expect(created).toBe(2);
+      expect(recordRepo.findOne).toHaveBeenCalledTimes(2);
+    });
+
+    it('uma ficha com erro não impede as demais', async () => {
+      clinicalRecordRepository.findPendingSurgicalIndications.mockResolvedValue(
+        [{ id: 'cr-1' }, { id: 'cr-2' }],
+      );
+      recordRepo.findOne
+        .mockRejectedValueOnce(new Error('deadlock'))
+        .mockResolvedValueOnce(finalizedRecord);
+
+      expect(await service.sweepPendingIndications()).toBe(1);
+    });
+
+    it('não conta ficha que já tinha SC', async () => {
+      clinicalRecordRepository.findPendingSurgicalIndications.mockResolvedValue(
+        [{ id: 'cr-1' }],
+      );
+      recordRepo.findOne.mockResolvedValue({
+        ...finalizedRecord,
+        surgeryRequestId: 'sc-existente',
+      });
+
+      expect(await service.sweepPendingIndications()).toBe(0);
     });
   });
 });

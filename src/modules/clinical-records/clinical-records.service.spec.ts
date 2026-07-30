@@ -25,6 +25,7 @@ describe('ClinicalRecordsService', () => {
     canAccessDoctor: jest.fn(),
     resolveDefaultDoctorId: jest.fn(),
   };
+  const mockSurgicalIndication = { createForRecord: jest.fn() };
 
   const ownerId = 'owner-1';
   const userId = 'user-1';
@@ -42,11 +43,14 @@ describe('ClinicalRecordsService', () => {
       Promise.resolve({ id: 'cr-1', ...d }),
     );
 
+    mockSurgicalIndication.createForRecord.mockResolvedValue({ id: 'sc-1' });
+
     service = new ClinicalRecordsService(
       mockClinicalRepo as any,
       mockPatientRepo as any,
       mockAppointmentRepo as any,
       mockAccess as any,
+      mockSurgicalIndication as any,
     );
   });
 
@@ -234,6 +238,69 @@ describe('ClinicalRecordsService', () => {
       await expect(service.finalize('cr-1', userId)).rejects.toThrow(
         BadRequestException,
       );
+    });
+
+    it('cria a SC quando a ficha tem indicação cirúrgica', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+        appointmentId: null,
+        surgicalIndication: true,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+
+      const result = await service.finalize('cr-1', userId);
+
+      expect(mockSurgicalIndication.createForRecord).toHaveBeenCalledWith(
+        'cr-1',
+        userId,
+      );
+      // A ficha é devolvida antes de a SC existir; o id é costurado na resposta
+      // para o frontend já poder linkar a solicitação.
+      expect(result).toMatchObject({ surgeryRequestId: 'sc-1' });
+    });
+
+    it('não cria SC quando a ficha não tem indicação', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+        appointmentId: null,
+        surgicalIndication: false,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+
+      await service.finalize('cr-1', userId);
+
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
+    });
+
+    // O ponto central do desenho: perder a SC é aceitável no curto prazo (o
+    // sweeper retoma), perder o atendimento do médico nunca é.
+    it('finaliza o atendimento mesmo se a criação da SC falhar', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+        surgicalIndication: true,
+      });
+      mockClinicalRepo.update.mockResolvedValue({
+        id: 'cr-1',
+        finalizedAt: new Date(),
+      });
+      mockSurgicalIndication.createForRecord.mockRejectedValue(
+        new Error('banco fora'),
+      );
+
+      const result = await service.finalize('cr-1', userId);
+
+      expect(result).toMatchObject({ id: 'cr-1' });
+      expect(result.surgeryRequestId).toBeUndefined();
+      expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
+        status: AppointmentStatus.COMPLETED,
+      });
     });
   });
 

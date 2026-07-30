@@ -24,7 +24,9 @@ describe('SurgeryRequestFromIndicationService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    scRepo.save.mockImplementation((d) => Promise.resolve({ id: 'sc-1', ...d }));
+    scRepo.save.mockImplementation((d) =>
+      Promise.resolve({ id: 'sc-1', ...d }),
+    );
     activityRepo.save.mockResolvedValue({ id: 'act-1' });
     service = new SurgeryRequestFromIndicationService();
   });

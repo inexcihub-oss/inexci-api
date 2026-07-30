@@ -10,9 +10,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Daí o índice parcial — a varredura precisa ser barata mesmo com a tabela
  * grande, já que a esmagadora maioria das fichas nunca entra nessa condição.
  */
-export class AddSurgicalIndicationToClinicalRecords1752300500000
-  implements MigrationInterface
-{
+export class AddSurgicalIndicationToClinicalRecords1752300500000 implements MigrationInterface {
   name = 'AddSurgicalIndicationToClinicalRecords1752300500000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

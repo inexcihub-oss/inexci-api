@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
@@ -6,6 +7,9 @@ import { ClinicalRecordRepository } from 'src/database/repositories/clinical-rec
 import { SurgeryRequestFromIndicationService } from 'src/modules/surgery-requests/creation/surgery-request-from-indication.service';
 import { SurgeryRequestRealtimeService } from 'src/modules/surgery-requests/realtime/surgery-request-realtime.service';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
+
+/** Teto por rodada — o cron roda de novo em 10 min se sobrar trabalho. */
+const SWEEP_BATCH_SIZE = 50;
 
 /**
  * Garante que toda ficha finalizada com indicação cirúrgica tenha uma SC.
@@ -93,6 +97,46 @@ export class SurgicalIndicationService {
       }
     }
 
+    return created;
+  }
+
+  /**
+   * Rede de segurança da criação inline. O `@Cron` vive no próprio serviço, como
+   * em `AppointmentReminderService`, em vez de passar pelo `CronService`.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async handlePendingIndicationsCron(): Promise<void> {
+    try {
+      const created = await this.sweepPendingIndications();
+      if (created > 0) {
+        this.logger.log(
+          `SCs criadas a partir de atendimentos pendentes: ${created}`,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error(
+        `Erro no cron de indicações cirúrgicas: ${err?.message}`,
+      );
+    }
+  }
+
+  /** Retoma as fichas cuja SC não foi criada na finalização. */
+  async sweepPendingIndications(): Promise<number> {
+    const pending =
+      await this.clinicalRecordRepository.findPendingSurgicalIndications(
+        SWEEP_BATCH_SIZE,
+      );
+
+    let created = 0;
+    for (const record of pending) {
+      try {
+        if (await this.createForRecord(record.id)) created++;
+      } catch (err: any) {
+        this.logger.warn(
+          `Falha ao criar SC da ficha ${record.id}: ${err?.message}`,
+        );
+      }
+    }
     return created;
   }
 }
