@@ -105,6 +105,7 @@ export class SurgeryRequestsService {
 
     let where: FindOptionsWhere<SurgeryRequest> = { doctorId: In(doctorIds) };
     if (query.status) where = { ...where, status: In(query.status) };
+    if (query.patientId) where = { ...where, patientId: query.patientId };
 
     const [total, records] = await Promise.all([
       this.surgeryRequestRepository.total(where),
