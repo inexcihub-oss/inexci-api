@@ -1,7 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { Appointment } from '../entities/appointment.entity';
+import { Appointment, AppointmentStatus } from '../entities/appointment.entity';
 import { BaseRepository } from './base.repository';
+
+/** Recorte da agenda. Cada ponta da janela é opcional (lista aberta). */
+export interface FindAgendaOptions {
+  from?: Date;
+  to?: Date;
+  statuses?: AppointmentStatus[];
+  order?: 'ASC' | 'DESC';
+  take: number;
+}
 
 @Injectable()
 export class AppointmentRepository extends BaseRepository<Appointment> {
@@ -10,22 +19,36 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   }
 
   /**
-   * Consultas de um conjunto de médicos com início dentro do intervalo visível
-   * da agenda. Traz o paciente para montar o card sem N+1.
+   * Consultas de um conjunto de médicos, opcionalmente recortadas por janela de
+   * datas e status. Traz o paciente para montar o card sem N+1.
+   *
+   * A janela é semiaberta (`>= from`, `< to`) e cada ponta pode ser omitida:
+   * a agenda passa as duas, "Próximas" passa só `from` e "Realizadas" nenhuma.
    */
   findAgenda(
     doctorIds: string[],
-    from: Date,
-    to: Date,
-    take: number,
+    options: FindAgendaOptions,
   ): Promise<Appointment[]> {
-    return this.repository
+    const qb = this.repository
       .createQueryBuilder('appointment')
       .leftJoinAndSelect('appointment.patient', 'patient')
-      .where('appointment.doctorId IN (:...doctorIds)', { doctorIds })
-      .andWhere('appointment.scheduledAt BETWEEN :from AND :to', { from, to })
-      .orderBy('appointment.scheduledAt', 'ASC')
-      .take(take)
+      .where('appointment.doctorId IN (:...doctorIds)', { doctorIds });
+
+    if (options.from) {
+      qb.andWhere('appointment.scheduledAt >= :from', { from: options.from });
+    }
+    if (options.to) {
+      qb.andWhere('appointment.scheduledAt < :to', { to: options.to });
+    }
+    if (options.statuses?.length) {
+      qb.andWhere('appointment.status IN (:...statuses)', {
+        statuses: options.statuses,
+      });
+    }
+
+    return qb
+      .orderBy('appointment.scheduledAt', options.order ?? 'ASC')
+      .take(options.take)
       .getMany();
   }
 

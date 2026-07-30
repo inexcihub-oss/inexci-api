@@ -74,7 +74,9 @@ describe('AppointmentsService', () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
       ]);
-      mockAppointmentRepository.findByPatient.mockResolvedValue([{ id: 'a-1' }]);
+      mockAppointmentRepository.findByPatient.mockResolvedValue([
+        { id: 'a-1' },
+      ]);
 
       const result = await service.findByPatient(patientId, userId);
 
@@ -241,9 +243,11 @@ describe('AppointmentsService', () => {
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
         [doctorId],
-        expect.any(Date),
-        expect.any(Date),
-        expect.any(Number),
+        expect.objectContaining({
+          from: new Date('2026-08-01'),
+          to: new Date('2026-08-31'),
+          take: expect.any(Number),
+        }),
       );
     });
 
@@ -260,9 +264,45 @@ describe('AppointmentsService', () => {
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
         [doctorId],
-        expect.any(Date),
-        expect.any(Date),
-        expect.any(Number),
+        expect.objectContaining({ take: expect.any(Number) }),
+      );
+    });
+
+    it('repassa status e ordem para o repositório', async () => {
+      mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
+        doctorId,
+      ]);
+      mockAppointmentRepository.findAgenda.mockResolvedValue([]);
+
+      await service.findAgenda(
+        {
+          status: [AppointmentStatus.COMPLETED],
+          order: 'DESC',
+        },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+        [doctorId],
+        expect.objectContaining({
+          statuses: [AppointmentStatus.COMPLETED],
+          order: 'DESC',
+        }),
+      );
+    });
+
+    it('deixa a janela aberta quando from/to não vêm na query', async () => {
+      mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
+        doctorId,
+      ]);
+      mockAppointmentRepository.findAgenda.mockResolvedValue([]);
+
+      // "Realizadas" lista todo o passado; "Próximas" não tem teto de data.
+      await service.findAgenda({}, userId);
+
+      expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+        [doctorId],
+        expect.objectContaining({ from: undefined, to: undefined }),
       );
     });
   });

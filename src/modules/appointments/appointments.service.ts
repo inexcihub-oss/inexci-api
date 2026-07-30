@@ -45,9 +45,13 @@ export class AppointmentsService {
 
     const records = await this.appointmentRepository.findAgenda(
       scopedDoctorIds,
-      new Date(query.from),
-      new Date(query.to),
-      APPOINTMENTS_MAX_TAKE,
+      {
+        from: query.from ? new Date(query.from) : undefined,
+        to: query.to ? new Date(query.to) : undefined,
+        statuses: query.status,
+        order: query.order,
+        take: APPOINTMENTS_MAX_TAKE,
+      },
     );
 
     return { total: records.length, records };
@@ -90,7 +94,9 @@ export class AppointmentsService {
       throw new ForbiddenException('Médico não acessível para esta operação.');
     }
 
-    const patient = await this.patientRepository.findOne({ id: data.patientId });
+    const patient = await this.patientRepository.findOne({
+      id: data.patientId,
+    });
     if (!patient || patient.ownerId !== ownerId) {
       throw new NotFoundException('Paciente não encontrado');
     }
