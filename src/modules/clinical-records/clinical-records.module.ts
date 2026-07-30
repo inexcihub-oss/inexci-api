@@ -9,7 +9,10 @@ import { ClinicalDocumentsService } from './documents/clinical-documents.service
 
 @Module({
   imports: [TypeOrmModule.forFeature([ClinicalRecord])],
-  controllers: [ClinicalRecordsController, ClinicalDocumentsController],
+  // Ordem importa: `clinical-records/documents` é um caminho fixo que colide
+  // com o `clinical-records/:id` do controller de fichas. O Nest resolve as
+  // rotas na ordem de registro, então o específico vem primeiro.
+  controllers: [ClinicalDocumentsController, ClinicalRecordsController],
   providers: [ClinicalRecordsService, ClinicalDocumentsService, StorageService],
   exports: [ClinicalRecordsService],
 })

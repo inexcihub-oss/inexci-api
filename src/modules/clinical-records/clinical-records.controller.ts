@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -41,9 +42,17 @@ export class ClinicalRecordsController {
     return this.clinicalRecordsService.findByPatient(patientId!, user.userId);
   }
 
+  /**
+   * `:id` é validado como UUID em todas as rotas: sem isso, um segmento fixo
+   * de outro controller (`clinical-records/documents`) chega ao banco como id
+   * e devolve 500 em vez de 404/400.
+   */
   @Get(':id')
   @ApiOperation({ summary: 'Buscar atendimento por ID' })
-  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.clinicalRecordsService.findOne(id, user.userId);
   }
 
@@ -59,7 +68,7 @@ export class ClinicalRecordsController {
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar atendimento (se não finalizado)' })
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() data: UpdateClinicalRecordDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
@@ -68,13 +77,19 @@ export class ClinicalRecordsController {
 
   @Post(':id/finalize')
   @ApiOperation({ summary: 'Finalizar atendimento (torna imutável)' })
-  finalize(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  finalize(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.clinicalRecordsService.finalize(id, user.userId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Excluir atendimento (se não finalizado)' })
-  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.clinicalRecordsService.delete(id, user.userId);
   }
 }
