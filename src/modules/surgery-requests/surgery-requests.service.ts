@@ -53,7 +53,7 @@ import { SurgeryRequestWorkflowService } from './services/surgery-request-workfl
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
-import { SurgeryRequestRealtimeService } from './services/surgery-request-realtime.service';
+import { SurgeryRequestRealtimeService } from './realtime/surgery-request-realtime.service';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { CidService } from './cid/cid.service';

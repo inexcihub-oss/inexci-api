@@ -33,7 +33,7 @@ import { CreateSurgeryRequestDto } from '../dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from '../dto/create-surgery-request-simple.dto';
 import { UpdateSurgeryRequestDto } from '../dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from '../dto/update-surgery-request-basic.dto';
-import { SurgeryRequestRealtimeService } from './surgery-request-realtime.service';
+import { SurgeryRequestRealtimeService } from '../realtime/surgery-request-realtime.service';
 
 @Injectable()
 export class SurgeryRequestMutationService {

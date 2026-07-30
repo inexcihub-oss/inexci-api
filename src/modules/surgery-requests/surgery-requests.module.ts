@@ -28,7 +28,7 @@ import { DocumentEntityResolverService } from './services/document-entity-resolv
 import { SurgeryRequestFromDocumentService } from './services/surgery-request-from-document.service';
 import { SurgeryRequestDocumentExtractionJobsService } from './services/surgery-request-document-extraction-jobs.service';
 import { SurgeryRequestDocumentExtractionProcessor } from './services/surgery-request-document-extraction.processor';
-import { SurgeryRequestRealtimeService } from './services/surgery-request-realtime.service';
+import { SurgeryRequestRealtimeModule } from './realtime/surgery-request-realtime.module';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
 import { SurgeryRequestsController } from './surgery-requests.controller';
 import { UsersModule } from '../users/users.module';
@@ -79,6 +79,7 @@ import { CidModule } from './cid/cid.module';
     WhatsappModule,
     NotificationsModule,
     BillingModule,
+    SurgeryRequestRealtimeModule,
     forwardRef(() => AiModule),
   ],
   controllers: [SurgeryRequestsController],
@@ -99,7 +100,6 @@ import { CidModule } from './cid/cid.module';
     SurgeryRequestFromDocumentService,
     SurgeryRequestDocumentExtractionJobsService,
     SurgeryRequestDocumentExtractionProcessor,
-    SurgeryRequestRealtimeService,
     DoctorResolutionService,
     StorageService,
     DoctorHeaderRepository,
