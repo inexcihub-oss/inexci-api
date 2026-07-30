@@ -23,6 +23,8 @@ export class QueueMetricsListener implements OnModuleInit {
     @InjectQueue('ai-messages') private readonly aiMessagesQueue: Queue,
     @InjectQueue('document-extraction')
     private readonly documentExtractionQueue: Queue,
+    @InjectQueue('indication-documents')
+    private readonly indicationDocumentsQueue: Queue,
   ) {}
 
   onModuleInit(): void {
@@ -32,6 +34,7 @@ export class QueueMetricsListener implements OnModuleInit {
       this.pdfGenerationQueue,
       this.aiMessagesQueue,
       this.documentExtractionQueue,
+      this.indicationDocumentsQueue,
     ].forEach((queue) => this.attachListeners(queue));
   }
 

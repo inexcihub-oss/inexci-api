@@ -1,0 +1,67 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <title>Encaminhamento de Exames</title>
+    {{> clinical-styles}}
+  </head>
+  <body>
+
+    {{> clinical-header documentTitle='SOLICITAÇÃO DE EXAMES'}}
+
+    {{> clinical-patient}}
+
+    <div class='section'>
+      <div class='section-heading'>
+        <span class='section-title'>Exames solicitados</span>
+      </div>
+      <div class='item-list'>
+        {{#each exams}}
+          <div class='item'>
+            <span class='item-index'>{{sum @index 1}}.</span>
+            <div>
+              <div class='item-name'>{{this.name}}</div>
+              {{#if this.tussCode}}
+                <div class='item-meta'>Código TUSS: {{this.tussCode}}</div>
+              {{/if}}
+              {{#if this.observation}}
+                <div class='item-instructions'>{{this.observation}}</div>
+              {{/if}}
+            </div>
+          </div>
+        {{/each}}
+      </div>
+    </div>
+
+    {{#if clinicalIndication}}
+      <div class='section'>
+        <div class='section-heading'>
+          <span class='section-title'>Indicação clínica</span>
+        </div>
+        <p class='body-text'>{{clinicalIndication}}</p>
+      </div>
+    {{/if}}
+
+    {{#if cidCodes}}
+      <div class='section'>
+        <div class='section-heading'>
+          <span class='section-title'>Hipótese diagnóstica (CID-10)</span>
+        </div>
+        <div class='item-list'>
+          {{#each cidCodes}}
+            <div class='item'>
+              <div>
+                <span class='item-name'>{{this.code}}</span>
+                {{#if this.description}}
+                  <span class='item-meta'>— {{this.description}}</span>
+                {{/if}}
+              </div>
+            </div>
+          {{/each}}
+        </div>
+      </div>
+    {{/if}}
+
+    {{> clinical-signature}}
+
+  </body>
+</html>

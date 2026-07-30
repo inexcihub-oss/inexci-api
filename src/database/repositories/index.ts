@@ -5,6 +5,7 @@ export { UserDoctorAccessRepository } from './user-doctor-access.repository';
 export { PatientRepository } from './patient.repository';
 export { AppointmentRepository } from './appointment.repository';
 export { ClinicalRecordRepository } from './clinical-record.repository';
+export { ClinicalRecordTemplateRepository } from './clinical-record-template.repository';
 export { HospitalRepository } from './hospital.repository';
 export { ManufacturerRepository } from './manufacturer.repository';
 export { SupplierRepository } from './supplier.repository';

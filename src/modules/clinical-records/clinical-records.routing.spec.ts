@@ -6,6 +6,7 @@ import { ClinicalRecordsModule } from './clinical-records.module';
 import { ClinicalRecordsService } from './clinical-records.service';
 import { ClinicalDocumentsController } from './documents/clinical-documents.controller';
 import { ClinicalDocumentsService } from './documents/clinical-documents.service';
+import { ClinicalDocumentGenerationService } from './documents/clinical-document-generation.service';
 
 /**
  * `clinical-records/documents` é um caminho fixo que colide com o
@@ -55,6 +56,14 @@ describe('Roteamento de clinical-records', () => {
       providers: [
         { provide: ClinicalDocumentsService, useValue: documentsService },
         { provide: ClinicalRecordsService, useValue: recordsService },
+        {
+          provide: ClinicalDocumentGenerationService,
+          useValue: {
+            generatePrescription: jest.fn(),
+            generateMedicalCertificate: jest.fn(),
+            generateExamReferral: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

@@ -7,6 +7,7 @@ import { ClinicalRecordRepository } from 'src/database/repositories/clinical-rec
 import { SurgeryRequestFromIndicationService } from 'src/modules/surgery-requests/creation/surgery-request-from-indication.service';
 import { SurgeryRequestRealtimeService } from 'src/modules/surgery-requests/realtime/surgery-request-realtime.service';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { IndicationDocumentsJobsService } from './indication-documents-jobs.service';
 
 /** Teto por rodada — o cron roda de novo em 10 min se sobrar trabalho. */
 const SWEEP_BATCH_SIZE = 50;
@@ -28,6 +29,7 @@ export class SurgicalIndicationService {
     private readonly clinicalRecordRepository: ClinicalRecordRepository,
     private readonly fromIndicationService: SurgeryRequestFromIndicationService,
     private readonly realtimeService: SurgeryRequestRealtimeService,
+    private readonly indicationDocumentsJobsService: IndicationDocumentsJobsService,
   ) {}
 
   /**
@@ -42,6 +44,13 @@ export class SurgicalIndicationService {
     recordId: string,
     actorUserId?: string,
   ): Promise<SurgeryRequest | null> {
+    // Guardado da transação para o pós-commit (cópia dos documentos): a ficha
+    // só é lida lá dentro, com o lock.
+    let source: Pick<
+      ClinicalRecord,
+      'patientId' | 'ownerId' | 'doctorId'
+    > | null = null;
+
     const created = await executeInTransaction(
       this.dataSource,
       async (manager) => {
@@ -77,12 +86,35 @@ export class SurgicalIndicationService {
           surgeryRequestId: surgeryRequest.id,
         });
 
+        source = {
+          patientId: record.patientId,
+          ownerId: record.ownerId,
+          doctorId: record.doctorId,
+        };
+
         return surgeryRequest;
       },
       { logger: this.logger, operationName: 'createForRecord' },
     );
 
-    if (created) {
+    if (created && source) {
+      // Enfileirado, não copiado aqui: são N cópias no R2, e a resposta de
+      // "Finalizar atendimento" não pode esperar por elas. A fila ainda dá
+      // retentativa, que a cópia inline não tinha.
+      const { patientId, ownerId, doctorId } = source;
+      try {
+        await this.indicationDocumentsJobsService.schedule({
+          patientId,
+          surgeryRequestId: created.id,
+          ownerId,
+          createdById: doctorId,
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `SC ${created.id} criada, mas a cópia dos documentos não foi agendada: ${err?.message}`,
+        );
+      }
+
       // Depois do commit: o broadcast relê a SC no banco.
       try {
         await this.realtimeService.broadcastChange(

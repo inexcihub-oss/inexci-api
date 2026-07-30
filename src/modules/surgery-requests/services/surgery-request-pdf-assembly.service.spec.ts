@@ -6,6 +6,7 @@ import { PdfService } from 'src/shared/pdf/pdf.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
+import { DoctorPdfContextService } from 'src/shared/pdf/doctor-pdf-context.service';
 
 describe('SurgeryRequestPdfAssemblyService', () => {
   let service: SurgeryRequestPdfAssemblyService;
@@ -117,6 +118,9 @@ describe('SurgeryRequestPdfAssemblyService', () => {
           provide: DoctorHeaderRepository,
           useValue: mockDoctorHeaderRepository,
         },
+        // Serviço real sobre os mesmos mocks: o contexto do médico saiu daqui
+        // para `shared/pdf`, mas o comportamento coberto abaixo é o mesmo.
+        DoctorPdfContextService,
       ],
     }).compile();
 

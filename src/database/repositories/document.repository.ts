@@ -37,6 +37,14 @@ export class DocumentRepository extends BaseRepository<Document> {
     return await this.repository.findOne({ where });
   }
 
+  /** Documentos anexados a uma solicitação cirúrgica. */
+  async findBySurgeryRequestId(surgeryRequestId: string): Promise<Document[]> {
+    return await this.repository.find({
+      where: { surgeryRequestId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   /** Documentos de um paciente (exames/anexos do prontuário), mais recentes primeiro. */
   async findByPatientId(patientId: string): Promise<Document[]> {
     return await this.repository.find({

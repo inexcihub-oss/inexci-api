@@ -1,0 +1,56 @@
+{{!-- Bloco de identificação do paciente, comum aos documentos do atendimento. --}}
+<div class='section'>
+  <div class='section-heading'>
+    <span class='section-title'>Dados do paciente</span>
+  </div>
+  <div class='patient-grid'>
+    {{#if patientName}}
+      <div class='patient-row'>
+        <span class='patient-label'>Nome:</span>
+        <span class='patient-value'>{{patientName}}</span>
+      </div>
+    {{/if}}
+    {{#if patientBirthDate}}
+      <div class='patient-row'>
+        <span class='patient-label'>Data de nascimento:</span>
+        <span class='patient-value'>{{patientBirthDate}}</span>
+      </div>
+    {{/if}}
+    {{#if patientCpf}}
+      <div class='patient-row'>
+        <span class='patient-label'>CPF:</span>
+        <span class='patient-value'>{{patientCpf}}</span>
+      </div>
+    {{/if}}
+    {{#if patientRg}}
+      <div class='patient-row'>
+        <span class='patient-label'>RG:</span>
+        <span class='patient-value'>{{patientRg}}</span>
+      </div>
+    {{/if}}
+    {{#if patientPhone}}
+      <div class='patient-row'>
+        <span class='patient-label'>Telefone:</span>
+        <span class='patient-value'>{{patientPhone}}</span>
+      </div>
+    {{/if}}
+    {{#if patientAddress}}
+      <div class='patient-row'>
+        <span class='patient-label'>Endereço:</span>
+        <span class='patient-value'>{{patientAddress}}</span>
+      </div>
+    {{/if}}
+    {{#if patientHealthPlan}}
+      <div class='patient-row'>
+        <span class='patient-label'>Convênio:</span>
+        <span class='patient-value'>{{patientHealthPlan}}</span>
+      </div>
+    {{/if}}
+    {{#if patientHealthPlanNumber}}
+      <div class='patient-row'>
+        <span class='patient-label'>Nº da carteirinha:</span>
+        <span class='patient-value'>{{patientHealthPlanNumber}}</span>
+      </div>
+    {{/if}}
+  </div>
+</div>

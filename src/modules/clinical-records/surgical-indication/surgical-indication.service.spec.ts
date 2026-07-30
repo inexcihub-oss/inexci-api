@@ -13,6 +13,7 @@ describe('SurgicalIndicationService', () => {
   };
   const fromIndication = { createPendingFromIndication: jest.fn() };
   const realtime = { broadcastChange: jest.fn() };
+  const indicationDocuments = { schedule: jest.fn() };
 
   const finalizedRecord = {
     id: 'cr-1',
@@ -33,12 +34,14 @@ describe('SurgicalIndicationService', () => {
       id: 'sc-1',
     });
     realtime.broadcastChange.mockResolvedValue(undefined);
+    indicationDocuments.schedule.mockResolvedValue(undefined);
 
     service = new SurgicalIndicationService(
       dataSource as never,
       clinicalRecordRepository as never,
       fromIndication as never,
       realtime as never,
+      indicationDocuments as never,
     );
   });
 
@@ -84,6 +87,40 @@ describe('SurgicalIndicationService', () => {
       expect(sc).toBeNull();
       expect(fromIndication.createPendingFromIndication).not.toHaveBeenCalled();
       expect(realtime.broadcastChange).not.toHaveBeenCalled();
+    });
+
+    it('agenda a cópia dos documentos do paciente para a SC recém-criada', async () => {
+      await service.createForRecord('cr-1', 'user-1');
+
+      expect(indicationDocuments.schedule).toHaveBeenCalledWith({
+        patientId: 'patient-1',
+        surgeryRequestId: 'sc-1',
+        ownerId: 'owner-1',
+        // Mesma autoria da SC: o sweeper roda sem usuário logado.
+        createdById: 'doctor-1',
+      });
+    });
+
+    it('entrega a SC mesmo se o agendamento da cópia falhar', async () => {
+      indicationDocuments.schedule.mockRejectedValue(
+        new Error('R2 fora do ar'),
+      );
+
+      const sc = await service.createForRecord('cr-1', 'user-1');
+
+      expect(sc).toEqual({ id: 'sc-1' });
+      expect(realtime.broadcastChange).toHaveBeenCalled();
+    });
+
+    it('não copia documentos quando não houve SC nova', async () => {
+      recordRepo.findOne.mockResolvedValue({
+        ...finalizedRecord,
+        surgeryRequestId: 'sc-existente',
+      });
+
+      await service.createForRecord('cr-1');
+
+      expect(indicationDocuments.schedule).not.toHaveBeenCalled();
     });
 
     it('não cria nada quando a ficha não tem o marcador', async () => {

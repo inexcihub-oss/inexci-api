@@ -163,6 +163,10 @@ import { ObservabilityModule } from './shared/observability/observability.module
       adapter: BullAdapter,
     }),
     BullBoardModule.forFeature({
+      name: 'indication-documents',
+      adapter: BullAdapter,
+    }),
+    BullBoardModule.forFeature({
       name: 'document-extraction',
       adapter: BullAdapter,
     }),

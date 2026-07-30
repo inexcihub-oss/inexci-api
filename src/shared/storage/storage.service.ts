@@ -123,6 +123,36 @@ export class StorageService {
     }
   }
 
+  /**
+   * Duplica um arquivo dentro do bucket, gerando um objeto novo (o original
+   * permanece). Usado quando dois registros precisam de ciclos de vida
+   * independentes — excluir um documento apaga o objeto dele, então
+   * compartilhar o mesmo caminho faria uma exclusão levar a outra junto.
+   */
+  async copy(
+    fromPath: string,
+    toFolder: string,
+    tenantId?: string,
+  ): Promise<string> {
+    const fileName = fromPath.split('/').pop() || `${uuid()}.bin`;
+    const prefix = tenantId ? `${toFolder}/${tenantId}` : toFolder;
+    const toPath = `${prefix}/${uuid()}-${fileName}`;
+
+    try {
+      await this.s3.send(
+        new CopyObjectCommand({
+          Bucket: this.bucket,
+          CopySource: `${this.bucket}/${fromPath}`,
+          Key: toPath,
+        }),
+      );
+      return toPath;
+    } catch (error: any) {
+      this.logger.error(`R2 copy error: ${error.message}`);
+      throw new BadRequestException(`Erro ao copiar arquivo: ${error.message}`);
+    }
+  }
+
   async move(fromPath: string, toFolder: string): Promise<string> {
     const fileName = fromPath.split('/').pop() || `${uuid()}.bin`;
     const toPath = `${toFolder}/${fileName}`;

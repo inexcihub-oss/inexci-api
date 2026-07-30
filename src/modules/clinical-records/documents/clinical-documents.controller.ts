@@ -4,6 +4,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Post,
   Query,
   UploadedFile,
@@ -16,8 +18,12 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ClinicalDocumentsService } from './clinical-documents.service';
+import { ClinicalDocumentGenerationService } from './clinical-document-generation.service';
 import { CreateClinicalDocumentDto } from './dto/create-clinical-document.dto';
 import { DeleteClinicalDocumentDto } from './dto/delete-clinical-document.dto';
+import { CreatePrescriptionDto } from './dto/create-prescription.dto';
+import { CreateMedicalCertificateDto } from './dto/create-medical-certificate.dto';
+import { CreateExamReferralDto } from './dto/create-exam-referral.dto';
 import {
   AuthenticatedUser,
   CurrentUser,
@@ -29,6 +35,7 @@ import {
 export class ClinicalDocumentsController {
   constructor(
     private readonly clinicalDocumentsService: ClinicalDocumentsService,
+    private readonly clinicalDocumentGenerationService: ClinicalDocumentGenerationService,
   ) {}
 
   @Post()
@@ -43,6 +50,102 @@ export class ClinicalDocumentsController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.clinicalDocumentsService.create(data, user.userId, file);
+  }
+
+  // ── Documentos emitidos a partir da ficha (PDF gerado pelo sistema) ───────
+  // Caminhos fixos abaixo de `clinical-records/documents`, para não disputar
+  // rota com o `clinical-records/:id` do controller de fichas.
+
+  @Post('prescription')
+  @ApiOperation({ summary: 'Emitir receita do atendimento' })
+  createPrescription(
+    @Body() data: CreatePrescriptionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicalDocumentGenerationService.generatePrescription(
+      data.clinicalRecordId,
+      data,
+      user.userId,
+    );
+  }
+
+  @Post('medical-certificate')
+  @ApiOperation({ summary: 'Emitir atestado médico do atendimento' })
+  createMedicalCertificate(
+    @Body() data: CreateMedicalCertificateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicalDocumentGenerationService.generateMedicalCertificate(
+      data.clinicalRecordId,
+      data,
+      user.userId,
+    );
+  }
+
+  @Post('exam-referral')
+  @ApiOperation({ summary: 'Emitir encaminhamento de exames do atendimento' })
+  createExamReferral(
+    @Body() data: CreateExamReferralDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicalDocumentGenerationService.generateExamReferral(
+      data.clinicalRecordId,
+      data,
+      user.userId,
+    );
+  }
+
+  // ── Pré-visualização ──────────────────────────────────────────────────────
+  // Devolve o HTML do documento (mesmo template da emissão) para o médico
+  // conferir na tela. Nada é gravado, e nenhum PDF é gerado: subir o Chromium
+  // a cada clique em "Visualizar" custa segundos e o arquivo seria descartado.
+
+  @Post('prescription/preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Pré-visualizar receita' })
+  async previewPrescription(
+    @Body() data: CreatePrescriptionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const html =
+      await this.clinicalDocumentGenerationService.previewPrescription(
+        data.clinicalRecordId,
+        data,
+        user.userId,
+      );
+    return { html };
+  }
+
+  @Post('medical-certificate/preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Pré-visualizar atestado médico' })
+  async previewMedicalCertificate(
+    @Body() data: CreateMedicalCertificateDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const html =
+      await this.clinicalDocumentGenerationService.previewMedicalCertificate(
+        data.clinicalRecordId,
+        data,
+        user.userId,
+      );
+    return { html };
+  }
+
+  @Post('exam-referral/preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Pré-visualizar encaminhamento de exames' })
+  async previewExamReferral(
+    @Body() data: CreateExamReferralDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const html =
+      await this.clinicalDocumentGenerationService.previewExamReferral(
+        data.clinicalRecordId,
+        data,
+        user.userId,
+      );
+    return { html };
   }
 
   @Get()

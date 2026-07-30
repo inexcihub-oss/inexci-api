@@ -1,0 +1,23 @@
+{{!--
+  Cabeçalho do documento: usa o cabeçalho customizado do médico quando ele
+  existe; senão, cai no título + data no padrão do laudo.
+  Espera `documentTitle` no contexto.
+--}}
+{{#if customHeader}}
+  <div class='custom-header custom-header--{{customHeader.logoPosition}}'>
+    {{#if customHeader.logoUrl}}
+      <div class='custom-header-logo-wrap'>
+        <img class='custom-header-logo' src='{{customHeader.logoUrl}}' alt='Logo' />
+      </div>
+    {{/if}}
+    {{#if customHeader.contentHtml}}
+      <div class='custom-header-content'>{{{customHeader.contentHtml}}}</div>
+    {{/if}}
+  </div>
+  <div class='document-title'>{{documentTitle}}</div>
+{{else}}
+  <div class='page-header'>
+    <h1 class='report-title'>{{documentTitle}}</h1>
+    <span class='report-date'>Data: {{today}}</span>
+  </div>
+{{/if}}

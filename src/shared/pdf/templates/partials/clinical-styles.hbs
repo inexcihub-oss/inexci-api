@@ -1,0 +1,238 @@
+{{!--
+  CSS compartilhado pelos documentos do atendimento (receita, atestado e
+  encaminhamento de exames). Mantém a mesma identidade visual do laudo médico.
+--}}
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 12px;
+    color: #111111;
+    background: #ffffff;
+  }
+
+  /* ── Header ─────────────────────────────────────── */
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 1px;
+    margin-bottom: 16px;
+  }
+
+  .report-title {
+    font-size: 20px;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: #000000;
+    line-height: 1.3;
+  }
+
+  .report-date {
+    font-size: 12px;
+    color: #737373;
+    line-height: 1.17;
+    white-space: nowrap;
+  }
+
+  .document-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #171717;
+    text-align: center;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  /* ── Section ─────────────────────────────────────── */
+  .section {
+    margin-bottom: 16px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .section-heading {
+    border-bottom: 1px solid #e5e5e5;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+
+  .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #171717;
+    line-height: 1.14;
+  }
+
+  /* ── Patient grid ─────────────────────────────────── */
+  .patient-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    row-gap: 5px;
+    column-gap: 16px;
+  }
+
+  .patient-row {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .patient-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #111111;
+    white-space: nowrap;
+  }
+
+  .patient-value {
+    font-size: 12px;
+    font-weight: 400;
+    color: #111111;
+  }
+
+  /* ── Itens (medicamentos / exames) ────────────────── */
+  .item-list {
+    list-style: none;
+    counter-reset: item;
+  }
+
+  .item {
+    display: flex;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .item:last-child {
+    border-bottom: none;
+  }
+
+  .item-index {
+    font-size: 12px;
+    font-weight: 600;
+    color: #737373;
+    min-width: 18px;
+  }
+
+  .item-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #111111;
+  }
+
+  .item-meta {
+    font-size: 11px;
+    color: #525252;
+    margin-top: 2px;
+  }
+
+  .item-instructions {
+    font-size: 12px;
+    color: #111111;
+    margin-top: 3px;
+    line-height: 1.4;
+  }
+
+  .body-text {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #111111;
+    white-space: pre-line;
+  }
+
+  .statement {
+    font-size: 13px;
+    line-height: 1.8;
+    color: #111111;
+    text-align: justify;
+    margin-bottom: 16px;
+  }
+
+  /* ── Signature ────────────────────────────────────── */
+  .signature-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 260px;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 40px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .signature-img {
+    width: 130px;
+    height: auto;
+    margin-bottom: 4px;
+  }
+
+  .signature-line {
+    width: 100%;
+    border: none;
+    border-top: 1px solid #000000;
+    margin-bottom: 6px;
+  }
+
+  .signature-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #111111;
+    text-align: center;
+  }
+
+  .signature-specialty,
+  .signature-crm {
+    font-size: 10px;
+    font-weight: 400;
+    color: #111111;
+    text-align: center;
+    margin-top: 2px;
+  }
+
+  /* ── Cabeçalho customizado do médico ──────────────── */
+  .custom-header {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .custom-header-logo-wrap {
+    display: flex;
+  }
+  .custom-header--left .custom-header-logo-wrap {
+    justify-content: flex-start;
+  }
+  .custom-header--center .custom-header-logo-wrap {
+    justify-content: center;
+  }
+  .custom-header--right .custom-header-logo-wrap {
+    justify-content: flex-end;
+  }
+  .custom-header-logo {
+    max-height: 80px;
+    max-width: 200px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .custom-header-content {
+    font-size: 11px;
+    line-height: 1.4;
+    color: #111;
+    text-align: center;
+  }
+  .custom-header-content p {
+    margin: 0 0 4px 0;
+  }
+</style>
