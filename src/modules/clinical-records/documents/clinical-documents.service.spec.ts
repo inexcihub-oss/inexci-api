@@ -30,7 +30,9 @@ describe('ClinicalDocumentsService', () => {
       findByPatientId: jest.fn().mockResolvedValue([]),
     };
     patientRepository = { findOne: jest.fn().mockResolvedValue(PATIENT) };
-    accessControlService = { assertSameOwner: jest.fn().mockResolvedValue(undefined) };
+    accessControlService = {
+      assertSameOwner: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new ClinicalDocumentsService(
       null as any,

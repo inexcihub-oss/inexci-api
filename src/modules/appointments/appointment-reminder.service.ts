@@ -71,7 +71,9 @@ export class AppointmentReminderService {
   }
 
   private async notify(appt: Appointment): Promise<boolean> {
-    const patient = await this.patientRepository.findOne({ id: appt.patientId });
+    const patient = await this.patientRepository.findOne({
+      id: appt.patientId,
+    });
     if (!patient) return false;
 
     const doctor = await this.userRepository.findOne({ id: appt.doctorId });

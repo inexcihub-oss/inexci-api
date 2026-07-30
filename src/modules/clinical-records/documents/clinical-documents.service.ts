@@ -86,8 +86,7 @@ export class ClinicalDocumentsService {
       tenantId: patient.ownerId,
     });
 
-    const documents =
-      await this.documentRepository.findByPatientId(patientId);
+    const documents = await this.documentRepository.findByPatientId(patientId);
     return transformDocumentUrls(documents, this.storageService);
   }
 

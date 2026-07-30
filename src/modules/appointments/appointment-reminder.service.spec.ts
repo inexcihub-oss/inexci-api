@@ -53,7 +53,10 @@ describe('AppointmentReminderService', () => {
     expect(sent).toBe(1);
     expect(mockMailService.sendAppointmentReminder).toHaveBeenCalledWith(
       'ana@x.com',
-      expect.objectContaining({ patientName: 'Ana', doctorName: 'Dr(a). House' }),
+      expect.objectContaining({
+        patientName: 'Ana',
+        doctorName: 'Dr(a). House',
+      }),
     );
     expect(mockWhatsappService.sendAppointmentReminder).toHaveBeenCalledWith(
       '5511999',

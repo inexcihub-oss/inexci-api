@@ -1,4 +1,10 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 
 export class CreateClinicalDocumentDto {

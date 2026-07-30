@@ -1,9 +1,4 @@
-import {
-  IsArray,
-  IsOptional,
-  IsString,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CidCodeDto } from './cid-code.dto';
 
