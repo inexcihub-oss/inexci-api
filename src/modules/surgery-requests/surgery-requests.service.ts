@@ -106,6 +106,16 @@ export class SurgeryRequestsService {
     let where: FindOptionsWhere<SurgeryRequest> = { doctorId: In(doctorIds) };
     if (query.status) where = { ...where, status: In(query.status) };
     if (query.patientId) where = { ...where, patientId: query.patientId };
+    if (query.hospitalId) where = { ...where, hospitalId: query.hospitalId };
+    if (query.healthPlanId) {
+      where = { ...where, healthPlanId: query.healthPlanId };
+    }
+    // O filtro por médico só estreita o escopo já autorizado: um médico fora
+    // dos acessíveis nunca vira uma consulta ampliada, vira lista vazia.
+    if (query.doctorId) {
+      if (!doctorIds.includes(query.doctorId)) return { total: 0, records: [] };
+      where = { ...where, doctorId: query.doctorId };
+    }
 
     const [total, records] = await Promise.all([
       this.surgeryRequestRepository.total(where),

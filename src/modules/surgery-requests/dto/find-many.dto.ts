@@ -18,4 +18,22 @@ export class FindManySurgeryRequestDto extends FindManySharedDto {
   @IsOptional()
   @IsUUID()
   patientId?: string;
+
+  /** Restringe a listagem às solicitações de um hospital. */
+  @IsOptional()
+  @IsUUID()
+  hospitalId?: string;
+
+  /** Restringe a listagem às solicitações de um convênio. */
+  @IsOptional()
+  @IsUUID()
+  healthPlanId?: string;
+
+  /**
+   * Restringe a listagem às solicitações de um médico. Só estreita o escopo:
+   * um médico fora dos acessíveis ao usuário devolve lista vazia.
+   */
+  @IsOptional()
+  @IsUUID()
+  doctorId?: string;
 }
