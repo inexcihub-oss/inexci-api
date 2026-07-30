@@ -28,6 +28,8 @@ import { DocumentsModule } from './modules/surgery-requests/documents/documents.
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 import { PatientsModule } from './modules/patients/patients.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { ClinicalRecordsModule } from './modules/clinical-records/clinical-records.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -124,6 +126,8 @@ import { ObservabilityModule } from './shared/observability/observability.module
     SuppliersModule,
     ManufacturersModule,
     PatientsModule,
+    AppointmentsModule,
+    ClinicalRecordsModule,
     HospitalsModule,
     SurgeryProceduresModule,
     ReportsModule,

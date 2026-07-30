@@ -37,12 +37,30 @@ export class DocumentRepository extends BaseRepository<Document> {
     return await this.repository.findOne({ where });
   }
 
+  /** Documentos de um paciente (exames/anexos do prontuário), mais recentes primeiro. */
+  async findByPatientId(patientId: string): Promise<Document[]> {
+    return await this.repository.find({
+      where: { patientId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Valida posse de um documento pelo tenant. O vínculo pode ser via
+   * solicitação cirúrgica, paciente ou ficha de atendimento — qualquer um
+   * cujo ownerId case libera a signed URL.
+   */
   async existsByUriAndOwner(uri: string, ownerId: string): Promise<boolean> {
     const count = await this.repository
       .createQueryBuilder('doc')
-      .innerJoin('doc.surgeryRequest', 'sr')
+      .leftJoin('doc.surgeryRequest', 'sr')
+      .leftJoin('doc.patient', 'patient')
+      .leftJoin('doc.clinicalRecord', 'cr')
       .where('doc.uri = :uri', { uri })
-      .andWhere('sr.ownerId = :ownerId', { ownerId })
+      .andWhere(
+        '(sr.ownerId = :ownerId OR patient.ownerId = :ownerId OR cr.ownerId = :ownerId)',
+        { ownerId },
+      )
       .getCount();
     return count > 0;
   }

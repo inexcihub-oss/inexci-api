@@ -27,6 +27,9 @@ export const WHATSAPP_TEMPLATES = {
 
   /** Template interativo da IA para confirmação de ações sensíveis. Variáveis: {"1": texto da confirmação}. Deixe vazio até aprovação na Meta/Twilio. */
   AI_ACTION_CONFIRMATION: '',
+
+  /** Lembrete de consulta agendada (24h antes). Variáveis: {"1": patientName, "2": when, "3": doctorName}. Deixe vazio até aprovação na Meta/Twilio. */
+  APPOINTMENT_REMINDER: '',
 } as const;
 
 export type WhatsappTemplateName = keyof typeof WHATSAPP_TEMPLATES;

@@ -140,11 +140,14 @@ export class PendencyValidatorService {
         }),
       ]);
 
-    const groupBySurgeryRequestId = <T extends { surgeryRequestId: string }>(
+    const groupBySurgeryRequestId = <
+      T extends { surgeryRequestId: string | null },
+    >(
       rows: T[],
     ): Map<string, T[]> => {
       const map = new Map<string, T[]>();
       for (const row of rows) {
+        if (!row.surgeryRequestId) continue;
         const list = map.get(row.surgeryRequestId);
         if (list) list.push(row);
         else map.set(row.surgeryRequestId, [row]);

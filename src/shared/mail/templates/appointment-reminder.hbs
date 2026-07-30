@@ -1,0 +1,23 @@
+{{#> _layout title="Lembrete de consulta"}}
+  <p>Olá, <strong>{{patientName}}</strong>!</p>
+  <p>
+    Este é um lembrete da sua consulta{{#if doctorName}} com
+    <strong>{{doctorName}}</strong>{{/if}}.
+  </p>
+
+  <div class='info-box'>
+    <p><strong>Quando:</strong> {{when}}</p>
+    {{#if typeLabel}}<p><strong>Tipo:</strong> {{typeLabel}}</p>{{/if}}
+    {{#if durationLabel}}<p><strong>Duração:</strong> {{durationLabel}}</p>{{/if}}
+  </div>
+
+  <p>
+    Caso precise remarcar ou não possa comparecer, entre em contato com o
+    consultório com antecedência.
+  </p>
+
+  <p style='font-size: 13px; color: #6b7280; margin-top: 20px;'>
+    Você está recebendo este e-mail porque há uma consulta agendada em seu nome
+    no Inexci.
+  </p>
+{{/_layout}}

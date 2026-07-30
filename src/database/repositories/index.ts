@@ -3,6 +3,8 @@ export { DoctorProfileRepository } from './doctor-profile.repository';
 export { DoctorHeaderRepository } from './doctor-header.repository';
 export { UserDoctorAccessRepository } from './user-doctor-access.repository';
 export { PatientRepository } from './patient.repository';
+export { AppointmentRepository } from './appointment.repository';
+export { ClinicalRecordRepository } from './clinical-record.repository';
 export { HospitalRepository } from './hospital.repository';
 export { ManufacturerRepository } from './manufacturer.repository';
 export { SupplierRepository } from './supplier.repository';

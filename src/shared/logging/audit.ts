@@ -2,7 +2,10 @@ import { Logger } from '@nestjs/common';
 
 const auditLogger = new Logger('Audit');
 
-export type ProntuarioResource = 'surgery_request' | 'patient';
+export type ProntuarioResource =
+  | 'surgery_request'
+  | 'patient'
+  | 'clinical_record';
 
 /**
  * Emite um evento de auditoria LGPD de acesso a prontuário (dado sensível de
