@@ -135,11 +135,12 @@ export class UsersController {
     return this.usersService.deleteMyHeader(user.userId);
   }
 
-  // Mesmo motivo do PATCH acima: o editor de laudo (MedicalReportEditor)
-  // também lê/grava o cabeçalho do médico da solicitação através do
-  // colaborador vinculado (Solicitações), não só o admin da conta.
+  // Diferente do PATCH de perfil médico acima: o editor de laudo
+  // (MedicalReportEditor) usa o cabeçalho do PRÓPRIO usuário (`/users/me/header`,
+  // via `isOwnRequest`), nunca esta rota "por id". Só o admin da conta
+  // configura o cabeçalho de outro médico (ex.: `colaboradores/assistente/[id]`).
   @Get('doctor-profile/:id/header')
-  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Obter cabeçalho personalizado de um médico' })
   async getDoctorHeaderById(
     @Param('id') id: string,
@@ -148,9 +149,9 @@ export class UsersController {
     return this.usersService.getDoctorHeaderByUserId(id, user.userId);
   }
 
-  // Mesmo motivo do PATCH acima (editor de laudo via colaborador vinculado).
+  // Mesmo motivo do GET acima: só admin configura cabeçalho de terceiro.
   @Put('doctor-profile/:id/header')
-  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar/atualizar cabeçalho de um médico' })
   async upsertDoctorHeaderById(
     @Param('id') id: string,
@@ -160,9 +161,9 @@ export class UsersController {
     return this.usersService.upsertDoctorHeaderByUserId(id, dto, user.userId);
   }
 
-  // Mesmo motivo do PATCH acima (editor de laudo via colaborador vinculado).
+  // Mesmo motivo do GET acima: só admin configura cabeçalho de terceiro.
   @Delete('doctor-profile/:id/header')
-  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Remover cabeçalho de um médico' })
   async deleteDoctorHeaderById(
     @Param('id') id: string,

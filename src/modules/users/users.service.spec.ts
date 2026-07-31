@@ -16,6 +16,16 @@ import { Permission } from 'src/shared/permissions';
  *
  * Usa instanciação direta com mocks para evitar problemas de DI com repositórios
  * que dependem de DataSource/TypeORM no construtor.
+ *
+ * Convenção de fixtures desta suíte (pós-revisão da Tarefa 6):
+ * - `dono-1` — dono real da conta (role ADMIN, id === ownerId === 'dono-1').
+ * - `delegado-1` — admin delegado (role COLLABORATOR, ownerId: 'dono-1',
+ *   permissions: [ADMINISTRACAO]). NUNCA usar `adminId: 'delegado-1'` no
+ *   ATOR e depois tratá-lo como se fosse o dono — o pertencimento de um
+ *   colaborador-alvo é sempre por `ownerId`, nunca por `adminId` (quem criou).
+ * - `assertPodeGerirEquipe` agora devolve o usuário carregado (1 única
+ *   consulta a `findOneWithProfile`), então os métodos de gestão de equipe
+ *   NÃO fazem mais um `findOne` extra para o ator — só um `findOneWithProfile`.
  */
 describe('UsersService — Colaboradores e Permissões', () => {
   let service: UsersService;
@@ -31,6 +41,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     delete: jest.fn(),
     total: jest.fn(),
     findMany: jest.fn(),
+    getRepository: jest.fn(),
   };
   const mockMailService = {
     sendRaw: jest.fn(),
@@ -78,7 +89,19 @@ describe('UsersService — Colaboradores e Permissões', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    // `resetAllMocks` (não `clearAllMocks`): também limpa filas de
+    // `mockResolvedValueOnce` e implementações de `mockImplementation` não
+    // consumidas. Sem isso, um teste que monta 3 `mockResolvedValueOnce` mas
+    // só consome 2 vaza a sobra para o PRÓXIMO teste (de qualquer describe,
+    // já que os mocks são compartilhados no arquivo inteiro) — foi
+    // exatamente esse vazamento que produziu fixtures "impossíveis" e testes
+    // verdes por acidente numa revisão anterior desta suíte.
+    jest.resetAllMocks();
+    mockMailService.send.mockResolvedValue(undefined);
+    mockConfigService.get.mockImplementation((key: string) => {
+      if (key === 'DASHBOARD_URL') return 'http://localhost:3000';
+      return undefined;
+    });
 
     // Instanciação direta — evita NestJS DI que requer DataSource real
     service = new UsersService(
@@ -102,24 +125,19 @@ describe('UsersService — Colaboradores e Permissões', () => {
   describe('findCollaborators', () => {
     it('deve retornar lista de colaboradores da conta', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
-        id: 'admin-1',
+        id: 'dono-1',
         role: UserRole.ADMIN,
-        ownerId: 'admin-1',
-      });
-      mockUserRepository.findOne.mockResolvedValue({
-        id: 'admin-1',
-        role: UserRole.ADMIN,
-        ownerId: 'admin-1',
+        ownerId: 'dono-1',
       });
       mockUserRepository.findByOwnerId.mockResolvedValue([
         { id: 'collab-1', name: 'Colaborador 1' },
       ]);
 
-      const result = await service.findCollaborators('admin-1');
+      const result = await service.findCollaborators('dono-1');
 
       expect(result.records).toHaveLength(1);
       expect(mockUserRepository.findByOwnerId).toHaveBeenCalledWith(
-        'admin-1',
+        'dono-1',
         0,
         50,
       );
@@ -169,16 +187,15 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
   describe('findCollaboratorById', () => {
     it('não deve expor permissions cru nem isPlatformAdmin do colaborador ao admin', async () => {
-      mockUserRepository.findOne.mockResolvedValue({
-        id: 'admin-1',
-        role: UserRole.ADMIN,
-        ownerId: 'admin-1',
-      });
       mockUserRepository.findOneWithProfile
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        }) // assertPodeGerirEquipe
         .mockResolvedValueOnce({
           id: 'collab-1',
-          ownerId: 'admin-1',
+          ownerId: 'dono-1',
           password: 'hash-secreto',
           permissions: [Permission.AGENDA],
           isPlatformAdmin: false,
@@ -186,28 +203,54 @@ describe('UsersService — Colaboradores e Permissões', () => {
         });
       mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
 
-      const result = await service.findCollaboratorById('collab-1', 'admin-1');
+      const result = await service.findCollaboratorById('collab-1', 'dono-1');
 
       expect(result).not.toHaveProperty('permissions');
       expect(result).not.toHaveProperty('isPlatformAdmin');
       expect(result).not.toHaveProperty('password');
     });
+
+    /**
+     * C3: pertencimento é por `ownerId` (o tenant), não por `adminId` (quem
+     * criou). O dono precisa ver colaboradores criados por um admin delegado.
+     */
+    it('permite que o dono veja colaborador criado por um admin delegado', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        })
+        .mockResolvedValueOnce({
+          id: 'collab-do-delegado',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1', // criado por outro admin, não pelo dono
+          doctorProfile: null,
+        });
+      mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
+
+      await expect(
+        service.findCollaboratorById('collab-do-delegado', 'dono-1'),
+      ).resolves.toBeDefined();
+    });
   });
 
   describe('createCollaborator', () => {
     const adminUser = {
-      id: 'admin-1',
+      id: 'dono-1',
       name: 'Admin',
       role: UserRole.ADMIN,
-      ownerId: 'admin-1',
+      ownerId: 'dono-1',
     };
 
     beforeEach(() => {
       // assertPodeGerirEquipe consulta findOneWithProfile — role ADMIN já
-      // basta para resolveEffectivePermissions liberar Administração.
+      // basta para resolveEffectivePermissions liberar Administração. Como o
+      // helper agora devolve o usuário direto, não há mais `findOne` extra
+      // para o ator: o único `findOne` que sobra em createCollaborator é o
+      // de telefone duplicado.
       mockUserRepository.findOneWithProfile.mockResolvedValue(adminUser);
-      mockUserRepository.findOne.mockResolvedValueOnce(adminUser); // admin lookup
-      mockUserRepository.findOne.mockResolvedValueOnce(null); // sem telefone duplicado
+      mockUserRepository.findOne.mockResolvedValue(null); // sem telefone duplicado
       mockUserRepository.findOneWithDeleted.mockResolvedValue(null); // sem email duplicado
       // Por padrão o admin não é médico — testes específicos sobrescrevem.
       mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
@@ -220,27 +263,26 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'novo@email.com',
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
-        ownerId: 'admin-1',
-        adminId: 'admin-1',
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
       });
 
-      const result = await service.createCollaborator(
+      await service.createCollaborator(
         { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
-        'admin-1',
+        'dono-1',
       );
 
       expect(mockUserRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           role: UserRole.COLLABORATOR,
           status: UserStatus.PENDING,
-          ownerId: 'admin-1',
-          adminId: 'admin-1',
+          ownerId: 'dono-1',
+          adminId: 'dono-1',
         }),
       );
     });
 
     it('deve lançar BadRequestException para email duplicado', async () => {
-      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
       mockUserRepository.findOneWithDeleted.mockResolvedValue({
         id: 'existing',
         deletedAt: null,
@@ -250,7 +292,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(
         service.createCollaborator(
           { name: 'Dup', email: 'existente@email.com', phone: '11999997777' },
-          'admin-1',
+          'dono-1',
         ),
       ).rejects.toThrow(BadRequestException);
     });
@@ -265,7 +307,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await service.createCollaborator(
         { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
-        'admin-1',
+        'dono-1',
       );
 
       // O serviço usa mailService.send (não sendRaw), verificar apenas que foi chamado
@@ -273,9 +315,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve criar doctorProfile e enviar WhatsApp se colaborador é médico com telefone', async () => {
-      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
-      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
-
       mockUserRepository.create.mockResolvedValue({
         id: 'new-1',
         name: 'Dr. João',
@@ -293,7 +332,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           crm: '123',
           crmState: 'SP',
         },
-        'admin-1',
+        'dono-1',
       );
 
       // Deve ter criado o doctorProfile
@@ -312,9 +351,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve criar doctorProfile quando CRM/UF são enviados sem isDoctor', async () => {
-      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
-      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
-
       mockUserRepository.create.mockResolvedValue({
         id: 'new-3',
         name: 'Dra. Maria',
@@ -332,7 +368,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           crmState: 'GO',
           specialty: 'Ortopedia',
         },
-        'admin-1',
+        'dono-1',
       );
 
       expect(mockDoctorProfileRepository.create).toHaveBeenCalledWith(
@@ -346,9 +382,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve enviar WhatsApp para colaborador não-médico com telefone', async () => {
-      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
-      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
-
       mockUserRepository.create.mockResolvedValue({
         id: 'new-2',
         name: 'Ana',
@@ -365,7 +398,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           email: 'ana@email.com',
           phone: '+5511988888888',
         },
-        'admin-1',
+        'dono-1',
       );
 
       expect(mockWhatsappService.sendUserWelcome).toHaveBeenCalledWith(
@@ -375,12 +408,10 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve vincular o colaborador ao admin criador quando o admin é médico', async () => {
-      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
-      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
       // Admin possui doctorProfile → é médico
       mockDoctorProfileRepository.findByUserId.mockResolvedValue({
         id: 'dp-admin',
-        userId: 'admin-1',
+        userId: 'dono-1',
       });
 
       mockUserRepository.create.mockResolvedValue({
@@ -392,22 +423,20 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await service.createCollaborator(
         { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
-        'admin-1',
+        'dono-1',
       );
 
       expect(mockUserDoctorAccessRepository.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'new-1',
-          doctorUserId: 'admin-1',
+          doctorUserId: 'dono-1',
           status: UserDoctorAccessStatus.ACTIVE,
-          createdById: 'admin-1',
+          createdById: 'dono-1',
         }),
       );
     });
 
     it('não deve criar vínculo quando o admin criador não é médico', async () => {
-      mockUserRepository.findOne.mockReset().mockResolvedValueOnce(adminUser);
-      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
       // Admin sem doctorProfile → não é médico
       mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
 
@@ -420,7 +449,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await service.createCollaborator(
         { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
-        'admin-1',
+        'dono-1',
       );
 
       expect(mockUserDoctorAccessRepository.upsert).not.toHaveBeenCalled();
@@ -441,19 +470,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
       });
-      // findOne é chamado duas vezes em createCollaborator: uma para buscar o
-      // ator (delegado-1) e outra para checar telefone duplicado — resolve
-      // por `where` para não confundir as duas chamadas.
-      mockUserRepository.findOne.mockImplementation((where: any) => {
-        if (where?.id === 'delegado-1') {
-          return Promise.resolve({
-            id: 'delegado-1',
-            role: UserRole.COLLABORATOR,
-            ownerId: 'dono-1',
-          });
-        }
-        return Promise.resolve(null);
-      });
+      mockUserRepository.findOne.mockResolvedValue(null); // sem telefone duplicado
       mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
       mockUserRepository.create.mockResolvedValue({ id: 'novo-1' });
 
@@ -463,16 +480,15 @@ describe('UsersService — Colaboradores e Permissões', () => {
           'delegado-1',
         ),
       ).resolves.toBeDefined();
+
+      // O novo colaborador nasce no tenant do delegado (ownerId do dono),
+      // não com o `ownerId` do próprio delegado (que não é dono de nada).
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ ownerId: 'dono-1', adminId: 'delegado-1' }),
+      );
     });
 
     it('bloqueia colaborador sem administração', async () => {
-      mockUserRepository.findOne.mockResolvedValue({
-        id: 'comum-1',
-        role: UserRole.COLLABORATOR,
-        ownerId: 'dono-1',
-        permissions: [Permission.AGENDA],
-        doctorProfile: null,
-      });
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'comum-1',
         role: UserRole.COLLABORATOR,
@@ -484,6 +500,192 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(
         service.createCollaborator(
           { name: 'Ana', email: 'ana@x.com', phone: '11999999999' } as never,
+          'comum-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─── C1: POST /users não pode virar porta para cunhar um segundo dono ───
+  describe('create — segurança contra escalonamento de role (C1)', () => {
+    it('ignora role="admin" no payload e sempre cria como collaborator', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        name: 'Delegado',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValue(null); // sem duplicidade de phone/email
+      mockUserRepository.create.mockResolvedValue({
+        id: 'novo-1',
+        email: 'invasor@x.com',
+        name: 'Invasor',
+      });
+
+      await service.create(
+        {
+          name: 'Invasor',
+          email: 'invasor@x.com',
+          phone: '11988887777',
+          role: UserRole.ADMIN,
+        } as never,
+        'delegado-1',
+      );
+
+      // O usuário criado herda `ownerId` de quem chamou (o tenant do
+      // delegado), nunca `self.id` — gravar role=admin aqui deixaria um
+      // ADMIN com ownerId de outra pessoa, quebrando a invariante de tenant.
+      expect(mockUserRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          adminId: 'delegado-1',
+        }),
+      );
+      expect(mockUserRepository.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ role: UserRole.ADMIN }),
+      );
+    });
+
+    it('bloqueia quem não tem Administração', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'comum-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.create(
+          { name: 'X', email: 'x@x.com', phone: '11999999999' } as never,
+          'comum-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─── C2: updateProfileById — dono intocável + isolamento de tenant ───
+  describe('updateProfileById', () => {
+    it('permite que o usuário edite o próprio perfil sem checar Administração', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'user-1', ownerId: 'dono-1' }) // requesting
+        .mockResolvedValueOnce({ id: 'user-1', ownerId: 'dono-1' }) // target (self)
+        .mockResolvedValueOnce(null) // phone duplicado
+        .mockResolvedValueOnce(null); // cpf duplicado
+      mockUserRepository.update.mockResolvedValue({ id: 'user-1' });
+
+      await expect(
+        service.updateProfileById(
+          'user-1',
+          { name: 'Novo nome' } as never,
+          'user-1',
+        ),
+      ).resolves.toBeDefined();
+      // Self-edit não deve consultar findOneWithProfile (assertPodeGerirEquipe).
+      expect(mockUserRepository.findOneWithProfile).not.toHaveBeenCalled();
+    });
+
+    it('deixa admin delegado editar colaborador do mesmo tenant', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'delegado-1', ownerId: 'dono-1' }) // requesting
+        .mockResolvedValueOnce({ id: 'collab-1', ownerId: 'dono-1' }) // target
+        .mockResolvedValueOnce(null) // phone duplicado
+        .mockResolvedValueOnce(null); // cpf duplicado
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.update.mockResolvedValue({ id: 'collab-1' });
+
+      await expect(
+        service.updateProfileById(
+          'collab-1',
+          { name: 'Novo nome' } as never,
+          'delegado-1',
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    /**
+     * C2: sem checagem de `ownerId`, o alvo podia estar em outro tenant. Um
+     * delegado com Administração no seu próprio tenant não pode editar
+     * usuários de OUTRA conta só porque tem a permissão em algum lugar.
+     */
+    it('bloqueia edição de usuário de outro tenant mesmo com Administração', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'delegado-1', ownerId: 'dono-1' }) // requesting
+        .mockResolvedValueOnce({
+          id: 'user-de-outra-conta',
+          ownerId: 'outro-dono',
+        }); // target
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.updateProfileById(
+          'user-de-outra-conta',
+          { name: 'Sequestro' } as never,
+          'delegado-1',
+        ),
+      ).rejects.toThrow('Este usuário não pertence à sua conta');
+    });
+
+    /**
+     * C2: o dono não é editável por ninguém além de si mesmo — nem por um
+     * admin delegado com Administração. `phone` é a chave de identidade do
+     * dono no assistente WhatsApp (`findOneByPhone`); reescrevê-lo via este
+     * endpoint sequestraria o canal dele.
+     */
+    it('bloqueia edição do dono da conta por um admin delegado', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'delegado-1', ownerId: 'dono-1' }) // requesting
+        .mockResolvedValueOnce({ id: 'dono-1', ownerId: 'dono-1' }); // target = dono
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.updateProfileById(
+          'dono-1',
+          { phone: '11900000000' } as never,
+          'delegado-1',
+        ),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    });
+
+    it('bloqueia colaborador sem Administração de editar outro usuário', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'comum-1', ownerId: 'dono-1' })
+        .mockResolvedValueOnce({ id: 'collab-1', ownerId: 'dono-1' });
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'comum-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.updateProfileById(
+          'collab-1',
+          { name: 'X' } as never,
           'comum-1',
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -504,17 +706,17 @@ describe('UsersService — Colaboradores e Permissões', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('deve lançar ForbiddenException se colaborador pertence a outro admin', async () => {
+    it('deve lançar ForbiddenException se colaborador pertence a outro tenant', async () => {
       mockUserRepository.findOneWithProfile
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN }) // assertPodeGerirEquipe
-        .mockResolvedValueOnce({ id: 'collab-1', adminId: 'another-admin' }); // alvo
-      mockUserRepository.findOne.mockResolvedValueOnce({
-        id: 'admin-1',
-        role: UserRole.ADMIN,
-      });
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({ id: 'collab-1', ownerId: 'outro-dono' }); // alvo de outro tenant
 
       await expect(
-        service.updateCollaborator('collab-1', { name: 'Novo' }, 'admin-1'),
+        service.updateCollaborator('collab-1', { name: 'Novo' }, 'dono-1'),
       ).rejects.toThrow('Este colaborador não pertence à sua conta');
     });
 
@@ -523,6 +725,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'delegado-1',
           role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
           permissions: [Permission.ADMINISTRACAO],
           doctorProfile: null,
         }) // assertPodeGerirEquipe
@@ -531,10 +734,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           ownerId: 'dono-1',
           adminId: 'delegado-1',
         }); // alvo é o dono
-      mockUserRepository.findOne.mockResolvedValueOnce({
-        id: 'delegado-1',
-        role: UserRole.COLLABORATOR,
-      });
 
       await expect(
         service.updateCollaborator('dono-1', { name: 'Novo' }, 'delegado-1'),
@@ -543,13 +742,73 @@ describe('UsersService — Colaboradores e Permissões', () => {
       );
     });
 
+    /**
+     * C3: pertencimento é por `ownerId` (o tenant), não por `adminId` (quem
+     * criou) — o dono precisa conseguir editar um colaborador que foi criado
+     * por um admin delegado, e vice-versa. Antes, comparar por `adminId`
+     * bloqueava esse caso e a feature de admin delegado não funcionava.
+     */
+    it('permite que o dono edite colaborador criado por um admin delegado', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        })
+        .mockResolvedValueOnce({
+          id: 'collab-do-delegado',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1', // criado por outro admin, não pelo dono
+          doctorProfile: null,
+        });
+      mockUserRepository.update.mockResolvedValue({ id: 'collab-do-delegado' });
+
+      await expect(
+        service.updateCollaborator(
+          'collab-do-delegado',
+          { name: 'Editado pelo dono' },
+          'dono-1',
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('permite que o admin delegado edite colaborador criado pelo dono', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [Permission.ADMINISTRACAO],
+          doctorProfile: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'collab-do-dono',
+          ownerId: 'dono-1',
+          adminId: 'dono-1', // criado pelo dono, não pelo delegado
+          doctorProfile: null,
+        });
+      mockUserRepository.update.mockResolvedValue({ id: 'collab-do-dono' });
+
+      await expect(
+        service.updateCollaborator(
+          'collab-do-dono',
+          { name: 'Editado pelo delegado' },
+          'delegado-1',
+        ),
+      ).resolves.toBeDefined();
+    });
+
     it('deve remover doctorProfile ao desmarcar isDoctor', async () => {
       mockUserRepository.findOneWithProfile
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        }) // assertPodeGerirEquipe
         .mockResolvedValueOnce({
           id: 'collab-1',
-          ownerId: 'outra-conta',
-          adminId: 'admin-1',
+          ownerId: 'dono-1',
+          adminId: 'dono-1',
           doctorProfile: {
             id: 'dp-1',
             crm: '123',
@@ -557,10 +816,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
             specialty: 'Ortopedia',
           },
         });
-      mockUserRepository.findOne.mockResolvedValueOnce({
-        id: 'admin-1',
-        role: UserRole.ADMIN,
-      });
 
       mockUserRepository.update.mockResolvedValue({
         id: 'collab-1',
@@ -569,7 +824,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await service.updateCollaborator(
         'collab-1',
         { isDoctor: false },
-        'admin-1',
+        'dono-1',
       );
 
       // Deve ter deletado o doctorProfile
@@ -580,24 +835,24 @@ describe('UsersService — Colaboradores e Permissões', () => {
   describe('deleteCollaborator', () => {
     beforeEach(() => {
       // assertPodeGerirEquipe consulta findOneWithProfile — por padrão o
-      // ator é admin da conta; o teste "não é admin" sobrescreve.
+      // ator é o dono da conta; o teste "não é admin" sobrescreve.
       mockUserRepository.findOneWithProfile.mockResolvedValue({
-        id: 'admin-1',
+        id: 'dono-1',
         role: UserRole.ADMIN,
+        ownerId: 'dono-1',
       });
     });
 
     it('deve deletar colaborador e retornar mensagem de sucesso', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          email: 'collab@test.com',
-          adminId: 'admin-1',
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-1',
+        email: 'collab@test.com',
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
+      });
       mockUserRepository.delete.mockResolvedValue(undefined);
 
-      const result = await service.deleteCollaborator('collab-1', 'admin-1');
+      const result = await service.deleteCollaborator('collab-1', 'dono-1');
 
       expect(result).toEqual({ message: 'Colaborador desativado com sucesso' });
       expect(mockUserRepository.delete).toHaveBeenCalledWith('collab-1');
@@ -605,18 +860,17 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
     it('deve anonimizar phone no soft-delete (LGPD — minimização)', async () => {
       const collaboratorId = 'collab-uuid-0001';
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
-        .mockResolvedValueOnce({
-          id: collaboratorId,
-          email: 'collab@test.com',
-          phone: '+5511999990000',
-          adminId: 'admin-1',
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: collaboratorId,
+        email: 'collab@test.com',
+        phone: '+5511999990000',
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
+      });
       mockUserRepository.update.mockResolvedValue(undefined);
       mockUserRepository.delete.mockResolvedValue(undefined);
 
-      await service.deleteCollaborator(collaboratorId, 'admin-1');
+      await service.deleteCollaborator(collaboratorId, 'dono-1');
 
       // O phone deve ser substituído pela sentinela antes do delete
       expect(mockUserRepository.update).toHaveBeenCalledWith(
@@ -632,14 +886,13 @@ describe('UsersService — Colaboradores e Permissões', () => {
       const originalPhone = '+5511999990001';
       const collaboratorId = 'collab-uuid-0002';
 
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
-        .mockResolvedValueOnce({
-          id: collaboratorId,
-          email: 'collab2@test.com',
-          phone: originalPhone,
-          adminId: 'admin-1',
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: collaboratorId,
+        email: 'collab2@test.com',
+        phone: originalPhone,
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
+      });
 
       let storedPhone = originalPhone;
       mockUserRepository.update.mockImplementation((_id, data) => {
@@ -647,13 +900,8 @@ describe('UsersService — Colaboradores e Permissões', () => {
         return Promise.resolve(undefined);
       });
       mockUserRepository.delete.mockResolvedValue(undefined);
-      // findOneByPhone usa o storedPhone para simular a busca real
-      mockUserRepository.findOne.mockImplementation((where) => {
-        if (where.phone === storedPhone) return Promise.resolve(null);
-        return Promise.resolve(null);
-      });
 
-      await service.deleteCollaborator(collaboratorId, 'admin-1');
+      await service.deleteCollaborator(collaboratorId, 'dono-1');
 
       // Após anonimização, o phone armazenado é a sentinela, não o original
       expect(storedPhone).not.toBe(originalPhone);
@@ -674,32 +922,37 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar NotFoundException se colaborador não existe', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
-        .mockResolvedValueOnce(null);
+      mockUserRepository.findOne.mockResolvedValueOnce(null);
 
       await expect(
-        service.deleteCollaborator('invalid', 'admin-1'),
+        service.deleteCollaborator('invalid', 'dono-1'),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('deve lançar ForbiddenException se colaborador pertence a outro tenant', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-1',
+        ownerId: 'outro-dono',
+      });
+
+      await expect(
+        service.deleteCollaborator('collab-1', 'dono-1'),
+      ).rejects.toThrow('Este colaborador não pertence à sua conta');
     });
 
     it('deve lançar ForbiddenException se o alvo é o dono da conta', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
       });
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({
-          id: 'delegado-1',
-          role: UserRole.COLLABORATOR,
-        })
-        .mockResolvedValueOnce({
-          id: 'dono-1',
-          ownerId: 'dono-1',
-          adminId: 'delegado-1',
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'dono-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+      });
 
       await expect(
         service.deleteCollaborator('dono-1', 'delegado-1'),
@@ -707,14 +960,40 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'O dono da conta não pode ser alterado por outro usuário.',
       );
     });
+
+    /**
+     * C3: pertencimento por `ownerId`, não por `adminId`. Sem essa correção
+     * o admin delegado nunca conseguia excluir um colaborador criado pelo
+     * dono — que é a maioria dos colaboradores de qualquer conta.
+     */
+    it('permite que o admin delegado exclua colaborador criado pelo dono', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-do-dono',
+        email: 'collab@test.com',
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
+      });
+      mockUserRepository.delete.mockResolvedValue(undefined);
+
+      await expect(
+        service.deleteCollaborator('collab-do-dono', 'delegado-1'),
+      ).resolves.toEqual({ message: 'Colaborador desativado com sucesso' });
+    });
   });
 
   describe('resendCollaboratorInvite', () => {
     const adminUser = {
-      id: 'admin-1',
+      id: 'dono-1',
       name: 'Admin',
       role: UserRole.ADMIN,
-      ownerId: 'admin-1',
+      ownerId: 'dono-1',
     };
 
     beforeEach(() => {
@@ -724,21 +1003,19 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve gerar novo token, invalidar TODOS os anteriores e enviar e-mail', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce(adminUser)
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          name: 'Colaborador Pendente',
-          email: 'pending@example.com',
-          ownerId: 'admin-1',
-          status: UserStatus.PENDING,
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-1',
+        name: 'Colaborador Pendente',
+        email: 'pending@example.com',
+        ownerId: 'dono-1',
+        status: UserStatus.PENDING,
+      });
       mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
       mockRecoveryCodeRepository.create.mockResolvedValue({});
 
       const result = await service.resendCollaboratorInvite(
         'collab-1',
-        'admin-1',
+        'dono-1',
       );
 
       // Importante: deve apagar TODOS os tokens (sem filtro `used`),
@@ -775,19 +1052,17 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve invalidar token antigo já validado (used=true) ao reenviar', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce(adminUser)
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          name: 'Colaborador Pendente',
-          email: 'pending@example.com',
-          ownerId: 'admin-1',
-          status: UserStatus.PENDING,
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-1',
+        name: 'Colaborador Pendente',
+        email: 'pending@example.com',
+        ownerId: 'dono-1',
+        status: UserStatus.PENDING,
+      });
       mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
       mockRecoveryCodeRepository.create.mockResolvedValue({});
 
-      await service.resendCollaboratorInvite('collab-1', 'admin-1');
+      await service.resendCollaboratorInvite('collab-1', 'dono-1');
 
       // O delete deve ocorrer ANTES do create — ordem importa para garantir
       // que o novo token não seja apagado junto com os antigos.
@@ -812,40 +1087,34 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar NotFoundException se colaborador não existe', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce(adminUser)
-        .mockResolvedValueOnce(null);
+      mockUserRepository.findOne.mockResolvedValueOnce(null);
 
       await expect(
-        service.resendCollaboratorInvite('invalid', 'admin-1'),
+        service.resendCollaboratorInvite('invalid', 'dono-1'),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('deve lançar ForbiddenException se colaborador é de outra conta', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce(adminUser)
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          ownerId: 'outro-admin',
-          status: UserStatus.PENDING,
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-1',
+        ownerId: 'outro-dono',
+        status: UserStatus.PENDING,
+      });
 
       await expect(
-        service.resendCollaboratorInvite('collab-1', 'admin-1'),
+        service.resendCollaboratorInvite('collab-1', 'dono-1'),
       ).rejects.toThrow('Este colaborador não pertence à sua conta');
     });
 
     it('deve lançar BadRequestException se colaborador já está ativo', async () => {
-      mockUserRepository.findOne
-        .mockResolvedValueOnce(adminUser)
-        .mockResolvedValueOnce({
-          id: 'collab-1',
-          ownerId: 'admin-1',
-          status: UserStatus.ACTIVE,
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-1',
+        ownerId: 'dono-1',
+        status: UserStatus.ACTIVE,
+      });
 
       await expect(
-        service.resendCollaboratorInvite('collab-1', 'admin-1'),
+        service.resendCollaboratorInvite('collab-1', 'dono-1'),
       ).rejects.toThrow(BadRequestException);
       expect(mockMailService.send).not.toHaveBeenCalled();
     });
@@ -860,21 +1129,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
       });
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({
-          id: 'delegado-1',
-          role: UserRole.COLLABORATOR,
-          ownerId: 'dono-1',
-        })
-        .mockResolvedValueOnce({
-          id: 'dono-1',
-          ownerId: 'dono-1',
-          adminId: 'delegado-1',
-          status: UserStatus.PENDING,
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'dono-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+        status: UserStatus.PENDING,
+      });
 
       await expect(
         service.resendCollaboratorInvite('dono-1', 'delegado-1'),
@@ -882,6 +1146,34 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'O dono da conta não pode ser alterado por outro usuário.',
       );
       expect(mockMailService.send).not.toHaveBeenCalled();
+    });
+
+    /**
+     * C3: pertencimento por `ownerId`. O admin delegado precisa reenviar
+     * convite para colaborador pendente criado pelo dono.
+     */
+    it('permite que o admin delegado reenvie convite de colaborador criado pelo dono', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-do-dono',
+        name: 'Pendente',
+        email: 'pendente@example.com',
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
+        status: UserStatus.PENDING,
+      });
+      mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
+      mockRecoveryCodeRepository.create.mockResolvedValue({});
+
+      await expect(
+        service.resendCollaboratorInvite('collab-do-dono', 'delegado-1'),
+      ).resolves.toBeDefined();
     });
   });
 
@@ -891,20 +1183,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
       });
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({
-          id: 'delegado-1',
-          role: UserRole.COLLABORATOR,
-        })
-        .mockResolvedValueOnce({
-          id: 'dono-1',
-          ownerId: 'dono-1',
-          adminId: 'delegado-1',
-          status: UserStatus.ACTIVE,
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'dono-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+        status: UserStatus.ACTIVE,
+      });
 
       await expect(
         service.toggleCollaboratorStatus('dono-1', 'delegado-1'),
@@ -917,25 +1205,67 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
       });
-      mockUserRepository.findOne
-        .mockResolvedValueOnce({
-          id: 'delegado-1',
-          role: UserRole.COLLABORATOR,
-        })
-        .mockResolvedValueOnce({
-          id: 'dono-1',
-          ownerId: 'dono-1',
-          adminId: 'delegado-1',
-        });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'dono-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+      });
 
       await expect(
         service.resetCollaboratorPassword('dono-1', 'nova-senha', 'delegado-1'),
       ).rejects.toThrow(
         'O dono da conta não pode ser alterado por outro usuário.',
       );
+    });
+
+    /**
+     * C3: pertencimento por `ownerId`. Sem a correção, nem o dono conseguia
+     * ativar/desativar ou redefinir senha de colaboradores criados por um
+     * admin delegado (adminId apontava para o delegado, não para o dono).
+     */
+    it('permite que o dono altere status de colaborador criado por um admin delegado', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'dono-1',
+        role: UserRole.ADMIN,
+        ownerId: 'dono-1',
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-do-delegado',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+        status: UserStatus.ACTIVE,
+      });
+      mockUserRepository.update.mockResolvedValue(undefined);
+
+      await expect(
+        service.toggleCollaboratorStatus('collab-do-delegado', 'dono-1'),
+      ).resolves.toEqual({ status: UserStatus.INACTIVE });
+    });
+
+    it('permite que o dono redefina a senha de colaborador criado por um admin delegado', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'dono-1',
+        role: UserRole.ADMIN,
+        ownerId: 'dono-1',
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'collab-do-delegado',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+      });
+      mockUserRepository.update.mockResolvedValue(undefined);
+
+      await expect(
+        service.resetCollaboratorPassword(
+          'collab-do-delegado',
+          'nova-senha',
+          'dono-1',
+        ),
+      ).resolves.toEqual({ message: 'Senha redefinida com sucesso' });
     });
   });
 
@@ -946,23 +1276,18 @@ describe('UsersService — Colaboradores e Permissões', () => {
     };
 
     beforeEach(() => {
-      (mockUserRepository as any).getRepository = jest
-        .fn()
-        .mockReturnValue(getRepositoryMock);
+      mockUserRepository.getRepository.mockReturnValue(getRepositoryMock);
       getRepositoryMock.find.mockReset();
       getRepositoryMock.softDelete.mockReset();
     });
 
-    it('deixa admin delegado excluir colaboradores em lote', async () => {
+    it('deixa admin delegado excluir colaboradores em lote criados pelo dono', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
-      });
-      mockUserRepository.findOne.mockResolvedValue({
-        id: 'delegado-1',
-        role: UserRole.COLLABORATOR,
       });
       getRepositoryMock.find.mockResolvedValue([
         { id: 'collab-1', email: 'a@x.com', ownerId: 'dono-1' },
@@ -976,18 +1301,27 @@ describe('UsersService — Colaboradores e Permissões', () => {
       );
 
       expect(result).toEqual({ deleted: 2 });
+      // I1: sem isso o teste passa mesmo se o `where` ainda filtrasse por
+      // `adminId` (o mock de `find` devolveria os itens de qualquer jeito).
+      // Travar o `where` é o que garante que o filtro real é por `ownerId`
+      // do tenant do delegado, não por quem criou.
+      expect(getRepositoryMock.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            ownerId: 'dono-1',
+            role: UserRole.COLLABORATOR,
+          }),
+        }),
+      );
     });
 
     it('bloqueia bulk delete se o dono da conta estiver na lista', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.ADMINISTRACAO],
         doctorProfile: null,
-      });
-      mockUserRepository.findOne.mockResolvedValue({
-        id: 'delegado-1',
-        role: UserRole.COLLABORATOR,
       });
       getRepositoryMock.find.mockResolvedValue([
         { id: 'collab-1', email: 'a@x.com', ownerId: 'dono-1' },
@@ -1006,6 +1340,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'comum-1',
         role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
         permissions: [Permission.AGENDA],
         doctorProfile: null,
       });
@@ -1194,31 +1529,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await expect(
         service.getDoctorHeaderByUserId('doctor-1', 'comum-1'),
-      ).rejects.toThrow(ForbiddenException);
-    });
-
-    /**
-     * A rota aceita Administração OU Solicitações no controller, mas quem
-     * tem Solicitações sem ser o admin da conta (adminId do alvo) nem o
-     * próprio médico continua bloqueado aqui — a permissão de área não
-     * substitui o vínculo real.
-     */
-    it('bloqueia colaborador com Solicitações mas sem vínculo com o médico-alvo', async () => {
-      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
-        id: 'colega-1',
-        role: UserRole.COLLABORATOR,
-        ownerId: 'dono-1',
-        permissions: [Permission.SOLICITACOES],
-        doctorProfile: null,
-      });
-      mockUserRepository.findOne.mockResolvedValueOnce({
-        id: 'doctor-1',
-        ownerId: 'dono-1',
-        adminId: 'outro-admin',
-      });
-
-      await expect(
-        service.getDoctorHeaderByUserId('doctor-1', 'colega-1'),
       ).rejects.toThrow(ForbiddenException);
     });
   });

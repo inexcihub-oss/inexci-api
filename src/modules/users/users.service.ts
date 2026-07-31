@@ -56,9 +56,11 @@ export class UsersService {
   /**
    * Gerir a equipe é ato de quem tem Administração — o dono da conta ou o
    * colaborador a quem ele delegou. Não basta o role: o admin delegado
-   * continua sendo `collaborator`.
+   * continua sendo `collaborator`. Devolve o usuário carregado (em vez de
+   * `void`) para que os 11 chamadores não precisem refazer um `findOne` do
+   * mesmo id logo em seguida.
    */
-  private async assertPodeGerirEquipe(userId: string): Promise<void> {
+  private async assertPodeGerirEquipe(userId: string): Promise<User> {
     const usuario = await this.userRepository.findOneWithProfile({
       id: userId,
     });
@@ -75,6 +77,8 @@ export class UsersService {
         'Você não tem permissão para gerenciar colaboradores.',
       );
     }
+
+    return usuario;
   }
 
   /**
@@ -308,9 +312,18 @@ export class UsersService {
     const target = await this.userRepository.findOne({ id: targetId });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Apenas quem tem Administração ou o próprio usuário podem atualizar o perfil
+    // Apenas quem tem Administração ou o próprio usuário podem atualizar o
+    // perfil. Editando terceiro: precisa estar no mesmo tenant (`ownerId`) —
+    // sem essa checagem o alvo poderia estar em outra conta — e o alvo não
+    // pode ser o dono da conta (essa rota grava `phone`/`cpf`/`name`; o
+    // `phone` do dono é a chave de identidade dele no assistente WhatsApp
+    // via `findOneByPhone`, então reescrevê-lo é sequestrar o canal dele).
     if (requestingUserId !== targetId) {
       await this.assertPodeGerirEquipe(requestingUserId);
+      if (target.ownerId !== requesting.ownerId) {
+        throw new ForbiddenException('Este usuário não pertence à sua conta');
+      }
+      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
     }
 
     if (data.phone) {
@@ -351,9 +364,7 @@ export class UsersService {
   }
 
   async create(data: CreateUserDto, userId: string) {
-    await this.assertPodeGerirEquipe(userId);
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
+    const user = await this.assertPodeGerirEquipe(userId);
 
     // Verifica telefone duplicado
     if (data.phone) {
@@ -369,11 +380,18 @@ export class UsersService {
 
     const placeholderPw = generateValidationCode(16);
 
+    // `data.role` é ignorado de propósito: esta rota é gateada por
+    // Permission.ADMINISTRACAO (que o admin delegado também tem), e o novo
+    // usuário herda `ownerId` de quem criou — nunca `self.id`. Se aceitássemos
+    // `role: 'admin'` aqui, um delegado cunharia um segundo "dono" com
+    // `ownerId` de outra pessoa, quebrando a invariante "para admin, ownerId
+    // = self.id" usada em todo o isolamento de tenant. O DTO já restringe o
+    // valor a `collaborator`; isto é a segunda camada.
     const newUser = await this.userRepository.create({
       email: data.email,
       name: data.name,
       phone: data.phone,
-      role: data.role || UserRole.COLLABORATOR,
+      role: UserRole.COLLABORATOR,
       status: UserStatus.PENDING,
       password: await bcrypt.hash(placeholderPw, 10),
       ownerId: user.ownerId,
@@ -538,9 +556,7 @@ export class UsersService {
   // ============ GESTÃO DE COLABORADORES ============
 
   async findCollaborators(userId: string, skip = 0, take = 50) {
-    await this.assertPodeGerirEquipe(userId);
-    const admin = await this.userRepository.findOne({ id: userId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(userId);
 
     const collaborators = await this.userRepository.findByOwnerId(
       admin.ownerId,
@@ -561,9 +577,7 @@ export class UsersService {
   }
 
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     // Verifica email duplicado
     const emailFound = await this.userRepository.findOneWithDeleted({
@@ -687,16 +701,17 @@ export class UsersService {
     data: UpdateCollaboratorDto,
     adminId: string,
   ) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou): um admin delegado precisa editar colaboradores criados pelo
+    // dono, e o dono precisa editar colaboradores criados pelo delegado.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
       id: collaborator.id,
@@ -793,16 +808,16 @@ export class UsersService {
   }
 
   async deleteCollaborator(collaboratorId: string, adminId: string) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — ver mesmo comentário em `updateCollaborator`.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
       id: collaborator.id,
@@ -826,15 +841,17 @@ export class UsersService {
     collaboratorIds: string[],
     adminId: string,
   ): Promise<{ deleted: number }> {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const uniqueIds = [...new Set(collaboratorIds)];
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — do contrário colaboradores criados por outra pessoa dentro da
+    // mesma conta (o dono, ou outro admin delegado) ficariam invisíveis a
+    // este filtro e o bulk delete falharia com "não encontrados" para eles.
     const collaborators = await this.userRepository.getRepository().find({
       where: {
         id: In(uniqueIds),
-        adminId,
+        ownerId: admin.ownerId,
         role: UserRole.COLLABORATOR,
       },
       select: {
@@ -877,9 +894,7 @@ export class UsersService {
    * Lista médicos da conta (users com doctorProfile na mesma conta)
    */
   async findDoctors(userId: string) {
-    await this.assertPodeGerirEquipe(userId);
-    const admin = await this.userRepository.findOne({ id: userId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(userId);
 
     const doctors = await this.userRepository.findDoctorsByOwnerId(
       admin.ownerId,
@@ -899,16 +914,16 @@ export class UsersService {
   }
 
   async toggleCollaboratorStatus(collaboratorId: string, adminId: string) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — ver mesmo comentário em `updateCollaborator`.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
       id: collaborator.id,
@@ -929,16 +944,16 @@ export class UsersService {
     newPassword: string,
     adminId: string,
   ) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — ver mesmo comentário em `updateCollaborator`.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
       id: collaborator.id,
@@ -956,9 +971,7 @@ export class UsersService {
    * anteriores. Disponível apenas para colaboradores com status PENDING.
    */
   async resendCollaboratorInvite(collaboratorId: string, adminId: string) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
@@ -1023,9 +1036,7 @@ export class UsersService {
    * Detalhes de um colaborador (dados + doctorProfile + user_doctor_access)
    */
   async findCollaboratorById(collaboratorId: string, adminId: string) {
-    await this.assertPodeGerirEquipe(adminId);
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
