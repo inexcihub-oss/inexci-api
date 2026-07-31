@@ -7,6 +7,7 @@ import {
 import { UsersService } from './users.service';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
+import { Permission } from 'src/shared/permissions';
 
 /**
  * Testes unitários focados no PRD:
@@ -38,6 +39,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
   const mockUserDoctorAccessRepository = {
     findActiveByUserId: jest.fn(),
     findActiveByDoctorUserId: jest.fn(),
+    findAllByUserId: jest.fn(),
     findByOwnerId: jest.fn(),
     upsert: jest.fn(),
     deactivate: jest.fn(),
@@ -135,6 +137,51 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(service.findCollaborators('user-1')).rejects.toThrow(
         ForbiddenException,
       );
+    });
+  });
+
+  // ─── Vazamento de permissions/isPlatformAdmin em respostas HTTP ─────
+  describe('getProfile', () => {
+    it('não deve expor permissions cru nem isPlatformAdmin no retorno', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'user-1',
+        role: UserRole.COLLABORATOR,
+        password: 'hash-secreto',
+        permissions: [Permission.AGENDA],
+        isPlatformAdmin: true,
+        doctorProfile: null,
+      });
+
+      const result = await service.getProfile('user-1');
+
+      expect(result).not.toHaveProperty('permissions');
+      expect(result).not.toHaveProperty('isPlatformAdmin');
+      expect(result).not.toHaveProperty('password');
+    });
+  });
+
+  describe('findCollaboratorById', () => {
+    it('não deve expor permissions cru nem isPlatformAdmin do colaborador ao admin', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'admin-1',
+        role: UserRole.ADMIN,
+        ownerId: 'admin-1',
+      });
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'collab-1',
+        ownerId: 'admin-1',
+        password: 'hash-secreto',
+        permissions: [Permission.AGENDA],
+        isPlatformAdmin: false,
+        doctorProfile: null,
+      });
+      mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
+
+      const result = await service.findCollaboratorById('collab-1', 'admin-1');
+
+      expect(result).not.toHaveProperty('permissions');
+      expect(result).not.toHaveProperty('isPlatformAdmin');
+      expect(result).not.toHaveProperty('password');
     });
   });
 
@@ -738,12 +785,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'doctor-1',
           doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/x.png' },
+          // Permissão efetiva do médico-alvo: um colaborador com acesso
+          // restrito à assinatura não deve recebê-la na resposta.
+          permissions: [Permission.SOLICITACOES],
+          isPlatformAdmin: true,
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-1' },
       ]);
 
-      await service.updateDoctorProfileById(
+      const result = await service.updateDoctorProfileById(
         'doctor-1',
         { signatureImageUrl: 'signatures/x.png' },
         'collab-1',
@@ -753,6 +804,10 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'dp-1',
         expect.objectContaining({ signatureUrl: 'signatures/x.png' }),
       );
+      // Vazamento corrigido pós-revisão: colaborador só-assinatura não pode
+      // ver permissions/isPlatformAdmin do médico-alvo na resposta.
+      expect(result).not.toHaveProperty('permissions');
+      expect(result).not.toHaveProperty('isPlatformAdmin');
     });
 
     it('deve barrar colaborador vinculado que tenta editar CRM', async () => {
