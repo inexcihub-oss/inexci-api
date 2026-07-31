@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -78,6 +79,7 @@ export class SubscriptionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: StartCheckoutDto,
   ) {
+    this.assertEhDono(user);
     return this.subscriptionService.startCheckout(user.userId, dto.planId);
   }
 
@@ -87,6 +89,21 @@ export class SubscriptionsController {
     summary: 'Abre o Customer Portal da Stripe para gerenciar a assinatura',
   })
   async portal(@CurrentUser() user: AuthenticatedUser) {
+    this.assertEhDono(user);
     return this.subscriptionService.openBillingPortal(user.userId);
+  }
+
+  /**
+   * Plano, fatura e cartão são do dono da conta. O admin delegado gere a
+   * equipe, não a assinatura da clínica. O `SubscriptionService` já valida
+   * isso internamente (mesma regra); esta checagem é uma barreira declarada
+   * na borda HTTP, que falha antes de tocar o service/gateway de pagamento.
+   */
+  private assertEhDono(user: AuthenticatedUser): void {
+    if (user.userId !== user.ownerId) {
+      throw new ForbiddenException(
+        'Apenas o dono da conta pode gerenciar a assinatura.',
+      );
+    }
   }
 }
