@@ -218,13 +218,26 @@ export class ClinicalDocumentGenerationService {
 
   /**
    * Carrega ficha, paciente e médico e monta o bloco comum aos três PDFs.
+   *
+   * São três verificações, e nenhuma cobre a outra: quem emite precisa ser
+   * médico (ato privativo), pertencer à clínica e ter vínculo com o médico da
+   * ficha. O documento sai assinado com o nome, o CRM e a imagem de assinatura
+   * desse médico — sem isso, um assistente emitiria receita em nome dele.
+   *
+   * Vale também para a prévia: é o mesmo documento, só que na tela.
    */
   private async buildBaseContext(recordId: string, userId: string) {
+    await this.accessControlService.assertIsDoctor(userId);
+
     const record = await this.clinicalRecordRepository.findOne({
       id: recordId,
     });
     if (!record) throw new NotFoundException('Atendimento não encontrado');
-    await this.accessControlService.assertSameOwner(userId, record.ownerId);
+    await this.accessControlService.assertCanAccessDoctorResource(
+      userId,
+      record.ownerId,
+      record.doctorId,
+    );
 
     const patient = await this.patientRepository.findOne({
       id: record.patientId,

@@ -22,8 +22,11 @@ describe('ClinicalRecordsService', () => {
   const mockAccess = {
     getOwnerId: jest.fn(),
     assertSameOwner: jest.fn(),
+    assertCanAccessDoctorResource: jest.fn(),
+    getAccessibleDoctorIds: jest.fn(),
     canAccessDoctor: jest.fn(),
     resolveDefaultDoctorId: jest.fn(),
+    assertIsDoctor: jest.fn(),
   };
   const mockSurgicalIndication = { createForRecord: jest.fn() };
 
@@ -36,8 +39,11 @@ describe('ClinicalRecordsService', () => {
     jest.clearAllMocks();
     mockAccess.getOwnerId.mockResolvedValue(ownerId);
     mockAccess.assertSameOwner.mockResolvedValue(undefined);
+    mockAccess.assertCanAccessDoctorResource.mockResolvedValue(undefined);
+    mockAccess.getAccessibleDoctorIds.mockResolvedValue([doctorId]);
     mockAccess.canAccessDoctor.mockResolvedValue(true);
     mockAccess.resolveDefaultDoctorId.mockResolvedValue(doctorId);
+    mockAccess.assertIsDoctor.mockResolvedValue(undefined);
     mockPatientRepo.findOne.mockResolvedValue({ id: patientId, ownerId });
     mockClinicalRepo.create.mockImplementation((d) =>
       Promise.resolve({ id: 'cr-1', ...d }),
@@ -97,6 +103,7 @@ describe('ClinicalRecordsService', () => {
         id: 'a1',
         ownerId,
         patientId,
+        doctorId,
       });
       mockClinicalRepo.findOne.mockResolvedValue(null);
 
@@ -116,6 +123,7 @@ describe('ClinicalRecordsService', () => {
         id: 'a1',
         ownerId,
         patientId,
+        doctorId,
       });
       mockClinicalRepo.findOne.mockResolvedValue({ id: 'cr-existente' });
 
@@ -314,6 +322,137 @@ describe('ClinicalRecordsService', () => {
       await expect(service.delete('cr-1', userId)).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  /**
+   * Atender é ato do médico. Quem não tem `doctor_profile` — secretária,
+   * assistente, admin não-médico — enxerga o prontuário dos médicos a que tem
+   * vínculo, mas não escreve nele: a ficha vira documento assinado em nome do
+   * médico da consulta.
+   */
+  describe('somente médico atende', () => {
+    const aberta = {
+      id: 'cr-1',
+      ownerId,
+      doctorId,
+      finalizedAt: null,
+      appointmentId: null,
+      surgicalIndication: false,
+    };
+
+    beforeEach(() => {
+      mockClinicalRepo.findOne.mockResolvedValue(aberta);
+      mockAccess.assertIsDoctor.mockRejectedValue(new ForbiddenException());
+    });
+
+    it.each([
+      ['iniciar atendimento', () => service.create({ patientId }, userId)],
+      ['editar', () => service.update('cr-1', { conduct: 'x' }, userId)],
+      ['finalizar', () => service.finalize('cr-1', userId)],
+      ['excluir', () => service.delete('cr-1', userId)],
+    ])('bloqueia não-médico de %s', async (_label, action) => {
+      await expect(action()).rejects.toThrow(ForbiddenException);
+
+      expect(mockAccess.assertIsDoctor).toHaveBeenCalledWith(userId);
+      expect(mockClinicalRepo.create).not.toHaveBeenCalled();
+      expect(mockClinicalRepo.update).not.toHaveBeenCalled();
+      expect(mockClinicalRepo.delete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['ler a ficha', () => service.findOne('cr-1', userId)],
+      ['retomar pela consulta', () => service.findByAppointment('a1', userId)],
+      ['ver a timeline', () => service.findByPatient(patientId, userId)],
+    ])('mantém a leitura liberada: %s', async (_label, action) => {
+      mockClinicalRepo.findByPatientId.mockResolvedValue([]);
+
+      await expect(action()).resolves.toBeDefined();
+    });
+  });
+
+  /**
+   * O prontuário é dado clínico sensível: pertencer à mesma clínica não basta,
+   * é preciso ter vínculo com o médico da ficha (`user_doctor_access`).
+   */
+  describe('fronteira de acesso por médico', () => {
+    const alheia = {
+      id: 'cr-alheia',
+      ownerId,
+      doctorId: 'd2',
+      finalizedAt: null,
+      appointmentId: null,
+      surgicalIndication: false,
+    };
+
+    beforeEach(() => {
+      mockClinicalRepo.findOne.mockResolvedValue(alheia);
+      mockAccess.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+    });
+
+    it.each([
+      ['ler', () => service.findOne('cr-alheia', userId)],
+      [
+        'retomar pela consulta',
+        () => service.findByAppointment('a-alheia', userId),
+      ],
+      ['editar', () => service.update('cr-alheia', { conduct: 'x' }, userId)],
+      ['finalizar', () => service.finalize('cr-alheia', userId)],
+      ['excluir', () => service.delete('cr-alheia', userId)],
+    ])(
+      'bloqueia %s a ficha de um médico fora do acesso do usuário',
+      async (_label, action) => {
+        await expect(action()).rejects.toThrow(ForbiddenException);
+
+        expect(mockAccess.assertCanAccessDoctorResource).toHaveBeenCalledWith(
+          userId,
+          ownerId,
+          'd2',
+        );
+        expect(mockClinicalRepo.update).not.toHaveBeenCalled();
+        expect(mockClinicalRepo.delete).not.toHaveBeenCalled();
+        expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
+      },
+    );
+
+    it('recorta a timeline do paciente pelos médicos acessíveis', async () => {
+      mockAccess.getAccessibleDoctorIds.mockResolvedValue([doctorId]);
+      mockClinicalRepo.findByPatientId.mockResolvedValue([]);
+
+      await service.findByPatient(patientId, userId);
+
+      expect(mockClinicalRepo.findByPatientId).toHaveBeenCalledWith(
+        ownerId,
+        [doctorId],
+        patientId,
+      );
+    });
+
+    it('devolve timeline vazia quando não há médico acessível (fail-closed)', async () => {
+      mockAccess.getAccessibleDoctorIds.mockResolvedValue([]);
+
+      await expect(service.findByPatient(patientId, userId)).resolves.toEqual(
+        [],
+      );
+
+      expect(mockClinicalRepo.findByPatientId).not.toHaveBeenCalled();
+    });
+
+    it('recusa vincular a ficha à consulta de outro médico', async () => {
+      mockAccess.assertCanAccessDoctorResource.mockResolvedValue(undefined);
+      mockAppointmentRepo.findOne.mockResolvedValue({
+        id: 'a1',
+        ownerId,
+        patientId,
+        doctorId: 'd2',
+      });
+
+      await expect(
+        service.create({ patientId, appointmentId: 'a1' }, userId),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockClinicalRepo.create).not.toHaveBeenCalled();
     });
   });
 });

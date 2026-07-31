@@ -28,6 +28,7 @@ describe('AppointmentsService', () => {
     getAccessibleDoctorIds: jest.fn(),
     canAccessDoctor: jest.fn(),
     assertSameOwner: jest.fn(),
+    assertCanAccessDoctorResource: jest.fn(),
   };
 
   const ownerId = 'owner-1';
@@ -40,6 +41,9 @@ describe('AppointmentsService', () => {
     mockAccessControlService.getOwnerId.mockResolvedValue(ownerId);
     mockAccessControlService.canAccessDoctor.mockResolvedValue(true);
     mockAccessControlService.assertSameOwner.mockResolvedValue(undefined);
+    mockAccessControlService.assertCanAccessDoctorResource.mockResolvedValue(
+      undefined,
+    );
     mockPatientRepository.findOne.mockResolvedValue({ id: patientId, ownerId });
     mockAppointmentRepository.hasOverlap.mockResolvedValue(false);
     mockAppointmentRepository.create.mockImplementation((d) =>
@@ -81,11 +85,66 @@ describe('AppointmentsService', () => {
       const result = await service.findByPatient(patientId, userId);
 
       expect(mockAppointmentRepository.findByPatient).toHaveBeenCalledWith(
+        ownerId,
         [doctorId],
         patientId,
       );
       expect(result).toEqual({ total: 1, records: [{ id: 'a-1' }] });
     });
+  });
+
+  describe('findOne', () => {
+    const appointment = { id: 'appt-1', ownerId, doctorId: 'doctor-2' };
+
+    it('exige acesso ao médico da consulta, não só à clínica', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+      mockAccessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(service.findOne('appt-1', userId)).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      expect(
+        mockAccessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith(userId, ownerId, 'doctor-2');
+    });
+
+    it.each([
+      [
+        'cancelar',
+        () =>
+          service.updateStatus(
+            'appt-1',
+            { status: AppointmentStatus.CANCELLED },
+            userId,
+          ),
+      ],
+      [
+        'reagendar',
+        () =>
+          service.update(
+            'appt-1',
+            { scheduledAt: '2026-08-02T14:00:00.000Z' },
+            userId,
+          ),
+      ],
+      ['excluir', () => service.delete('appt-1', userId)],
+    ])(
+      'bloqueia %s a consulta de um médico fora do acesso do usuário',
+      async (_label, action) => {
+        mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+        mockAccessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+          new ForbiddenException(),
+        );
+
+        await expect(action()).rejects.toThrow(ForbiddenException);
+
+        expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+        expect(mockAppointmentRepository.delete).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('create', () => {
@@ -242,6 +301,7 @@ describe('AppointmentsService', () => {
       );
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+        ownerId,
         [doctorId],
         expect.objectContaining({
           from: new Date('2026-08-01'),
@@ -263,6 +323,7 @@ describe('AppointmentsService', () => {
       );
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+        ownerId,
         [doctorId],
         expect.objectContaining({ take: expect.any(Number) }),
       );
@@ -283,6 +344,7 @@ describe('AppointmentsService', () => {
       );
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+        ownerId,
         [doctorId],
         expect.objectContaining({
           statuses: [AppointmentStatus.COMPLETED],
@@ -301,6 +363,7 @@ describe('AppointmentsService', () => {
       await service.findAgenda({}, userId);
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+        ownerId,
         [doctorId],
         expect.objectContaining({ from: undefined, to: undefined }),
       );

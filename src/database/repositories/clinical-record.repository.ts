@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { ClinicalRecord } from '../entities/clinical-record.entity';
 import { BaseRepository } from './base.repository';
 
@@ -9,10 +9,20 @@ export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
     super(dataSource.getRepository(ClinicalRecord));
   }
 
-  /** Linha do tempo do paciente — mais recentes primeiro. */
-  findByPatientId(patientId: string): Promise<ClinicalRecord[]> {
+  /**
+   * Linha do tempo do paciente — mais recentes primeiro.
+   *
+   * Escopada por clínica e pelos médicos acessíveis: o prontuário é dado
+   * clínico sensível (LGPD), então segue o mesmo recorte de
+   * `AppointmentRepository.findByPatient`. Chamador passa a lista já resolvida.
+   */
+  findByPatientId(
+    ownerId: string,
+    doctorIds: string[],
+    patientId: string,
+  ): Promise<ClinicalRecord[]> {
     return this.repository.find({
-      where: { patientId },
+      where: { ownerId, doctorId: In(doctorIds), patientId },
       order: { createdAt: 'DESC' },
     });
   }

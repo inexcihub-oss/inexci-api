@@ -1,7 +1,17 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ClinicalDocumentsService } from './clinical-documents.service';
 
 const PATIENT = { id: 'pat-1', ownerId: 'owner-1' };
+const RECORD = {
+  id: 'rec-1',
+  ownerId: 'owner-1',
+  doctorId: 'doctor-1',
+  patientId: 'pat-1',
+};
 
 describe('ClinicalDocumentsService', () => {
   let service: ClinicalDocumentsService;
@@ -16,7 +26,11 @@ describe('ClinicalDocumentsService', () => {
     findByPatientId: jest.Mock;
   };
   let patientRepository: { findOne: jest.Mock };
-  let accessControlService: { assertSameOwner: jest.Mock };
+  let clinicalRecordRepository: { findOne: jest.Mock };
+  let accessControlService: {
+    assertSameOwner: jest.Mock;
+    assertCanAccessDoctorResource: jest.Mock;
+  };
 
   beforeEach(() => {
     storageService = {
@@ -30,8 +44,12 @@ describe('ClinicalDocumentsService', () => {
       findByPatientId: jest.fn().mockResolvedValue([]),
     };
     patientRepository = { findOne: jest.fn().mockResolvedValue(PATIENT) };
+    clinicalRecordRepository = {
+      findOne: jest.fn().mockResolvedValue(RECORD),
+    };
     accessControlService = {
       assertSameOwner: jest.fn().mockResolvedValue(undefined),
+      assertCanAccessDoctorResource: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new ClinicalDocumentsService(
@@ -39,6 +57,7 @@ describe('ClinicalDocumentsService', () => {
       storageService as any,
       documentRepository as any,
       patientRepository as any,
+      clinicalRecordRepository as any,
       accessControlService as any,
     );
   });
@@ -89,6 +108,64 @@ describe('ClinicalDocumentsService', () => {
         ),
       ).rejects.toThrow(ForbiddenException);
       expect(storageService.create).not.toHaveBeenCalled();
+    });
+
+    it('recusa vincular o anexo a ficha de médico fora do acesso do usuário', async () => {
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.create(
+          {
+            patientId: 'pat-1',
+            clinicalRecordId: 'rec-1',
+            key: 'k',
+            name: 'n',
+            folder: 'documents',
+          },
+          'colaborador',
+          file,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(
+        accessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith('colaborador', 'owner-1', 'doctor-1');
+      expect(storageService.create).not.toHaveBeenCalled();
+    });
+
+    it('recusa vincular o anexo a ficha de outro paciente', async () => {
+      clinicalRecordRepository.findOne.mockResolvedValue({
+        ...RECORD,
+        patientId: 'outro-paciente',
+      });
+
+      await expect(
+        service.create(
+          {
+            patientId: 'pat-1',
+            clinicalRecordId: 'rec-1',
+            key: 'k',
+            name: 'n',
+            folder: 'documents',
+          },
+          'user-1',
+          file,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(storageService.create).not.toHaveBeenCalled();
+    });
+
+    it('não consulta a ficha quando o anexo é só do paciente', async () => {
+      await service.create(
+        { patientId: 'pat-1', key: 'k', name: 'n', folder: 'documents' },
+        'user-1',
+        file,
+      );
+
+      expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
+      expect(storageService.create).toHaveBeenCalled();
     });
 
     it('rejeita sem arquivo', async () => {

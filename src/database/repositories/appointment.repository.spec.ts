@@ -33,7 +33,7 @@ describe('AppointmentRepository.findAgenda', () => {
   it('aplica as duas pontas da janela como intervalo semiaberto', async () => {
     const { repo, qb } = buildRepo();
 
-    await repo.findAgenda(['d-1'], {
+    await repo.findAgenda('owner-1', ['d-1'], {
       from: new Date('2026-08-01T00:00:00.000Z'),
       to: new Date('2026-09-01T00:00:00.000Z'),
       take: 1000,
@@ -45,10 +45,21 @@ describe('AppointmentRepository.findAgenda', () => {
     expect(qb.take).toHaveBeenCalledWith(1000);
   });
 
+  it('escopa sempre por clínica, além dos médicos acessíveis', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAgenda('owner-1', ['d-1'], { take: 1000 });
+
+    expect(qb.where).toHaveBeenCalledWith('appointment.ownerId = :ownerId', {
+      ownerId: 'owner-1',
+    });
+    expect(clauses(qb)).toContain('appointment.doctorId IN (:...doctorIds)');
+  });
+
   it('sem `to`, não impõe teto de data (aba Próximas)', async () => {
     const { repo, qb } = buildRepo();
 
-    await repo.findAgenda(['d-1'], {
+    await repo.findAgenda('owner-1', ['d-1'], {
       from: new Date('2026-08-01T00:00:00.000Z'),
       statuses: [AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED],
       take: 1000,
@@ -67,7 +78,7 @@ describe('AppointmentRepository.findAgenda', () => {
   it('sem janela nenhuma, filtra só por status e ordena DESC (aba Realizadas)', async () => {
     const { repo, qb } = buildRepo();
 
-    await repo.findAgenda(['d-1'], {
+    await repo.findAgenda('owner-1', ['d-1'], {
       statuses: [AppointmentStatus.COMPLETED],
       order: 'DESC',
       take: 1000,
@@ -81,7 +92,7 @@ describe('AppointmentRepository.findAgenda', () => {
   it('ignora lista de status vazia', async () => {
     const { repo, qb } = buildRepo();
 
-    await repo.findAgenda(['d-1'], { statuses: [], take: 1000 });
+    await repo.findAgenda('owner-1', ['d-1'], { statuses: [], take: 1000 });
 
     expect(clauses(qb)).not.toContain(':...statuses');
   });

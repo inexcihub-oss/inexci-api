@@ -35,6 +35,7 @@ describe('ClinicalRecordTemplatesService', () => {
     resolveDefaultDoctorId: jest.fn(),
     canAccessDoctor: jest.fn(),
     assertSameOwner: jest.fn(),
+    assertCanAccessDoctorResource: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -43,6 +44,9 @@ describe('ClinicalRecordTemplatesService', () => {
     accessControlService.resolveDefaultDoctorId.mockResolvedValue('doctor-1');
     accessControlService.canAccessDoctor.mockResolvedValue(true);
     accessControlService.assertSameOwner.mockResolvedValue(undefined);
+    accessControlService.assertCanAccessDoctorResource.mockResolvedValue(
+      undefined,
+    );
     repository.findByOwner.mockResolvedValue([template]);
     repository.findOne.mockResolvedValue(template);
     repository.create.mockImplementation((data: any) =>
@@ -149,7 +153,7 @@ describe('ClinicalRecordTemplatesService', () => {
     });
 
     it('recusa editar modelo de outra clínica', async () => {
-      accessControlService.assertSameOwner.mockRejectedValue(
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
         new ForbiddenException(),
       );
 
@@ -160,6 +164,33 @@ describe('ClinicalRecordTemplatesService', () => {
       expect(repository.update).not.toHaveBeenCalled();
     });
 
+    it('recusa editar modelo de médico fora do acesso do usuário', async () => {
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.update('tpl-1', { name: 'x' } as any, 'colaborador'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(
+        accessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith('colaborador', 'owner-1', 'doctor-1');
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('recusa excluir modelo de médico fora do acesso do usuário', async () => {
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(service.delete('tpl-1', 'colaborador')).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      expect(repository.delete).not.toHaveBeenCalled();
+    });
+
     it('falha quando o modelo não existe', async () => {
       repository.findOne.mockResolvedValue(null);
 
@@ -168,13 +199,12 @@ describe('ClinicalRecordTemplatesService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('exclui o modelo depois de validar o tenant', async () => {
+    it('exclui o modelo depois de validar tenant e acesso ao médico', async () => {
       await service.delete('tpl-1', 'user-1');
 
-      expect(accessControlService.assertSameOwner).toHaveBeenCalledWith(
-        'user-1',
-        'owner-1',
-      );
+      expect(
+        accessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith('user-1', 'owner-1', 'doctor-1');
       expect(repository.delete).toHaveBeenCalledWith('tpl-1');
     });
   });

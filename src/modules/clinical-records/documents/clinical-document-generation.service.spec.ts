@@ -38,7 +38,11 @@ describe('ClinicalDocumentGenerationService', () => {
   const patientRepository = { findOne: jest.fn() };
   const healthPlanRepository = { findOne: jest.fn() };
   const documentRepository = { create: jest.fn() };
-  const accessControlService = { assertSameOwner: jest.fn() };
+  const accessControlService = {
+    assertSameOwner: jest.fn(),
+    assertCanAccessDoctorResource: jest.fn(),
+    assertIsDoctor: jest.fn(),
+  };
   const storageService = { create: jest.fn(), getSignedUrl: jest.fn() };
   const pdfService = {
     generatePrescriptionPdf: jest.fn(),
@@ -68,6 +72,10 @@ describe('ClinicalDocumentGenerationService', () => {
       name: 'Hapvida',
     });
     accessControlService.assertSameOwner.mockResolvedValue(undefined);
+    accessControlService.assertCanAccessDoctorResource.mockResolvedValue(
+      undefined,
+    );
+    accessControlService.assertIsDoctor.mockResolvedValue(undefined);
     doctorPdfContextService.buildForDoctorId.mockResolvedValue({
       doctor: { name: 'Dra. Ana Souza' },
       profile: { specialty: 'Ortopedia' },
@@ -117,7 +125,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'secretaria-id',
+        'outro-medico-id',
       );
 
       expect(doctorPdfContextService.buildForDoctorId).toHaveBeenCalledWith(
@@ -191,7 +199,7 @@ describe('ClinicalDocumentGenerationService', () => {
     });
 
     it('recusa a ficha de outro tenant', async () => {
-      accessControlService.assertSameOwner.mockRejectedValue(
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
         new ForbiddenException(),
       );
 
@@ -205,6 +213,73 @@ describe('ClinicalDocumentGenerationService', () => {
 
       expect(pdfService.generatePrescriptionPdf).not.toHaveBeenCalled();
     });
+
+    /**
+     * O documento sai com o CRM e a imagem de assinatura do médico da ficha, e
+     * o atestado tem valor legal. Pertencer à clínica não basta: quem não tem
+     * vínculo com aquele médico não emite nem pré-visualiza em nome dele.
+     */
+    it('exige acesso ao médico da ficha, não só à clínica', async () => {
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.generatePrescription(
+          'record-1',
+          prescriptionDto as any,
+          'colaborador',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(
+        accessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith('colaborador', 'owner-1', 'doctor-1');
+      expect(doctorPdfContextService.buildForDoctorId).not.toHaveBeenCalled();
+      expect(documentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [
+        'atestado',
+        () =>
+          service.generateMedicalCertificate(
+            'record-1',
+            { restDays: 3 } as any,
+            'colaborador',
+          ),
+      ],
+      [
+        'encaminhamento',
+        () =>
+          service.generateExamReferral(
+            'record-1',
+            { exams: [{ name: 'RM joelho' }] } as any,
+            'colaborador',
+          ),
+      ],
+      [
+        'pré-visualização do atestado',
+        () =>
+          service.previewMedicalCertificate(
+            'record-1',
+            { restDays: 3 } as any,
+            'colaborador',
+          ),
+      ],
+    ])(
+      'bloqueia %s em nome de médico fora do acesso do usuário',
+      async (_label, action) => {
+        accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+          new ForbiddenException(),
+        );
+
+        await expect(action()).rejects.toThrow(ForbiddenException);
+
+        expect(doctorPdfContextService.buildForDoctorId).not.toHaveBeenCalled();
+        expect(documentRepository.create).not.toHaveBeenCalled();
+      },
+    );
 
     it('falha quando a ficha não existe', async () => {
       clinicalRecordRepository.findOne.mockResolvedValue(null);
@@ -390,7 +465,7 @@ describe('ClinicalDocumentGenerationService', () => {
     });
 
     it('recusa pré-visualizar ficha de outro tenant', async () => {
-      accessControlService.assertSameOwner.mockRejectedValue(
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
         new ForbiddenException(),
       );
 
@@ -455,6 +530,84 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(documentRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ type: DOCUMENT_TYPES.examReferral }),
       );
+    });
+  });
+
+  /**
+   * Receita, atestado e pedido de exame saem com o CRM e a assinatura do médico
+   * da ficha. Emiti-los é ato médico: quem não tem `doctor_profile` não passa
+   * daqui — nem na prévia, que é o mesmo documento renderizado na tela.
+   */
+  describe('somente médico emite', () => {
+    beforeEach(() => {
+      accessControlService.assertIsDoctor.mockRejectedValue(
+        new ForbiddenException(),
+      );
+    });
+
+    it.each([
+      [
+        'receita',
+        () =>
+          service.generatePrescription(
+            'record-1',
+            prescriptionDto as any,
+            'secretaria-id',
+          ),
+      ],
+      [
+        'atestado',
+        () =>
+          service.generateMedicalCertificate(
+            'record-1',
+            { restDays: 2 } as any,
+            'secretaria-id',
+          ),
+      ],
+      [
+        'encaminhamento',
+        () =>
+          service.generateExamReferral(
+            'record-1',
+            { exams: [{ name: 'Hemograma' }] } as any,
+            'secretaria-id',
+          ),
+      ],
+      [
+        'prévia da receita',
+        () =>
+          service.previewPrescription(
+            'record-1',
+            prescriptionDto as any,
+            'secretaria-id',
+          ),
+      ],
+      [
+        'prévia do atestado',
+        () =>
+          service.previewMedicalCertificate(
+            'record-1',
+            { restDays: 2 } as any,
+            'secretaria-id',
+          ),
+      ],
+      [
+        'prévia do encaminhamento',
+        () =>
+          service.previewExamReferral(
+            'record-1',
+            { exams: [{ name: 'Hemograma' }] } as any,
+            'secretaria-id',
+          ),
+      ],
+    ])('bloqueia não-médico em %s', async (_label, action) => {
+      await expect(action()).rejects.toThrow(ForbiddenException);
+
+      expect(accessControlService.assertIsDoctor).toHaveBeenCalledWith(
+        'secretaria-id',
+      );
+      expect(documentRepository.create).not.toHaveBeenCalled();
+      expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
     });
   });
 });

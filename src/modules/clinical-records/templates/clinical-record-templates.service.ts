@@ -74,7 +74,7 @@ export class ClinicalRecordTemplatesService {
     data: UpdateClinicalRecordTemplateDto,
     userId: string,
   ): Promise<ClinicalRecordTemplate> {
-    await this.getOwned(id, userId);
+    await this.getEditable(id, userId);
 
     // Só o que veio no corpo — string vazia é uma limpeza intencional do campo.
     const updateData: Partial<ClinicalRecordTemplate> = {};
@@ -90,11 +90,15 @@ export class ClinicalRecordTemplatesService {
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    await this.getOwned(id, userId);
+    await this.getEditable(id, userId);
     await this.templateRepository.delete(id);
   }
 
-  /** Devolve o modelo para preencher a ficha e conta o uso. */
+  /**
+   * Devolve o modelo para preencher a ficha e conta o uso. Ler e aplicar segue
+   * valendo para toda a clínica — modelo é texto-base compartilhado, e
+   * `findMany` já lista os da conta inteira.
+   */
   async apply(id: string, userId: string): Promise<ClinicalRecordTemplate> {
     const template = await this.getOwned(id, userId);
     await this.templateRepository.incrementUsage(id);
@@ -108,6 +112,25 @@ export class ClinicalRecordTemplatesService {
     const template = await this.templateRepository.findOne({ id });
     if (!template) throw new NotFoundException('Modelo não encontrado');
     await this.accessControlService.assertSameOwner(userId, template.ownerId);
+    return template;
+  }
+
+  /**
+   * Alterar ou excluir exige acesso ao médico dono do modelo — o mesmo recorte
+   * que `create` já exige. Sem isso, quem só enxerga o médico A reescreveria o
+   * texto-base que o médico B usa em todo atendimento.
+   */
+  private async getEditable(
+    id: string,
+    userId: string,
+  ): Promise<ClinicalRecordTemplate> {
+    const template = await this.templateRepository.findOne({ id });
+    if (!template) throw new NotFoundException('Modelo não encontrado');
+    await this.accessControlService.assertCanAccessDoctorResource(
+      userId,
+      template.ownerId,
+      template.doctorId,
+    );
     return template;
   }
 }

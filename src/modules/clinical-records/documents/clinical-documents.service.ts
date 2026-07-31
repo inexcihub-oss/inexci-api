@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { DocumentRepository } from 'src/database/repositories/document.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
+import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { transformDocumentUrls } from 'src/shared/transformers/signed-url.transformer';
@@ -31,6 +32,7 @@ export class ClinicalDocumentsService {
     private readonly storageService: StorageService,
     private readonly documentRepository: DocumentRepository,
     private readonly patientRepository: PatientRepository,
+    private readonly clinicalRecordRepository: ClinicalRecordRepository,
     private readonly accessControlService: AccessControlService,
   ) {}
 
@@ -42,6 +44,14 @@ export class ClinicalDocumentsService {
     if (!file) throw new BadRequestException('File is required');
 
     const patient = await this.assertPatientAccess(data.patientId, userId);
+
+    if (data.clinicalRecordId) {
+      await this.assertRecordAccess(
+        data.clinicalRecordId,
+        data.patientId,
+        userId,
+      );
+    }
 
     const storagePath = await this.storageService.create(
       file,
@@ -130,5 +140,29 @@ export class ClinicalDocumentsService {
     if (!patient) throw new NotFoundException('Paciente não encontrado');
     await this.accessControlService.assertSameOwner(userId, patient.ownerId);
     return patient;
+  }
+
+  /**
+   * Vincular o anexo a uma ficha exige acesso àquela ficha — o paciente é
+   * visível para toda a clínica, mas o prontuário é recortado por médico.
+   * Também amarra a ficha ao paciente informado, para o anexo não aparecer no
+   * atendimento de outro paciente.
+   */
+  private async assertRecordAccess(
+    clinicalRecordId: string,
+    patientId: string,
+    userId: string,
+  ): Promise<void> {
+    const record = await this.clinicalRecordRepository.findOne({
+      id: clinicalRecordId,
+    });
+    if (!record || record.patientId !== patientId) {
+      throw new BadRequestException('Atendimento inválido para este paciente.');
+    }
+    await this.accessControlService.assertCanAccessDoctorResource(
+      userId,
+      record.ownerId,
+      record.doctorId,
+    );
   }
 }

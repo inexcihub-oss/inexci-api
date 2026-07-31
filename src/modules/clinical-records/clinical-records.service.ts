@@ -29,7 +29,12 @@ export class ClinicalRecordsService {
     private readonly surgicalIndicationService: SurgicalIndicationService,
   ) {}
 
-  /** Linha do tempo de atendimentos de um paciente. */
+  /**
+   * Linha do tempo de atendimentos de um paciente.
+   *
+   * O paciente é visível para toda a clínica, mas a ficha não: só entram os
+   * atendimentos dos médicos que o usuário acessa (`user_doctor_access`).
+   */
   async findByPatient(
     patientId: string,
     userId: string,
@@ -37,6 +42,10 @@ export class ClinicalRecordsService {
     const patient = await this.patientRepository.findOne({ id: patientId });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
     await this.accessControlService.assertSameOwner(userId, patient.ownerId);
+
+    const doctorIds =
+      await this.accessControlService.getAccessibleDoctorIds(userId);
+    if (doctorIds.length === 0) return [];
 
     auditProntuarioAccess({
       resource: 'clinical_record',
@@ -46,7 +55,11 @@ export class ClinicalRecordsService {
       tenantId: patient.ownerId,
     });
 
-    return this.clinicalRecordRepository.findByPatientId(patientId);
+    return this.clinicalRecordRepository.findByPatientId(
+      patient.ownerId,
+      doctorIds,
+      patientId,
+    );
   }
 
   /** Ficha em aberto vinculada a uma consulta (para retomar o atendimento). */
@@ -58,14 +71,14 @@ export class ClinicalRecordsService {
       appointmentId,
     });
     if (!record) return null;
-    await this.accessControlService.assertSameOwner(userId, record.ownerId);
+    await this.assertCanAccessRecord(record, userId);
     return record;
   }
 
   async findOne(id: string, userId: string): Promise<ClinicalRecord> {
     const record = await this.clinicalRecordRepository.findOne({ id });
     if (!record) throw new NotFoundException('Atendimento não encontrado');
-    await this.accessControlService.assertSameOwner(userId, record.ownerId);
+    await this.assertCanAccessRecord(record, userId);
 
     auditProntuarioAccess({
       resource: 'clinical_record',
@@ -82,6 +95,7 @@ export class ClinicalRecordsService {
     data: CreateClinicalRecordDto,
     userId: string,
   ): Promise<ClinicalRecord> {
+    await this.accessControlService.assertIsDoctor(userId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
     const patient = await this.patientRepository.findOne({
@@ -107,6 +121,7 @@ export class ClinicalRecordsService {
         data.appointmentId,
         ownerId,
         data.patientId,
+        doctorId,
       );
 
       // Duas abas abertas na mesma consulta, ou uma retentativa depois de uma
@@ -201,7 +216,7 @@ export class ClinicalRecordsService {
   async delete(id: string, userId: string): Promise<void> {
     const record = await this.clinicalRecordRepository.findOne({ id });
     if (!record) throw new NotFoundException('Atendimento não encontrado');
-    await this.accessControlService.assertSameOwner(userId, record.ownerId);
+    await this.assertCanWriteRecord(record, userId);
     if (record.finalizedAt) {
       throw new BadRequestException(
         'Um atendimento finalizado não pode ser excluído.',
@@ -217,7 +232,7 @@ export class ClinicalRecordsService {
   ): Promise<ClinicalRecord> {
     const record = await this.clinicalRecordRepository.findOne({ id });
     if (!record) throw new NotFoundException('Atendimento não encontrado');
-    await this.accessControlService.assertSameOwner(userId, record.ownerId);
+    await this.assertCanWriteRecord(record, userId);
     if (record.finalizedAt) {
       throw new BadRequestException(
         'Este atendimento foi finalizado e não pode mais ser editado.',
@@ -226,18 +241,59 @@ export class ClinicalRecordsService {
     return record;
   }
 
+  /**
+   * Escrever na ficha exige, além do acesso de leitura, ser médico.
+   *
+   * Secretária e assistente participam do atendimento (agendam, cadastram,
+   * anexam exames) e leem o prontuário dos médicos a que têm vínculo — mas a
+   * ficha é o registro clínico assinado pelo médico da consulta, e finalizá-la
+   * ainda dispara a solicitação cirúrgica em nome dele.
+   */
+  private async assertCanWriteRecord(
+    record: ClinicalRecord,
+    userId: string,
+  ): Promise<void> {
+    await this.accessControlService.assertIsDoctor(userId);
+    await this.assertCanAccessRecord(record, userId);
+  }
+
+  /**
+   * Recorte de acesso da ficha: clínica **e** médico acessível.
+   *
+   * Só o `ownerId` não basta — quem não tem vínculo com o médico da ficha não
+   * pode ler a anamnese, reescrevê-la, marcá-la como cirúrgica, finalizá-la
+   * (o que cria uma SC em nome daquele médico) nem excluí-la. É o mesmo recorte
+   * que `create` já exigia e que o módulo de solicitações aplica nas rotas
+   * por id.
+   */
+  private async assertCanAccessRecord(
+    record: ClinicalRecord,
+    userId: string,
+  ): Promise<void> {
+    await this.accessControlService.assertCanAccessDoctorResource(
+      userId,
+      record.ownerId,
+      record.doctorId,
+    );
+  }
+
   private async assertAppointmentBelongs(
     appointmentId: string,
     ownerId: string,
     patientId: string,
+    doctorId: string,
   ): Promise<void> {
     const appointment = await this.appointmentRepository.findOne({
       id: appointmentId,
     });
+    // O médico da consulta precisa ser o mesmo da ficha: sem isso, a ficha de
+    // um médico acessível serviria de porta para escrever na consulta de um
+    // médico que o usuário não acessa.
     if (
       !appointment ||
       appointment.ownerId !== ownerId ||
-      appointment.patientId !== patientId
+      appointment.patientId !== patientId ||
+      appointment.doctorId !== doctorId
     ) {
       throw new BadRequestException('Consulta inválida para este atendimento.');
     }

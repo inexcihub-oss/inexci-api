@@ -26,13 +26,15 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
    * a agenda passa as duas, "Próximas" passa só `from` e "Realizadas" nenhuma.
    */
   findAgenda(
+    ownerId: string,
     doctorIds: string[],
     options: FindAgendaOptions,
   ): Promise<Appointment[]> {
     const qb = this.repository
       .createQueryBuilder('appointment')
       .leftJoinAndSelect('appointment.patient', 'patient')
-      .where('appointment.doctorId IN (:...doctorIds)', { doctorIds });
+      .where('appointment.ownerId = :ownerId', { ownerId })
+      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds });
 
     if (options.from) {
       qb.andWhere('appointment.scheduledAt >= :from', { from: options.from });
@@ -54,16 +56,19 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
 
   /**
    * Histórico completo de consultas de um paciente (sem janela de data),
-   * escopado aos médicos acessíveis. Alimenta a aba "Consultas" e a timeline.
+   * escopado à clínica e aos médicos acessíveis. Alimenta a aba "Consultas" e a
+   * timeline.
    */
   findByPatient(
+    ownerId: string,
     doctorIds: string[],
     patientId: string,
   ): Promise<Appointment[]> {
     return this.repository
       .createQueryBuilder('appointment')
       .leftJoinAndSelect('appointment.patient', 'patient')
-      .where('appointment.doctorId IN (:...doctorIds)', { doctorIds })
+      .where('appointment.ownerId = :ownerId', { ownerId })
+      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
       .andWhere('appointment.patientId = :patientId', { patientId })
       .orderBy('appointment.scheduledAt', 'DESC')
       .getMany();

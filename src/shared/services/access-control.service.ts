@@ -198,6 +198,48 @@ export class AccessControlService {
   }
 
   /**
+   * Garante tenant **e** fronteira de acesso por médico sobre um recurso já
+   * carregado (ficha, consulta, documento emitido).
+   *
+   * `assertSameOwner` sozinho só separa clínicas: qualquer usuário da mesma
+   * conta passa, inclusive um colaborador cujo `user_doctor_access` não inclui
+   * o médico dono do recurso. É o mesmo recorte que `buildSurgeryAccessWhere`
+   * aplica nas listagens (`ownerId` E `doctorId IN (acessíveis)`), aqui na
+   * forma pontual usada pelos caminhos por id.
+   */
+  async assertCanAccessDoctorResource(
+    userId: string,
+    ownerId: string,
+    doctorId: string,
+  ): Promise<void> {
+    await this.assertSameOwner(userId, ownerId);
+    if (!(await this.canAccessDoctor(userId, doctorId))) {
+      throw new ForbiddenException(
+        'Acesso negado: você não tem acesso aos dados deste médico.',
+      );
+    }
+  }
+
+  /**
+   * Garante que o usuário é médico (tem `doctor_profile`).
+   *
+   * Vale para os atos privativos do médico — atender e emitir receita,
+   * atestado ou pedido de exame. Não substitui o recorte por clínica/médico:
+   * é uma condição a mais, aplicada junto com `assertCanAccessDoctorResource`.
+   *
+   * "Médico" não é um role: um admin sem `doctor_profile` administra a clínica,
+   * mas não assina prontuário.
+   */
+  async assertIsDoctor(userId: string): Promise<void> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!user?.doctorProfile) {
+      throw new ForbiddenException(
+        'Apenas médicos podem realizar esta operação.',
+      );
+    }
+  }
+
+  /**
    * Resolve o médico padrão para uma operação de criação que exige doctorId
    * (ex: criar paciente, template, default document).
    *

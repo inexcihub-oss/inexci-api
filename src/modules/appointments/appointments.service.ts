@@ -33,8 +33,10 @@ export class AppointmentsService {
   }
 
   async findAgenda(query: FindAppointmentsDto, userId: string) {
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
+    const [doctorIds, ownerId] = await Promise.all([
+      this.accessControlService.getAccessibleDoctorIds(userId),
+      this.accessControlService.getOwnerId(userId),
+    ]);
     if (doctorIds.length === 0) return { total: 0, records: [] };
 
     // Filtro por médico: só é aplicado se o médico for acessível (fail-closed).
@@ -44,6 +46,7 @@ export class AppointmentsService {
         : doctorIds;
 
     const records = await this.appointmentRepository.findAgenda(
+      ownerId,
       scopedDoctorIds,
       {
         from: query.from ? new Date(query.from) : undefined,
@@ -59,23 +62,33 @@ export class AppointmentsService {
 
   /** Histórico completo de consultas de um paciente (aba Consultas / timeline). */
   async findByPatient(patientId: string, userId: string) {
-    const doctorIds =
-      await this.accessControlService.getAccessibleDoctorIds(userId);
+    const [doctorIds, ownerId] = await Promise.all([
+      this.accessControlService.getAccessibleDoctorIds(userId),
+      this.accessControlService.getOwnerId(userId),
+    ]);
     if (doctorIds.length === 0) return { total: 0, records: [] };
 
     const records = await this.appointmentRepository.findByPatient(
+      ownerId,
       doctorIds,
       patientId,
     );
     return { total: records.length, records };
   }
 
+  /**
+   * Consulta por id. Escopa por clínica **e** por médico acessível: sem o
+   * segundo recorte, um colaborador vinculado só ao médico A leria, reagendaria,
+   * cancelaria ou excluiria a agenda do médico B — o mesmo recorte que
+   * `findAgenda`/`findByPatient` e `create` já aplicam.
+   */
   async findOne(id: string, userId: string): Promise<Appointment> {
     const appointment = await this.appointmentRepository.findOne({ id });
     if (!appointment) throw new NotFoundException('Consulta não encontrada');
-    await this.accessControlService.assertSameOwner(
+    await this.accessControlService.assertCanAccessDoctorResource(
       userId,
       appointment.ownerId,
+      appointment.doctorId,
     );
     return appointment;
   }
