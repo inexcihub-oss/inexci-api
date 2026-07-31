@@ -849,6 +849,40 @@ describe('UsersService — Colaboradores e Permissões', () => {
       ).rejects.toThrow(BadRequestException);
       expect(mockMailService.send).not.toHaveBeenCalled();
     });
+
+    /**
+     * Fronteira de segurança sem exceção: mesmo sendo um convite (não uma
+     * alteração de dado sensível), o dono da conta não pode ser alvo desta
+     * rota vindo de outro usuário — a lista do brief original deixou este
+     * método de fora por engano.
+     */
+    it('bloqueia reenvio de convite quando o alvo é o dono da conta', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+        })
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1',
+          status: UserStatus.PENDING,
+        });
+
+      await expect(
+        service.resendCollaboratorInvite('dono-1', 'delegado-1'),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+      expect(mockMailService.send).not.toHaveBeenCalled();
+    });
   });
 
   // ─── Tarefa 6: proteção do dono da conta ──────────────────
@@ -1160,6 +1194,31 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await expect(
         service.getDoctorHeaderByUserId('doctor-1', 'comum-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    /**
+     * A rota aceita Administração OU Solicitações no controller, mas quem
+     * tem Solicitações sem ser o admin da conta (adminId do alvo) nem o
+     * próprio médico continua bloqueado aqui — a permissão de área não
+     * substitui o vínculo real.
+     */
+    it('bloqueia colaborador com Solicitações mas sem vínculo com o médico-alvo', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'colega-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.SOLICITACOES],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'doctor-1',
+        ownerId: 'dono-1',
+        adminId: 'outro-admin',
+      });
+
+      await expect(
+        service.getDoctorHeaderByUserId('doctor-1', 'colega-1'),
       ).rejects.toThrow(ForbiddenException);
     });
   });

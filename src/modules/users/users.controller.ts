@@ -87,17 +87,16 @@ export class UsersController {
 
   // ============ PERFIL MÉDICO ============
 
-  // NEEDS_CONTEXT (Tarefa 6): esta rota também é usada pelo editor de laudo
-  // do frontend (MedicalReportEditor) para um colaborador vinculado (não
-  // admin, não o próprio médico) subir/remover SOMENTE a assinatura do
-  // médico da solicitação (ver `isLinkedCollaborator`/`onlySignature` em
-  // UsersService.updateDoctorProfileById). Anotar aqui com
-  // @RequirePermission(Permission.ADMINISTRACAO) bloquearia esse fluxo
-  // legítimo antes mesmo de chegar à checagem fina do service. Decisão sobre
-  // como reconciliar (ex.: liberar também por Permission.SOLICITACOES, já
-  // que a checagem de negócio fina continua no service) fica pendente de
-  // definição — não decidido nesta tarefa.
+  // Administração OU Solicitações: além do admin da conta, o editor de laudo
+  // (MedicalReportEditor) usa esta rota para o colaborador vinculado ao
+  // médico da solicitação subir/remover SOMENTE a assinatura — esse
+  // colaborador tem Solicitações, não Administração. A barreira grossa aqui
+  // é só isso: "está numa dessas duas áreas". Quem de fato restringe (o
+  // vínculo colaborador↔médico e o campo permitido) é a checagem fina em
+  // UsersService.updateDoctorProfileById (`isLinkedCollaborator` /
+  // `onlySignature`), que continua intacta.
   @Patch('doctor-profile/:id')
+  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
   @ApiOperation({ summary: 'Atualizar perfil médico' })
   async updateDoctorProfile(
     @Param('id') id: string,
@@ -136,8 +135,11 @@ export class UsersController {
     return this.usersService.deleteMyHeader(user.userId);
   }
 
+  // Mesmo motivo do PATCH acima: o editor de laudo (MedicalReportEditor)
+  // também lê/grava o cabeçalho do médico da solicitação através do
+  // colaborador vinculado (Solicitações), não só o admin da conta.
   @Get('doctor-profile/:id/header')
-  @RequirePermission(Permission.ADMINISTRACAO)
+  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
   @ApiOperation({ summary: 'Obter cabeçalho personalizado de um médico' })
   async getDoctorHeaderById(
     @Param('id') id: string,
@@ -146,8 +148,9 @@ export class UsersController {
     return this.usersService.getDoctorHeaderByUserId(id, user.userId);
   }
 
+  // Mesmo motivo do PATCH acima (editor de laudo via colaborador vinculado).
   @Put('doctor-profile/:id/header')
-  @RequirePermission(Permission.ADMINISTRACAO)
+  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
   @ApiOperation({ summary: 'Criar/atualizar cabeçalho de um médico' })
   async upsertDoctorHeaderById(
     @Param('id') id: string,
@@ -157,8 +160,9 @@ export class UsersController {
     return this.usersService.upsertDoctorHeaderByUserId(id, dto, user.userId);
   }
 
+  // Mesmo motivo do PATCH acima (editor de laudo via colaborador vinculado).
   @Delete('doctor-profile/:id/header')
-  @RequirePermission(Permission.ADMINISTRACAO)
+  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
   @ApiOperation({ summary: 'Remover cabeçalho de um médico' })
   async deleteDoctorHeaderById(
     @Param('id') id: string,

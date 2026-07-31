@@ -969,6 +969,10 @@ export class UsersService {
     if (collaborator.ownerId !== admin.ownerId) {
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     }
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
     if (collaborator.status !== UserStatus.PENDING) {
       throw new BadRequestException(
         'Este usuário já ativou a conta. Reenvio de convite só está disponível para convites pendentes.',
