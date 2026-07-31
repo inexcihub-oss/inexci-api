@@ -146,8 +146,10 @@ export class UsersService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Remove senha do retorno
-    const { password, ...userWithoutPassword } = user;
+    // Remove senha e campos internos (permissions cru e isPlatformAdmin) do
+    // retorno — não são dados que a rota de perfil deve expor.
+    const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
+      user;
 
     // Gerar signed URL para assinatura do médico (bucket privado)
     const profile = userWithoutPassword.doctorProfile;
@@ -486,7 +488,14 @@ export class UsersService {
     const updated = await this.userRepository.findOneWithProfile({
       id: targetId,
     });
-    return updated;
+    if (!updated) throw new NotFoundException('Usuário alvo não encontrado');
+
+    // Quem chama esta rota pode ser um colaborador vinculado só-assinatura
+    // (isLinkedCollaborator acima); permissions cru e isPlatformAdmin do
+    // médico-alvo não devem vazar nessa resposta.
+    const { permissions, isPlatformAdmin, ...updatedWithoutInternalFields } =
+      updated;
+    return updatedWithoutInternalFields;
   }
 
   // ============ GESTÃO DE COLABORADORES ============
@@ -971,7 +980,10 @@ export class UsersService {
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    const { password, ...userWithoutPassword } = collaborator;
+    // Remove senha e campos internos (permissions cru e isPlatformAdmin) do
+    // retorno — o admin não deve ver a coluna crua do colaborador aqui.
+    const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
+      collaborator;
 
     return {
       ...userWithoutPassword,
