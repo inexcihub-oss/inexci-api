@@ -9,8 +9,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from 'src/shared/decorators/roles.decorator';
-import { UserRole } from 'src/database/entities/user.entity';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import { ProceduresService } from './procedures.service';
 import { FindManyProcedureDto } from './dto/find-many-procedure.dto';
 import { CreateProcedureDto } from './dto/create-procedure.dto';
@@ -42,7 +42,7 @@ export class ProceduresController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar procedimento' })
   create(
     @Body() data: CreateProcedureDto,
@@ -52,7 +52,7 @@ export class ProceduresController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar procedimento' })
   update(
     @Param('id') id: string,
@@ -63,7 +63,7 @@ export class ProceduresController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir procedimento (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.proceduresService.delete(id, user.userId);
