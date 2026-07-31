@@ -19,8 +19,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from 'src/shared/decorators/roles.decorator';
-import { UserRole } from 'src/database/entities/user.entity';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -66,7 +66,7 @@ export class UsersController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar usuário (admin)' })
   async create(
     @Body() data: CreateUserDto,
@@ -87,6 +87,16 @@ export class UsersController {
 
   // ============ PERFIL MÉDICO ============
 
+  // NEEDS_CONTEXT (Tarefa 6): esta rota também é usada pelo editor de laudo
+  // do frontend (MedicalReportEditor) para um colaborador vinculado (não
+  // admin, não o próprio médico) subir/remover SOMENTE a assinatura do
+  // médico da solicitação (ver `isLinkedCollaborator`/`onlySignature` em
+  // UsersService.updateDoctorProfileById). Anotar aqui com
+  // @RequirePermission(Permission.ADMINISTRACAO) bloquearia esse fluxo
+  // legítimo antes mesmo de chegar à checagem fina do service. Decisão sobre
+  // como reconciliar (ex.: liberar também por Permission.SOLICITACOES, já
+  // que a checagem de negócio fina continua no service) fica pendente de
+  // definição — não decidido nesta tarefa.
   @Patch('doctor-profile/:id')
   @ApiOperation({ summary: 'Atualizar perfil médico' })
   async updateDoctorProfile(
@@ -127,6 +137,7 @@ export class UsersController {
   }
 
   @Get('doctor-profile/:id/header')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Obter cabeçalho personalizado de um médico' })
   async getDoctorHeaderById(
     @Param('id') id: string,
@@ -136,6 +147,7 @@ export class UsersController {
   }
 
   @Put('doctor-profile/:id/header')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar/atualizar cabeçalho de um médico' })
   async upsertDoctorHeaderById(
     @Param('id') id: string,
@@ -146,6 +158,7 @@ export class UsersController {
   }
 
   @Delete('doctor-profile/:id/header')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Remover cabeçalho de um médico' })
   async deleteDoctorHeaderById(
     @Param('id') id: string,
@@ -157,21 +170,21 @@ export class UsersController {
   // ============ COLABORADORES ============
 
   @Get('doctors')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Listar médicos' })
   async findDoctors(@CurrentUser() user: AuthenticatedUser) {
     return await this.usersService.findDoctors(user.userId);
   }
 
   @Get('collaborators')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Listar colaboradores' })
   async findCollaborators(@CurrentUser() user: AuthenticatedUser) {
     return await this.usersService.findCollaborators(user.userId);
   }
 
   @Get('collaborators/:id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Buscar colaborador por ID' })
   async findCollaboratorById(
     @Param('id') id: string,
@@ -181,7 +194,7 @@ export class UsersController {
   }
 
   @Post('collaborators')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar colaborador' })
   async createCollaborator(
     @Body() data: CreateCollaboratorDto,
@@ -191,7 +204,7 @@ export class UsersController {
   }
 
   @Patch('collaborators/:id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar colaborador' })
   async updateCollaborator(
     @Param('id') id: string,
@@ -202,7 +215,7 @@ export class UsersController {
   }
 
   @Patch('collaborators/:id/status')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Alternar status ativo/inativo do colaborador' })
   async toggleCollaboratorStatus(
     @Param('id') id: string,
@@ -212,7 +225,7 @@ export class UsersController {
   }
 
   @Patch('collaborators/:id/reset-password')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Redefinir senha do colaborador' })
   async resetCollaboratorPassword(
     @Param('id') id: string,
@@ -227,7 +240,7 @@ export class UsersController {
   }
 
   @Post('collaborators/:id/resend-invite')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({
     summary: 'Reenviar e-mail de convite (link de primeiro acesso)',
   })
@@ -239,7 +252,7 @@ export class UsersController {
   }
 
   @Delete('collaborators/:id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir colaborador' })
   async deleteCollaborator(
     @Param('id') id: string,
@@ -249,7 +262,7 @@ export class UsersController {
   }
 
   @Post('collaborators/bulk-delete')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir colaboradores em lote' })
   async bulkDeleteCollaborators(
     @Body() data: BulkDeleteCollaboratorsDto,

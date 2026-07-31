@@ -101,6 +101,11 @@ describe('UsersService — Colaboradores e Permissões', () => {
   // ─── PRD v3: Gestão de colaboradores ─────────
   describe('findCollaborators', () => {
     it('deve retornar lista de colaboradores da conta', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'admin-1',
+        role: UserRole.ADMIN,
+        ownerId: 'admin-1',
+      });
       mockUserRepository.findOne.mockResolvedValue({
         id: 'admin-1',
         role: UserRole.ADMIN,
@@ -121,7 +126,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar NotFoundException se admin não encontrado', async () => {
-      mockUserRepository.findOne.mockResolvedValue(null);
+      mockUserRepository.findOneWithProfile.mockResolvedValue(null);
 
       await expect(service.findCollaborators('invalid')).rejects.toThrow(
         NotFoundException,
@@ -129,9 +134,11 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar ForbiddenException se não é admin', async () => {
-      mockUserRepository.findOne.mockResolvedValue({
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'user-1',
         role: UserRole.COLLABORATOR,
+        permissions: [],
+        doctorProfile: null,
       });
 
       await expect(service.findCollaborators('user-1')).rejects.toThrow(
@@ -167,14 +174,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
         role: UserRole.ADMIN,
         ownerId: 'admin-1',
       });
-      mockUserRepository.findOneWithProfile.mockResolvedValue({
-        id: 'collab-1',
-        ownerId: 'admin-1',
-        password: 'hash-secreto',
-        permissions: [Permission.AGENDA],
-        isPlatformAdmin: false,
-        doctorProfile: null,
-      });
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          ownerId: 'admin-1',
+          password: 'hash-secreto',
+          permissions: [Permission.AGENDA],
+          isPlatformAdmin: false,
+          doctorProfile: null,
+        });
       mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
 
       const result = await service.findCollaboratorById('collab-1', 'admin-1');
@@ -194,6 +203,9 @@ describe('UsersService — Colaboradores e Permissões', () => {
     };
 
     beforeEach(() => {
+      // assertPodeGerirEquipe consulta findOneWithProfile — role ADMIN já
+      // basta para resolveEffectivePermissions liberar Administração.
+      mockUserRepository.findOneWithProfile.mockResolvedValue(adminUser);
       mockUserRepository.findOne.mockResolvedValueOnce(adminUser); // admin lookup
       mockUserRepository.findOne.mockResolvedValueOnce(null); // sem telefone duplicado
       mockUserRepository.findOneWithDeleted.mockResolvedValue(null); // sem email duplicado
@@ -415,11 +427,76 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
   });
 
+  describe('createCollaborator — admin delegado', () => {
+    /**
+     * O admin delegado tem role='collaborator' de propósito: mexer no role
+     * quebraria a semântica de dono do tenant (ownerId = self.id) e o billing.
+     * Quem autoriza é a permissão, não o role.
+     */
+    it('deixa colaborador com administração criar outro colaborador', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      // findOne é chamado duas vezes em createCollaborator: uma para buscar o
+      // ator (delegado-1) e outra para checar telefone duplicado — resolve
+      // por `where` para não confundir as duas chamadas.
+      mockUserRepository.findOne.mockImplementation((where: any) => {
+        if (where?.id === 'delegado-1') {
+          return Promise.resolve({
+            id: 'delegado-1',
+            role: UserRole.COLLABORATOR,
+            ownerId: 'dono-1',
+          });
+        }
+        return Promise.resolve(null);
+      });
+      mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+      mockUserRepository.create.mockResolvedValue({ id: 'novo-1' });
+
+      await expect(
+        service.createCollaborator(
+          { name: 'Ana', email: 'ana@x.com', phone: '11999999999' } as never,
+          'delegado-1',
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('bloqueia colaborador sem administração', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'comum-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'comum-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.createCollaborator(
+          { name: 'Ana', email: 'ana@x.com', phone: '11999999999' } as never,
+          'comum-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   describe('updateCollaborator', () => {
     it('deve lançar ForbiddenException se não é admin', async () => {
-      mockUserRepository.findOne.mockResolvedValue({
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'user-1',
         role: UserRole.COLLABORATOR,
+        permissions: [],
+        doctorProfile: null,
       });
 
       await expect(
@@ -428,13 +505,12 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar ForbiddenException se colaborador pertence a outro admin', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({ id: 'collab-1', adminId: 'another-admin' }); // alvo
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'admin-1',
         role: UserRole.ADMIN,
-      });
-      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
-        id: 'collab-1',
-        adminId: 'another-admin',
       });
 
       await expect(
@@ -442,20 +518,48 @@ describe('UsersService — Colaboradores e Permissões', () => {
       ).rejects.toThrow('Este colaborador não pertence à sua conta');
     });
 
+    it('deve lançar ForbiddenException se o alvo é o dono da conta', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          permissions: [Permission.ADMINISTRACAO],
+          doctorProfile: null,
+        }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1',
+        }); // alvo é o dono
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+      });
+
+      await expect(
+        service.updateCollaborator('dono-1', { name: 'Novo' }, 'delegado-1'),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    });
+
     it('deve remover doctorProfile ao desmarcar isDoctor', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          ownerId: 'outra-conta',
+          adminId: 'admin-1',
+          doctorProfile: {
+            id: 'dp-1',
+            crm: '123',
+            crmState: 'SP',
+            specialty: 'Ortopedia',
+          },
+        });
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'admin-1',
         role: UserRole.ADMIN,
-      });
-      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
-        id: 'collab-1',
-        adminId: 'admin-1',
-        doctorProfile: {
-          id: 'dp-1',
-          crm: '123',
-          crmState: 'SP',
-          specialty: 'Ortopedia',
-        },
       });
 
       mockUserRepository.update.mockResolvedValue({
@@ -474,6 +578,15 @@ describe('UsersService — Colaboradores e Permissões', () => {
   });
 
   describe('deleteCollaborator', () => {
+    beforeEach(() => {
+      // assertPodeGerirEquipe consulta findOneWithProfile — por padrão o
+      // ator é admin da conta; o teste "não é admin" sobrescreve.
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'admin-1',
+        role: UserRole.ADMIN,
+      });
+    });
+
     it('deve deletar colaborador e retornar mensagem de sucesso', async () => {
       mockUserRepository.findOne
         .mockResolvedValueOnce({ id: 'admin-1', role: UserRole.ADMIN })
@@ -548,9 +661,11 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar ForbiddenException se não é admin', async () => {
-      mockUserRepository.findOne.mockResolvedValue({
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'user-1',
         role: UserRole.COLLABORATOR,
+        permissions: [],
+        doctorProfile: null,
       });
 
       await expect(
@@ -567,6 +682,31 @@ describe('UsersService — Colaboradores e Permissões', () => {
         service.deleteCollaborator('invalid', 'admin-1'),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('deve lançar ForbiddenException se o alvo é o dono da conta', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1',
+        });
+
+      await expect(
+        service.deleteCollaborator('dono-1', 'delegado-1'),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    });
   });
 
   describe('resendCollaboratorInvite', () => {
@@ -576,6 +716,12 @@ describe('UsersService — Colaboradores e Permissões', () => {
       role: UserRole.ADMIN,
       ownerId: 'admin-1',
     };
+
+    beforeEach(() => {
+      // assertPodeGerirEquipe consulta findOneWithProfile — por padrão o
+      // ator é admin da conta; o teste "não é admin" sobrescreve.
+      mockUserRepository.findOneWithProfile.mockResolvedValue(adminUser);
+    });
 
     it('deve gerar novo token, invalidar TODOS os anteriores e enviar e-mail', async () => {
       mockUserRepository.findOne
@@ -653,9 +799,11 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
 
     it('deve lançar ForbiddenException se quem chama não é admin', async () => {
-      mockUserRepository.findOne.mockResolvedValueOnce({
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'user-1',
         role: UserRole.COLLABORATOR,
+        permissions: [],
+        doctorProfile: null,
       });
 
       await expect(
@@ -700,6 +848,137 @@ describe('UsersService — Colaboradores e Permissões', () => {
         service.resendCollaboratorInvite('collab-1', 'admin-1'),
       ).rejects.toThrow(BadRequestException);
       expect(mockMailService.send).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Tarefa 6: proteção do dono da conta ──────────────────
+  describe('toggleCollaboratorStatus / resetCollaboratorPassword — dono intocável', () => {
+    it('bloqueia toggleCollaboratorStatus quando o alvo é o dono da conta', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1',
+          status: UserStatus.ACTIVE,
+        });
+
+      await expect(
+        service.toggleCollaboratorStatus('dono-1', 'delegado-1'),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    });
+
+    it('bloqueia resetCollaboratorPassword quando o alvo é o dono da conta', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          ownerId: 'dono-1',
+          adminId: 'delegado-1',
+        });
+
+      await expect(
+        service.resetCollaboratorPassword('dono-1', 'nova-senha', 'delegado-1'),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    });
+  });
+
+  describe('bulkDeleteCollaborators', () => {
+    const getRepositoryMock = {
+      find: jest.fn(),
+      softDelete: jest.fn(),
+    };
+
+    beforeEach(() => {
+      (mockUserRepository as any).getRepository = jest
+        .fn()
+        .mockReturnValue(getRepositoryMock);
+      getRepositoryMock.find.mockReset();
+      getRepositoryMock.softDelete.mockReset();
+    });
+
+    it('deixa admin delegado excluir colaboradores em lote', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+      });
+      getRepositoryMock.find.mockResolvedValue([
+        { id: 'collab-1', email: 'a@x.com', ownerId: 'dono-1' },
+        { id: 'collab-2', email: 'b@x.com', ownerId: 'dono-1' },
+      ]);
+      getRepositoryMock.softDelete.mockResolvedValue(undefined);
+
+      const result = await service.bulkDeleteCollaborators(
+        ['collab-1', 'collab-2'],
+        'delegado-1',
+      );
+
+      expect(result).toEqual({ deleted: 2 });
+    });
+
+    it('bloqueia bulk delete se o dono da conta estiver na lista', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+      });
+      getRepositoryMock.find.mockResolvedValue([
+        { id: 'collab-1', email: 'a@x.com', ownerId: 'dono-1' },
+        { id: 'dono-1', email: 'dono@x.com', ownerId: 'dono-1' },
+      ]);
+
+      await expect(
+        service.bulkDeleteCollaborators(['collab-1', 'dono-1'], 'delegado-1'),
+      ).rejects.toThrow(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+      expect(getRepositoryMock.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('bloqueia colaborador sem administração', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'comum-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.bulkDeleteCollaborators(['collab-1'], 'comum-1'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -831,6 +1110,56 @@ describe('UsersService — Colaboradores e Permissões', () => {
           { crm: '123', signatureImageUrl: 'signatures/x.png' },
           'collab-1',
         ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ─── Tarefa 6: cabeçalho de terceiro passa a ser gateado por Administração ───
+  describe('getDoctorHeaderByUserId — admin delegado', () => {
+    it('permite admin delegado (role=collaborator + Administração) configurar o cabeçalho de outro médico', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'doctor-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+      });
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue({
+        id: 'header-1',
+      });
+
+      const result = await service.getDoctorHeaderByUserId(
+        'doctor-1',
+        'delegado-1',
+      );
+
+      expect(result).toEqual({ id: 'header-1' });
+    });
+
+    it('bloqueia colaborador sem Administração de configurar o cabeçalho de outro médico', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'comum-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'doctor-1',
+        ownerId: 'dono-1',
+        adminId: 'outro-admin',
+      });
+
+      await expect(
+        service.getDoctorHeaderByUserId('doctor-1', 'comum-1'),
       ).rejects.toThrow(ForbiddenException);
     });
   });

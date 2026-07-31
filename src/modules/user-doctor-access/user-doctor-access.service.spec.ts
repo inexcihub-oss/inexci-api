@@ -13,6 +13,7 @@ import { DoctorProfileRepository } from 'src/database/repositories/doctor-profil
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { UserRole } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
+import { Permission } from 'src/shared/permissions';
 
 const ADMIN_ID = 'admin-id';
 const USER_ID = 'user-id';
@@ -50,6 +51,7 @@ describe('UserDoctorAccessService', () => {
   beforeEach(async () => {
     userRepository = {
       findOne: jest.fn(),
+      findOneWithProfile: jest.fn(),
     };
 
     accessControlService = {
@@ -89,7 +91,9 @@ describe('UserDoctorAccessService', () => {
 
   describe('admin validation', () => {
     it('throws NotFoundException when admin user does not exist', async () => {
-      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(null);
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        null,
+      );
 
       await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
         NotFoundException,
@@ -97,13 +101,39 @@ describe('UserDoctorAccessService', () => {
     });
 
     it('throws ForbiddenException when caller is not admin', async () => {
-      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
         makeAdmin({ role: UserRole.COLLABORATOR }),
       );
 
       await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
         ForbiddenException,
       );
+    });
+
+    /**
+     * Admin delegado: role='collaborator' com permissão Administração. O
+     * módulo inteiro de user-doctor-access é gestão de equipe — precisa
+     * funcionar para quem tem a permissão, não só para quem tem o role.
+     */
+    it('allows a delegated admin (role=collaborator + Administração) to manage access', async () => {
+      const delegatedAdmin = makeAdmin({
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      const user = makeUser();
+
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        delegatedAdmin,
+      );
+      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(user);
+      (
+        userDoctorAccessRepository.findAllByUserId as jest.Mock
+      ).mockResolvedValueOnce([]);
+
+      await expect(
+        service.getAccessForUser(USER_ID, ADMIN_ID),
+      ).resolves.toEqual({ records: [] });
     });
   });
 
@@ -113,9 +143,10 @@ describe('UserDoctorAccessService', () => {
       const user = makeUser();
       const accesses = [{ id: '1' }];
 
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
-        .mockResolvedValueOnce(user);
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        admin,
+      );
+      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(user);
       (
         userDoctorAccessRepository.findAllByUserId as jest.Mock
       ).mockResolvedValueOnce(accesses);
@@ -132,9 +163,10 @@ describe('UserDoctorAccessService', () => {
       const admin = makeAdmin();
       const foreignUser = makeUser({ ownerId: 'other-account' });
 
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
-        .mockResolvedValueOnce(foreignUser);
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        admin,
+      );
+      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(foreignUser);
 
       await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
         ForbiddenException,
@@ -144,9 +176,10 @@ describe('UserDoctorAccessService', () => {
     it('throws NotFoundException when the target user does not exist', async () => {
       const admin = makeAdmin();
 
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
-        .mockResolvedValueOnce(null);
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        admin,
+      );
+      (userRepository.findOne as jest.Mock).mockResolvedValueOnce(null);
 
       await expect(service.getAccessForUser(USER_ID, ADMIN_ID)).rejects.toThrow(
         NotFoundException,
@@ -162,8 +195,10 @@ describe('UserDoctorAccessService', () => {
       const existingAccess = { doctorUserId: 'old-doctor', id: 'access-1' };
       const updatedAccesses = [{ id: 'access-2', doctorUserId: DOCTOR_ID }];
 
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        admin,
+      );
       (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(doctorUser);
 
@@ -199,8 +234,10 @@ describe('UserDoctorAccessService', () => {
       const user = makeUser();
       const nonDoctor = makeUser({ id: DOCTOR_ID });
 
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        admin,
+      );
       (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(nonDoctor);
 
@@ -219,8 +256,10 @@ describe('UserDoctorAccessService', () => {
       const doctorUser = makeUser({ id: DOCTOR_ID });
       const existingAccess = { doctorUserId: DOCTOR_ID, id: 'access-1' };
 
+      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
+        admin,
+      );
       (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(admin)
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(doctorUser);
 

@@ -23,6 +23,10 @@ import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
+import {
+  Permission,
+  resolveEffectivePermissions,
+} from 'src/shared/permissions';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -48,6 +52,43 @@ export class UsersService {
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
   ) {}
+
+  /**
+   * Gerir a equipe é ato de quem tem Administração — o dono da conta ou o
+   * colaborador a quem ele delegou. Não basta o role: o admin delegado
+   * continua sendo `collaborator`.
+   */
+  private async assertPodeGerirEquipe(userId: string): Promise<void> {
+    const usuario = await this.userRepository.findOneWithProfile({
+      id: userId,
+    });
+    if (!usuario) throw new NotFoundException('Usuário não encontrado');
+
+    const permissoes = resolveEffectivePermissions({
+      role: usuario.role,
+      permissions: usuario.permissions,
+      isDoctor: !!usuario.doctorProfile,
+    });
+
+    if (!permissoes.includes(Permission.ADMINISTRACAO)) {
+      throw new ForbiddenException(
+        'Você não tem permissão para gerenciar colaboradores.',
+      );
+    }
+  }
+
+  /**
+   * O dono da conta não é gerenciável por ninguém: é quem paga a assinatura e
+   * a raiz do tenant (`ownerId = self.id`). Um admin delegado que pudesse
+   * desativá-lo tomaria a clínica.
+   */
+  private assertAlvoNaoEhDono(alvo: { id: string; ownerId: string }): void {
+    if (alvo.id === alvo.ownerId) {
+      throw new ForbiddenException(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    }
+  }
 
   /**
    * Lista usuários
@@ -267,9 +308,9 @@ export class UsersService {
     const target = await this.userRepository.findOne({ id: targetId });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Apenas admin ou o próprio usuário podem atualizar o perfil
-    if (requesting.role !== UserRole.ADMIN && requestingUserId !== targetId) {
-      throw new ForbiddenException('Sem permissão para atualizar este perfil');
+    // Apenas quem tem Administração ou o próprio usuário podem atualizar o perfil
+    if (requestingUserId !== targetId) {
+      await this.assertPodeGerirEquipe(requestingUserId);
     }
 
     if (data.phone) {
@@ -310,13 +351,9 @@ export class UsersService {
   }
 
   async create(data: CreateUserDto, userId: string) {
+    await this.assertPodeGerirEquipe(userId);
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    // Só admin pode criar usuários
-    if (user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Apenas admins podem criar usuários');
-    }
 
     // Verifica telefone duplicado
     if (data.phone) {
@@ -501,10 +538,9 @@ export class UsersService {
   // ============ GESTÃO DE COLABORADORES ============
 
   async findCollaborators(userId: string, skip = 0, take = 50) {
+    await this.assertPodeGerirEquipe(userId);
     const admin = await this.userRepository.findOne({ id: userId });
     if (!admin) throw new NotFoundException('Usuário não encontrado');
-    if (admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem listar colaboradores');
 
     const collaborators = await this.userRepository.findByOwnerId(
       admin.ownerId,
@@ -525,10 +561,9 @@ export class UsersService {
   }
 
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
     if (!admin) throw new NotFoundException('Usuário não encontrado');
-    if (admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem criar colaboradores');
 
     // Verifica email duplicado
     const emailFound = await this.userRepository.findOneWithDeleted({
@@ -652,9 +687,9 @@ export class UsersService {
     data: UpdateCollaboratorDto,
     adminId: string,
   ) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem editar colaboradores');
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
@@ -663,6 +698,10 @@ export class UsersService {
       throw new NotFoundException('Colaborador não encontrado');
     if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
     // Verifica email duplicado
     if (data.email) {
@@ -754,9 +793,9 @@ export class UsersService {
   }
 
   async deleteCollaborator(collaboratorId: string, adminId: string) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem remover colaboradores');
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
@@ -765,6 +804,10 @@ export class UsersService {
       throw new NotFoundException('Colaborador não encontrado');
     if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
     // Anonimiza dados pessoais antes do soft-delete (LGPD — princípio de minimização).
     // email: libera a constraint unique para permitir re-cadastro com mesmo endereço.
@@ -783,9 +826,9 @@ export class UsersService {
     collaboratorIds: string[],
     adminId: string,
   ): Promise<{ deleted: number }> {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem remover colaboradores');
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const uniqueIds = [...new Set(collaboratorIds)];
     const collaborators = await this.userRepository.getRepository().find({
@@ -797,6 +840,7 @@ export class UsersService {
       select: {
         id: true,
         email: true,
+        ownerId: true,
       },
     });
 
@@ -804,6 +848,15 @@ export class UsersService {
       throw new NotFoundException(
         'Um ou mais colaboradores não foram encontrados.',
       );
+    }
+
+    // O alvo é cada item da lista, não a lista — o dono da conta jamais pode
+    // ser incluído em um bulk delete de colaboradores.
+    for (const collaborator of collaborators) {
+      this.assertAlvoNaoEhDono({
+        id: collaborator.id,
+        ownerId: collaborator.ownerId,
+      });
     }
 
     for (const collaborator of collaborators) {
@@ -824,10 +877,9 @@ export class UsersService {
    * Lista médicos da conta (users com doctorProfile na mesma conta)
    */
   async findDoctors(userId: string) {
+    await this.assertPodeGerirEquipe(userId);
     const admin = await this.userRepository.findOne({ id: userId });
     if (!admin) throw new NotFoundException('Usuário não encontrado');
-    if (admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem listar médicos');
 
     const doctors = await this.userRepository.findDoctorsByOwnerId(
       admin.ownerId,
@@ -847,11 +899,9 @@ export class UsersService {
   }
 
   async toggleCollaboratorStatus(collaboratorId: string, adminId: string) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException(
-        'Apenas admins podem alterar status de colaboradores',
-      );
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
@@ -860,6 +910,10 @@ export class UsersService {
       throw new NotFoundException('Colaborador não encontrado');
     if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
     const newStatus =
       collaborator.status === UserStatus.ACTIVE
@@ -875,9 +929,9 @@ export class UsersService {
     newPassword: string,
     adminId: string,
   ) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem redefinir senhas');
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
@@ -886,6 +940,10 @@ export class UsersService {
       throw new NotFoundException('Colaborador não encontrado');
     if (collaborator.adminId !== adminId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await this.userRepository.update(collaboratorId, { password: hashed });
@@ -898,10 +956,9 @@ export class UsersService {
    * anteriores. Disponível apenas para colaboradores com status PENDING.
    */
   async resendCollaboratorInvite(collaboratorId: string, adminId: string) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Apenas admins podem reenviar convites');
-    }
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
@@ -962,11 +1019,9 @@ export class UsersService {
    * Detalhes de um colaborador (dados + doctorProfile + user_doctor_access)
    */
   async findCollaboratorById(collaboratorId: string, adminId: string) {
+    await this.assertPodeGerirEquipe(adminId);
     const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException(
-        'Apenas admins podem ver detalhes de colaboradores',
-      );
+    if (!admin) throw new NotFoundException('Usuário não encontrado');
 
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
@@ -1028,7 +1083,7 @@ export class UsersService {
     targetUserId: string,
     requestingUserId: string,
   ) {
-    const requesting = await this.userRepository.findOne({
+    const requesting = await this.userRepository.findOneWithProfile({
       id: requestingUserId,
     });
     if (!requesting) throw new NotFoundException('Usuário não encontrado');
@@ -1037,8 +1092,16 @@ export class UsersService {
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
     const isSelf = requestingUserId === targetUserId;
+    // Rota já é gateada por ADMINISTRACAO no controller (RequirePermission);
+    // aqui apenas restringimos à mesma conta e ao dono do vínculo — o admin
+    // delegado (role='collaborator' + permissão) precisa passar aqui também.
+    const permissoesRequesting = resolveEffectivePermissions({
+      role: requesting.role,
+      permissions: requesting.permissions,
+      isDoctor: !!requesting.doctorProfile,
+    });
     const isAccountAdmin =
-      requesting.role === UserRole.ADMIN &&
+      permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
       target.ownerId === requesting.ownerId &&
       (target.adminId === requestingUserId || isSelf);
 

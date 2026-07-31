@@ -10,9 +10,12 @@ import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
-import { UserRole } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import {
+  Permission,
+  resolveEffectivePermissions,
+} from 'src/shared/permissions';
 
 @Injectable()
 export class UserDoctorAccessService {
@@ -27,14 +30,27 @@ export class UserDoctorAccessService {
   ) {}
 
   /**
-   * Valida que o admin tem permissão e que userId/doctorUserId pertencem à mesma conta.
+   * Valida que quem chama tem Administração (dono da conta ou admin
+   * delegado) e que userId/doctorUserId pertencem à mesma conta. O controller
+   * já é gateado por `@RequirePermission(Permission.ADMINISTRACAO)`, mas essa
+   * checagem também precisa valer aqui: o admin delegado tem
+   * `role = 'collaborator'`, então o antigo `role !== UserRole.ADMIN` sempre
+   * o bloquearia mesmo depois de passar pelo guard.
    */
   private async validateAdmin(adminId: string) {
-    const admin = await this.userRepository.findOne({ id: adminId });
+    const admin = await this.userRepository.findOneWithProfile({
+      id: adminId,
+    });
     if (!admin) throw new NotFoundException('Admin não encontrado');
-    if (admin.role !== UserRole.ADMIN) {
+
+    const permissoes = resolveEffectivePermissions({
+      role: admin.role,
+      permissions: admin.permissions,
+      isDoctor: !!admin.doctorProfile,
+    });
+    if (!permissoes.includes(Permission.ADMINISTRACAO)) {
       throw new ForbiddenException(
-        'Apenas admins podem gerenciar vínculos de acesso',
+        'Apenas quem tem permissão de Administração pode gerenciar vínculos de acesso',
       );
     }
     return admin;
