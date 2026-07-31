@@ -9,6 +9,7 @@ import { ExpressAdapter } from '@bull-board/express';
 import { BullAdapter } from '@bull-board/api/bullAdapter';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
+import { PermissionsGuard } from './shared/guards/permissions.guard';
 import { CustomThrottlerGuard } from './shared/guards/custom-throttler.guard';
 import { ConsentsGuard } from './shared/guards/consents.guard';
 import { LoggingInterceptor } from './shared/logging/logging.interceptor';
@@ -187,6 +188,10 @@ import { ObservabilityModule } from './shared/observability/observability.module
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_GUARD,
