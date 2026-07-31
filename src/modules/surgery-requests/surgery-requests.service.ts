@@ -1,5 +1,11 @@
 import { Between, FindOptionsWhere, In } from 'typeorm';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Permission } from 'src/shared/permissions';
 
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindManyKanbanDto, KANBAN_MAX_TAKE } from './dto/find-many-kanban.dto';
@@ -96,7 +102,24 @@ export class SurgeryRequestsService {
   // LEITURA
   // ============================================================
 
-  async findAll(query: FindManySurgeryRequestDto, userId: string) {
+  async findAll(
+    query: FindManySurgeryRequestDto,
+    userId: string,
+    userPermissions: Permission[],
+  ) {
+    // Ponte deliberada: o controller abre o método para SOLICITACOES OU
+    // ATENDIMENTO (guard só sabe fazer "OU"). Quem chegou sem SOLICITACOES
+    // só pode consultar as cirurgias de um paciente específico que está
+    // atendendo — nunca navegar a carteira cirúrgica inteira da clínica.
+    if (
+      !userPermissions.includes(Permission.SOLICITACOES) &&
+      !query.patientId
+    ) {
+      throw new ForbiddenException(
+        'Informe o paciente (patientId) para consultar as cirurgias dele — sem a permissão de Solicitações não é possível listar a carteira cirúrgica completa.',
+      );
+    }
+
     // O JwtAuthGuard já validou a existência do usuário; getAccessibleDoctorIds
     // retorna [] para usuário inexistente. Sem findOne redundante (P9).
     const doctorIds =

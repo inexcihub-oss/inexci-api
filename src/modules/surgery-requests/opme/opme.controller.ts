@@ -7,10 +7,13 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 
 @ApiTags('OPME')
 @ApiBearerAuth()
 @Controller('surgery-requests/opme')
+@RequirePermission(Permission.SOLICITACOES)
 export class OpmeController {
   constructor(private readonly opmeService: OpmeService) {}
 

@@ -8,10 +8,13 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 
 @ApiTags('Procedimentos da Solicitação')
 @ApiBearerAuth()
 @Controller('surgery-requests/procedures')
+@RequirePermission(Permission.SOLICITACOES)
 export class ProceduresController {
   constructor(private readonly proceduresService: ProceduresService) {}
 
