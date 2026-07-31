@@ -163,6 +163,33 @@ describe('UsersService — Colaboradores e Permissões', () => {
         ForbiddenException,
       );
     });
+
+    /**
+     * Coerência de UI: o dono não é "gerenciável" (assertAlvoNaoEhDono
+     * bloqueia toda ação sobre ele), então não pode aparecer na lista que
+     * alimenta os botões de ação — senão a interface oferece um botão que
+     * sempre falha com 403 para um admin delegado.
+     */
+    it('não deve listar o dono da conta para um admin delegado', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      mockUserRepository.findByOwnerId.mockResolvedValue([
+        { id: 'dono-1', name: 'Dono da Conta' },
+        { id: 'collab-1', name: 'Colaborador 1' },
+      ]);
+
+      const result = await service.findCollaborators('delegado-1');
+
+      expect(result.records).toHaveLength(1);
+      expect(
+        result.records.find((r: any) => r.id === 'dono-1'),
+      ).toBeUndefined();
+    });
   });
 
   // ─── Vazamento de permissions/isPlatformAdmin em respostas HTTP ─────
@@ -1481,11 +1508,86 @@ describe('UsersService — Colaboradores e Permissões', () => {
         ),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    /**
+     * C3 (2ª rodada): `isAdmin` comparava `target.adminId === requestingUserId`
+     * — o admin delegado (role='collaborator' + Administração) nunca criou o
+     * médico-alvo na maioria dos casos, então caía sempre no caminho
+     * "colaborador vinculado, só assinatura" e nunca conseguia editar
+     * CRM/especialidade de terceiro. Corrigido para permissão + `ownerId`.
+     */
+    it('permite que o admin delegado edite CRM de médico criado pelo dono', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [Permission.ADMINISTRACAO],
+          doctorProfile: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          ownerId: 'dono-1',
+          adminId: 'dono-1', // médico criado pelo dono, não pelo delegado
+          doctorProfile: { id: 'dp-1', crm: '111', crmState: 'RJ' },
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          ownerId: 'dono-1',
+          doctorProfile: { id: 'dp-1', crm: '999999', crmState: 'RJ' },
+        });
+
+      await service.updateDoctorProfileById(
+        'doctor-1',
+        { crm: '999999' },
+        'delegado-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-1',
+        expect.objectContaining({ crm: '999999' }),
+      );
+    });
+
+    it('bloqueia edição de CRM de médico de outro tenant mesmo com Administração', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [Permission.ADMINISTRACAO],
+          doctorProfile: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-de-outro-tenant',
+          ownerId: 'outro-dono',
+          adminId: 'outro-dono',
+          doctorProfile: { id: 'dp-2', crm: '222', crmState: 'SP' },
+        });
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
+
+      await expect(
+        service.updateDoctorProfileById(
+          'doctor-de-outro-tenant',
+          { crm: '999999' },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
   });
 
   // ─── Tarefa 6: cabeçalho de terceiro passa a ser gateado por Administração ───
   describe('getDoctorHeaderByUserId — admin delegado', () => {
-    it('permite admin delegado (role=collaborator + Administração) configurar o cabeçalho de outro médico', async () => {
+    /**
+     * C3 (2ª rodada): fixture anterior usava `adminId: 'delegado-1'` — o
+     * próprio ator como criador do alvo, o que nunca acontece quando o
+     * cenário real é "médico foi criado pelo dono" (a maioria). Com essa
+     * fixture bugada o teste ficava verde mesmo com
+     * `target.adminId === requestingUserId` ainda no código (o bug do C3
+     * neste caminho). Agora o alvo tem `adminId: 'dono-1'` — só pertencimento
+     * por `ownerId` deve autorizar.
+     */
+    it('permite admin delegado (role=collaborator + Administração) configurar o cabeçalho de médico criado pelo dono', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
         id: 'delegado-1',
         role: UserRole.COLLABORATOR,
@@ -1496,7 +1598,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'doctor-1',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
+        adminId: 'dono-1', // médico foi criado pelo dono, não pelo delegado
       });
       mockDoctorProfileRepository.findByUserId.mockResolvedValue({
         id: 'profile-1',
@@ -1508,6 +1610,32 @@ describe('UsersService — Colaboradores e Permissões', () => {
       const result = await service.getDoctorHeaderByUserId(
         'doctor-1',
         'delegado-1',
+      );
+
+      expect(result).toEqual({ id: 'header-1' });
+    });
+
+    it('permite que o dono configure o cabeçalho de médico criado por um admin delegado', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValueOnce({
+        id: 'dono-1',
+        role: UserRole.ADMIN,
+        ownerId: 'dono-1',
+      });
+      mockUserRepository.findOne.mockResolvedValueOnce({
+        id: 'doctor-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1', // médico foi criado pelo delegado, não pelo dono
+      });
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'profile-1',
+      });
+      mockDoctorHeaderRepository.findByDoctorProfileId.mockResolvedValue({
+        id: 'header-1',
+      });
+
+      const result = await service.getDoctorHeaderByUserId(
+        'doctor-1',
+        'dono-1',
       );
 
       expect(result).toEqual({ id: 'header-1' });

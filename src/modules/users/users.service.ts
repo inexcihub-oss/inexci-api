@@ -496,11 +496,21 @@ export class UsersService {
     });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Permitir acesso ao próprio usuário (se for médico) e ao Admin da conta
+    // Permitir acesso ao próprio usuário (se for médico) e a quem tem
+    // Administração no MESMO tenant do alvo — pertencimento é `ownerId`
+    // (o tenant), nunca `adminId` (só quem criou o registro). Checar por
+    // `role === ADMIN` deixaria o admin delegado (role='collaborator' +
+    // permissão) sem acesso a CRM/especialidade de qualquer médico que não
+    // tenha criado — o mesmo bug do C3, aqui.
     const isSelf = requestingUserId === targetId;
+    const permissoesRequesting = resolveEffectivePermissions({
+      role: requesting.role,
+      permissions: requesting.permissions,
+      isDoctor: !!requesting.doctorProfile,
+    });
     const isAdmin =
-      requesting.role === UserRole.ADMIN &&
-      (target.adminId === requestingUserId || isSelf);
+      permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
+      target.ownerId === requesting.ownerId;
 
     // Colaborador vinculado ao médico pode atualizar APENAS a assinatura.
     // CRM/estado/especialidade continuam restritos ao próprio médico ou admin.
@@ -564,7 +574,14 @@ export class UsersService {
       take,
     );
 
-    const filtered = collaborators.filter((c) => c.id !== userId);
+    // O dono da conta não é "gerenciável" (`assertAlvoNaoEhDono` bloqueia
+    // qualquer ação sobre ele) — não deve aparecer na lista de colaboradores
+    // para ninguém, nem para si mesmo (já excluído por `c.id !== userId`)
+    // nem para um admin delegado, que veria um botão de ação que sempre
+    // falha com 403.
+    const filtered = collaborators.filter(
+      (c) => c.id !== userId && c.id !== admin.ownerId,
+    );
 
     const records = await Promise.all(
       filtered.map(async (c) => ({
@@ -1108,8 +1125,11 @@ export class UsersService {
 
     const isSelf = requestingUserId === targetUserId;
     // Rota já é gateada por ADMINISTRACAO no controller (RequirePermission);
-    // aqui apenas restringimos à mesma conta e ao dono do vínculo — o admin
-    // delegado (role='collaborator' + permissão) precisa passar aqui também.
+    // aqui restringimos ao mesmo tenant. Pertencimento é `ownerId`, nunca
+    // `adminId` (só quem criou) — checar por `target.adminId ===
+    // requestingUserId` é o mesmo bug do C3: barra o admin delegado no
+    // cabeçalho de qualquer médico que não tenha criado (a maioria) e barra
+    // o dono no cabeçalho de médico criado pelo delegado.
     const permissoesRequesting = resolveEffectivePermissions({
       role: requesting.role,
       permissions: requesting.permissions,
@@ -1117,8 +1137,7 @@ export class UsersService {
     });
     const isAccountAdmin =
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
-      target.ownerId === requesting.ownerId &&
-      (target.adminId === requestingUserId || isSelf);
+      target.ownerId === requesting.ownerId;
 
     if (!isSelf && !isAccountAdmin) {
       throw new ForbiddenException(
