@@ -84,6 +84,8 @@ export class UserRepository extends BaseRepository<User> {
         aiConsentAcceptedAt: true,
         ownerId: true,
         adminId: true,
+        isPlatformAdmin: true,
+        permissions: true,
         createdAt: true,
         updatedAt: true,
       },
