@@ -1,12 +1,15 @@
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   ValidateIf,
 } from 'class-validator';
 import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
+import { Permission } from 'src/shared/permissions';
 
 export class CreateCollaboratorDto {
   @IsString()
@@ -40,4 +43,18 @@ export class CreateCollaboratorDto {
   @IsString()
   @IsOptional()
   specialty?: string;
+
+  /**
+   * Áreas concedidas ao colaborador. Omitido = nasce sem nenhuma; `role` não
+   * é aceito por este DTO — permanece indeterminável pelo corpo da
+   * requisição (só `assertPodeGerirEquipe` decide quem pode chamar a rota).
+   *
+   * `@ValidateIf` (não `@IsOptional`) pelo mesmo motivo do
+   * `UpdateCollaboratorDto`: `null` explícito deve virar 400 na validação,
+   * não ser aceito silenciosamente.
+   */
+  @IsArray()
+  @IsEnum(Permission, { each: true })
+  @ValidateIf((o) => o.permissions !== undefined)
+  permissions?: Permission[];
 }

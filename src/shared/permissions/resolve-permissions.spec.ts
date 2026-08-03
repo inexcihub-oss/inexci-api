@@ -27,14 +27,16 @@ describe('resolveEffectivePermissions', () => {
   });
 
   /**
-   * Finalizar ficha com indicação cirúrgica abre a SC. Sem SOLICITACOES o
-   * médico criaria uma solicitação invisível para ele mesmo.
+   * Finalizar ficha com indicação cirúrgica abre a SC (SOLICITACOES) e o
+   * médico marca a própria consulta como realizada / agenda retorno a
+   * partir da ficha do paciente (AGENDA). Sem elas o médico não conseguiria
+   * atender nem enxergar a SC que ele mesmo abriu.
    */
-  it('acrescenta atendimento e solicitações a quem é médico', () => {
+  it('acrescenta agenda, atendimento e solicitações a quem é médico', () => {
     expect(
       resolveEffectivePermissions({
         role: UserRole.COLLABORATOR,
-        permissions: [Permission.AGENDA],
+        permissions: [],
         isDoctor: true,
       }),
     ).toEqual([

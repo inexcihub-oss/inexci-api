@@ -15,6 +15,8 @@ import { ConversationMemoryService } from './orchestrator/conversation-memory.se
 import { NextStepAdvisorService } from './orchestrator/next-step-advisor.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
+import { UserRole, UserStatus } from '../../../database/entities/user.entity';
+import { Permission } from '../../permissions';
 
 describe('AiOrchestratorService (tool-calls integration)', () => {
   const queueMock = { add: jest.fn() };
@@ -47,7 +49,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     sendTemplate: jest.fn(),
   };
   const userRepositoryMock = { findOneByPhone: jest.fn() };
-  const accessControlMock = { getAccessibleDoctorIds: jest.fn() };
+  const accessControlMock = {
+    getAccessibleDoctorIds: jest.fn(),
+    invalidateAccessibleDoctors: jest.fn(),
+  };
   const pendencyValidatorMock = { validateForStatus: jest.fn() };
   const surgeryRequestRepoMock = { findOneSimple: jest.fn() };
   const nextStepAdvisorService = new NextStepAdvisorService(
@@ -251,6 +256,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     userRepositoryMock.findOneByPhone.mockResolvedValue({
       id: 'user-1',
+      status: UserStatus.ACTIVE,
       aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
     });
     accessControlMock.getAccessibleDoctorIds.mockResolvedValue(['doctor-1']);
@@ -365,6 +371,121 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       'Resposta final',
     );
     expect(whatsappServiceMock.sendTemplate).not.toHaveBeenCalled();
+  });
+
+  it('deriva `permissions` do toolContext localmente (sem chamar accessControlService.getEffectivePermissions)', async () => {
+    userRepositoryMock.findOneByPhone.mockResolvedValue({
+      id: 'user-1',
+      status: UserStatus.ACTIVE,
+      role: UserRole.COLLABORATOR,
+      permissions: [Permission.AGENDA],
+      aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    // NÃO inclui o próprio userId — usuário sem doctorProfile, então
+    // `isDoctor` é `false` e a permissão efetiva não ganha o bônus de
+    // AGENDA/ATENDIMENTO/SOLICITACOES. Isolar `isDoctor: false` aqui é
+    // proposital: com `isDoctor: true` (como antes desta correção) o teste
+    // passaria mesmo que `user.permissions` fosse ignorado por completo —
+    // foi exatamente esse ponto cego que deixou passar o bug de
+    // `findOneByPhone` não trazer a coluna `permissions` (ver
+    // `user.repository.ts`).
+    accessControlMock.getAccessibleDoctorIds.mockResolvedValue([]);
+
+    const toolCall: OpenAI.ChatCompletionMessageToolCall = {
+      id: 'call-1',
+      type: 'function',
+      function: {
+        name: 'advance_surgery_request',
+        arguments: JSON.stringify({ surgeryRequestId: 'req-1' }),
+      },
+    };
+    openaiServiceMock.chatCompletion
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: null, tool_calls: [toolCall] } }],
+      })
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: 'Resposta final', tool_calls: null } }],
+      });
+    toolExecutorMock.executeMany.mockResolvedValue([
+      { toolCallId: 'call-1', output: 'preview ok' },
+    ]);
+
+    await service.processMessage({
+      from: 'whatsapp:+5511999999999',
+      body: 'confirmar data',
+      messageSid: 'SM-perm',
+      mediaUrl: null,
+    });
+
+    expect(toolExecutorMock.executeMany).toHaveBeenCalledTimes(1);
+    const [, contextArg] = toolExecutorMock.executeMany.mock.calls[0];
+    // Exatamente o array cru devolvido por `findOneByPhone` — nem vazio
+    // (bug do `select` sem `permissions`), nem inflado pelo bônus de médico.
+    expect(contextArg.permissions).toEqual([Permission.AGENDA]);
+    // `AccessControlService` não expõe `getEffectivePermissions` neste mock —
+    // se o orquestrador chamasse o método, a chamada acima teria rejeitado
+    // com TypeError e `processMessage` não teria concluído normalmente.
+  });
+
+  describe('onUserAccessChanged — invalidação de cache', () => {
+    it('força reconsulta de usuário e de médicos acessíveis na próxima mensagem do mesmo telefone', async () => {
+      userRepositoryMock.findOneByPhone.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.AGENDA],
+        aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
+      });
+      accessControlMock.getAccessibleDoctorIds.mockResolvedValue(['doctor-1']);
+      openaiServiceMock.chatCompletion.mockResolvedValue({
+        choices: [{ message: { content: 'ok', tool_calls: null } }],
+      });
+
+      // Primeira mensagem: popula os dois caches (user por telefone,
+      // accessibleDoctorIds por userId).
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'olá',
+        messageSid: 'SM-cache-1',
+        mediaUrl: null,
+      });
+      expect(userRepositoryMock.findOneByPhone).toHaveBeenCalledTimes(1);
+      expect(accessControlMock.getAccessibleDoctorIds).toHaveBeenCalledTimes(1);
+
+      // Segunda mensagem sem invalidar: os dois caches ainda estão quentes.
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'oi de novo',
+        messageSid: 'SM-cache-2',
+        mediaUrl: null,
+      });
+      expect(userRepositoryMock.findOneByPhone).toHaveBeenCalledTimes(1);
+      expect(accessControlMock.getAccessibleDoctorIds).toHaveBeenCalledTimes(1);
+
+      // Simula o evento emitido por `UsersService.updateCollaborator`.
+      service.onUserAccessChanged({
+        userId: 'user-1',
+        phone: '+5511999999999',
+      });
+
+      // O evento também precisa invalidar o cache interno de
+      // `AccessControlService.getAccessibleDoctorIds` (TTL 90s) — sem isso,
+      // mesmo com `doctorIdsCache` limpo, a próxima chamada podia devolver
+      // um valor obsoleto vindo do cache do `AccessControlService`.
+      expect(
+        accessControlMock.invalidateAccessibleDoctors,
+      ).toHaveBeenCalledWith('user-1');
+
+      // Terceira mensagem: os dois caches foram invalidados, então recarrega.
+      await service.processMessage({
+        from: 'whatsapp:+5511999999999',
+        body: 'terceira mensagem',
+        messageSid: 'SM-cache-3',
+        mediaUrl: null,
+      });
+      expect(userRepositoryMock.findOneByPhone).toHaveBeenCalledTimes(2);
+      expect(accessControlMock.getAccessibleDoctorIds).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('deve manter resposta atual quando não houver tool_calls', async () => {
@@ -559,6 +680,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         if (phone === '(31) 98908-5791') {
           return {
             id: 'user-1',
+            status: UserStatus.ACTIVE,
             aiConsentAcceptedAt: new Date('2026-01-01'),
           };
         }
@@ -592,6 +714,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         if (phone === '(31) 98908-5791') {
           return {
             id: 'user-1',
+            status: UserStatus.ACTIVE,
             aiConsentAcceptedAt: new Date('2026-01-01'),
           };
         }
@@ -1094,6 +1217,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       // Reapaga o cooldown e re-injeta o usuário com consent válido.
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-1',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
       });
       accessControlMock.getAccessibleDoctorIds.mockResolvedValue(['doctor-1']);
@@ -1479,6 +1603,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('bloqueia processamento e envia mensagem padrão quando aiConsentAcceptedAt está ausente', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: null,
       });
 
@@ -1502,6 +1627,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('não envia a mensagem novamente dentro do cooldown para o mesmo telefone', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: null,
       });
 
@@ -1539,6 +1665,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('responde via RAG (modo limitado) quando sem consent e a mensagem é uma dúvida sobre a Inexci', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: null,
       });
       ragServiceMock.search.mockResolvedValue([
@@ -1585,6 +1712,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('não tenta o modo limitado quando a mensagem contém PII (CPF, telefone, e-mail)', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: null,
       });
 
@@ -1605,6 +1733,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     it('cai para a notice quando RAG não encontra contexto relevante', async () => {
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-no-consent',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: null,
       });
       ragServiceMock.search.mockResolvedValue([]);

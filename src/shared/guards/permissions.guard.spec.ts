@@ -8,7 +8,8 @@ function contextoCom(permissions: Permission[] | undefined): ExecutionContext {
     getHandler: () => () => undefined,
     getClass: () => class {},
     switchToHttp: () => ({
-      getRequest: () => (permissions === undefined ? {} : { user: { permissions } }),
+      getRequest: () =>
+        permissions === undefined ? {} : { user: { permissions } },
     }),
   } as unknown as ExecutionContext;
 }

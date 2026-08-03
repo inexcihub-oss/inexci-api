@@ -5,6 +5,7 @@ import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
 import { UserRole } from '../../database/entities/user.entity';
+import { Permission } from '../permissions';
 
 describe('AccessControlService', () => {
   let service: AccessControlService;
@@ -410,6 +411,31 @@ describe('AccessControlService', () => {
 
       await expect(service.assertIsDoctor('ghost')).rejects.toThrow(
         ForbiddenException,
+      );
+    });
+  });
+
+  // ─── getEffectivePermissions ───
+
+  describe('getEffectivePermissions', () => {
+    it('deriva a permissão efetiva do usuário', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+
+      await expect(service.getEffectivePermissions('u-1')).resolves.toEqual([
+        Permission.AGENDA,
+      ]);
+    });
+
+    it('devolve lista vazia para usuário inexistente', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue(null);
+
+      await expect(service.getEffectivePermissions('sumiu')).resolves.toEqual(
+        [],
       );
     });
   });

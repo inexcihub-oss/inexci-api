@@ -12,6 +12,10 @@ describe('PatientsController — permissões declaradas', () => {
       PatientsController.prototype[metodo],
     );
 
+  it('não declara permissão na classe — paciente é cadastro transversal às quatro áreas, o recorte real é o ownerId', () => {
+    expect(reflector.get(PERMISSIONS_KEY, PatientsController)).toBeUndefined();
+  });
+
   it.each(['delete', 'bulkDelete'] as const)(
     'exige administração em %s',
     (metodo) => {
@@ -20,7 +24,7 @@ describe('PatientsController — permissões declaradas', () => {
   );
 
   it.each(['findAll', 'findOne', 'create', 'update'] as const)(
-    'não exige administração em %s (tratado na Tarefa 11)',
+    'não exige nenhuma permissão de área em %s',
     (metodo) => {
       expect(exigidoEm(metodo)).toBeUndefined();
     },

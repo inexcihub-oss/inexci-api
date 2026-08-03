@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
 import { SurgeryRequestWorkflowService } from '../../../modules/surgery-requests/services/surgery-request-workflow.service';
@@ -84,6 +85,7 @@ export function buildActionTools(
 
   const advanceSurgeryRequest: AiTool = {
     name: 'advance_surgery_request',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {
@@ -295,6 +297,7 @@ export function buildActionTools(
 
   const setHasOpme: AiTool = {
     name: 'set_has_opme',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {
@@ -356,6 +359,7 @@ export function buildActionTools(
 
   const closeSurgeryRequest: AiTool = {
     name: 'close_surgery_request',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

@@ -8,8 +8,10 @@ import {
   NotFoundException,
   ForbiddenException,
   UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
@@ -51,7 +53,31 @@ export class UsersService {
     private readonly whatsappService: WhatsappService,
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
+    // Opcional: só usado para emitir `user.access_changed` (invalida os
+    // caches de identidade/autorização do assistente do WhatsApp). Manter
+    // opcional evita acoplar este service ao módulo de IA e não quebra a
+    // instanciação manual usada nos testes unitários deste arquivo.
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
+
+  /**
+   * Emite `user.access_changed` para que o assistente do WhatsApp invalide
+   * os caches em memória que derivam a permissão efetiva de um usuário
+   * (`AiOrchestratorService.onUserAccessChanged`). Cobre TODAS as mutações
+   * que alteram o que um colaborador pode fazer pelo WhatsApp — não só
+   * `permissions`/`doctor_profile` (nome antigo do evento,
+   * `user.permissions_changed`), mas também exclusão e desativação, daí o
+   * nome mais amplo.
+   *
+   * `phone` precisa ser o telefone ORIGINAL do usuário — em
+   * `deleteCollaborator`/`bulkDeleteCollaborators` o telefone já foi
+   * trocado por uma sentinela no banco antes deste ponto, então invalidar
+   * com o telefone atual não limparia a entrada certa do cache (que ainda
+   * está indexada pelo telefone antigo).
+   */
+  private emitAccessChanged(userId: string, phone: string | null | undefined) {
+    this.eventEmitter?.emit('user.access_changed', { userId, phone });
+  }
 
   /**
    * Gerir a equipe é ato de quem tem Administração — o dono da conta ou o
@@ -211,6 +237,13 @@ export class UsersService {
     return {
       ...userWithoutPassword,
       isDoctor: !!userWithoutPassword.doctorProfile,
+      // A permissão EFETIVA, não a coluna crua: o frontend precisa saber o
+      // que o usuário pode de fato, incluindo o que ganha por ser médico.
+      permissions: resolveEffectivePermissions({
+        role: userWithoutPassword.role,
+        permissions,
+        isDoctor: !!userWithoutPassword.doctorProfile,
+      }),
     };
   }
 
@@ -584,10 +617,25 @@ export class UsersService {
     );
 
     const records = await Promise.all(
-      filtered.map(async (c) => ({
-        ...c,
-        avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
-      })),
+      filtered.map(async (c) => {
+        // `findByOwnerId` não define `select`, então devolve `permissions` e
+        // `isPlatformAdmin` crus do TypeORM (vazamento pré-existente) — não
+        // podem sair na resposta. `password` já não vem: a coluna tem
+        // `select: false` na entidade.
+        const { permissions, isPlatformAdmin, ...collaboratorFields } = c;
+
+        return {
+          ...collaboratorFields,
+          avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
+          // A permissão EFETIVA, não a coluna crua — mesmo motivo do
+          // getProfile/findCollaboratorById.
+          permissions: resolveEffectivePermissions({
+            role: c.role,
+            permissions,
+            isDoctor: !!c.doctorProfile,
+          }),
+        };
+      }),
     );
 
     return { records };
@@ -637,6 +685,9 @@ export class UsersService {
         password: await bcrypt.hash(placeholderPassword, 10),
         ownerId: admin.ownerId,
         adminId: adminId,
+        // Sem nada informado, o colaborador nasce sem acesso a área nenhuma
+        // — `role` não vem deste DTO, só `permissions`.
+        permissions: data.permissions ?? [],
       });
     } catch (err) {
       if (err instanceof QueryFailedError) {
@@ -710,7 +761,24 @@ export class UsersService {
       void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
 
-    return newUser;
+    // `userRepository.create` devolve exatamente o que foi persistido — sem
+    // `select` — então `newUser.permissions` ainda é a coluna crua e
+    // `isPlatformAdmin` também está lá. Mesmo tratamento dos outros
+    // retornos de colaborador: tira os dois e acrescenta a permissão
+    // EFETIVA. `isDoctor` (calculado acima, antes do `doctorProfile` ser
+    // criado) já reflete se o `doctor_profile` foi de fato criado — não
+    // precisa recarregar do banco.
+    const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
+      newUser;
+
+    return {
+      ...newUserWithoutInternalFields,
+      permissions: resolveEffectivePermissions({
+        role: newUser.role,
+        permissions,
+        isDoctor,
+      }),
+    };
   }
 
   async updateCollaborator(
@@ -768,6 +836,13 @@ export class UsersService {
       updates.addressComplement = data.addressComplement;
     if (data.city !== undefined) updates.city = data.city;
     if (data.state !== undefined) updates.state = data.state;
+    if (data.permissions !== undefined) {
+      // `undefined` significa "não mexi nas permissões"; `[]` significa
+      // "retirei todas". Os dois casos precisam ser distinguíveis — por
+      // isso o `if` não usa o padrão `data.x ?? valorPadrao` dos campos
+      // acima.
+      updates.permissions = data.permissions;
+    }
 
     // Gestão do doctorProfile
     if (data.isDoctor !== undefined) {
@@ -821,7 +896,47 @@ export class UsersService {
     }
 
     const updated = await this.userRepository.update(collaboratorId, updates);
-    return updated;
+    if (!updated) throw new NotFoundException('Colaborador não encontrado');
+
+    // `userRepository.update` devolve o resultado de `findOne`, cujo
+    // `select` não inclui `permissions` — por isso o admin que acabou de
+    // conceder/revogar acesso não recebia confirmação nenhuma no payload.
+    // Reconstrói o estado pós-mutação sem outra ida ao banco: `hasProfile`
+    // (antes) + a mesma lógica de branches acima já dizem se o
+    // `doctor_profile` existe agora, e a permissão gravada é `data.permissions`
+    // quando informada, ou a que já estava em `collaborator` quando omitida.
+    const isDoctorAfterUpdate =
+      data.isDoctor !== undefined ? data.isDoctor : hasProfile;
+
+    // O assistente do WhatsApp deriva `permissions` a partir de caches em
+    // memória (identidade do usuário por telefone, ~10 min; médicos
+    // acessíveis por userId, ~5 min — ver `AiOrchestratorService`), não a
+    // cada mensagem como o guard HTTP faz a cada request. Sem este evento,
+    // revogar `SOLICITACOES` (ou o `doctor_profile`) de um colaborador
+    // deixaria uma janela de até 10 min em que o WhatsApp ainda opera com a
+    // permissão antiga. Emitido só quando o que afeta a permissão efetiva
+    // (`data.permissions` ou `data.isDoctor`) de fato mudou.
+    if (data.permissions !== undefined || data.isDoctor !== undefined) {
+      this.emitAccessChanged(collaboratorId, collaborator.phone);
+    }
+
+    const grantedPermissionsAfterUpdate =
+      data.permissions !== undefined
+        ? data.permissions
+        : (collaborator.permissions ?? []);
+
+    return {
+      ...updated,
+      // Efetiva — para exibir. Ver `findCollaboratorById` para o motivo de
+      // nunca usar este campo para semear um formulário de edição.
+      permissions: resolveEffectivePermissions({
+        role: collaborator.role,
+        permissions: grantedPermissionsAfterUpdate,
+        isDoctor: isDoctorAfterUpdate,
+      }),
+      // Crua — para editar (o que a tela deve guardar como novo baseline).
+      grantedPermissions: grantedPermissionsAfterUpdate,
+    };
   }
 
   async deleteCollaborator(collaboratorId: string, adminId: string) {
@@ -841,6 +956,12 @@ export class UsersService {
       ownerId: collaborator.ownerId,
     });
 
+    // Telefone ORIGINAL, capturado antes da sentinela sobrescrever a coluna
+    // — é essa a chave que `MessageProcessorService.userCache` usa. Emitir a
+    // invalidação com o telefone já trocado (`DEL...`) limparia uma entrada
+    // de cache que nunca existiu e deixaria a antiga intacta.
+    const originalPhone = collaborator.phone;
+
     // Anonimiza dados pessoais antes do soft-delete (LGPD — princípio de minimização).
     // email: libera a constraint unique para permitir re-cadastro com mesmo endereço.
     // phone: quebra o match no findOneByPhone, impedindo que um ex-colaborador continue
@@ -851,6 +972,16 @@ export class UsersService {
       phone: `DEL${collaboratorId.slice(0, 12)}`,
     });
     await this.userRepository.delete(collaboratorId);
+
+    // A troca de telefone acima já impede um NOVO lookup por telefone de
+    // encontrar este usuário — mas não apaga a entrada já cacheada em
+    // `MessageProcessorService.userCache` (até 10 min) nem o
+    // `accessibleDoctorIds` cacheado por userId (até 5 min) em
+    // `AiOrchestratorService`. Sem isto, um colaborador excluído continuaria
+    // operando pelo WhatsApp com a identidade e permissões antigas — inclusive
+    // mutando SC — pela duração desses caches.
+    this.emitAccessChanged(collaboratorId, originalPhone);
+
     return { message: 'Colaborador desativado com sucesso' };
   }
 
@@ -875,6 +1006,10 @@ export class UsersService {
         id: true,
         email: true,
         ownerId: true,
+        // Telefone ORIGINAL — precisa ser capturado antes da sentinela
+        // sobrescrever a coluna, senão a invalidação de cache (ver loop
+        // abaixo) usaria o telefone errado e não limparia nada.
+        phone: true,
       },
     });
 
@@ -901,6 +1036,13 @@ export class UsersService {
     }
 
     await this.userRepository.getRepository().softDelete(uniqueIds);
+
+    // Mesmo raciocínio de `deleteCollaborator`: sem isto, cada colaborador
+    // excluído em lote continuaria com identidade/permissões cacheadas no
+    // assistente do WhatsApp por até 10 min.
+    for (const collaborator of collaborators) {
+      this.emitAccessChanged(collaborator.id, collaborator.phone);
+    }
 
     return { deleted: uniqueIds.length };
   }
@@ -953,6 +1095,15 @@ export class UsersService {
         : UserStatus.ACTIVE;
 
     await this.userRepository.update(collaboratorId, { status: newStatus });
+
+    // Invalida os caches do assistente do WhatsApp assim que o status muda
+    // (em qualquer direção). `MessageProcessorService.runPreflight` agora
+    // espelha a `JwtStrategy` do caminho web e recusa `status !== ACTIVE` —
+    // e nunca cacheia usuário não-ACTIVE — então a invalidação aqui garante
+    // que a próxima mensagem já vê o banco atualizado em vez de servir do
+    // cache por até 10 min.
+    this.emitAccessChanged(collaboratorId, collaborator.phone);
+
     return { status: newStatus };
   }
 
@@ -1067,15 +1218,43 @@ export class UsersService {
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    // Remove senha e campos internos (permissions cru e isPlatformAdmin) do
-    // retorno — o admin não deve ver a coluna crua do colaborador aqui.
+    // Remove senha e campo interno (isPlatformAdmin) do retorno. `permissions`
+    // crua é retirada do spread e devolvida à parte como `grantedPermissions`
+    // (ver abaixo) — só esta rota pode expor a coluna crua, porque é a única
+    // gated por `ADMINISTRACAO` que a tela de edição de colaborador consome.
     const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
       collaborator;
 
+    const [avatarUrl, signatureUrl] = await Promise.all([
+      this.resolveStorageUrl(userWithoutPassword.avatarUrl),
+      this.resolveStorageUrl(collaborator.doctorProfile?.signatureUrl),
+    ]);
+
     return {
       ...userWithoutPassword,
+      avatarUrl,
+      doctorProfile: userWithoutPassword.doctorProfile
+        ? { ...userWithoutPassword.doctorProfile, signatureUrl }
+        : userWithoutPassword.doctorProfile,
       isDoctor: !!collaborator.doctorProfile,
       doctorAccesses: accesses,
+      // A permissão EFETIVA (com o bônus de médico já somado) — para EXIBIR
+      // o que o colaborador pode fazer hoje. Nunca usar este campo para
+      // semear um formulário de edição: ele reintroduziria no PATCH, como
+      // concessão gravada, o que só valia por causa de `doctor_profile`
+      // (bug I2 do PLANO-PERMISSOES-COLABORADORES — desmarcar "é médico"
+      // meses depois não voltava a tirar Agenda/Atendimento/Solicitações,
+      // porque a tela nunca soube que elas não tinham sido concedidas de
+      // fato).
+      permissions: resolveEffectivePermissions({
+        role: collaborator.role,
+        permissions,
+        isDoctor: !!collaborator.doctorProfile,
+      }),
+      // A coluna CRUA (o que foi de fato concedido) — para EDITAR. É este
+      // campo que a tela de colaborador deve semear no formulário e
+      // devolver no PATCH, nunca `permissions`.
+      grantedPermissions: permissions ?? [],
     };
   }
 

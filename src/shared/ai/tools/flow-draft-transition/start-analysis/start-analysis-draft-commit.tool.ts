@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
@@ -16,6 +17,7 @@ export function buildStartAnalysisDraftCommitTool(
     deps;
   return {
     name: 'start_analysis_draft_commit',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

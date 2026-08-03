@@ -3,6 +3,7 @@ import { ToolContext } from './tool.interface';
 import { PiiVaultService } from '../services/pii-vault.service';
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { parseToolResult } from './tool-result';
+import { Permission } from 'src/shared/permissions';
 
 const mockSurgeryRequestRepo = {
   findOneSimple: jest.fn(),
@@ -525,6 +526,66 @@ describe('WhatsappFlowTools', () => {
       expect(result).toContain('Maria do Carmo');
       expect(result).toContain('José Pereira');
       expect(result).not.toContain('{{patient_name_');
+    });
+  });
+
+  describe('list_sc_creation_catalog — categoria `templates` exige SOLICITACOES', () => {
+    beforeEach(() => {
+      mockPatientRepo.findMany = jest.fn().mockResolvedValue([]);
+      (mockHospitalRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      (mockHealthPlanRepo as any).findMany = jest.fn().mockResolvedValue([]);
+      mockUserRepo.findMany.mockResolvedValue([]);
+      mockProcedureRepo.findMany.mockResolvedValue([]);
+      (mockSurgeryRequestsService as any).getTemplates = jest
+        .fn()
+        .mockResolvedValue([{ id: 'tpl-1', name: 'Modelo padrão' }]);
+    });
+
+    it('recusa a categoria templates explicitamente sem a permissão', async () => {
+      const tool = getTool('list_sc_creation_catalog');
+      const result = await tool.execute(
+        { category: 'templates' },
+        { ...baseContext, permissions: [] },
+      );
+
+      expect(result).toContain('não tem acesso');
+      expect(
+        (mockSurgeryRequestsService as any).getTemplates,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('omite a seção de modelos do resumo geral sem a permissão', async () => {
+      const tool = getTool('list_sc_creation_catalog');
+      const result = await tool.execute(
+        {},
+        { ...baseContext, permissions: [] },
+      );
+
+      expect(result).not.toContain('Modelo padrão');
+      expect(result).not.toContain('Modelos (');
+    });
+
+    it('inclui modelos no resumo geral e na categoria explícita com SOLICITACOES', async () => {
+      const tool = getTool('list_sc_creation_catalog');
+
+      const summary = await tool.execute(
+        {},
+        { ...baseContext, permissions: [Permission.SOLICITACOES] },
+      );
+      expect(summary).toContain('Modelo padrão');
+
+      const explicit = await tool.execute(
+        { category: 'templates' },
+        { ...baseContext, permissions: [Permission.SOLICITACOES] },
+      );
+      expect(explicit).toContain('Modelo padrão');
+    });
+
+    it('trata `context.permissions` ausente como sem a permissão (fail-closed)', async () => {
+      const tool = getTool('list_sc_creation_catalog');
+      const result = await tool.execute({ category: 'templates' }, baseContext);
+
+      expect(result).toContain('não tem acesso');
     });
   });
 

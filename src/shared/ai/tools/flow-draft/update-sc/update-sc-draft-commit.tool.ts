@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { translateServiceError } from '../../helpers/service-error-translator';
@@ -22,6 +23,7 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
   } = deps;
   return {
     name: 'update_sc_draft_commit',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

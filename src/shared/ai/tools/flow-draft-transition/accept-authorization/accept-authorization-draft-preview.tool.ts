@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftTransitionDeps } from '../_types';
 
@@ -9,6 +10,7 @@ export function buildAcceptAuthorizationDraftPreviewTool(
   const { draftService } = deps;
   return {
     name: 'accept_authorization_draft_preview',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

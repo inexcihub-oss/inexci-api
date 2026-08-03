@@ -7,8 +7,12 @@ export const PERMISSIONS_KEY = 'required_permissions';
  * Exige do usuário **qualquer uma** das permissões informadas.
  *
  * Aplicado no método, sobrescreve o da classe — é assim que
- * `PatientsController` exige Atendimento ou Solicitações no geral e
- * Administração só no `DELETE`.
+ * `AppointmentsController` exige Agenda na classe e libera a leitura
+ * (`findAgenda`, `findByPatient`, `findOne`) também para quem só tem
+ * Atendimento. `@RequirePermission()` sem argumentos é o opt-out: em
+ * `SurgeryRequestsController`, a classe exige Solicitações, mas
+ * `available-doctors` usa a lista vazia para se abrir a qualquer
+ * autenticado.
  */
 export const RequirePermission = (...permissions: Permission[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);

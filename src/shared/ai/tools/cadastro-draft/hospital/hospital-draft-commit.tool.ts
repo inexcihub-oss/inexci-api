@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { CadastroDraftDeps } from '../_types';
@@ -8,6 +9,10 @@ export function buildHospitalDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, hospitalsService } = deps;
   return {
     name: 'hospital_draft_commit',
+    // Diferente de paciente (cadastro transversal), criar hospital é
+    // restrito no HTTP: `HospitalsController.create` exige
+    // `@RequirePermission(Permission.ADMINISTRACAO)`.
+    requiredPermission: Permission.ADMINISTRACAO,
     definition: {
       type: 'function',
       function: {

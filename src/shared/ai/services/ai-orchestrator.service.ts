@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { setRequestContext } from 'src/shared/logging/request-context';
 import OpenAI from 'openai';
 import { OpenaiService } from './openai.service';
@@ -41,6 +42,7 @@ import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
 import { recordAiProcessingDuration } from '../../observability/metrics.util';
 import { SimpleCache } from '../utils/simple-cache';
 import { OperationDraftType } from '../drafts/operation-draft.types';
+import { resolveEffectivePermissions } from '../../permissions';
 
 /**
  * Coordenador do pipeline de IA do WhatsApp; delega aos colaboradores da
@@ -182,6 +184,57 @@ export class AiOrchestratorService {
     this.messageProcessor.invalidateUserCacheByPhone(phone);
   }
 
+  /**
+   * Invalida os três caches em memória dos quais `toolContext.permissions`
+   * (e a própria identidade resolvida por telefone) derivam, sempre que o
+   * acesso de um colaborador muda por uma ação administrativa
+   * (`UsersService`: `updateCollaborator`, `deleteCollaborator`,
+   * `bulkDeleteCollaborators`, `toggleCollaboratorStatus`).
+   *
+   * Sem isto, a permissão efetiva do WhatsApp fica obsoleta pela duração dos
+   * TTLs envolvidos: até 10 min no `user` cacheado por telefone
+   * (`MessageProcessorService.userCache`), até 5 min no `accessibleDoctorIds`
+   * cacheado por userId (`doctorIdsCache` abaixo, usado para derivar
+   * `isDoctor`) e até 90s no cache interno de
+   * `AccessControlService.getAccessibleDoctorIds` (compartilhado com o
+   * caminho HTTP). O guard HTTP não tem essa janela — a `JwtStrategy` resolve
+   * a permissão a cada request. Assinado via evento (`user.access_changed`)
+   * para não acoplar `UsersService` a este módulo de IA.
+   *
+   * Complementado pelo gate de status em `MessageProcessorService.runPreflight`
+   * (espelha a `JwtStrategy` do caminho web: `status !== ACTIVE` é recusado).
+   * Os dois mecanismos cobrem casos diferentes: o gate sozinho já barra um
+   * usuário `PENDING`/`INACTIVE` na PRIMEIRA vez que aparece (nunca fica
+   * cacheado); este evento é o que fecha a lacuna de quem JÁ estava
+   * cacheado como ACTIVE e foi desativado depois — sem invalidar aqui, essa
+   * cópia cacheada continuaria dizendo `status: ACTIVE` (o campo em si é
+   * que está obsoleto, não a checagem) até o TTL de 10 min expirar.
+   *
+   * Também invalida `AccessControlService.accessibleDoctorsCache` (TTL 90s,
+   * compartilhado com o caminho HTTP) para o mesmo `userId`: `doctorIdsCache`
+   * só envolve a chamada em memória DESTE service — limpar apenas ele não
+   * basta, porque a próxima chamada (com `doctorIdsCache` já vazio) cai em
+   * `accessControlService.getAccessibleDoctorIds`, que tem seu PRÓPRIO cache
+   * interno de 90s. Sem invalidar os dois, promover/rebaixar um médico podia
+   * ficar obsoleto no WhatsApp por até 90s a mais, mesmo já tendo passado por
+   * aqui.
+   *
+   * LIMITE CONHECIDO REMANESCENTE (arquitetural, não desta função): tanto
+   * este cache quanto o gate de status leem o `user` de um `Map` em memória
+   * por processo — em um deploy com múltiplas instâncias, o evento só
+   * invalida a instância que o recebeu; as demais só refletem a mudança
+   * quando o próprio TTL do cache expirar.
+   */
+  @OnEvent('user.access_changed')
+  onUserAccessChanged(payload: {
+    userId: string;
+    phone?: string | null;
+  }): void {
+    this.doctorIdsCache.delete(payload.userId);
+    this.accessControlService.invalidateAccessibleDoctors(payload.userId);
+    this.invalidateUserCacheByPhone(payload.phone);
+  }
+
   async enqueueInboundMessage(data: {
     from: string;
     body: string;
@@ -265,6 +318,39 @@ export class AiOrchestratorService {
             (await this.accessControlService.getAccessibleDoctorIds(userId));
           if (!cachedDoctorIds)
             this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
+
+          // Permissão efetiva do usuário para as tools do WhatsApp — derivada
+          // localmente em vez de chamar `AccessControlService.getEffectivePermissions`,
+          // que faria mais um `findOneWithProfile` por mensagem. `user.role` e
+          // `user.permissions` já vieram no preflight: `findOneByPhone` usa
+          // `findOneWithProfile` (não `findOne` — cujo `select` de ~26
+          // colunas NÃO inclui `permissions`, e com `select` parcial o
+          // TypeORM devolve a propriedade como `undefined`, não como o valor
+          // real), então `user.permissions` aqui é sempre o array cru vindo
+          // do banco. `isDoctor` é equivalente a
+          // `accessibleDoctorIds.includes(userId)` porque
+          // `computeAccessibleDoctorIds` só inclui o próprio id quando
+          // `user.doctorProfile` existe (consulta com relation já feita ali,
+          // cacheada acima) — sem isso teríamos que carregar a relation de novo
+          // só para saber se é médico.
+          //
+          // JANELA DE STALENESS: diferente do guard HTTP (que resolve a
+          // permissão a cada request via `JwtStrategy`), aqui `user` vem do
+          // cache de 10 min por telefone (`MessageProcessorService.userCache`)
+          // e `accessibleDoctorIds` do cache de 5 min por userId
+          // (`doctorIdsCache` acima). Revogar `permissions`/`doctor_profile`,
+          // desativar ou excluir um colaborador não tem efeito imediato no
+          // WhatsApp — só depois que os dois caches expirarem OU que
+          // `onUserAccessChanged` (abaixo, assinado em `user.access_changed`)
+          // os invalidar. `UsersService` emite esse evento em
+          // `updateCollaborator` (quando `permissions`/`isDoctor` mudam),
+          // `deleteCollaborator`, `bulkDeleteCollaborators` e
+          // `toggleCollaboratorStatus`.
+          const permissions = resolveEffectivePermissions({
+            role: user.role,
+            permissions: user.permissions,
+            isDoctor: accessibleDoctorIds.includes(userId),
+          });
           const conversation =
             await this.conversationService.getOrCreateConversation(
               phone,
@@ -591,6 +677,7 @@ export class AiOrchestratorService {
             phone,
             accessibleDoctorIds,
             ownerId,
+            permissions,
             conversationId: conversation.id,
             inboundMedia: data.media || [],
             piiVault: this.piiVault,

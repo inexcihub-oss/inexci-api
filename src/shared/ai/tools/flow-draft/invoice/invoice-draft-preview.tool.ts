@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftDeps } from '../_types';
 
@@ -7,6 +8,7 @@ export function buildInvoiceDraftPreviewTool(deps: FlowDraftDeps): AiTool {
   const { draftService } = deps;
   return {
     name: 'invoice_draft_preview',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

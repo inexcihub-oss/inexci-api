@@ -75,6 +75,23 @@ export class ToolExecutorService {
         const args = JSON.parse(fn.arguments);
 
         const tool = this.toolRegistry.getTool(fn.name);
+
+        if (
+          tool?.requiredPermission &&
+          !(context.permissions ?? []).includes(tool.requiredPermission)
+        ) {
+          this.logger.warn(
+            `[TOOL_PERMISSION] ${fn.name} recusada para user=${context.userId}`,
+          );
+          results.push({
+            toolCallId: call.id,
+            output:
+              'Você não tem permissão para esta ação na plataforma. ' +
+              'Fale com o administrador da sua clínica.',
+          });
+          continue;
+        }
+
         const cacheConfig = tool?.cacheable;
         const bypassedService = tool?.bypassesService ?? false;
 

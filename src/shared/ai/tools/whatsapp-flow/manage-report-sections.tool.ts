@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
@@ -16,6 +17,7 @@ export function buildManageReportSectionsTool(
   const { surgeryRequestRepo, surgeryRequestsService, activityRepo } = deps;
   return {
     name: 'manage_report_sections',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

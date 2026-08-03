@@ -9,6 +9,7 @@ import { DoctorProfileRepository } from '../../database/repositories/doctor-prof
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
 import { User, UserRole } from '../../database/entities/user.entity';
 import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
+import { Permission, resolveEffectivePermissions } from '../permissions';
 
 /**
  * AccessControlService — centraliza toda a lógica de tenant isolation e
@@ -237,6 +238,25 @@ export class AccessControlService {
         'Apenas médicos podem realizar esta operação.',
       );
     }
+  }
+
+  /**
+   * Permissão efetiva do usuário, para os caminhos que não passam pelo guard
+   * HTTP — hoje, o assistente do WhatsApp. O orquestrador de IA prefere
+   * derivar isso localmente (ver `AiOrchestratorService`) reaproveitando o
+   * `user` do preflight e o `accessibleDoctorIds` já resolvido, para não
+   * pagar mais uma consulta por mensagem; este método fica disponível para
+   * quem não tem esses dados em mãos.
+   */
+  async getEffectivePermissions(userId: string): Promise<Permission[]> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!user) return [];
+
+    return resolveEffectivePermissions({
+      role: user.role,
+      permissions: user.permissions,
+      isDoctor: !!user.doctorProfile,
+    });
   }
 
   /**

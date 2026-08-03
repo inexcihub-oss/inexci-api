@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { PiiVaultService } from '../services/pii-vault.service';
+import { Permission } from 'src/shared/permissions';
 
 /**
  * Token de injeção multi-provider para coletar o array de todas as tools
@@ -31,6 +32,12 @@ export interface ToolContext {
    * Tools devem usá-lo para tokenizar dados sensíveis antes de devolvê-los à IA.
    */
   piiVault?: PiiVaultService;
+  /**
+   * Permissão efetiva do usuário. O guard HTTP não cobre o WhatsApp, então a
+   * checagem acontece no `ToolExecutorService`. Ausente (contexto montado por
+   * um caminho legado) é tratado como "nenhuma permissão" — fail-closed.
+   */
+  permissions?: Permission[];
 }
 
 /**
@@ -65,5 +72,10 @@ export interface AiTool {
    * Remover este campo da tool é o critério de "migration concluída".
    */
   bypassesService?: boolean;
+  /**
+   * Área que a tool exige. Ausente = qualquer usuário autenticado da conta.
+   * Checado pelo `ToolExecutorService` contra `context.permissions`.
+   */
+  requiredPermission?: Permission;
   execute(args: Record<string, any>, context: ToolContext): Promise<string>;
 }

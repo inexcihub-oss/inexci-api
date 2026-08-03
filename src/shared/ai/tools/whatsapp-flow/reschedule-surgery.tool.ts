@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
@@ -13,6 +14,7 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
   const { surgeryRequestRepo, workflowService, activityRepo } = deps;
   return {
     name: 'reschedule_surgery',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

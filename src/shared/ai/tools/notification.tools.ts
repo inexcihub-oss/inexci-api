@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
 import { SurgeryRequestNotificationService } from '../../../modules/surgery-requests/services/surgery-request-notification.service';
@@ -19,6 +20,7 @@ export function buildNotificationTools(
 ): AiTool[] {
   const sendNotification: AiTool = {
     name: 'send_notification',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

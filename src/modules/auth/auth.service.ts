@@ -32,6 +32,7 @@ import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 import { RefreshTokenStore } from './refresh-token.store';
+import { resolveEffectivePermissions } from 'src/shared/permissions';
 
 @Injectable()
 @LogTrace()
@@ -216,6 +217,14 @@ export class AuthService {
         ownerId: user.ownerId,
         isDoctor: !!doctorProfile,
         emailVerified: user.emailVerified ?? false,
+        // A permissão EFETIVA, não a coluna crua — `register` só cria
+        // ADMIN (dono da conta), então isto é sempre ALL_PERMISSIONS
+        // independente do que `user.permissions` trouxer.
+        permissions: resolveEffectivePermissions({
+          role: user.role,
+          permissions: user.permissions,
+          isDoctor: !!doctorProfile,
+        }),
         doctorProfile: doctorProfile
           ? {
               id: doctorProfile.id,
@@ -236,12 +245,16 @@ export class AuthService {
     const result = await this.validateUser(user.email, user.password);
 
     if (result) {
-      // Buscar doctorProfile para o response
-      const doctorProfile = await this.doctorProfileRepository.findByUserId(
-        result.id,
-      );
-      // Buscar user com ownerId
-      const fullUser = await this.userRepository.findOne({ id: result.id });
+      // Uma única consulta traz doctorProfile, ownerId, emailVerified e a
+      // coluna crua de `permissions`/`isPlatformAdmin` — precisa da coluna
+      // crua para montar a permissão EFETIVA da resposta (mesmo padrão de
+      // `me`/`getProfile`). Substitui as duas consultas anteriores
+      // (`doctorProfileRepository.findByUserId` + `userRepository.findOne`,
+      // cujo `select` não inclui `permissions`).
+      const fullUser = await this.userRepository.findOneWithProfile({
+        id: result.id,
+      });
+      const doctorProfile = fullUser?.doctorProfile ?? null;
       const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
 
       const refreshToken = await this.createRefreshToken(result.id);
@@ -270,6 +283,14 @@ export class AuthService {
           account,
           isDoctor: !!doctorProfile,
           emailVerified: fullUser?.emailVerified ?? false,
+          // A permissão EFETIVA, não a coluna crua — decide o que o
+          // AuthContext do frontend (`permissions`/`can`) libera para este
+          // usuário logo após o login, inclusive para o dono da conta.
+          permissions: resolveEffectivePermissions({
+            role: result.role,
+            permissions: fullUser?.permissions,
+            isDoctor: !!doctorProfile,
+          }),
           doctorProfile: doctorProfile
             ? {
                 id: doctorProfile.id,
@@ -315,6 +336,15 @@ export class AuthService {
       avatarUrl,
       isDoctor: !!doctorProfile,
       emailVerified: user.emailVerified ?? false,
+      // A permissão EFETIVA, não a coluna crua — é o que decide o que o
+      // AuthContext do frontend (`permissions`/`can`) libera no menu,
+      // inclusive para o dono da conta. `user` já vem de
+      // `findOneWithProfile`, cujo `select` inclui a coluna `permissions`.
+      permissions: resolveEffectivePermissions({
+        role: user.role,
+        permissions: user.permissions,
+        isDoctor: !!doctorProfile,
+      }),
       doctorProfile: doctorProfile
         ? {
             id: doctorProfile.id,

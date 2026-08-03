@@ -14,6 +14,8 @@ import {
   AuthenticatedUser,
   CurrentUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import { ClinicalRecordTemplatesService } from './clinical-record-templates.service';
 import { CreateClinicalRecordTemplateDto } from './dto/create-clinical-record-template.dto';
 import { UpdateClinicalRecordTemplateDto } from './dto/update-clinical-record-template.dto';
@@ -21,6 +23,7 @@ import { UpdateClinicalRecordTemplateDto } from './dto/update-clinical-record-te
 @ApiTags('Modelos de anamnese')
 @ApiBearerAuth()
 @Controller('clinical-records/templates')
+@RequirePermission(Permission.ATENDIMENTO)
 export class ClinicalRecordTemplatesController {
   constructor(
     private readonly templatesService: ClinicalRecordTemplatesService,

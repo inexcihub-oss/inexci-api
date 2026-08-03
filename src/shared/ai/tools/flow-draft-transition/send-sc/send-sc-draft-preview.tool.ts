@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftTransitionDeps } from '../_types';
 
@@ -9,6 +10,7 @@ export function buildSendScDraftPreviewTool(
   const { draftService, pendencyValidator } = deps;
   return {
     name: 'send_sc_draft_preview',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

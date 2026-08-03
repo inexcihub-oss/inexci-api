@@ -14,6 +14,8 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import { ClinicalRecordsService } from './clinical-records.service';
 import { CreateClinicalRecordDto } from './dto/create-clinical-record.dto';
 import { UpdateClinicalRecordDto } from './dto/update-clinical-record.dto';
@@ -21,6 +23,7 @@ import { UpdateClinicalRecordDto } from './dto/update-clinical-record.dto';
 @ApiTags('Prontuário')
 @ApiBearerAuth()
 @Controller('clinical-records')
+@RequirePermission(Permission.ATENDIMENTO)
 export class ClinicalRecordsController {
   constructor(
     private readonly clinicalRecordsService: ClinicalRecordsService,

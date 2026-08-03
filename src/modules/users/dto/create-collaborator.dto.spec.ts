@@ -1,6 +1,7 @@
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CreateCollaboratorDto } from './create-collaborator.dto';
+import { Permission } from 'src/shared/permissions';
 
 /**
  * PRD: Reformulação Usuários/Permissões — US-004
@@ -132,5 +133,62 @@ describe('CreateCollaboratorDto', () => {
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+
+  // ─── Tarefa 13: permissions ─────
+  describe('permissions', () => {
+    it('deve aceitar valores válidos do enum Permission', async () => {
+      const dto = plainToInstance(CreateCollaboratorDto, {
+        name: 'Ana',
+        email: 'ana@email.com',
+        phone: '11999998888',
+        permissions: [Permission.AGENDA, Permission.SOLICITACOES],
+      });
+
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('deve aceitar sem permissions (omitido)', async () => {
+      const dto = plainToInstance(CreateCollaboratorDto, {
+        name: 'Ana',
+        email: 'ana@email.com',
+        phone: '11999998888',
+      });
+
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('deve falhar com valor fora do enum Permission', async () => {
+      const dto = plainToInstance(CreateCollaboratorDto, {
+        name: 'Ana',
+        email: 'ana@email.com',
+        phone: '11999998888',
+        permissions: ['area-inexistente'],
+      });
+
+      const errors = await validate(dto);
+      const permissionsError = errors.find((e) => e.property === 'permissions');
+      expect(permissionsError).toBeDefined();
+      expect(permissionsError?.constraints).toHaveProperty('isEnum');
+    });
+
+    /**
+     * `null` explícito não pode passar como se fosse "omitido" — vira erro
+     * de validação (400), não segue adiante para a coluna `text[] NOT NULL`.
+     */
+    it('deve falhar com permissions null explícito', async () => {
+      const dto = plainToInstance(CreateCollaboratorDto, {
+        name: 'Ana',
+        email: 'ana@email.com',
+        phone: '11999998888',
+        permissions: null,
+      });
+
+      const errors = await validate(dto);
+      const permissionsError = errors.find((e) => e.property === 'permissions');
+      expect(permissionsError).toBeDefined();
+    });
   });
 });

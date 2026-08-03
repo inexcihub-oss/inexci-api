@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
@@ -20,6 +21,7 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
   } = deps;
   return {
     name: 'set_health_plan',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

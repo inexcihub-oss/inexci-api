@@ -15,9 +15,9 @@ describe('Permissões declaradas no módulo de SC', () => {
   const reflector = new Reflector();
 
   it('exige solicitações no controller inteiro', () => {
-    expect(reflector.get(PERMISSIONS_KEY, SurgeryRequestsController)).toEqual(
-      [Permission.SOLICITACOES],
-    );
+    expect(reflector.get(PERMISSIONS_KEY, SurgeryRequestsController)).toEqual([
+      Permission.SOLICITACOES,
+    ]);
   });
 
   /** A agenda usa este endpoint para o filtro de médico. */

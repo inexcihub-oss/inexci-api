@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
 import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { formatScProtocolForDisplay } from '../protocol.helpers';
@@ -17,6 +18,7 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
   } = deps;
   return {
     name: 'sc_draft_commit',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

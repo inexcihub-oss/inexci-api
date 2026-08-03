@@ -30,7 +30,7 @@ describe('JwtStrategy — permissões', () => {
     expect(resultado.permissions).toEqual([Permission.AGENDA]);
   });
 
-  it('acrescenta atendimento e solicitações quando há doctorProfile', async () => {
+  it('acrescenta agenda, atendimento e solicitações quando há doctorProfile', async () => {
     userRepository.findOneWithProfile.mockResolvedValue({
       id: 'u-2',
       ownerId: 'o-1',
@@ -43,6 +43,7 @@ describe('JwtStrategy — permissões', () => {
     const resultado = await strategy.validate({ userId: 'u-2' } as never);
 
     expect(resultado.permissions).toEqual([
+      Permission.AGENDA,
       Permission.ATENDIMENTO,
       Permission.SOLICITACOES,
     ]);

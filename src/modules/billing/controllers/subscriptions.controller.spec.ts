@@ -9,8 +9,12 @@ import { StartCheckoutDto } from '../dto/start-checkout.dto';
 
 describe('SubscriptionsController — só o dono mexe em dinheiro', () => {
   const subscriptionService = {
-    startCheckout: jest.fn().mockResolvedValue({ url: 'https://stripe.test/checkout' }),
-    openBillingPortal: jest.fn().mockResolvedValue({ url: 'https://stripe.test/portal' }),
+    startCheckout: jest
+      .fn()
+      .mockResolvedValue({ url: 'https://stripe.test/checkout' }),
+    openBillingPortal: jest
+      .fn()
+      .mockResolvedValue({ url: 'https://stripe.test/portal' }),
   };
   const quotaService = { getQuotaSnapshot: jest.fn() };
 

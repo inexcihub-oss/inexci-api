@@ -28,10 +28,13 @@ import {
   AuthenticatedUser,
   CurrentUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 
 @ApiTags('Documentos do Atendimento')
 @ApiBearerAuth()
 @Controller('clinical-records/documents')
+@RequirePermission(Permission.ATENDIMENTO)
 export class ClinicalDocumentsController {
   constructor(
     private readonly clinicalDocumentsService: ClinicalDocumentsService,
