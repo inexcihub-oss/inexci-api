@@ -13,13 +13,27 @@ function makeCtx(req: any): any {
 describe('SurgeryRequestOwnerGuard', () => {
   const reflector = { getAllAndOverride: jest.fn() } as unknown as Reflector;
 
-  function makeGuard(sr: { ownerId: string } | null) {
+  function makeGuard(
+    sr: { ownerId: string; doctorId?: string } | null,
+    canAccessDoctor: boolean | jest.Mock = true,
+  ) {
     const repo = {
       findOneSimple: jest.fn().mockResolvedValue(sr),
     };
+    const accessControl = {
+      canAccessDoctor:
+        typeof canAccessDoctor === 'function'
+          ? canAccessDoctor
+          : jest.fn().mockResolvedValue(canAccessDoctor),
+    };
     return {
-      guard: new SurgeryRequestOwnerGuard(reflector, repo as never),
+      guard: new SurgeryRequestOwnerGuard(
+        reflector,
+        repo as never,
+        accessControl as never,
+      ),
       repo,
+      accessControl,
     };
   }
 
@@ -28,10 +42,10 @@ describe('SurgeryRequestOwnerGuard', () => {
   });
 
   it('bloqueia acesso cross-tenant (403)', async () => {
-    const { guard } = makeGuard({ ownerId: 'clinica-B' });
+    const { guard } = makeGuard({ ownerId: 'clinica-B', doctorId: 'medico-1' });
     const ctx = makeCtx({
       params: { id: 'sc-de-B' },
-      user: { ownerId: 'clinica-A' },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
     });
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -39,10 +53,10 @@ describe('SurgeryRequestOwnerGuard', () => {
   });
 
   it('permite acesso ao próprio tenant', async () => {
-    const { guard } = makeGuard({ ownerId: 'clinica-A' });
+    const { guard } = makeGuard({ ownerId: 'clinica-A', doctorId: 'medico-1' });
     const ctx = makeCtx({
       params: { id: 'sc-de-A' },
-      user: { ownerId: 'clinica-A' },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
     });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
@@ -51,7 +65,7 @@ describe('SurgeryRequestOwnerGuard', () => {
     const { guard } = makeGuard(null);
     const ctx = makeCtx({
       params: { id: 'inexistente' },
-      user: { ownerId: 'clinica-A' },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
     });
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
       NotFoundException,
@@ -59,10 +73,13 @@ describe('SurgeryRequestOwnerGuard', () => {
   });
 
   it('resolve o id a partir de body.surgeryRequestId', async () => {
-    const { guard, repo } = makeGuard({ ownerId: 'clinica-A' });
+    const { guard, repo } = makeGuard({
+      ownerId: 'clinica-A',
+      doctorId: 'medico-1',
+    });
     const ctx = makeCtx({
       body: { surgeryRequestId: 'sc-1', id: 'item-99' },
-      user: { ownerId: 'clinica-A' },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
     });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(repo.findOneSimple).toHaveBeenCalledWith({ id: 'sc-1' });
@@ -70,19 +87,63 @@ describe('SurgeryRequestOwnerGuard', () => {
 
   it('libera rotas sem id de recurso (listagens)', async () => {
     const { guard, repo } = makeGuard(null);
-    const ctx = makeCtx({ user: { ownerId: 'clinica-A' } });
+    const ctx = makeCtx({ user: { userId: 'u1', ownerId: 'clinica-A' } });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(repo.findOneSimple).not.toHaveBeenCalled();
   });
 
   it('respeita @SkipSurgeryOwner()', async () => {
     (reflector.getAllAndOverride as jest.Mock).mockReturnValue(true);
-    const { guard, repo } = makeGuard({ ownerId: 'clinica-B' });
+    const { guard, repo } = makeGuard({
+      ownerId: 'clinica-B',
+      doctorId: 'medico-1',
+    });
     const ctx = makeCtx({
       params: { id: 'template-1' },
-      user: { ownerId: 'clinica-A' },
+      user: { userId: 'u1', ownerId: 'clinica-A' },
     });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(repo.findOneSimple).not.toHaveBeenCalled();
+  });
+
+  // Recorte por médico (user_doctor_access) — dentro da mesma clínica, o
+  // usuário só alcança as SCs dos médicos aos quais está vinculado.
+  describe('recorte por médico', () => {
+    const scDoMedicoB = {
+      id: 'sc-1',
+      ownerId: 'clinica-a',
+      doctorId: 'medico-b',
+    };
+
+    it('bloqueia colaborador da mesma clinica sem vinculo com o medico', async () => {
+      const { guard, accessControl } = makeGuard(scDoMedicoB, false);
+
+      await expect(
+        guard.canActivate(
+          makeCtx({
+            params: { id: 'sc-1' },
+            user: { userId: 'u1', ownerId: 'clinica-a' },
+          }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(accessControl.canAccessDoctor).toHaveBeenCalledWith(
+        'u1',
+        'medico-b',
+      );
+    });
+
+    it('permite quem tem vinculo com o medico da SC', async () => {
+      const { guard } = makeGuard(scDoMedicoB, true);
+
+      await expect(
+        guard.canActivate(
+          makeCtx({
+            params: { id: 'sc-1' },
+            user: { userId: 'u1', ownerId: 'clinica-a' },
+          }),
+        ),
+      ).resolves.toBe(true);
+    });
   });
 });
