@@ -44,6 +44,10 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // Atrás do nginx: confia em exatamente 1 hop para que req.ip seja o IP real do
+  // cliente. Sem isso o rate limit vira um balde global compartilhado.
+  app.set('trust proxy', 1);
+
   // Logger custom — JSON em produção, pretty colorido em dev. Honra LOG_LEVEL
   // e enriquece cada linha com `requestId`/`userId`/`tenantId` do
   // AsyncLocalStorage populado pelo `requestContextMiddleware`.

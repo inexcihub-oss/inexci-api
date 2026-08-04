@@ -127,7 +127,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Throttle({ short: { ttl: 60000, limit: 10 } })
   @Post('check-email')
   @HttpCode(200)
   @ApiOperation({
@@ -142,7 +142,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @Post('login')
   @ApiOperation({ summary: 'Login com email e senha' })
   @ApiResponse({ status: 200, description: 'Login realizado com sucesso' })
@@ -166,7 +166,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 3600000, limit: 3 } })
+  @Throttle({ long: { ttl: 3600000, limit: 3 } })
   @Post('sendRecoveryPasswordEmail')
   @ApiOperation({ summary: 'Enviar email de recuperação de senha' })
   @ApiResponse({ status: 200, description: 'Email enviado' })
@@ -175,7 +175,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @Post('validateRecoveryPasswordCode')
   @ApiOperation({ summary: 'Validar código de recuperação de senha' })
   @ApiResponse({ status: 200, description: 'Código válido' })
@@ -184,7 +184,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @Throttle({ short: { ttl: 60000, limit: 5 } })
   @Post('changePassword')
   @ApiOperation({ summary: 'Alterar senha (com código de recuperação)' })
   @ApiResponse({ status: 200, description: 'Senha alterada' })
@@ -212,7 +212,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Throttle({ short: { ttl: 60000, limit: 10 } })
   @Post('refresh')
   @ApiOperation({ summary: 'Renovar access token via refresh token' })
   @ApiResponse({ status: 200, description: 'Token renovado' })
@@ -272,7 +272,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @Throttle({ short: { ttl: 60000, limit: 10 } })
   @Post('verifyEmail')
   @ApiOperation({ summary: 'Confirmar e-mail via token' })
   @ApiResponse({ status: 200, description: 'E-mail confirmado' })
@@ -280,7 +280,7 @@ export class AuthController {
     return await this.authService.verifyEmail(token);
   }
 
-  @Throttle({ default: { ttl: 3600000, limit: 5 } })
+  @Throttle({ long: { ttl: 3600000, limit: 5 } })
   @Post('resendEmailVerification')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Reenviar e-mail de confirmação' })
