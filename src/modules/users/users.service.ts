@@ -177,7 +177,13 @@ export class UsersService {
 
     // Admin pode ver qualquer um da conta
     if (requestingUser.role === UserRole.ADMIN) {
-      user = await this.userRepository.findOne({ id });
+      // Escopo de tenant igual ao do findMany logo acima. Sem ownerId aqui,
+      // qualquer conta (todo register cria um ADMIN) lia CPF, endereco e a
+      // signed URL da assinatura de medicos de outras clinicas.
+      user = await this.userRepository.findOne({
+        id,
+        ownerId: requestingUser.ownerId,
+      });
       if (!user) throw new NotFoundException('Usuário não encontrado');
     } else {
       // Médico (com doctorProfile) pode ver a si mesmo ou quem tem acesso
