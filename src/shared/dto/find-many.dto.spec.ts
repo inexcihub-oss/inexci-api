@@ -45,4 +45,15 @@ describe('FindManySharedDto', () => {
     expect(props).toContain('skip');
     expect(props).toContain('take');
   });
+
+  it('recusa take acima do teto', () => {
+    const dto = plainToInstance(FindManySharedDto, { take: 1_000_000 });
+    const erros = validateSync(dto);
+    expect(erros.length).toBeGreaterThan(0);
+  });
+
+  it('aceita take dentro do teto', () => {
+    const dto = plainToInstance(FindManySharedDto, { take: 100 });
+    expect(validateSync(dto)).toHaveLength(0);
+  });
 });
