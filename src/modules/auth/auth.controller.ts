@@ -30,6 +30,8 @@ import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decor
 import { validationCodeDto } from './dto/validation-code.dto';
 import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
+import { SendRecoveryDto } from './dto/send-recovery.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -170,8 +172,8 @@ export class AuthController {
   @Post('sendRecoveryPasswordEmail')
   @ApiOperation({ summary: 'Enviar email de recuperação de senha' })
   @ApiResponse({ status: 200, description: 'Email enviado' })
-  async sendRecoveryPasswordEmail(@Body('email') email: string) {
-    return await this.authService.sendRecoveryPasswordEmail(email);
+  async sendRecoveryPasswordEmail(@Body() body: SendRecoveryDto) {
+    return await this.authService.sendRecoveryPasswordEmail(body.email);
   }
 
   @Public()
@@ -276,8 +278,8 @@ export class AuthController {
   @Post('verifyEmail')
   @ApiOperation({ summary: 'Confirmar e-mail via token' })
   @ApiResponse({ status: 200, description: 'E-mail confirmado' })
-  async verifyEmail(@Body('token') token: string) {
-    return await this.authService.verifyEmail(token);
+  async verifyEmail(@Body() body: VerifyEmailDto) {
+    return await this.authService.verifyEmail(body.token);
   }
 
   @Throttle({ long: { ttl: 3600000, limit: 5 } })

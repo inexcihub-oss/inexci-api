@@ -6,6 +6,7 @@ import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
 import { BulkDeleteCollaboratorsDto } from './dto/bulk-delete-collaborators.dto';
+import { ResetCollaboratorPasswordDto } from './dto/reset-collaborator-password.dto';
 import { UsersService } from './users.service';
 import {
   Body,
@@ -234,7 +235,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Redefinir senha do colaborador' })
   async resetCollaboratorPassword(
     @Param('id') id: string,
-    @Body() body: { password: string },
+    @Body() body: ResetCollaboratorPasswordDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.usersService.resetCollaboratorPassword(
