@@ -1,0 +1,108 @@
+name: Auditoria de dependências
+
+# yarn.lock deste repo usa Yarn 1 (Classic) — confirmado via `yarn -v` (1.22.22).
+# `yarn npm audit` (sintaxe Yarn Berry) não existe aqui; o equivalente é
+# `yarn audit`. Ver PLANO-CORRECOES-SEGURANCA.md, Task 31, Passo 5.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # toda segunda, 09:00 UTC
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'yarn.lock'
+      - 'audit-allowlist.json'
+      - '.github/workflows/audit.yml'
+
+jobs:
+  audit:
+    name: Audit (inexci-api)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: yarn install --frozen-lockfile
+
+      - name: Relatório completo (informativo, não bloqueia)
+        # Cobre tudo (inclusive transitivas) so para ficar visivel no log do job.
+        # Ruido esperado: a maioria das entradas aqui e transitiva e sem
+        # caminho de exploracao nesta aplicacao (ver audit-allowlist.json).
+        run: yarn audit --level high --groups dependencies || true
+
+      - name: Bloquear vulnerabilidade HIGH/CRITICAL em dependência direta de produção
+        # So falha quando o proprio pacote vulneravel e uma dependencia DIRETA
+        # de producao (package.json > dependencies) e nao esta documentado em
+        # audit-allowlist.json. Transitivas nunca bloqueiam — o ruido delas
+        # treinaria o time a ignorar o job.
+        run: |
+          set -uo pipefail
+          yarn audit --level high --groups dependencies --json > audit-report.jsonl || true
+          node <<'EOF'
+          const fs = require('fs');
+
+          const pkg = require('./package.json');
+          const allowlist = require('./audit-allowlist.json');
+          const allowedPkgs = new Set(allowlist.excecoes.map((e) => e.pacote));
+          const directDeps = new Set(Object.keys(pkg.dependencies || {}));
+
+          const lines = fs
+            .readFileSync('audit-report.jsonl', 'utf8')
+            .split('\n')
+            .filter(Boolean);
+
+          const blocking = [];
+
+          for (const line of lines) {
+            let entry;
+            try {
+              entry = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (entry.type !== 'auditAdvisory') continue;
+
+            const advisory = entry.data.advisory;
+            const mod = advisory.module_name;
+
+            if (!directDeps.has(mod)) continue;
+
+            // "paths" e uma lista de cadeias tipo "a>b>c"; um caminho sem ">"
+            // significa que o proprio pacote (nao um dependente dele la no
+            // fundo da arvore) e quem esta listado direto no package.json.
+            const isDirectPath = advisory.findings.some((f) =>
+              f.paths.some((p) => !p.includes('>')),
+            );
+            if (!isDirectPath) continue;
+
+            if (allowedPkgs.has(mod)) {
+              console.log(
+                `[allowlist] ${mod}: ${advisory.title} (${advisory.severity}) — ver audit-allowlist.json`,
+              );
+              continue;
+            }
+
+            blocking.push(advisory);
+          }
+
+          if (blocking.length > 0) {
+            console.error(
+              '\nVulnerabilidade HIGH/CRITICAL em dependencia DIRETA de producao sem allowlist:\n',
+            );
+            for (const adv of blocking) {
+              console.error(
+                `- ${adv.module_name} (${adv.severity}): ${adv.title}\n  ${adv.url}`,
+              );
+            }
+            console.error(
+              '\nSe for ruido sem caminho de exploracao nesta aplicacao, documente a excecao' +
+                ' em inexci-api/audit-allowlist.json com motivo e data de reavaliacao.',
+            );
+            process.exit(1);
+          }
+
+          console.log('Nenhuma vulnerabilidade bloqueante em dependencia direta de producao.');
+          EOF

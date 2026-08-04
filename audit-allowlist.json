@@ -1,0 +1,23 @@
+{
+  "_comentario": "Vulnerabilidades transitivas sem caminho de exploracao nesta aplicacao. Reavaliar em cada data indicada.",
+  "excecoes": [
+    {
+      "pacote": "tar",
+      "via": "bcrypt > @mapbox/node-pre-gyp",
+      "motivo": "Usado apenas em build time para baixar binario nativo; nao processa entrada do usuario em runtime.",
+      "reavaliar_em": "2027-02-04"
+    },
+    {
+      "pacote": "basic-ftp",
+      "via": "puppeteer > proxy-agent",
+      "motivo": "Caminho so e alcancado com proxy configurado; a aplicacao nao configura proxy no Puppeteer.",
+      "reavaliar_em": "2027-02-04"
+    },
+    {
+      "pacote": "axios",
+      "via": "twilio",
+      "motivo": "O SDK do Twilio usa seu proprio axios; a aplicacao nao passa URL controlada pelo usuario para ele.",
+      "reavaliar_em": "2027-02-04"
+    }
+  ]
+}
