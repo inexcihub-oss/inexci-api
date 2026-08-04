@@ -954,12 +954,14 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() - 60 * 1000), // expired 1 minute ago
       });
 
+      // Mensagem generica de proposito (anti-enumeration): nao revela se o
+      // codigo esta expirado, ja usado ou simplesmente nao existe.
       await expect(
         service.validateRecoveryPasswordCode({
           code: '123456',
           email: 'test@example.com',
         }),
-      ).rejects.toThrow('Código expirado');
+      ).rejects.toThrow('Código inválido ou expirado');
     });
 
     it('marca o código como usado e emite um reset token', async () => {

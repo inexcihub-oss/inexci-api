@@ -33,6 +33,10 @@ import { ProcedureRepository } from 'src/database/repositories/procedure.reposit
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 import { RefreshTokenStore } from './refresh-token.store';
 import { resolveEffectivePermissions } from 'src/shared/permissions';
+import {
+  assertCodigoUtilizavel,
+  consumirTentativa,
+} from './recovery-code-attempts.util';
 
 @Injectable()
 @LogTrace()
@@ -440,20 +444,19 @@ export class AuthService {
     const user = await this.userRepository.findOne({ email: normalizedEmail });
     if (!user) throw new NotFoundException('Código inválido');
 
-    const validationCode = await this.recoveryCodeRepository.findOne({
+    const registro = await this.recoveryCodeRepository.findOne({
       userId: user.id,
-      code: normalizedCode,
       used: false,
     });
 
-    if (!validationCode) throw new NotFoundException('Código inválido');
+    assertCodigoUtilizavel(registro);
 
-    if (
-      validationCode.expiresAt &&
-      new Date() > new Date(validationCode.expiresAt)
-    ) {
-      throw new BadRequestException('Código expirado');
+    if (registro!.code !== normalizedCode) {
+      await consumirTentativa(this.recoveryCodeRepository, registro!);
+      throw new BadRequestException('Código inválido ou expirado');
     }
+
+    const validationCode = registro!;
 
     // Marca o código como usado e emite um reset token de uso único e curta
     // duração, exigido no changePassword.

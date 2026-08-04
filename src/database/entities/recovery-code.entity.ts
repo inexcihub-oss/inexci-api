@@ -20,8 +20,15 @@ export class RecoveryCode {
   @Column({ type: 'boolean', default: false })
   used: boolean;
 
-  @Column({ type: 'varchar', length: 6 })
+  @Column({ type: 'varchar', length: 64 })
   code: string;
+
+  /**
+   * Tentativas de validacao ja feitas contra este codigo. Ao atingir
+   * MAX_TENTATIVAS_RECOVERY o registro e marcado como usado.
+   */
+  @Column({ type: 'int', default: 0 })
+  attempts: number;
 
   @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
   expiresAt: Date | null;

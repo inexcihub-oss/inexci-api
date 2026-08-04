@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import * as sanitizeHtml from 'sanitize-html';
 import { FindOptionsWhere, Not, In, QueryFailedError } from 'typeorm';
@@ -728,17 +729,17 @@ export class UsersService {
       });
     }
 
-    // Gera token de convite (recovery code) válido por 72 horas
+    // Gera token de convite (recovery code) válido por 24 horas
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
     });
-    const inviteToken = generateValidationCode(6);
+    const inviteToken = randomUUID();
     await this.recoveryCodeRepository.create({
       userId: newUser.id,
       used: false,
       code: inviteToken,
-      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000), // 72 horas
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 horas
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
