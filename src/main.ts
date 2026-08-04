@@ -17,6 +17,7 @@ import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import {
   ClassSerializerInterceptor,
@@ -38,7 +39,7 @@ async function bootstrap() {
   // Para executar seeds, use manualmente: npm run seed
   // Não executamos automaticamente para evitar duplicações em hot reload
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: true,
     bufferLogs: true,
     rawBody: true,
