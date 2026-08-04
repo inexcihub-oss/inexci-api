@@ -425,6 +425,16 @@ export class MessageProcessorService {
       { role: 'user', content: message },
     ];
 
+    // Telefone nao cadastrado: nao ha base legal nem consentimento de IA.
+    // A mensagem pode conter CPF e nome de paciente — redige antes de sair.
+    // `redactResidualPii` mascara `messages` in-place (nao retorna string).
+    if (hooks?.redactResidualPii) {
+      await hooks.redactResidualPii(messages, {
+        conversationId: `unknown:${phone}`,
+        messageSid: '',
+      });
+    }
+
     const completion = await this.openaiService.chatCompletion({
       messages,
       timeoutMs:

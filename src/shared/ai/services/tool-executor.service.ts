@@ -116,8 +116,10 @@ export class ToolExecutorService {
             results.push({ toolCallId: call.id, output: cached });
             continue;
           }
+          // Os argumentos carregam laudo, diagnostico, nome e endereco de
+          // paciente (LGPD art. 11). Loga apenas o formato, nunca o conteudo.
           this.logger.log(
-            `Executando tool: ${fn.name} args=${JSON.stringify(args)}`,
+            `Executando tool: ${fn.name} campos=[${Object.keys(args ?? {}).join(',')}]`,
           );
           const output = await this.toolRegistry.executeTool(
             fn.name,
@@ -134,8 +136,10 @@ export class ToolExecutorService {
             durationMs: Date.now() - startMs,
           } satisfies ToolTelemetryEvent);
         } else {
+          // Os argumentos carregam laudo, diagnostico, nome e endereco de
+          // paciente (LGPD art. 11). Loga apenas o formato, nunca o conteudo.
           this.logger.log(
-            `Executando tool: ${fn.name} args=${JSON.stringify(args)}`,
+            `Executando tool: ${fn.name} campos=[${Object.keys(args ?? {}).join(',')}]`,
           );
           const output = await this.toolRegistry.executeTool(
             fn.name,

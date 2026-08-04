@@ -105,7 +105,11 @@ export class WhatsappDocumentProcessorService {
       buffer,
       mimeType: pending.contentType,
       filename: pending.fileName,
-      sessionId: messageSid,
+      // Precisa ser o mesmo id usado em `ai-orchestrator.service.ts`
+      // (`conversation.id`) para o cofre de PII e o `detokenizeArg`. Usar o
+      // `messageSid` aqui deixava os bindings do OCR orfaos e reiniciava o
+      // indice de tokens, colidindo `{{cpf_1}}` entre pacientes diferentes.
+      sessionId: conversationId,
       intent,
     });
 
