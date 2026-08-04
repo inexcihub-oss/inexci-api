@@ -81,8 +81,12 @@ export class DocumentsService {
   }
 
   async delete(data: DeleteDocumentDto) {
+    // Busca escopada pela SC: sem isto, o DELETE no banco nao afetava nada
+    // (o WHERE composto nao casava) mas o arquivo da outra clinica era
+    // apagado do R2 assim mesmo.
     const document = await this.documentRepository.findOneSimple({
       id: data.id,
+      surgeryRequestId: data.surgeryRequestId,
     });
     if (!document)
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
