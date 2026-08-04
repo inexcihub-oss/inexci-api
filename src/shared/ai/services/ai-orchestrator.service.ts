@@ -618,12 +618,15 @@ export class AiOrchestratorService {
           const documentHint =
             await this.documentIntakeService.buildDocumentPendingHint(phone);
           if (documentHint)
+            // role: 'user' — documentHint carrega texto extraido de arquivo
+            // enviado por terceiro; nunca deve entrar como 'system'.
             this.injectSystemHint(
               messages,
               documentHint,
               'AI_DOC_PENDING_HINT',
               data.messageSid,
               conversation.id,
+              'user',
             );
 
           // Filtra tools pelo draft ativo para não estourar o limite de 128
@@ -942,10 +945,15 @@ export class AiOrchestratorService {
   }
 
   /**
-   * Insere `hint` como mensagem `system` logo após o último bloco de system
-   * prompts iniciais, antes da janela de mensagens recentes. Os três hints
-   * de contexto (numeric choice, pending confirmation, document pending)
-   * compartilham exatamente essa lógica.
+   * Insere `hint` logo após o último bloco de system prompts iniciais, antes
+   * da janela de mensagens recentes. Os três hints de contexto (numeric
+   * choice, pending confirmation, document pending) compartilham essa lógica.
+   *
+   * `role` é `'system'` por padrão (hints determinísticos gerados pelo nosso
+   * próprio código). O hint de documento pendente carrega texto extraído de
+   * arquivo enviado por terceiro (OCR/Vision) — mesmo já delimitado e
+   * marcado como não confiável por `montarBlocoDeDocumento`, ele nunca deve
+   * entrar como `role: 'system'`, a posição de maior confiança do prompt.
    */
   private injectSystemHint(
     messages: OpenAI.ChatCompletionMessageParam[],
@@ -953,10 +961,11 @@ export class AiOrchestratorService {
     tag: string,
     messageSid: string,
     convId: string,
+    role: 'system' | 'user' = 'system',
   ): void {
     const insertAt = messages.findIndex((m) => m.role !== 'system');
     messages.splice(insertAt === -1 ? messages.length : insertAt, 0, {
-      role: 'system',
+      role,
       content: hint,
     });
     this.logger.log(`[${tag}] sid=${messageSid} conv=${convId} injected=true`);
