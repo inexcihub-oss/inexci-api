@@ -12,6 +12,7 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
     StorageModule,
     WhatsappModule,
     MailModule,
+    AuthModule,
   ],
   controllers: [UsersController],
   providers: [UsersService, JwtService, StorageService, DoctorHeaderRepository],

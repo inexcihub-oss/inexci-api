@@ -54,6 +54,6 @@ import {
   ],
   providers: [AuthService, JwtStrategy, StorageService, RefreshTokenStore],
   controllers: [AuthController],
-  exports: [AuthService],
+  exports: [AuthService, RefreshTokenStore],
 })
 export class AuthModule {}

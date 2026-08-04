@@ -521,6 +521,11 @@ export class AuthService {
     // Invalidate all recovery codes for this user after successful password change
     await this.recoveryCodeRepository.deleteMany({ userId: user.id });
 
+    // Trocar a senha por recuperacao precisa encerrar as sessoes existentes:
+    // sem isto, o refresh token de quem comprometeu a conta seguia valido por
+    // 7 dias e a acao de remediacao mais obvia do usuario nao remediava nada.
+    await this.revokeRefreshTokens(user.id);
+
     return { message: 'Senha alterada com sucesso' };
   }
 

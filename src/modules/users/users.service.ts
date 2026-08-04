@@ -38,6 +38,7 @@ import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { RefreshTokenStore } from '../auth/refresh-token.store';
 
 import { generateValidationCode } from 'src/shared/utils';
 
@@ -54,6 +55,7 @@ export class UsersService {
     private readonly whatsappService: WhatsappService,
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
+    private readonly refreshTokenStore: RefreshTokenStore,
     // Opcional: só usado para emitir `user.access_changed` (invalida os
     // caches de identidade/autorização do assistente do WhatsApp). Manter
     // opcional evita acoplar este service ao módulo de IA e não quebra a
@@ -1137,6 +1139,11 @@ export class UsersService {
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await this.userRepository.update(collaboratorId, { password: hashed });
+
+    // Mesma logica de `AuthService.changePassword`: redefinir a senha por
+    // admin tambem precisa encerrar as sessoes existentes do colaborador.
+    await this.refreshTokenStore.revokeAllForUser(collaborator.id);
+
     return { message: 'Senha redefinida com sucesso' };
   }
 

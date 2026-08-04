@@ -87,6 +87,9 @@ describe('UsersService — Colaboradores e Permissões', () => {
     upsert: jest.fn(),
     removeByDoctorProfileId: jest.fn(),
   };
+  const mockRefreshTokenStore = {
+    revokeAllForUser: jest.fn(),
+  };
   const mockEventEmitter = { emit: jest.fn() };
 
   beforeEach(() => {
@@ -115,6 +118,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockWhatsappService as any,
       mockConfigService as any,
       mockDoctorHeaderRepository as any,
+      mockRefreshTokenStore as any,
       mockEventEmitter as any,
     );
   });
@@ -1849,6 +1853,9 @@ describe('UsersService — Colaboradores e Permissões', () => {
           'dono-1',
         ),
       ).resolves.toEqual({ message: 'Senha redefinida com sucesso' });
+      expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
+        'collab-do-delegado',
+      );
     });
   });
 
