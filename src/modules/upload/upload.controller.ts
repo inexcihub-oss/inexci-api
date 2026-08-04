@@ -9,7 +9,6 @@ import {
   Body,
   BadRequestException,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiConsumes,
@@ -60,7 +59,6 @@ export class UploadController {
    * GET /upload/signed-url?path=avatars/uuid.png
    */
   @Get('signed-url')
-  @SkipThrottle()
   @ApiOperation({ summary: 'Gerar URL assinada para arquivo armazenado' })
   async getSignedUrl(
     @Query('path') filePath: string,
