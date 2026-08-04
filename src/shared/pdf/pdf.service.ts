@@ -297,9 +297,14 @@ const CLINICAL_DOCUMENT_PDF_OPTIONS = {
   margin: { top: '14mm', right: '14mm', bottom: '16mm', left: '14mm' },
 };
 
-const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com', 'amazonaws.com'];
+/**
+ * Hosts de onde o renderizador pode buscar recursos (assinatura, logo).
+ * Restrito ao R2: `*.amazonaws.com` aceitava API Gateway e Lambda Function
+ * URLs, que qualquer pessoa cria e usa para redirecionar a rede interna.
+ */
+const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com'];
 
-function isAllowedHost(url: string): boolean {
+export function isAllowedHost(url: string): boolean {
   try {
     const { hostname, protocol } = new URL(url);
     if (protocol !== 'https:') return false;
@@ -488,6 +493,13 @@ export class PdfService {
             const nextUrl = location.startsWith('http')
               ? location
               : new URL(location, url).href;
+            if (!isAllowedHost(nextUrl)) {
+              this.logger.warn(
+                `fetchAsDataUri: redirect para host não permitido bloqueado — ${nextUrl}`,
+              );
+              resolve(null);
+              return;
+            }
             void this.fetchAsDataUri(nextUrl, depth + 1).then(resolve);
             return;
           }
