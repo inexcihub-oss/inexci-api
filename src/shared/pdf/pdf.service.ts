@@ -877,11 +877,19 @@ export class PdfService {
         ],
       });
       const page = await browser.newPage();
-      await page.setExtraHTTPHeaders({
-        'Content-Security-Policy':
-          "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:;",
+      // A CSP anterior ia em setExtraHTTPHeaders, que define headers de
+      // REQUISICAO — CSP e header de resposta, e setContent nem gera resposta
+      // HTTP, entao a politica nunca era aplicada. O PDF nao precisa de JS:
+      // desligar o motor e a defesa que realmente vale.
+      await page.setJavaScriptEnabled(false);
+      // Bloqueia qualquer busca de rede que nao seja data: — impede que HTML
+      // injetado alcance a rede interna a partir do renderizador.
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        if (req.url().startsWith('data:')) return void req.continue();
+        return void req.abort();
       });
-      await page.setContent(html, { waitUntil: 'networkidle2' });
+      await page.setContent(html, { waitUntil: 'domcontentloaded' });
       const pdf = await page.pdf({
         format: 'A4',
         margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },
