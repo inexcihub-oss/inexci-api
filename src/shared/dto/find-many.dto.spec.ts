@@ -31,10 +31,16 @@ describe('FindManySharedDto', () => {
   });
 
   it('honra valores explícitos altos (ex.: telas que carregam tudo)', () => {
+    // O frontend usa FETCH_ALL_TAKE=1000 (lib/api.ts) em varios seletores
+    // (pacientes, convenios, hospitais, etc.) — sem a asserção de
+    // validateSync aqui, um teto abaixo de 1000 quebraria essas telas em
+    // produção sem que este teste acusasse nada (regressão real ja
+    // observada: MAX_TAKE=200 rejeitava exatamente este valor com 400).
     const dto = transform({ take: '1000' });
 
     expect(dto.skip).toBe(PAGINATION_DEFAULTS.SKIP);
     expect(dto.take).toBe(1000);
+    expect(validateSync(dto)).toHaveLength(0);
   });
 
   it('rejeita take menor que 1 e skip negativo', () => {
@@ -52,8 +58,19 @@ describe('FindManySharedDto', () => {
     expect(erros.length).toBeGreaterThan(0);
   });
 
+  it('recusa take logo acima do teto (1001)', () => {
+    const dto = plainToInstance(FindManySharedDto, { take: 1001 });
+    const erros = validateSync(dto);
+    expect(erros.length).toBeGreaterThan(0);
+  });
+
   it('aceita take dentro do teto', () => {
     const dto = plainToInstance(FindManySharedDto, { take: 100 });
+    expect(validateSync(dto)).toHaveLength(0);
+  });
+
+  it('aceita take exatamente no teto (1000, usado por FETCH_ALL_TAKE do frontend)', () => {
+    const dto = plainToInstance(FindManySharedDto, { take: PAGINATION_DEFAULTS.MAX_TAKE });
     expect(validateSync(dto)).toHaveLength(0);
   });
 });
