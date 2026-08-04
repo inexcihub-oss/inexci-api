@@ -215,7 +215,31 @@ export class UsersService {
       this.resolveStorageUrl(user.doctorProfile?.signatureUrl),
     ]);
 
-    const result: Record<string, unknown> = { ...user, avatarUrl };
+    // Spread de entidade escapa do ClassSerializerInterceptor: o interceptor
+    // so aplica @Exclude() quando o objeto e instancia de classe. Campos
+    // explicitos evitam vazar password/emailVerificationToken/etc.
+    const result: Record<string, unknown> = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      cpf: user.cpf,
+      gender: user.gender,
+      birthDate: user.birthDate,
+      cep: user.cep,
+      address: user.address,
+      addressNumber: user.addressNumber,
+      addressComplement: user.addressComplement,
+      city: user.city,
+      state: user.state,
+      role: user.role,
+      status: user.status,
+      accountId: user.ownerId,
+      doctorProfile: user.doctorProfile,
+      avatarUrl,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
     if (user.doctorProfile) {
       result.doctorProfile = { ...user.doctorProfile, signatureUrl };
     }

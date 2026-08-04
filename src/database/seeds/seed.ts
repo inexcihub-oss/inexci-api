@@ -19,12 +19,13 @@ const logger = new Logger('Seed');
 
 // Verificação de ambiente
 function checkEnvironment() {
-  const nodeEnv = process.env.NODE_ENV || 'development';
+  // Allowlist explicita: variavel ausente aborta, em vez de liberar.
+  const nodeEnv = process.env.NODE_ENV;
   const allowedEnvs = ['development', 'local', 'dev'];
 
-  if (!allowedEnvs.includes(nodeEnv.toLowerCase())) {
+  if (!nodeEnv || !allowedEnvs.includes(nodeEnv.toLowerCase())) {
     logger.error(
-      '❌ ERRO: Seed só pode ser executado em ambiente local ou de desenvolvimento!',
+      `❌ ERRO: Seed bloqueado: NODE_ENV=${nodeEnv ?? '(ausente)'} não está em ${allowedEnvs.join('/')}!`,
     );
     process.exit(1);
   }

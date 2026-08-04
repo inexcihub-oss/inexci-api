@@ -121,6 +121,7 @@ export class User {
   @Column({ name: 'email_verified_at', type: 'timestamp', nullable: true })
   emailVerifiedAt: Date | null;
 
+  @Exclude()
   @Column({
     name: 'email_verification_token',
     type: 'varchar',
@@ -129,6 +130,7 @@ export class User {
   })
   emailVerificationToken: string | null;
 
+  @Exclude()
   @Column({
     name: 'email_verification_expires_at',
     type: 'timestamp',
