@@ -1080,7 +1080,7 @@ describe('AuthService', () => {
       expect(result).toEqual({ message: 'Senha alterada com sucesso' });
 
       // Verify bcryptjs.hash was called with the plain password
-      expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 10);
+      expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 12);
 
       // Verify the hashed password was stored
       const updateCall = mockUserRepository.update.mock.calls[0];

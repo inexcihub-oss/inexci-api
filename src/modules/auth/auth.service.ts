@@ -28,6 +28,7 @@ import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { BCRYPT_ROUNDS, precisaRehash } from 'src/shared/constants/bcrypt';
 import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
@@ -96,6 +97,13 @@ export class AuthService {
         );
       }
 
+      // Rehash oportunista: a senha em claro so existe aqui. Sem isto, contas
+      // antigas ficariam em 10 rounds para sempre.
+      if (precisaRehash(user.password)) {
+        const novoHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+        await this.userRepository.update(user.id, { password: novoHash });
+      }
+
       return user;
     } else {
       throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
@@ -144,7 +152,7 @@ export class AuthService {
     }
 
     // Hash da senha
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
     const isDoctor = data.isDoctor || false;
 
@@ -504,7 +512,7 @@ export class AuthService {
       );
     }
 
-    const password = await bcrypt.hash(data.password, 10);
+    const password = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
     // Atualiza senha e ativa conta caso ainda esteja pendente (primeiro acesso).
     // Marca e-mail como verificado: o link do convite já prova a posse do endereço.
@@ -553,7 +561,7 @@ export class AuthService {
     }
 
     // Hash da nova senha
-    const newPasswordHash = await bcrypt.hash(data.newPassword, 10);
+    const newPasswordHash = await bcrypt.hash(data.newPassword, BCRYPT_ROUNDS);
 
     await this.userRepository.update(user.id, { password: newPasswordHash });
 

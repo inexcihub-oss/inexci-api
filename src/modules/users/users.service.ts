@@ -32,6 +32,7 @@ import {
 } from 'src/shared/permissions';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { BCRYPT_ROUNDS } from 'src/shared/constants/bcrypt';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
@@ -459,7 +460,7 @@ export class UsersService {
       phone: data.phone,
       role: UserRole.COLLABORATOR,
       status: UserStatus.PENDING,
-      password: await bcrypt.hash(placeholderPw, 10),
+      password: await bcrypt.hash(placeholderPw, BCRYPT_ROUNDS),
       ownerId: user.ownerId,
       adminId: userId,
     });
@@ -521,7 +522,7 @@ export class UsersService {
       throw new BadRequestException('Senha atual incorreta');
 
     // Atualiza senha
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(userId, { password: hashedPassword });
 
     return { message: 'Senha alterada com sucesso' };
@@ -715,7 +716,7 @@ export class UsersService {
         phone: data.phone,
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
-        password: await bcrypt.hash(placeholderPassword, 10),
+        password: await bcrypt.hash(placeholderPassword, BCRYPT_ROUNDS),
         ownerId: admin.ownerId,
         adminId: adminId,
         // Sem nada informado, o colaborador nasce sem acesso a área nenhuma
@@ -1161,7 +1162,7 @@ export class UsersService {
       ownerId: collaborator.ownerId,
     });
 
-    const hashed = await bcrypt.hash(newPassword, 10);
+    const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(collaboratorId, { password: hashed });
 
     // Mesma logica de `AuthService.changePassword`: redefinir a senha por
