@@ -44,8 +44,23 @@ interface PdfParseScreenshotResult {
   pages?: PdfParseScreenshotPage[];
 }
 
+interface PdfParsePageInfo {
+  pageNumber?: number;
+  width?: number;
+  height?: number;
+}
+
+interface PdfParseInfoResult {
+  pages?: PdfParsePageInfo[];
+}
+
 interface PdfParseInstance {
   getText(): Promise<PdfParseTextResult>;
+  getInfo(opts: {
+    parsePageInfo?: boolean;
+    first?: number;
+    last?: number;
+  }): Promise<PdfParseInfoResult>;
   getScreenshot(opts: {
     scale?: number;
     first?: number;
@@ -62,6 +77,37 @@ type PdfParseCtor = new (opts: { data: Buffer }) => PdfParseInstance;
  * 2x cobre a maioria dos casos clínicos com letra pequena.
  */
 const PDF_RASTER_SCALE = 2;
+
+/** Teto de pixels por pagina rasterizada (~25 Mpx = 100 MB a 4 bytes/px). */
+export const MAX_PIXELS_POR_PAGINA = 25_000_000;
+
+/**
+ * Escala de rasterizacao que respeita o teto de pixels. Um PDF de poucos KB
+ * pode declarar MediaBox 14400x14400: em escala fixa 2 isso vira ~830 Mpx por
+ * pagina (~3,3 GB), derrubando o processo antes de qualquer validacao.
+ */
+export function calcularEscalaSegura(
+  larguraPt: number,
+  alturaPt: number,
+  escalaDesejada = PDF_RASTER_SCALE,
+): number {
+  const pixels = larguraPt * escalaDesejada * (alturaPt * escalaDesejada);
+  if (pixels <= MAX_PIXELS_POR_PAGINA) return escalaDesejada;
+  return Math.max(
+    0.25,
+    Math.sqrt(MAX_PIXELS_POR_PAGINA / (larguraPt * alturaPt)),
+  );
+}
+
+// Limita o sharp a uma thread de processamento por vez: evita que várias
+// rasterizações concorrentes (várias requisições do WhatsApp em paralelo)
+// multipliquem o pico de memória do libvips. Acesso defensivo: em testes o
+// módulo 'sharp' é mockado sem essa função estática.
+const sharpConcurrency = (sharp as unknown as { concurrency?: (n: number) => number })
+  .concurrency;
+if (typeof sharpConcurrency === 'function') {
+  sharpConcurrency(1);
+}
 
 @Injectable()
 export class OcrService implements OnModuleInit, OnModuleDestroy {
@@ -217,8 +263,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     let parser: PdfParseInstance | undefined;
     try {
       parser = new PDFParseCtor({ data: buffer });
+      const scale = await this.resolveSafeRasterScale(parser, 1);
       const screenshot = await parser.getScreenshot({
-        scale: PDF_RASTER_SCALE,
+        scale,
         first: 1,
         imageBuffer: true,
         imageDataUrl: false,
@@ -237,7 +284,12 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         const sharpFactory =
           (sharp as unknown as { default?: typeof sharp }).default ||
           (sharp as unknown as typeof sharp);
-        return await (sharpFactory as any)(data).rotate().png().toBuffer();
+        return await (sharpFactory as any)(data, {
+          limitInputPixels: MAX_PIXELS_POR_PAGINA,
+        })
+          .rotate()
+          .png()
+          .toBuffer();
       } catch {
         // Fallback defensivo: se não conseguir transcodificar, devolve o
         // buffer original para manter compatibilidade com o fluxo atual.
@@ -256,6 +308,45 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  /**
+   * Lê as dimensões reais das páginas (via `getInfo`, sem renderizar) e
+   * devolve a menor escala segura entre elas — o teto de pixels vale para
+   * cada página individualmente, e `getScreenshot` recebe uma única escala
+   * para o lote inteiro. Se a leitura de dimensões falhar, caímos na escala
+   * desejada original: o mesmo parser/doc usado aqui alimenta o
+   * `getScreenshot` logo em seguida, então um PDF cujas dimensões não podem
+   * ser lidas tende a falhar (ou já ter falhado) na rasterização também —
+   * não é o caminho que a exploração usa (que depende de MediaBox legível).
+   */
+  private async resolveSafeRasterScale(
+    parser: PdfParseInstance,
+    maxPages: number,
+  ): Promise<number> {
+    try {
+      const info = await parser.getInfo({
+        parsePageInfo: true,
+        first: maxPages,
+      });
+      const infoPages = Array.isArray(info?.pages) ? info.pages : [];
+      if (!infoPages.length) return PDF_RASTER_SCALE;
+
+      let menorEscala = PDF_RASTER_SCALE;
+      for (const page of infoPages) {
+        const largura = Number(page?.width) || 0;
+        const altura = Number(page?.height) || 0;
+        if (largura <= 0 || altura <= 0) continue;
+        const escala = calcularEscalaSegura(largura, altura);
+        if (escala < menorEscala) menorEscala = escala;
+      }
+      return menorEscala;
+    } catch (err: any) {
+      this.logger.warn(
+        `[AI_DOC_OCR] falha ao ler dimensões da página antes de rasterizar: ${err?.message || 'erro desconhecido'}`,
+      );
+      return PDF_RASTER_SCALE;
     }
   }
 
@@ -302,7 +393,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         (sharp as unknown as { default?: typeof sharp }).default ||
         (sharp as unknown as typeof sharp);
 
-      return await (sharpFactory as any)(buffer)
+      return await (sharpFactory as any)(buffer, {
+        limitInputPixels: MAX_PIXELS_POR_PAGINA,
+      })
         .rotate() // auto-orient via EXIF
         .grayscale()
         .normalize()
@@ -432,8 +525,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     let parser: PdfParseInstance | undefined;
     try {
       parser = new PDFParseCtor({ data: buffer });
+      const scale = await this.resolveSafeRasterScale(parser, maxPages);
       const screenshot = await parser.getScreenshot({
-        scale: PDF_RASTER_SCALE,
+        scale,
         first: maxPages,
         imageBuffer: true,
         imageDataUrl: false,
