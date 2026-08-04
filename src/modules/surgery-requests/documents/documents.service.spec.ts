@@ -31,6 +31,7 @@ describe('DocumentsService', () => {
       null as any,
       null as any,
       documentRepository as any,
+      { validateAndFetch: jest.fn() } as any,
     );
   });
 

@@ -12,6 +12,7 @@ import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 
 @Injectable()
 export class DocumentsService {
@@ -21,6 +22,7 @@ export class DocumentsService {
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly documentRepository: DocumentRepository,
+    private readonly accessValidator: SurgeryRequestAccessValidator,
   ) {}
 
   async create(
@@ -30,6 +32,11 @@ export class DocumentsService {
     file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File is required');
+
+    // O SurgeryRequestOwnerGuard nao cobre esta rota: guards rodam antes dos
+    // interceptors, entao o FileInterceptor ainda nao parseou o multipart e o
+    // body chega vazio ao guard. A validacao precisa acontecer aqui.
+    await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
     const storagePath = await this.storageService.create(
       file,
