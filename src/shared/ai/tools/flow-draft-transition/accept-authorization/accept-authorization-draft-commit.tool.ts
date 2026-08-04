@@ -60,6 +60,7 @@ export function buildAcceptAuthorizationDraftCommitTool(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.IN_ANALYSIS,
+        context,
       );
       if (status.error) return status.error;
       const surgeryRequestId = status.resolvedId!;

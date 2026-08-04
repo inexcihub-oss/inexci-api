@@ -64,6 +64,7 @@ export function buildSendScDraftCommitTool(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.PENDING,
+        context,
       );
       if (status.error) return status.error;
       const surgeryRequestId = status.resolvedId!;

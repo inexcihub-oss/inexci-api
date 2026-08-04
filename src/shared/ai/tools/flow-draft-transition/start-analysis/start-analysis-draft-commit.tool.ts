@@ -60,6 +60,7 @@ export function buildStartAnalysisDraftCommitTool(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.SENT,
+        context,
       );
       if (status.error) return status.error;
       const surgeryRequestId = status.resolvedId!;

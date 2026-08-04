@@ -66,6 +66,7 @@ export function buildMarkPerformedDraftCommitTool(
         surgeryRequestRepo,
         f.surgeryRequestId!,
         SurgeryRequestStatus.SCHEDULED,
+        context,
       );
       if (status.error) return status.error;
       const surgeryRequestId = status.resolvedId!;

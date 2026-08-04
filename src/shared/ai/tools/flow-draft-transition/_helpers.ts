@@ -9,7 +9,7 @@ import {
 } from '../../../../config/post-surgery-documents.config';
 import { buildToolResult } from '../tool-result';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
-import { resolveSurgeryRequest } from '../_helpers/resolve-surgery-request';
+import { resolveAuthorizedRequest } from '../_helpers/resolve-surgery-request';
 
 const STATUS_LABELS: Record<number, string> = {
   1: 'Pendente',
@@ -66,18 +66,27 @@ export interface AssertStatusResult {
  * LLM gravasse o protocolo (formato amigável) no `surgeryRequestId` do draft,
  * a busca falhava com "Solicitação não encontrada" e o usuário ficava em
  * loop no WhatsApp.
+ *
+ * Resolve via `resolveAuthorizedRequest`, que confere `context.accessibleDoctorIds`
+ * antes de devolver a SC — o `draft_update` valida o campo na escrita, mas esta
+ * função é a última barreira antes de qualquer transição de status.
  */
 export async function assertCurrentStatusIs(
   surgeryRequestRepo: SurgeryRequestRepository,
   surgeryRequestId: string,
   expected: SurgeryRequestStatus,
+  context: ToolContext,
 ): Promise<AssertStatusResult> {
-  const sc = await resolveSurgeryRequest(surgeryRequestRepo, surgeryRequestId);
-  if (!sc) {
+  const { request: sc, error: erroDeAcesso } = await resolveAuthorizedRequest(
+    surgeryRequestRepo,
+    surgeryRequestId,
+    context,
+  );
+  if (erroDeAcesso) {
     return {
       error: buildToolResult({
         status: 'error',
-        message: 'Solicitação não encontrada.',
+        message: erroDeAcesso,
       }),
       resolvedId: null,
     };

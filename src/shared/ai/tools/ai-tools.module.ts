@@ -266,7 +266,7 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
     // Tools globais de draft (`draft_update`, `draft_status`, `draft_cancel`).
     // Mantidas ao FINAL da ordem para preservar o hash do prefixo de
     // prompt caching estável.
-    ...buildDraftGenericTools({ draftService }),
+    ...buildDraftGenericTools({ draftService, surgeryRequestRepo }),
   ];
 }
 
