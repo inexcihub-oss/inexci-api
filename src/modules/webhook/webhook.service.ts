@@ -223,7 +223,14 @@ export class WebhookService {
     if (!shouldValidateSignature) return;
 
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN', '');
-    if (!authToken) return; // Em dev sem auth token configurado, pula validação
+    if (!authToken) {
+      // Fail-closed: em producao a ausencia do token nao pode virar "aceita
+      // qualquer requisicao". O webhook e @Public(), entao sem validacao um
+      // atacante forja o From e opera a plataforma como o medico.
+      throw new UnauthorizedException(
+        'Configuração de webhook inválida: TWILIO_AUTH_TOKEN ausente',
+      );
+    }
 
     const isValid = urls.some((url) =>
       validateRequest(authToken, signature, url, body),

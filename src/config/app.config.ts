@@ -49,7 +49,13 @@ export const envValidationSchema = Joi.object({
 
   // ── Twilio (WhatsApp) ────────────────────────────────
   TWILIO_ACCOUNT_SID: Joi.string().allow('').default(''),
-  TWILIO_AUTH_TOKEN: Joi.string().allow('').default(''),
+  TWILIO_AUTH_TOKEN: Joi.string()
+    .allow('')
+    .default('')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().min(1).required(),
+    }),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
   TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('false'),
 
