@@ -20,7 +20,12 @@ describe('DocumentsService.create — posse da SC em rota multipart', () => {
 
     await expect(
       service.create(
-        { surgeryRequestId: 'sc-de-outra-clinica', key: 'k', name: 'n', folder: 'documents' } as any,
+        {
+          surgeryRequestId: 'sc-de-outra-clinica',
+          key: 'k',
+          name: 'n',
+          folder: 'documents',
+        } as any,
         'atacante',
         'owner-a',
         { buffer: Buffer.from('x'), mimetype: 'application/pdf' } as any,

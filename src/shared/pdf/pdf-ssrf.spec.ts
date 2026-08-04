@@ -8,9 +8,9 @@ describe('PdfService — allowlist de host (SSRF)', () => {
   });
 
   it('recusa metadata da AWS', () => {
-    expect(
-      isAllowedHost('http://169.254.169.254/latest/meta-data/'),
-    ).toBe(false);
+    expect(isAllowedHost('http://169.254.169.254/latest/meta-data/')).toBe(
+      false,
+    );
   });
 
   it('recusa servico interno da rede docker', () => {
@@ -27,8 +27,8 @@ describe('PdfService — allowlist de host (SSRF)', () => {
   });
 
   it('recusa http mesmo em host permitido', () => {
-    expect(
-      isAllowedHost('http://abc123.r2.cloudflarestorage.com/x.png'),
-    ).toBe(false);
+    expect(isAllowedHost('http://abc123.r2.cloudflarestorage.com/x.png')).toBe(
+      false,
+    );
   });
 });

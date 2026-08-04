@@ -84,9 +84,12 @@ export class UpdateProfileDto {
   @IsOptional()
   @Transform(({ value }) => value ?? null)
   @IsString()
-  @Matches(/^(signatures\/|stamps\/|https:\/\/[a-z0-9.-]+\.r2\.cloudflarestorage\.com\/)/, {
-    message: 'signatureUrl deve ser um caminho do bucket ou URL do R2',
-  })
+  @Matches(
+    /^(signatures\/|stamps\/|https:\/\/[a-z0-9.-]+\.r2\.cloudflarestorage\.com\/)/,
+    {
+      message: 'signatureUrl deve ser um caminho do bucket ou URL do R2',
+    },
+  )
   signatureUrl?: string | null;
 
   @IsOptional()

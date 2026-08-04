@@ -103,8 +103,9 @@ export function calcularEscalaSegura(
 // rasterizações concorrentes (várias requisições do WhatsApp em paralelo)
 // multipliquem o pico de memória do libvips. Acesso defensivo: em testes o
 // módulo 'sharp' é mockado sem essa função estática.
-const sharpConcurrency = (sharp as unknown as { concurrency?: (n: number) => number })
-  .concurrency;
+const sharpConcurrency = (
+  sharp as unknown as { concurrency?: (n: number) => number }
+).concurrency;
 if (typeof sharpConcurrency === 'function') {
   sharpConcurrency(1);
 }

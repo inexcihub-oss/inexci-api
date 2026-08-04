@@ -25,9 +25,7 @@ describe('Recuperacao de senha — forca bruta do codigo', () => {
       }),
     };
 
-    const { consumirTentativa } = await import(
-      './recovery-code-attempts.util'
-    );
+    const { consumirTentativa } = await import('./recovery-code-attempts.util');
 
     // 5 tentativas erradas: a quinta deve marcar o codigo como usado.
     for (let i = 0; i < MAX_TENTATIVAS; i++) {
@@ -48,9 +46,8 @@ describe('Recuperacao de senha — forca bruta do codigo', () => {
       expiresAt: new Date(Date.now() + 3600_000),
     };
 
-    const { assertCodigoUtilizavel } = await import(
-      './recovery-code-attempts.util'
-    );
+    const { assertCodigoUtilizavel } =
+      await import('./recovery-code-attempts.util');
 
     expect(() => assertCodigoUtilizavel(registro as any)).toThrow(
       BadRequestException,

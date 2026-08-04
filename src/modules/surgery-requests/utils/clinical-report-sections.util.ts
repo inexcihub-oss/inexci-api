@@ -18,8 +18,23 @@ export interface ClinicalSeedContent {
  */
 const OPCOES_SANITIZACAO: sanitizeHtml.IOptions = {
   allowedTags: [
-    'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
-    'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'span',
+    'p',
+    'br',
+    'strong',
+    'b',
+    'em',
+    'i',
+    'u',
+    's',
+    'ul',
+    'ol',
+    'li',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'blockquote',
+    'span',
   ],
   allowedAttributes: { span: ['style'], p: ['style'] },
   allowedStyles: {

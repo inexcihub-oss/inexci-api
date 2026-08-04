@@ -2,9 +2,7 @@ describe('Troca de senha — revogacao de sessoes', () => {
   it('revoga refresh tokens ao concluir a recuperacao', async () => {
     const refreshTokenStore = { revokeAllForUser: jest.fn() };
     const userRepository = {
-      findOne: jest
-        .fn()
-        .mockResolvedValue({ id: 'user-1', email: 'a@b.com' }),
+      findOne: jest.fn().mockResolvedValue({ id: 'user-1', email: 'a@b.com' }),
       update: jest.fn(),
     };
     const recoveryCodeRepository = {

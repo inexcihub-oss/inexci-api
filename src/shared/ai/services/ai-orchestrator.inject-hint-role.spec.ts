@@ -35,7 +35,11 @@ describe('AiOrchestratorService.injectSystemHint — role do hint de documento',
   it('usa role system por padrão (hints determinísticos)', () => {
     const messages: any[] = [{ role: 'system', content: 'prompt base' }];
     inject(messages, 'hint numerico', 'NUMERIC_CHOICE');
-    expect(messages.some((m) => m.role === 'system' && m.content === 'hint numerico')).toBe(true);
+    expect(
+      messages.some(
+        (m) => m.role === 'system' && m.content === 'hint numerico',
+      ),
+    ).toBe(true);
   });
 
   it('injeta o hint de documento como role user', () => {
@@ -46,14 +50,18 @@ describe('AiOrchestratorService.injectSystemHint — role do hint de documento',
       'AI_DOC_PENDING_HINT',
       'user',
     );
-    const injetado = messages.find((m) => m.content?.includes('DADOS_EXTRAIDOS_DE_DOCUMENTO'));
+    const injetado = messages.find((m) =>
+      m.content?.includes('DADOS_EXTRAIDOS_DE_DOCUMENTO'),
+    );
     expect(injetado?.role).toBe('user');
   });
 
   it('nunca insere o hint de documento como system', () => {
     const messages: any[] = [{ role: 'system', content: 'prompt base' }];
     inject(messages, 'conteudo de documento', 'AI_DOC_PENDING_HINT', 'user');
-    const injetado = messages.find((m) => m.content === 'conteudo de documento');
+    const injetado = messages.find(
+      (m) => m.content === 'conteudo de documento',
+    );
     expect(injetado?.role).not.toBe('system');
   });
 });

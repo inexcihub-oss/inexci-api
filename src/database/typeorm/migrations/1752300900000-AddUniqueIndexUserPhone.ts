@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddUniqueIndexUserPhone1752300900000
-  implements MigrationInterface
-{
+export class AddUniqueIndexUserPhone1752300900000 implements MigrationInterface {
   name = 'AddUniqueIndexUserPhone1752300900000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
