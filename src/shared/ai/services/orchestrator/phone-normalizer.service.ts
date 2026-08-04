@@ -155,7 +155,14 @@ export class PhoneNormalizerService {
 
     variants.add(localDigits);
 
-    if (localDigits.length === 10) {
+    // No Brasil so celular tem nono digito, e o primeiro digito do numero
+    // local (apos o DDD, indice 2) e 9 (ou 6-8 em faixas antigas). Fixo
+    // comeca com 2-5: expandir um fixo gera o celular de OUTRA pessoa,
+    // permitindo assumir a sessao alheia.
+    if (
+      localDigits.length === 10 &&
+      ['6', '7', '8', '9'].includes(localDigits[2])
+    ) {
       variants.add(`${localDigits.slice(0, 2)}9${localDigits.slice(2)}`);
     }
 
