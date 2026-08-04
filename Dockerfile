@@ -34,5 +34,12 @@ RUN yarn build
 # Expose port
 EXPOSE 3000
 
+# Chromium roda com --no-sandbox (necessario em container sem CAP_SYS_ADMIN);
+# rodar como root faria qualquer falha do renderer virar root no container,
+# que carrega todo o ambiente de producao.
+RUN mkdir -p /app/tmp && chown -R node:node /app
+ENV TMPDIR=/app/tmp
+USER node
+
 # Start application
 CMD ["yarn", "start:prod"]
