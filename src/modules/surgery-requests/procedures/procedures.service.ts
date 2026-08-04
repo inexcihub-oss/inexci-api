@@ -69,23 +69,44 @@ export class ProceduresService {
     // Fail-closed: garante posse da SC-pai antes de autorizar itens (V1).
     await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
+    // Os ids dos itens vem do cliente: sem conferir o vinculo com a SC ja
+    // validada, era possivel zerar quantidades e trocar fornecedor de itens
+    // de uma cirurgia de outra clinica.
     await Promise.all(
-      data.surgeryRequestProcedures.map((item) =>
-        this.tussItemRepository.update(item.id, {
+      data.surgeryRequestProcedures.map(async (item) => {
+        const existente = await this.tussItemRepository.findOne({
+          id: item.id,
+          surgeryRequestId: data.surgeryRequestId,
+        });
+        if (!existente) {
+          throw new NotFoundException(
+            `Item de procedimento ${item.id} não pertence a esta solicitação`,
+          );
+        }
+        return this.tussItemRepository.update(item.id, {
           authorizedQuantity: item.authorizedQuantity,
-        }),
-      ),
+        });
+      }),
     );
 
     await Promise.all(
-      data.opmeItems.map((item) =>
-        this.opmeItemRepository.update(item.id, {
+      data.opmeItems.map(async (item) => {
+        const existente = await this.opmeItemRepository.findOne({
+          id: item.id,
+          surgeryRequestId: data.surgeryRequestId,
+        });
+        if (!existente) {
+          throw new NotFoundException(
+            `Item OPME ${item.id} não pertence a esta solicitação`,
+          );
+        }
+        return this.opmeItemRepository.update(item.id, {
           authorizedQuantity: item.authorizedQuantity,
           ...(item.selectedSupplierId !== undefined && {
             selectedSupplierId: item.selectedSupplierId,
           }),
-        }),
-      ),
+        });
+      }),
     );
 
     return {};

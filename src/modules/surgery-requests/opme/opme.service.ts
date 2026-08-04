@@ -226,7 +226,7 @@ export class OpmeService {
     const addedNamesNormalized = new Set<string>();
 
     for (const id of ids) {
-      const supplier = await this.supplierRepository.findOne({ id });
+      const supplier = await this.supplierRepository.findOne({ id, ownerId });
       if (!supplier) continue;
       if (addedIds.has(supplier.id)) continue;
 
