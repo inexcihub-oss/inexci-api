@@ -177,10 +177,10 @@ describe('Documents (e2e)', () => {
         '../fixtures/large-document.pdf',
       );
 
-      // 6 MB: só o suficiente para estourar o `limits.fileSize` de 5 MB
-      // declarado no `FileInterceptor` do DocumentsController.
+      // 11 MB: acima do teto de `STORAGE_FOLDER_SIZE_LIMITS` (10 MB), que
+      // agora é também o `limits.fileSize` do `FileInterceptor`.
       if (!fs.existsSync(largFilePath)) {
-        fs.writeFileSync(largFilePath, Buffer.alloc(6 * 1024 * 1024));
+        fs.writeFileSync(largFilePath, Buffer.alloc(11 * 1024 * 1024));
       }
 
       try {
@@ -199,6 +199,34 @@ describe('Documents (e2e)', () => {
       } finally {
         if (fs.existsSync(largFilePath)) {
           fs.unlinkSync(largFilePath);
+        }
+      }
+    });
+
+    it('não recusa no interceptor um arquivo dentro do limite da config (6 MB)', async () => {
+      const filePath = path.join(__dirname, '../fixtures/medium-document.pdf');
+      // 6 MB: estourava o antigo `limits.fileSize` de 5 MB, mas está dentro do
+      // limite de 10 MB da pasta `documents` em `STORAGE_FOLDER_SIZE_LIMITS`.
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, Buffer.alloc(6 * 1024 * 1024));
+      }
+
+      try {
+        const response = await request(app.getHttpServer())
+          .post('/surgery-requests/documents')
+          .set(getAuthHeader(authToken))
+          .field('surgeryRequestId', SC_INEXISTENTE)
+          .field('key', 'exame')
+          .field('name', 'exame.pdf')
+          .field('folder', 'documents')
+          .attach('document', filePath);
+
+        // Passa pelo interceptor e morre no 404 da SC inexistente — o que
+        // importa aqui é não ser 413.
+        expect(response.status).toBe(404);
+      } finally {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
         }
       }
     });

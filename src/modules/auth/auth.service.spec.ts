@@ -930,16 +930,37 @@ describe('AuthService', () => {
       ).rejects.toThrow('Código inválido');
     });
 
-    it('escopa por usuário: e-mail inexistente → Código inválido', async () => {
-      mockUserRepository.findOne.mockResolvedValue(null);
+    // Mesmo contrato anti-enumeração do `changePassword`: e-mail inexistente
+    // não pode responder diferente de código inválido numa conta existente.
+    it('escopa por usuário sem revelar a existência da conta', async () => {
+      const capture = async () => {
+        try {
+          await service.validateRecoveryPasswordCode({
+            code: '123456',
+            email: 'alvo@example.com',
+          });
+          throw new Error('deveria ter lançado');
+        } catch (err: any) {
+          return {
+            status: err.getStatus?.(),
+            message: err.getResponse?.()?.message ?? err.message,
+          };
+        }
+      };
 
-      await expect(
-        service.validateRecoveryPasswordCode({
-          code: '123456',
-          email: 'nobody@example.com',
-        }),
-      ).rejects.toThrow(NotFoundException);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const semConta = await capture();
       expect(mockRecoveryCodeRepository.findOne).not.toHaveBeenCalled();
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'alvo@example.com',
+      });
+      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      const comConta = await capture();
+
+      expect(semConta).toEqual(comConta);
+      expect(semConta.status).toBe(400);
     });
 
     it('should throw BadRequestException when code is expired', async () => {
@@ -1001,16 +1022,38 @@ describe('AuthService', () => {
   // ─── changePassword ─────────────────────────────────────────────
 
   describe('changePassword', () => {
-    it('should throw NotFoundException when user does not exist', async () => {
-      mockUserRepository.findOne.mockResolvedValue(null);
+    // Anti-enumeração: o par (status, mensagem) tem que ser idêntico para
+    // "e-mail não cadastrado" e "e-mail cadastrado + token inventado". Qualquer
+    // diferença transforma a rota num oráculo de existência de conta.
+    it('e-mail inexistente é indistinguível de reset token inválido', async () => {
+      const capture = async () => {
+        try {
+          await service.changePassword({
+            email: 'alvo@example.com',
+            resetToken: 'token-inventado',
+            password: 'new',
+          } as any);
+          throw new Error('deveria ter lançado');
+        } catch (err: any) {
+          return {
+            status: err.getStatus?.(),
+            message: err.getResponse?.()?.message ?? err.message,
+          };
+        }
+      };
 
-      await expect(
-        service.changePassword({
-          email: 'nobody@example.com',
-          resetToken: 'reset-tok',
-          password: 'new',
-        } as any),
-      ).rejects.toThrow(NotFoundException);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const semConta = await capture();
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'alvo@example.com',
+      });
+      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      const comConta = await capture();
+
+      expect(semConta).toEqual(comConta);
+      expect(semConta.status).toBe(400);
     });
 
     it('rejeita quando o reset token não bate (inválido)', async () => {

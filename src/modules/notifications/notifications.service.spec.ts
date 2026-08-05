@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsService } from './notifications.service';
 import { NotificationsGateway } from './notifications.gateway';
@@ -17,6 +18,7 @@ describe('NotificationsService', () => {
     create: jest.Mock;
     createBulk: jest.Mock;
     findByUserId: jest.Mock;
+    countByUserId: jest.Mock;
     countUnread: jest.Mock;
     markAsRead: jest.Mock;
     markAllAsRead: jest.Mock;
@@ -83,10 +85,11 @@ describe('NotificationsService', () => {
         ),
       ),
       findByUserId: jest.fn().mockResolvedValue([]),
+      countByUserId: jest.fn().mockResolvedValue(0),
       countUnread: jest.fn().mockResolvedValue(0),
-      markAsRead: jest.fn().mockResolvedValue(undefined),
+      markAsRead: jest.fn().mockResolvedValue(1),
       markAllAsRead: jest.fn().mockResolvedValue(undefined),
-      deleteByUser: jest.fn().mockResolvedValue(undefined),
+      deleteByUser: jest.fn().mockResolvedValue(1),
     };
 
     mockSettingsRepository = {
@@ -147,6 +150,76 @@ describe('NotificationsService', () => {
 
   it('deve estar definido', () => {
     expect(service).toBeDefined();
+  });
+
+  // ─── Paginação ────────────────────────────────────────────────────────────
+  describe('getNotifications', () => {
+    it('devolve o total de notificações do usuário, não o tamanho da página', async () => {
+      mockNotificationRepository.findByUserId.mockResolvedValue([
+        { id: 'n-1' },
+      ]);
+      mockNotificationRepository.countByUserId.mockResolvedValue(3);
+
+      const result = await service.getNotifications('user-1', { take: 1 });
+
+      expect(result.notifications).toHaveLength(1);
+      expect(result.total).toBe(3);
+    });
+
+    it('conta com o mesmo filtro da listagem (unreadOnly), sem skip/take', async () => {
+      mockNotificationRepository.findByUserId.mockResolvedValue([]);
+      mockNotificationRepository.countByUserId.mockResolvedValue(2);
+
+      const result = await service.getNotifications('user-1', {
+        skip: 10,
+        take: 5,
+        unreadOnly: true,
+      });
+
+      expect(mockNotificationRepository.countByUserId).toHaveBeenCalledWith(
+        'user-1',
+        { unreadOnly: true },
+      );
+      expect(result.total).toBe(2);
+    });
+  });
+
+  // ─── Operações por id ─────────────────────────────────────────────────────
+  describe('markAsRead / deleteNotification', () => {
+    it('confirma a leitura quando a notificação do usuário foi alterada', async () => {
+      mockNotificationRepository.markAsRead.mockResolvedValue(1);
+
+      await expect(service.markAsRead('notif-1', 'user-1')).resolves.toEqual({
+        message: 'Notificação marcada como lida',
+      });
+    });
+
+    // Sem checar o `affected`, um id inexistente (ou de outro usuário, barrado
+    // pelo `user_id` no WHERE) recebia 200 confirmando uma operação que não
+    // aconteceu.
+    it('devolve 404 quando nada foi marcado como lido', async () => {
+      mockNotificationRepository.markAsRead.mockResolvedValue(0);
+
+      await expect(service.markAsRead('notif-x', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('confirma a remoção quando a notificação do usuário foi removida', async () => {
+      mockNotificationRepository.deleteByUser.mockResolvedValue(1);
+
+      await expect(
+        service.deleteNotification('notif-1', 'user-1'),
+      ).resolves.toEqual({ message: 'Notificação removida' });
+    });
+
+    it('devolve 404 quando nada foi removido', async () => {
+      mockNotificationRepository.deleteByUser.mockResolvedValue(0);
+
+      await expect(
+        service.deleteNotification('notif-x', 'user-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   // ─── WebSocket: emitToUser ────────────────────────────────────────────────

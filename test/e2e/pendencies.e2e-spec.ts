@@ -305,9 +305,11 @@ describe('Pendencies (e2e)', () => {
       });
     });
 
-    it('deve devolver o default seguro para id que não carrega', async () => {
+    it('deve devolver o default fail-closed para id que não carrega', async () => {
       // Ids inexistentes (ou de outra clínica: o WHERE é escopado por ownerId)
-      // nunca somem da resposta — ficam no default preenchido antes da consulta.
+      // nunca somem da resposta — ficam no default preenchido antes da
+      // consulta, e esse default é `canAdvance: false`: o kanban não pode
+      // pintar como "sem pendência" uma SC que não foi avaliada.
       const inexistente = '00000000-0000-4000-8000-000000000000';
       const response = await request(app.getHttpServer())
         .get('/surgery-requests/pendencies/batch-summary')
@@ -323,7 +325,7 @@ describe('Pendencies (e2e)', () => {
       expect(response.body[inexistente]).toEqual({
         pending: 0,
         total: 0,
-        canAdvance: true,
+        canAdvance: false,
       });
     });
 

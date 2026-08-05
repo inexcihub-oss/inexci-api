@@ -452,18 +452,55 @@ describe('Auth (e2e)', () => {
       expect(loginResponse.body).toHaveProperty('access_token');
     });
 
-    it('should fail with non-existent user', async () => {
+    it('não distingue e-mail inexistente de reset token inválido', async () => {
+      const userData = TestDataFactory.generateRegisterData();
       await request(app.getHttpServer())
+        .post('/auth/register')
+        .send(userData)
+        .expect(201);
+
+      // Conta que não existe.
+      const semConta = await request(app.getHttpServer())
         .post('/auth/changePassword')
         .send({
           email: 'nonexistent@test.com',
           resetToken: 'token-que-nao-existe',
           password: 'NewPassword123!',
         })
-        // Aqui o 404 é o comportamento real: diferente da validação do
-        // código (400, anti-enumeração), `changePassword` distingue e-mail
-        // inexistente. A falha original era só a ausência do `resetToken`.
-        .expect(404);
+        // 400, não 404: um 404 aqui seria oráculo de existência de conta.
+        .expect(400);
+
+      // Conta que existe, com token inventado: mesma resposta, byte a byte.
+      const comConta = await request(app.getHttpServer())
+        .post('/auth/changePassword')
+        .send({
+          email: userData.email,
+          resetToken: 'token-que-nao-existe',
+          password: 'NewPassword123!',
+        })
+        .expect(400);
+
+      expect(semConta.body.message).toBe(comConta.body.message);
+    });
+
+    it('validateRecoveryPasswordCode também não distingue e-mail inexistente', async () => {
+      const userData = TestDataFactory.generateRegisterData();
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send(userData)
+        .expect(201);
+
+      const semConta = await request(app.getHttpServer())
+        .post('/auth/validateRecoveryPasswordCode')
+        .send({ email: 'nonexistent@test.com', code: 'INVALID-CODE-123' })
+        .expect(400);
+
+      const comConta = await request(app.getHttpServer())
+        .post('/auth/validateRecoveryPasswordCode')
+        .send({ email: userData.email, code: 'INVALID-CODE-123' })
+        .expect(400);
+
+      expect(semConta.body.message).toBe(comConta.body.message);
     });
 
     // O teste antigo omitia o `resetToken` e comemorava o 400 — que vinha do

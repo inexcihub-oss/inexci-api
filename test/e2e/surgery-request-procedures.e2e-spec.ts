@@ -148,6 +148,35 @@ describe('Surgery Request Procedures (e2e)', () => {
         .expect(400);
     });
 
+    it('não grava nenhum item quando um deles é duplicata (sem escrita parcial)', async () => {
+      await criarItemTuss('30101012');
+
+      // O segundo item duplica o já existente: a requisição inteira falha, e o
+      // primeiro (novo e válido) não pode sobrar gravado.
+      await request(app.getHttpServer())
+        .post('/surgery-requests/procedures')
+        .set(getAuthHeader(authToken))
+        .send({
+          surgeryRequestId: testSurgeryRequestId,
+          procedures: [
+            { tussCode: '30101013', name: 'Novo item', quantity: 1 },
+            { tussCode: '30101012', name: 'Duplicado', quantity: 1 },
+          ],
+        })
+        .expect(400);
+
+      const detalhe = await request(app.getHttpServer())
+        .get('/surgery-requests/one')
+        .query({ id: testSurgeryRequestId })
+        .set(getAuthHeader(authToken))
+        .expect(200);
+      expect(
+        detalhe.body.tussItems.map(
+          (item: { tussCode: string }) => item.tussCode,
+        ),
+      ).toEqual(['30101012']);
+    });
+
     it('recusa requisição sem autenticação', async () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/procedures')
@@ -209,6 +238,34 @@ describe('Surgery Request Procedures (e2e)', () => {
         .expect(200);
       expect(detalhe.body.tussItems).toEqual([
         expect.objectContaining({ id: tussItemId, authorizedQuantity: 1 }),
+      ]);
+    });
+
+    it('não autoriza nenhum item quando um deles não pertence à SC (sem escrita parcial)', async () => {
+      const tussItemId = await criarItemTuss();
+
+      // O segundo id não pertence à SC: nada pode ter sido autorizado, nem o
+      // primeiro item, que é válido e vem antes na lista.
+      await request(app.getHttpServer())
+        .post('/surgery-requests/procedures/authorize')
+        .set(getAuthHeader(authToken))
+        .send({
+          surgeryRequestId: testSurgeryRequestId,
+          surgeryRequestProcedures: [
+            { id: tussItemId, authorizedQuantity: 5 },
+            { id: ID_INEXISTENTE, authorizedQuantity: 5 },
+          ],
+          opmeItems: [],
+        })
+        .expect(404);
+
+      const detalhe = await request(app.getHttpServer())
+        .get('/surgery-requests/one')
+        .query({ id: testSurgeryRequestId })
+        .set(getAuthHeader(authToken))
+        .expect(200);
+      expect(detalhe.body.tussItems).toEqual([
+        expect.objectContaining({ id: tussItemId, authorizedQuantity: null }),
       ]);
     });
 

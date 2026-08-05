@@ -4,17 +4,18 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   IsArray,
   ValidateNested,
 } from 'class-validator';
 
 export class ProcedureItemDto {
   @IsOptional()
-  @IsString()
+  @IsUUID()
   id?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   procedureId?: string; // mantido por compatibilidade, não utilizado no save
 
   @IsString()
@@ -31,7 +32,7 @@ export class ProcedureItemDto {
 }
 
 export class CreateSurgeryRequestProcedureDto {
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
   surgeryRequestId: string;
 

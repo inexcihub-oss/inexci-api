@@ -12,6 +12,7 @@ import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { STORAGE_FOLDER_SIZE_LIMITS } from 'src/config/storage.config';
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 
 @Injectable()
@@ -32,6 +33,17 @@ export class DocumentsService {
     file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File is required');
+
+    // `STORAGE_FOLDER_SIZE_LIMITS` é a fonte de verdade do limite de tamanho:
+    // o `FileInterceptor` só consegue cortar pelo maior limite, porque a pasta
+    // chega no corpo, depois do interceptor.
+    const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[data.folder];
+    const fileSize = file.size ?? file.buffer?.length ?? 0;
+    if (sizeLimit !== undefined && fileSize > sizeLimit) {
+      throw new BadRequestException(
+        `Arquivo excede o tamanho máximo permitido para esta pasta (${Math.round(sizeLimit / 1024)} KB)`,
+      );
+    }
 
     // O SurgeryRequestOwnerGuard nao cobre esta rota: guards rodam antes dos
     // interceptors, entao o FileInterceptor ainda nao parseou o multipart e o

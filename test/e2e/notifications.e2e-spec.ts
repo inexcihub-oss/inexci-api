@@ -163,9 +163,8 @@ describe('Notifications (e2e)', () => {
       expect(response.body.notifications).toHaveLength(1);
       // skip=1 sobre a ordem DESC (N0, N1, N2) cai na segunda mais recente.
       expect(response.body.notifications[0].title).toBe('N1');
-      // `total` é `notifications.length` no service, ou seja, o tamanho da
-      // página — não o total de notificações do usuário (ver relatório).
-      expect(response.body.total).toBe(1);
+      // `total` é o total do filtro (3), não o tamanho da página (1).
+      expect(response.body.total).toBe(3);
       expect(response.body.unreadCount).toBe(3);
     });
 
@@ -189,6 +188,8 @@ describe('Notifications (e2e)', () => {
       expect(response.status).toBe(200);
       expect(response.body.notifications).toHaveLength(1);
       expect(response.body.notifications[0].title).toBe('Não lida');
+      // `total` respeita o filtro da listagem: só a não lida entra.
+      expect(response.body.total).toBe(1);
       // unreadCount vem de `countUnread`, que ignora o filtro da listagem.
       expect(response.body.unreadCount).toBe(1);
     });
@@ -317,15 +318,20 @@ describe('Notifications (e2e)', () => {
       expect(await estaLida(app, id)).toBe(true);
     });
 
-    it('devolve 200 mesmo quando a notificação não existe', async () => {
-      // O service delega a um `UPDATE ... WHERE id = ? AND user_id = ?` e não
-      // olha o affected — id inexistente é no-op silencioso, nunca 404.
-      const response = await request(app.getHttpServer())
+    it('devolve 404 quando a notificação não existe', async () => {
+      // `UPDATE ... WHERE id = ? AND user_id = ?` com 0 linhas alteradas não
+      // pode responder "marcada como lida".
+      await request(app.getHttpServer())
         .put(`/notifications/${UUID_INEXISTENTE}/read`)
-        .set(getAuthHeader(authToken));
+        .set(getAuthHeader(authToken))
+        .expect(404);
+    });
 
-      expect(response.status).toBe(200);
-      expect(response.body.message).toBe('Notificação marcada como lida');
+    it('devolve 400 quando o id não é uuid', async () => {
+      await request(app.getHttpServer())
+        .put('/notifications/nao-e-uuid/read')
+        .set(getAuthHeader(authToken))
+        .expect(400);
     });
 
     it('não marca como lida a notificação de outro usuário', async () => {
@@ -336,11 +342,12 @@ describe('Notifications (e2e)', () => {
       });
       const id = await criarNotificacao(app, { userId: outro.id });
 
-      // O `user_id` faz parte do WHERE: responde 200, mas nada é alterado.
+      // O `user_id` faz parte do WHERE: nada é alterado, e a resposta é a
+      // mesma de um id inexistente (não revela que a notificação existe).
       await request(app.getHttpServer())
         .put(`/notifications/${id}/read`)
         .set(getAuthHeader(authToken))
-        .expect(200);
+        .expect(404);
 
       expect(await estaLida(app, id)).toBe(false);
     });
@@ -405,14 +412,18 @@ describe('Notifications (e2e)', () => {
       expect(await existeNotificacao(app, id)).toBe(false);
     });
 
-    it('devolve 200 mesmo quando a notificação não existe', async () => {
-      // Mesmo padrão do markAsRead: `DELETE ... WHERE` sem checagem de affected.
-      const response = await request(app.getHttpServer())
+    it('devolve 404 quando a notificação não existe', async () => {
+      await request(app.getHttpServer())
         .delete(`/notifications/${UUID_INEXISTENTE}`)
-        .set(getAuthHeader(authToken));
+        .set(getAuthHeader(authToken))
+        .expect(404);
+    });
 
-      expect(response.status).toBe(200);
-      expect(response.body.message).toBe('Notificação removida');
+    it('devolve 400 quando o id não é uuid', async () => {
+      await request(app.getHttpServer())
+        .delete('/notifications/nao-e-uuid')
+        .set(getAuthHeader(authToken))
+        .expect(400);
     });
 
     it('não remove a notificação de outro usuário', async () => {
@@ -426,7 +437,7 @@ describe('Notifications (e2e)', () => {
       await request(app.getHttpServer())
         .delete(`/notifications/${alheia}`)
         .set(getAuthHeader(authToken))
-        .expect(200);
+        .expect(404);
 
       expect(await existeNotificacao(app, alheia)).toBe(true);
     });

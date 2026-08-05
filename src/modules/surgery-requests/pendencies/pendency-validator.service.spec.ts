@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PendencyValidatorService } from './pendency-validator.service';
 import {
   SurgeryRequest,
@@ -202,6 +202,52 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
   });
 });
 
+describe('PendencyValidatorService — SC inexistente (fail-closed)', () => {
+  const mockRepository = { findOne: jest.fn() };
+  const {
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  } = buildCollectionRepoMocks();
+  const service = new PendencyValidatorService(
+    mockRepository as any,
+    opmeItemRepository,
+    documentRepository,
+    tussItemRepository,
+    reportSectionRepository,
+  );
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRepository.findOne.mockResolvedValue(null);
+  });
+
+  it('validateForStatus lança NotFoundException em vez de liberar o avanço', async () => {
+    await expect(service.validateForStatus('nao-existe')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('getSummary lança NotFoundException em vez de devolver resumo vazio liberado', async () => {
+    await expect(service.getSummary('nao-existe')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('canAdvance não devolve true para SC inexistente', async () => {
+    await expect(service.canAdvance('nao-existe')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('assertCanAdvance bloqueia a transição de uma SC inexistente', async () => {
+    await expect(service.assertCanAdvance('nao-existe')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+});
+
 describe('PendencyValidatorService — consent_term (IN_SCHEDULING)', () => {
   const mockRepository = { findOne: jest.fn() };
   const {
@@ -327,7 +373,7 @@ describe('PendencyValidatorService — getBatchSummary', () => {
     expect(result['req-bad'].pending).toBeGreaterThan(0);
   });
 
-  it('devolve default seguro para ids não encontrados', async () => {
+  it('devolve default fail-closed para ids não encontrados', async () => {
     mockRepository.find.mockResolvedValue([completeRequestBase]);
     tussItemRepository.findMany.mockResolvedValue([
       { id: 't-1', surgeryRequestId: 'req-ok' },
@@ -345,18 +391,18 @@ describe('PendencyValidatorService — getBatchSummary', () => {
     expect(result['missing-id']).toEqual({
       pending: 0,
       total: 0,
-      canAdvance: true,
+      canAdvance: false,
     });
   });
 
-  it('mantém defaults quando a carga em lote falha', async () => {
+  it('não libera o lote inteiro quando a carga em lote falha', async () => {
     mockRepository.find.mockRejectedValue(new Error('db down'));
 
     const result = await service.getBatchSummary('a,b', 'owner-1');
 
     expect(result).toEqual({
-      a: { pending: 0, total: 0, canAdvance: true },
-      b: { pending: 0, total: 0, canAdvance: true },
+      a: { pending: 0, total: 0, canAdvance: false },
+      b: { pending: 0, total: 0, canAdvance: false },
     });
   });
 

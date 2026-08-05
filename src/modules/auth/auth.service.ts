@@ -450,7 +450,9 @@ export class AuthService {
     // Escopa a validação ao usuário (via e-mail): um código não pode ser
     // validado fora da conta dona dele.
     const user = await this.userRepository.findOne({ email: normalizedEmail });
-    if (!user) throw new NotFoundException('Código inválido');
+    // Anti-enumeração: mesma resposta (400 genérico) que um código inválido
+    // numa conta existente — o 404 anterior denunciava e-mails não cadastrados.
+    if (!user) throw new BadRequestException('Código inválido ou expirado');
 
     const registro = await this.recoveryCodeRepository.findOne({
       userId: user.id,
@@ -481,13 +483,23 @@ export class AuthService {
     return { message: 'Código validado com sucesso', resetToken };
   }
 
+  /** Erro único do reset token: mesma resposta para conta inexistente e token inválido. */
+  private invalidResetTokenError(): BadRequestException {
+    return new BadRequestException(
+      'Token de redefinição inválido. Reinicie a recuperação de senha.',
+    );
+  }
+
   async changePassword(data: changePasswordDto) {
     const normalizedEmail = data.email.trim();
     const normalizedResetToken = data.resetToken.trim();
 
     const user = await this.userRepository.findOne({ email: normalizedEmail });
 
-    if (!user) throw new NotFoundException('User not found');
+    // Anti-enumeração: e-mail não cadastrado responde exatamente como token
+    // inválido numa conta existente. Um 404 aqui transformava a rota num
+    // oráculo de existência de conta (404 = não cadastrado, 400 = cadastrado).
+    if (!user) throw this.invalidResetTokenError();
 
     // Exige o reset token de uso único emitido na validação do código, escopado
     // ao usuário. Sem isso, qualquer código "usado" da conta liberaria a troca.
@@ -498,9 +510,7 @@ export class AuthService {
     });
 
     if (!validatedCode) {
-      throw new BadRequestException(
-        'Token de redefinição inválido. Reinicie a recuperação de senha.',
-      );
+      throw this.invalidResetTokenError();
     }
 
     if (

@@ -1,6 +1,7 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
+import { applyGlobalAppConfig } from '../../src/shared/bootstrap/global-app-config';
 import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
 import { resolve } from 'path';
@@ -39,14 +40,9 @@ export async function createTestApp(): Promise<INestApplication> {
 
   const app = moduleFixture.createNestApplication();
 
-  // Configurar pipes globais como na aplicação real
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // Mesmo pipe/filtro/interceptor globais do `main.ts` — via ponto único, para
+  // os testes não exercitarem um app diferente do que roda em produção (D-13).
+  applyGlobalAppConfig(app);
 
   await app.init();
   return app;
@@ -162,6 +158,22 @@ export async function prepararUsuarioParaLogin(
   await acceptUserConsents(app, email);
 }
 
+/**
+ * `IDX_users_phone_unique` é UNIQUE (parcial, para telefone preenchido e não
+ * apagado). Este helper gravava telefone fixo, então o SEGUNDO usuário criado
+ * no mesmo teste estourava `duplicate key` — o que inviabilizava justamente os
+ * testes que precisam de dois usuários (isolamento entre contas). Cada chamada
+ * recebe um número próprio; passe `phone` explicitamente quando o número
+ * importar para o caso de teste.
+ */
+let sequenciaTelefoneDeTeste = 0;
+function gerarTelefoneUnico(): string {
+  sequenciaTelefoneDeTeste += 1;
+  const aleatorio = String(Math.floor(Math.random() * 90000) + 10000);
+  const sequencial = String(sequenciaTelefoneDeTeste).padStart(4, '0');
+  return `11${aleatorio}${sequencial}`;
+}
+
 export async function createUserWithRole(
   app: INestApplication,
   options: {
@@ -171,6 +183,7 @@ export async function createUserWithRole(
     status?: 'pending' | 'active' | 'inactive';
     password?: string;
     account_id?: string; // UUID do admin da conta (para collaborators)
+    phone?: string;
   },
 ): Promise<{
   id: string;
@@ -217,7 +230,7 @@ export async function createUserWithRole(
         hashedPassword,
         role,
         status,
-        '11999999999',
+        options.phone ?? gerarTelefoneUnico(),
       ],
     );
     return result[0];
@@ -253,7 +266,7 @@ export async function createUserWithRole(
         role,
         status,
         ownerId,
-        '11999999998',
+        options.phone ?? gerarTelefoneUnico(),
       ],
     );
     return result[0];

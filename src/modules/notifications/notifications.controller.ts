@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Put,
   Query,
 } from '@nestjs/common';
@@ -68,7 +69,8 @@ export class NotificationsController {
   @Put(':id/read')
   @ApiOperation({ summary: 'Marcar notificação como lida' })
   async markAsRead(
-    @Param('id') id: string,
+    // Coluna `uuid`: sem o pipe, um id malformado só falhava no Postgres.
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.notificationsService.markAsRead(id, user.userId);
@@ -83,7 +85,7 @@ export class NotificationsController {
   @Delete(':id')
   @ApiOperation({ summary: 'Excluir notificação' })
   async deleteNotification(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.notificationsService.deleteNotification(id, user.userId);

@@ -37,7 +37,7 @@ export class CreateOpmeDto {
   @IsNumber()
   quantity: number;
 
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
   surgeryRequestId: string;
 }
