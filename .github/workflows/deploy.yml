@@ -63,6 +63,19 @@ jobs:
             echo "==> Reconstruindo imagem da API..."
             $COMPOSE build api
 
+            # Migrations rodam num container descartável, antes de encostar na
+            # API que está no ar. Enquanto estavam no `command:` do serviço
+            # (`migration:run && start:prod`), uma migration que falhava virava
+            # indisponibilidade: o container morria, o `restart: always`
+            # ressuscitava, e o loop durava os 6 minutos de espera abaixo.
+            # Agora falha aqui, com `set -e` abortando o deploy e a versão
+            # anterior da API intacta. Sem `|| true`: falha aqui tem que parar.
+            echo "==> Pré-flight de migrations (somente leitura)..."
+            $COMPOSE run --rm --no-deps api npm run migration:preflight
+
+            echo "==> Aplicando migrations..."
+            $COMPOSE run --rm --no-deps api npm run typeorm:migration:run
+
             echo "==> Subindo redis, stt-service, api e alloy..."
             $COMPOSE up -d redis stt-service api alloy || true
 
