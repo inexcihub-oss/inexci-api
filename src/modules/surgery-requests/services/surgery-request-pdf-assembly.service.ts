@@ -6,11 +6,10 @@ import {
   MedicalReportPdfData,
   SurgeryRequestLaudoPdfData,
   ContestAuthorizationPdfData,
-  CustomHeaderData,
 } from 'src/shared/pdf/pdf.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
+import { DoctorPdfContextService } from 'src/shared/pdf/doctor-pdf-context.service';
 import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
 import { formatPhone } from 'src/shared/utils';
 import { buildLaudoPatientFields } from '../utils/laudo-patient-fields.util';
@@ -37,21 +36,14 @@ export class SurgeryRequestPdfAssemblyService {
     private readonly pdfService: PdfService,
     private readonly userRepository: UserRepository,
     private readonly storageService: StorageService,
-    private readonly doctorHeaderRepository: DoctorHeaderRepository,
+    private readonly doctorPdfContextService: DoctorPdfContextService,
   ) {}
 
   /**
    * Resolve a URL da assinatura do médico (signed URL se for path do storage).
    */
   async resolveDoctorSignatureUrl(profile: any): Promise<string | undefined> {
-    if (!profile?.signatureUrl) return undefined;
-    const raw: string = profile.signatureUrl;
-    if (raw.startsWith('http')) return raw;
-    try {
-      return await this.storageService.getSignedUrl(raw);
-    } catch {
-      return undefined;
-    }
+    return this.doctorPdfContextService.resolveSignatureUrl(profile);
   }
 
   /**
@@ -72,48 +64,8 @@ export class SurgeryRequestPdfAssemblyService {
     return this.buildDoctorPdfContext(doctor);
   }
 
-  private async buildDoctorPdfContext(doctor: any) {
-    const profile = doctor?.doctorProfile;
-
-    let doctorCrm: string | undefined;
-    if (profile?.crm) {
-      doctorCrm = `CRM ${profile.crm}${profile.crmState ? `/${profile.crmState}` : ''}`;
-    }
-
-    const doctorSignatureUrl = await this.resolveDoctorSignatureUrl(profile);
-    const customHeader = await this.resolveCustomHeader(profile);
-
-    return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
-  }
-
-  private async resolveCustomHeader(
-    profile: any,
-  ): Promise<CustomHeaderData | null> {
-    if (!profile?.id) return null;
-
-    const header =
-      profile.header ??
-      (await this.doctorHeaderRepository.findByDoctorProfileId(profile.id));
-    if (!header) return null;
-
-    let logoUrl: string | null = null;
-    if (header.logoUrl) {
-      if (header.logoUrl.startsWith('http')) {
-        logoUrl = header.logoUrl;
-      } else {
-        try {
-          logoUrl = await this.storageService.getSignedUrl(header.logoUrl);
-        } catch {
-          logoUrl = null;
-        }
-      }
-    }
-
-    return {
-      logoUrl,
-      logoPosition: header.logoPosition,
-      contentHtml: header.contentHtml,
-    };
+  private buildDoctorPdfContext(doctor: any) {
+    return this.doctorPdfContextService.buildForDoctor(doctor);
   }
 
   /**

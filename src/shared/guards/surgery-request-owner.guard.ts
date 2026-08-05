@@ -7,8 +7,10 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { isUUID } from 'class-validator';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 export const SKIP_SURGERY_OWNER = 'skipSurgeryOwner';
 
@@ -24,12 +26,18 @@ export const SkipSurgeryOwner = () => SetMetadata(SKIP_SURGERY_OWNER, true);
  * Resolve o id da SC a partir de params/query/body e garante que ela pertence
  * ao `ownerId` (clínica) do usuário autenticado. Fail-closed: bloqueia com 403
  * qualquer acesso cross-tenant e cobre automaticamente rotas futuras (V1).
+ *
+ * LIMITAÇÃO: rotas `multipart/form-data` não são cobertas. Guards rodam antes
+ * dos interceptors, então o `FileInterceptor` ainda não parseou o corpo e o id
+ * chega `undefined` aqui. Essas rotas devem validar a posse no service (ver
+ * `DocumentsService.create`).
  */
 @Injectable()
 export class SurgeryRequestOwnerGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -51,12 +59,36 @@ export class SurgeryRequestOwnerGuard implements CanActivate {
     // Sem id de recurso (listagens, criação): nada a validar aqui.
     if (!id) return true;
 
+    // O id vem do cliente e vai direto para um WHERE sobre coluna `uuid`. Sem
+    // esta checagem o Postgres aborta a query ("invalid input syntax for type
+    // uuid"); o `AllExceptionsFilter` converte isso num 400 genérico ("Erro na
+    // operação do banco de dados") — e nos e2e, cujo app não registra o filtro,
+    // vira 500. Nos dois casos é a resposta errada para "esse id não existe", e
+    // o guard roda antes do ValidationPipe, então nenhum DTO chega a barrar.
+    // Id malformado não pode existir: trata como não encontrado, igual ao id
+    // inexistente logo abaixo.
+    if (!isUUID(String(id)))
+      throw new NotFoundException('Solicitação cirúrgica não encontrada');
+
     const sr = await this.surgeryRequestRepository.findOneSimple({ id });
     if (!sr)
       throw new NotFoundException('Solicitação cirúrgica não encontrada');
     if (sr.ownerId !== req.user?.ownerId)
       throw new ForbiddenException(
         'Acesso negado: recurso pertence a outra clínica.',
+      );
+
+    // Segundo recorte: dentro da clínica, o usuário só alcança as SCs dos
+    // médicos aos quais está vinculado (user_doctor_access). Sem isto, rotas
+    // de workflow davam escrita e export de PDF sobre SCs que a leitura normal
+    // (GET /:id) já negava.
+    const podeAcessarMedico = await this.accessControlService.canAccessDoctor(
+      req.user.userId,
+      sr.doctorId,
+    );
+    if (!podeAcessarMedico)
+      throw new ForbiddenException(
+        'Acesso negado: você não tem vínculo com o médico desta solicitação.',
       );
 
     // Auditoria LGPD: acesso autorizado a uma SC específica (prontuário).

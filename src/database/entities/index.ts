@@ -10,6 +10,13 @@ import {
   UserDoctorAccessStatus,
 } from './user-doctor-access.entity';
 import { Patient } from './patient.entity';
+import {
+  Appointment,
+  AppointmentType,
+  AppointmentStatus,
+} from './appointment.entity';
+import { ClinicalRecord } from './clinical-record.entity';
+import { ClinicalRecordTemplate } from './clinical-record-template.entity';
 import { Hospital } from './hospital.entity';
 import { HealthPlan } from './health-plan.entity';
 import { Manufacturer } from './manufacturer.entity';
@@ -63,6 +70,9 @@ export { UserDoctorAccess, UserDoctorAccessStatus };
 
 // ENTIDADES DE NEGÓCIO (não fazem login)
 export { Patient };
+export { Appointment, AppointmentType, AppointmentStatus };
+export { ClinicalRecord };
+export { ClinicalRecordTemplate };
 export { Hospital };
 export { HealthPlan };
 export { Manufacturer };
@@ -123,6 +133,9 @@ export const ENTITIES = [
   DoctorHeader,
   UserDoctorAccess,
   Patient,
+  Appointment,
+  ClinicalRecord,
+  ClinicalRecordTemplate,
   Hospital,
   HealthPlan,
   Manufacturer,

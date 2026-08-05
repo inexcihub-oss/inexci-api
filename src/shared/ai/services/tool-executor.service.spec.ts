@@ -1,5 +1,6 @@
 import { ToolExecutorService } from './tool-executor.service';
 import { AiTool } from '../tools/tool.interface';
+import { Permission } from '../../permissions';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -355,6 +356,79 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
 
       expect(redisMock.cacheGet).toHaveBeenCalledTimes(2);
       expect(executeFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── permissão de tool ────────────────────────────────────────────────────
+
+  describe('permissão de tool', () => {
+    function buildGuardedTool(executeFn: jest.Mock): AiTool {
+      return {
+        ...buildTool('create_surgery_request', executeFn),
+        requiredPermission: Permission.SOLICITACOES,
+      };
+    }
+
+    it('recusa a tool quando falta a permissão exigida', async () => {
+      const execute = jest.fn();
+      const svc = new ToolExecutorService(
+        buildRegistryMock([buildGuardedTool(execute)]) as any,
+        buildRedisOffline() as any,
+      );
+
+      const [resultado] = await svc.executeMany(
+        [makeCall('create_surgery_request', {})],
+        { userId: 'u-1', permissions: [Permission.AGENDA] } as never,
+      );
+
+      expect(resultado.output).toContain('não tem permissão');
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('executa quando a permissão está presente', async () => {
+      const execute = jest.fn().mockResolvedValue('ok');
+      const svc = new ToolExecutorService(
+        buildRegistryMock([buildGuardedTool(execute)]) as any,
+        buildRedisOffline() as any,
+      );
+
+      await svc.executeMany([makeCall('create_surgery_request', {})], {
+        userId: 'u-1',
+        permissions: [Permission.SOLICITACOES],
+      } as never);
+
+      expect(execute).toHaveBeenCalled();
+    });
+
+    it('executa tool sem requiredPermission independentemente do contexto', async () => {
+      const execute = jest.fn().mockResolvedValue('ok');
+      const svc = new ToolExecutorService(
+        buildRegistryMock([buildTool('list_patients', execute)]) as any,
+        buildRedisOffline() as any,
+      );
+
+      await svc.executeMany([makeCall('list_patients', {})], {
+        userId: 'u-1',
+        permissions: [],
+      } as never);
+
+      expect(execute).toHaveBeenCalled();
+    });
+
+    it('recusa quando o contexto não tem `permissions` (fail-closed)', async () => {
+      const execute = jest.fn();
+      const svc = new ToolExecutorService(
+        buildRegistryMock([buildGuardedTool(execute)]) as any,
+        buildRedisOffline() as any,
+      );
+
+      const [resultado] = await svc.executeMany(
+        [makeCall('create_surgery_request', {})],
+        { userId: 'u-1' } as never,
+      );
+
+      expect(resultado.output).toContain('não tem permissão');
+      expect(execute).not.toHaveBeenCalled();
     });
   });
 });

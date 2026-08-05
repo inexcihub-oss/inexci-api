@@ -8,7 +8,7 @@ import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullAdapter } from '@bull-board/api/bullAdapter';
 import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
-import { RolesGuard } from './shared/guards/roles.guard';
+import { PermissionsGuard } from './shared/guards/permissions.guard';
 import { CustomThrottlerGuard } from './shared/guards/custom-throttler.guard';
 import { ConsentsGuard } from './shared/guards/consents.guard';
 import { LoggingInterceptor } from './shared/logging/logging.interceptor';
@@ -28,6 +28,8 @@ import { DocumentsModule } from './modules/surgery-requests/documents/documents.
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 import { PatientsModule } from './modules/patients/patients.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { ClinicalRecordsModule } from './modules/clinical-records/clinical-records.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -124,6 +126,8 @@ import { ObservabilityModule } from './shared/observability/observability.module
     SuppliersModule,
     ManufacturersModule,
     PatientsModule,
+    AppointmentsModule,
+    ClinicalRecordsModule,
     HospitalsModule,
     SurgeryProceduresModule,
     ReportsModule,
@@ -159,6 +163,10 @@ import { ObservabilityModule } from './shared/observability/observability.module
       adapter: BullAdapter,
     }),
     BullBoardModule.forFeature({
+      name: 'indication-documents',
+      adapter: BullAdapter,
+    }),
+    BullBoardModule.forFeature({
       name: 'document-extraction',
       adapter: BullAdapter,
     }),
@@ -178,7 +186,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
     },
     {
       provide: APP_GUARD,
-      useClass: RolesGuard,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_GUARD,

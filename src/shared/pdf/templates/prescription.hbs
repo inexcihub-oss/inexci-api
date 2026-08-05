@@ -1,0 +1,47 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <title>Receituário</title>
+    {{> clinical-styles}}
+  </head>
+  <body>
+
+    {{> clinical-header documentTitle='RECEITUÁRIO'}}
+
+    {{> clinical-patient}}
+
+    <div class='section'>
+      <div class='section-heading'>
+        <span class='section-title'>Prescrição</span>
+      </div>
+      <div class='item-list'>
+        {{#each items}}
+          <div class='item'>
+            <span class='item-index'>{{sum @index 1}}.</span>
+            <div>
+              <div class='item-name'>{{this.name}}</div>
+              {{#if this.quantity}}
+                <div class='item-meta'>Quantidade: {{this.quantity}}</div>
+              {{/if}}
+              {{#if this.instructions}}
+                <div class='item-instructions'>{{this.instructions}}</div>
+              {{/if}}
+            </div>
+          </div>
+        {{/each}}
+      </div>
+    </div>
+
+    {{#if notes}}
+      <div class='section'>
+        <div class='section-heading'>
+          <span class='section-title'>Orientações</span>
+        </div>
+        <p class='body-text'>{{notes}}</p>
+      </div>
+    {{/if}}
+
+    {{> clinical-signature}}
+
+  </body>
+</html>

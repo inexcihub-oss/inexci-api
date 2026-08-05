@@ -6,6 +6,7 @@ import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
 import { BulkDeleteCollaboratorsDto } from './dto/bulk-delete-collaborators.dto';
+import { ResetCollaboratorPasswordDto } from './dto/reset-collaborator-password.dto';
 import { UsersService } from './users.service';
 import {
   Body,
@@ -17,10 +18,11 @@ import {
   Post,
   Put,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from 'src/shared/decorators/roles.decorator';
-import { UserRole } from 'src/database/entities/user.entity';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -44,7 +46,13 @@ export class UsersController {
   @Get('one')
   @ApiOperation({ summary: 'Buscar usuário por ID' })
   async findOne(
-    @Query() { id }: { id: string },
+    // `users.id` é `uuid`: sem o pipe, `?id=999999` chega cru ao repositório e
+    // o Postgres aborta a query ("invalid input syntax for type uuid"), que o
+    // `AllExceptionsFilter` traduz num 400 genérico de banco (500 nos e2e, que
+    // não registram o filtro). O pipe devolve um 400 que diz o que está errado,
+    // sem gastar ida ao banco — mesmo defeito que o `SurgeryRequestOwnerGuard`
+    // tinha com o `:id` da solicitação.
+    @Query('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.usersService.findOne(id, user.userId);
@@ -66,7 +74,7 @@ export class UsersController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar usuário (admin)' })
   async create(
     @Body() data: CreateUserDto,
@@ -87,7 +95,16 @@ export class UsersController {
 
   // ============ PERFIL MÉDICO ============
 
+  // Administração OU Solicitações: além do admin da conta, o editor de laudo
+  // (MedicalReportEditor) usa esta rota para o colaborador vinculado ao
+  // médico da solicitação subir/remover SOMENTE a assinatura — esse
+  // colaborador tem Solicitações, não Administração. A barreira grossa aqui
+  // é só isso: "está numa dessas duas áreas". Quem de fato restringe (o
+  // vínculo colaborador↔médico e o campo permitido) é a checagem fina em
+  // UsersService.updateDoctorProfileById (`isLinkedCollaborator` /
+  // `onlySignature`), que continua intacta.
   @Patch('doctor-profile/:id')
+  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
   @ApiOperation({ summary: 'Atualizar perfil médico' })
   async updateDoctorProfile(
     @Param('id') id: string,
@@ -126,7 +143,12 @@ export class UsersController {
     return this.usersService.deleteMyHeader(user.userId);
   }
 
+  // Diferente do PATCH de perfil médico acima: o editor de laudo
+  // (MedicalReportEditor) usa o cabeçalho do PRÓPRIO usuário (`/users/me/header`,
+  // via `isOwnRequest`), nunca esta rota "por id". Só o admin da conta
+  // configura o cabeçalho de outro médico (ex.: `colaboradores/assistente/[id]`).
   @Get('doctor-profile/:id/header')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Obter cabeçalho personalizado de um médico' })
   async getDoctorHeaderById(
     @Param('id') id: string,
@@ -135,7 +157,9 @@ export class UsersController {
     return this.usersService.getDoctorHeaderByUserId(id, user.userId);
   }
 
+  // Mesmo motivo do GET acima: só admin configura cabeçalho de terceiro.
   @Put('doctor-profile/:id/header')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar/atualizar cabeçalho de um médico' })
   async upsertDoctorHeaderById(
     @Param('id') id: string,
@@ -145,7 +169,9 @@ export class UsersController {
     return this.usersService.upsertDoctorHeaderByUserId(id, dto, user.userId);
   }
 
+  // Mesmo motivo do GET acima: só admin configura cabeçalho de terceiro.
   @Delete('doctor-profile/:id/header')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Remover cabeçalho de um médico' })
   async deleteDoctorHeaderById(
     @Param('id') id: string,
@@ -157,21 +183,21 @@ export class UsersController {
   // ============ COLABORADORES ============
 
   @Get('doctors')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Listar médicos' })
   async findDoctors(@CurrentUser() user: AuthenticatedUser) {
     return await this.usersService.findDoctors(user.userId);
   }
 
   @Get('collaborators')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Listar colaboradores' })
   async findCollaborators(@CurrentUser() user: AuthenticatedUser) {
     return await this.usersService.findCollaborators(user.userId);
   }
 
   @Get('collaborators/:id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Buscar colaborador por ID' })
   async findCollaboratorById(
     @Param('id') id: string,
@@ -181,7 +207,7 @@ export class UsersController {
   }
 
   @Post('collaborators')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar colaborador' })
   async createCollaborator(
     @Body() data: CreateCollaboratorDto,
@@ -191,7 +217,7 @@ export class UsersController {
   }
 
   @Patch('collaborators/:id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar colaborador' })
   async updateCollaborator(
     @Param('id') id: string,
@@ -202,7 +228,7 @@ export class UsersController {
   }
 
   @Patch('collaborators/:id/status')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Alternar status ativo/inativo do colaborador' })
   async toggleCollaboratorStatus(
     @Param('id') id: string,
@@ -212,11 +238,11 @@ export class UsersController {
   }
 
   @Patch('collaborators/:id/reset-password')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Redefinir senha do colaborador' })
   async resetCollaboratorPassword(
     @Param('id') id: string,
-    @Body() body: { password: string },
+    @Body() body: ResetCollaboratorPasswordDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.usersService.resetCollaboratorPassword(
@@ -227,7 +253,7 @@ export class UsersController {
   }
 
   @Post('collaborators/:id/resend-invite')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({
     summary: 'Reenviar e-mail de convite (link de primeiro acesso)',
   })
@@ -239,7 +265,7 @@ export class UsersController {
   }
 
   @Delete('collaborators/:id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir colaborador' })
   async deleteCollaborator(
     @Param('id') id: string,
@@ -249,7 +275,7 @@ export class UsersController {
   }
 
   @Post('collaborators/bulk-delete')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir colaboradores em lote' })
   async bulkDeleteCollaborators(
     @Body() data: BulkDeleteCollaboratorsDto,

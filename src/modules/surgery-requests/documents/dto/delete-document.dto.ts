@@ -1,7 +1,7 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, IsUUID } from 'class-validator';
 
 export class DeleteDocumentDto {
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
   id: string;
 
@@ -9,7 +9,7 @@ export class DeleteDocumentDto {
   @IsNotEmpty()
   key: string;
 
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
   surgeryRequestId: string;
 }

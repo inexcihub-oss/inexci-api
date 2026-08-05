@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { In } from 'typeorm';
 import { AiTool } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { resolveOwnerIdFromContext } from '../catalog.helpers';
 import { PiiCategory } from '../../services/pii-vault.service';
 import { WhatsappFlowToolDeps } from './_types';
@@ -20,20 +21,15 @@ export function buildListScCreationCatalogTool(
   } = deps;
   return {
     name: 'list_sc_creation_catalog',
-    // Lista dinâmica (pacientes, hospitais, convênios, procedimentos podem ser
-    // criados durante a sessão). TTL curto (30 s) evita dados obsoletos; o
-    // cache é invalidado imediatamente após qualquer draft_commit que altere
-    // essas listas.
-    cacheable: {
-      ttlSeconds: 30,
-      invalidatesOn: [
-        'sc_draft_commit',
-        'patient_draft_commit',
-        'hospital_draft_commit',
-        'health_plan_draft_commit',
-        'procedure_draft_commit',
-      ],
-    },
+    // NÃO cacheable: a categoria `templates` é omitida para quem não tem
+    // Permission.SOLICITACOES (ver `hasSolicitacoes` abaixo), mas a chave de
+    // cache do `ToolExecutorService` (`buildCacheKey`) só considera
+    // `ownerId` + args — não o `context.permissions` do chamador. Cachear
+    // aqui deixaria a resposta de um usuário (com ou sem a permissão)
+    // vazar/sumir para outro usuário do mesmo owner dentro do TTL. As demais
+    // categorias (pacientes, hospitais, convênios, procedimentos, TUSS,
+    // médicos) não têm esse problema, mas a tool inteira perde o cache por
+    // simplicidade — é uma listagem leve, sem N+1.
     definition: {
       type: 'function',
       function: {
@@ -60,9 +56,22 @@ export function buildListScCreationCatalogTool(
     async execute(args, context): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
+      // `templates` é modelo de solicitação cirúrgica — dado da área
+      // Solicitações, não catálogo neutro (o próprio `GET
+      // /surgery-requests/templates` herda `@RequirePermission(SOLICITACOES)`
+      // de classe no HTTP). As outras seis categorias continuam livres.
+      const hasSolicitacoes = (context.permissions ?? []).includes(
+        Permission.SOLICITACOES,
+      );
+
       const normalizedCategory = asNonEmptyString(args.category)
         ?.toLowerCase()
         .trim();
+
+      if (normalizedCategory === 'templates' && !hasSolicitacoes) {
+        return 'Você não tem acesso aos modelos de solicitação. Fale com o administrador da sua clínica.';
+      }
+
       const limit =
         typeof args.limit === 'number' && Number.isFinite(args.limit)
           ? Math.min(Math.max(Math.floor(args.limit), 1), 100)
@@ -111,10 +120,12 @@ export function buildListScCreationCatalogTool(
               limit,
             )
           : Promise.resolve([] as any[]),
-        surgeryRequestsService.getTemplates(
-          context.userId as string,
-          ownerIdForLookup,
-        ),
+        hasSolicitacoes
+          ? surgeryRequestsService.getTemplates(
+              context.userId as string,
+              ownerIdForLookup,
+            )
+          : Promise.resolve([] as any[]),
       ]);
 
       const categoryMap: Record<string, { label: string; items: any[] }> = {
@@ -196,7 +207,11 @@ export function buildListScCreationCatalogTool(
         ),
         formatItems('hospitals', 'Hospitais', categoryMap.hospitals.items),
         formatItems('doctors', 'Médicos', categoryMap.doctors.items),
-        formatItems('templates', 'Modelos', categoryMap.templates.items),
+        // `templates` fica de fora do resumo geral para quem não tem
+        // Permission.SOLICITACOES — ver comentário no topo do `execute`.
+        ...(hasSolicitacoes
+          ? [formatItems('templates', 'Modelos', categoryMap.templates.items)]
+          : []),
         'Procedimento cirúrgico ≠ código TUSS: o primeiro é o tipo da cirurgia (ex.: "Artroscopia de Joelho"); o segundo é faturamento.',
       ].join('\n');
     },

@@ -49,12 +49,24 @@ export const envValidationSchema = Joi.object({
 
   // ── Twilio (WhatsApp) ────────────────────────────────
   TWILIO_ACCOUNT_SID: Joi.string().allow('').default(''),
-  TWILIO_AUTH_TOKEN: Joi.string().allow('').default(''),
+  TWILIO_AUTH_TOKEN: Joi.string()
+    .allow('')
+    .default('')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().min(1).required(),
+    }),
   TWILIO_WHATSAPP_FROM: Joi.string().allow('').default('whatsapp:+14155238886'),
   TWILIO_VALIDATE_SIGNATURE: Joi.string().allow('').default('false'),
 
   // ── Security (criptografia / hash) ───────────────────
-  DB_ENCRYPTION_KEY: Joi.string().allow('').default(''),
+  DB_ENCRYPTION_KEY: Joi.string()
+    .allow('')
+    .default('')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().hex().length(64).required(),
+    }),
   PHONE_HASH_SALT: Joi.string().min(32).required(),
 
   // ── OpenAI / IA conversa ─────────────────────────────

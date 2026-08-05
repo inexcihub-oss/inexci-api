@@ -16,6 +16,7 @@ import { DoctorProfileRepository } from 'src/database/repositories/doctor-profil
 import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { Permission } from 'src/shared/permissions';
 import { ConfigService } from '@nestjs/config';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
@@ -221,6 +222,106 @@ describe('AuthService', () => {
       const result = await service.me('user-1');
 
       expect(result.account).toBeNull();
+    });
+
+    // ─── Achado Critical: /auth/me nunca devolvia `permissions` ────
+    // (`AuthContext.tsx` do frontend lê `user.permissions` para montar
+    // `can()`; sem o campo, `can()` é sempre `false` para TODO MUNDO,
+    // inclusive o dono da conta.)
+    describe('permissions (achado Critical)', () => {
+      it('devolve as quatro permissões para o dono da conta (admin)', async () => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          name: 'Dono',
+          phone: '11999999999',
+          email: 'dono@example.com',
+          ownerId: 'dono-1',
+          avatarUrl: null,
+          emailVerified: true,
+          permissions: [],
+          isPlatformAdmin: false,
+          doctorProfile: null,
+        });
+
+        const result = await service.me('dono-1');
+
+        expect(result.permissions).toEqual([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+          Permission.SOLICITACOES,
+          Permission.ADMINISTRACAO,
+        ]);
+      });
+
+      it('devolve Agenda, Atendimento e Solicitações para um médico colaborador', async () => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'med-1',
+          role: UserRole.COLLABORATOR,
+          name: 'Dra. Médica',
+          phone: '11999999999',
+          email: 'medica@example.com',
+          ownerId: 'dono-1',
+          avatarUrl: null,
+          emailVerified: true,
+          permissions: [],
+          isPlatformAdmin: false,
+          doctorProfile: { id: 'dp-1' },
+        });
+
+        const result = await service.me('med-1');
+
+        expect(result.permissions).toEqual([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+          Permission.SOLICITACOES,
+        ]);
+      });
+
+      it('devolve exatamente o array gravado para um colaborador não-médico', async () => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'colab-1',
+          role: UserRole.COLLABORATOR,
+          name: 'Assistente',
+          phone: '11999999999',
+          email: 'assistente@example.com',
+          ownerId: 'dono-1',
+          avatarUrl: null,
+          emailVerified: true,
+          permissions: [Permission.AGENDA],
+          isPlatformAdmin: false,
+          doctorProfile: null,
+        });
+
+        const result = await service.me('colab-1');
+
+        expect(result.permissions).toEqual([Permission.AGENDA]);
+      });
+
+      it('não devolve isPlatformAdmin nem a coluna crua de permissions', async () => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'colab-1',
+          role: UserRole.COLLABORATOR,
+          name: 'Assistente',
+          phone: '11999999999',
+          email: 'assistente@example.com',
+          ownerId: 'dono-1',
+          avatarUrl: null,
+          emailVerified: true,
+          permissions: [],
+          isPlatformAdmin: true,
+          doctorProfile: { id: 'dp-1' }, // efetiva soma 3 áreas — prova que não é a crua repassada
+        });
+
+        const result = await service.me('colab-1');
+
+        expect(result).not.toHaveProperty('isPlatformAdmin');
+        expect(result.permissions).toEqual([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+          Permission.SOLICITACOES,
+        ]);
+      });
     });
   });
 
@@ -493,37 +594,85 @@ describe('AuthService', () => {
       expect((result as Record<string, unknown>).access_token).toBeUndefined();
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
+
+    // ─── Achado Critical: /auth/register também ficou sem `permissions` ────
+    // (varredura pedida pela revisão — não alimenta o AuthContext hoje, mas
+    // é o mesmo padrão de resposta manual sem `permissions`.)
+    it('devolve as quatro permissões (register só cria o dono/ADMIN da conta)', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
+
+      mockUserRepository.create.mockResolvedValue({
+        id: 'mock-uuid-1234',
+        name: 'Dono',
+        email: 'dono@example.com',
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: null,
+        cpf: null,
+        ownerId: 'mock-uuid-1234',
+        permissions: [],
+        isPlatformAdmin: false,
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-01-01'),
+      });
+
+      const result = await service.register({
+        name: 'Dono',
+        email: 'dono@example.com',
+        password: '123456',
+        phone: '11999998888',
+      } as any);
+
+      expect(result.user).not.toHaveProperty('isPlatformAdmin');
+      expect(
+        (result.user as { permissions: Permission[] }).permissions,
+      ).toEqual([
+        Permission.AGENDA,
+        Permission.ATENDIMENTO,
+        Permission.SOLICITACOES,
+        Permission.ADMINISTRACAO,
+      ]);
+    });
   });
 
   // ─── login ──────────────────────────────────────────────────────
 
   describe('login', () => {
+    /**
+     * `validateUser` resolve via `userRepository.findOne` (com
+     * `selectPassword: true`); o restante do perfil (ownerId,
+     * `doctorProfile`, `emailVerified` e a coluna crua de `permissions`)
+     * vem de uma única `findOneWithProfile` dentro de `login()`.
+     */
+    const mockAuthenticatedUser = (
+      overrides: Record<string, unknown> = {},
+    ) => ({
+      id: 'user-1',
+      email: 'test@example.com',
+      password: 'hashed-password',
+      role: UserRole.ADMIN,
+      name: 'Test User',
+      phone: '123',
+      cpf: '000',
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      ownerId: 'user-1',
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-01'),
+      ...overrides,
+    });
+
     it('should return user data and access_token', async () => {
       (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
-      const mockUser = {
-        id: 'user-1',
-        email: 'test@example.com',
-        password: 'hashed-password',
-        role: UserRole.ADMIN,
-        name: 'Test User',
-        phone: '123',
-        cpf: '000',
-        status: UserStatus.ACTIVE,
-        emailVerified: true,
-        ownerId: 'user-1',
-        createdAt: new Date('2024-01-01'),
-        updatedAt: new Date('2024-01-01'),
-      };
-
-      // validateUser calls findOne with status + selectPassword
-      mockUserRepository.findOne.mockImplementation(
-        (where, selectPassword?) => {
-          if (selectPassword) return Promise.resolve(mockUser); // validateUser call
-          return Promise.resolve({ ...mockUser, ownerId: 'user-1' }); // fullUser call
-        },
-      );
-
-      mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
+      const authenticatedUser = mockAuthenticatedUser();
+      mockUserRepository.findOne.mockResolvedValue(authenticatedUser); // validateUser
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        ...authenticatedUser,
+        permissions: [],
+        isPlatformAdmin: false,
+        doctorProfile: null,
+      });
 
       const result = await service.login({
         email: 'test@example.com',
@@ -534,6 +683,87 @@ describe('AuthService', () => {
       expect(result!.user.email).toBe('test@example.com');
       expect(result!.access_token).toBe('mock-jwt-token');
       expect(result!.user.isDoctor).toBe(false);
+    });
+
+    // ─── Achado Critical: /auth/login nunca devolvia `permissions` ────
+    describe('permissions (achado Critical)', () => {
+      it('devolve as quatro permissões para o dono da conta (admin)', async () => {
+        (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+        const authenticatedUser = mockAuthenticatedUser({
+          role: UserRole.ADMIN,
+        });
+        mockUserRepository.findOne.mockResolvedValue(authenticatedUser);
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          ...authenticatedUser,
+          permissions: [],
+          isPlatformAdmin: false,
+          doctorProfile: null,
+        });
+
+        const result = await service.login({
+          email: 'test@example.com',
+          password: '123456',
+        });
+
+        expect(result!.user.permissions).toEqual([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+          Permission.SOLICITACOES,
+          Permission.ADMINISTRACAO,
+        ]);
+      });
+
+      it('devolve exatamente o array gravado para um colaborador comum', async () => {
+        (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+        const authenticatedUser = mockAuthenticatedUser({
+          id: 'colab-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+        });
+        mockUserRepository.findOne.mockResolvedValue(authenticatedUser);
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          ...authenticatedUser,
+          permissions: [Permission.SOLICITACOES],
+          isPlatformAdmin: false,
+          doctorProfile: null,
+        });
+
+        const result = await service.login({
+          email: 'test@example.com',
+          password: '123456',
+        });
+
+        expect(result!.user.permissions).toEqual([Permission.SOLICITACOES]);
+      });
+
+      it('não devolve isPlatformAdmin nem a coluna crua de permissions', async () => {
+        (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+        const authenticatedUser = mockAuthenticatedUser({
+          id: 'colab-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+        });
+        mockUserRepository.findOne.mockResolvedValue(authenticatedUser);
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          ...authenticatedUser,
+          permissions: [],
+          isPlatformAdmin: true,
+          // efetiva soma 3 áreas — prova que não é a coluna crua repassada
+          doctorProfile: { id: 'dp-1' },
+        });
+
+        const result = await service.login({
+          email: 'test@example.com',
+          password: '123456',
+        });
+
+        expect(result!.user).not.toHaveProperty('isPlatformAdmin');
+        expect(result!.user.permissions).toEqual([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+          Permission.SOLICITACOES,
+        ]);
+      });
     });
   });
 
@@ -700,16 +930,37 @@ describe('AuthService', () => {
       ).rejects.toThrow('Código inválido');
     });
 
-    it('escopa por usuário: e-mail inexistente → Código inválido', async () => {
-      mockUserRepository.findOne.mockResolvedValue(null);
+    // Mesmo contrato anti-enumeração do `changePassword`: e-mail inexistente
+    // não pode responder diferente de código inválido numa conta existente.
+    it('escopa por usuário sem revelar a existência da conta', async () => {
+      const capture = async () => {
+        try {
+          await service.validateRecoveryPasswordCode({
+            code: '123456',
+            email: 'alvo@example.com',
+          });
+          throw new Error('deveria ter lançado');
+        } catch (err: any) {
+          return {
+            status: err.getStatus?.(),
+            message: err.getResponse?.()?.message ?? err.message,
+          };
+        }
+      };
 
-      await expect(
-        service.validateRecoveryPasswordCode({
-          code: '123456',
-          email: 'nobody@example.com',
-        }),
-      ).rejects.toThrow(NotFoundException);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const semConta = await capture();
       expect(mockRecoveryCodeRepository.findOne).not.toHaveBeenCalled();
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'alvo@example.com',
+      });
+      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      const comConta = await capture();
+
+      expect(semConta).toEqual(comConta);
+      expect(semConta.status).toBe(400);
     });
 
     it('should throw BadRequestException when code is expired', async () => {
@@ -724,12 +975,14 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() - 60 * 1000), // expired 1 minute ago
       });
 
+      // Mensagem generica de proposito (anti-enumeration): nao revela se o
+      // codigo esta expirado, ja usado ou simplesmente nao existe.
       await expect(
         service.validateRecoveryPasswordCode({
           code: '123456',
           email: 'test@example.com',
         }),
-      ).rejects.toThrow('Código expirado');
+      ).rejects.toThrow('Código inválido ou expirado');
     });
 
     it('marca o código como usado e emite um reset token', async () => {
@@ -769,16 +1022,38 @@ describe('AuthService', () => {
   // ─── changePassword ─────────────────────────────────────────────
 
   describe('changePassword', () => {
-    it('should throw NotFoundException when user does not exist', async () => {
-      mockUserRepository.findOne.mockResolvedValue(null);
+    // Anti-enumeração: o par (status, mensagem) tem que ser idêntico para
+    // "e-mail não cadastrado" e "e-mail cadastrado + token inventado". Qualquer
+    // diferença transforma a rota num oráculo de existência de conta.
+    it('e-mail inexistente é indistinguível de reset token inválido', async () => {
+      const capture = async () => {
+        try {
+          await service.changePassword({
+            email: 'alvo@example.com',
+            resetToken: 'token-inventado',
+            password: 'new',
+          } as any);
+          throw new Error('deveria ter lançado');
+        } catch (err: any) {
+          return {
+            status: err.getStatus?.(),
+            message: err.getResponse?.()?.message ?? err.message,
+          };
+        }
+      };
 
-      await expect(
-        service.changePassword({
-          email: 'nobody@example.com',
-          resetToken: 'reset-tok',
-          password: 'new',
-        } as any),
-      ).rejects.toThrow(NotFoundException);
+      mockUserRepository.findOne.mockResolvedValue(null);
+      const semConta = await capture();
+
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        email: 'alvo@example.com',
+      });
+      mockRecoveryCodeRepository.findOne.mockResolvedValue(null);
+      const comConta = await capture();
+
+      expect(semConta).toEqual(comConta);
+      expect(semConta.status).toBe(400);
     });
 
     it('rejeita quando o reset token não bate (inválido)', async () => {
@@ -848,7 +1123,7 @@ describe('AuthService', () => {
       expect(result).toEqual({ message: 'Senha alterada com sucesso' });
 
       // Verify bcryptjs.hash was called with the plain password
-      expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 10);
+      expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 12);
 
       // Verify the hashed password was stored
       const updateCall = mockUserRepository.update.mock.calls[0];

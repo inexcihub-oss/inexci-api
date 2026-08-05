@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import {
@@ -14,6 +19,7 @@ import { POST_SURGERY_REQUIRED_DOCS } from 'src/config/post-surgery-documents.co
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 import { DocumentRepository } from 'src/database/repositories/document.repository';
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
+import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
 export interface ResolvedPendency extends PendencyConfig {
   resolved: boolean;
@@ -140,11 +146,14 @@ export class PendencyValidatorService {
         }),
       ]);
 
-    const groupBySurgeryRequestId = <T extends { surgeryRequestId: string }>(
+    const groupBySurgeryRequestId = <
+      T extends { surgeryRequestId: string | null },
+    >(
       rows: T[],
     ): Map<string, T[]> => {
       const map = new Map<string, T[]>();
       for (const row of rows) {
+        if (!row.surgeryRequestId) continue;
         const list = map.get(row.surgeryRequestId);
         if (list) list.push(row);
         else map.set(row.surgeryRequestId, [row]);
@@ -407,17 +416,12 @@ export class PendencyValidatorService {
     targetStatus?: SurgeryRequestStatus,
   ): Promise<ValidationResultDto> {
     const request = await this.loadRequest(requestId);
+    // Fail-closed: SC inexistente/apagada não pode devolver `canAdvance: true`.
+    // Via HTTP o `SurgeryRequestOwnerGuard` já barra antes, mas chamadores
+    // internos (tools de IA, jobs, handlers de workflow) passam direto e usariam
+    // o resultado para liberar a transição.
     if (!request) {
-      return {
-        currentStatus: 0,
-        statusLabel: '',
-        pendencies: [],
-        canAdvance: true,
-        nextStatus: null,
-        completedCount: 0,
-        pendingCount: 0,
-        totalCount: 0,
-      };
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     }
 
     const status = targetStatus ?? request.status;
@@ -490,8 +494,9 @@ export class PendencyValidatorService {
    */
   async getSummary(requestId: string): Promise<PendencySummary> {
     const request = await this.loadRequest(requestId);
+    // Fail-closed — ver `validateForStatus`.
     if (!request) {
-      return { pending: 0, total: 0, canAdvance: true, items: [] };
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     }
     return this.computeSummary(request);
   }
@@ -544,13 +549,15 @@ export class PendencyValidatorService {
       .map((id) => id.trim())
       .filter((id) => id.length > 0);
 
-    // Default seguro para todo id solicitado (inclusive os não encontrados).
+    // Default fail-closed para todo id solicitado: id não encontrado (ou de
+    // outro tenant) e falha de carga permanecem em `canAdvance: false`, senão o
+    // kanban pintaria como "sem pendência" o que ele não conseguiu avaliar.
     const result: Record<
       string,
       { pending: number; total: number; canAdvance: boolean }
     > = {};
     for (const id of ids) {
-      result[id] = { pending: 0, total: 0, canAdvance: true };
+      result[id] = { pending: 0, total: 0, canAdvance: false };
     }
 
     if (ids.length === 0) return result;

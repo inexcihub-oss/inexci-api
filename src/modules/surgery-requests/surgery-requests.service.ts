@@ -1,5 +1,11 @@
 import { Between, FindOptionsWhere, In } from 'typeorm';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Permission } from 'src/shared/permissions';
 
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindManyKanbanDto, KANBAN_MAX_TAKE } from './dto/find-many-kanban.dto';
@@ -53,7 +59,7 @@ import { SurgeryRequestWorkflowService } from './services/surgery-request-workfl
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
-import { SurgeryRequestRealtimeService } from './services/surgery-request-realtime.service';
+import { SurgeryRequestRealtimeService } from './realtime/surgery-request-realtime.service';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { CidService } from './cid/cid.service';
@@ -96,7 +102,24 @@ export class SurgeryRequestsService {
   // LEITURA
   // ============================================================
 
-  async findAll(query: FindManySurgeryRequestDto, userId: string) {
+  async findAll(
+    query: FindManySurgeryRequestDto,
+    userId: string,
+    userPermissions: Permission[],
+  ) {
+    // Ponte deliberada: o controller abre o método para SOLICITACOES OU
+    // ATENDIMENTO (guard só sabe fazer "OU"). Quem chegou sem SOLICITACOES
+    // só pode consultar as cirurgias de um paciente específico que está
+    // atendendo — nunca navegar a carteira cirúrgica inteira da clínica.
+    if (
+      !userPermissions.includes(Permission.SOLICITACOES) &&
+      !query.patientId
+    ) {
+      throw new ForbiddenException(
+        'Informe o paciente (patientId) para consultar as cirurgias dele — sem a permissão de Solicitações não é possível listar a carteira cirúrgica completa.',
+      );
+    }
+
     // O JwtAuthGuard já validou a existência do usuário; getAccessibleDoctorIds
     // retorna [] para usuário inexistente. Sem findOne redundante (P9).
     const doctorIds =
@@ -105,6 +128,17 @@ export class SurgeryRequestsService {
 
     let where: FindOptionsWhere<SurgeryRequest> = { doctorId: In(doctorIds) };
     if (query.status) where = { ...where, status: In(query.status) };
+    if (query.patientId) where = { ...where, patientId: query.patientId };
+    if (query.hospitalId) where = { ...where, hospitalId: query.hospitalId };
+    if (query.healthPlanId) {
+      where = { ...where, healthPlanId: query.healthPlanId };
+    }
+    // O filtro por médico só estreita o escopo já autorizado: um médico fora
+    // dos acessíveis nunca vira uma consulta ampliada, vira lista vazia.
+    if (query.doctorId) {
+      if (!doctorIds.includes(query.doctorId)) return { total: 0, records: [] };
+      where = { ...where, doctorId: query.doctorId };
+    }
 
     const [total, records] = await Promise.all([
       this.surgeryRequestRepository.total(where),

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
 import { In } from 'typeorm';
@@ -85,6 +86,7 @@ export function buildSurgeryRequestTools(
    */
   const querySurgeryRequests: AiTool = {
     name: 'query_surgery_requests',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

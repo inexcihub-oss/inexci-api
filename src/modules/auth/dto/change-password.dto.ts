@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 import { IsStrongPassword } from 'src/shared/validators/strong-password.decorator';
 
 export class changePasswordDto {
@@ -15,7 +15,6 @@ export class changePasswordDto {
   @IsNotEmpty()
   resetToken: string;
 
-  @IsOptional()
   @IsString()
   @IsNotEmpty()
   @IsStrongPassword()

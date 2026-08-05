@@ -90,7 +90,10 @@ describe('WhatsappDocumentProcessorService', () => {
       expect.objectContaining({
         mimeType: 'application/pdf',
         filename: 'laudo.pdf',
-        sessionId: 'SM-1',
+        // O cofre de PII usa o mesmo id em todo o fluxo (`conversation.id`),
+        // nao o messageSid — senao os bindings do OCR ficam orfaos e o
+        // indice de tokens reinicia, colidindo {{cpf_1}} entre pacientes.
+        sessionId: 'conv-1',
         intent: 'attach',
       }),
     );

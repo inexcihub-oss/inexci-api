@@ -681,6 +681,96 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
  * estruturais: ordem instável do registry (invalida prompt caching) e
  * crescimento inesperado de arquivos de tools.
  */
+/**
+ * Deps mínimas para construir o registry completo via `buildAllAiTools` sem
+ * lançar no construtor. `execute` nunca é chamado nos testes que usam este
+ * helper — só a estrutura sincrônica das tools (`name`, `definition`,
+ * `requiredPermission`) é inspecionada — por isso os mocks não precisam
+ * refletir o comportamento real dos services.
+ */
+function buildMinimalAiToolDeps() {
+  return {
+    draftService: {
+      setFields: jest.fn(),
+      getOrCreate: jest.fn(),
+      getActive: jest.fn(),
+      cancel: jest.fn(),
+      getStatus: jest.fn(),
+      commit: jest.fn(),
+    },
+    userRepo: { findOneById: jest.fn() },
+    surgeryRequestRepo: {
+      findOneById: jest.fn(),
+      findByDoctorIds: jest.fn(),
+    },
+    surgeryRequestsService: { createSurgeryRequest: jest.fn() },
+    activityRepo: { create: jest.fn() },
+    patientsService: { create: jest.fn(), findById: jest.fn() },
+    patientRepo: { create: jest.fn() },
+    hospitalsService: { create: jest.fn() },
+    hospitalRepo: { create: jest.fn() },
+    healthPlansService: { create: jest.fn() },
+    healthPlanRepo: { create: jest.fn() },
+    proceduresService: { create: jest.fn() },
+    procedureRepo: { create: jest.fn() },
+    surgeryRequestProcedureRepo: { create: jest.fn() },
+    surgeryRequestTussItemRepo: {
+      findBySurgeryRequest: jest.fn(),
+      create: jest.fn(),
+      delete: jest.fn(),
+    },
+    opmeItemRepo: {
+      findBySurgeryRequest: jest.fn(),
+      create: jest.fn(),
+      delete: jest.fn(),
+    },
+    reportSectionRepo: {
+      findBySurgeryRequest: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    documentRepo: { create: jest.fn(), findBySurgeryRequest: jest.fn() },
+    documentKeyRepo: { findByDocumentType: jest.fn() },
+    workflowService: {
+      send: jest.fn(),
+      startAnalysis: jest.fn(),
+      authorize: jest.fn(),
+      schedule: jest.fn(),
+      markPerformed: jest.fn(),
+      close: jest.fn(),
+      invoice: jest.fn(),
+      finalize: jest.fn(),
+      contest: jest.fn(),
+    },
+    pendencyValidatorService: {
+      getBlockingPendencies: jest.fn(),
+      getAllPendencies: jest.fn(),
+      getWorkflowRequirements: jest.fn(),
+      getPostSurgeryRequiredDocs: jest.fn(),
+    },
+    notificationService: { sendToUser: jest.fn() },
+    whatsappDocumentDispatcher: {
+      process: jest.fn(),
+      attachDocumentFromWhatsapp: jest.fn(),
+      createPatientFromDocument: jest.fn(),
+    },
+    entityResolver: {
+      resolvePatient: jest.fn(),
+      resolveHospital: jest.fn(),
+      resolveHealthPlan: jest.fn(),
+      resolveProcedure: jest.fn(),
+    },
+    procedureCatalogRepo: { findAll: jest.fn() },
+    cidService: { search: jest.fn() },
+    tussService: { search: jest.fn() },
+    aiRedisService: { get: jest.fn(), set: jest.fn(), del: jest.fn() },
+    storageService: { uploadFile: jest.fn(), getSignedUrl: jest.fn() },
+    doctorProfileRepo: { findByUserId: jest.fn(), update: jest.fn() },
+    configService: { get: jest.fn() },
+  };
+}
+
 describe('Fase 9 — guardrails arquiteturais', () => {
   describe('ToolRegistryService — ordem de registro estável', () => {
     it('a ordem das tools no registry é determinística e não muda entre execuções', () => {
@@ -697,87 +787,7 @@ describe('Fase 9 — guardrails arquiteturais', () => {
       // — apenas verifica que as primeiras tools na ordem canônica estão no lugar certo.
       // O conjunto completo é validado pelo tool-registry.service.spec.ts.
       const { buildAllAiTools } = require('./ai-tools.module');
-      const tools = buildAllAiTools({
-        // deps mínimas para não lançar no construtor
-        draftService: {
-          setFields: jest.fn(),
-          getOrCreate: jest.fn(),
-          getActive: jest.fn(),
-          cancel: jest.fn(),
-          getStatus: jest.fn(),
-          commit: jest.fn(),
-        },
-        userRepo: { findOneById: jest.fn() },
-        surgeryRequestRepo: {
-          findOneById: jest.fn(),
-          findByDoctorIds: jest.fn(),
-        },
-        surgeryRequestsService: { createSurgeryRequest: jest.fn() },
-        activityRepo: { create: jest.fn() },
-        patientsService: { create: jest.fn(), findById: jest.fn() },
-        patientRepo: { create: jest.fn() },
-        hospitalsService: { create: jest.fn() },
-        hospitalRepo: { create: jest.fn() },
-        healthPlansService: { create: jest.fn() },
-        healthPlanRepo: { create: jest.fn() },
-        proceduresService: { create: jest.fn() },
-        procedureRepo: { create: jest.fn() },
-        surgeryRequestProcedureRepo: { create: jest.fn() },
-        surgeryRequestTussItemRepo: {
-          findBySurgeryRequest: jest.fn(),
-          create: jest.fn(),
-          delete: jest.fn(),
-        },
-        opmeItemRepo: {
-          findBySurgeryRequest: jest.fn(),
-          create: jest.fn(),
-          delete: jest.fn(),
-        },
-        reportSectionRepo: {
-          findBySurgeryRequest: jest.fn(),
-          create: jest.fn(),
-          update: jest.fn(),
-          delete: jest.fn(),
-        },
-        documentRepo: { create: jest.fn(), findBySurgeryRequest: jest.fn() },
-        documentKeyRepo: { findByDocumentType: jest.fn() },
-        workflowService: {
-          send: jest.fn(),
-          startAnalysis: jest.fn(),
-          authorize: jest.fn(),
-          schedule: jest.fn(),
-          markPerformed: jest.fn(),
-          close: jest.fn(),
-          invoice: jest.fn(),
-          finalize: jest.fn(),
-          contest: jest.fn(),
-        },
-        pendencyValidatorService: {
-          getBlockingPendencies: jest.fn(),
-          getAllPendencies: jest.fn(),
-          getWorkflowRequirements: jest.fn(),
-          getPostSurgeryRequiredDocs: jest.fn(),
-        },
-        notificationService: { sendToUser: jest.fn() },
-        whatsappDocumentDispatcher: {
-          process: jest.fn(),
-          attachDocumentFromWhatsapp: jest.fn(),
-          createPatientFromDocument: jest.fn(),
-        },
-        entityResolver: {
-          resolvePatient: jest.fn(),
-          resolveHospital: jest.fn(),
-          resolveHealthPlan: jest.fn(),
-          resolveProcedure: jest.fn(),
-        },
-        procedureCatalogRepo: { findAll: jest.fn() },
-        cidService: { search: jest.fn() },
-        tussService: { search: jest.fn() },
-        aiRedisService: { get: jest.fn(), set: jest.fn(), del: jest.fn() },
-        storageService: { uploadFile: jest.fn(), getSignedUrl: jest.fn() },
-        doctorProfileRepo: { findByUserId: jest.fn(), update: jest.fn() },
-        configService: { get: jest.fn() },
-      } as any);
+      const tools = buildAllAiTools(buildMinimalAiToolDeps() as any);
 
       const names = tools.map((t: { name: string }) => t.name);
       for (let i = 0; i < expectedOrderPrefix.length; i++) {
@@ -785,6 +795,46 @@ describe('Fase 9 — guardrails arquiteturais', () => {
       }
       // Garante que a lista não está vazia e contém pelo menos as 4 tools globais
       expect(names.length).toBeGreaterThanOrEqual(expectedOrderPrefix.length);
+    });
+  });
+
+  /**
+   * Tarefa 14 (revisão) — rede de proteção contra tools de mutação de SC
+   * novas/futuras que esqueçam `requiredPermission`. `send_notification` e
+   * `manage_report_images` escaparam da varredura manual porque nenhum teste
+   * cruzava "tool que declara `surgeryRequestId` no schema" com "tool que
+   * exige `Permission.SOLICITACOES`". Este teste fecha esse buraco: QUALQUER
+   * tool nova cujo JSON schema aceite `surgeryRequestId` — o sinal mais
+   * confiável de "opera sobre uma SC específica" sem executar a tool — tem
+   * que declarar `requiredPermission`. Não cobre as tools baseadas em draft
+   * (`sc_draft_commit`, `send_sc_draft_commit`, etc.), que resolvem a SC por
+   * dentro do `operation_draft` em vez de um argumento `surgeryRequestId`
+   * literal — essas são uma família fechada, já auditada nesta tarefa.
+   */
+  describe('toda tool com `surgeryRequestId` no schema exige requiredPermission', () => {
+    it('nenhuma tool nova escapa da checagem de permissão', () => {
+      const { buildAllAiTools } = require('./ai-tools.module');
+      const tools = buildAllAiTools(buildMinimalAiToolDeps() as any);
+
+      const offenders: string[] = [];
+      for (const tool of tools) {
+        const properties = (tool as any)?.definition?.function?.parameters
+          ?.properties;
+        const hasSurgeryRequestIdParam =
+          !!properties &&
+          Object.prototype.hasOwnProperty.call(properties, 'surgeryRequestId');
+        if (hasSurgeryRequestIdParam && !tool.requiredPermission) {
+          offenders.push(tool.name);
+        }
+      }
+
+      if (offenders.length) {
+        throw new Error(
+          `Tool(s) com \`surgeryRequestId\` no schema sem \`requiredPermission\`: ${offenders.join(', ')}. ` +
+            'Adicione `requiredPermission: Permission.SOLICITACOES` (ou o motivo documentado da exceção, se legítima).',
+        );
+      }
+      expect(offenders).toEqual([]);
     });
   });
 });

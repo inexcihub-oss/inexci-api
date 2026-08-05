@@ -25,6 +25,15 @@ import { QueueMetricsListener } from 'src/shared/observability/queue-metrics.lis
     BullModule.registerQueue({
       name: 'document-extraction',
     }),
+    BullModule.registerQueue({
+      name: 'indication-documents',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    }),
   ],
   providers: [QueueMetricsListener],
   exports: [BullModule],

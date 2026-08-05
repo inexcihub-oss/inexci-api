@@ -32,25 +32,47 @@ export class NotificationRepository extends BaseRepository<Notification> {
     });
   }
 
+  /**
+   * Total de notificações que casam com o filtro da listagem, ignorando
+   * `skip`/`take`. É o `total` da paginação — sem ele o cliente recebia o
+   * tamanho da página como se fosse o total.
+   */
+  async countByUserId(
+    userId: string,
+    options?: { unreadOnly?: boolean },
+  ): Promise<number> {
+    const where: FindOptionsWhere<Notification> = { userId };
+
+    if (options?.unreadOnly) {
+      where.read = false;
+    }
+
+    return await this.repository.count({ where });
+  }
+
   async countUnread(userId: string): Promise<number> {
     return await this.repository.count({
       where: { userId, read: false },
     });
   }
 
-  async markAsRead(notificationId: string, userId: string): Promise<void> {
-    await this.repository.update(
+  /** Devolve quantas linhas foram alteradas: 0 = id inexistente ou de outro usuário. */
+  async markAsRead(notificationId: string, userId: string): Promise<number> {
+    const result = await this.repository.update(
       { id: notificationId, userId },
       { read: true },
     );
+    return result.affected ?? 0;
   }
 
   async markAllAsRead(userId: string): Promise<void> {
     await this.repository.update({ userId, read: false }, { read: true });
   }
 
-  async deleteByUser(notificationId: string, userId: string): Promise<void> {
-    await this.repository.delete({ id: notificationId, userId });
+  /** Devolve quantas linhas foram removidas: 0 = id inexistente ou de outro usuário. */
+  async deleteByUser(notificationId: string, userId: string): Promise<number> {
+    const result = await this.repository.delete({ id: notificationId, userId });
+    return result.affected ?? 0;
   }
 
   async deleteOldNotifications(

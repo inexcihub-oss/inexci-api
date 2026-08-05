@@ -3,14 +3,13 @@ import {
   IsArray,
   IsNumber,
   ValidateNested,
-  IsString,
   IsNotEmpty,
   IsOptional,
   IsUUID,
 } from 'class-validator';
 
 export class AuthorizeProcedureDto {
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
   id: string;
   @IsNumber()
@@ -25,7 +24,7 @@ export class AuthorizeOpmeItemDto extends AuthorizeProcedureDto {
 }
 
 export class AuthorizeProceduresDto {
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
   surgeryRequestId: string;
 

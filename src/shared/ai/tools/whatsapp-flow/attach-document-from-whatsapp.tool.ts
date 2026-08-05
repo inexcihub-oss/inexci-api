@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { STORAGE_FOLDERS } from '../../../../config/storage.config';
@@ -19,6 +20,7 @@ export function buildAttachDocumentFromWhatsappTool(
   const { surgeryRequestRepo, activityRepo, documentDeps } = deps;
   return {
     name: 'attach_document_from_whatsapp',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

@@ -22,6 +22,9 @@ import * as request from 'supertest';
 import { ConfigService } from '@nestjs/config';
 import { WebhookController } from '../../src/modules/webhook/webhook.controller';
 import { WebhookService } from '../../src/modules/webhook/webhook.service';
+import { SurgeryRequestRepository } from '../../src/database/repositories/surgery-request.repository';
+import { SurgeryRequestActivityRepository } from '../../src/database/repositories/surgery-request-activity.repository';
+import { WhatsappService } from '../../src/shared/whatsapp/whatsapp.service';
 import { AiOrchestratorService } from '../../src/shared/ai/services/ai-orchestrator.service';
 import { OperationDraftService } from '../../src/shared/ai/services/operation-draft.service';
 import { buildCadastroDraftTools } from '../../src/shared/ai/tools/cadastro-draft.tools';
@@ -65,6 +68,21 @@ describe('Webhook WhatsApp — Contrato HTTP (e2e)', () => {
         {
           provide: AiOrchestratorService,
           useValue: { enqueueInboundMessage },
+        },
+        // Dependências que o `WebhookService` passou a receber (botões
+        // interativos de agendamento). O contrato HTTP testado aqui não as
+        // exercita, então mocks vazios bastam.
+        {
+          provide: SurgeryRequestRepository,
+          useValue: { findOneSimple: jest.fn(), update: jest.fn() },
+        },
+        {
+          provide: SurgeryRequestActivityRepository,
+          useValue: { create: jest.fn() },
+        },
+        {
+          provide: WhatsappService,
+          useValue: { sendMessage: jest.fn(), enqueueMessage: jest.fn() },
         },
         {
           provide: ConfigService,
@@ -189,6 +207,9 @@ describe('WhatsApp tool execution — create_patient', () => {
     // chamamos `setFields` direto no service para focar no preview/commit.
     await draftService.setFields('conv-1', 'create_patient', {
       name: 'Maria Souza',
+      // `cpf` entrou em REQUIRED_FIELDS_BY_TYPE.create_patient; sem ele o
+      // preview devolve `needs_input` em vez de `pending_confirmation`.
+      cpf: '52998224725',
       phone: '11988880000',
       doctorId: 'doctor-1',
       doctorLabel: 'Dra. Maria',
@@ -307,11 +328,14 @@ describe('WhatsApp tool execution — create_sc', () => {
           .fn()
           .mockResolvedValue({ id: 'sc-wa-1', protocol: 'SC-0099' }),
         findOne: jest.fn(),
+        // O commit passou a recarregar a SC com relações para montar a
+        // resposta — sem este método o fluxo falha em "is not a function".
+        findOneWithRelations: jest
+          .fn()
+          .mockResolvedValue({ id: 'sc-wa-1', protocol: 'SC-0099' }),
       } as any,
       surgeryRequestsService: mockSurgeryRequestsService as any,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
-      opmeService: { create: jest.fn() } as any,
-      tussService: { lookup: jest.fn().mockReturnValue([]) } as any,
     });
   });
 
@@ -371,10 +395,18 @@ describe('WhatsApp tool execution — mark_performed', () => {
           protocol: 'SC-0042',
           status: 5,
           ownerId: 'owner-1',
+          // A tool passou a validar o acesso à SC pelo médico: sem
+          // `doctorId` batendo com `accessibleDoctorIds` do contexto, o
+          // commit é recusado por permissão.
+          doctorId: 'doctor-1',
         }),
-        findOneSimple: jest
-          .fn()
-          .mockResolvedValue({ id: 'sc-1', protocol: 'SC-0042', status: 5 }),
+        findOneSimple: jest.fn().mockResolvedValue({
+          id: 'sc-1',
+          protocol: 'SC-0042',
+          status: 5,
+          ownerId: 'owner-1',
+          doctorId: 'doctor-1',
+        }),
       } as any,
       workflowService: mockWorkflowService as any,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
@@ -485,7 +517,13 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
       await import('../../src/shared/ai/tools/draft-generic.tools');
     const convRepo = makeConvRepo();
     const draftService = new OperationDraftService(convRepo as any);
-    const tools = buildDraftGenericTools({ draftService });
+    const tools = buildDraftGenericTools({
+      draftService,
+      surgeryRequestRepo: {
+        findOneSimple: jest.fn(),
+        findOne: jest.fn(),
+      } as any,
+    });
     const draftUpdate = tools.find((t) => t.name === 'draft_update')!;
 
     await draftService.start({ conversationId: 'conv-1', type: 'invoice' });
@@ -512,7 +550,13 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
       await import('../../src/shared/ai/tools/draft-generic.tools');
     const convRepo = makeConvRepo();
     const draftService = new OperationDraftService(convRepo as any);
-    const tools = buildDraftGenericTools({ draftService });
+    const tools = buildDraftGenericTools({
+      draftService,
+      surgeryRequestRepo: {
+        findOneSimple: jest.fn(),
+        findOne: jest.fn(),
+      } as any,
+    });
     const draftUpdate = tools.find((t) => t.name === 'draft_update')!;
 
     await draftService.start({
@@ -536,7 +580,13 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
       await import('../../src/shared/ai/tools/draft-generic.tools');
     const convRepo = makeConvRepo();
     const draftService = new OperationDraftService(convRepo as any);
-    const tools = buildDraftGenericTools({ draftService });
+    const tools = buildDraftGenericTools({
+      draftService,
+      surgeryRequestRepo: {
+        findOneSimple: jest.fn(),
+        findOne: jest.fn(),
+      } as any,
+    });
     const draftStatus = tools.find((t) => t.name === 'draft_status')!;
 
     await draftService.start({
@@ -560,7 +610,13 @@ describe('WhatsApp tool execution — draft_update (generic, Fase 5)', () => {
       await import('../../src/shared/ai/tools/draft-generic.tools');
     const convRepo = makeConvRepo();
     const draftService = new OperationDraftService(convRepo as any);
-    const tools = buildDraftGenericTools({ draftService });
+    const tools = buildDraftGenericTools({
+      draftService,
+      surgeryRequestRepo: {
+        findOneSimple: jest.fn(),
+        findOne: jest.fn(),
+      } as any,
+    });
     const draftCancel = tools.find((t) => t.name === 'draft_cancel')!;
 
     await draftService.start({ conversationId: 'conv-1', type: 'create_sc' });

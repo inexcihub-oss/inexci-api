@@ -22,6 +22,11 @@ export default {
   // CONTESTAÇÃO
   contestFile: 'contest_file',
 
+  // ATENDIMENTO (gerados pelo sistema a partir da ficha clínica)
+  prescription: 'prescription',
+  medicalCertificate: 'medical_certificate',
+  examReferral: 'exam_referral',
+
   // OUTROS
   additionalDocument: 'additional_document',
 

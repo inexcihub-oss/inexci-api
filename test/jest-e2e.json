@@ -11,7 +11,7 @@
     "^src/(.*)$": "<rootDir>/../src/$1"
   },
   "transformIgnorePatterns": [
-    "node_modules/(?!(@faker-js)/)",
+    "node_modules/(?!(@faker-js|sanitize-html|htmlparser2|dom-serializer|domelementtype|domutils|domhandler|entities)/)",
     "e2e-test-environment\\.js$"
   ],
   "testTimeout": 120000,

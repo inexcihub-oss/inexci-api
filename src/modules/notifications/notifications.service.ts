@@ -1,4 +1,9 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { MessageResponse } from 'src/shared/types/api-responses';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
@@ -61,15 +66,20 @@ export class NotificationsService {
     userId: string,
     options?: { skip?: number; take?: number; unreadOnly?: boolean },
   ) {
-    const [notifications, unreadCount] = await Promise.all([
+    // `total` é o total do filtro (para a paginação), não o tamanho da página:
+    // exige um count separado — `notifications.length` nunca passa de `take`.
+    const [notifications, unreadCount, total] = await Promise.all([
       this.notificationRepository.findByUserId(userId, options),
       this.notificationRepository.countUnread(userId),
+      this.notificationRepository.countByUserId(userId, {
+        unreadOnly: options?.unreadOnly,
+      }),
     ]);
 
     return {
       notifications,
       unreadCount,
-      total: notifications.length,
+      total,
     };
   }
 
@@ -77,7 +87,16 @@ export class NotificationsService {
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
-    await this.notificationRepository.markAsRead(notificationId, userId);
+    // `user_id` faz parte do WHERE: 0 linhas alteradas significa id inexistente
+    // ou notificação de outro usuário. Sem checar isso, o cliente recebia 200
+    // confirmando uma operação que nunca aconteceu.
+    const affected = await this.notificationRepository.markAsRead(
+      notificationId,
+      userId,
+    );
+    if (affected === 0) {
+      throw new NotFoundException('Notificação não encontrada');
+    }
     await this.broadcastUnreadCount(userId);
     return { message: 'Notificação marcada como lida' };
   }
@@ -92,7 +111,15 @@ export class NotificationsService {
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
-    await this.notificationRepository.deleteByUser(notificationId, userId);
+    // Mesma checagem do `markAsRead`: sem `affected`, id inexistente respondia
+    // "Notificação removida".
+    const affected = await this.notificationRepository.deleteByUser(
+      notificationId,
+      userId,
+    );
+    if (affected === 0) {
+      throw new NotFoundException('Notificação não encontrada');
+    }
     await this.broadcastUnreadCount(userId);
     return { message: 'Notificação removida' };
   }

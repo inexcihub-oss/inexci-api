@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
@@ -20,6 +21,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
   } = deps;
   return {
     name: 'set_hospital',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

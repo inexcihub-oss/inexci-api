@@ -9,7 +9,6 @@ import {
   Body,
   BadRequestException,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiConsumes,
@@ -35,7 +34,9 @@ export class UploadController {
    * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
    */
   @Post('single')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
   @ApiOperation({ summary: 'Upload de um único arquivo' })
   @ApiConsumes('multipart/form-data')
   async uploadSingle(
@@ -60,7 +61,6 @@ export class UploadController {
    * GET /upload/signed-url?path=avatars/uuid.png
    */
   @Get('signed-url')
-  @SkipThrottle()
   @ApiOperation({ summary: 'Gerar URL assinada para arquivo armazenado' })
   async getSignedUrl(
     @Query('path') filePath: string,
@@ -79,7 +79,9 @@ export class UploadController {
   @Post('multiple')
   @ApiOperation({ summary: 'Upload de múltiplos arquivos' })
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FilesInterceptor('files', 10))
+  @UseInterceptors(
+    FilesInterceptor('files', 10, { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
   async uploadMultiple(
     @UploadedFiles() files: Express.Multer.File[],
     @Body('folder') folder: string,

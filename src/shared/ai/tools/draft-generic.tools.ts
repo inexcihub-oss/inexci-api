@@ -8,6 +8,8 @@ import {
   OperationDraftType,
 } from '../drafts/operation-draft.types';
 import { detokenizeArg } from '../pii/tool-pii-helpers';
+import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
+import { resolveAuthorizedRequest } from './_helpers/resolve-surgery-request';
 
 /**
  * Campos válidos por tipo de draft, com tipo esperado para coerção/validação
@@ -160,6 +162,7 @@ function coerceValue(
 
 export interface DraftGenericDeps {
   draftService: OperationDraftService;
+  surgeryRequestRepo: SurgeryRequestRepository;
 }
 
 /**
@@ -175,7 +178,7 @@ export interface DraftGenericDeps {
  * fisicamente do registry — não há mais rollback parcial via feature flag.
  */
 export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
-  const { draftService } = deps;
+  const { draftService, surgeryRequestRepo } = deps;
 
   // ─── draft_update ──────────────────────────────────────────────────────────
 
@@ -261,6 +264,19 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
           status: 'blocked',
           message: `O rascunho ativo é do tipo "${current.type}", não "${draftType}". Conclua ou cancele antes.`,
         });
+      }
+
+      // O campo surgeryRequestId aponta para um recurso de outro usuario em
+      // potencial: valida o acesso antes de gravar no draft.
+      if (fieldName === 'surgeryRequestId') {
+        const { error: erroDeAcesso } = await resolveAuthorizedRequest(
+          surgeryRequestRepo,
+          value,
+          context,
+        );
+        if (erroDeAcesso) {
+          return buildToolResult({ status: 'error', message: erroDeAcesso });
+        }
       }
 
       await draftService.setFieldUntyped(

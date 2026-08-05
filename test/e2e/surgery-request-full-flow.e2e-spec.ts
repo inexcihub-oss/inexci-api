@@ -12,7 +12,12 @@ import {
   createTestApp,
   cleanDatabase,
   closeTestApp,
+  prepararUsuarioParaLogin,
 } from '../helpers/test-setup';
+import {
+  configurarAssinaturaDoMedico,
+  declararSemOpme,
+} from '../helpers/surgery-request-prereqs';
 
 const Status = {
   PENDING: 1,
@@ -41,6 +46,8 @@ const STATUS_LABEL: Record<number, string> = {
 const DOCTOR = {
   name: 'Dr. Teste Fluxo E2E',
   email: `dr.e2e.flow.${Date.now()}@inexci.test`,
+  // `phone` passou a ser obrigatorio no RegisterDto.
+  phone: '11977770003',
   password: 'Senha@12345',
   isDoctor: true,
   crm: 'CRM123456',
@@ -85,8 +92,16 @@ beforeAll(async () => {
     .post('/auth/register')
     .send(DOCTOR)
     .expect(201);
-  token = registerRes.body.access_token;
   userId = registerRes.body.user.id;
+
+  // `/auth/register` não devolve mais `access_token`; o login exige
+  // e-mail confirmado e o `ConsentsGuard` exige os aceites.
+  await prepararUsuarioParaLogin(app, DOCTOR.email);
+  const loginRes = await request(app.getHttpServer())
+    .post('/auth/login')
+    .send({ email: DOCTOR.email, password: DOCTOR.password })
+    .expect(201);
+  token = loginRes.body.access_token;
   expect(token).toBeDefined();
   expect(userId).toBeDefined();
 
@@ -107,7 +122,6 @@ beforeAll(async () => {
       name: 'Plano Saude E2E',
       phone: '11999990001',
       email: 'plano@e2e.com',
-      default_payment_days: 30,
     })
     .expect(201);
   const healthPlanId: string = healthPlanRes.body.id;
@@ -148,7 +162,8 @@ beforeAll(async () => {
     .send({
       procedureId: procedureId,
       patientId: patientId,
-      manager_id: userId,
+      // `manager_id` virou `doctorId` no DTO da SC.
+      doctorId: userId,
       healthPlanId: healthPlanId,
       hospitalId: hospitalId,
       priority: 2,
@@ -182,6 +197,17 @@ describe('1. Criacao - Status PENDING (1)', () => {
 // ----------------------------------------------------------------
 
 describe('2. Transicao PENDING -> SENT (2)', () => {
+  // As 5 pendências bloqueantes de PENDING (pendencies.config.ts) precisam
+  // estar resolvidas antes do envio; `patient_data` e `hospital_data` já vieram
+  // do payload de criação, as outras três são resolvidas aqui.
+  it('deve declarar que a solicitacao nao usa OPME', async () => {
+    await declararSemOpme(app, token, surgeryRequestId);
+  });
+
+  it('deve configurar a assinatura do medico', async () => {
+    await configurarAssinaturaDoMedico(app, token, userId);
+  });
+
   it('deve criar ao menos uma secao de laudo antes de enviar', async () => {
     await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/sections`)
@@ -264,10 +290,13 @@ describe('3. Transicao SENT -> IN_ANALYSIS (3)', () => {
 describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
   it('deve aceitar autorizacao com 3 opcoes de data', async () => {
     const today = new Date();
+    // `AcceptAuthorizationDto` recusa data sem horário explícito (e meia-noite
+    // UTC é o sentinela de "horário não preenchido"), então o ISO vai completo.
     const d = (n: number) => {
       const dt = new Date(today);
       dt.setDate(dt.getDate() + n);
-      return dt.toISOString().split('T')[0];
+      dt.setUTCHours(14, 30, 0, 0);
+      return dt.toISOString();
     };
     await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/accept-authorization`)
@@ -280,12 +309,16 @@ describe('4. Transicao IN_ANALYSIS -> IN_SCHEDULING (4)', () => {
     await assertStatus(surgeryRequestId, Status.IN_SCHEDULING);
   });
 
-  it('nao deve aceitar date_options vazio', async () => {
+  // `dateOptions` virou opcional de propósito (podem ser definidas depois, já
+  // em Agendamento — quem garante as datas antes de Agendada é o pendency
+  // bloqueante `schedule_dates`). O que o DTO recusa é data SEM horário: a
+  // validação roda no pipe, antes do service, então não depende do status.
+  it('nao deve aceitar data sem horario explicito', async () => {
     const res = await request(app.getHttpServer())
       .post(`/surgery-requests/${surgeryRequestId}/accept-authorization`)
       .set(authHeader())
-      .send({ dateOptions: [] });
-    expect(res.status).toBeGreaterThanOrEqual(400);
+      .send({ dateOptions: ['2030-01-15'] });
+    expect(res.status).toBe(400);
   });
 });
 

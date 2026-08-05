@@ -429,6 +429,27 @@ export class MailService {
   }
 
   /**
+   * Lembrete de consulta agendada (24h antes).
+   */
+  sendAppointmentReminder(
+    to: string,
+    context: {
+      patientName: string;
+      doctorName?: string;
+      when: string;
+      typeLabel?: string;
+      durationLabel?: string;
+    },
+  ) {
+    return this.send(
+      'appointment-reminder',
+      to,
+      'Lembrete de consulta',
+      context,
+    );
+  }
+
+  /**
    * Notificação genérica (in-app com e-mail).
    */
   sendGenericNotification(

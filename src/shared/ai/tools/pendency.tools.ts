@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { DocumentRepository } from '../../../database/repositories/document.repository';
@@ -239,6 +240,7 @@ export function buildPendencyTools(
 ): AiTool[] {
   const getPendencies: AiTool = {
     name: 'get_pendencies',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {
@@ -516,6 +518,7 @@ export function buildPendencyTools(
 
   const getWorkflowRequirements: AiTool = {
     name: 'get_workflow_requirements',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {
@@ -593,6 +596,7 @@ export function buildPendencyTools(
   // ────────────────────────────────────────────────────────────────────────
   const listPostSurgeryRequiredDocs: AiTool = {
     name: 'list_post_surgery_required_docs',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

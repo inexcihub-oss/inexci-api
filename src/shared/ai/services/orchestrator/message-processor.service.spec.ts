@@ -6,6 +6,7 @@ import {
 } from './message-processor.service';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { ResponseNormalizerService } from './response-normalizer.service';
+import { UserStatus } from '../../../../database/entities/user.entity';
 
 const buildHooks = (
   overrides: Partial<PreflightHooks> = {},
@@ -100,6 +101,7 @@ describe('MessageProcessorService', () => {
       });
       userRepository.findOneByPhone.mockResolvedValue({
         id: 'user-1',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: new Date(),
       });
 
@@ -172,13 +174,153 @@ describe('MessageProcessorService', () => {
     });
   });
 
+  /**
+   * Tarefa 14 (revisão 4): espelha a `JwtStrategy` do caminho web
+   * (`user.status !== ACTIVE` → `UnauthorizedException`). Sem isto, um
+   * colaborador desativado ou ainda pendente de primeiro acesso continuava
+   * conversando com o assistente e criando SC por mensagem indefinidamente
+   * — a invalidação de cache (rodada 3) só cobria a IDENTIDADE/PERMISSÃO
+   * ficarem obsoletas, não a AUTORIZAÇÃO de usar o canal.
+   */
+  describe('runPreflight — gate de status (INACTIVE/PENDING)', () => {
+    const buildInput = (overrides: Partial<any> = {}) => ({
+      phone: '+5511999999999',
+      lookupCandidates: ['+5511999999999'],
+      body: 'oi',
+      messageSid: 'sid-status',
+      processStartedAt: Date.now(),
+      processTimeoutMs: 60000,
+      ...overrides,
+    });
+
+    it('recusa colaborador INACTIVE com mensagem em português, sem revelar o status', async () => {
+      userRepository.findOneByPhone.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.INACTIVE,
+        aiConsentAcceptedAt: new Date(),
+      });
+
+      const result = await service.runPreflight(buildInput(), buildHooks());
+
+      expect(result.status).toBe('access_blocked');
+      expect(whatsappService.sendMessage).toHaveBeenCalledWith(
+        '+5511999999999',
+        expect.any(String),
+      );
+      const [, message] = whatsappService.sendMessage.mock.calls[0];
+      expect(message).not.toMatch(/inactive|inativ[oa]|pending|pendente/i);
+      expect(message).toMatch(/administrador/i);
+    });
+
+    it('recusa colaborador PENDING (primeiro acesso não concluído)', async () => {
+      userRepository.findOneByPhone.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.PENDING,
+        aiConsentAcceptedAt: null,
+      });
+
+      const result = await service.runPreflight(buildInput(), buildHooks());
+
+      expect(result.status).toBe('access_blocked');
+      expect(whatsappService.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('libera colaborador ACTIVE normalmente', async () => {
+      userRepository.findOneByPhone.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        aiConsentAcceptedAt: new Date(),
+      });
+
+      const result = await service.runPreflight(buildInput(), buildHooks());
+
+      expect(result.status).toBe('continue');
+    });
+
+    it('não cacheia usuário INACTIVE/PENDING — próxima mensagem relê o banco', async () => {
+      userRepository.findOneByPhone.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.INACTIVE,
+        aiConsentAcceptedAt: new Date(),
+      });
+
+      await service.runPreflight(
+        buildInput({ messageSid: 'sid-1' }),
+        buildHooks(),
+      );
+      await service.runPreflight(
+        buildInput({ messageSid: 'sid-2' }),
+        buildHooks(),
+      );
+
+      // Duas mensagens, duas idas ao banco — nenhuma serviu do cache, porque
+      // usuário não-ACTIVE nunca é gravado em `userCache`.
+      expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * O ponto central do pedido: um usuário ACTIVE fica cacheado (`userCache`,
+     * 10 min) e é desativado depois. Dentro do MESMO processo, o combo
+     * "invalidação por evento" (rodada 3: `toggleCollaboratorStatus` →
+     * `user.access_changed` → `invalidateUserCacheByPhone`) + "gate de
+     * status" (esta rodada) fecha o ciclo: a mensagem seguinte à
+     * desativação já vem barrada, porque a invalidação força reconsulta e a
+     * reconsulta já não devolve mais ACTIVE. Sem o gate desta rodada, a
+     * invalidação sozinha só forçaria reconsulta — o `user` INACTIVE
+     * recarregado ainda seria liberado, porque nada checava `status`.
+     */
+    it('cache quente + invalidação (evento) + gate: desativação some com o acesso na mensagem seguinte', async () => {
+      const activeUser = {
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+        aiConsentAcceptedAt: new Date(),
+      };
+      userRepository.findOneByPhone.mockResolvedValue(activeUser);
+
+      // 1ª mensagem: ACTIVE, cacheia e segue.
+      const first = await service.runPreflight(
+        buildInput({ messageSid: 'sid-1' }),
+        buildHooks(),
+      );
+      expect(first.status).toBe('continue');
+
+      // 2ª mensagem: cache quente, nem consulta o banco de novo.
+      const second = await service.runPreflight(
+        buildInput({ messageSid: 'sid-2' }),
+        buildHooks(),
+      );
+      expect(second.status).toBe('continue');
+      expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(1);
+
+      // Admin desativa o colaborador: banco muda e o evento (simulado aqui
+      // via `invalidateUserCacheByPhone`, o que `onUserAccessChanged` chama)
+      // limpa o cache.
+      userRepository.findOneByPhone.mockResolvedValue({
+        ...activeUser,
+        status: UserStatus.INACTIVE,
+      });
+      service.invalidateUserCacheByPhone('whatsapp:+5511999999999');
+
+      // 3ª mensagem: cache frio, reconsulta o banco, vê INACTIVE e barra —
+      // e o usuário barrado não fica cacheado para a próxima.
+      const third = await service.runPreflight(
+        buildInput({ messageSid: 'sid-3' }),
+        buildHooks(),
+      );
+      expect(third.status).toBe('access_blocked');
+      expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('runPreflight — consent gate', () => {
     const userWithoutConsent = {
       id: 'user-1',
+      status: UserStatus.ACTIVE,
       aiConsentAcceptedAt: null,
     } as any;
     const userWithConsent = {
       id: 'user-1',
+      status: UserStatus.ACTIVE,
       aiConsentAcceptedAt: new Date('2026-01-01'),
     } as any;
 
@@ -493,6 +635,7 @@ describe('MessageProcessorService', () => {
     it('clears user cache for normalized variants', async () => {
       const userWithConsent = {
         id: 'user-1',
+        status: UserStatus.ACTIVE,
         aiConsentAcceptedAt: new Date(),
       } as any;
       userRepository.findOneByPhone

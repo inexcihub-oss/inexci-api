@@ -16,17 +16,14 @@ import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { NestFactory, Reflector } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import {
-  ClassSerializerInterceptor,
-  Logger,
-  ValidationPipe,
-} from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
-import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
+import { applyGlobalAppConfig } from './shared/bootstrap/global-app-config';
 import { InexciLogger } from './shared/logging/inexci-logger.service';
 import { requestContextMiddleware } from './shared/logging/request-context.middleware';
 
@@ -38,11 +35,15 @@ async function bootstrap() {
   // Para executar seeds, use manualmente: npm run seed
   // Não executamos automaticamente para evitar duplicações em hot reload
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: true,
     bufferLogs: true,
     rawBody: true,
   });
+
+  // Atrás do nginx: confia em exatamente 1 hop para que req.ip seja o IP real do
+  // cliente. Sem isso o rate limit vira um balde global compartilhado.
+  app.set('trust proxy', 1);
 
   // Logger custom — JSON em produção, pretty colorido em dev. Honra LOG_LEVEL
   // e enriquece cada linha com `requestId`/`userId`/`tenantId` do
@@ -73,16 +74,9 @@ async function bootstrap() {
     app.getHttpAdapter().getInstance().set('json spaces', 2);
   }
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
-
-  app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
+  // Pipe + filtro + interceptor globais: mesmo ponto único usado pelo app dos
+  // e2e (`createTestApp`), para os dois não divergirem.
+  applyGlobalAppConfig(app);
 
   const configService = app.get(ConfigService);
 

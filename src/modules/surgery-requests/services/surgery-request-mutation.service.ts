@@ -33,7 +33,7 @@ import { CreateSurgeryRequestDto } from '../dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from '../dto/create-surgery-request-simple.dto';
 import { UpdateSurgeryRequestDto } from '../dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from '../dto/update-surgery-request-basic.dto';
-import { SurgeryRequestRealtimeService } from './surgery-request-realtime.service';
+import { SurgeryRequestRealtimeService } from '../realtime/surgery-request-realtime.service';
 
 @Injectable()
 export class SurgeryRequestMutationService {
@@ -106,14 +106,20 @@ export class SurgeryRequestMutationService {
             findOne: (w) => healthPlanRepo.findOne({ where: w }),
             save: (d) => healthPlanRepo.save(d),
           },
+          ownerId,
         );
 
         let hospital = null;
         if (data.hospital?.name) {
-          hospital = await this.resolveHospital(data.hospital, doctorId, {
-            findOne: (w) => hospitalRepo.findOne({ where: w }),
-            save: (d) => hospitalRepo.save(d),
-          });
+          hospital = await this.resolveHospital(
+            data.hospital,
+            doctorId,
+            {
+              findOne: (w) => hospitalRepo.findOne({ where: w }),
+              save: (d) => hospitalRepo.save(d),
+            },
+            ownerId,
+          );
         }
 
         const newRequest = await surgeryRequestRepo.save({
@@ -227,6 +233,7 @@ export class SurgeryRequestMutationService {
         data.hospital,
         doctorId,
         this.hospitalRepository,
+        surgeryRequest.ownerId,
       );
       hospitalId = hospital.id;
     }
@@ -239,6 +246,7 @@ export class SurgeryRequestMutationService {
         data.healthPlan,
         doctorId,
         this.healthPlanRepository,
+        surgeryRequest.ownerId,
       );
       healthPlanId = healthPlan.id;
     }
@@ -401,14 +409,19 @@ export class SurgeryRequestMutationService {
       save?: (d: any) => Promise<HealthPlan>;
       create?: (d: any) => Promise<HealthPlan>;
     },
+    ownerId: string,
   ): Promise<HealthPlan> {
-    let entity = await repo.findOne({ name: data.name });
+    // Nomes de convenio colidem naturalmente entre clinicas ("Unimed"): sem o
+    // ownerId, a SC da clinica A era vinculada ao registro da clinica B e
+    // mudava junto quando a B editava ou excluia.
+    let entity = await repo.findOne({ name: data.name, ownerId });
     if (!entity) {
       const payload = {
         name: data.name,
         email: data.email,
         phone: data.phone,
         doctorId: doctorId,
+        ownerId,
       };
       entity = repo.save
         ? await repo.save(payload)
@@ -425,13 +438,18 @@ export class SurgeryRequestMutationService {
       save?: (d: any) => Promise<Hospital>;
       create?: (d: any) => Promise<Hospital>;
     },
+    ownerId: string,
   ): Promise<Hospital> {
-    let entity = await repo.findOne({ name: data.name });
+    // Nomes de hospital colidem naturalmente entre clinicas: sem o ownerId,
+    // a SC da clinica A era vinculada ao registro da clinica B e mudava
+    // junto quando a B editava ou excluia.
+    let entity = await repo.findOne({ name: data.name, ownerId });
     if (!entity) {
       const payload = {
         name: data.name,
         email: data.email,
         doctorId: doctorId,
+        ownerId,
       };
       entity = repo.save
         ? await repo.save(payload)

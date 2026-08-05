@@ -14,8 +14,8 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { Roles } from 'src/shared/decorators/roles.decorator';
-import { UserRole } from 'src/database/entities/user.entity';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -42,7 +42,7 @@ export class HospitalsController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar hospital' })
   @ApiResponse({ status: 201, description: 'Hospital criado' })
   create(
@@ -53,6 +53,7 @@ export class HospitalsController {
   }
 
   @Patch(':id')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar hospital' })
   update(
     @Param('id') id: string,
@@ -63,14 +64,14 @@ export class HospitalsController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir hospital (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.hospitalsService.delete(id, user.userId);
   }
 
   @Post('bulk-delete')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir hospitais em lote (soft delete)' })
   bulkDelete(
     @Body() data: BulkDeleteHospitalsDto,

@@ -12,6 +12,8 @@ import { DataSource } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { STORAGE_FOLDER_SIZE_LIMITS } from 'src/config/storage.config';
+import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 
 @Injectable()
 export class DocumentsService {
@@ -21,6 +23,7 @@ export class DocumentsService {
     private readonly dataSource: DataSource,
     private readonly storageService: StorageService,
     private readonly documentRepository: DocumentRepository,
+    private readonly accessValidator: SurgeryRequestAccessValidator,
   ) {}
 
   async create(
@@ -30,6 +33,22 @@ export class DocumentsService {
     file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File is required');
+
+    // `STORAGE_FOLDER_SIZE_LIMITS` é a fonte de verdade do limite de tamanho:
+    // o `FileInterceptor` só consegue cortar pelo maior limite, porque a pasta
+    // chega no corpo, depois do interceptor.
+    const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[data.folder];
+    const fileSize = file.size ?? file.buffer?.length ?? 0;
+    if (sizeLimit !== undefined && fileSize > sizeLimit) {
+      throw new BadRequestException(
+        `Arquivo excede o tamanho máximo permitido para esta pasta (${Math.round(sizeLimit / 1024)} KB)`,
+      );
+    }
+
+    // O SurgeryRequestOwnerGuard nao cobre esta rota: guards rodam antes dos
+    // interceptors, entao o FileInterceptor ainda nao parseou o multipart e o
+    // body chega vazio ao guard. A validacao precisa acontecer aqui.
+    await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
     const storagePath = await this.storageService.create(
       file,
@@ -74,8 +93,12 @@ export class DocumentsService {
   }
 
   async delete(data: DeleteDocumentDto) {
+    // Busca escopada pela SC: sem isto, o DELETE no banco nao afetava nada
+    // (o WHERE composto nao casava) mas o arquivo da outra clinica era
+    // apagado do R2 assim mesmo.
     const document = await this.documentRepository.findOneSimple({
       id: data.id,
+      surgeryRequestId: data.surgeryRequestId,
     });
     if (!document)
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);

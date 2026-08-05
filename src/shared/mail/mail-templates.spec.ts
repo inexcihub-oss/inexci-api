@@ -14,6 +14,56 @@ import { MAIL_TEMPLATES } from 'src/config/mail.config';
 const TEMPLATES_DIR = path.resolve(__dirname, 'templates');
 const PARTIALS_DIR = path.resolve(__dirname, 'templates', 'partials');
 
+/** Trecho do rodapé do `_layout` — prova que o layout envolveu o template. */
+const MARCADOR_DO_LAYOUT = 'Sistema de Gestão Cirúrgica';
+
+const normalizarEspacos = (texto: string) => texto.replace(/\s+/g, ' ').trim();
+
+/**
+ * Trechos de texto literal do corpo do template filho (o que fica entre
+ * `{{#> _layout}}` e `{{/_layout}}`), ignorando tags e expressões Handlebars.
+ *
+ * Existe para dar dentes ao teste do `{{> @partial-block}}`: sem isso, um
+ * template que perdesse o corpo inteiro ainda renderizaria o layout — mais de
+ * 50 caracteres de HTML — e passaria despercebido.
+ */
+function literaisDoCorpo(source: string): string[] {
+  // A abertura `{{#> _layout ...}}` ocupa a primeira linha inteira. Procurar
+  // pelo primeiro `}}` não serve: um `title="{{title}}"` fecha antes dela.
+  const abertura = source.indexOf('\n');
+  const fechamento = source.lastIndexOf('{{/_layout}}');
+  const corpo =
+    abertura >= 0 && fechamento > abertura
+      ? source.slice(abertura + 1, fechamento)
+      : source;
+
+  // Parte nas tags e nas expressões: só sobram corridas de texto que, no HTML
+  // final, aparecem contíguas. Trocar tag por espaço colaria dois parágrafos
+  // num literal que não existe na saída.
+  return corpo
+    .split(/<[^>]*>|\{\{[^}]*\}\}/)
+    .map(normalizarEspacos)
+    .filter((trecho) => trecho.length >= 8 && !trecho.includes('&'))
+    .sort((a, b) => b.length - a.length);
+}
+
+/** Fragmentos literais do `title="..."` passado como hash para o `_layout`. */
+function literaisDoTitulo(source: string): string[] {
+  const match = source.match(
+    /^\{\{#>\s*_layout\s+title=(?:"([^"]*)"|'([^']*)')/,
+  );
+  const titulo = match?.[1] ?? match?.[2];
+  if (!titulo) return [];
+
+  return titulo
+    .split(/\{\{[^}]*\}\}/)
+    .map(normalizarEspacos)
+    .filter((trecho) => trecho.length >= 8 && !trecho.includes('&'));
+}
+
+const usaLayout = (source: string) =>
+  source.trimStart().startsWith('{{#> _layout');
+
 // Registra partials antes dos testes (mesmo comportamento do MailProcessor)
 beforeAll(() => {
   if (fs.existsSync(PARTIALS_DIR)) {
@@ -99,6 +149,35 @@ describe('Mail Templates — Renderização', () => {
       const html = compiled(mockContext);
       // Deve conter pelo menos algum HTML
       expect(html).toMatch(/<[a-z]/i);
+    });
+
+    it('injeta o corpo dentro do layout via @partial-block', () => {
+      const source = fs.readFileSync(templatePath, 'utf-8');
+      if (!usaLayout(source)) return;
+
+      const html = normalizarEspacos(Handlebars.compile(source)(mockContext));
+
+      expect(html).toContain(MARCADOR_DO_LAYOUT);
+
+      const literais = literaisDoCorpo(source);
+      expect(literais.length).toBeGreaterThan(0);
+
+      // Basta um: boa parte dos literais mora dentro de `{{#if}}` que o
+      // contexto mock não satisfaz. Se o @partial-block parar de injetar o
+      // corpo, nenhum sobrevive — que é a regressão vigiada aqui.
+      const encontrados = literais.filter((trecho) => html.includes(trecho));
+      expect(encontrados.length).toBeGreaterThan(0);
+    });
+
+    it('propaga o hash `title` para o cabeçalho do layout', () => {
+      const source = fs.readFileSync(templatePath, 'utf-8');
+      const literais = literaisDoTitulo(source);
+      if (literais.length === 0) return;
+
+      const html = normalizarEspacos(Handlebars.compile(source)(mockContext));
+      for (const trecho of literais) {
+        expect(html).toContain(trecho);
+      }
     });
   });
 

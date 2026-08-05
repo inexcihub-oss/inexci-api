@@ -1,0 +1,17 @@
+{{!--
+  Assinatura do médico. `doctorCrm` já chega formatado (ex.: `CRM 12345/RJ`)
+  pelo DoctorPdfContextService.
+--}}
+<div class='signature-block'>
+  {{#if doctorSignatureUrl}}
+    <img class='signature-img' src='{{doctorSignatureUrl}}' alt='Assinatura' />
+  {{/if}}
+  <hr class='signature-line' />
+  <span class='signature-name'>{{doctorName}}</span>
+  {{#if doctorSpecialty}}
+    <span class='signature-specialty'>{{doctorSpecialty}}</span>
+  {{/if}}
+  {{#if doctorCrm}}
+    <span class='signature-crm'>{{doctorCrm}}</span>
+  {{/if}}
+</div>

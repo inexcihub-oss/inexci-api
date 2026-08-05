@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
 import { ScDraftToolDeps } from './_types';
 import { autoFillDoctorIfSingle } from './_helpers';
@@ -8,6 +9,7 @@ export function buildScDraftPreviewTool(deps: ScDraftToolDeps): AiTool {
   const { draftService, userRepo } = deps;
   return {
     name: 'sc_draft_preview',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

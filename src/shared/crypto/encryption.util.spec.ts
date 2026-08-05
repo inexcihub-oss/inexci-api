@@ -51,3 +51,32 @@ describe('encryption.util', () => {
     expect(decrypt(b)).toBe(text);
   });
 });
+
+describe('encryption.util — chave obrigatória em produção', () => {
+  const chaveOriginal = process.env.DB_ENCRYPTION_KEY;
+  const nodeEnvOriginal = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.DB_ENCRYPTION_KEY = chaveOriginal;
+    process.env.NODE_ENV = nodeEnvOriginal;
+    jest.resetModules();
+  });
+
+  it('lanca em producao quando a chave esta ausente', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.DB_ENCRYPTION_KEY = '';
+    jest.resetModules();
+    const { encrypt } = await import('./encryption.util');
+
+    expect(() => encrypt('dado clinico')).toThrow(/DB_ENCRYPTION_KEY/);
+  });
+
+  it('faz round-trip corretamente com chave valida', async () => {
+    process.env.DB_ENCRYPTION_KEY = 'a'.repeat(64);
+    jest.resetModules();
+    const { encrypt, decrypt } = await import('./encryption.util');
+
+    const claro = 'Paciente com fratura de fêmur';
+    expect(decrypt(encrypt(claro))).toBe(claro);
+  });
+});

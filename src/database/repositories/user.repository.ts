@@ -84,6 +84,14 @@ export class UserRepository extends BaseRepository<User> {
         aiConsentAcceptedAt: true,
         ownerId: true,
         adminId: true,
+        isPlatformAdmin: true,
+        permissions: true,
+        cep: true,
+        address: true,
+        addressNumber: true,
+        addressComplement: true,
+        city: true,
+        state: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -184,8 +192,26 @@ export class UserRepository extends BaseRepository<User> {
     return await this.findOne({ id });
   }
 
+  /**
+   * Lookup por telefone usado exclusivamente pelo preflight do assistente do
+   * WhatsApp (`PhoneNormalizerService`/`MessageProcessorService`). Usa
+   * `findOneWithProfile` (não `findOne`) DE PROPÓSITO: `findOne` tem um
+   * `select` de ~26 colunas que **não inclui `permissions`** — com `select`
+   * parcial o TypeORM devolve a propriedade como `undefined`, então o
+   * orquestrador de IA calculava a permissão efetiva do usuário sobre um
+   * array vazio (`resolveEffectivePermissions({ permissions: undefined })`),
+   * recusando todas as tools com `requiredPermission` para qualquer
+   * colaborador não-médico. Ampliar o `select` de `findOne` para incluir
+   * `permissions` NÃO é a correção certa: `findOne` tem dezenas de
+   * chamadores fora deste módulo (ex.: `UsersService.findOne`, que devolve o
+   * resultado direto numa resposta HTTP sem filtrar `permissions`/
+   * `isPlatformAdmin`) — vazaria a coluna crua em rotas que não são
+   * gated por `ADMINISTRACAO`. `findOneWithProfile` já filtra esse uso a um
+   * conjunto controlado de chamadores que sabem descartar o campo quando
+   * necessário (ver `UsersService.getProfile`/`findCollaboratorById`).
+   */
   findOneByPhone(phone: string): Promise<User | null> {
-    return this.findOne({ phone });
+    return this.findOneWithProfile({ phone });
   }
 
   async findOneWithDeleted(

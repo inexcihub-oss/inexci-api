@@ -17,7 +17,16 @@ function getKey(): Buffer | null {
 
 export function encrypt(plaintext: string): string {
   const key = getKey();
-  if (!key) return plaintext;
+  if (!key) {
+    // Em producao a ausencia da chave nao pode virar "grava em claro": o
+    // consumidor e o conteudo integral das conversas clinicas do WhatsApp.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'DB_ENCRYPTION_KEY ausente: recusando gravar dado sensível em texto claro',
+      );
+    }
+    return plaintext;
+  }
 
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);

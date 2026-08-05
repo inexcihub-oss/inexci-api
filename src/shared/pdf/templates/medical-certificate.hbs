@@ -1,0 +1,46 @@
+<html lang='pt-BR'>
+  <head>
+    <meta charset='UTF-8' />
+    <title>Atestado Médico</title>
+    {{> clinical-styles}}
+  </head>
+  <body>
+
+    {{> clinical-header documentTitle='ATESTADO MÉDICO'}}
+
+    {{> clinical-patient}}
+
+    <div class='section'>
+      <p class='statement'>
+        Atesto, para os devidos fins, que o(a) paciente
+        <strong>{{patientName}}</strong>{{#if patientCpf}}, inscrito(a) no CPF
+        {{patientCpf}},{{/if}}
+        esteve sob meus cuidados profissionais nesta data{{#if restDaysLabel}},
+        necessitando de
+        <strong>{{restDaysLabel}}</strong>
+        de afastamento de suas atividades{{#if startDate}}
+          a partir de
+          {{startDate}}{{/if}}{{/if}}.
+      </p>
+
+      {{#if cid}}
+        <p class='body-text'>CID-10:
+          {{cid.code}}{{#if cid.description}}
+            —
+            {{cid.description}}{{/if}}</p>
+      {{/if}}
+    </div>
+
+    {{#if observations}}
+      <div class='section'>
+        <div class='section-heading'>
+          <span class='section-title'>Observações</span>
+        </div>
+        <p class='body-text'>{{observations}}</p>
+      </div>
+    {{/if}}
+
+    {{> clinical-signature}}
+
+  </body>
+</html>

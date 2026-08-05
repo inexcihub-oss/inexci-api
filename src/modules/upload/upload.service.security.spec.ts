@@ -71,7 +71,7 @@ describe('UploadService — IDOR (VULN-03)', () => {
     });
   });
 
-  describe('pastas pessoais (avatars, signatures, headers)', () => {
+  describe('pastas públicas (avatars, headers)', () => {
     it('deve gerar URL sem verificação de tenant para avatars', async () => {
       const result = await service.getSignedUrl('avatars/photo.png', 'owner-a');
 
@@ -79,14 +79,31 @@ describe('UploadService — IDOR (VULN-03)', () => {
       expect(result.url).toBe('https://example.com/signed');
     });
 
-    it('deve gerar URL sem verificação de tenant para signatures', async () => {
-      const result = await service.getSignedUrl(
-        'signatures/assinatura.png',
-        'owner-a',
-      );
+    it('deve gerar URL sem verificação de tenant para headers', async () => {
+      const result = await service.getSignedUrl('headers/logo.png', 'owner-a');
 
       expect(mockDocumentRepository.existsByUriAndOwner).not.toHaveBeenCalled();
       expect(result.url).toBe('https://example.com/signed');
+    });
+  });
+
+  describe('pastas sem registro em documents (pdfs, signatures, stamps)', () => {
+    it('recusa quando o ownerId do caminho e de outro tenant', async () => {
+      await expect(
+        service.getSignedUrl('pdfs/owner-b/laudo.pdf', 'owner-a'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('recusa assinatura de medico de outra clinica', async () => {
+      await expect(
+        service.getSignedUrl('signatures/owner-b/assinatura.png', 'owner-a'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('permite quando o ownerId do caminho e o do proprio usuario', async () => {
+      await expect(
+        service.getSignedUrl('pdfs/owner-a/laudo.pdf', 'owner-a'),
+      ).resolves.toEqual({ url: 'https://example.com/signed' });
     });
   });
 });

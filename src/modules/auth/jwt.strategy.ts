@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UserStatus } from 'src/database/entities/user.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
+import { resolveEffectivePermissions } from 'src/shared/permissions';
 import {
   JwtPayload,
   JWT_DEFAULT_AUDIENCE,
@@ -33,7 +34,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    const user = await this.userRepository.findOne({ id: payload.userId });
+    // findOneWithProfile (e não findOne) porque a permissão efetiva depende de
+    // haver doctor_profile. É um LEFT JOIN na mesma consulta que já existia.
+    const user = await this.userRepository.findOneWithProfile({
+      id: payload.userId,
+    });
 
     if (!user || user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException('Sessão inválida');
@@ -44,6 +49,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ownerId: user.ownerId,
       role: user.role,
       isPlatformAdmin: user.isPlatformAdmin ?? false,
+      // Resolvido a cada request: mudança de permissão vale no request
+      // seguinte, sem precisar de novo login.
+      permissions: resolveEffectivePermissions({
+        role: user.role,
+        permissions: user.permissions,
+        isDoctor: !!user.doctorProfile,
+      }),
       privacyPolicyAcceptedAt: user.privacyPolicyAcceptedAt ?? null,
       termsOfUseAcceptedAt: user.termsOfUseAcceptedAt ?? null,
       aiConsentAcceptedAt: user.aiConsentAcceptedAt ?? null,

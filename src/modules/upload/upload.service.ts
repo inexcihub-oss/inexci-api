@@ -36,6 +36,17 @@ const TENANT_SCOPED_FOLDERS = [
   STORAGE_FOLDERS.REPORT,
 ] as string[];
 
+/**
+ * Unicas pastas dispensadas de prova de posse: conteudo publico dentro da
+ * plataforma (avatar e cabecalho aparecem para toda a equipe). Todo o resto
+ * exige validacao — antes a lista era o inverso, e pastas criadas depois
+ * (pdfs, signatures, whatsapp-tmp) nasceram sem checagem alguma.
+ */
+const PASTAS_PUBLICAS = [
+  STORAGE_FOLDERS.AVATARS,
+  STORAGE_FOLDERS.HEADERS,
+] as string[];
+
 const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
 @Injectable()
@@ -100,16 +111,25 @@ export class UploadService {
     _expiresIn = 3600,
   ): Promise<{ url: string }> {
     const safePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
-    const folder = safePath.split('/')[0];
-    if (TENANT_SCOPED_FOLDERS.includes(folder)) {
+    const [folder, tenantDoCaminho] = safePath.split('/');
+
+    if (!PASTAS_PUBLICAS.includes(folder)) {
       if (!ownerId) {
         throw new ForbiddenException('Acesso negado ao arquivo solicitado');
       }
-      const belongs = await this.documentRepository.existsByUriAndOwner(
-        safePath,
-        ownerId,
-      );
-      if (!belongs) {
+
+      // Pastas com registro em `documents`: prova de posse pela entidade.
+      if (TENANT_SCOPED_FOLDERS.includes(folder)) {
+        const belongs = await this.documentRepository.existsByUriAndOwner(
+          safePath,
+          ownerId,
+        );
+        if (!belongs) {
+          throw new ForbiddenException('Acesso negado ao arquivo solicitado');
+        }
+      } else if (tenantDoCaminho !== ownerId) {
+        // Demais pastas (pdfs, signatures, stamps, whatsapp-*): o proprio
+        // caminho embute o ownerId — `${folder}/${ownerId}/${arquivo}`.
         throw new ForbiddenException('Acesso negado ao arquivo solicitado');
       }
     }

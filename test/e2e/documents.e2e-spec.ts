@@ -9,6 +9,13 @@ import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
 import * as path from 'path';
 import * as fs from 'fs';
 
+/**
+ * UUID bem formado que não corresponde a nenhuma solicitação cirúrgica.
+ * Precisa ser UUID: `SurgeryRequestOwnerGuard` (rotas JSON) e o repositório
+ * (rota multipart) consultam uma coluna `uuid`.
+ */
+const SC_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
+
 describe('Documents (e2e)', () => {
   let app: INestApplication;
   let authToken: string;
@@ -38,23 +45,40 @@ describe('Documents (e2e)', () => {
   });
 
   describe('/surgery-requests/documents (POST)', () => {
-    it('should upload a document', async () => {
-      await request(app.getHttpServer())
+    // O payload antigo (`surgeryRequestId` + `documentType`) não existe:
+    // `CreateDocumentDto` pede `surgeryRequestId`, `key`, `name` e `folder`.
+    // Com `forbidNonWhitelisted: true`, `documentType` sozinho já derrubava
+    // toda requisição em 400 — os testes "de upload" nunca chegaram ao service.
+    // Nenhum deles verificava o status, então a fachada nunca apareceu.
+    it('deve responder 404 quando a solicitação cirúrgica não existe', async () => {
+      const response = await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .field('documentType', 'medical_report')
+        .field('surgeryRequestId', SC_INEXISTENTE)
+        .field('key', 'exame')
+        .field('name', 'exame.pdf')
+        .field('folder', 'documents')
         .attach('document', testFilePath);
 
-      // Response depends on surgery request existence
+      // `SurgeryRequestOwnerGuard` não cobre rotas multipart (guard roda antes
+      // do `FileInterceptor`, então o body ainda está vazio). Quem barra aqui é
+      // `DocumentsService.create` → `SurgeryRequestAccessValidator`, que escopa
+      // por tenant e lança NotFound. O arquivo não chega ao storage.
+      expect(response.status).toBe(404);
     });
 
-    it('should fail without file', async () => {
+    it('deve responder 400 quando o arquivo não vem junto', async () => {
+      // Campos válidos de propósito: assim o 400 vem de
+      // `DocumentsService.create` ("File is required"), e não da validação do
+      // DTO. Com o payload antigo o teste passava sem nunca exercitar essa
+      // linha.
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .field('documentType', 'medical_report')
+        .field('surgeryRequestId', SC_INEXISTENTE)
+        .field('key', 'exame')
+        .field('name', 'exame.pdf')
+        .field('folder', 'documents')
         .expect(400);
     });
 
@@ -70,9 +94,11 @@ describe('Documents (e2e)', () => {
       try {
         const response = await request(app.getHttpServer())
           .post('/surgery-requests/documents')
-          .field('surgeryRequestId', '1')
+          .field('surgeryRequestId', SC_INEXISTENTE)
           .attach('document', testFilePath);
-        expect([401, 404]).toContain(response.status);
+        // 401 exato: o `JwtAuthGuard` global barra antes de qualquer coisa.
+        // Aceitar 404 aqui deixava a rota sumir sem o teste reclamar.
+        expect(response.status).toBe(401);
       } catch (error: unknown) {
         // EPIPE pode ocorrer quando o servidor fecha a conexão antes do upload
         const err = error as { message?: string; code?: string };
@@ -80,29 +106,44 @@ describe('Documents (e2e)', () => {
       }
     });
 
-    it('should validate document type', async () => {
+    // Substitui o antigo "should validate document type": não existe campo
+    // `documentType` no DTO. O campo enumerado da rota é `folder`, restrito a
+    // `STORAGE_FOLDERS` por `@IsIn` — é ele que precisa recusar valor inválido.
+    it('deve recusar folder fora de STORAGE_FOLDERS', async () => {
       await request(app.getHttpServer())
         .post('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .field('documentType', 'invalid_type')
-        .attach('document', testFilePath);
+        .field('surgeryRequestId', SC_INEXISTENTE)
+        .field('key', 'exame')
+        .field('name', 'exame.pdf')
+        .field('folder', 'pasta-inexistente')
+        .attach('document', testFilePath)
+        .expect(400);
     });
   });
 
   describe('/surgery-requests/documents (DELETE)', () => {
-    it('should delete a document', async () => {
-      const deleteData = {
-        id: 1,
-        surgeryRequestId: 1,
-      };
-
-      await request(app.getHttpServer())
+    // Antes este teste não verificava status nenhum. Aqui a SC é um uuid bem
+    // formado que não existe: o `SurgeryRequestOwnerGuard` (que enxerga o body
+    // JSON, ao contrário do multipart) não acha a SC e responde 404 antes de
+    // qualquer coisa tocar o documento.
+    it('deve responder 404 para uuid de SC válido porém inexistente', async () => {
+      const response = await request(app.getHttpServer())
         .delete('/surgery-requests/documents')
         .set(getAuthHeader(authToken))
-        .send(deleteData);
+        .send({
+          id: SC_INEXISTENTE,
+          key: 'exame',
+          surgeryRequestId: SC_INEXISTENTE,
+        });
+
+      expect(response.status).toBe(404);
     });
 
+    // Ramo diferente do de cima: aqui o id nem tem formato de uuid. O guard
+    // roda antes do ValidationPipe, então nenhum DTO barra isso — sem o
+    // `isUUID` dele o Postgres abortaria a query e o cliente receberia 500.
+    // 404 de propósito: id malformado não pode existir.
     it('should fail to delete non-existent document', async () => {
       const deleteData = {
         id: 999999,
@@ -114,8 +155,7 @@ describe('Documents (e2e)', () => {
         .set(getAuthHeader(authToken))
         .send(deleteData);
 
-      // Pode retornar 400 (validação) ou 404 (não encontrado)
-      expect([400, 404]).toContain(response.status);
+      expect(response.status).toBe(404);
     });
 
     it('should fail without authentication', async () => {
@@ -127,37 +167,67 @@ describe('Documents (e2e)', () => {
   });
 
   describe('Document file validation', () => {
-    it('should accept PDF files', async () => {
-      await request(app.getHttpServer())
-        .post('/surgery-requests/documents')
-        .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .field('documentType', 'medical_report')
-        .attach('document', testFilePath);
-    });
+    // Removido "should accept PDF files": não tinha assert nenhum, usava o
+    // payload inválido (`documentType`) e, mesmo corrigido, seria idêntico ao
+    // teste de POST acima — aceitar PDF já é exercitado lá.
 
-    it('should handle large files appropriately', async () => {
+    it('deve recusar arquivo acima do limite do FileInterceptor', async () => {
       const largFilePath = path.join(
         __dirname,
         '../fixtures/large-document.pdf',
       );
 
-      // Create a larger test file
+      // 11 MB: acima do teto de `STORAGE_FOLDER_SIZE_LIMITS` (10 MB), que
+      // agora é também o `limits.fileSize` do `FileInterceptor`.
       if (!fs.existsSync(largFilePath)) {
-        const largeContent = Buffer.alloc(10 * 1024 * 1024); // 10MB
-        fs.writeFileSync(largFilePath, largeContent);
+        fs.writeFileSync(largFilePath, Buffer.alloc(11 * 1024 * 1024));
       }
 
-      await request(app.getHttpServer())
-        .post('/surgery-requests/documents')
-        .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .field('documentType', 'medical_report')
-        .attach('document', largFilePath);
+      try {
+        const response = await request(app.getHttpServer())
+          .post('/surgery-requests/documents')
+          .set(getAuthHeader(authToken))
+          .field('surgeryRequestId', SC_INEXISTENTE)
+          .field('key', 'exame')
+          .field('name', 'exame.pdf')
+          .field('folder', 'documents')
+          .attach('document', largFilePath);
 
-      // Clean up
-      if (fs.existsSync(largFilePath)) {
-        fs.unlinkSync(largFilePath);
+        // O multer aborta com LIMIT_FILE_SIZE e o @nestjs/platform-express
+        // traduz para PayloadTooLargeException — 413, nunca 201/404.
+        expect(response.status).toBe(413);
+      } finally {
+        if (fs.existsSync(largFilePath)) {
+          fs.unlinkSync(largFilePath);
+        }
+      }
+    });
+
+    it('não recusa no interceptor um arquivo dentro do limite da config (6 MB)', async () => {
+      const filePath = path.join(__dirname, '../fixtures/medium-document.pdf');
+      // 6 MB: estourava o antigo `limits.fileSize` de 5 MB, mas está dentro do
+      // limite de 10 MB da pasta `documents` em `STORAGE_FOLDER_SIZE_LIMITS`.
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, Buffer.alloc(6 * 1024 * 1024));
+      }
+
+      try {
+        const response = await request(app.getHttpServer())
+          .post('/surgery-requests/documents')
+          .set(getAuthHeader(authToken))
+          .field('surgeryRequestId', SC_INEXISTENTE)
+          .field('key', 'exame')
+          .field('name', 'exame.pdf')
+          .field('folder', 'documents')
+          .attach('document', filePath);
+
+        // Passa pelo interceptor e morre no 404 da SC inexistente — o que
+        // importa aqui é não ser 413.
+        expect(response.status).toBe(404);
+      } finally {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
     });
   });

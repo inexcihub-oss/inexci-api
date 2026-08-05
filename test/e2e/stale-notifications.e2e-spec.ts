@@ -12,12 +12,15 @@ import {
   createTestApp,
   cleanDatabase,
   closeTestApp,
+  prepararUsuarioParaLogin,
 } from '../helpers/test-setup';
 import { StaleNotificationService } from 'src/modules/notifications/stale-notification.service';
 
 const DOCTOR = {
   name: 'Dr. Stale E2E',
   email: `dr.stale.${Date.now()}@inexci.test`,
+  // `phone` passou a ser obrigatorio no RegisterDto.
+  phone: '11977770002',
   password: 'Senha@12345',
   isDoctor: true,
   crm: 'CRM999888',
@@ -48,8 +51,16 @@ beforeAll(async () => {
     .post('/auth/register')
     .send(DOCTOR)
     .expect(201);
-  token = registerRes.body.access_token;
   userId = registerRes.body.user.id;
+
+  // `/auth/register` não devolve mais `access_token`; o login exige
+  // e-mail confirmado e o `ConsentsGuard` exige os aceites.
+  await prepararUsuarioParaLogin(app, DOCTOR.email);
+  const loginRes = await request(app.getHttpServer())
+    .post('/auth/login')
+    .send({ email: DOCTOR.email, password: DOCTOR.password })
+    .expect(201);
+  token = loginRes.body.access_token;
 
   // 2. Criar procedimento
   const procRes = await request(app.getHttpServer())
@@ -66,7 +77,6 @@ beforeAll(async () => {
       name: 'Plano Stale E2E',
       phone: '21999990001',
       email: 'plano@stale.com',
-      default_payment_days: 30,
     })
     .expect(201);
 
@@ -101,7 +111,8 @@ beforeAll(async () => {
     .send({
       procedureId: procRes.body.id,
       patientId: patRes.body.id,
-      manager_id: userId,
+      // `manager_id` virou `doctorId` no DTO da SC.
+      doctorId: userId,
       healthPlanId: planRes.body.id,
       hospitalId: hospRes.body.id,
       priority: 2,
@@ -126,23 +137,23 @@ describe('Stale Notifications E2E', () => {
     fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
 
     await dataSource.query(
-      `UPDATE surgery_request SET updated_at = $1, last_status_changed_at = $1 WHERE id = $2`,
+      `UPDATE surgery_requests SET updated_at = $1, last_status_changed_at = $1 WHERE id = $2`,
       [fourDaysAgo.toISOString(), surgeryRequestId],
     );
 
     // Verify the data was set correctly
     const [sr] = await dataSource.query(
-      `SELECT id, status, last_status_changed_at, created_by_id FROM surgery_request WHERE id = $1`,
+      `SELECT id, status, last_status_changed_at, created_by_id FROM surgery_requests WHERE id = $1`,
       [surgeryRequestId],
     );
     expect(sr.last_status_changed_at).toBeDefined();
 
-    // Check user has account_id
+    // O tenant do usuário é `owner_id` (a coluna `account_id` nunca existiu)
     const [user] = await dataSource.query(
-      `SELECT id, account_id, role FROM "user" WHERE id = $1`,
+      `SELECT id, owner_id, role FROM users WHERE id = $1`,
       [sr.created_by_id],
     );
-    expect(user.account_id).toBeDefined();
+    expect(user.owner_id).toBeDefined();
 
     const count = await staleService.checkAndNotifyStaleRequests();
     expect(count).toBeGreaterThanOrEqual(1);
@@ -161,7 +172,7 @@ describe('Stale Notifications E2E', () => {
     eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
 
     await dataSource.query(
-      `UPDATE surgery_request SET updated_at = $1, last_status_changed_at = $1 WHERE id = $2`,
+      `UPDATE surgery_requests SET updated_at = $1, last_status_changed_at = $1 WHERE id = $2`,
       [eightDaysAgo.toISOString(), surgeryRequestId],
     );
 
@@ -171,7 +182,7 @@ describe('Stale Notifications E2E', () => {
 
   it('deve registrar log de stale notification para evitar duplicatas', async () => {
     const logs = await dataSource.query(
-      `SELECT * FROM stale_notification_log WHERE surgery_request_id = $1`,
+      `SELECT * FROM stale_notification_logs WHERE surgery_request_id = $1`,
       [surgeryRequestId],
     );
     expect(logs.length).toBeGreaterThanOrEqual(1); // at least one tier logged

@@ -19,6 +19,8 @@ import {
   SurgeryRequestOwnerGuard,
   SkipSurgeryOwner,
 } from 'src/shared/guards/surgery-request-owner.guard';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -74,6 +76,7 @@ import { BulkDeleteTemplatesDto } from './dto/bulk-delete-templates.dto';
 @ApiBearerAuth()
 @UseGuards(SurgeryRequestOwnerGuard)
 @Controller('surgery-requests')
+@RequirePermission(Permission.SOLICITACOES)
 export class SurgeryRequestsController {
   constructor(
     private readonly surgeryRequestsService: SurgeryRequestsService,
@@ -142,12 +145,20 @@ export class SurgeryRequestsController {
   // ============================================================
 
   @Get()
+  // Ponte deliberada: quem atende vê as cirurgias do paciente que está
+  // atendendo, mas não navega a carteira cirúrgica da clínica. Sem
+  // `patientId`, só quem tem SOLICITACOES lista (regra aplicada no service).
+  @RequirePermission(Permission.SOLICITACOES, Permission.ATENDIMENTO)
   @ApiOperation({ summary: 'Listar solicitações cirúrgicas' })
   findAll(
     @Query() query: FindManySurgeryRequestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.surgeryRequestsService.findAll(query, user.userId);
+    return this.surgeryRequestsService.findAll(
+      query,
+      user.userId,
+      user.permissions,
+    );
   }
 
   @Get('kanban')
@@ -597,6 +608,9 @@ export class SurgeryRequestsController {
    * IMPORTANTE: rota registrada ANTES de ':id/...' para não conflitar.
    */
   @Get('available-doctors')
+  // Lista de médicos acessíveis, não dado cirúrgico: alimenta o filtro da
+  // agenda e o hub de atendimento. Já vem recortada pelo AccessControlService.
+  @RequirePermission()
   @ApiOperation({ summary: 'Listar médicos disponíveis' })
   getAvailableDoctors(@CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getAvailableDoctors(user.userId);

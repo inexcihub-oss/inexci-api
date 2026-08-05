@@ -28,10 +28,16 @@ import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
 import { SubscriptionService } from '../billing/services/subscription.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { BCRYPT_ROUNDS, precisaRehash } from 'src/shared/constants/bcrypt';
 import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 import { RefreshTokenStore } from './refresh-token.store';
+import { resolveEffectivePermissions } from 'src/shared/permissions';
+import {
+  assertCodigoUtilizavel,
+  consumirTentativa,
+} from './recovery-code-attempts.util';
 
 @Injectable()
 @LogTrace()
@@ -91,6 +97,13 @@ export class AuthService {
         );
       }
 
+      // Rehash oportunista: a senha em claro so existe aqui. Sem isto, contas
+      // antigas ficariam em 10 rounds para sempre.
+      if (precisaRehash(user.password)) {
+        const novoHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+        await this.userRepository.update(user.id, { password: novoHash });
+      }
+
       return user;
     } else {
       throw new HttpException(HttpMessages.loginFailed, HttpStatus.BAD_REQUEST);
@@ -139,7 +152,7 @@ export class AuthService {
     }
 
     // Hash da senha
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+    const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
     const isDoctor = data.isDoctor || false;
 
@@ -216,6 +229,14 @@ export class AuthService {
         ownerId: user.ownerId,
         isDoctor: !!doctorProfile,
         emailVerified: user.emailVerified ?? false,
+        // A permissão EFETIVA, não a coluna crua — `register` só cria
+        // ADMIN (dono da conta), então isto é sempre ALL_PERMISSIONS
+        // independente do que `user.permissions` trouxer.
+        permissions: resolveEffectivePermissions({
+          role: user.role,
+          permissions: user.permissions,
+          isDoctor: !!doctorProfile,
+        }),
         doctorProfile: doctorProfile
           ? {
               id: doctorProfile.id,
@@ -236,12 +257,16 @@ export class AuthService {
     const result = await this.validateUser(user.email, user.password);
 
     if (result) {
-      // Buscar doctorProfile para o response
-      const doctorProfile = await this.doctorProfileRepository.findByUserId(
-        result.id,
-      );
-      // Buscar user com ownerId
-      const fullUser = await this.userRepository.findOne({ id: result.id });
+      // Uma única consulta traz doctorProfile, ownerId, emailVerified e a
+      // coluna crua de `permissions`/`isPlatformAdmin` — precisa da coluna
+      // crua para montar a permissão EFETIVA da resposta (mesmo padrão de
+      // `me`/`getProfile`). Substitui as duas consultas anteriores
+      // (`doctorProfileRepository.findByUserId` + `userRepository.findOne`,
+      // cujo `select` não inclui `permissions`).
+      const fullUser = await this.userRepository.findOneWithProfile({
+        id: result.id,
+      });
+      const doctorProfile = fullUser?.doctorProfile ?? null;
       const account = await this.buildAccountInfo(result.id, fullUser?.ownerId);
 
       const refreshToken = await this.createRefreshToken(result.id);
@@ -270,6 +295,14 @@ export class AuthService {
           account,
           isDoctor: !!doctorProfile,
           emailVerified: fullUser?.emailVerified ?? false,
+          // A permissão EFETIVA, não a coluna crua — decide o que o
+          // AuthContext do frontend (`permissions`/`can`) libera para este
+          // usuário logo após o login, inclusive para o dono da conta.
+          permissions: resolveEffectivePermissions({
+            role: result.role,
+            permissions: fullUser?.permissions,
+            isDoctor: !!doctorProfile,
+          }),
           doctorProfile: doctorProfile
             ? {
                 id: doctorProfile.id,
@@ -315,6 +348,15 @@ export class AuthService {
       avatarUrl,
       isDoctor: !!doctorProfile,
       emailVerified: user.emailVerified ?? false,
+      // A permissão EFETIVA, não a coluna crua — é o que decide o que o
+      // AuthContext do frontend (`permissions`/`can`) libera no menu,
+      // inclusive para o dono da conta. `user` já vem de
+      // `findOneWithProfile`, cujo `select` inclui a coluna `permissions`.
+      permissions: resolveEffectivePermissions({
+        role: user.role,
+        permissions: user.permissions,
+        isDoctor: !!doctorProfile,
+      }),
       doctorProfile: doctorProfile
         ? {
             id: doctorProfile.id,
@@ -408,22 +450,23 @@ export class AuthService {
     // Escopa a validação ao usuário (via e-mail): um código não pode ser
     // validado fora da conta dona dele.
     const user = await this.userRepository.findOne({ email: normalizedEmail });
-    if (!user) throw new NotFoundException('Código inválido');
+    // Anti-enumeração: mesma resposta (400 genérico) que um código inválido
+    // numa conta existente — o 404 anterior denunciava e-mails não cadastrados.
+    if (!user) throw new BadRequestException('Código inválido ou expirado');
 
-    const validationCode = await this.recoveryCodeRepository.findOne({
+    const registro = await this.recoveryCodeRepository.findOne({
       userId: user.id,
-      code: normalizedCode,
       used: false,
     });
 
-    if (!validationCode) throw new NotFoundException('Código inválido');
+    assertCodigoUtilizavel(registro);
 
-    if (
-      validationCode.expiresAt &&
-      new Date() > new Date(validationCode.expiresAt)
-    ) {
-      throw new BadRequestException('Código expirado');
+    if (registro!.code !== normalizedCode) {
+      await consumirTentativa(this.recoveryCodeRepository, registro!);
+      throw new BadRequestException('Código inválido ou expirado');
     }
+
+    const validationCode = registro!;
 
     // Marca o código como usado e emite um reset token de uso único e curta
     // duração, exigido no changePassword.
@@ -440,13 +483,23 @@ export class AuthService {
     return { message: 'Código validado com sucesso', resetToken };
   }
 
+  /** Erro único do reset token: mesma resposta para conta inexistente e token inválido. */
+  private invalidResetTokenError(): BadRequestException {
+    return new BadRequestException(
+      'Token de redefinição inválido. Reinicie a recuperação de senha.',
+    );
+  }
+
   async changePassword(data: changePasswordDto) {
     const normalizedEmail = data.email.trim();
     const normalizedResetToken = data.resetToken.trim();
 
     const user = await this.userRepository.findOne({ email: normalizedEmail });
 
-    if (!user) throw new NotFoundException('User not found');
+    // Anti-enumeração: e-mail não cadastrado responde exatamente como token
+    // inválido numa conta existente. Um 404 aqui transformava a rota num
+    // oráculo de existência de conta (404 = não cadastrado, 400 = cadastrado).
+    if (!user) throw this.invalidResetTokenError();
 
     // Exige o reset token de uso único emitido na validação do código, escopado
     // ao usuário. Sem isso, qualquer código "usado" da conta liberaria a troca.
@@ -457,9 +510,7 @@ export class AuthService {
     });
 
     if (!validatedCode) {
-      throw new BadRequestException(
-        'Token de redefinição inválido. Reinicie a recuperação de senha.',
-      );
+      throw this.invalidResetTokenError();
     }
 
     if (
@@ -471,7 +522,7 @@ export class AuthService {
       );
     }
 
-    const password = await bcrypt.hash(data.password, 10);
+    const password = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
     // Atualiza senha e ativa conta caso ainda esteja pendente (primeiro acesso).
     // Marca e-mail como verificado: o link do convite já prova a posse do endereço.
@@ -487,6 +538,11 @@ export class AuthService {
 
     // Invalidate all recovery codes for this user after successful password change
     await this.recoveryCodeRepository.deleteMany({ userId: user.id });
+
+    // Trocar a senha por recuperacao precisa encerrar as sessoes existentes:
+    // sem isto, o refresh token de quem comprometeu a conta seguia valido por
+    // 7 dias e a acao de remediacao mais obvia do usuario nao remediava nada.
+    await this.revokeRefreshTokens(user.id);
 
     return { message: 'Senha alterada com sucesso' };
   }
@@ -515,7 +571,7 @@ export class AuthService {
     }
 
     // Hash da nova senha
-    const newPasswordHash = await bcrypt.hash(data.newPassword, 10);
+    const newPasswordHash = await bcrypt.hash(data.newPassword, BCRYPT_ROUNDS);
 
     await this.userRepository.update(user.id, { password: newPasswordHash });
 

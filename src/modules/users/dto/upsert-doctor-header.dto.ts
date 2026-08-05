@@ -10,9 +10,8 @@ export class UpsertDoctorHeaderDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(https:\/\/.+|[a-zA-Z0-9/_-]+(?:\.[a-zA-Z0-9]+)?)$/, {
-    message:
-      'logoUrl deve ser uma URL https válida ou um caminho relativo do arquivo',
+  @Matches(/^(headers\/|https:\/\/[a-z0-9.-]+\.r2\.cloudflarestorage\.com\/)/, {
+    message: 'logoUrl deve ser um caminho do bucket ou URL do R2',
   })
   logoUrl?: string | null;
 

@@ -4,203 +4,336 @@ import {
   createTestApp,
   cleanDatabase,
   closeTestApp,
-  seedTestData,
+  prepararUsuarioParaLogin,
 } from '../helpers/test-setup';
-import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
+import { prepararScParaEnvio } from '../helpers/surgery-request-prereqs';
+
+/**
+ * Rotas reais de `PendenciesController`
+ * (src/modules/surgery-requests/pendencies/pendencies.controller.ts), todas GET,
+ * sob `@RequirePermission(Permission.SOLICITACOES)` e `SurgeryRequestOwnerGuard`:
+ *   - GET /surgery-requests/pendencies/batch-summary?ids=a,b,c
+ *   - GET /surgery-requests/pendencies/summary/:surgeryRequestId
+ *   - GET /surgery-requests/pendencies/validate/:surgeryRequestId
+ *
+ * O spec anterior criava a SC em `POST /surgery-requests/simple` — rota que não
+ * existe (a criação é `POST /surgery-requests`). Como a criação respondia 404,
+ * `testSurgeryRequestId` ficava `undefined` e TODOS os testes de conteúdo caíam
+ * no `if (!testSurgeryRequestId) return;` antes de qualquer assert. Somado aos
+ * `expect([200, 404])`, o arquivo inteiro passava sem exercitar uma linha do
+ * `PendencyValidatorService`.
+ *
+ * Fonte de verdade das pendências: `src/config/pendencies.config.ts`. Em PENDING
+ * são 5, todas `blocking: true`: patient_data, hospital_data, tuss_procedures,
+ * opme_items e medical_report.
+ */
+
+const MEDICO = {
+  name: 'Dr. Pendencias E2E',
+  email: `dr.pendencias.${Date.now()}@inexci.test`,
+  password: 'Senha@12345',
+  phone: '11977770020',
+  isDoctor: true,
+  crm: 'CRM777020',
+  crmState: 'SP',
+  specialty: 'Cirurgia Geral',
+};
+
+/** Ordem em que `pendencies.config.ts` declara as pendências de PENDING. */
+const PENDENCIAS_PENDING = [
+  'patient_data',
+  'hospital_data',
+  'tuss_procedures',
+  'opme_items',
+  'medical_report',
+];
 
 describe('Pendencies (e2e)', () => {
   let app: INestApplication;
-  let authToken: string;
-  let testSurgeryRequestId: number;
+  let token: string;
+  let medicoUserId: string;
+  /** SC crua: só paciente (nome + CPF). 4 das 5 pendências em aberto. */
+  let scCrua: string;
+  /** SC com as 5 pendências de PENDING resolvidas. */
+  let scPronta: string;
 
+  function authHeader() {
+    return { Authorization: `Bearer ${token}` };
+  }
+
+  // Todos os testes são GET; o fixture é montado uma vez só. As mutações do
+  // preparo (assinatura, OPME, laudo, TUSS) acontecem aqui, antes de qualquer
+  // assert, para que nenhum teste dependa da ordem de execução dos demais.
   beforeAll(async () => {
     app = await createTestApp();
-  });
-
-  beforeEach(async () => {
     await cleanDatabase(app);
-    await seedTestData(app);
-    const auth = await getAuthenticatedRequest(app);
-    authToken = auth.token;
 
-    // Criar uma solicitação de teste para usar nos testes de pendências
-    const createResponse = await request(app.getHttpServer())
-      .post('/surgery-requests/simple')
-      .set(getAuthHeader(authToken))
+    const registro = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send(MEDICO)
+      .expect(201);
+    medicoUserId = registro.body.user.id;
+
+    await prepararUsuarioParaLogin(app, MEDICO.email);
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: MEDICO.email, password: MEDICO.password })
+      .expect(201);
+    token = login.body.access_token;
+
+    const paciente = await request(app.getHttpServer())
+      .post('/patients')
+      .set(authHeader())
       .send({
-        isIndication: true,
-        indicationName: 'Test Procedure for Pendencies',
-        patient: {
-          name: 'Test Patient',
-          email: 'test-patient-pendency@test.com',
-          phone: '11999999999',
-        },
-        collaborator: {
-          status: 2,
-          name: 'Test Collaborator',
-          email: 'test-collaborator-pendency@test.com',
-          phone: '11988888888',
-          password: 'Test@123',
-        },
-        health_plan: {
-          name: 'Test Health Plan',
-          email: 'test-healthplan-pendency@test.com',
-          phone: '11977777777',
-        },
-      });
+        name: 'Paciente Pendencias E2E',
+        cpf: '12345678900',
+        phone: '11999990020',
+      })
+      .expect(201);
 
-    if (createResponse.status === 201) {
-      testSurgeryRequestId = createResponse.body.id;
-    }
-  });
+    const hospital = await request(app.getHttpServer())
+      .post('/hospitals')
+      .set(authHeader())
+      .send({ name: 'Hospital Pendencias', city: 'Sao Paulo', state: 'SP' })
+      .expect(201);
+
+    // SC crua: sem hospital de propósito, para `hospital_data` ficar em aberto.
+    const cruaRes = await request(app.getHttpServer())
+      .post('/surgery-requests')
+      .set(authHeader())
+      .send({ patientId: paciente.body.id, priority: 2 })
+      .expect(201);
+    scCrua = cruaRes.body.id;
+
+    const prontaRes = await request(app.getHttpServer())
+      .post('/surgery-requests')
+      .set(authHeader())
+      .send({
+        patientId: paciente.body.id,
+        hospitalId: hospital.body.id,
+        priority: 2,
+      })
+      .expect(201);
+    scPronta = prontaRes.body.id;
+
+    // Resolve tuss_procedures, opme_items e medical_report da `scPronta`.
+    // A assinatura é do médico (não da SC), então também vale para a `scCrua` —
+    // que continua com `medical_report` em aberto porque não tem seção de laudo.
+    await prepararScParaEnvio(app, token, {
+      surgeryRequestId: scPronta,
+      doctorUserId: medicoUserId,
+    });
+  }, 60_000);
 
   afterAll(async () => {
     await closeTestApp(app);
   });
 
   describe('/surgery-requests/pendencies/validate/:surgeryRequestId (GET)', () => {
-    it('should return dynamic pendencies validation', async () => {
-      if (!testSurgeryRequestId) return;
-
+    it('deve listar as 5 pendências de PENDING com o estado real de cada uma', async () => {
       const response = await request(app.getHttpServer())
-        .get(`/surgery-requests/pendencies/validate/${testSurgeryRequestId}`)
-        .set(getAuthHeader(authToken));
+        .get(`/surgery-requests/pendencies/validate/${scCrua}`)
+        .set(authHeader())
+        .expect(200);
 
-      expect([200, 404]).toContain(response.status);
+      expect(response.body.currentStatus).toBe(1);
+      expect(response.body.statusLabel).toBe('Pendente');
+      expect(response.body.nextStatus).toBe(2); // PENDING -> SENT
 
-      if (response.status === 200) {
-        expect(response.body).toBeDefined();
-        expect(response.body).toHaveProperty('currentStatus');
-        expect(response.body).toHaveProperty('statusLabel');
-        expect(response.body).toHaveProperty('nextStatus');
-        expect(response.body).toHaveProperty('canAdvance');
-        expect(response.body).toHaveProperty('pendencies');
-        expect(response.body).toHaveProperty('totalCount');
-        expect(response.body).toHaveProperty('completedCount');
-        expect(response.body).toHaveProperty('pendingCount');
-        expect(Array.isArray(response.body.pendencies)).toBe(true);
+      // Sem `requiredDocuments` no payload de criação não há pendências
+      // dinâmicas `doc_*`: são exatamente as 5 fixas do config, nessa ordem.
+      expect(response.body.pendencies.map((p: any) => p.key)).toEqual(
+        PENDENCIAS_PENDING,
+      );
 
-        if (response.body.pendencies.length > 0) {
-          const pendency = response.body.pendencies[0];
-          expect(pendency).toHaveProperty('key');
-          expect(pendency).toHaveProperty('name');
-          expect(pendency).toHaveProperty('description');
-          expect(pendency).toHaveProperty('isComplete');
-          expect(pendency).toHaveProperty('isOptional');
-          expect(pendency).toHaveProperty('responsible');
-          expect(pendency).toHaveProperty('statusContext');
-        }
+      const porChave = Object.fromEntries(
+        response.body.pendencies.map((p: any) => [p.key, p]),
+      );
+      // Paciente foi criado com nome + CPF, os dois únicos campos exigidos.
+      expect(porChave.patient_data.isComplete).toBe(true);
+      // Sem hospitalId, sem TUSS, `hasOpme` indefinido e sem seção de laudo.
+      expect(porChave.hospital_data.isComplete).toBe(false);
+      expect(porChave.tuss_procedures.isComplete).toBe(false);
+      expect(porChave.opme_items.isComplete).toBe(false);
+      expect(porChave.medical_report.isComplete).toBe(false);
 
-        expect(typeof response.body.totalCount).toBe('number');
-        expect(typeof response.body.completedCount).toBe('number');
-        expect(typeof response.body.pendingCount).toBe('number');
-        expect(typeof response.body.canAdvance).toBe('boolean');
-      }
+      // As 5 são bloqueantes no config -> `isOptional` false em todas.
+      expect(
+        response.body.pendencies.every((p: any) => p.isOptional === false),
+      ).toBe(true);
+      expect(porChave.medical_report.responsible).toBe('doctor');
+      expect(porChave.hospital_data.responsible).toBe('collaborator');
+
+      expect(response.body.totalCount).toBe(5);
+      expect(response.body.completedCount).toBe(1);
+      expect(response.body.pendingCount).toBe(4);
+      expect(response.body.canAdvance).toBe(false);
     });
 
-    it('should fail without authentication', async () => {
+    it('deve devolver os checkItems de cada pendência', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/surgery-requests/pendencies/validate/${scCrua}`)
+        .set(authHeader())
+        .expect(200);
+
+      const porChave = Object.fromEntries(
+        response.body.pendencies.map((p: any) => [p.key, p]),
+      );
+
+      expect(porChave.patient_data.checkItems).toEqual([
+        { label: 'Nome do paciente', done: true },
+        { label: 'CPF', done: true },
+      ]);
+      expect(porChave.hospital_data.checkItems).toEqual([
+        { label: 'Hospital selecionado', done: false },
+      ]);
+      // `hasOpme` nulo não é "sem OPME": o usuário ainda precisa declarar.
+      expect(porChave.opme_items.checkItems).toEqual([
+        { label: 'Indicar se há ou não OPME nesta solicitação', done: false },
+      ]);
+    });
+
+    it('deve liberar o avanço quando as 5 pendências estão resolvidas', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/surgery-requests/pendencies/validate/${scPronta}`)
+        .set(authHeader())
+        .expect(200);
+
+      expect(response.body.totalCount).toBe(5);
+      expect(response.body.completedCount).toBe(5);
+      expect(response.body.pendingCount).toBe(0);
+      expect(response.body.canAdvance).toBe(true);
+      expect(
+        response.body.pendencies.every((p: any) => p.isComplete === true),
+      ).toBe(true);
+    });
+
+    it('deve responder 404 para uma SC inexistente', async () => {
+      // `SurgeryRequestOwnerGuard` roda antes do handler: id não encontrado é 404.
+      await request(app.getHttpServer())
+        .get(
+          '/surgery-requests/pendencies/validate/00000000-0000-4000-8000-000000000000',
+        )
+        .set(authHeader())
+        .expect(404);
+    });
+
+    it('deve responder 404 para um id que não é UUID', async () => {
+      // O guard barra antes de o id chegar ao WHERE sobre coluna uuid — sem
+      // isso o Postgres abortaria a query e o usuário receberia 500.
       await request(app.getHttpServer())
         .get('/surgery-requests/pendencies/validate/1')
+        .set(authHeader())
+        .expect(404);
+    });
+
+    it('deve recusar sem autenticação', async () => {
+      // O JwtAuthGuard é global e roda antes do guard de posse: 401, não 404.
+      await request(app.getHttpServer())
+        .get(`/surgery-requests/pendencies/validate/${scCrua}`)
         .expect(401);
     });
 
-    it('should fail with invalid token', async () => {
+    it('deve recusar com token inválido', async () => {
       await request(app.getHttpServer())
-        .get('/surgery-requests/pendencies/validate/1')
+        .get(`/surgery-requests/pendencies/validate/${scCrua}`)
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
     });
   });
 
-  describe('/surgery-requests/pendencies/quick-summary/:surgeryRequestId (GET)', () => {
-    it('should return quick summary for kanban', async () => {
-      if (!testSurgeryRequestId) return;
+  // O describe '/surgery-requests/pendencies/quick-summary/:id' foi removido:
+  // essa rota não existe no `PendenciesController`. As equivalentes de verdade
+  // são `summary/:surgeryRequestId` (uma SC) e `batch-summary?ids=` (o resumo do
+  // kanban, que era o caso de uso descrito no teste antigo) — ambas cobertas
+  // abaixo. O teste "deve falhar sem autenticação" daquele bloco aceitava
+  // `[401, 404]` e passava justamente pelo 404 de rota inexistente.
 
+  describe('/surgery-requests/pendencies/summary/:surgeryRequestId (GET)', () => {
+    it('deve resumir as pendências bloqueantes em aberto', async () => {
       const response = await request(app.getHttpServer())
-        .get(
-          `/surgery-requests/pendencies/quick-summary/${testSurgeryRequestId}`,
-        )
-        .set(getAuthHeader(authToken));
+        .get(`/surgery-requests/pendencies/summary/${scCrua}`)
+        .set(authHeader())
+        .expect(200);
 
-      expect([200, 404]).toContain(response.status);
-
-      if (response.status === 200) {
-        expect(response.body).toBeDefined();
-        expect(response.body).toHaveProperty('pending');
-        expect(response.body).toHaveProperty('total');
-        expect(response.body).toHaveProperty('canAdvance');
-
-        expect(typeof response.body.pending).toBe('number');
-        expect(typeof response.body.total).toBe('number');
-        expect(typeof response.body.canAdvance).toBe('boolean');
-      }
+      // `pending` conta só o que é bloqueante e não resolvido; `total` conta
+      // todas as pendências do status, bloqueantes ou não.
+      expect(response.body.pending).toBe(4);
+      expect(response.body.total).toBe(5);
+      expect(response.body.canAdvance).toBe(false);
+      expect(response.body.items.map((i: any) => i.key)).toEqual(
+        PENDENCIAS_PENDING,
+      );
+      expect(response.body.items.map((i: any) => [i.key, i.resolved])).toEqual([
+        ['patient_data', true],
+        ['hospital_data', false],
+        ['tuss_procedures', false],
+        ['opme_items', false],
+        ['medical_report', false],
+      ]);
     });
 
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer()).get(
-        '/surgery-requests/pendencies/quick-summary/1',
-      );
-      expect([401, 404]).toContain(response.status);
+    it('deve zerar as pendências da SC pronta', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/surgery-requests/pendencies/summary/${scPronta}`)
+        .set(authHeader())
+        .expect(200);
+
+      expect(response.body.pending).toBe(0);
+      expect(response.body.total).toBe(5);
+      expect(response.body.canAdvance).toBe(true);
+    });
+
+    it('deve recusar sem autenticação', async () => {
+      await request(app.getHttpServer())
+        .get(`/surgery-requests/pendencies/summary/${scCrua}`)
+        .expect(401);
     });
   });
 
-  describe('Dynamic Validation Logic', () => {
-    it('should mark patient data as incomplete for new surgery request', async () => {
-      if (!testSurgeryRequestId) return;
-
+  describe('/surgery-requests/pendencies/batch-summary (GET)', () => {
+    it('deve resumir várias SCs numa chamada só', async () => {
       const response = await request(app.getHttpServer())
-        .get(`/surgery-requests/pendencies/validate/${testSurgeryRequestId}`)
-        .set(getAuthHeader(authToken));
+        .get('/surgery-requests/pendencies/batch-summary')
+        .query({ ids: `${scCrua},${scPronta}` })
+        .set(authHeader())
+        .expect(200);
 
-      if (response.status === 200) {
-        const pendencies = response.body.pendencies;
-        const patientDataPendency = pendencies.find(
-          (p: any) => p.key === 'patient_data',
-        );
-
-        // Nova solicitação geralmente tem dados do paciente incompletos
-        if (patientDataPendency) {
-          expect(typeof patientDataPendency.isComplete).toBe('boolean');
-        }
-      }
+      expect(response.body).toEqual({
+        [scCrua]: { pending: 4, total: 5, canAdvance: false },
+        [scPronta]: { pending: 0, total: 5, canAdvance: true },
+      });
     });
 
-    it('should show hospital data as pending when no hospital is assigned', async () => {
-      if (!testSurgeryRequestId) return;
-
+    it('deve devolver o default fail-closed para id que não carrega', async () => {
+      // Ids inexistentes (ou de outra clínica: o WHERE é escopado por ownerId)
+      // nunca somem da resposta — ficam no default preenchido antes da
+      // consulta, e esse default é `canAdvance: false`: o kanban não pode
+      // pintar como "sem pendência" uma SC que não foi avaliada.
+      const inexistente = '00000000-0000-4000-8000-000000000000';
       const response = await request(app.getHttpServer())
-        .get(`/surgery-requests/pendencies/validate/${testSurgeryRequestId}`)
-        .set(getAuthHeader(authToken));
+        .get('/surgery-requests/pendencies/batch-summary')
+        .query({ ids: `${scCrua},${inexistente}` })
+        .set(authHeader())
+        .expect(200);
 
-      if (response.status === 200) {
-        const pendencies = response.body.pendencies;
-        const hospitalPendency = pendencies.find(
-          (p: any) => p.key === 'hospital_data',
-        );
-
-        if (hospitalPendency) {
-          // Solicitação nova sem hospital deve ter esta pendência incompleta
-          expect(hospitalPendency.isComplete).toBe(false);
-        }
-      }
+      expect(response.body[scCrua]).toEqual({
+        pending: 4,
+        total: 5,
+        canAdvance: false,
+      });
+      expect(response.body[inexistente]).toEqual({
+        pending: 0,
+        total: 0,
+        canAdvance: false,
+      });
     });
 
-    it('should calculate completion correctly', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .get(`/surgery-requests/pendencies/validate/${testSurgeryRequestId}`)
-        .set(getAuthHeader(authToken));
-
-      if (response.status === 200) {
-        const { totalCount, completedCount, pendingCount } = response.body;
-
-        // Verificar que a matemática está correta
-        expect(pendingCount).toBe(totalCount - completedCount);
-        expect(totalCount).toBeGreaterThanOrEqual(0);
-        expect(completedCount).toBeGreaterThanOrEqual(0);
-        expect(pendingCount).toBeGreaterThanOrEqual(0);
-      }
+    it('deve recusar sem autenticação', async () => {
+      await request(app.getHttpServer())
+        .get('/surgery-requests/pendencies/batch-summary')
+        .query({ ids: scCrua })
+        .expect(401);
     });
   });
 });

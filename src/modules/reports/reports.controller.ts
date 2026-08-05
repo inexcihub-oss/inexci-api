@@ -10,10 +10,13 @@ import {
   CurrentUser,
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 
 @ApiTags('Relatórios')
 @ApiBearerAuth()
 @Controller('reports')
+@RequirePermission(Permission.SOLICITACOES)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 

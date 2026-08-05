@@ -12,7 +12,9 @@ import {
   createTestApp,
   cleanDatabase,
   closeTestApp,
+  prepararUsuarioParaLogin,
 } from '../helpers/test-setup';
+import { prepararScParaEnvio } from '../helpers/surgery-request-prereqs';
 
 const Status = {
   PENDING: 1,
@@ -23,6 +25,8 @@ const Status = {
 const DOCTOR = {
   name: 'Dr. StatusChange E2E',
   email: `dr.status.${Date.now()}@inexci.test`,
+  // `phone` passou a ser obrigatorio no RegisterDto.
+  phone: '11977770001',
   password: 'Senha@12345',
   isDoctor: true,
   crm: 'CRM777666',
@@ -50,8 +54,16 @@ beforeAll(async () => {
     .post('/auth/register')
     .send(DOCTOR)
     .expect(201);
-  token = registerRes.body.access_token;
   userId = registerRes.body.user.id;
+
+  // `/auth/register` não devolve mais `access_token`; o login exige
+  // e-mail confirmado e o `ConsentsGuard` exige os aceites.
+  await prepararUsuarioParaLogin(app, DOCTOR.email);
+  const loginRes = await request(app.getHttpServer())
+    .post('/auth/login')
+    .send({ email: DOCTOR.email, password: DOCTOR.password })
+    .expect(201);
+  token = loginRes.body.access_token;
 
   // 2. Criar procedimento
   const procRes = await request(app.getHttpServer())
@@ -68,7 +80,6 @@ beforeAll(async () => {
       name: 'Plano Status E2E',
       phone: '31999990001',
       email: 'plano@status.com',
-      default_payment_days: 30,
     })
     .expect(201);
 
@@ -103,13 +114,21 @@ beforeAll(async () => {
     .send({
       procedureId: procRes.body.id,
       patientId: patRes.body.id,
-      manager_id: userId,
+      // `manager_id` virou `doctorId` no DTO da SC.
+      doctorId: userId,
       healthPlanId: planRes.body.id,
       hospitalId: hospRes.body.id,
       priority: 2,
     })
     .expect(201);
   surgeryRequestId = srRes.body.id ?? srRes.body.data?.id;
+
+  // Sem isso, `POST /:id/send` responde 400 com as pendências bloqueantes de
+  // PENDING e nenhuma mudança de status acontece — logo, nenhuma notificação.
+  await prepararScParaEnvio(app, token, {
+    surgeryRequestId,
+    doctorUserId: userId,
+  });
 }, 60_000);
 
 afterAll(async () => {
@@ -119,22 +138,21 @@ afterAll(async () => {
 describe('Status Change Notifications E2E', () => {
   it('deve criar notificação ao mudar status PENDING → SENT', async () => {
     // Limpar notificações existentes
-    await dataSource.query(`DELETE FROM notification`);
+    await dataSource.query(`DELETE FROM notifications`);
 
     const res = await request(app.getHttpServer())
-      .patch(`/surgery-requests/${surgeryRequestId}/status`)
+      .post(`/surgery-requests/${surgeryRequestId}/send`)
       .set(authHeader())
-      .send({ status: Status.SENT });
+      .send({ method: 'email' });
 
-    // Aceitar 200 ou 204
-    expect([200, 204]).toContain(res.status);
+    expect(res.status).toBe(201);
 
     // Aguardar processamento assíncrono
     await new Promise((r) => setTimeout(r, 500));
 
     // Verificar notificações criadas
     const notifications = await dataSource.query(
-      `SELECT * FROM notification WHERE type = 'status_change' ORDER BY created_at DESC`,
+      `SELECT * FROM notifications WHERE type = 'status_update' ORDER BY created_at DESC`,
     );
 
     // O actor (próprio usuário) não recebe notificação, mas se houver outro
@@ -144,17 +162,23 @@ describe('Status Change Notifications E2E', () => {
   });
 
   it('deve incluir dados do status anterior e novo na notificação', async () => {
-    await dataSource.query(`DELETE FROM notification`);
+    await dataSource.query(`DELETE FROM notifications`);
 
     await request(app.getHttpServer())
-      .patch(`/surgery-requests/${surgeryRequestId}/status`)
+      .post(`/surgery-requests/${surgeryRequestId}/start-analysis`)
       .set(authHeader())
-      .send({ status: Status.IN_ANALYSIS });
+      // `requestNumber` e `receivedAt` são obrigatórios no StartAnalysisDto.
+      .send({
+        requestNumber: 'REQ-STATUS-001',
+        receivedAt: new Date().toISOString(),
+        notes: 'Analise iniciada via teste E2E.',
+      })
+      .expect(201);
 
     await new Promise((r) => setTimeout(r, 500));
 
     const notifications = await dataSource.query(
-      `SELECT * FROM notification WHERE type = 'status_change' ORDER BY created_at DESC`,
+      `SELECT * FROM notifications WHERE type = 'status_update' ORDER BY created_at DESC`,
     );
 
     if (notifications.length > 0) {
@@ -166,9 +190,9 @@ describe('Status Change Notifications E2E', () => {
 
   it('notificação deve estar marcada como não lida', async () => {
     const notifications = await dataSource.query(
-      `SELECT * FROM notification WHERE type = 'status_change' AND read = false`,
+      `SELECT * FROM notifications WHERE type = 'status_update' AND read = false`,
     );
-    // Todas as notificações de status_change devem estar não lidas
+    // Todas as notificações de status_update devem estar não lidas
     for (const n of notifications) {
       expect(n.read).toBe(false);
     }
@@ -194,9 +218,9 @@ describe('Status Change Notifications E2E', () => {
   });
 
   it('deve criar segundo usuário e verificar que recebe notificação de status change', async () => {
-    // Get the account_id of the main user
+    // Tenant do usuário principal (a coluna é `owner_id`, não `account_id`)
     const [mainUser] = await dataSource.query(
-      `SELECT id, account_id FROM "user" WHERE id = $1`,
+      `SELECT id, owner_id FROM users WHERE id = $1`,
       [userId],
     );
 
@@ -208,37 +232,39 @@ describe('Status Change Notifications E2E', () => {
     const hashedPassword = await bcrypt.hash('Senha@12345', 10);
 
     await dataSource.query(
-      `INSERT INTO "user" (id, name, email, password, role, status, account_id, admin_id)
-       VALUES ($1, $2, $3, $4, 'collaborator', 'active', $5, $5)`,
+      `INSERT INTO users (id, name, email, password, phone, role, status, owner_id, admin_id)
+       VALUES ($1, $2, $3, $4, $5, 'collaborator', 'active', $6, $6)`,
       [
         collabId,
         'Colaborador Status E2E',
         `collab.status.${Date.now()}@inexci.test`,
         hashedPassword,
-        mainUser.account_id,
+        `1197777${String(Date.now()).slice(-4)}`,
+        mainUser.owner_id,
       ],
     );
 
     // Limpar notificações
-    await dataSource.query(`DELETE FROM notification`);
+    await dataSource.query(`DELETE FROM notifications`);
 
     // Reset status to PENDING so we can change it again
     await dataSource.query(
-      `UPDATE surgery_request SET status = 1 WHERE id = $1`,
-      [surgeryRequestId],
+      `UPDATE surgery_requests SET status = $2 WHERE id = $1`,
+      [surgeryRequestId, Status.PENDING],
     );
 
     // Mudar status com o doctor original
     await request(app.getHttpServer())
-      .patch(`/surgery-requests/${surgeryRequestId}/status`)
+      .post(`/surgery-requests/${surgeryRequestId}/send`)
       .set(authHeader())
-      .send({ status: Status.SENT });
+      .send({ method: 'email' })
+      .expect(201);
 
     await new Promise((r) => setTimeout(r, 500));
 
     // Verificar que o collaborator recebeu notificação
     const collabNotifs = await dataSource.query(
-      `SELECT * FROM notification WHERE user_id = $1`,
+      `SELECT * FROM notifications WHERE user_id = $1`,
       [collabId],
     );
 

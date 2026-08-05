@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import * as sanitizeHtml from 'sanitize-html';
 import { FindOptionsWhere, Not, In, QueryFailedError } from 'typeorm';
@@ -8,8 +9,10 @@ import {
   NotFoundException,
   ForbiddenException,
   UnauthorizedException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { FindManyUsersDto } from './dto/find-many.dto';
@@ -23,14 +26,20 @@ import { UpsertDoctorHeaderDto } from './dto/upsert-doctor-header.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
+import {
+  Permission,
+  resolveEffectivePermissions,
+} from 'src/shared/permissions';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { BCRYPT_ROUNDS } from 'src/shared/constants/bcrypt';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
+import { RefreshTokenStore } from '../auth/refresh-token.store';
 
 import { generateValidationCode } from 'src/shared/utils';
 
@@ -47,7 +56,73 @@ export class UsersService {
     private readonly whatsappService: WhatsappService,
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
+    private readonly refreshTokenStore: RefreshTokenStore,
+    // Opcional: só usado para emitir `user.access_changed` (invalida os
+    // caches de identidade/autorização do assistente do WhatsApp). Manter
+    // opcional evita acoplar este service ao módulo de IA e não quebra a
+    // instanciação manual usada nos testes unitários deste arquivo.
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
+
+  /**
+   * Emite `user.access_changed` para que o assistente do WhatsApp invalide
+   * os caches em memória que derivam a permissão efetiva de um usuário
+   * (`AiOrchestratorService.onUserAccessChanged`). Cobre TODAS as mutações
+   * que alteram o que um colaborador pode fazer pelo WhatsApp — não só
+   * `permissions`/`doctor_profile` (nome antigo do evento,
+   * `user.permissions_changed`), mas também exclusão e desativação, daí o
+   * nome mais amplo.
+   *
+   * `phone` precisa ser o telefone ORIGINAL do usuário — em
+   * `deleteCollaborator`/`bulkDeleteCollaborators` o telefone já foi
+   * trocado por uma sentinela no banco antes deste ponto, então invalidar
+   * com o telefone atual não limparia a entrada certa do cache (que ainda
+   * está indexada pelo telefone antigo).
+   */
+  private emitAccessChanged(userId: string, phone: string | null | undefined) {
+    this.eventEmitter?.emit('user.access_changed', { userId, phone });
+  }
+
+  /**
+   * Gerir a equipe é ato de quem tem Administração — o dono da conta ou o
+   * colaborador a quem ele delegou. Não basta o role: o admin delegado
+   * continua sendo `collaborator`. Devolve o usuário carregado (em vez de
+   * `void`) para que os 11 chamadores não precisem refazer um `findOne` do
+   * mesmo id logo em seguida.
+   */
+  private async assertPodeGerirEquipe(userId: string): Promise<User> {
+    const usuario = await this.userRepository.findOneWithProfile({
+      id: userId,
+    });
+    if (!usuario) throw new NotFoundException('Usuário não encontrado');
+
+    const permissoes = resolveEffectivePermissions({
+      role: usuario.role,
+      permissions: usuario.permissions,
+      isDoctor: !!usuario.doctorProfile,
+    });
+
+    if (!permissoes.includes(Permission.ADMINISTRACAO)) {
+      throw new ForbiddenException(
+        'Você não tem permissão para gerenciar colaboradores.',
+      );
+    }
+
+    return usuario;
+  }
+
+  /**
+   * O dono da conta não é gerenciável por ninguém: é quem paga a assinatura e
+   * a raiz do tenant (`ownerId = self.id`). Um admin delegado que pudesse
+   * desativá-lo tomaria a clínica.
+   */
+  private assertAlvoNaoEhDono(alvo: { id: string; ownerId: string }): void {
+    if (alvo.id === alvo.ownerId) {
+      throw new ForbiddenException(
+        'O dono da conta não pode ser alterado por outro usuário.',
+      );
+    }
+  }
 
   /**
    * Lista usuários
@@ -105,7 +180,13 @@ export class UsersService {
 
     // Admin pode ver qualquer um da conta
     if (requestingUser.role === UserRole.ADMIN) {
-      user = await this.userRepository.findOne({ id });
+      // Escopo de tenant igual ao do findMany logo acima. Sem ownerId aqui,
+      // qualquer conta (todo register cria um ADMIN) lia CPF, endereco e a
+      // signed URL da assinatura de medicos de outras clinicas.
+      user = await this.userRepository.findOne({
+        id,
+        ownerId: requestingUser.ownerId,
+      });
       if (!user) throw new NotFoundException('Usuário não encontrado');
     } else {
       // Médico (com doctorProfile) pode ver a si mesmo ou quem tem acesso
@@ -135,7 +216,34 @@ export class UsersService {
       this.resolveStorageUrl(user.doctorProfile?.signatureUrl),
     ]);
 
-    const result: Record<string, unknown> = { ...user, avatarUrl };
+    // Spread de entidade escapa do ClassSerializerInterceptor: o interceptor
+    // so aplica @Exclude() quando o objeto e instancia de classe. Campos
+    // explicitos evitam vazar password/emailVerificationToken/etc.
+    const result: Record<string, unknown> = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      cpf: user.cpf,
+      // `char(1)` volta preenchido com espaço quando gravado vazio. Normaliza
+      // na leitura para que registros antigos não devolvam `' '` ao formulário
+      // — o valor voltaria no PATCH seguinte e seria recusado pelo DTO.
+      gender: user.gender?.trim() || null,
+      birthDate: user.birthDate,
+      cep: user.cep,
+      address: user.address,
+      addressNumber: user.addressNumber,
+      addressComplement: user.addressComplement,
+      city: user.city,
+      state: user.state,
+      role: user.role,
+      status: user.status,
+      accountId: user.ownerId,
+      doctorProfile: user.doctorProfile,
+      avatarUrl,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
     if (user.doctorProfile) {
       result.doctorProfile = { ...user.doctorProfile, signatureUrl };
     }
@@ -146,8 +254,10 @@ export class UsersService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Remove senha do retorno
-    const { password, ...userWithoutPassword } = user;
+    // Remove senha e campos internos (permissions cru e isPlatformAdmin) do
+    // retorno — não são dados que a rota de perfil deve expor.
+    const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
+      user;
 
     // Gerar signed URL para assinatura do médico (bucket privado)
     const profile = userWithoutPassword.doctorProfile;
@@ -164,6 +274,13 @@ export class UsersService {
     return {
       ...userWithoutPassword,
       isDoctor: !!userWithoutPassword.doctorProfile,
+      // A permissão EFETIVA, não a coluna crua: o frontend precisa saber o
+      // que o usuário pode de fato, incluindo o que ganha por ser médico.
+      permissions: resolveEffectivePermissions({
+        role: userWithoutPassword.role,
+        permissions,
+        isDoctor: !!userWithoutPassword.doctorProfile,
+      }),
     };
   }
 
@@ -265,9 +382,18 @@ export class UsersService {
     const target = await this.userRepository.findOne({ id: targetId });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Apenas admin ou o próprio usuário podem atualizar o perfil
-    if (requesting.role !== UserRole.ADMIN && requestingUserId !== targetId) {
-      throw new ForbiddenException('Sem permissão para atualizar este perfil');
+    // Apenas quem tem Administração ou o próprio usuário podem atualizar o
+    // perfil. Editando terceiro: precisa estar no mesmo tenant (`ownerId`) —
+    // sem essa checagem o alvo poderia estar em outra conta — e o alvo não
+    // pode ser o dono da conta (essa rota grava `phone`/`cpf`/`name`; o
+    // `phone` do dono é a chave de identidade dele no assistente WhatsApp
+    // via `findOneByPhone`, então reescrevê-lo é sequestrar o canal dele).
+    if (requestingUserId !== targetId) {
+      await this.assertPodeGerirEquipe(requestingUserId);
+      if (target.ownerId !== requesting.ownerId) {
+        throw new ForbiddenException('Este usuário não pertence à sua conta');
+      }
+      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
     }
 
     if (data.phone) {
@@ -292,7 +418,13 @@ export class UsersService {
     if (data.cpf !== undefined) userUpdates.cpf = data.cpf;
     if (data.birthDate !== undefined)
       userUpdates.birthDate = new Date(data.birthDate);
-    if (data.gender !== undefined) userUpdates.gender = data.gender;
+    // `gender` é `char(1)`, e o Postgres preenche `char` com espaço: gravar
+    // string vazia devolve `' '` na leitura seguinte, que o DTO recusa
+    // ("gender must be one of the following values: M, F, O, ''"). Resultado:
+    // salvar duas vezes um usuário sem gênero definido falhava com 400. Vazio
+    // é ausência de valor, então grava `null`.
+    if (data.gender !== undefined)
+      userUpdates.gender = data.gender?.trim() ? data.gender.trim() : null;
     if (data.avatarUrl !== undefined) userUpdates.avatarUrl = data.avatarUrl;
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;
@@ -308,13 +440,7 @@ export class UsersService {
   }
 
   async create(data: CreateUserDto, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    // Só admin pode criar usuários
-    if (user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Apenas admins podem criar usuários');
-    }
+    const user = await this.assertPodeGerirEquipe(userId);
 
     // Verifica telefone duplicado
     if (data.phone) {
@@ -330,13 +456,20 @@ export class UsersService {
 
     const placeholderPw = generateValidationCode(16);
 
+    // `data.role` é ignorado de propósito: esta rota é gateada por
+    // Permission.ADMINISTRACAO (que o admin delegado também tem), e o novo
+    // usuário herda `ownerId` de quem criou — nunca `self.id`. Se aceitássemos
+    // `role: 'admin'` aqui, um delegado cunharia um segundo "dono" com
+    // `ownerId` de outra pessoa, quebrando a invariante "para admin, ownerId
+    // = self.id" usada em todo o isolamento de tenant. O DTO já restringe o
+    // valor a `collaborator`; isto é a segunda camada.
     const newUser = await this.userRepository.create({
       email: data.email,
       name: data.name,
       phone: data.phone,
-      role: data.role || UserRole.COLLABORATOR,
+      role: UserRole.COLLABORATOR,
       status: UserStatus.PENDING,
-      password: await bcrypt.hash(placeholderPw, 10),
+      password: await bcrypt.hash(placeholderPw, BCRYPT_ROUNDS),
       ownerId: user.ownerId,
       adminId: userId,
     });
@@ -398,7 +531,7 @@ export class UsersService {
       throw new BadRequestException('Senha atual incorreta');
 
     // Atualiza senha
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(userId, { password: hashedPassword });
 
     return { message: 'Senha alterada com sucesso' };
@@ -439,11 +572,21 @@ export class UsersService {
     });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Permitir acesso ao próprio usuário (se for médico) e ao Admin da conta
+    // Permitir acesso ao próprio usuário (se for médico) e a quem tem
+    // Administração no MESMO tenant do alvo — pertencimento é `ownerId`
+    // (o tenant), nunca `adminId` (só quem criou o registro). Checar por
+    // `role === ADMIN` deixaria o admin delegado (role='collaborator' +
+    // permissão) sem acesso a CRM/especialidade de qualquer médico que não
+    // tenha criado — o mesmo bug do C3, aqui.
     const isSelf = requestingUserId === targetId;
+    const permissoesRequesting = resolveEffectivePermissions({
+      role: requesting.role,
+      permissions: requesting.permissions,
+      isDoctor: !!requesting.doctorProfile,
+    });
     const isAdmin =
-      requesting.role === UserRole.ADMIN &&
-      (target.adminId === requestingUserId || isSelf);
+      permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
+      target.ownerId === requesting.ownerId;
 
     // Colaborador vinculado ao médico pode atualizar APENAS a assinatura.
     // CRM/estado/especialidade continuam restritos ao próprio médico ou admin.
@@ -486,16 +629,20 @@ export class UsersService {
     const updated = await this.userRepository.findOneWithProfile({
       id: targetId,
     });
-    return updated;
+    if (!updated) throw new NotFoundException('Usuário alvo não encontrado');
+
+    // Quem chama esta rota pode ser um colaborador vinculado só-assinatura
+    // (isLinkedCollaborator acima); permissions cru e isPlatformAdmin do
+    // médico-alvo não devem vazar nessa resposta.
+    const { permissions, isPlatformAdmin, ...updatedWithoutInternalFields } =
+      updated;
+    return updatedWithoutInternalFields;
   }
 
   // ============ GESTÃO DE COLABORADORES ============
 
   async findCollaborators(userId: string, skip = 0, take = 50) {
-    const admin = await this.userRepository.findOne({ id: userId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
-    if (admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem listar colaboradores');
+    const admin = await this.assertPodeGerirEquipe(userId);
 
     const collaborators = await this.userRepository.findByOwnerId(
       admin.ownerId,
@@ -503,23 +650,42 @@ export class UsersService {
       take,
     );
 
-    const filtered = collaborators.filter((c) => c.id !== userId);
+    // O dono da conta não é "gerenciável" (`assertAlvoNaoEhDono` bloqueia
+    // qualquer ação sobre ele) — não deve aparecer na lista de colaboradores
+    // para ninguém, nem para si mesmo (já excluído por `c.id !== userId`)
+    // nem para um admin delegado, que veria um botão de ação que sempre
+    // falha com 403.
+    const filtered = collaborators.filter(
+      (c) => c.id !== userId && c.id !== admin.ownerId,
+    );
 
     const records = await Promise.all(
-      filtered.map(async (c) => ({
-        ...c,
-        avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
-      })),
+      filtered.map(async (c) => {
+        // `findByOwnerId` não define `select`, então devolve `permissions` e
+        // `isPlatformAdmin` crus do TypeORM (vazamento pré-existente) — não
+        // podem sair na resposta. `password` já não vem: a coluna tem
+        // `select: false` na entidade.
+        const { permissions, isPlatformAdmin, ...collaboratorFields } = c;
+
+        return {
+          ...collaboratorFields,
+          avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
+          // A permissão EFETIVA, não a coluna crua — mesmo motivo do
+          // getProfile/findCollaboratorById.
+          permissions: resolveEffectivePermissions({
+            role: c.role,
+            permissions,
+            isDoctor: !!c.doctorProfile,
+          }),
+        };
+      }),
     );
 
     return { records };
   }
 
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
-    if (admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem criar colaboradores');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     // Verifica email duplicado
     const emailFound = await this.userRepository.findOneWithDeleted({
@@ -559,9 +725,12 @@ export class UsersService {
         phone: data.phone,
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
-        password: await bcrypt.hash(placeholderPassword, 10),
+        password: await bcrypt.hash(placeholderPassword, BCRYPT_ROUNDS),
         ownerId: admin.ownerId,
         adminId: adminId,
+        // Sem nada informado, o colaborador nasce sem acesso a área nenhuma
+        // — `role` não vem deste DTO, só `permissions`.
+        permissions: data.permissions ?? [],
       });
     } catch (err) {
       if (err instanceof QueryFailedError) {
@@ -602,17 +771,17 @@ export class UsersService {
       });
     }
 
-    // Gera token de convite (recovery code) válido por 72 horas
+    // Gera token de convite (recovery code) válido por 24 horas
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
     });
-    const inviteToken = generateValidationCode(6);
+    const inviteToken = randomUUID();
     await this.recoveryCodeRepository.create({
       userId: newUser.id,
       used: false,
       code: inviteToken,
-      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000), // 72 horas
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 horas
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
@@ -635,7 +804,24 @@ export class UsersService {
       void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
 
-    return newUser;
+    // `userRepository.create` devolve exatamente o que foi persistido — sem
+    // `select` — então `newUser.permissions` ainda é a coluna crua e
+    // `isPlatformAdmin` também está lá. Mesmo tratamento dos outros
+    // retornos de colaborador: tira os dois e acrescenta a permissão
+    // EFETIVA. `isDoctor` (calculado acima, antes do `doctorProfile` ser
+    // criado) já reflete se o `doctor_profile` foi de fato criado — não
+    // precisa recarregar do banco.
+    const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
+      newUser;
+
+    return {
+      ...newUserWithoutInternalFields,
+      permissions: resolveEffectivePermissions({
+        role: newUser.role,
+        permissions,
+        isDoctor,
+      }),
+    };
   }
 
   async updateCollaborator(
@@ -643,17 +829,22 @@ export class UsersService {
     data: UpdateCollaboratorDto,
     adminId: string,
   ) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem editar colaboradores');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou): um admin delegado precisa editar colaboradores criados pelo
+    // dono, e o dono precisa editar colaboradores criados pelo delegado.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
     // Verifica email duplicado
     if (data.email) {
@@ -688,6 +879,13 @@ export class UsersService {
       updates.addressComplement = data.addressComplement;
     if (data.city !== undefined) updates.city = data.city;
     if (data.state !== undefined) updates.state = data.state;
+    if (data.permissions !== undefined) {
+      // `undefined` significa "não mexi nas permissões"; `[]` significa
+      // "retirei todas". Os dois casos precisam ser distinguíveis — por
+      // isso o `if` não usa o padrão `data.x ?? valorPadrao` dos campos
+      // acima.
+      updates.permissions = data.permissions;
+    }
 
     // Gestão do doctorProfile
     if (data.isDoctor !== undefined) {
@@ -741,21 +939,71 @@ export class UsersService {
     }
 
     const updated = await this.userRepository.update(collaboratorId, updates);
-    return updated;
+    if (!updated) throw new NotFoundException('Colaborador não encontrado');
+
+    // `userRepository.update` devolve o resultado de `findOne`, cujo
+    // `select` não inclui `permissions` — por isso o admin que acabou de
+    // conceder/revogar acesso não recebia confirmação nenhuma no payload.
+    // Reconstrói o estado pós-mutação sem outra ida ao banco: `hasProfile`
+    // (antes) + a mesma lógica de branches acima já dizem se o
+    // `doctor_profile` existe agora, e a permissão gravada é `data.permissions`
+    // quando informada, ou a que já estava em `collaborator` quando omitida.
+    const isDoctorAfterUpdate =
+      data.isDoctor !== undefined ? data.isDoctor : hasProfile;
+
+    // O assistente do WhatsApp deriva `permissions` a partir de caches em
+    // memória (identidade do usuário por telefone, ~10 min; médicos
+    // acessíveis por userId, ~5 min — ver `AiOrchestratorService`), não a
+    // cada mensagem como o guard HTTP faz a cada request. Sem este evento,
+    // revogar `SOLICITACOES` (ou o `doctor_profile`) de um colaborador
+    // deixaria uma janela de até 10 min em que o WhatsApp ainda opera com a
+    // permissão antiga. Emitido só quando o que afeta a permissão efetiva
+    // (`data.permissions` ou `data.isDoctor`) de fato mudou.
+    if (data.permissions !== undefined || data.isDoctor !== undefined) {
+      this.emitAccessChanged(collaboratorId, collaborator.phone);
+    }
+
+    const grantedPermissionsAfterUpdate =
+      data.permissions !== undefined
+        ? data.permissions
+        : (collaborator.permissions ?? []);
+
+    return {
+      ...updated,
+      // Efetiva — para exibir. Ver `findCollaboratorById` para o motivo de
+      // nunca usar este campo para semear um formulário de edição.
+      permissions: resolveEffectivePermissions({
+        role: collaborator.role,
+        permissions: grantedPermissionsAfterUpdate,
+        isDoctor: isDoctorAfterUpdate,
+      }),
+      // Crua — para editar (o que a tela deve guardar como novo baseline).
+      grantedPermissions: grantedPermissionsAfterUpdate,
+    };
   }
 
   async deleteCollaborator(collaboratorId: string, adminId: string) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem remover colaboradores');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — ver mesmo comentário em `updateCollaborator`.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
+
+    // Telefone ORIGINAL, capturado antes da sentinela sobrescrever a coluna
+    // — é essa a chave que `MessageProcessorService.userCache` usa. Emitir a
+    // invalidação com o telefone já trocado (`DEL...`) limparia uma entrada
+    // de cache que nunca existiu e deixaria a antiga intacta.
+    const originalPhone = collaborator.phone;
 
     // Anonimiza dados pessoais antes do soft-delete (LGPD — princípio de minimização).
     // email: libera a constraint unique para permitir re-cadastro com mesmo endereço.
@@ -767,6 +1015,16 @@ export class UsersService {
       phone: `DEL${collaboratorId.slice(0, 12)}`,
     });
     await this.userRepository.delete(collaboratorId);
+
+    // A troca de telefone acima já impede um NOVO lookup por telefone de
+    // encontrar este usuário — mas não apaga a entrada já cacheada em
+    // `MessageProcessorService.userCache` (até 10 min) nem o
+    // `accessibleDoctorIds` cacheado por userId (até 5 min) em
+    // `AiOrchestratorService`. Sem isto, um colaborador excluído continuaria
+    // operando pelo WhatsApp com a identidade e permissões antigas — inclusive
+    // mutando SC — pela duração desses caches.
+    this.emitAccessChanged(collaboratorId, originalPhone);
+
     return { message: 'Colaborador desativado com sucesso' };
   }
 
@@ -774,20 +1032,27 @@ export class UsersService {
     collaboratorIds: string[],
     adminId: string,
   ): Promise<{ deleted: number }> {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem remover colaboradores');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const uniqueIds = [...new Set(collaboratorIds)];
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — do contrário colaboradores criados por outra pessoa dentro da
+    // mesma conta (o dono, ou outro admin delegado) ficariam invisíveis a
+    // este filtro e o bulk delete falharia com "não encontrados" para eles.
     const collaborators = await this.userRepository.getRepository().find({
       where: {
         id: In(uniqueIds),
-        adminId,
+        ownerId: admin.ownerId,
         role: UserRole.COLLABORATOR,
       },
       select: {
         id: true,
         email: true,
+        ownerId: true,
+        // Telefone ORIGINAL — precisa ser capturado antes da sentinela
+        // sobrescrever a coluna, senão a invalidação de cache (ver loop
+        // abaixo) usaria o telefone errado e não limparia nada.
+        phone: true,
       },
     });
 
@@ -795,6 +1060,15 @@ export class UsersService {
       throw new NotFoundException(
         'Um ou mais colaboradores não foram encontrados.',
       );
+    }
+
+    // O alvo é cada item da lista, não a lista — o dono da conta jamais pode
+    // ser incluído em um bulk delete de colaboradores.
+    for (const collaborator of collaborators) {
+      this.assertAlvoNaoEhDono({
+        id: collaborator.id,
+        ownerId: collaborator.ownerId,
+      });
     }
 
     for (const collaborator of collaborators) {
@@ -806,6 +1080,13 @@ export class UsersService {
 
     await this.userRepository.getRepository().softDelete(uniqueIds);
 
+    // Mesmo raciocínio de `deleteCollaborator`: sem isto, cada colaborador
+    // excluído em lote continuaria com identidade/permissões cacheadas no
+    // assistente do WhatsApp por até 10 min.
+    for (const collaborator of collaborators) {
+      this.emitAccessChanged(collaborator.id, collaborator.phone);
+    }
+
     return { deleted: uniqueIds.length };
   }
 
@@ -815,10 +1096,7 @@ export class UsersService {
    * Lista médicos da conta (users com doctorProfile na mesma conta)
    */
   async findDoctors(userId: string) {
-    const admin = await this.userRepository.findOne({ id: userId });
-    if (!admin) throw new NotFoundException('Usuário não encontrado');
-    if (admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem listar médicos');
+    const admin = await this.assertPodeGerirEquipe(userId);
 
     const doctors = await this.userRepository.findDoctorsByOwnerId(
       admin.ownerId,
@@ -838,19 +1116,21 @@ export class UsersService {
   }
 
   async toggleCollaboratorStatus(collaboratorId: string, adminId: string) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException(
-        'Apenas admins podem alterar status de colaboradores',
-      );
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — ver mesmo comentário em `updateCollaborator`.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
     const newStatus =
       collaborator.status === UserStatus.ACTIVE
@@ -858,6 +1138,15 @@ export class UsersService {
         : UserStatus.ACTIVE;
 
     await this.userRepository.update(collaboratorId, { status: newStatus });
+
+    // Invalida os caches do assistente do WhatsApp assim que o status muda
+    // (em qualquer direção). `MessageProcessorService.runPreflight` agora
+    // espelha a `JwtStrategy` do caminho web e recusa `status !== ACTIVE` —
+    // e nunca cacheia usuário não-ACTIVE — então a invalidação aqui garante
+    // que a próxima mensagem já vê o banco atualizado em vez de servir do
+    // cache por até 10 min.
+    this.emitAccessChanged(collaboratorId, collaborator.phone);
+
     return { status: newStatus };
   }
 
@@ -866,20 +1155,29 @@ export class UsersService {
     newPassword: string,
     adminId: string,
   ) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException('Apenas admins podem redefinir senhas');
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    if (collaborator.adminId !== adminId)
+    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
+    // criou) — ver mesmo comentário em `updateCollaborator`.
+    if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
 
-    const hashed = await bcrypt.hash(newPassword, 10);
+    const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(collaboratorId, { password: hashed });
+
+    // Mesma logica de `AuthService.changePassword`: redefinir a senha por
+    // admin tambem precisa encerrar as sessoes existentes do colaborador.
+    await this.refreshTokenStore.revokeAllForUser(collaborator.id);
+
     return { message: 'Senha redefinida com sucesso' };
   }
 
@@ -889,10 +1187,7 @@ export class UsersService {
    * anteriores. Disponível apenas para colaboradores com status PENDING.
    */
   async resendCollaboratorInvite(collaboratorId: string, adminId: string) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Apenas admins podem reenviar convites');
-    }
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOne({
       id: collaboratorId,
@@ -903,6 +1198,10 @@ export class UsersService {
     if (collaborator.ownerId !== admin.ownerId) {
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     }
+    this.assertAlvoNaoEhDono({
+      id: collaborator.id,
+      ownerId: collaborator.ownerId,
+    });
     if (collaborator.status !== UserStatus.PENDING) {
       throw new BadRequestException(
         'Este usuário já ativou a conta. Reenvio de convite só está disponível para convites pendentes.',
@@ -953,11 +1252,7 @@ export class UsersService {
    * Detalhes de um colaborador (dados + doctorProfile + user_doctor_access)
    */
   async findCollaboratorById(collaboratorId: string, adminId: string) {
-    const admin = await this.userRepository.findOne({ id: adminId });
-    if (!admin || admin.role !== UserRole.ADMIN)
-      throw new ForbiddenException(
-        'Apenas admins podem ver detalhes de colaboradores',
-      );
+    const admin = await this.assertPodeGerirEquipe(adminId);
 
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
@@ -971,12 +1266,43 @@ export class UsersService {
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    const { password, ...userWithoutPassword } = collaborator;
+    // Remove senha e campo interno (isPlatformAdmin) do retorno. `permissions`
+    // crua é retirada do spread e devolvida à parte como `grantedPermissions`
+    // (ver abaixo) — só esta rota pode expor a coluna crua, porque é a única
+    // gated por `ADMINISTRACAO` que a tela de edição de colaborador consome.
+    const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
+      collaborator;
+
+    const [avatarUrl, signatureUrl] = await Promise.all([
+      this.resolveStorageUrl(userWithoutPassword.avatarUrl),
+      this.resolveStorageUrl(collaborator.doctorProfile?.signatureUrl),
+    ]);
 
     return {
       ...userWithoutPassword,
+      avatarUrl,
+      doctorProfile: userWithoutPassword.doctorProfile
+        ? { ...userWithoutPassword.doctorProfile, signatureUrl }
+        : userWithoutPassword.doctorProfile,
       isDoctor: !!collaborator.doctorProfile,
       doctorAccesses: accesses,
+      // A permissão EFETIVA (com o bônus de médico já somado) — para EXIBIR
+      // o que o colaborador pode fazer hoje. Nunca usar este campo para
+      // semear um formulário de edição: ele reintroduziria no PATCH, como
+      // concessão gravada, o que só valia por causa de `doctor_profile`
+      // (bug I2 do PLANO-PERMISSOES-COLABORADORES — desmarcar "é médico"
+      // meses depois não voltava a tirar Agenda/Atendimento/Solicitações,
+      // porque a tela nunca soube que elas não tinham sido concedidas de
+      // fato).
+      permissions: resolveEffectivePermissions({
+        role: collaborator.role,
+        permissions,
+        isDoctor: !!collaborator.doctorProfile,
+      }),
+      // A coluna CRUA (o que foi de fato concedido) — para EDITAR. É este
+      // campo que a tela de colaborador deve semear no formulário e
+      // devolver no PATCH, nunca `permissions`.
+      grantedPermissions: permissions ?? [],
     };
   }
 
@@ -1016,7 +1342,7 @@ export class UsersService {
     targetUserId: string,
     requestingUserId: string,
   ) {
-    const requesting = await this.userRepository.findOne({
+    const requesting = await this.userRepository.findOneWithProfile({
       id: requestingUserId,
     });
     if (!requesting) throw new NotFoundException('Usuário não encontrado');
@@ -1025,10 +1351,20 @@ export class UsersService {
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
     const isSelf = requestingUserId === targetUserId;
+    // Rota já é gateada por ADMINISTRACAO no controller (RequirePermission);
+    // aqui restringimos ao mesmo tenant. Pertencimento é `ownerId`, nunca
+    // `adminId` (só quem criou) — checar por `target.adminId ===
+    // requestingUserId` é o mesmo bug do C3: barra o admin delegado no
+    // cabeçalho de qualquer médico que não tenha criado (a maioria) e barra
+    // o dono no cabeçalho de médico criado pelo delegado.
+    const permissoesRequesting = resolveEffectivePermissions({
+      role: requesting.role,
+      permissions: requesting.permissions,
+      isDoctor: !!requesting.doctorProfile,
+    });
     const isAccountAdmin =
-      requesting.role === UserRole.ADMIN &&
-      target.ownerId === requesting.ownerId &&
-      (target.adminId === requestingUserId || isSelf);
+      permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
+      target.ownerId === requesting.ownerId;
 
     if (!isSelf && !isAccountAdmin) {
       throw new ForbiddenException(

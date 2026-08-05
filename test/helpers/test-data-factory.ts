@@ -31,7 +31,12 @@ export class TestDataFactory {
       name: faker.person.fullName(),
       email: faker.internet.email().toLowerCase(),
       phone: this.generatePhone(),
-      role: faker.helpers.arrayElement([UserRole.admin, UserRole.collaborator]),
+      // NUNCA sortear o role aqui: `CreateUserDto` aceita só `collaborator`
+      // (`@IsIn`), de propósito — `POST /users` é liberado por
+      // Permission.ADMINISTRACAO, que o admin delegado também tem, e aceitar
+      // `admin` deixaria ele cunhar um segundo dono da conta. Sorteando entre
+      // os dois, este payload derrubava o teste com 400 em ~metade das rodadas.
+      role: UserRole.collaborator,
     };
   }
 

@@ -9,8 +9,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Roles } from 'src/shared/decorators/roles.decorator';
-import { UserRole } from 'src/database/entities/user.entity';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -43,7 +43,7 @@ export class SuppliersController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar fornecedor' })
   create(
     @Body() data: CreateSupplierDto,
@@ -53,6 +53,7 @@ export class SuppliersController {
   }
 
   @Patch(':id')
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar fornecedor' })
   update(
     @Param('id') id: string,
@@ -63,14 +64,14 @@ export class SuppliersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir fornecedor (soft delete)' })
   delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.suppliersService.delete(id, user.userId);
   }
 
   @Post('bulk-delete')
-  @Roles(UserRole.ADMIN)
+  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Excluir fornecedores em lote (soft delete)' })
   bulkDelete(
     @Body() data: BulkDeleteSuppliersDto,

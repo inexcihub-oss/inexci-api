@@ -12,6 +12,7 @@ import {
   Index,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
+import { Permission } from 'src/shared/permissions';
 import { DoctorProfile } from './doctor-profile.entity';
 import { UserDoctorAccess } from './user-doctor-access.entity';
 import { RecoveryCode } from './recovery-code.entity';
@@ -120,6 +121,7 @@ export class User {
   @Column({ name: 'email_verified_at', type: 'timestamp', nullable: true })
   emailVerifiedAt: Date | null;
 
+  @Exclude()
   @Column({
     name: 'email_verification_token',
     type: 'varchar',
@@ -128,6 +130,7 @@ export class User {
   })
   emailVerificationToken: string | null;
 
+  @Exclude()
   @Column({
     name: 'email_verification_expires_at',
     type: 'timestamp',
@@ -153,6 +156,20 @@ export class User {
    */
   @Column({ name: 'is_platform_admin', type: 'boolean', default: false })
   isPlatformAdmin: boolean;
+
+  /**
+   * Áreas concedidas a este usuário. **Não** é a permissão efetiva: o dono da
+   * conta recebe tudo e o médico recebe Atendimento e Solicitações por cima
+   * deste array. Use `resolveEffectivePermissions` — nunca leia esta coluna
+   * direto para decidir acesso.
+   */
+  @Column({
+    name: 'permissions',
+    type: 'text',
+    array: true,
+    default: () => "'{}'",
+  })
+  permissions: Permission[];
 
   // ============ CONSENTIMENTOS LGPD ============
   // Aceitação simples: timestamp do aceite ou NULL se ainda não aceitou.

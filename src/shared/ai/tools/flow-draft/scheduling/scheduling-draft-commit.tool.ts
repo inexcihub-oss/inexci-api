@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { FlowDraftDeps } from '../_types';
@@ -8,6 +9,7 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const { draftService, workflowService, activityRepo } = deps;
   return {
     name: 'scheduling_draft_commit',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

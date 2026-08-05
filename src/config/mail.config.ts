@@ -36,6 +36,7 @@ export type MailTemplateName =
   | 'stale-reminder'
   | 'stale-critical'
   | 'action-admin-alert'
+  | 'appointment-reminder'
   | 'welcome-patient'
   | 'welcome-doctor'
   | 'invite-collaborator'
@@ -57,6 +58,7 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'stale-reminder',
   'stale-critical',
   'action-admin-alert',
+  'appointment-reminder',
   'welcome-patient',
   'welcome-doctor',
   'invite-collaborator',

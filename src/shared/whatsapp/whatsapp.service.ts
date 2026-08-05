@@ -113,4 +113,30 @@ export class WhatsappService {
       '1': userName,
     });
   }
+
+  /**
+   * Lembrete proativo de consulta agendada. Só envia se o template
+   * `APPOINTMENT_REMINDER` já estiver aprovado na Meta/Twilio (contentSid não
+   * vazio); caso contrário, apenas registra e ignora — o lembrete por e-mail
+   * cobre o canal enquanto o template não é aprovado.
+   */
+  async sendAppointmentReminder(
+    to: string,
+    patientName: string,
+    when: string,
+    doctorName: string,
+  ): Promise<void> {
+    const contentSid = WHATSAPP_TEMPLATES.APPOINTMENT_REMINDER;
+    if (!contentSid) {
+      this.logger.warn(
+        'Template APPOINTMENT_REMINDER não configurado — lembrete WhatsApp ignorado (usando e-mail).',
+      );
+      return;
+    }
+    return this.sendTemplate(to, contentSid, {
+      '1': patientName,
+      '2': when,
+      '3': doctorName,
+    });
+  }
 }

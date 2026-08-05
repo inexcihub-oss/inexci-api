@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
 import { UserRole } from '../../database/entities/user.entity';
+import { Permission } from '../permissions';
 
 describe('AccessControlService', () => {
   let service: AccessControlService;
@@ -359,6 +361,81 @@ describe('AccessControlService', () => {
 
       await expect(service.getAccountId('missing-id')).rejects.toThrow(
         'Usuário missing-id não encontrado',
+      );
+    });
+  });
+
+  // ─── assertIsDoctor ───
+
+  describe('assertIsDoctor', () => {
+    it('libera quem tem doctorProfile', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'doctor-id',
+        role: UserRole.COLLABORATOR,
+        doctorProfile: { id: 'profile-1' },
+      } as any);
+
+      await expect(
+        service.assertIsDoctor('doctor-id'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('bloqueia colaborador sem doctorProfile', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'assistant-id',
+        role: UserRole.COLLABORATOR,
+        doctorProfile: null,
+      } as any);
+
+      await expect(service.assertIsDoctor('assistant-id')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    // Admin não é médico: quem administra a clínica sem doctorProfile também
+    // não assina prontuário.
+    it('bloqueia admin sem doctorProfile', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'admin-id',
+        role: UserRole.ADMIN,
+        doctorProfile: null,
+      } as any);
+
+      await expect(service.assertIsDoctor('admin-id')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('bloqueia usuário inexistente', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue(null);
+
+      await expect(service.assertIsDoctor('ghost')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
+  // ─── getEffectivePermissions ───
+
+  describe('getEffectivePermissions', () => {
+    it('deriva a permissão efetiva do usuário', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [Permission.AGENDA],
+        doctorProfile: null,
+      });
+
+      await expect(service.getEffectivePermissions('u-1')).resolves.toEqual([
+        Permission.AGENDA,
+      ]);
+    });
+
+    it('devolve lista vazia para usuário inexistente', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue(null);
+
+      await expect(service.getEffectivePermissions('sumiu')).resolves.toEqual(
+        [],
       );
     });
   });

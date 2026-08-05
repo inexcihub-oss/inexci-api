@@ -229,9 +229,82 @@ export interface SurgeryRequestLaudoPdfData {
   customHeader?: CustomHeaderData | null;
 }
 
-const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com', 'amazonaws.com'];
+/** Item prescrito na receita. */
+export interface PrescriptionItem {
+  name: string;
+  quantity?: string;
+  instructions?: string;
+}
 
-function isAllowedHost(url: string): boolean {
+/** Exame pedido no encaminhamento. */
+export interface ExamReferralItem {
+  name: string;
+  tussCode?: string;
+  observation?: string;
+}
+
+/** Campos de identificação do paciente comuns aos documentos do atendimento. */
+export interface ClinicalDocumentPatientFields {
+  patientName?: string;
+  patientBirthDate?: string;
+  patientRg?: string;
+  patientCpf?: string;
+  patientPhone?: string;
+  patientAddress?: string;
+  patientHealthPlan?: string;
+  patientHealthPlanNumber?: string;
+}
+
+/** Bloco do médico responsável, idêntico nos três documentos. */
+export interface ClinicalDocumentDoctorFields {
+  doctorName: string;
+  /** Já formatado (ex.: `CRM 12345/RJ`). */
+  doctorCrm?: string;
+  doctorSpecialty?: string;
+  doctorSignatureUrl?: string;
+  customHeader?: CustomHeaderData | null;
+}
+
+export interface PrescriptionPdfData
+  extends ClinicalDocumentPatientFields, ClinicalDocumentDoctorFields {
+  today: string;
+  items: PrescriptionItem[];
+  notes?: string;
+}
+
+export interface MedicalCertificatePdfData
+  extends ClinicalDocumentPatientFields, ClinicalDocumentDoctorFields {
+  today: string;
+  /** Texto já pluralizado do afastamento (ex.: `3 dias`). */
+  restDaysLabel?: string;
+  startDate?: string;
+  /** Só é impresso quando o paciente autoriza expor o diagnóstico. */
+  cid?: { code: string; description?: string } | null;
+  observations?: string;
+}
+
+export interface ExamReferralPdfData
+  extends ClinicalDocumentPatientFields, ClinicalDocumentDoctorFields {
+  today: string;
+  exams: ExamReferralItem[];
+  clinicalIndication?: string;
+  cidCodes?: Array<{ code: string; description?: string }>;
+}
+
+/** Margens dos documentos do atendimento (mesmo padrão do laudo). */
+const CLINICAL_DOCUMENT_PDF_OPTIONS = {
+  format: 'A4' as const,
+  margin: { top: '14mm', right: '14mm', bottom: '16mm', left: '14mm' },
+};
+
+/**
+ * Hosts de onde o renderizador pode buscar recursos (assinatura, logo).
+ * Restrito ao R2: `*.amazonaws.com` aceitava API Gateway e Lambda Function
+ * URLs, que qualquer pessoa cria e usa para redirecionar a rede interna.
+ */
+const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com'];
+
+export function isAllowedHost(url: string): boolean {
   try {
     const { hostname, protocol } = new URL(url);
     if (protocol !== 'https:') return false;
@@ -247,12 +320,94 @@ function isAllowedHost(url: string): boolean {
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
+  /** Partials são lidos do disco uma vez por processo. */
+  private partialsRegistered = false;
+
   constructor(private readonly configService: ConfigService) {
     // Helper para checar se um valor foi definido (inclusive 0)
     Handlebars.registerHelper(
       'isDefined',
       (value: any) => value !== undefined && value !== null,
     );
+    // Numeração de listas nos documentos do atendimento (`@index` é 0-based).
+    Handlebars.registerHelper(
+      'sum',
+      (a: number, b: number) => Number(a) + Number(b),
+    );
+  }
+
+  /**
+   * Gera o PDF do receituário emitido no atendimento.
+   */
+  async generatePrescriptionPdf(data: PrescriptionPdfData): Promise<Buffer> {
+    const html = await this.renderClinicalDocument('prescription', data);
+    return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
+  }
+
+  /**
+   * Gera o PDF do atestado médico emitido no atendimento.
+   */
+  async generateMedicalCertificatePdf(
+    data: MedicalCertificatePdfData,
+  ): Promise<Buffer> {
+    const html = await this.renderClinicalDocument('medical-certificate', data);
+    return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
+  }
+
+  /**
+   * Gera o PDF de solicitação/encaminhamento de exames.
+   */
+  async generateExamReferralPdf(data: ExamReferralPdfData): Promise<Buffer> {
+    const html = await this.renderClinicalDocument('exam-referral', data);
+    return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
+  }
+
+  /**
+   * HTML do documento do atendimento para exibir na tela (pré-visualização).
+   *
+   * Ao contrário da geração de PDF, as imagens ficam como URL assinada em vez
+   * de data URI: quem renderiza é o navegador, que busca a imagem sozinho —
+   * baixar e embutir aqui só somaria espera antes de a prévia aparecer.
+   */
+  renderClinicalDocumentHtml(
+    templateName: string,
+    data: ClinicalDocumentDoctorFields & Record<string, any>,
+  ): Promise<string> {
+    return this.renderTemplate(templateName, {
+      ...data,
+      customHeader: data.customHeader || undefined,
+    });
+  }
+
+  /**
+   * Renderiza um documento do atendimento resolvendo antes os ativos remotos
+   * (assinatura e logo do cabeçalho) como data URIs — o Puppeteer roda com CSP
+   * restrita e não busca imagens por URL.
+   */
+  private async renderClinicalDocument(
+    templateName: string,
+    data: ClinicalDocumentDoctorFields & Record<string, any>,
+  ): Promise<string> {
+    let doctorSignatureUrl: string | undefined;
+    if (data.doctorSignatureUrl) {
+      const dataUri = await this.fetchAsDataUri(data.doctorSignatureUrl);
+      doctorSignatureUrl = dataUri ?? data.doctorSignatureUrl;
+    }
+
+    let customHeader = data.customHeader ?? null;
+    if (customHeader?.logoUrl) {
+      const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
+      customHeader = {
+        ...customHeader,
+        logoUrl: dataUri ?? customHeader.logoUrl,
+      };
+    }
+
+    return this.renderTemplate(templateName, {
+      ...data,
+      doctorSignatureUrl,
+      customHeader: customHeader || undefined,
+    });
   }
 
   /**
@@ -338,6 +493,13 @@ export class PdfService {
             const nextUrl = location.startsWith('http')
               ? location
               : new URL(location, url).href;
+            if (!isAllowedHost(nextUrl)) {
+              this.logger.warn(
+                `fetchAsDataUri: redirect para host não permitido bloqueado — ${nextUrl}`,
+              );
+              resolve(null);
+              return;
+            }
             void this.fetchAsDataUri(nextUrl, depth + 1).then(resolve);
             return;
           }
@@ -651,10 +813,40 @@ export class PdfService {
     return null;
   }
 
+  /**
+   * Registra os partials de `templates/partials/` (CSS, cabeçalho, bloco do
+   * paciente e assinatura compartilhados pelos documentos do atendimento).
+   */
+  private async registerPartials(): Promise<void> {
+    if (this.partialsRegistered) return;
+
+    for (const dir of this.resolveTemplatesDir()) {
+      const partialsDir = path.join(dir, 'partials');
+      let files: string[];
+      try {
+        files = await fs.promises.readdir(partialsDir);
+      } catch {
+        continue; // diretório não existe neste layout, tenta o próximo
+      }
+
+      for (const file of files.filter((f) => f.endsWith('.hbs'))) {
+        const source = await fs.promises.readFile(
+          path.join(partialsDir, file),
+          'utf-8',
+        );
+        Handlebars.registerPartial(path.basename(file, '.hbs'), source);
+      }
+      this.partialsRegistered = true;
+      return;
+    }
+  }
+
   private async renderTemplate(
     templateName: string,
     context: Record<string, any>,
   ): Promise<string> {
+    await this.registerPartials();
+
     const templatePath = await this.findTemplatePath(`${templateName}.hbs`);
 
     if (!templatePath) {
@@ -685,11 +877,19 @@ export class PdfService {
         ],
       });
       const page = await browser.newPage();
-      await page.setExtraHTTPHeaders({
-        'Content-Security-Policy':
-          "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:;",
+      // A CSP anterior ia em setExtraHTTPHeaders, que define headers de
+      // REQUISICAO — CSP e header de resposta, e setContent nem gera resposta
+      // HTTP, entao a politica nunca era aplicada. O PDF nao precisa de JS:
+      // desligar o motor e a defesa que realmente vale.
+      await page.setJavaScriptEnabled(false);
+      // Bloqueia qualquer busca de rede que nao seja data: — impede que HTML
+      // injetado alcance a rede interna a partir do renderizador.
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        if (req.url().startsWith('data:')) return void req.continue();
+        return void req.abort();
       });
-      await page.setContent(html, { waitUntil: 'networkidle2' });
+      await page.setContent(html, { waitUntil: 'domcontentloaded' });
       const pdf = await page.pdf({
         format: 'A4',
         margin: { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' },

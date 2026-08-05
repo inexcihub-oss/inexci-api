@@ -105,3 +105,13 @@ export const STORAGE_FOLDER_SIZE_LIMITS: Record<string, number> = {
   [STORAGE_FOLDERS.PDFS]: 10 * 1024 * 1024,
   [STORAGE_FOLDERS.WHATSAPP_DOWNLOADS]: 10 * 1024 * 1024,
 };
+
+/**
+ * Maior limite configurado. Serve de corte grosso para os `FileInterceptor`
+ * (que não conhecem a pasta escolhida, porque rodam antes do corpo ser lido):
+ * acima disso nenhum upload é válido para pasta nenhuma. O limite fino, por
+ * pasta, é aplicado no service com `STORAGE_FOLDER_SIZE_LIMITS`.
+ */
+export const MAX_STORAGE_FILE_SIZE = Math.max(
+  ...Object.values(STORAGE_FOLDER_SIZE_LIMITS),
+);

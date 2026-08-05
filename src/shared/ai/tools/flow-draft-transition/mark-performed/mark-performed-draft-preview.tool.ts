@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
+import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftTransitionDeps } from '../_types';
 import { checkPostSurgeryDocuments } from '../_helpers';
@@ -10,6 +11,7 @@ export function buildMarkPerformedDraftPreviewTool(
   const { draftService, documentRepo } = deps;
   return {
     name: 'mark_performed_draft_preview',
+    requiredPermission: Permission.SOLICITACOES,
     definition: {
       type: 'function',
       function: {

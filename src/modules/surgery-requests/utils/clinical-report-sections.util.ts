@@ -1,5 +1,6 @@
 import type { DataSource } from 'typeorm';
 import type { Repository } from 'typeorm';
+import * as sanitizeHtml from 'sanitize-html';
 import { ReportSection } from 'src/database/entities/report-section.entity';
 
 export interface ClinicalSeedContent {
@@ -7,6 +8,47 @@ export interface ClinicalSeedContent {
   medicalReport?: string | null;
   patientHistory?: string | null;
   surgeryDescription?: string | null;
+}
+
+/**
+ * Sanitizacao do conteudo de secao de laudo. Este util e o caminho usado pelo
+ * commit de draft da IA/WhatsApp, cujo conteudo vem de mensagens e de OCR de
+ * documentos enviados por terceiros — antes gravava HTML cru, que os templates
+ * renderizam com triple-stash dentro do Chromium.
+ */
+const OPCOES_SANITIZACAO: sanitizeHtml.IOptions = {
+  allowedTags: [
+    'p',
+    'br',
+    'strong',
+    'b',
+    'em',
+    'i',
+    'u',
+    's',
+    'ul',
+    'ol',
+    'li',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'blockquote',
+    'span',
+  ],
+  allowedAttributes: { span: ['style'], p: ['style'] },
+  allowedStyles: {
+    '*': {
+      'text-align': [/^left$|^right$|^center$|^justify$/],
+      'font-weight': [/^bold$|^normal$|^\d{3}$/],
+      'text-decoration': [/^underline$|^line-through$|^none$/],
+    },
+  },
+  disallowedTagsMode: 'discard',
+};
+
+export function sanitizarConteudoDeSecao(html: string): string {
+  return sanitizeHtml(html ?? '', OPCOES_SANITIZACAO);
 }
 
 function buildParagraph(text: string): string {
@@ -88,7 +130,7 @@ export async function upsertClinicalReportSection(
   );
 
   if (existing) {
-    existing.description = buildParagraph(trimmed);
+    existing.description = buildParagraph(sanitizarConteudoDeSecao(trimmed));
     await repo.save(existing);
     return;
   }
@@ -96,8 +138,8 @@ export async function upsertClinicalReportSection(
   await repo.save(
     repo.create({
       surgeryRequestId,
-      title,
-      description: buildParagraph(trimmed),
+      title: sanitizarConteudoDeSecao(title),
+      description: buildParagraph(sanitizarConteudoDeSecao(trimmed)),
       order: sections.length,
     }),
   );

@@ -22,6 +22,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Erro interno do servidor';
     let details: any = undefined;
+    let extra: Record<string, unknown> = {};
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -32,6 +33,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const res = exResponse as Record<string, unknown>;
         message = (res.message as string | string[]) || message;
         details = res.details;
+        extra = pickExtraFields(res);
       }
     } else if (exception instanceof QueryFailedError) {
       status = HttpStatus.BAD_REQUEST;
@@ -50,6 +52,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const requestId = getRequestContext()?.requestId ?? null;
 
     response.status(status).json({
+      ...extra,
       statusCode: status,
       message,
       ...(details && { details }),
@@ -58,4 +61,39 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
     });
   }
+}
+
+/**
+ * Campos que o filtro reconstrói por conta própria — replicá-los a partir do
+ * corpo da exceção só criaria divergência.
+ */
+const CAMPOS_RESERVADOS = new Set([
+  'statusCode',
+  'message',
+  'details',
+  'requestId',
+  'timestamp',
+  'path',
+  'error',
+]);
+
+/**
+ * Preserva as chaves extras que a exceção declarou (`reason` do
+ * `BillingRequiredException`, `pendencies[]` dos bloqueios de transição).
+ *
+ * Antes o filtro montava a resposta do zero e só repassava `message`/`details`,
+ * o que apagava esses campos no caminho: o frontend recebia um 402/400 sem o
+ * motivo e só conseguia exibir um erro genérico. A propagação é aditiva — os
+ * campos reservados acima continuam vindo do próprio filtro.
+ */
+function pickExtraFields(
+  res: Record<string, unknown>,
+): Record<string, unknown> {
+  const extra: Record<string, unknown> = {};
+  for (const [chave, valor] of Object.entries(res)) {
+    if (CAMPOS_RESERVADOS.has(chave)) continue;
+    if (valor === undefined) continue;
+    extra[chave] = valor;
+  }
+  return extra;
 }

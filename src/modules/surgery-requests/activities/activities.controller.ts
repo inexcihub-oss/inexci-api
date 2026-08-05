@@ -7,11 +7,14 @@ import {
   AuthenticatedUser,
 } from 'src/shared/decorators/current-user.decorator';
 import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 
 @ApiTags('Atividades da Solicitação')
 @ApiBearerAuth()
 @UseGuards(SurgeryRequestOwnerGuard)
 @Controller('surgery-requests/:id/activities')
+@RequirePermission(Permission.SOLICITACOES)
 export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
