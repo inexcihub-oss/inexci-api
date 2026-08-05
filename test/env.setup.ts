@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { comBancoDeTeste } from '../src/shared/testing/e2e-database-guard';
 
 // Carrega as variáveis de ambiente ANTES de qualquer módulo ser avaliado
 config({ path: resolve(__dirname, '../.env') });
@@ -25,10 +26,14 @@ process.on('unhandledRejection', (reason) => {
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret-key-for-e2e-tests-123456789';
 }
-if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL =
-    'postgresql://inexci:inexci123@localhost:5432/inexci';
-}
+// O banco é sempre o de teste, nunca o do `.env`: `cleanDatabase` trunca todas
+// as tabelas a cada teste. Este arquivo é `setupFiles` do Jest — roda antes de
+// qualquer módulo da aplicação ser avaliado, que é o único momento em que dá
+// para trocar a connection string com segurança.
+process.env.DATABASE_URL = comBancoDeTeste(
+  process.env.DATABASE_URL ??
+    'postgresql://inexci:inexci123@localhost:5432/inexci',
+);
 if (!process.env.SUPABASE_URL) {
   process.env.SUPABASE_URL = 'https://placeholder.supabase.co';
 }

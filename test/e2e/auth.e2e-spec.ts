@@ -4,6 +4,7 @@ import {
   createTestApp,
   cleanDatabase,
   closeTestApp,
+  prepararUsuarioParaLogin,
 } from '../helpers/test-setup';
 import { TestDataFactory } from '../helpers/test-data-factory';
 
@@ -42,6 +43,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       expect(response.body).toHaveProperty('user');
       expect(response.body.user.email).toBe(userData.email);
       expect(response.body.user.name).toBe(userData.name);
@@ -55,6 +60,10 @@ describe('Auth (e2e)', () => {
         .post('/auth/register')
         .send(userData)
         .expect(201);
+
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
 
       // Second registration with same email
       await request(app.getHttpServer())
@@ -93,6 +102,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Login
       const response = await request(app.getHttpServer())
         .post('/auth/login')
@@ -115,6 +128,10 @@ describe('Auth (e2e)', () => {
         .post('/auth/register')
         .send(userData)
         .expect(201);
+
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
 
       // Try to login with wrong password
       await request(app.getHttpServer())
@@ -146,6 +163,10 @@ describe('Auth (e2e)', () => {
         .post('/auth/register')
         .send(userData)
         .expect(201);
+
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
 
       // Login
       const loginResponse = await request(app.getHttpServer())
@@ -181,6 +202,14 @@ describe('Auth (e2e)', () => {
   });
 
   describe('/auth/sendRecoveryPasswordEmail (POST)', () => {
+    /**
+     * Resposta genérica de `AuthService.sendRecoveryPasswordEmail`. É a MESMA
+     * para e-mail existente e inexistente — é justamente isso que impede a
+     * enumeração de contas, então o texto faz parte do contrato da rota.
+     */
+    const MENSAGEM_GENERICA =
+      'Se o e-mail existir, enviaremos um código de recuperação.';
+
     it('should send recovery email for existing user', async () => {
       const userData = TestDataFactory.generateRegisterData();
 
@@ -190,23 +219,30 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Request password recovery
       const response = await request(app.getHttpServer())
         .post('/auth/sendRecoveryPasswordEmail')
         .send({ email: userData.email })
         .expect(201);
 
-      expect(response.body).toHaveProperty('message');
+      expect(response.body.message).toBe(MENSAGEM_GENERICA);
     });
 
-    it('should handle non-existent email gracefully', async () => {
-      // Should not reveal if email exists or not for security
+    // O assert antigo aceitava 200, 201 OU 404 — ou seja, passava tanto com a
+    // proteção anti-enumeração quanto com o vazamento que ela existe para
+    // evitar (404 revela que o e-mail não está cadastrado). O serviço não
+    // lança para e-mail desconhecido: devolve a mesma mensagem, mesmo status.
+    it('não deve revelar se o e-mail existe', async () => {
       const response = await request(app.getHttpServer())
         .post('/auth/sendRecoveryPasswordEmail')
-        .send({ email: 'nonexistent@test.com' });
+        .send({ email: 'nonexistent@test.com' })
+        .expect(201);
 
-      // Accept both 201 (not revealing) or 404 (revealing) depending on implementation
-      expect([200, 201, 404]).toContain(response.status);
+      expect(response.body.message).toBe(MENSAGEM_GENERICA);
     });
   });
 
@@ -221,6 +257,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Request password recovery
       await request(app.getHttpServer())
         .post('/auth/sendRecoveryPasswordEmail')
@@ -231,11 +271,11 @@ describe('Auth (e2e)', () => {
       // For testing purposes, we need to retrieve it directly
       const dataSource = app.get(DataSource);
       const user = await dataSource.query(
-        'SELECT * FROM "user" WHERE email = $1',
+        'SELECT * FROM users WHERE email = $1',
         [userData.email],
       );
       const recoveryCode = await dataSource.query(
-        'SELECT * FROM recovery_code WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        'SELECT * FROM recovery_codes WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
         [user[0].id],
       );
 
@@ -261,6 +301,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Request password recovery
       await request(app.getHttpServer())
         .post('/auth/sendRecoveryPasswordEmail')
@@ -274,7 +318,9 @@ describe('Auth (e2e)', () => {
           email: userData.email,
           code: 'INVALID-CODE-123',
         })
-        .expect(404);
+        // 400, não 404: o fluxo de recuperação é anti-enumeração — a
+        // resposta não revela se o e-mail ou o código existem.
+        .expect(400);
     });
 
     it('should reject already used recovery code', async () => {
@@ -287,6 +333,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Request password recovery
       await request(app.getHttpServer())
         .post('/auth/sendRecoveryPasswordEmail')
@@ -296,11 +346,11 @@ describe('Auth (e2e)', () => {
       // Get the recovery code
       const dataSource = app.get(DataSource);
       const user = await dataSource.query(
-        'SELECT * FROM "user" WHERE email = $1',
+        'SELECT * FROM users WHERE email = $1',
         [userData.email],
       );
       const recoveryCode = await dataSource.query(
-        'SELECT * FROM recovery_code WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        'SELECT * FROM recovery_codes WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
         [user[0].id],
       );
 
@@ -320,7 +370,9 @@ describe('Auth (e2e)', () => {
           email: userData.email,
           code: recoveryCode[0].code,
         })
-        .expect(404);
+        // 400, não 404: código já consumido responde igual a código
+        // inexistente, para não vazar o estado do fluxo.
+        .expect(400);
     });
 
     it('should fail without required fields', async () => {
@@ -343,6 +395,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Step 1: Request password recovery (sends code)
       await request(app.getHttpServer())
         .post('/auth/sendRecoveryPasswordEmail')
@@ -352,27 +408,31 @@ describe('Auth (e2e)', () => {
       // Step 2: Validate the recovery code (marks it as used)
       const dataSource = app.get(DataSource);
       const user = await dataSource.query(
-        'SELECT * FROM "user" WHERE email = $1',
+        'SELECT * FROM users WHERE email = $1',
         [userData.email],
       );
       const recoveryCode = await dataSource.query(
-        'SELECT * FROM recovery_code WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        'SELECT * FROM recovery_codes WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
         [user[0].id],
       );
 
-      await request(app.getHttpServer())
+      const validateResponse = await request(app.getHttpServer())
         .post('/auth/validateRecoveryPasswordCode')
         .send({
           email: userData.email,
           code: recoveryCode[0].code,
         })
         .expect(201);
+      // O reset token de uso único amarra a troca de senha à validação
+      // prévia do código — passou a ser obrigatório no `changePasswordDto`.
+      const { resetToken } = validateResponse.body;
 
       // Step 3: Change password (requires validated recovery code)
       const response = await request(app.getHttpServer())
         .post('/auth/changePassword')
         .send({
           email: userData.email,
+          resetToken,
           password: newPassword,
         })
         .expect(201);
@@ -397,13 +457,23 @@ describe('Auth (e2e)', () => {
         .post('/auth/changePassword')
         .send({
           email: 'nonexistent@test.com',
+          resetToken: 'token-que-nao-existe',
           password: 'NewPassword123!',
         })
+        // Aqui o 404 é o comportamento real: diferente da validação do
+        // código (400, anti-enumeração), `changePassword` distingue e-mail
+        // inexistente. A falha original era só a ausência do `resetToken`.
         .expect(404);
     });
 
+    // O teste antigo omitia o `resetToken` e comemorava o 400 — que vinha do
+    // `@IsNotEmpty()` do token, não do `@IsStrongPassword()`. Ou seja: a regra
+    // de senha forte podia ser removida do DTO sem que este teste falhasse.
+    // Aqui o token é obtido de verdade, então o único motivo possível do 400 é
+    // a senha fraca. E a senha antiga tem que continuar valendo.
     it('should fail with weak password', async () => {
       const userData = TestDataFactory.generateRegisterData();
+      const DataSource = (await import('typeorm')).DataSource;
 
       // Register user
       await request(app.getHttpServer())
@@ -411,14 +481,52 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
+      await request(app.getHttpServer())
+        .post('/auth/sendRecoveryPasswordEmail')
+        .send({ email: userData.email })
+        .expect(201);
+
+      const dataSource = app.get(DataSource);
+      const user = await dataSource.query(
+        'SELECT * FROM users WHERE email = $1',
+        [userData.email],
+      );
+      const recoveryCode = await dataSource.query(
+        'SELECT * FROM recovery_codes WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        [user[0].id],
+      );
+
+      const validateResponse = await request(app.getHttpServer())
+        .post('/auth/validateRecoveryPasswordCode')
+        .send({
+          email: userData.email,
+          code: recoveryCode[0].code,
+        })
+        .expect(201);
+      const { resetToken } = validateResponse.body;
+
       // Try to change to weak password
       await request(app.getHttpServer())
         .post('/auth/changePassword')
         .send({
           email: userData.email,
+          resetToken,
           password: '123', // Too short
         })
         .expect(400);
+
+      // A senha antiga continua valendo: a troca foi recusada de fato.
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({
+          email: userData.email,
+          password: userData.password,
+        })
+        .expect(201);
     });
 
     it('should fail without required fields', async () => {
@@ -440,6 +548,10 @@ describe('Auth (e2e)', () => {
         .send(userData)
         .expect(201);
 
+      // Login exige e-mail confirmado e o `ConsentsGuard` exige
+      // Política e Termos aceitos — ambos feitos no onboarding real.
+      await prepararUsuarioParaLogin(app, userData.email);
+
       // Verify old password works
       await request(app.getHttpServer())
         .post('/auth/login')
@@ -458,27 +570,31 @@ describe('Auth (e2e)', () => {
       // Step 2: Validate the recovery code
       const dataSource = app.get(DataSource);
       const user = await dataSource.query(
-        'SELECT * FROM "user" WHERE email = $1',
+        'SELECT * FROM users WHERE email = $1',
         [userData.email],
       );
       const recoveryCode = await dataSource.query(
-        'SELECT * FROM recovery_code WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
+        'SELECT * FROM recovery_codes WHERE user_id = $1 AND used = false ORDER BY created_at DESC LIMIT 1',
         [user[0].id],
       );
 
-      await request(app.getHttpServer())
+      const validateResponse = await request(app.getHttpServer())
         .post('/auth/validateRecoveryPasswordCode')
         .send({
           email: userData.email,
           code: recoveryCode[0].code,
         })
         .expect(201);
+      // O reset token de uso único amarra a troca de senha à validação
+      // prévia do código — passou a ser obrigatório no `changePasswordDto`.
+      const { resetToken } = validateResponse.body;
 
       // Step 3: Change password
       await request(app.getHttpServer())
         .post('/auth/changePassword')
         .send({
           email: userData.email,
+          resetToken,
           password: newPassword,
         })
         .expect(201);

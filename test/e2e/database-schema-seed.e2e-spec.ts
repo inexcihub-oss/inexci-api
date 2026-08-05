@@ -2,6 +2,10 @@ import { DataSource } from 'typeorm';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
+import {
+  assertBancoDeTeste,
+  comBancoDeTeste,
+} from '../../src/shared/testing/e2e-database-guard';
 
 config({ path: resolve(__dirname, '../../.env') });
 
@@ -19,15 +23,20 @@ describe('Database — Schema & Seed', () => {
     // Conecta ao banco para limpar dados residuais de outros test suites
     dataSource = new DataSource({
       type: 'postgres',
-      url:
-        process.env.DATABASE_URL ||
-        'postgresql://inexci:inexci123@localhost:5432/inexci',
+      // Este spec abre a própria conexão e trunca por fora do
+      // `cleanDatabase` — sem passar pelo redirecionador, o fallback
+      // apontava para o banco de desenvolvimento.
+      url: comBancoDeTeste(
+        process.env.DATABASE_URL ??
+          'postgresql://inexci:inexci123@localhost:5432/inexci',
+      ),
       synchronize: false,
       logging: false,
     });
     await dataSource.initialize();
 
     // Limpa todas as tabelas antes de re-semear
+    await assertBancoDeTeste(dataSource);
     const tables = await dataSource.query(
       `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'migrations'`,
     );
@@ -51,9 +60,13 @@ describe('Database — Schema & Seed', () => {
     // Reconecta para os testes
     dataSource = new DataSource({
       type: 'postgres',
-      url:
-        process.env.DATABASE_URL ||
-        'postgresql://inexci:inexci123@localhost:5432/inexci',
+      // Este spec abre a própria conexão e trunca por fora do
+      // `cleanDatabase` — sem passar pelo redirecionador, o fallback
+      // apontava para o banco de desenvolvimento.
+      url: comBancoDeTeste(
+        process.env.DATABASE_URL ??
+          'postgresql://inexci:inexci123@localhost:5432/inexci',
+      ),
       synchronize: false,
       logging: false,
     });
@@ -69,35 +82,50 @@ describe('Database — Schema & Seed', () => {
   // ─── Schema Validation ─────────────────────────────────────────────
 
   describe('Schema — Tabelas existentes', () => {
+    /**
+     * Nomes reais das tabelas. A lista anterior estava toda no singular
+     * (`user`, `hospital`, `surgery_request`…) e ainda cobrava tabelas que
+     * não existem mais — `status_update`, `chat`, `chat_message`,
+     * `default_document_clinic` e `whatsapp_message_log`. Nenhuma asserção
+     * passava; o teste virou ruído em vez de rede de proteção.
+     */
     const expectedTables = [
-      'subscription_plan',
-      'user',
-      'doctor_profile',
-      'user_doctor_access',
-      'hospital',
-      'health_plan',
-      'supplier',
-      'procedure',
-      'patient',
-      'surgery_request',
-      'surgery_request_tuss_item',
-      'opme_item',
-      'surgery_request_quotation',
-      'contestation',
-      'document',
-      'status_update',
-      'surgery_request_analysis',
-      'surgery_request_billing',
-      'surgery_request_template',
-      'surgery_request_activity',
-      'chat',
-      'chat_message',
-      'notification',
+      'appointments',
+      'clinical_record_templates',
+      'clinical_records',
+      'contestations',
+      'doctor_headers',
+      'doctor_profiles',
+      'documents',
+      'health_plans',
+      'hospitals',
+      'manufacturers',
+      'notification_send_logs',
+      'notifications',
+      'opme_item_manufacturers',
+      'opme_item_suppliers',
+      'opme_items',
+      'patients',
+      'procedures',
+      'recovery_codes',
+      'report_sections',
+      'stale_notification_logs',
+      'subscription_plans',
+      'subscription_quota_periods',
+      'subscriptions',
+      'suppliers',
+      'surgery_request_activities',
+      'surgery_request_analyses',
+      'surgery_request_billings',
+      'surgery_request_quotations',
+      'surgery_request_templates',
+      'surgery_request_tuss_items',
+      'surgery_requests',
+      'user_doctor_accesses',
       'user_notification_settings',
-      'default_document_clinic',
-      'recovery_code',
-      'whatsapp_message_log',
-      'report_section',
+      'users',
+      'whatsapp_conversation_messages',
+      'whatsapp_conversations',
     ];
 
     it.each(expectedTables)('tabela "%s" deve existir', async (tableName) => {
@@ -142,20 +170,20 @@ describe('Database — Schema & Seed', () => {
     });
   });
 
-  describe('Schema — Tabela "user"', () => {
+  describe('Schema — Tabela "users"', () => {
     let columns: any[];
 
     beforeAll(async () => {
       columns = await dataSource.query(
         `SELECT column_name, data_type, udt_name, is_nullable
          FROM information_schema.columns
-         WHERE table_name = 'user' AND table_schema = 'public'
+         WHERE table_name = 'users' AND table_schema = 'public'
          ORDER BY ordinal_position`,
       );
     });
 
-    it('deve ter coluna "account_id" UUID NOT NULL', () => {
-      const col = columns.find((c) => c.column_name === 'account_id');
+    it('deve ter coluna "owner_id" UUID NOT NULL', () => {
+      const col = columns.find((c) => c.column_name === 'owner_id');
       expect(col).toBeDefined();
       expect(col.udt_name).toBe('uuid');
       expect(col.is_nullable).toBe('NO');
@@ -199,13 +227,13 @@ describe('Database — Schema & Seed', () => {
     });
   });
 
-  describe('Schema — Tabela "doctor_profile"', () => {
+  describe('Schema — Tabela "doctor_profiles"', () => {
     let columns: any[];
 
     beforeAll(async () => {
       columns = await dataSource.query(
         `SELECT column_name FROM information_schema.columns
-         WHERE table_name = 'doctor_profile' AND table_schema = 'public'`,
+         WHERE table_name = 'doctor_profiles' AND table_schema = 'public'`,
       );
     });
 
@@ -242,13 +270,13 @@ describe('Database — Schema & Seed', () => {
     });
   });
 
-  describe('Schema — Tabela "user_doctor_access"', () => {
+  describe('Schema — Tabela "user_doctor_accesses"', () => {
     let columns: any[];
 
     beforeAll(async () => {
       columns = await dataSource.query(
         `SELECT column_name, udt_name FROM information_schema.columns
-         WHERE table_name = 'user_doctor_access' AND table_schema = 'public'`,
+         WHERE table_name = 'user_doctor_accesses' AND table_schema = 'public'`,
       );
     });
 
@@ -272,22 +300,18 @@ describe('Database — Schema & Seed', () => {
     it('deve ter UNIQUE constraint em (user_id, doctor_user_id)', async () => {
       const result = await dataSource.query(
         `SELECT constraint_name FROM information_schema.table_constraints
-         WHERE table_name = 'user_doctor_access'
+         WHERE table_name = 'user_doctor_accesses'
          AND constraint_type = 'UNIQUE'`,
       );
       expect(result.length).toBeGreaterThanOrEqual(1);
     });
   });
 
-  describe('Schema — FKs de doctor_id apontam para user.id', () => {
-    const tablesWithDoctorFK = [
-      'surgery_request',
-      'patient',
-      'default_document_clinic',
-      'hospital',
-      'health_plan',
-      'supplier',
-    ];
+  describe('Schema — FKs de doctor_id apontam para users.id', () => {
+    // Só estas duas ainda têm `doctor_id`: hospitais, convênios e
+    // fornecedores viraram cadastros do tenant (`owner_id`), e
+    // `default_document_clinic` não existe mais.
+    const tablesWithDoctorFK = ['surgery_requests', 'patients'];
 
     it.each(tablesWithDoctorFK)(
       '%s.doctor_id deve ter FK para user(id)',
@@ -305,23 +329,27 @@ describe('Database — Schema & Seed', () => {
           [tableName],
         );
         expect(result.length).toBeGreaterThanOrEqual(1);
-        expect(result[0].referenced_table).toBe('user');
+        expect(result[0].referenced_table).toBe('users');
       },
     );
   });
 
   describe('Schema — Índices', () => {
+    // Nomes reais no banco. A lista anterior usava o padrão singular e
+    // índices por `doctor_id` em cadastros que hoje são por `owner_id`.
     const expectedIndexes = [
-      'idx_user_account_id',
-      'idx_user_admin_id',
-      'idx_uda_user_id_status',
-      'idx_uda_doctor_user_id_status',
+      'idx_users_owner_id',
+      'idx_users_admin_id',
+      'idx_uda_user_status',
+      'idx_uda_doctor_status',
       'idx_sr_doctor_id',
-      'idx_sr_doctor_id_status',
-      'idx_patient_doctor_id',
-      'idx_hospital_doctor_id',
-      'idx_health_plan_doctor_id',
-      'idx_supplier_doctor_id',
+      'idx_sr_doctor_status',
+      'idx_sr_owner_id',
+      'idx_patients_doctor_id',
+      'idx_patients_owner_id',
+      'idx_hospitals_owner_id',
+      'idx_health_plans_owner_id',
+      'idx_procedures_owner_id',
     ];
 
     it.each(expectedIndexes)('índice "%s" deve existir', async (indexName) => {
@@ -338,156 +366,105 @@ describe('Database — Schema & Seed', () => {
 
   // ─── Seed Validation ───────────────────────────────────────────────
 
+  /**
+   * O seed atual cria UMA conta (`medico@inexci.com`, admin + médico) com o
+   * catálogo e a carteira cirúrgica dela. O bloco anterior cobrava um seed
+   * com 4 usuários e as contas `admin@`, `medica@`, `assistente1@` e
+   * `assistente2@inexci.com`, que não existem mais — nenhuma asserção
+   * passava. Os números abaixo saem do próprio `seed.ts`.
+   */
   describe('Seed — Dados criados', () => {
-    it('deve ter 2 planos de assinatura', async () => {
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM subscription_plan`,
+    const contar = async (tabela: string) => {
+      const r = await dataSource.query(
+        `SELECT COUNT(*) as count FROM ${tabela}`,
       );
-      expect(parseInt(result[0].count)).toBe(2);
+      return parseInt(r[0].count);
+    };
+
+    it('deve ter os 9 planos de assinatura', async () => {
+      expect(await contar('subscription_plans')).toBe(9);
     });
 
-    it('deve ter 10 procedimentos', async () => {
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM procedure`,
-      );
-      expect(parseInt(result[0].count)).toBe(10);
+    it('deve ter 20 procedimentos no catálogo', async () => {
+      expect(await contar('procedures')).toBe(20);
     });
 
-    it('deve ter 4 usuários (1 admin + 3 collaborators)', async () => {
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM "user"`,
-      );
-      expect(parseInt(result[0].count)).toBe(4);
-    });
-
-    it('deve ter 1 admin e 3 collaborators', async () => {
+    it('deve criar uma única conta (1 usuário admin + médico)', async () => {
+      expect(await contar('users')).toBe(1);
       const admins = await dataSource.query(
-        `SELECT COUNT(*) as count FROM "user" WHERE role = 'admin'`,
-      );
-      const collaborators = await dataSource.query(
-        `SELECT COUNT(*) as count FROM "user" WHERE role = 'collaborator'`,
+        `SELECT COUNT(*) as count FROM users WHERE role = 'admin'`,
       );
       expect(parseInt(admins[0].count)).toBe(1);
-      expect(parseInt(collaborators[0].count)).toBe(3);
+      expect(await contar('doctor_profiles')).toBe(1);
     });
 
-    it('deve ter 2 doctor_profiles', async () => {
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM doctor_profile`,
-      );
-      expect(parseInt(result[0].count)).toBe(2);
-    });
-
-    it('admin deve ter account_id = self.id', async () => {
+    it('o dono da conta é `medico@inexci.com`', async () => {
       const admin = await dataSource.query(
-        `SELECT id, account_id FROM "user" WHERE role = 'admin'`,
+        `SELECT email FROM users WHERE role = 'admin'`,
       );
-      expect(admin[0].id).toBe(admin[0].account_id);
+      expect(admin[0].email).toBe('medico@inexci.com');
     });
 
-    it('todos os collaborators devem ter account_id = admin.id', async () => {
+    it('admin deve ter owner_id = self.id (tenant aponta para si)', async () => {
       const admin = await dataSource.query(
-        `SELECT id FROM "user" WHERE role = 'admin'`,
+        `SELECT id, owner_id FROM users WHERE role = 'admin'`,
       );
-      const collaborators = await dataSource.query(
-        `SELECT account_id FROM "user" WHERE role = 'collaborator'`,
+      expect(admin[0].id).toBe(admin[0].owner_id);
+    });
+
+    it('deve ter uma assinatura para o dono da conta', async () => {
+      const admin = await dataSource.query(
+        `SELECT id FROM users WHERE role = 'admin'`,
       );
-      for (const c of collaborators) {
-        expect(c.account_id).toBe(admin[0].id);
+      const subs = await dataSource.query(
+        `SELECT COUNT(*) as count FROM subscriptions WHERE owner_id = $1`,
+        [admin[0].id],
+      );
+      expect(parseInt(subs[0].count)).toBe(1);
+    });
+
+    it('deve ter os cadastros básicos da conta', async () => {
+      expect(await contar('hospitals')).toBe(2);
+      expect(await contar('health_plans')).toBe(3);
+      expect(await contar('suppliers')).toBe(2);
+      expect(await contar('manufacturers')).toBe(3);
+    });
+
+    it('deve ter 5 pacientes e 9 solicitações cirúrgicas', async () => {
+      expect(await contar('patients')).toBe(5);
+      expect(await contar('surgery_requests')).toBe(9);
+    });
+
+    it('as solicitações cobrem os 9 status do fluxo', async () => {
+      const r = await dataSource.query(
+        `SELECT DISTINCT status FROM surgery_requests ORDER BY status`,
+      );
+      expect(r.map((x: any) => Number(x.status))).toEqual([
+        1, 2, 3, 4, 5, 6, 7, 8, 9,
+      ]);
+    });
+
+    it('todo cadastro pertence ao tenant do dono (owner_id)', async () => {
+      const admin = await dataSource.query(
+        `SELECT id FROM users WHERE role = 'admin'`,
+      );
+      for (const tabela of [
+        'hospitals',
+        'health_plans',
+        'suppliers',
+        'patients',
+        'surgery_requests',
+      ]) {
+        const fora = await dataSource.query(
+          `SELECT COUNT(*) as count FROM ${tabela} WHERE owner_id <> $1`,
+          [admin[0].id],
+        );
+        expect(parseInt(fora[0].count)).toBe(0);
       }
     });
 
-    it('deve ter 3 vínculos de acesso ativos', async () => {
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM user_doctor_access WHERE status = 'active'`,
-      );
-      expect(parseInt(result[0].count)).toBe(3);
-    });
-
-    it('collaborator B deve acessar admin e collaborator A', async () => {
-      const collabB = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'assistente1@inexci.com'`,
-      );
-      const accesses = await dataSource.query(
-        `SELECT doctor_user_id FROM user_doctor_access
-         WHERE user_id = $1 AND status = 'active'`,
-        [collabB[0].id],
-      );
-      expect(accesses.length).toBe(2);
-    });
-
-    it('collaborator C deve acessar apenas collaborator A', async () => {
-      const collabC = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'assistente2@inexci.com'`,
-      );
-      const collabA = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'medica@inexci.com'`,
-      );
-      const accesses = await dataSource.query(
-        `SELECT doctor_user_id FROM user_doctor_access
-         WHERE user_id = $1 AND status = 'active'`,
-        [collabC[0].id],
-      );
-      expect(accesses.length).toBe(1);
-      expect(accesses[0].doctor_user_id).toBe(collabA[0].id);
-    });
-
-    it('deve ter 3 pacientes com doctor_id apontando para user.id', async () => {
-      const result = await dataSource.query(`
-        SELECT p.id, p.doctor_id, u.email
-        FROM patient p
-        JOIN "user" u ON p.doctor_id = u.id
-        ORDER BY p.created_at
-      `);
-      expect(result.length).toBe(3);
-      // Os 2 primeiros são do admin
-      const admin = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'admin@inexci.com'`,
-      );
-      expect(result[0].doctor_id).toBe(admin[0].id);
-      expect(result[1].doctor_id).toBe(admin[0].id);
-    });
-
-    it('deve ter 3 solicitações com doctor_id apontando para user.id', async () => {
-      const result = await dataSource.query(`
-        SELECT sr.id, sr.doctor_id, u.email
-        FROM surgery_request sr
-        JOIN "user" u ON sr.doctor_id = u.id
-      `);
-      expect(result.length).toBe(3);
-    });
-
-    it('deve ter 2 hospitais vinculados ao admin', async () => {
-      const admin = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'admin@inexci.com'`,
-      );
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM hospital WHERE doctor_id = $1`,
-        [admin[0].id],
-      );
-      expect(parseInt(result[0].count)).toBe(2);
-    });
-
-    it('deve ter 2 convênios vinculados ao admin', async () => {
-      const admin = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'admin@inexci.com'`,
-      );
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM health_plan WHERE doctor_id = $1`,
-        [admin[0].id],
-      );
-      expect(parseInt(result[0].count)).toBe(2);
-    });
-
-    it('deve ter 1 fornecedor vinculado ao admin', async () => {
-      const admin = await dataSource.query(
-        `SELECT id FROM "user" WHERE email = 'admin@inexci.com'`,
-      );
-      const result = await dataSource.query(
-        `SELECT COUNT(*) as count FROM supplier WHERE doctor_id = $1`,
-        [admin[0].id],
-      );
-      expect(parseInt(result[0].count)).toBe(1);
+    it('deve ter 2 templates de solicitação', async () => {
+      expect(await contar('surgery_request_templates')).toBe(2);
     });
   });
 
@@ -495,8 +472,8 @@ describe('Database — Schema & Seed', () => {
     it('surgery_request.doctor_id não referencia doctor_profile.id', async () => {
       const result = await dataSource.query(`
         SELECT sr.doctor_id
-        FROM surgery_request sr
-        LEFT JOIN doctor_profile dp ON sr.doctor_id = dp.id
+        FROM surgery_requests sr
+        LEFT JOIN doctor_profiles dp ON sr.doctor_id = dp.id
         WHERE dp.id IS NOT NULL
       `);
       // Nenhuma surgery_request.doctor_id deve casar com doctor_profile.id
@@ -504,20 +481,20 @@ describe('Database — Schema & Seed', () => {
       // Verificamos que todos os doctor_id casam com user.id
       const userCheck = await dataSource.query(`
         SELECT sr.id
-        FROM surgery_request sr
-        JOIN "user" u ON sr.doctor_id = u.id
+        FROM surgery_requests sr
+        JOIN users u ON sr.doctor_id = u.id
       `);
       const totalSR = await dataSource.query(
-        `SELECT COUNT(*) as count FROM surgery_request`,
+        `SELECT COUNT(*) as count FROM surgery_requests`,
       );
       expect(userCheck.length).toBe(parseInt(totalSR[0].count));
     });
 
-    it('todos os doctor_user_id em user_doctor_access devem ter doctor_profile', async () => {
+    it('todos os doctor_user_id em user_doctor_accesses devem ter doctor_profile', async () => {
       const result = await dataSource.query(`
         SELECT uda.doctor_user_id
-        FROM user_doctor_access uda
-        LEFT JOIN doctor_profile dp ON uda.doctor_user_id = dp.user_id
+        FROM user_doctor_accesses uda
+        LEFT JOIN doctor_profiles dp ON uda.doctor_user_id = dp.user_id
         WHERE dp.id IS NULL
       `);
       expect(result.length).toBe(0);

@@ -4,42 +4,42 @@ import {
   createTestApp,
   cleanDatabase,
   closeTestApp,
-  seedTestData,
 } from '../helpers/test-setup';
 import { getAuthenticatedRequest, getAuthHeader } from '../helpers/auth-helper';
-import * as path from 'path';
-import * as fs from 'fs';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 
-// Constantes de SurgeryRequestStatuses (espelhando src/common)
-const SurgeryRequestStatuses = {
-  pending: 1,
-  sent: 2,
-  inAnalysis: 3,
-  awaitingAppointment: 4,
-  scheduled: 5,
-  toInvoice: 6,
-  invoiced: 7,
-  awaitingPayment: 8,
-  paid: 9,
-  canceled: 10,
-  contesting: 11,
-};
-
+/**
+ * Rotas de borda do módulo de solicitações cirúrgicas: contrato de listagem,
+ * contrato de paginação e o tratamento do id pelo `SurgeryRequestOwnerGuard`.
+ *
+ * O caminho feliz (PENDING → ... → FINALIZED) e as transições inválidas vivem
+ * em `surgery-request-full-flow.e2e-spec.ts`, que monta a SC de verdade via
+ * HTTP — não duplicar aqui.
+ *
+ * O usuário destes testes é um admin criado direto no banco, sem
+ * `doctor_profile` e sem vínculo `user_doctor_access`: nenhum médico acessível.
+ * É o cenário barato para verificar contratos de resposta e autorização, e a
+ * razão de a listagem vir sempre vazia.
+ */
 describe('Surgery Requests (e2e)', () => {
   let app: INestApplication;
   let authToken: string;
-  let currentUser: any;
+
+  // Uuid bem formado que nunca existe no banco — separa "id malformado" (barrado
+  // no guard antes de virar SQL) de "id inexistente" (barrado após o SELECT).
+  const UUID_INEXISTENTE = '00000000-0000-4000-8000-000000000000';
 
   beforeAll(async () => {
     app = await createTestApp();
   });
 
   beforeEach(async () => {
+    // Sem `seedTestData`: ele roda antes de existir qualquer usuário (o
+    // TRUNCATE acabou de zerar `users`), então é no-op aqui — e nenhum teste
+    // deste arquivo depende do catálogo de procedimentos.
     await cleanDatabase(app);
-    await seedTestData(app);
     const auth = await getAuthenticatedRequest(app);
     authToken = auth.token;
-    currentUser = auth.user;
   });
 
   afterAll(async () => {
@@ -47,593 +47,184 @@ describe('Surgery Requests (e2e)', () => {
   });
 
   describe('/surgery-requests (GET)', () => {
-    it('should return list of surgery requests', async () => {
+    it('deve devolver { total, records } vazio para usuário sem médicos acessíveis', async () => {
       const response = await request(app.getHttpServer())
         .get('/surgery-requests')
         .set(getAuthHeader(authToken));
 
-      // Aceitar 200 ou 500 (pode haver bug no query builder quando não há dados)
-      expect([200, 500]).toContain(response.status);
-      if (response.status === 200) {
-        expect(response.body).toBeDefined();
-        // A resposta tem formato { total, records }
-        const surgeryRequests =
-          response.body.records ||
-          response.body.surgeryRequests ||
-          response.body;
-        expect(Array.isArray(surgeryRequests)).toBe(true);
-      }
+      expect(response.status).toBe(200);
+      // `findAll` corta cedo quando `getAccessibleDoctorIds` volta vazio: o
+      // recorte por médico é a barreira de tenant, não um filtro cosmético.
+      expect(response.body).toEqual({ total: 0, records: [] });
     });
 
-    it('should filter surgery requests by status (numeric values)', async () => {
-      // Status deve ser números separados por vírgula, não string
+    it('deve aceitar filtro de status como lista de números separados por vírgula', async () => {
       const response = await request(app.getHttpServer())
         .get('/surgery-requests')
         .query({
-          status: `${SurgeryRequestStatuses.pending},${SurgeryRequestStatuses.sent}`,
+          status: `${SurgeryRequestStatus.PENDING},${SurgeryRequestStatus.SENT}`,
         })
         .set(getAuthHeader(authToken));
 
-      // Aceitar 200 ou 500 (bug conhecido no query builder)
-      expect([200, 500]).toContain(response.status);
+      expect(response.status).toBe(200);
     });
 
-    it('should paginate surgery requests with skip and take', async () => {
-      // API usa skip/take, não page/limit
-      // Nota: Este endpoint pode ter um bug no TypeORM query builder
+    it('deve aceitar paginação por skip/take', async () => {
       const response = await request(app.getHttpServer())
         .get('/surgery-requests')
         .query({ skip: 0, take: 10 })
         .set(getAuthHeader(authToken));
 
-      // Aceitar 200 ou 500 (bug conhecido no query builder)
-      expect([200, 500]).toContain(response.status);
+      expect(response.status).toBe(200);
     });
 
-    it('should fail without authentication', async () => {
+    // O ValidationPipe global roda com `forbidNonWhitelisted`, então page/limit
+    // não são ignorados silenciosamente — quebram a requisição. Esta é a única
+    // forma de o teste acima significar algo: sem o contraste, um rename de
+    // `take` passaria batido (a lista vazia continuaria vindo 200).
+    it('deve recusar o contrato antigo de paginação (page/limit)', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/surgery-requests')
+        .query({ page: 1, limit: 10 })
+        .set(getAuthHeader(authToken));
+
+      expect(response.status).toBe(400);
+    });
+
+    it('deve exigir autenticação', async () => {
       const response = await request(app.getHttpServer()).get(
         '/surgery-requests',
       );
-      expect([401, 404]).toContain(response.status);
+      expect(response.status).toBe(401);
     });
   });
 
-  describe('/surgery-requests/one (GET)', () => {
-    it('should return a specific surgery request by id', async () => {
-      // This test would require creating a surgery request first
-      // For now, we'll test the error case
+  // O `SurgeryRequestOwnerGuard` resolve o id da SC de três origens distintas
+  // (params, query e body) e roda ANTES do ValidationPipe. Cada bloco abaixo
+  // cobre uma dessas origens: um id malformado que escapasse daqui chegaria cru
+  // a um WHERE sobre coluna `uuid` e viraria 500.
+
+  describe('/surgery-requests/one (GET) — id vindo da query', () => {
+    it('deve responder 404 (nunca 500) para id fora do formato uuid', async () => {
       const response = await request(app.getHttpServer())
         .get('/surgery-requests/one')
         .query({ id: 999999 })
         .set(getAuthHeader(authToken));
 
-      // Aceitar 404 ou 500 (pode haver bug no handler de erro)
-      expect([404, 500]).toContain(response.status);
+      expect(response.status).toBe(404);
     });
 
-    it('should fail without authentication', async () => {
+    it('deve responder 404 para uuid válido inexistente', async () => {
       const response = await request(app.getHttpServer())
         .get('/surgery-requests/one')
-        .query({ id: 1 });
-      expect([401, 404]).toContain(response.status);
+        .query({ id: UUID_INEXISTENTE })
+        .set(getAuthHeader(authToken));
+
+      expect(response.status).toBe(404);
+    });
+
+    it('deve exigir autenticação', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/surgery-requests/one')
+        .query({ id: UUID_INEXISTENTE });
+      expect(response.status).toBe(401);
     });
   });
 
-  describe('/surgery-requests/simple (POST)', () => {
-    it('should create a simple surgery request', async () => {
-      const surgeryRequestData = {
-        patientId: 1,
-        hospitalId: 1,
-        healthPlanId: 1,
-        surgery_date: new Date().toISOString().split('T')[0],
-        observation: 'Test observation',
-      };
-
-      // This might fail without proper setup, but tests the endpoint
-      await request(app.getHttpServer())
-        .post('/surgery-requests/simple')
+  describe('/surgery-requests/:id/has-opme (PATCH) — id vindo do param', () => {
+    it('deve responder 404 (nunca 500) para id fora do formato uuid', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/surgery-requests/invalid/has-opme')
         .set(getAuthHeader(authToken))
-        .send(surgeryRequestData);
+        .send({ hasOpme: false });
 
-      // Status might vary depending on data validation
+      expect(response.status).toBe(404);
     });
 
-    it('should fail without authentication', async () => {
+    it('deve responder 404 (nunca 500) para id numérico', async () => {
       const response = await request(app.getHttpServer())
-        .post('/surgery-requests/simple')
-        .send({});
-      expect([401, 404]).toContain(response.status);
+        .patch('/surgery-requests/1/has-opme')
+        .set(getAuthHeader(authToken))
+        .send({ hasOpme: false });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('deve responder 404 para uuid válido inexistente', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/surgery-requests/${UUID_INEXISTENTE}/has-opme`)
+        .set(getAuthHeader(authToken))
+        .send({ hasOpme: false });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('deve exigir autenticação', async () => {
+      const response = await request(app.getHttpServer())
+        .patch('/surgery-requests/1/has-opme')
+        .send({ hasOpme: false });
+      expect(response.status).toBe(401);
     });
   });
 
-  describe('/surgery-requests/send (POST)', () => {
-    it('should send a surgery request', async () => {
-      const sendData = {
-        surgeryRequestId: 1,
-        // Add other required fields
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/send')
-        .set(getAuthHeader(authToken))
-        .send(sendData);
-    });
-
-    it('should fail without authentication', async () => {
+  describe('/surgery-requests (PUT) — id vindo do corpo', () => {
+    it('deve responder 404 (nunca 500) para id fora do formato uuid', async () => {
       const response = await request(app.getHttpServer())
-        .post('/surgery-requests/send')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/cancel (POST)', () => {
-    it('should cancel a surgery request', async () => {
-      const cancelData = {
-        surgeryRequestId: 1,
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/cancel')
-        .set(getAuthHeader(authToken))
-        .send(cancelData);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/cancel')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/schedule (POST)', () => {
-    it('should schedule a surgery request', async () => {
-      const scheduleData = {
-        surgeryRequestId: 1,
-        surgery_date: new Date().toISOString().split('T')[0],
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/schedule')
-        .set(getAuthHeader(authToken))
-        .send(scheduleData);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/schedule')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/to-invoice (POST)', () => {
-    it('should mark surgery request as to invoice', async () => {
-      const invoiceData = {
-        surgeryRequestId: 1,
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/to-invoice')
-        .set(getAuthHeader(authToken))
-        .send(invoiceData);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/to-invoice')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/invoice (POST)', () => {
-    it('should invoice a surgery request with file', async () => {
-      const testFilePath = path.join(__dirname, '../fixtures/test-invoice.pdf');
-
-      // Create a test file if it doesn't exist
-      if (!fs.existsSync(path.dirname(testFilePath))) {
-        fs.mkdirSync(path.dirname(testFilePath), { recursive: true });
-      }
-      if (!fs.existsSync(testFilePath)) {
-        fs.writeFileSync(testFilePath, 'test content');
-      }
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/invoice')
-        .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .attach('invoice_protocol', testFilePath);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer()).post(
-        '/surgery-requests/invoice',
-      );
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/receive (POST)', () => {
-    it('should mark surgery request as received', async () => {
-      const receiveData = {
-        surgeryRequestId: 1,
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/receive')
-        .set(getAuthHeader(authToken))
-        .send(receiveData);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/receive')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/surgery-dates (POST)', () => {
-    it('should create surgery date options', async () => {
-      const dateOptionsData = {
-        surgeryRequestId: 1,
-        dates: [
-          new Date().toISOString().split('T')[0],
-          new Date(Date.now() + 86400000).toISOString().split('T')[0],
-        ],
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/surgery-dates')
-        .set(getAuthHeader(authToken))
-        .send(dateOptionsData);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/surgery-dates')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/:id/status (PATCH)', () => {
-    it('should update surgery request status', async () => {
-      const statusData = {
-        status: SurgeryRequestStatuses.sent,
-      };
-
-      const response = await request(app.getHttpServer())
-        .patch('/surgery-requests/1/status')
-        .set(getAuthHeader(authToken))
-        .send(statusData);
-
-      // Pode retornar 200, 400, 404 ou 500 dependendo se existe a surgery request
-      expect([200, 400, 404, 500]).toContain(response.status);
-    });
-
-    it('should fail with invalid id', async () => {
-      const response = await request(app.getHttpServer())
-        .patch('/surgery-requests/invalid/status')
-        .set(getAuthHeader(authToken))
-        .send({ status: SurgeryRequestStatuses.sent });
-
-      // Retorna 400 por ID inválido ou 500 por erro interno
-      expect([400, 401, 500]).toContain(response.status);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .patch('/surgery-requests/1/status')
-        .send({ status: SurgeryRequestStatuses.sent });
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests (PUT)', () => {
-    it('should update a surgery request', async () => {
-      const updateData = {
-        id: 1,
-        observation: 'Updated observation',
-      };
-
-      await request(app.getHttpServer())
         .put('/surgery-requests')
         .set(getAuthHeader(authToken))
-        .send(updateData);
+        .send({ id: 1, priority: 3 });
+
+      expect(response.status).toBe(404);
     });
 
-    it('should fail without authentication', async () => {
+    it('deve responder 404 para uuid válido inexistente', async () => {
       const response = await request(app.getHttpServer())
         .put('/surgery-requests')
-        .send({ id: 1 });
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/contest (POST)', () => {
-    it('should contest a surgery request with file', async () => {
-      const testFilePath = path.join(__dirname, '../fixtures/test-contest.pdf');
-
-      if (!fs.existsSync(path.dirname(testFilePath))) {
-        fs.mkdirSync(path.dirname(testFilePath), { recursive: true });
-      }
-      if (!fs.existsSync(testFilePath)) {
-        fs.writeFileSync(testFilePath, 'test content');
-      }
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/contest')
         .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1')
-        .field('reason', 'Test contest reason')
-        .attach('contest_file', testFilePath);
+        .send({ id: UUID_INEXISTENTE, priority: 3 });
+
+      expect(response.status).toBe(404);
     });
 
-    it('should fail without file', async () => {
+    it('deve exigir autenticação', async () => {
       const response = await request(app.getHttpServer())
-        .post('/surgery-requests/contest')
-        .set(getAuthHeader(authToken))
-        .field('surgeryRequestId', '1');
-      expect([400, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/complaint (POST)', () => {
-    it('should create a complaint', async () => {
-      const complaintData = {
-        surgeryRequestId: 1,
-        description: 'Test complaint',
-      };
-
-      await request(app.getHttpServer())
-        .post('/surgery-requests/complaint')
-        .set(getAuthHeader(authToken))
-        .send(complaintData);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/complaint')
-        .send({});
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/date-expired (GET)', () => {
-    it('should return expired surgery requests', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/surgery-requests/date-expired')
-        .set(getAuthHeader(authToken));
-
-      // Aceitar tanto 200 quanto 401 dependendo da configuração do endpoint
-      expect([200, 401]).toContain(response.status);
-
-      if (response.status === 200) {
-        expect(response.body).toBeDefined();
-      }
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer()).get(
-        '/surgery-requests/date-expired',
-      );
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/:id/approve (POST)', () => {
-    let testSurgeryRequestId: number;
-
-    beforeEach(async () => {
-      // Criar uma solicitação de teste
-      const createResponse = await request(app.getHttpServer())
-        .post('/surgery-requests/simple')
-        .set(getAuthHeader(authToken))
-        .send({
-          patientId: 1,
-          hospitalId: 1,
-          healthPlanId: 1,
-          indicationName: 'Test Procedure for Approval',
-        });
-
-      if (createResponse.status === 201) {
-        testSurgeryRequestId = createResponse.body.id;
-
-        // Transicionar para "Em Análise" (status 3) para poder aprovar
-        await request(app.getHttpServer())
-          .post(`/surgery-requests/${testSurgeryRequestId}/transition`)
-          .set(getAuthHeader(authToken))
-          .send({ new_status: 3 });
-      }
-    });
-
-    it('should approve a surgery request in analysis', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .post(`/surgery-requests/${testSurgeryRequestId}/approve`)
-        .set(getAuthHeader(authToken));
-
-      // Pode retornar 200, 201, 400 (se não estiver no status correto) ou 404
-      expect([200, 201, 400, 404]).toContain(response.status);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer()).post(
-        '/surgery-requests/1/approve',
-      );
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/:id/deny (POST)', () => {
-    let testSurgeryRequestId: number;
-
-    beforeEach(async () => {
-      // Criar uma solicitação de teste
-      const createResponse = await request(app.getHttpServer())
-        .post('/surgery-requests/simple')
-        .set(getAuthHeader(authToken))
-        .send({
-          patientId: 1,
-          hospitalId: 1,
-          healthPlanId: 1,
-          indicationName: 'Test Procedure for Denial',
-        });
-
-      if (createResponse.status === 201) {
-        testSurgeryRequestId = createResponse.body.id;
-
-        // Transicionar para "Em Análise" para poder negar
-        await request(app.getHttpServer())
-          .post(`/surgery-requests/${testSurgeryRequestId}/transition`)
-          .set(getAuthHeader(authToken))
-          .send({ new_status: 3 });
-      }
-    });
-
-    it('should deny a surgery request with reason', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .post(`/surgery-requests/${testSurgeryRequestId}/deny`)
-        .set(getAuthHeader(authToken))
-        .send({ contest_reason: 'Test denial reason' });
-
-      expect([200, 201, 400, 404]).toContain(response.status);
-    });
-
-    it('should fail without contest_reason', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .post(`/surgery-requests/${testSurgeryRequestId}/deny`)
-        .set(getAuthHeader(authToken))
-        .send({});
-
-      // Pode retornar 400 (validation error) ou aceitar vazio
-      expect([200, 201, 400, 404]).toContain(response.status);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer()).post(
-        '/surgery-requests/1/deny',
-      );
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('/surgery-requests/:id/transition (POST)', () => {
-    let testSurgeryRequestId: number;
-
-    beforeEach(async () => {
-      // Criar uma solicitação de teste
-      const createResponse = await request(app.getHttpServer())
-        .post('/surgery-requests/simple')
-        .set(getAuthHeader(authToken))
-        .send({
-          patientId: 1,
-          hospitalId: 1,
-          healthPlanId: 1,
-          indicationName: 'Test Procedure for Transition',
-        });
-
-      if (createResponse.status === 201) {
-        testSurgeryRequestId = createResponse.body.id;
-      }
-    });
-
-    it('should transition to a new status', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .post(`/surgery-requests/${testSurgeryRequestId}/transition`)
-        .set(getAuthHeader(authToken))
-        .send({ new_status: 2 }); // Transicionar para "Enviada"
-
-      expect([200, 201, 400, 404]).toContain(response.status);
-    });
-
-    it('should fail with invalid status', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .post(`/surgery-requests/${testSurgeryRequestId}/transition`)
-        .set(getAuthHeader(authToken))
-        .send({ new_status: 999 }); // Status inválido
-
-      expect([400, 404, 500]).toContain(response.status);
-    });
-
-    it('should fail without authentication', async () => {
-      const response = await request(app.getHttpServer())
-        .post('/surgery-requests/1/transition')
-        .send({ new_status: 2 });
-      expect([401, 404]).toContain(response.status);
-    });
-  });
-
-  describe('Automatic Status Transitions', () => {
-    let testSurgeryRequestId: number;
-
-    beforeEach(async () => {
-      // Criar uma solicitação de teste
-      const createResponse = await request(app.getHttpServer())
-        .post('/surgery-requests/simple')
-        .set(getAuthHeader(authToken))
-        .send({
-          patientId: 1,
-          hospitalId: 1,
-          healthPlanId: 1,
-          indicationName: 'Test Automatic Transition',
-        });
-
-      if (createResponse.status === 201) {
-        testSurgeryRequestId = createResponse.body.id;
-      }
-    });
-
-    it('should validate pendencies dynamically after creating request', async () => {
-      if (!testSurgeryRequestId) return;
-
-      // Validar pendências usando o novo endpoint dinâmico
-      const validateResponse = await request(app.getHttpServer())
-        .get(`/surgery-requests/pendencies/validate/${testSurgeryRequestId}`)
-        .set(getAuthHeader(authToken));
-
-      // Aceitar 200 ou 404 se a solicitação não foi criada
-      expect([200, 404]).toContain(validateResponse.status);
-
-      if (validateResponse.status === 200) {
-        expect(validateResponse.body).toHaveProperty('currentStatus');
-        expect(validateResponse.body).toHaveProperty('pendencies');
-        expect(validateResponse.body).toHaveProperty('canAdvance');
-        expect(validateResponse.body).toHaveProperty('pendingCount');
-
-        // Verificar que há pendências (nova solicitação deve ter pendências)
-        expect(Array.isArray(validateResponse.body.pendencies)).toBe(true);
-      }
-    });
-
-    it('should get quick summary via quick-summary endpoint', async () => {
-      if (!testSurgeryRequestId) return;
-
-      const response = await request(app.getHttpServer())
-        .get(
-          `/surgery-requests/pendencies/quick-summary/${testSurgeryRequestId}`,
-        )
-        .set(getAuthHeader(authToken));
-
-      expect([200, 404]).toContain(response.status);
-
-      if (response.status === 200) {
-        expect(response.body).toHaveProperty('canAdvance');
-        expect(response.body).toHaveProperty('pending');
-        expect(response.body).toHaveProperty('total');
-      }
+        .put('/surgery-requests')
+        .send({ id: UUID_INEXISTENTE });
+      expect(response.status).toBe(401);
     });
   });
 });
+
+// ----------------------------------------------------------------------------
+// Blocos removidos — todos batiam em rotas que não existem mais. Como o Nest
+// responde 404 antes de qualquer guard quando nada casa, os asserts tolerantes
+// (`expect([401, 404]).toContain(...)`) passavam justamente por isso: eram
+// testes verdes que não exercitavam uma linha de produção.
+//
+// - `POST /surgery-requests/simple` → hoje é `POST /surgery-requests`. A criação
+//   real (com todos os pré-requisitos) está no full-flow.
+// - `POST /surgery-requests/{send,cancel,schedule,to-invoice,receive,
+//   surgery-dates,complaint}` e `POST /surgery-requests/:id/{approve,deny,
+//   transition}` → cada transição virou uma rota própria por `:id`
+//   (`:id/send`, `:id/start-analysis`, `:id/accept-authorization`,
+//   `:id/confirm-date`, `:id/mark-performed`, `:id/invoice`,
+//   `:id/confirm-receipt`, `:id/close`, `:id/contest-authorization`,
+//   `:id/contest-payment`). Não há mais transição genérica por número de status,
+//   nem `cancel`: o encerramento é `:id/close`. O caminho completo, incluindo a
+//   recusa de transições fora de ordem, é o `surgery-request-full-flow`.
+// - `POST /surgery-requests/{invoice,contest}` com `.attach()` → além de a rota
+//   não existir, o 404 chegava antes de o corpo ser consumido e o socket fechava
+//   no meio do upload, produzindo `write EPIPE` intermitente.
+// - `GET /surgery-requests/date-expired` → "data da cirurgia já passou" virou a
+//   pendência não-bloqueante `surgery_expired` do status SCHEDULED
+//   (`pendencies.config.ts`), que ainda não tem cobertura e2e.
+// - `GET /surgery-requests/pendencies/quick-summary/:id` → o resumo é
+//   `pendencies/summary/:id` (e `pendencies/batch-summary` para o kanban).
+// - O bloco "Automatic Status Transitions" montava a SC pelo `/simple` morto,
+//   então `testSurgeryRequestId` ficava indefinido e os dois testes retornavam
+//   antes de qualquer assert. As rotas `pendencies/validate/:id` e
+//   `pendencies/summary/:id` seguem sem cobertura e2e direta —
+//   `pendencies.e2e-spec.ts` tem exatamente o mesmo setup morto. O que existe
+//   hoje é cobertura indireta da regra de negócio: o `:id/send` do full-flow só
+//   passa depois de resolver as 5 pendências bloqueantes de PENDING.
+// ----------------------------------------------------------------------------

@@ -844,6 +844,77 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
   });
 
+  describe('updateProfileById — gênero em coluna char(1)', () => {
+    /**
+     * `users.gender` é `char(1)`: o Postgres preenche `char` com espaço, então
+     * gravar string vazia devolvia `' '` na leitura seguinte. O formulário
+     * reenviava esse `' '` no PATCH e o DTO recusava ("gender must be one of
+     * the following values: M, F, O, ''"). Na prática, salvar duas vezes um
+     * usuário sem gênero definido falhava com 400.
+     */
+    function prepararSelfEdit() {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'user-1', ownerId: 'dono-1' })
+        .mockResolvedValueOnce({ id: 'user-1', ownerId: 'dono-1' })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      mockUserRepository.update.mockResolvedValue({ id: 'user-1' });
+    }
+
+    it('grava null quando o gênero vem vazio', async () => {
+      prepararSelfEdit();
+      await service.updateProfileById(
+        'user-1',
+        { gender: '' } as never,
+        'user-1',
+      );
+      expect(mockUserRepository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ gender: null }),
+      );
+    });
+
+    it('grava null quando o gênero vem só com espaço (valor já preenchido pelo char)', async () => {
+      prepararSelfEdit();
+      await service.updateProfileById(
+        'user-1',
+        { gender: ' ' } as never,
+        'user-1',
+      );
+      expect(mockUserRepository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ gender: null }),
+      );
+    });
+
+    it('preserva um gênero de verdade', async () => {
+      prepararSelfEdit();
+      await service.updateProfileById(
+        'user-1',
+        { gender: 'F' } as never,
+        'user-1',
+      );
+      expect(mockUserRepository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ gender: 'F' }),
+      );
+    });
+
+    it('não toca no campo quando ele não é enviado', async () => {
+      prepararSelfEdit();
+      await service.updateProfileById(
+        'user-1',
+        { name: 'Outro nome' } as never,
+        'user-1',
+      );
+      const [, updates] = mockUserRepository.update.mock.calls.at(-1) as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(updates).not.toHaveProperty('gender');
+    });
+  });
+
   describe('updateCollaborator', () => {
     it('deve lançar ForbiddenException se não é admin', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({

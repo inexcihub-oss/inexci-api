@@ -18,6 +18,7 @@ import {
   Post,
   Put,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
@@ -45,7 +46,13 @@ export class UsersController {
   @Get('one')
   @ApiOperation({ summary: 'Buscar usuário por ID' })
   async findOne(
-    @Query() { id }: { id: string },
+    // `users.id` é `uuid`: sem o pipe, `?id=999999` chega cru ao repositório e
+    // o Postgres aborta a query ("invalid input syntax for type uuid"), que o
+    // `AllExceptionsFilter` traduz num 400 genérico de banco (500 nos e2e, que
+    // não registram o filtro). O pipe devolve um 400 que diz o que está errado,
+    // sem gastar ida ao banco — mesmo defeito que o `SurgeryRequestOwnerGuard`
+    // tinha com o `:id` da solicitação.
+    @Query('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.usersService.findOne(id, user.userId);

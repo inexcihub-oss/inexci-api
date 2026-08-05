@@ -225,7 +225,10 @@ export class UsersService {
       email: user.email,
       phone: user.phone,
       cpf: user.cpf,
-      gender: user.gender,
+      // `char(1)` volta preenchido com espaço quando gravado vazio. Normaliza
+      // na leitura para que registros antigos não devolvam `' '` ao formulário
+      // — o valor voltaria no PATCH seguinte e seria recusado pelo DTO.
+      gender: user.gender?.trim() || null,
       birthDate: user.birthDate,
       cep: user.cep,
       address: user.address,
@@ -415,7 +418,13 @@ export class UsersService {
     if (data.cpf !== undefined) userUpdates.cpf = data.cpf;
     if (data.birthDate !== undefined)
       userUpdates.birthDate = new Date(data.birthDate);
-    if (data.gender !== undefined) userUpdates.gender = data.gender;
+    // `gender` é `char(1)`, e o Postgres preenche `char` com espaço: gravar
+    // string vazia devolve `' '` na leitura seguinte, que o DTO recusa
+    // ("gender must be one of the following values: M, F, O, ''"). Resultado:
+    // salvar duas vezes um usuário sem gênero definido falhava com 400. Vazio
+    // é ausência de valor, então grava `null`.
+    if (data.gender !== undefined)
+      userUpdates.gender = data.gender?.trim() ? data.gender.trim() : null;
     if (data.avatarUrl !== undefined) userUpdates.avatarUrl = data.avatarUrl;
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;

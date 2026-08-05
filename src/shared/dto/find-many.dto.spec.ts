@@ -70,7 +70,9 @@ describe('FindManySharedDto', () => {
   });
 
   it('aceita take exatamente no teto (1000, usado por FETCH_ALL_TAKE do frontend)', () => {
-    const dto = plainToInstance(FindManySharedDto, { take: PAGINATION_DEFAULTS.MAX_TAKE });
+    const dto = plainToInstance(FindManySharedDto, {
+      take: PAGINATION_DEFAULTS.MAX_TAKE,
+    });
     expect(validateSync(dto)).toHaveLength(0);
   });
 });

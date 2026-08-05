@@ -7,6 +7,7 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { isUUID } from 'class-validator';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { AccessControlService } from 'src/shared/services/access-control.service';
@@ -57,6 +58,17 @@ export class SurgeryRequestOwnerGuard implements CanActivate {
 
     // Sem id de recurso (listagens, criação): nada a validar aqui.
     if (!id) return true;
+
+    // O id vem do cliente e vai direto para um WHERE sobre coluna `uuid`. Sem
+    // esta checagem o Postgres aborta a query ("invalid input syntax for type
+    // uuid"); o `AllExceptionsFilter` converte isso num 400 genérico ("Erro na
+    // operação do banco de dados") — e nos e2e, cujo app não registra o filtro,
+    // vira 500. Nos dois casos é a resposta errada para "esse id não existe", e
+    // o guard roda antes do ValidationPipe, então nenhum DTO chega a barrar.
+    // Id malformado não pode existir: trata como não encontrado, igual ao id
+    // inexistente logo abaixo.
+    if (!isUUID(String(id)))
+      throw new NotFoundException('Solicitação cirúrgica não encontrada');
 
     const sr = await this.surgeryRequestRepository.findOneSimple({ id });
     if (!sr)

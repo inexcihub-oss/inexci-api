@@ -17,6 +17,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:e2e:prepare": "node scripts/prepare-e2e-db.js",
+    "pretest:e2e": "yarn test:e2e:prepare",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "test:e2e:fast": "jest --config ./test/jest-e2e.json --maxWorkers=50%",
     "test:e2e:changed": "jest --config ./test/jest-e2e.json --onlyChanged --maxWorkers=50%",

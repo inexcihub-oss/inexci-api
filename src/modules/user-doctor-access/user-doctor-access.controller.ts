@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Put,
+  Query,
+} from '@nestjs/common';
+import { SetUserDoctorAccessDto } from './dto/set-user-doctor-access.dto';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
@@ -31,8 +40,8 @@ export class UserDoctorAccessController {
     summary: 'Redefinir lista completa de vínculos do colaborador',
   })
   async setAccess(
-    @Param('userId') userId: string,
-    @Body() body: { doctor_user_ids: string[] },
+    @Param('userId', new ParseUUIDPipe({ version: '4' })) userId: string,
+    @Body() body: SetUserDoctorAccessDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.userDoctorAccessService.setAccess(

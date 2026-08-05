@@ -7,20 +7,27 @@ import { resolve } from 'path';
 import { getQueueToken } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { randomUUID } from 'crypto';
+import {
+  assertBancoDeTeste,
+  comBancoDeTeste,
+  sqlTabelasParaTruncar,
+} from '../../src/shared/testing/e2e-database-guard';
 
 let cachedTruncateTableNames: string | null = null;
 
-// Carregar variáveis de ambiente para testes
+// Carrega o .env para reaproveitar credenciais/host, mas o banco é sempre
+// redirecionado para o de teste logo abaixo — o .env aponta para o de dev, e
+// `cleanDatabase` trunca tudo.
 config({ path: resolve(__dirname, '../../.env') });
 
 // Definir valores padrão para testes caso não existam
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret-key-for-e2e-tests-123456789';
 }
-if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL =
-    'postgresql://inexci_user:inexci_pass@localhost:5432/inexci';
-}
+process.env.DATABASE_URL = comBancoDeTeste(
+  process.env.DATABASE_URL ??
+    'postgresql://inexci_user:inexci_pass@localhost:5432/inexci',
+);
 
 export async function createTestApp(): Promise<INestApplication> {
   // NODE_ENV=test desabilita rate limiting via CustomThrottlerGuard
@@ -47,14 +54,15 @@ export async function createTestApp(): Promise<INestApplication> {
 
 export async function cleanDatabase(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
+  // Fail-closed: nunca truncar um banco que não seja o de teste.
+  await assertBancoDeTeste({
+    query: (sql: string) =>
+      dataSource.query(sql) as Promise<{ current_database: string }[]>,
+  });
 
   if (!cachedTruncateTableNames) {
     // Resolve uma vez por processo de teste para evitar custo repetido no beforeEach.
-    const tables = await dataSource.query(`
-      SELECT tablename FROM pg_tables
-      WHERE schemaname = 'public'
-      AND tablename != 'migrations'
-    `);
+    const tables = await dataSource.query(sqlTabelasParaTruncar());
     cachedTruncateTableNames = tables
       .map((table: { tablename: string }) => `"${table.tablename}"`)
       .join(', ');
@@ -102,6 +110,58 @@ export async function seedTestData(app: INestApplication): Promise<void> {
  * Cria um usuário diretamente no banco de dados com role e status específicos
  * Útil para testar rotas que requerem permissões específicas
  */
+/**
+ * Marca o e-mail de um usuário como verificado — o equivalente a clicar no
+ * link enviado por e-mail.
+ *
+ * `POST /auth/login` passou a recusar quem não confirmou o e-mail
+ * (`auth.service.ts`), mas os e2e nasceram antes dessa regra e ainda fazem
+ * "registra → loga em seguida". Sem este passo intermediário o login devolve
+ * 403 e o teste falha por um motivo que não é o que ele quer verificar.
+ */
+export async function verifyUserEmail(
+  app: INestApplication,
+  email: string,
+): Promise<void> {
+  const dataSource = app.get(DataSource);
+  await dataSource.query(
+    `UPDATE users SET email_verified = true, email_verified_at = NOW() WHERE email = $1`,
+    [email],
+  );
+}
+
+/**
+ * Aceita Política de Privacidade e Termos de Uso — o que o usuário faz no
+ * onboarding (`ConsentGate`).
+ *
+ * O `ConsentsGuard` é global e responde 403 em qualquer rota autenticada
+ * enquanto os dois aceites faltarem. `/auth/register` não os grava, então um
+ * usuário criado pela API e usado direto num teste esbarra no guard e o teste
+ * falha por um motivo que não é o que ele quer verificar.
+ */
+export async function acceptUserConsents(
+  app: INestApplication,
+  email: string,
+): Promise<void> {
+  const dataSource = app.get(DataSource);
+  await dataSource.query(
+    `UPDATE users
+        SET privacy_policy_accepted_at = NOW(),
+            terms_of_use_accepted_at = NOW()
+      WHERE email = $1`,
+    [email],
+  );
+}
+
+/** Atalho: confirma o e-mail e aceita os consentimentos de uma vez. */
+export async function prepararUsuarioParaLogin(
+  app: INestApplication,
+  email: string,
+): Promise<void> {
+  await verifyUserEmail(app, email);
+  await acceptUserConsents(app, email);
+}
+
 export async function createUserWithRole(
   app: INestApplication,
   options: {
