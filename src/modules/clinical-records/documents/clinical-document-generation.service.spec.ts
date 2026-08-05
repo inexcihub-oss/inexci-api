@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
@@ -262,8 +266,7 @@ describe('ClinicalDocumentGenerationService', () => {
         'pré-visualização do atestado',
         () =>
           service.previewMedicalCertificate(
-            'record-1',
-            { restDays: 3 } as any,
+            { clinicalRecordId: 'record-1', restDays: 3 } as any,
             'colaborador',
           ),
       ],
@@ -397,8 +400,7 @@ describe('ClinicalDocumentGenerationService', () => {
   describe('pré-visualização', () => {
     it('devolve o HTML do documento sem gravar nada', async () => {
       const html = await service.previewPrescription(
-        'record-1',
-        prescriptionDto as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
         'user-1',
       );
 
@@ -412,8 +414,7 @@ describe('ClinicalDocumentGenerationService', () => {
     // não acrescenta nada — o HTML é o mesmo que vira PDF na emissão.
     it('não invoca o Puppeteer para pré-visualizar', async () => {
       await service.previewPrescription(
-        'record-1',
-        prescriptionDto as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
         'user-1',
       );
 
@@ -422,8 +423,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
     it('pré-visualiza a partir do mesmo template e dos mesmos dados da emissão', async () => {
       await service.previewPrescription(
-        'record-1',
-        prescriptionDto as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
         'user-1',
       );
       const [template, previewData] =
@@ -443,8 +443,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
     it('pré-visualiza atestado e encaminhamento pelos templates certos', async () => {
       await service.previewMedicalCertificate(
-        'record-1',
-        { restDays: 1 } as any,
+        { clinicalRecordId: 'record-1', restDays: 1 } as any,
         'user-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
@@ -453,8 +452,7 @@ describe('ClinicalDocumentGenerationService', () => {
       );
 
       await service.previewExamReferral(
-        'record-1',
-        { exams: [{ name: 'Hemograma' }] } as any,
+        { clinicalRecordId: 'record-1', exams: [{ name: 'Hemograma' }] } as any,
         'user-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
@@ -470,8 +468,164 @@ describe('ClinicalDocumentGenerationService', () => {
       );
 
       await expect(
-        service.previewPrescription('record-1', prescriptionDto as any, 'x'),
+        service.previewPrescription(
+          { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+          'x',
+        ),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  /**
+   * D-11: o médico abria um atendimento novo, clicava em "Visualizar" e a
+   * prévia criava uma ficha vazia no prontuário — dado clínico sensível, com
+   * auditoria LGPD, gravado por uma ação de só olhar (e que ainda travava a
+   * exclusão da consulta). Conferir não escreve nada: sem ficha, o documento é
+   * montado a partir do paciente e dos campos que estão na tela.
+   */
+  describe('pré-visualização sem ficha gravada', () => {
+    it('monta a receita a partir do paciente, sem tocar na ficha', async () => {
+      const html = await service.previewPrescription(
+        { patientId: 'patient-1', ...prescriptionDto } as any,
+        'doctor-1',
+      );
+
+      expect(html).toBe('<html>previa</html>');
+      expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
+      expect(documentRepository.create).not.toHaveBeenCalled();
+      expect(storageService.create).not.toHaveBeenCalled();
+      expect(pdfService.renderClinicalDocumentHtml).toHaveBeenCalledWith(
+        'prescription',
+        expect.objectContaining({
+          patientName: 'Alessandro Filho',
+          items: prescriptionDto.items,
+        }),
+      );
+    });
+
+    it('assina com o próprio usuário quando nenhum médico é informado', async () => {
+      await service.previewPrescription(
+        { patientId: 'patient-1', ...prescriptionDto } as any,
+        'doctor-1',
+      );
+
+      expect(doctorPdfContextService.buildForDoctorId).toHaveBeenCalledWith(
+        'doctor-1',
+      );
+    });
+
+    it('confere clínica e vínculo com o médico que assina', async () => {
+      await service.previewPrescription(
+        {
+          patientId: 'patient-1',
+          doctorId: 'doctor-2',
+          ...prescriptionDto,
+        } as any,
+        'user-1',
+      );
+
+      expect(
+        accessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalledWith('user-1', 'owner-1', 'doctor-2');
+    });
+
+    it('recusa pré-visualizar em nome de médico fora do acesso do usuário', async () => {
+      accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.previewPrescription(
+          {
+            patientId: 'patient-1',
+            doctorId: 'doctor-2',
+            ...prescriptionDto,
+          } as any,
+          'intruso',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
+    });
+
+    it('usa os CIDs enviados na prévia do atestado e do encaminhamento', async () => {
+      const cidCodes = [{ code: 'S83.2', description: 'Ruptura do menisco' }];
+
+      await service.previewMedicalCertificate(
+        {
+          patientId: 'patient-1',
+          restDays: 2,
+          includeCid: true,
+          cidCodes,
+        } as any,
+        'doctor-1',
+      );
+      expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
+        'medical-certificate',
+        expect.objectContaining({ cid: cidCodes[0] }),
+      );
+
+      await service.previewExamReferral(
+        {
+          patientId: 'patient-1',
+          exams: [{ name: 'Hemograma' }],
+          cidCodes,
+        } as any,
+        'doctor-1',
+      );
+      expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
+        'exam-referral',
+        expect.objectContaining({ cidCodes }),
+      );
+    });
+
+    it('exige ficha ou paciente', async () => {
+      await expect(
+        service.previewPrescription(prescriptionDto as any, 'doctor-1'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
+      expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
+    });
+
+    it('bloqueia não-médico', async () => {
+      accessControlService.assertIsDoctor.mockRejectedValue(
+        new ForbiddenException(),
+      );
+
+      await expect(
+        service.previewPrescription(
+          { patientId: 'patient-1', ...prescriptionDto } as any,
+          'secretaria-id',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    /**
+     * DO-18: prévia e documento final não podem divergir. A montagem é a mesma
+     * função nos dois caminhos; o que muda é só de onde vêm paciente e médico.
+     */
+    it('produz os mesmos dados que a emissão a partir da ficha equivalente', async () => {
+      await service.previewPrescription(
+        {
+          patientId: 'patient-1',
+          doctorId: 'doctor-1',
+          ...prescriptionDto,
+        } as any,
+        'user-1',
+      );
+      const [, previewData] =
+        pdfService.renderClinicalDocumentHtml.mock.calls[0];
+
+      await service.generatePrescription(
+        'record-1',
+        prescriptionDto as any,
+        'user-1',
+      );
+
+      expect(pdfService.generatePrescriptionPdf).toHaveBeenCalledWith(
+        previewData,
+      );
     });
   });
 
@@ -577,8 +731,7 @@ describe('ClinicalDocumentGenerationService', () => {
         'prévia da receita',
         () =>
           service.previewPrescription(
-            'record-1',
-            prescriptionDto as any,
+            { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
             'secretaria-id',
           ),
       ],
@@ -586,8 +739,7 @@ describe('ClinicalDocumentGenerationService', () => {
         'prévia do atestado',
         () =>
           service.previewMedicalCertificate(
-            'record-1',
-            { restDays: 2 } as any,
+            { clinicalRecordId: 'record-1', restDays: 2 } as any,
             'secretaria-id',
           ),
       ],
@@ -595,8 +747,10 @@ describe('ClinicalDocumentGenerationService', () => {
         'prévia do encaminhamento',
         () =>
           service.previewExamReferral(
-            'record-1',
-            { exams: [{ name: 'Hemograma' }] } as any,
+            {
+              clinicalRecordId: 'record-1',
+              exams: [{ name: 'Hemograma' }],
+            } as any,
             'secretaria-id',
           ),
       ],

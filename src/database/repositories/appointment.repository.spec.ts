@@ -15,6 +15,7 @@ describe('AppointmentRepository.findAgenda', () => {
       orderBy: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockResolvedValue([]),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
     };
     const mockRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(qb),
@@ -95,5 +96,24 @@ describe('AppointmentRepository.findAgenda', () => {
     await repo.findAgenda('owner-1', ['d-1'], { statuses: [], take: 1000 });
 
     expect(clauses(qb)).not.toContain(':...statuses');
+  });
+
+  // D-15: `getManyAndCount` aplica o `take` só às linhas — a contagem é a do
+  // recorte inteiro. Com `getMany` + `records.length`, o `total` era o próprio
+  // teto e o corte ficava indistinguível de uma lista completa.
+  it('devolve a contagem total do recorte, independente do teto da página', async () => {
+    const { repo, qb } = buildRepo();
+    qb.getManyAndCount.mockResolvedValue([[{ id: 'a-1' }], 1103]);
+
+    const resultado = await repo.findAgenda('owner-1', ['d-1'], {
+      statuses: [AppointmentStatus.COMPLETED],
+      order: 'DESC',
+      take: 1000,
+    });
+
+    expect(qb.take).toHaveBeenCalledWith(1000);
+    expect(qb.getManyAndCount).toHaveBeenCalled();
+    expect(qb.getMany).not.toHaveBeenCalled();
+    expect(resultado).toEqual({ records: [{ id: 'a-1' }], total: 1103 });
   });
 });

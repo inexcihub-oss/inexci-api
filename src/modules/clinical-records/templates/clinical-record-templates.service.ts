@@ -43,6 +43,7 @@ export class ClinicalRecordTemplatesService {
     data: CreateClinicalRecordTemplateDto,
     userId: string,
   ): Promise<ClinicalRecordTemplate> {
+    await this.accessControlService.assertIsDoctor(userId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
     const doctorId =
@@ -95,11 +96,17 @@ export class ClinicalRecordTemplatesService {
   }
 
   /**
-   * Devolve o modelo para preencher a ficha e conta o uso. Ler e aplicar segue
-   * valendo para toda a clínica — modelo é texto-base compartilhado, e
-   * `findMany` já lista os da conta inteira.
+   * Devolve o modelo para preencher a ficha e conta o uso.
+   *
+   * Aplicar é o primeiro passo de escrever na ficha, então também é ato do
+   * médico. Não é uma fronteira de confidencialidade — `findMany` já devolve o
+   * texto do modelo para quem tem `atendimento` —, mas é uma escrita: o
+   * contador de uso é a estatística de qual texto-base aquele médico
+   * realmente usa, e quem não pode escrever na ficha não deveria estar
+   * carimbando esse número. O recorte de clínica continua valendo por cima.
    */
   async apply(id: string, userId: string): Promise<ClinicalRecordTemplate> {
+    await this.accessControlService.assertIsDoctor(userId);
     const template = await this.getOwned(id, userId);
     await this.templateRepository.incrementUsage(id);
     return template;
@@ -116,14 +123,21 @@ export class ClinicalRecordTemplatesService {
   }
 
   /**
-   * Alterar ou excluir exige acesso ao médico dono do modelo — o mesmo recorte
-   * que `create` já exige. Sem isso, quem só enxerga o médico A reescreveria o
-   * texto-base que o médico B usa em todo atendimento.
+   * Alterar ou excluir exige **ser médico** e ter acesso ao médico dono do
+   * modelo — as duas coisas, como em `create`.
+   *
+   * O recorte por médico sozinho não bastava: a secretária vinculada ao médico
+   * M1 passava por ele e reescrevia (ou apagava) o texto-base clínico gravado
+   * em nome do M1. Modelo de anamnese é conteúdo clínico assinado pelo médico;
+   * escrever nele é ato do médico, igual à ficha (`assertCanWriteRecord`) e à
+   * emissão de receita/atestado. Ler continua liberado para quem tem
+   * `atendimento` — `findMany` não passa por aqui.
    */
   private async getEditable(
     id: string,
     userId: string,
   ): Promise<ClinicalRecordTemplate> {
+    await this.accessControlService.assertIsDoctor(userId);
     const template = await this.templateRepository.findOne({ id });
     if (!template) throw new NotFoundException('Modelo não encontrado');
     await this.accessControlService.assertCanAccessDoctorResource(

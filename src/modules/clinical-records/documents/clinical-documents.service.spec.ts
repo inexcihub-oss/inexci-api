@@ -31,6 +31,8 @@ describe('ClinicalDocumentsService', () => {
     assertSameOwner: jest.Mock;
     assertCanAccessDoctorResource: jest.Mock;
   };
+  let documentTypeormRepo: { delete: jest.Mock };
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(() => {
     storageService = {
@@ -52,8 +54,17 @@ describe('ClinicalDocumentsService', () => {
       assertCanAccessDoctorResource: jest.fn().mockResolvedValue(undefined),
     };
 
+    documentTypeormRepo = {
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    dataSource = {
+      transaction: jest.fn((fn: any) =>
+        fn({ getRepository: () => documentTypeormRepo }),
+      ),
+    };
+
     service = new ClinicalDocumentsService(
-      null as any,
+      dataSource as any,
       storageService as any,
       documentRepository as any,
       patientRepository as any,
@@ -203,6 +214,7 @@ describe('ClinicalDocumentsService', () => {
       documentRepository.findOneSimple.mockResolvedValue({
         id: 'doc-1',
         patientId: 'pat-1',
+        key: 'k',
         uri: 'documents/owner-1/exame.pdf',
       });
       accessControlService.assertSameOwner.mockRejectedValue(
@@ -212,6 +224,66 @@ describe('ClinicalDocumentsService', () => {
       await expect(
         service.delete({ id: 'doc-1', key: 'k' }, 'user-x'),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    // O `key` entra no WHERE do DELETE, mas o storage apaga pela `uri`: com
+    // `key` divergente o registro clínico ficava no banco e o arquivo sumia do
+    // R2 (documento fantasma no prontuário).
+    it('404 e não toca no R2 quando o `key` informado não casa com o do documento', async () => {
+      documentRepository.findOneSimple.mockResolvedValue({
+        id: 'doc-1',
+        patientId: 'pat-1',
+        key: 'key-correta.pdf',
+        uri: 'documents/owner-1/exame.pdf',
+      });
+
+      await expect(
+        service.delete(
+          { id: 'doc-1', key: 'key-totalmente-errado.pdf' },
+          'user-1',
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(storageService.delete).not.toHaveBeenCalled();
+      expect(documentTypeormRepo.delete).not.toHaveBeenCalled();
+      // Nem chega a validar posse — recusa antes de qualquer efeito.
+      expect(accessControlService.assertSameOwner).not.toHaveBeenCalled();
+    });
+
+    it('404 e não toca no R2 quando o DELETE no banco não afeta linha nenhuma', async () => {
+      documentRepository.findOneSimple.mockResolvedValue({
+        id: 'doc-1',
+        patientId: 'pat-1',
+        key: 'k',
+        uri: 'documents/owner-1/exame.pdf',
+      });
+      documentTypeormRepo.delete.mockResolvedValue({ affected: 0 });
+
+      await expect(
+        service.delete({ id: 'doc-1', key: 'k' }, 'user-1'),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('apaga no R2 quando o `key` casa e a linha foi removida', async () => {
+      documentRepository.findOneSimple.mockResolvedValue({
+        id: 'doc-1',
+        patientId: 'pat-1',
+        key: 'k',
+        uri: 'documents/owner-1/exame.pdf',
+      });
+      documentTypeormRepo.delete.mockResolvedValue({ affected: 1 });
+
+      await service.delete({ id: 'doc-1', key: 'k' }, 'user-1');
+
+      expect(documentTypeormRepo.delete).toHaveBeenCalledWith({
+        id: 'doc-1',
+        key: 'k',
+      });
+      expect(storageService.delete).toHaveBeenCalledWith(
+        'documents/owner-1/exame.pdf',
+      );
     });
   });
 });

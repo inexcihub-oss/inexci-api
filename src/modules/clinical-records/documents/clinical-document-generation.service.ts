@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
@@ -19,15 +24,49 @@ import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
 import { formatCpf, formatDateBR, formatPhone } from 'src/shared/utils';
+import { CidCodeDto } from '../dto/cid-code.dto';
 import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 import { CreateMedicalCertificateDto } from './dto/create-medical-certificate.dto';
 import { CreateExamReferralDto } from './dto/create-exam-referral.dto';
+import {
+  PreviewExamReferralDto,
+  PreviewMedicalCertificateDto,
+  PreviewPrescriptionDto,
+} from './dto/preview-clinical-document.dto';
 
 /** Limite da coluna `documents.name`. */
 const DOCUMENT_NAME_MAX_LENGTH = 75;
 
 const digitsOnly = (value?: string | null): string =>
   value ? value.replace(/\D/g, '') : '';
+
+/**
+ * Origem dos dados do documento.
+ *
+ * Emitir sempre parte de uma ficha gravada (`clinicalRecordId`). Pré-visualizar
+ * pode partir do paciente + campos em memória: conferir um documento não pode
+ * criar prontuário. Ver `PreviewTargetDto`.
+ */
+interface DocumentSource {
+  clinicalRecordId?: string;
+  patientId?: string;
+  doctorId?: string;
+  /** CIDs da ficha em memória, quando não há ficha gravada. */
+  cidCodes?: CidCodeDto[] | null;
+}
+
+/** Extrai o alvo de um payload de prévia. */
+const previewSource = (data: {
+  clinicalRecordId?: string;
+  patientId?: string;
+  doctorId?: string;
+  cidCodes?: CidCodeDto[];
+}): DocumentSource => ({
+  clinicalRecordId: data.clinicalRecordId,
+  patientId: data.patientId,
+  doctorId: data.doctorId,
+  cidCodes: data.cidCodes,
+});
 
 /**
  * Documentos emitidos durante o atendimento — receita, atestado e
@@ -60,13 +99,13 @@ export class ClinicalDocumentGenerationService {
     userId: string,
   ) {
     const { record, pdfData } = await this.buildPrescription(
-      recordId,
+      { clinicalRecordId: recordId },
       data,
       userId,
     );
     const pdf = await this.pdfService.generatePrescriptionPdf(pdfData);
     return this.persist(
-      record,
+      this.assertRecord(record),
       pdf,
       DOCUMENT_TYPES.prescription,
       'Receita',
@@ -81,13 +120,13 @@ export class ClinicalDocumentGenerationService {
     userId: string,
   ) {
     const { record, pdfData } = await this.buildMedicalCertificate(
-      recordId,
+      { clinicalRecordId: recordId },
       data,
       userId,
     );
     const pdf = await this.pdfService.generateMedicalCertificatePdf(pdfData);
     return this.persist(
-      record,
+      this.assertRecord(record),
       pdf,
       DOCUMENT_TYPES.medicalCertificate,
       'Atestado',
@@ -102,13 +141,13 @@ export class ClinicalDocumentGenerationService {
     userId: string,
   ) {
     const { record, pdfData } = await this.buildExamReferral(
-      recordId,
+      { clinicalRecordId: recordId },
       data,
       userId,
     );
     const pdf = await this.pdfService.generateExamReferralPdf(pdfData);
     return this.persist(
-      record,
+      this.assertRecord(record),
       pdf,
       DOCUMENT_TYPES.examReferral,
       'Solicitação de exames',
@@ -120,23 +159,27 @@ export class ClinicalDocumentGenerationService {
   // Mesmo template e mesmos dados da emissão, devolvidos como HTML: quem só
   // quer conferir na tela não precisa esperar o Puppeteer subir um Chromium
   // para produzir um PDF que será descartado. Emitir é que gera o arquivo.
+  //
+  // A prévia também não exige ficha gravada — ver `PreviewTargetDto`.
 
   async previewPrescription(
-    recordId: string,
-    data: CreatePrescriptionDto,
+    data: PreviewPrescriptionDto,
     userId: string,
   ): Promise<string> {
-    const { pdfData } = await this.buildPrescription(recordId, data, userId);
+    const { pdfData } = await this.buildPrescription(
+      previewSource(data),
+      data,
+      userId,
+    );
     return this.pdfService.renderClinicalDocumentHtml('prescription', pdfData);
   }
 
   async previewMedicalCertificate(
-    recordId: string,
-    data: CreateMedicalCertificateDto,
+    data: PreviewMedicalCertificateDto,
     userId: string,
   ): Promise<string> {
     const { pdfData } = await this.buildMedicalCertificate(
-      recordId,
+      previewSource(data),
       data,
       userId,
     );
@@ -147,22 +190,25 @@ export class ClinicalDocumentGenerationService {
   }
 
   async previewExamReferral(
-    recordId: string,
-    data: CreateExamReferralDto,
+    data: PreviewExamReferralDto,
     userId: string,
   ): Promise<string> {
-    const { pdfData } = await this.buildExamReferral(recordId, data, userId);
+    const { pdfData } = await this.buildExamReferral(
+      previewSource(data),
+      data,
+      userId,
+    );
     return this.pdfService.renderClinicalDocumentHtml('exam-referral', pdfData);
   }
 
   // ── Montagem dos PDFs (compartilhada por emitir e pré-visualizar) ─────────
 
   private async buildPrescription(
-    recordId: string,
-    data: CreatePrescriptionDto,
+    source: DocumentSource,
+    data: CreatePrescriptionDto | PreviewPrescriptionDto,
     userId: string,
   ) {
-    const { record, base } = await this.buildBaseContext(recordId, userId);
+    const { record, base } = await this.buildBaseContext(source, userId);
 
     const pdfData: PrescriptionPdfData = {
       ...base,
@@ -174,17 +220,19 @@ export class ClinicalDocumentGenerationService {
   }
 
   private async buildMedicalCertificate(
-    recordId: string,
-    data: CreateMedicalCertificateDto,
+    source: DocumentSource,
+    data: CreateMedicalCertificateDto | PreviewMedicalCertificateDto,
     userId: string,
   ) {
-    const { record, base } = await this.buildBaseContext(recordId, userId);
+    const { record, base, cidCodes } = await this.buildBaseContext(
+      source,
+      userId,
+    );
 
     // O CID expõe o diagnóstico a quem recebe o atestado (empregador, escola),
     // então nunca entra sozinho: ou o médico escolhe o CID no atestado, ou
     // marca explicitamente para reaproveitar o da ficha.
-    const cid =
-      data.cid ?? (data.includeCid ? (record.cidCodes?.[0] ?? null) : null);
+    const cid = data.cid ?? (data.includeCid ? (cidCodes?.[0] ?? null) : null);
 
     const pdfData: MedicalCertificatePdfData = {
       ...base,
@@ -198,11 +246,14 @@ export class ClinicalDocumentGenerationService {
   }
 
   private async buildExamReferral(
-    recordId: string,
-    data: CreateExamReferralDto,
+    source: DocumentSource,
+    data: CreateExamReferralDto | PreviewExamReferralDto,
     userId: string,
   ) {
-    const { record, base } = await this.buildBaseContext(recordId, userId);
+    const { record, base, cidCodes } = await this.buildBaseContext(
+      source,
+      userId,
+    );
 
     const pdfData: ExamReferralPdfData = {
       ...base,
@@ -210,42 +261,34 @@ export class ClinicalDocumentGenerationService {
       clinicalIndication: data.clinicalIndication,
       // Por padrão o pedido carrega a hipótese diagnóstica já registrada na
       // ficha — é o que o convênio exige para autorizar o exame.
-      cidCodes: data.cidCodes ?? record.cidCodes ?? undefined,
+      cidCodes: data.cidCodes ?? cidCodes ?? undefined,
     };
 
     return { record, pdfData };
   }
 
   /**
-   * Carrega ficha, paciente e médico e monta o bloco comum aos três PDFs.
+   * Carrega ficha (quando houver), paciente e médico e monta o bloco comum aos
+   * três PDFs.
    *
    * São três verificações, e nenhuma cobre a outra: quem emite precisa ser
-   * médico (ato privativo), pertencer à clínica e ter vínculo com o médico da
-   * ficha. O documento sai assinado com o nome, o CRM e a imagem de assinatura
-   * desse médico — sem isso, um assistente emitiria receita em nome dele.
+   * médico (ato privativo), pertencer à clínica e ter vínculo com o médico do
+   * documento. O documento sai assinado com o nome, o CRM e a imagem de
+   * assinatura desse médico — sem isso, um assistente emitiria receita em nome
+   * dele.
    *
    * Vale também para a prévia: é o mesmo documento, só que na tela.
    */
-  private async buildBaseContext(recordId: string, userId: string) {
+  private async buildBaseContext(source: DocumentSource, userId: string) {
     await this.accessControlService.assertIsDoctor(userId);
 
-    const record = await this.clinicalRecordRepository.findOne({
-      id: recordId,
-    });
-    if (!record) throw new NotFoundException('Atendimento não encontrado');
-    await this.accessControlService.assertCanAccessDoctorResource(
+    const { record, patient, doctorId, cidCodes } = await this.resolveSubject(
+      source,
       userId,
-      record.ownerId,
-      record.doctorId,
     );
 
-    const patient = await this.patientRepository.findOne({
-      id: record.patientId,
-    });
-    if (!patient) throw new NotFoundException('Paciente não encontrado');
-
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
-      await this.doctorPdfContextService.buildForDoctorId(record.doctorId);
+      await this.doctorPdfContextService.buildForDoctorId(doctorId);
 
     const base = {
       today: formatDateBR(new Date().toISOString()),
@@ -257,7 +300,79 @@ export class ClinicalDocumentGenerationService {
       customHeader,
     };
 
-    return { record, patient, base };
+    return { record, patient, cidCodes, base };
+  }
+
+  /**
+   * Resolve paciente, médico e CIDs a partir da ficha gravada ou, na prévia sem
+   * ficha, do próprio payload. O recorte de acesso é o mesmo nos dois caminhos:
+   * clínica (`ownerId`) + vínculo com o médico que assina.
+   */
+  private async resolveSubject(
+    source: DocumentSource,
+    userId: string,
+  ): Promise<{
+    record: ClinicalRecord | null;
+    patient: Patient;
+    doctorId: string;
+    cidCodes: CidCodeDto[] | null;
+  }> {
+    if (source.clinicalRecordId) {
+      const record = await this.clinicalRecordRepository.findOne({
+        id: source.clinicalRecordId,
+      });
+      if (!record) throw new NotFoundException('Atendimento não encontrado');
+      await this.accessControlService.assertCanAccessDoctorResource(
+        userId,
+        record.ownerId,
+        record.doctorId,
+      );
+
+      const patient = await this.patientRepository.findOne({
+        id: record.patientId,
+      });
+      if (!patient) throw new NotFoundException('Paciente não encontrado');
+
+      return {
+        record,
+        patient,
+        doctorId: record.doctorId,
+        cidCodes: record.cidCodes ?? null,
+      };
+    }
+
+    if (!source.patientId) {
+      throw new BadRequestException(
+        'Informe a ficha de atendimento ou o paciente do documento.',
+      );
+    }
+
+    const patient = await this.patientRepository.findOne({
+      id: source.patientId,
+    });
+    if (!patient) throw new NotFoundException('Paciente não encontrado');
+
+    // Sem ficha não há médico gravado: assina quem está pré-visualizando, a
+    // menos que o payload aponte outro — e aí o vínculo é conferido igual.
+    const doctorId = source.doctorId ?? userId;
+    await this.accessControlService.assertCanAccessDoctorResource(
+      userId,
+      patient.ownerId,
+      doctorId,
+    );
+
+    return {
+      record: null,
+      patient,
+      doctorId,
+      cidCodes: source.cidCodes ?? null,
+    };
+  }
+
+  /** Emitir grava um `Document` da ficha — só a prévia dispensa a ficha. */
+  private assertRecord(record: ClinicalRecord | null): ClinicalRecord {
+    if (!record) throw new NotFoundException('Atendimento não encontrado');
+    return record;
   }
 
   private async buildPatientFields(

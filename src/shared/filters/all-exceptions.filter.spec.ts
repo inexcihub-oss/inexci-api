@@ -2,6 +2,7 @@ import {
   ArgumentsHost,
   BadRequestException,
   HttpStatus,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -13,7 +14,10 @@ interface RespostaCapturada {
   body: Record<string, unknown>;
 }
 
-function criarHost(url = '/surgery-requests/abc/send'): {
+function criarHost(
+  url = '/surgery-requests/abc/send',
+  method = 'POST',
+): {
   host: ArgumentsHost;
   capturado: RespostaCapturada;
 } {
@@ -31,7 +35,7 @@ function criarHost(url = '/surgery-requests/abc/send'): {
   const host = {
     switchToHttp: () => ({
       getResponse: () => response,
-      getRequest: () => ({ url }),
+      getRequest: () => ({ url, method }),
     }),
   } as unknown as ArgumentsHost;
 
@@ -154,6 +158,15 @@ describe('AllExceptionsFilter', () => {
       expect(capturado.body.message).toBe('Erro interno do servidor');
     });
 
+    it('mantém 500 genérico para erro com statusCode fora da faixa tratada', () => {
+      const { host, capturado } = criarHost();
+      const erro = Object.assign(new Error('boom'), { statusCode: 418 });
+
+      filter.catch(erro, host);
+
+      expect(capturado.status).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
+    });
+
     it('mantém o `details` quando presente', () => {
       const { host, capturado } = criarHost();
 
@@ -163,6 +176,75 @@ describe('AllExceptionsFilter', () => {
       );
 
       expect(capturado.body.details).toEqual({ campo: 'cpf' });
+    });
+  });
+
+  /**
+   * D-16: `POST /clinical-records` com ~1 MB de anamnese devolvia 500 "Erro
+   * interno do servidor" e logava `Unhandled exception: PayloadTooLargeError`.
+   * O erro nasce no `body-parser`, antes do Nest, então não é `HttpException`.
+   */
+  describe('corpo maior que o limite do body-parser', () => {
+    /** Mesma forma do erro que o `raw-body` lança via `http-errors`. */
+    function erroDoBodyParser() {
+      return Object.assign(new Error('request entity too large'), {
+        name: 'PayloadTooLargeError',
+        type: 'entity.too.large',
+        status: 413,
+        statusCode: 413,
+        expose: true,
+        limit: 102400,
+        length: 1048576,
+      });
+    }
+
+    it('devolve 413 com mensagem em pt-BR em vez de 500', () => {
+      const { host, capturado } = criarHost('/clinical-records');
+
+      filter.catch(erroDoBodyParser(), host);
+
+      expect(capturado.status).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
+      expect(capturado.body.statusCode).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
+      expect(capturado.body.message).toBe(
+        'Conteúdo muito grande. Reduza o tamanho do texto ou do anexo.',
+      );
+    });
+
+    it('mantém o formato padronizado da resposta de erro', () => {
+      const { host, capturado } = criarHost('/clinical-records');
+
+      filter.catch(erroDoBodyParser(), host);
+
+      expect(capturado.body.path).toBe('/clinical-records');
+      expect(capturado.body.timestamp).toEqual(expect.any(String));
+    });
+
+    it('não registra como "Unhandled exception"', () => {
+      const { host } = criarHost('/clinical-records');
+      const logger = (filter as unknown as { logger: Logger }).logger;
+      const error = jest.spyOn(logger, 'error').mockImplementation();
+      const warn = jest.spyOn(logger, 'warn').mockImplementation();
+
+      filter.catch(erroDoBodyParser(), host);
+
+      expect(error).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('/clinical-records'),
+      );
+
+      error.mockRestore();
+      warn.mockRestore();
+    });
+
+    it('reconhece o erro só pelo statusCode 413, sem o `type`', () => {
+      const { host, capturado } = criarHost('/upload');
+
+      filter.catch(
+        Object.assign(new Error('too large'), { statusCode: 413 }),
+        host,
+      );
+
+      expect(capturado.status).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
     });
   });
 });

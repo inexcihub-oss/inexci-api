@@ -3,3 +3,4 @@ export * from './generators';
 export * from './status';
 export * from './log-truncate.util';
 export * from './mask.util';
+export * from './user-secrets.util';

@@ -9,6 +9,7 @@ import {
   Appointment,
   AppointmentType,
 } from 'src/database/entities/appointment.entity';
+import { formatDoctorName } from 'src/shared/utils';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -17,6 +18,14 @@ const TYPE_LABELS: Record<AppointmentType, string> = {
   [AppointmentType.RETURN]: 'Retorno',
   [AppointmentType.FOLLOW_UP]: 'Acompanhamento',
 };
+
+/** Resultado do envio de um lembrete, por consulta. */
+interface ReminderOutcome {
+  /** O paciente tinha ao menos um canal de contato. */
+  attempted: boolean;
+  /** Ao menos um canal foi enfileirado com sucesso. */
+  delivered: boolean;
+}
 
 /**
  * Dispara lembretes de consulta 24h antes (e-mail + WhatsApp), de forma
@@ -55,12 +64,24 @@ export class AppointmentReminderService {
     let sent = 0;
     for (const appt of due) {
       try {
-        const notified = await this.notify(appt);
-        // Marca sempre (mesmo sem canais) para não re-processar a cada hora.
+        const outcome = await this.notify(appt);
+
+        // Havia canal e nenhum entregou (Redis fora, SMTP recusando): não
+        // marca, para a execução seguinte tentar de novo. Marcar aqui perdia o
+        // lembrete em silêncio — o registro dizia "enviado" e ninguém foi avisado.
+        if (outcome.attempted && !outcome.delivered) {
+          this.logger.warn(
+            `Lembrete da consulta ${appt.id} não foi enfileirado em nenhum canal; será retentado.`,
+          );
+          continue;
+        }
+
+        // Sem canal (paciente sem e-mail e sem telefone) marca do mesmo jeito:
+        // não há o que retentar, e reprocessar a cada hora seria desperdício.
         await this.appointmentRepository.update(appt.id, {
           reminderSentAt: new Date(),
         });
-        if (notified) sent++;
+        if (outcome.delivered) sent++;
       } catch (err: any) {
         this.logger.warn(
           `Falha ao enviar lembrete da consulta ${appt.id}: ${err?.message}`,
@@ -70,40 +91,62 @@ export class AppointmentReminderService {
     return sent;
   }
 
-  private async notify(appt: Appointment): Promise<boolean> {
+  /**
+   * Enfileira o lembrete nos canais disponíveis do paciente.
+   *
+   * `attempted` = o paciente tinha ao menos um canal; `delivered` = ao menos um
+   * enfileiramento deu certo. A falha de um canal é isolada (logada) para não
+   * cancelar o outro nem derrubar o lote.
+   */
+  private async notify(appt: Appointment): Promise<ReminderOutcome> {
     const patient = await this.patientRepository.findOne({
       id: appt.patientId,
     });
-    if (!patient) return false;
+    if (!patient) return { attempted: false, delivered: false };
 
     const doctor = await this.userRepository.findOne({ id: appt.doctorId });
-    const doctorName = doctor?.name ? `Dr(a). ${doctor.name}` : '';
+    const doctorName = formatDoctorName(doctor?.name);
     const when = this.formatWhen(appt.scheduledAt);
 
-    let notified = false;
+    let attempted = false;
+    let delivered = false;
 
     if (patient.email) {
-      void this.mailService.sendAppointmentReminder(patient.email, {
-        patientName: patient.name,
-        doctorName,
-        when,
-        typeLabel: TYPE_LABELS[appt.type],
-        durationLabel: `${appt.durationMinutes} min`,
-      });
-      notified = true;
+      attempted = true;
+      try {
+        await this.mailService.sendAppointmentReminder(patient.email, {
+          patientName: patient.name,
+          doctorName,
+          when,
+          typeLabel: TYPE_LABELS[appt.type],
+          durationLabel: `${appt.durationMinutes} min`,
+        });
+        delivered = true;
+      } catch (err: any) {
+        this.logger.warn(
+          `Falha ao enfileirar e-mail do lembrete da consulta ${appt.id}: ${err?.message}`,
+        );
+      }
     }
 
     if (patient.phone) {
-      void this.whatsappService.sendAppointmentReminder(
-        patient.phone,
-        patient.name,
-        when,
-        doctorName,
-      );
-      notified = true;
+      attempted = true;
+      try {
+        await this.whatsappService.sendAppointmentReminder(
+          patient.phone,
+          patient.name,
+          when,
+          doctorName,
+        );
+        delivered = true;
+      } catch (err: any) {
+        this.logger.warn(
+          `Falha ao enfileirar WhatsApp do lembrete da consulta ${appt.id}: ${err?.message}`,
+        );
+      }
     }
 
-    return notified;
+    return { attempted, delivered };
   }
 
   /** Formata a data/hora em pt-BR no fuso de São Paulo (ex.: "sex., 01/08 às 14:00"). */

@@ -36,10 +36,18 @@ describe('ClinicalRecordTemplatesService', () => {
     canAccessDoctor: jest.fn(),
     assertSameOwner: jest.fn(),
     assertCanAccessDoctorResource: jest.fn(),
+    assertIsDoctor: jest.fn(),
   };
+
+  /** Reproduz o não-médico: `assertIsDoctor` é o único ponto que o barra. */
+  const naoEhMedico = () =>
+    accessControlService.assertIsDoctor.mockRejectedValue(
+      new ForbiddenException('Apenas médicos podem realizar esta operação.'),
+    );
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    accessControlService.assertIsDoctor.mockResolvedValue(undefined);
     accessControlService.getOwnerId.mockResolvedValue('owner-1');
     accessControlService.resolveDefaultDoctorId.mockResolvedValue('doctor-1');
     accessControlService.canAccessDoctor.mockResolvedValue(true);
@@ -227,6 +235,78 @@ describe('ClinicalRecordTemplatesService', () => {
       );
 
       expect(repository.incrementUsage).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * D-17: o não-médico vinculado ao médico M1 passava por todo o recorte de
+   * clínica/médico e escrevia conteúdo clínico em nome dele — criava, renomeava,
+   * aplicava e excluía modelo. Escrever é ato do médico; ler não.
+   */
+  describe('escrever no modelo é ato do médico (D-17)', () => {
+    it('recusa criação por quem não tem doctor_profile', async () => {
+      naoEhMedico();
+
+      await expect(
+        service.create({ name: 'Retorno' } as any, 'secretaria'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(accessControlService.assertIsDoctor).toHaveBeenCalledWith(
+        'secretaria',
+      );
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('recusa edição por quem não tem doctor_profile, mesmo com acesso ao médico', async () => {
+      naoEhMedico();
+
+      await expect(
+        service.update('tpl-1', { name: 'Renomeado' } as any, 'secretaria'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('recusa exclusão por quem não tem doctor_profile', async () => {
+      naoEhMedico();
+
+      await expect(service.delete('tpl-1', 'secretaria')).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      expect(repository.delete).not.toHaveBeenCalled();
+    });
+
+    it('recusa aplicar o modelo (conta uso) por quem não escreve na ficha', async () => {
+      naoEhMedico();
+
+      await expect(service.apply('tpl-1', 'secretaria')).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      expect(repository.incrementUsage).not.toHaveBeenCalled();
+    });
+
+    it('mantém a listagem liberada para quem não é médico', async () => {
+      naoEhMedico();
+
+      const result = await service.findMany('secretaria');
+
+      expect(result).toHaveLength(1);
+      expect(accessControlService.assertIsDoctor).not.toHaveBeenCalled();
+    });
+
+    it('exige ser médico ANTES de aceitar o médico informado no corpo', async () => {
+      naoEhMedico();
+
+      await expect(
+        service.create(
+          { name: 'Retorno', doctorId: 'doctor-1' } as any,
+          'secretaria',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(accessControlService.canAccessDoctor).not.toHaveBeenCalled();
     });
   });
 });

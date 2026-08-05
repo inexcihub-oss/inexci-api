@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import { APPOINTMENTS_MAX_TAKE } from './dto/find-appointments.dto';
 
 describe('AppointmentsService', () => {
   let service: AppointmentsService;
@@ -20,6 +21,10 @@ describe('AppointmentsService', () => {
   };
 
   const mockPatientRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockClinicalRecordRepository = {
     findOne: jest.fn(),
   };
 
@@ -45,6 +50,7 @@ describe('AppointmentsService', () => {
       undefined,
     );
     mockPatientRepository.findOne.mockResolvedValue({ id: patientId, ownerId });
+    mockClinicalRecordRepository.findOne.mockResolvedValue(null);
     mockAppointmentRepository.hasOverlap.mockResolvedValue(false);
     mockAppointmentRepository.create.mockImplementation((d) =>
       Promise.resolve({ id: 'appt-1', ...d }),
@@ -53,6 +59,7 @@ describe('AppointmentsService', () => {
     service = new AppointmentsService(
       mockAppointmentRepository as any,
       mockPatientRepository as any,
+      mockClinicalRecordRepository as any,
       mockAccessControlService as any,
     );
   });
@@ -233,6 +240,76 @@ describe('AppointmentsService', () => {
 
       expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
     });
+
+    // D-03: sem zerar a marca, o lembrete "já enviado" era o da data antiga e
+    // o paciente nunca era avisado do novo horário.
+    it('zera reminderSentAt ao reagendar para outro horário', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        reminderSentAt: new Date('2026-07-31T14:00:00.000Z'),
+      });
+      mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
+
+      await service.update(
+        'appt-1',
+        { scheduledAt: '2026-08-05T09:00:00.000Z' },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.objectContaining({
+          scheduledAt: new Date('2026-08-05T09:00:00.000Z'),
+          reminderSentAt: null,
+        }),
+      );
+    });
+
+    it('não zera reminderSentAt quando o horário enviado é o mesmo', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        reminderSentAt: new Date('2026-07-31T14:00:00.000Z'),
+      });
+      mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
+
+      await service.update(
+        'appt-1',
+        { scheduledAt: '2026-08-01T14:00:00.000Z', notes: 'ok' },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.not.objectContaining({ reminderSentAt: null }),
+      );
+    });
+
+    it('não zera reminderSentAt quando só a duração muda', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        reminderSentAt: new Date('2026-07-31T14:00:00.000Z'),
+      });
+      mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
+
+      await service.update('appt-1', { durationMinutes: 60 }, userId);
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.not.objectContaining({ reminderSentAt: null }),
+      );
+    });
   });
 
   describe('updateStatus', () => {
@@ -240,6 +317,10 @@ describe('AppointmentsService', () => {
       mockAppointmentRepository.findOne.mockResolvedValue({
         id: 'appt-1',
         ownerId,
+        doctorId,
+        status: AppointmentStatus.SCHEDULED,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
       });
       mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
 
@@ -259,6 +340,10 @@ describe('AppointmentsService', () => {
       mockAppointmentRepository.findOne.mockResolvedValue({
         id: 'appt-1',
         ownerId,
+        doctorId,
+        status: AppointmentStatus.SCHEDULED,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
       });
       mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
 
@@ -272,6 +357,123 @@ describe('AppointmentsService', () => {
         status: AppointmentStatus.CONFIRMED,
         cancellationReason: null,
       });
+    });
+
+    // D-01: reabrir uma consulta cancelada devolvia o slot sem checar se ele
+    // já tinha sido reocupado — duas consultas ativas no mesmo horário.
+    it.each([
+      [AppointmentStatus.CANCELLED, AppointmentStatus.SCHEDULED],
+      [AppointmentStatus.CANCELLED, AppointmentStatus.CONFIRMED],
+      [AppointmentStatus.NO_SHOW, AppointmentStatus.SCHEDULED],
+    ])(
+      'bloqueia reativar de %s para %s quando o horário foi reocupado',
+      async (from, to) => {
+        mockAppointmentRepository.findOne.mockResolvedValue({
+          id: 'appt-1',
+          ownerId,
+          doctorId,
+          status: from,
+          scheduledAt: new Date('2026-08-01T14:30:00.000Z'),
+          durationMinutes: 30,
+        });
+        mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+        await expect(
+          service.updateStatus('appt-1', { status: to }, userId),
+        ).rejects.toThrow(ConflictException);
+
+        expect(mockAppointmentRepository.hasOverlap).toHaveBeenCalledWith(
+          doctorId,
+          new Date('2026-08-01T14:30:00.000Z'),
+          new Date('2026-08-01T15:00:00.000Z'),
+          'appt-1',
+        );
+        expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('reativa a consulta quando o horário continua livre', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        status: AppointmentStatus.CANCELLED,
+        scheduledAt: new Date('2026-08-01T14:30:00.000Z'),
+        durationMinutes: 30,
+      });
+      mockAppointmentRepository.hasOverlap.mockResolvedValue(false);
+      mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.SCHEDULED },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
+        status: AppointmentStatus.SCHEDULED,
+        cancellationReason: null,
+      });
+    });
+
+    it.each([
+      ['realizar', AppointmentStatus.SCHEDULED, AppointmentStatus.COMPLETED],
+      ['cancelar', AppointmentStatus.SCHEDULED, AppointmentStatus.CANCELLED],
+      ['confirmar', AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED],
+      ['faltar', AppointmentStatus.CONFIRMED, AppointmentStatus.NO_SHOW],
+    ])(
+      'não revalida conflito ao %s (não é reativação)',
+      async (_label, from, to) => {
+        mockAppointmentRepository.findOne.mockResolvedValue({
+          id: 'appt-1',
+          ownerId,
+          doctorId,
+          status: from,
+          scheduledAt: new Date('2026-08-01T14:30:00.000Z'),
+          durationMinutes: 30,
+        });
+        mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
+
+        await service.updateStatus('appt-1', { status: to }, userId);
+
+        expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('delete', () => {
+    const appointment = {
+      id: 'appt-1',
+      ownerId,
+      doctorId,
+      status: AppointmentStatus.SCHEDULED,
+      scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+      durationMinutes: 30,
+    };
+
+    // D-06: sem a consulta, `/atendimento/[appointmentId]` dá 404 e o rascunho
+    // clínico fica inalcançável pela UI, mas continua na timeline do paciente.
+    it('bloqueia a exclusão quando existe ficha de atendimento vinculada', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+      mockClinicalRecordRepository.findOne.mockResolvedValue({ id: 'cr-1' });
+
+      await expect(service.delete('appt-1', userId)).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(mockClinicalRecordRepository.findOne).toHaveBeenCalledWith({
+        appointmentId: 'appt-1',
+      });
+      expect(mockAppointmentRepository.delete).not.toHaveBeenCalled();
+    });
+
+    it('exclui a consulta sem ficha vinculada', async () => {
+      mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+      mockClinicalRecordRepository.findOne.mockResolvedValue(null);
+
+      await service.delete('appt-1', userId);
+
+      expect(mockAppointmentRepository.delete).toHaveBeenCalledWith('appt-1');
     });
   });
 
@@ -293,7 +495,10 @@ describe('AppointmentsService', () => {
         doctorId,
         'doctor-2',
       ]);
-      mockAppointmentRepository.findAgenda.mockResolvedValue([]);
+      mockAppointmentRepository.findAgenda.mockResolvedValue({
+        records: [],
+        total: 0,
+      });
 
       await service.findAgenda(
         { from: '2026-08-01', to: '2026-08-31', doctorId },
@@ -311,29 +516,31 @@ describe('AppointmentsService', () => {
       );
     });
 
-    it('ignora filtro de médico não acessível (fail-closed)', async () => {
+    // D-05: antes o filtro era descartado em silêncio e a resposta trazia a
+    // agenda de todos os médicos acessíveis, como se o filtro não existisse.
+    // Lista vazia (e não 403) para não permitir enumerar ids de médicos.
+    it('retorna vazio quando o médico do filtro não é acessível (fail-closed)', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
       ]);
-      mockAppointmentRepository.findAgenda.mockResolvedValue([]);
 
-      await service.findAgenda(
+      const result = await service.findAgenda(
         { from: '2026-08-01', to: '2026-08-31', doctorId: 'intruder' },
         userId,
       );
 
-      expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
-        ownerId,
-        [doctorId],
-        expect.objectContaining({ take: expect.any(Number) }),
-      );
+      expect(result).toEqual({ total: 0, records: [] });
+      expect(mockAppointmentRepository.findAgenda).not.toHaveBeenCalled();
     });
 
     it('repassa status e ordem para o repositório', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
       ]);
-      mockAppointmentRepository.findAgenda.mockResolvedValue([]);
+      mockAppointmentRepository.findAgenda.mockResolvedValue({
+        records: [],
+        total: 0,
+      });
 
       await service.findAgenda(
         {
@@ -357,7 +564,10 @@ describe('AppointmentsService', () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
       ]);
-      mockAppointmentRepository.findAgenda.mockResolvedValue([]);
+      mockAppointmentRepository.findAgenda.mockResolvedValue({
+        records: [],
+        total: 0,
+      });
 
       // "Realizadas" lista todo o passado; "Próximas" não tem teto de data.
       await service.findAgenda({}, userId);
@@ -367,6 +577,47 @@ describe('AppointmentsService', () => {
         [doctorId],
         expect.objectContaining({ from: undefined, to: undefined }),
       );
+    });
+
+    // D-15: o teto de APPOINTMENTS_MAX_TAKE corta a lista em silêncio. Se
+    // `total` for o tamanho da página, ele vira o próprio teto e ninguém —
+    // nem o frontend, nem o usuário — consegue saber que faltou consulta.
+    it('devolve a contagem real do banco, não o tamanho da página cortada', async () => {
+      mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
+        doctorId,
+      ]);
+      const pagina = Array.from({ length: APPOINTMENTS_MAX_TAKE }, (_, i) => ({
+        id: `appt-${i}`,
+      }));
+      mockAppointmentRepository.findAgenda.mockResolvedValue({
+        records: pagina,
+        total: 1103,
+      });
+
+      const result = await service.findAgenda(
+        { status: [AppointmentStatus.COMPLETED], order: 'DESC' },
+        userId,
+      );
+
+      expect(result.total).toBe(1103);
+      expect(result.records).toHaveLength(APPOINTMENTS_MAX_TAKE);
+      // É a desigualdade que o consumidor usa para avisar do corte.
+      expect(result.total).toBeGreaterThan(result.records.length);
+    });
+
+    it('mantém total igual ao número de registros quando não há corte', async () => {
+      mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
+        doctorId,
+      ]);
+      mockAppointmentRepository.findAgenda.mockResolvedValue({
+        records: [{ id: 'appt-1' }, { id: 'appt-2' }],
+        total: 2,
+      });
+
+      const result = await service.findAgenda({}, userId);
+
+      expect(result.total).toBe(2);
+      expect(result.records).toHaveLength(2);
     });
   });
 });
