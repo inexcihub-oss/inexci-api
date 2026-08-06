@@ -21,7 +21,10 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import {
+  RequireAnyArea,
+  RequirePermission,
+} from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
@@ -35,6 +38,11 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
+  // Diretório do staff expõe nome/e-mail/CPF/telefone dos colegas do tenant.
+  // Sem decorator ficava liberado a qualquer autenticado (colaborador sem
+  // área inclusive). O service já escopa por ownerId/vínculo; a área é o gate
+  // de entrada.
+  @RequireAnyArea()
   @ApiOperation({ summary: 'Listar usuários' })
   async findMany(
     @Query() query: FindManyUsersDto,
@@ -44,6 +52,7 @@ export class UsersController {
   }
 
   @Get('one')
+  @RequireAnyArea()
   @ApiOperation({ summary: 'Buscar usuário por ID' })
   async findOne(
     // `users.id` é `uuid`: sem o pipe, `?id=999999` chega cru ao repositório e

@@ -148,6 +148,18 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
       expect(existing.title).toBe('Novo');
     });
 
+    it('deve escopar a busca pela SC (id + surgeryRequestId) — anti-IDOR', async () => {
+      (mockReportSectionRepo.findOne as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.updateReportSection('req-1', 'sec-1', { title: 'X' }, 'user-1'),
+      ).rejects.toThrow('Seção não encontrada');
+
+      expect(mockReportSectionRepo.findOne).toHaveBeenCalledWith({
+        where: { id: 'sec-1', surgeryRequestId: 'req-1' },
+      });
+    });
+
     it('deve lançar NotFoundException para section inexistente', async () => {
       (mockReportSectionRepo.findOne as jest.Mock).mockResolvedValue(null);
 
@@ -175,6 +187,19 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
       );
 
       expect(result).toEqual({ deleted: true });
+    });
+
+    it('deve escopar o delete pela SC (id + surgeryRequestId) — anti-IDOR', async () => {
+      (mockReportSectionRepo.delete as jest.Mock).mockResolvedValue({
+        affected: 0,
+      });
+
+      await service.deleteReportSection('req-1', 'sec-1', 'user-1');
+
+      expect(mockReportSectionRepo.delete).toHaveBeenCalledWith({
+        id: 'sec-1',
+        surgeryRequestId: 'req-1',
+      });
     });
 
     it('deve retornar { deleted: false } quando section não encontrada', async () => {
@@ -272,7 +297,11 @@ describe('SurgeryRequestReportService — Report Sections (PRD Laudos)', () => {
       // Batch: apenas 1 query em vez de N updates individuais
       expect(mockDataSource.query).toHaveBeenCalledTimes(1);
       const [sql, params] = (mockDataSource.query as jest.Mock).mock.calls[0];
-      expect(sql).toContain('UPDATE report_section rs');
+      // Nome de tabela e coluna reais (report_sections / surgery_request_id):
+      // a versão anterior usava 'report_section' e 'rs.surgeryRequestId',
+      // que quebravam em runtime e anulavam o escopo por SC.
+      expect(sql).toContain('UPDATE report_sections rs');
+      expect(sql).toContain('rs.surgery_request_id');
       expect(sql).toContain('VALUES');
       expect(params).toContain('sec-3');
       expect(params).toContain('sec-1');

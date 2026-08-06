@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { downloadTwilioInboundMedia } from '../helpers/twilio-media-download';
 import { ToolContext } from '../tool.interface';
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestStatus } from '../../../../database/entities/surgery-request.entity';
@@ -85,29 +86,9 @@ export async function downloadInboundMedia(
   url: string,
   configService?: ConfigService,
 ): Promise<{ buffer: Buffer; contentType: string | null; fileName: string }> {
-  const sid = configService?.get<string>('TWILIO_ACCOUNT_SID', '') || '';
-  const token = configService?.get<string>('TWILIO_AUTH_TOKEN', '') || '';
-
-  const headers: Record<string, string> = {};
-  if (sid && token) {
-    headers.Authorization = `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`;
-  }
-
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
-    throw new Error(`falha no download da mídia (${response.status})`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get('content-type');
-  const urlPath = new URL(url).pathname;
-  const fileNameFallback = urlPath.split('/').pop() || `media-${Date.now()}`;
-
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    contentType,
-    fileName: fileNameFallback,
-  };
+  // Delega ao helper endurecido (allowlist de host Twilio + timeout + limite de
+  // bytes). Antes era um `fetch(url)` cru — SSRF com vazamento de credencial.
+  return downloadTwilioInboundMedia(url, configService, 'media');
 }
 
 export async function getAuthorizedRequest(

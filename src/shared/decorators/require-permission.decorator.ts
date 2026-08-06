@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 
 export const PERMISSIONS_KEY = 'required_permissions';
 
@@ -16,3 +16,19 @@ export const PERMISSIONS_KEY = 'required_permissions';
  */
 export const RequirePermission = (...permissions: Permission[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
+
+/**
+ * Exige **qualquer uma** das quatro áreas da plataforma — ou seja, qualquer
+ * usuário que tenha acesso a pelo menos uma área.
+ *
+ * Usado nos cadastros transversais (pacientes, hospitais, convênios,
+ * fornecedores, procedimentos, fabricantes): eles são compartilhados por
+ * Agenda, Atendimento, Solicitações e Administração, então não faz sentido
+ * amarrá-los a uma única área. Mas sem decorator nenhum a rota fica liberada a
+ * QUALQUER autenticado — inclusive um colaborador criado com `permissions: []`
+ * ("sem acesso a área nenhuma"), que passava a ler/escrever toda a base de
+ * pacientes (dado de saúde, LGPD art. 11). `RequireAnyArea` mantém a
+ * transversalidade e fecha esse buraco: zero-permissão ⇒ 403.
+ */
+export const RequireAnyArea = () =>
+  SetMetadata(PERMISSIONS_KEY, [...ALL_PERMISSIONS]);

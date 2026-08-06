@@ -1,8 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { NotificationsGateway } from './notifications.gateway';
 import { JwtService } from '@nestjs/jwt';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
+import { UserRepository } from 'src/database/repositories/user.repository';
 import { NotificationType } from 'src/database/entities/notification.entity';
+import { UserStatus } from 'src/database/entities/user.entity';
 
 const makeSocket = (token?: string): any => ({
   handshake: { auth: { token } },
@@ -16,11 +19,19 @@ describe('NotificationsGateway', () => {
   let gateway: NotificationsGateway;
   let jwtService: { verify: jest.Mock };
   let notificationRepository: { countUnread: jest.Mock };
+  let userRepository: { findOne: jest.Mock };
+  let configService: { get: jest.Mock };
 
   beforeEach(async () => {
     jwtService = { verify: jest.fn() };
     notificationRepository = {
       countUnread: jest.fn().mockResolvedValue(0),
+    };
+    userRepository = {
+      findOne: jest.fn().mockResolvedValue({ status: UserStatus.ACTIVE }),
+    };
+    configService = {
+      get: jest.fn((_key: string, fallback?: unknown) => fallback),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -31,6 +42,8 @@ describe('NotificationsGateway', () => {
           provide: NotificationRepository,
           useValue: notificationRepository,
         },
+        { provide: ConfigService, useValue: configService },
+        { provide: UserRepository, useValue: userRepository },
       ],
     }).compile();
 
@@ -97,6 +110,45 @@ describe('NotificationsGateway', () => {
       jwtService.verify.mockImplementation(() => {
         throw new Error('invalid');
       });
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalled();
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('valida issuer e audience ao verificar o token', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'user-123' });
+
+      await gateway.handleConnection(client);
+
+      expect(jwtService.verify).toHaveBeenCalledWith(
+        'valid-token',
+        expect.objectContaining({
+          issuer: 'inexci-api',
+          audience: 'inexci-app',
+        }),
+      );
+    });
+
+    it('desconecta usuário desativado mesmo com token válido', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'user-123' });
+      userRepository.findOne.mockResolvedValue({
+        status: UserStatus.INACTIVE,
+      });
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalled();
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('desconecta quando o usuário não existe mais', async () => {
+      const client = makeSocket('valid-token');
+      jwtService.verify.mockReturnValue({ userId: 'ghost' });
+      userRepository.findOne.mockResolvedValue(null);
 
       await gateway.handleConnection(client);
 

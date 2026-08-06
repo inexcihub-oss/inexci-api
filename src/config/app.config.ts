@@ -108,7 +108,18 @@ export const envValidationSchema = Joi.object({
   AI_AUDIO_ALLOWED_MIME: Joi.string()
     .allow('')
     .default('audio/ogg,audio/mpeg,audio/mp4,audio/webm,audio/wav,audio/x-wav'),
-  AI_AUDIO_DEBUG_PERSIST: Joi.string().allow('').default('false'),
+  // Grava cópia de mídia inbound (áudio do paciente) em disco para debug. Só
+  // local — proibido em produção (persistiria PII/áudio clínico em /tmp).
+  AI_AUDIO_DEBUG_PERSIST: Joi.string()
+    .allow('')
+    .default('false')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().invalid('true', '1').messages({
+        'any.invalid':
+          'AI_AUDIO_DEBUG_PERSIST não pode ser ativado em produção (persiste PII em disco).',
+      }),
+    }),
   AI_AUDIO_DEBUG_DIR: Joi.string().allow('').default('/tmp/inexci-audio-debug'),
   AI_AUDIO_DEBUG_RETENTION_HOURS: Joi.number().default(24),
   AI_TRANSCRIPTION_PROVIDER: Joi.string()
@@ -178,7 +189,18 @@ export const envValidationSchema = Joi.object({
     .valid('error', 'warn', 'log', 'debug', 'verbose')
     .default('log'),
   LOG_PRETTY: Joi.string().allow('').default(''),
-  DB_LOG_FULL_QUERIES: Joi.string().allow('').default('false'),
+  // Loga SQL completo COM parâmetros (CPF, telefone, prontuário). Só para
+  // debug local — proibido em produção (vazaria PII sensível no Loki).
+  DB_LOG_FULL_QUERIES: Joi.string()
+    .allow('')
+    .default('false')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.string().invalid('true', '1').messages({
+        'any.invalid':
+          'DB_LOG_FULL_QUERIES não pode ser ativado em produção (loga SQL com PII).',
+      }),
+    }),
   LOG_RETENTION_NOTIFICATION_DAYS: Joi.number().default(90),
   LOG_RETENTION_AI_USAGE_DAYS: Joi.number().default(365),
   LOG_RETENTION_PII_DAYS: Joi.number().default(180),
