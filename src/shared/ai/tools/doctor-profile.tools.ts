@@ -10,41 +10,20 @@ import { UsersService } from '../../../modules/users/users.service';
 import { WhatsappDocumentDispatcherService } from '../services/whatsapp-document-dispatcher.service';
 import { ConversationMemoryService } from '../services/orchestrator/conversation-memory.service';
 import { translateServiceError } from './helpers/service-error-translator';
+import { downloadTwilioInboundMedia } from './helpers/twilio-media-download';
 import { buildToolResult } from './tool-result';
 
 /**
- * Baixa uma mídia inbound do WhatsApp (Twilio) usando autenticação básica
- * com as credenciais da conta. Mesma estratégia usada por `manage_documents`
- * e `manage_report_images` em `manage.tools.ts`.
+ * Baixa uma mídia inbound do WhatsApp (Twilio) usando autenticação básica com
+ * as credenciais da conta. Delega ao helper endurecido (allowlist de host
+ * Twilio + timeout + limite de bytes) — antes era um `fetch(url)` cru que, com
+ * a URL vinda do webhook, permitia SSRF com vazamento das credenciais Twilio.
  */
 async function downloadInboundMedia(
   url: string,
   configService?: ConfigService,
 ): Promise<{ buffer: Buffer; contentType: string | null; fileName: string }> {
-  const sid = configService?.get<string>('TWILIO_ACCOUNT_SID', '') || '';
-  const token = configService?.get<string>('TWILIO_AUTH_TOKEN', '') || '';
-
-  const headers: Record<string, string> = {};
-  if (sid && token) {
-    headers.Authorization = `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`;
-  }
-
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
-    throw new Error(`falha no download da mídia (${response.status})`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  const contentType = response.headers.get('content-type');
-  const urlPath = new URL(url).pathname;
-  const fileNameFallback =
-    urlPath.split('/').pop() || `signature-${Date.now()}`;
-
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    contentType,
-    fileName: fileNameFallback,
-  };
+  return downloadTwilioInboundMedia(url, configService, 'signature');
 }
 
 export function buildDoctorProfileTools(

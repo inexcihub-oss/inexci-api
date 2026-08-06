@@ -211,27 +211,37 @@ export class WebhookService {
     body: Record<string, any>,
   ): void {
     const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
-    const validateSignatureRaw = this.configService.get<string>(
-      'TWILIO_VALIDATE_SIGNATURE',
-      '',
-    );
-    const shouldValidateSignature =
-      validateSignatureRaw.trim().toLowerCase() === 'true' ||
-      validateSignatureRaw.trim() === '1' ||
-      nodeEnv === 'production';
+    const validateSignatureRaw = this.configService
+      .get<string>('TWILIO_VALIDATE_SIGNATURE', '')
+      .trim()
+      .toLowerCase();
+    const explicitlyDisabled =
+      validateSignatureRaw === 'false' || validateSignatureRaw === '0';
+    const authToken = this.configService
+      .get<string>('TWILIO_AUTH_TOKEN', '')
+      .trim();
 
-    if (!shouldValidateSignature) return;
+    // Opt-out explícito é escape hatch APENAS de dev — nunca desliga em produção.
+    if (explicitlyDisabled && nodeEnv !== 'production') return;
 
-    const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN', '');
     if (!authToken) {
-      // Fail-closed: em producao a ausencia do token nao pode virar "aceita
-      // qualquer requisicao". O webhook e @Public(), entao sem validacao um
-      // atacante forja o From e opera a plataforma como o medico.
-      throw new UnauthorizedException(
-        'Configuração de webhook inválida: TWILIO_AUTH_TOKEN ausente',
-      );
+      // Sem token não há como validar. Em produção isso é erro de config e
+      // precisa ser fail-closed: o webhook é @Public(), então "aceita qualquer
+      // requisição" deixaria um atacante forjar o From e operar a plataforma
+      // como o médico. Fora de produção, seguimos permitindo o dev local sem
+      // Twilio configurado.
+      if (nodeEnv === 'production') {
+        throw new UnauthorizedException(
+          'Configuração de webhook inválida: TWILIO_AUTH_TOKEN ausente',
+        );
+      }
+      return;
     }
 
+    // Token presente ⇒ valida SEMPRE, independente do NODE_ENV. Antes a
+    // validação só ligava em `production` (ou com a flag), então um deploy em
+    // `staging`/`NODE_ENV` diferente aceitava webhooks forjados mesmo tendo o
+    // token. Defesa em profundidade: se dá para validar, valida.
     const isValid = urls.some((url) =>
       validateRequest(authToken, signature, url, body),
     );

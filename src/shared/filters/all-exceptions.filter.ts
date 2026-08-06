@@ -42,6 +42,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (exception instanceof EntityNotFoundError) {
       status = HttpStatus.NOT_FOUND;
       message = 'Recurso não encontrado';
+    } else if (isPayloadTooLargeError(exception)) {
+      status = HttpStatus.PAYLOAD_TOO_LARGE;
+      message = 'Conteúdo muito grande. Reduza o tamanho do texto ou do anexo.';
+      // `warn`, não `error`: o corpo excedeu o limite configurado — é entrada
+      // do cliente, não falha da aplicação, e não deve poluir o alerta de
+      // exceções não tratadas.
+      this.logger.warn(`Payload too large: ${request.method} ${request.url}`);
     } else {
       this.logger.error(
         `Unhandled exception: ${exception}`,
@@ -61,6 +68,32 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
     });
   }
+}
+
+/**
+ * Corpo maior que o limite do `body-parser` (100kb por padrão).
+ *
+ * O erro vem do `raw-body`/`body-parser`, que é anterior ao Nest no pipeline:
+ * não é `HttpException` e caía no `else` genérico, virando um 500 "Erro
+ * interno do servidor" com stack de "Unhandled exception" — o cliente não
+ * ficava sabendo que o problema era o tamanho do que ele mandou.
+ *
+ * A identificação é por `type: 'entity.too.large'` (a marca do `raw-body`) com
+ * o `statusCode`/`status` 413 como rede de segurança para outras camadas que
+ * lancem o mesmo erro do `http-errors` sem o `type`.
+ */
+function isPayloadTooLargeError(exception: unknown): boolean {
+  if (typeof exception !== 'object' || exception === null) return false;
+  const erro = exception as {
+    type?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  return (
+    erro.type === 'entity.too.large' ||
+    erro.status === HttpStatus.PAYLOAD_TOO_LARGE ||
+    erro.statusCode === HttpStatus.PAYLOAD_TOO_LARGE
+  );
 }
 
 /**

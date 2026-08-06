@@ -39,4 +39,24 @@ describe('AuthController — rate limiting', () => {
       }
     },
   );
+
+  /**
+   * `refresh` não é rota de credencial digitada: a aplicação o chama sozinha,
+   * uma vez por carregamento de página e por aba (o access token só existe em
+   * memória). Com o teto de 10/min que ele tinha, quem navegava rápido ou
+   * mantinha algumas abas abertas recebia 429 — e o front tratava isso como
+   * sessão encerrada, mandando para o login com o cookie ainda válido.
+   */
+  it('refresh tolera uso normal de várias abas (limite bem acima do de login)', () => {
+    const limite = (metodo: string) => {
+      const handler = (AuthController.prototype as any)[metodo];
+      const chave = (Reflect.getMetadataKeys(handler) ?? []).find((k: string) =>
+        String(k).startsWith('THROTTLER:LIMIT'),
+      );
+      return Reflect.getMetadata(chave as string, handler) as number;
+    };
+
+    expect(limite('refresh')).toBeGreaterThanOrEqual(30);
+    expect(limite('refresh')).toBeGreaterThan(limite('login'));
+  });
 });

@@ -69,6 +69,37 @@ describe('AppointmentReminderService', () => {
     });
   });
 
+  /**
+   * D-07: o nome cadastrado costuma vir com o tratamento ("Dr. Carlos"), e
+   * prefixar às cegas produzia "Dr(a). Dr. Carlos" no e-mail e no WhatsApp.
+   */
+  it('não duplica o tratamento quando o nome do médico já o tem', async () => {
+    mockUserRepository.findOne.mockResolvedValue({
+      id: 'd1',
+      name: 'Dr. Carlos Mendonça',
+    });
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
+    mockPatientRepository.findOne.mockResolvedValue({
+      id: 'p1',
+      name: 'Ana',
+      email: 'ana@x.com',
+      phone: '5511999',
+    });
+
+    await service.sendDueReminders();
+
+    expect(mockMailService.sendAppointmentReminder).toHaveBeenCalledWith(
+      'ana@x.com',
+      expect.objectContaining({ doctorName: 'Dr. Carlos Mendonça' }),
+    );
+    expect(mockWhatsappService.sendAppointmentReminder).toHaveBeenCalledWith(
+      '5511999',
+      'Ana',
+      expect.any(String),
+      'Dr. Carlos Mendonça',
+    );
+  });
+
   it('marca reminderSentAt mesmo sem canais, mas não conta como enviado', async () => {
     mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
     mockPatientRepository.findOne.mockResolvedValue({
@@ -127,5 +158,87 @@ describe('AppointmentReminderService', () => {
       'appt-1',
       expect.anything(),
     );
+  });
+
+  // D-04: os envios eram fire-and-forget (`void`), então uma falha de
+  // enfileiramento (Redis fora) era engolida e a consulta ficava marcada como
+  // lembrada — o lembrete sumia em silêncio.
+  it('não marca reminderSentAt quando todos os canais falham', async () => {
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
+    mockPatientRepository.findOne.mockResolvedValue({
+      id: 'p1',
+      name: 'Ana',
+      email: 'ana@x.com',
+      phone: '5511999',
+    });
+    mockMailService.sendAppointmentReminder.mockRejectedValue(
+      new Error('redis down'),
+    );
+    mockWhatsappService.sendAppointmentReminder.mockRejectedValue(
+      new Error('redis down'),
+    );
+
+    const sent = await service.sendDueReminders();
+
+    expect(sent).toBe(0);
+    expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('marca reminderSentAt quando ao menos um canal passa', async () => {
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
+    mockPatientRepository.findOne.mockResolvedValue({
+      id: 'p1',
+      name: 'Ana',
+      email: 'ana@x.com',
+      phone: '5511999',
+    });
+    mockMailService.sendAppointmentReminder.mockRejectedValue(
+      new Error('smtp fora'),
+    );
+    mockWhatsappService.sendAppointmentReminder.mockResolvedValue(undefined);
+
+    const sent = await service.sendDueReminders();
+
+    expect(sent).toBe(1);
+    // A falha do e-mail não pode cancelar o WhatsApp.
+    expect(mockWhatsappService.sendAppointmentReminder).toHaveBeenCalled();
+    expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
+      reminderSentAt: expect.any(Date),
+    });
+  });
+
+  it('uma consulta com todos os canais falhando não interrompe o lote', async () => {
+    mockAppointmentRepository.findDueForReminder.mockResolvedValue([
+      appt,
+      { ...appt, id: 'appt-2', patientId: 'p2' },
+    ]);
+    mockPatientRepository.findOne
+      .mockResolvedValueOnce({
+        id: 'p1',
+        name: 'Ana',
+        email: 'ana@x.com',
+        phone: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'p2',
+        name: 'Bob',
+        email: 'bob@x.com',
+        phone: null,
+      });
+    mockMailService.sendAppointmentReminder
+      .mockRejectedValueOnce(new Error('redis down'))
+      .mockResolvedValueOnce(undefined);
+
+    const sent = await service.sendDueReminders();
+
+    expect(sent).toBe(1);
+    // A que falhou fica sem marca, para a próxima execução tentar de novo.
+    expect(mockAppointmentRepository.update).not.toHaveBeenCalledWith(
+      'appt-1',
+      expect.anything(),
+    );
+    expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-2', {
+      reminderSentAt: expect.any(Date),
+    });
   });
 });

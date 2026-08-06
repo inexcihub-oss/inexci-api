@@ -100,7 +100,12 @@ export class DocumentsService {
       id: data.id,
       surgeryRequestId: data.surgeryRequestId,
     });
-    if (!document)
+    // Mesma armadilha do `surgeryRequestId`, agora no `key`: ele também entra
+    // no WHERE do DELETE, mas o storage apaga pela `uri` do documento
+    // carregado. Com `key` divergente o banco não removia nada e o arquivo ia
+    // embora do R2 mesmo assim. 404 antes de qualquer efeito, sem revelar qual
+    // campo divergiu.
+    if (!document || document.key !== data.key)
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
 
     return await executeInTransaction(
@@ -109,11 +114,17 @@ export class DocumentsService {
         const documentRepo = manager.getRepository(Document);
 
         // Deletar do banco de dados
-        await documentRepo.delete({
+        const result = await documentRepo.delete({
           id: data.id,
           key: data.key,
           surgeryRequestId: data.surgeryRequestId,
         });
+
+        // Só apaga no R2 depois de a linha ter mesmo saído do banco — apagar o
+        // arquivo de um registro que continua existindo é perda de dado.
+        if (!result.affected) {
+          throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
+        }
 
         if (document.uri) {
           try {

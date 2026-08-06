@@ -14,7 +14,10 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import {
+  RequireAnyArea,
+  RequirePermission,
+} from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
@@ -29,6 +32,10 @@ import { BulkDeleteHealthPlansDto } from './dto/bulk-delete-health-plans.dto';
 @ApiTags('Planos de Saúde')
 @ApiBearerAuth()
 @Controller('health_plans')
+// Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
+// uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
+// específica. Métodos de escrita mantêm `@RequirePermission(ADMINISTRACAO)`.
+@RequireAnyArea()
 export class HealthPlansController {
   constructor(private readonly healthPlansService: HealthPlansService) {}
 

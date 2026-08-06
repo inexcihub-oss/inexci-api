@@ -9,7 +9,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import {
+  RequireAnyArea,
+  RequirePermission,
+} from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import { ProceduresService } from './procedures.service';
 import { FindManyProcedureDto } from './dto/find-many-procedure.dto';
@@ -23,6 +26,10 @@ import {
 @ApiTags('Procedimentos (catálogo)')
 @ApiBearerAuth()
 @Controller('procedures')
+// Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
+// uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
+// específica. Métodos de escrita mantêm `@RequirePermission(ADMINISTRACAO)`.
+@RequireAnyArea()
 export class ProceduresController {
   constructor(private readonly proceduresService: ProceduresService) {}
 

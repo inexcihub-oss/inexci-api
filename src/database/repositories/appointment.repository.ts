@@ -25,11 +25,11 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
    * A janela é semiaberta (`>= from`, `< to`) e cada ponta pode ser omitida:
    * a agenda passa as duas, "Próximas" passa só `from` e "Realizadas" nenhuma.
    */
-  findAgenda(
+  async findAgenda(
     ownerId: string,
     doctorIds: string[],
     options: FindAgendaOptions,
-  ): Promise<Appointment[]> {
+  ): Promise<{ records: Appointment[]; total: number }> {
     const qb = this.repository
       .createQueryBuilder('appointment')
       .leftJoinAndSelect('appointment.patient', 'patient')
@@ -48,10 +48,16 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       });
     }
 
-    return qb
+    // `getManyAndCount` aplica o `take` só às linhas; a contagem é a do
+    // recorte inteiro. É o que permite ao consumidor saber que a lista veio
+    // cortada pelo teto — antes o `total` era o tamanho da página, ou seja,
+    // igual ao teto, e o corte passava despercebido.
+    const [records, total] = await qb
       .orderBy('appointment.scheduledAt', options.order ?? 'ASC')
       .take(options.take)
-      .getMany();
+      .getManyAndCount();
+
+    return { records, total };
   }
 
   /**

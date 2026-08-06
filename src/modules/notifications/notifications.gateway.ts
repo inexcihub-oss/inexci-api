@@ -6,9 +6,16 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { Namespace, Socket } from 'socket.io';
 import { NotificationType } from 'src/database/entities/notification.entity';
+import { UserStatus } from 'src/database/entities/user.entity';
 import { NotificationRepository } from 'src/database/repositories/notification.repository';
+import { UserRepository } from 'src/database/repositories/user.repository';
+import {
+  JWT_DEFAULT_AUDIENCE,
+  JWT_DEFAULT_ISSUER,
+} from 'src/modules/auth/jwt-payload.interface';
 
 export interface NotificationPayload {
   id: string;
@@ -54,6 +61,10 @@ export class NotificationsGateway
     private readonly jwtService: JwtService,
     @Optional()
     private readonly notificationRepository?: NotificationRepository,
+    @Optional()
+    private readonly configService?: ConfigService,
+    @Optional()
+    private readonly userRepository?: UserRepository,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -64,8 +75,31 @@ export class NotificationsGateway
     }
 
     try {
-      const payload = this.jwtService.verify(token);
+      // Valida issuer/audience como a JwtStrategy HTTP faz — um token emitido
+      // para outro serviço/plateia não deve abrir o socket.
+      const payload = this.jwtService.verify(token, {
+        issuer: this.configService?.get<string>(
+          'JWT_ISSUER',
+          JWT_DEFAULT_ISSUER,
+        ),
+        audience: this.configService?.get<string>(
+          'JWT_AUDIENCE',
+          JWT_DEFAULT_AUDIENCE,
+        ),
+      });
       const userId: string = payload.userId;
+
+      // Revalida o usuário: um token continua válido por até 15 min após a
+      // conta ser desativada; sem esta checagem, um usuário desativado
+      // manteria o socket vivo recebendo notificações até o token expirar.
+      if (this.userRepository) {
+        const user = await this.userRepository.findOne({ id: userId });
+        if (!user || user.status !== UserStatus.ACTIVE) {
+          client.disconnect();
+          return;
+        }
+      }
+
       client.data.userId = userId;
       client.join(`user:${userId}`);
       this.logger.debug(`Client connected: user:${userId}`);

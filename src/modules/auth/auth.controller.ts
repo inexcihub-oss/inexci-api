@@ -129,7 +129,17 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ short: { ttl: 60000, limit: 10 } })
+  // Endpoint de enumeração por natureza (registered/available). Não dá para
+  // eliminar o vazamento sem quebrar a UX do wizard — e o próprio `register`
+  // revelaria o mesmo no submit. A defesa aqui é inviabilizar a enumeração EM
+  // VOLUME: 5/min prende o uso legítimo (o wizard checa um punhado de e-mails) e
+  // 20/h por IP torna impraticável varrer uma lista grande a partir de um IP.
+  // Mitigação completa (varredura com rotação de IP) exige um desafio anti-bot
+  // (CAPTCHA/Turnstile) — fora do escopo desta correção; ver relatório.
+  @Throttle({
+    short: { ttl: 60000, limit: 5 },
+    long: { ttl: 3600000, limit: 20 },
+  })
   @Post('check-email')
   @HttpCode(200)
   @ApiOperation({
@@ -214,7 +224,14 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ short: { ttl: 60000, limit: 10 } })
+  // 10/min era o teto de um endpoint de credencial digitada; este aqui é
+  // acionado pela própria aplicação, uma vez por carregamento de página e por
+  // aba (o access token vive só em memória). Quem navega rápido ou mantém
+  // algumas abas abertas estourava o limite e recebia 429 — o que, do lado do
+  // navegador, virava sessão derrubada ou tela sem dados, com o cookie de
+  // refresh ainda válido. 60/min continua limitando abuso (o endpoint ainda
+  // exige o cookie e rotaciona o token a cada uso) sem punir uso normal.
+  @Throttle({ short: { ttl: 60000, limit: 60 } })
   @Post('refresh')
   @ApiOperation({ summary: 'Renovar access token via refresh token' })
   @ApiResponse({ status: 200, description: 'Token renovado' })

@@ -104,7 +104,13 @@ export class ClinicalDocumentsService {
     const document = await this.documentRepository.findOneSimple({
       id: data.id,
     });
-    if (!document || !document.patientId) {
+    // O `key` entra no WHERE do DELETE abaixo. Se ele não casar com o do
+    // documento carregado, o banco não remove linha nenhuma — mas o arquivo do
+    // R2 é apagado assim mesmo (o storage usa a `uri` do documento, não o
+    // `key`), deixando um anexo clínico fantasma: visível na lista, 404 ao
+    // abrir. Valida antes de qualquer efeito e devolve o mesmo 404 de
+    // "documento não encontrado", sem dizer qual dos dois campos divergiu.
+    if (!document || !document.patientId || document.key !== data.key) {
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
     }
     const patient = await this.assertPatientAccess(document.patientId, userId);
@@ -113,7 +119,17 @@ export class ClinicalDocumentsService {
       this.dataSource,
       async (manager) => {
         const documentRepo = manager.getRepository(Document);
-        await documentRepo.delete({ id: data.id, key: data.key });
+        const result = await documentRepo.delete({
+          id: data.id,
+          key: data.key,
+        });
+
+        // Segunda trava, agora sobre o efeito real: só encosta no R2 depois de
+        // a linha ter de fato saído do banco. Sem o `affected`, uma corrida (ou
+        // um WHERE que deixe de casar) apagaria o arquivo de um registro vivo.
+        if (!result.affected) {
+          throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
+        }
 
         if (document.uri) {
           try {

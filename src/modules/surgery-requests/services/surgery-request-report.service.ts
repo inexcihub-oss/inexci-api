@@ -55,13 +55,16 @@ export class SurgeryRequestReportService {
   }
 
   async updateReportSection(
-    _id: string,
+    surgeryRequestId: string,
     sectionId: string,
     dto: UpdateReportSectionDto,
     _userId: string,
   ): Promise<ReportSection> {
+    // Escopo por SC obrigatório: o SurgeryRequestOwnerGuard valida apenas o
+    // :id (a SC) contra o tenant; sem amarrar a seção à SC, um atacante usaria
+    // uma SC própria no :id e o sectionId de outra clínica — IDOR cross-tenant.
     const section = await this.reportSectionRepository.findOne({
-      where: { id: sectionId },
+      where: { id: sectionId, surgeryRequestId },
     });
     if (!section) throw new NotFoundException('Seção não encontrada');
     if (dto.title !== undefined)
@@ -88,11 +91,16 @@ export class SurgeryRequestReportService {
   }
 
   async deleteReportSection(
-    _id: string,
+    surgeryRequestId: string,
     sectionId: string,
     _userId: string,
   ): Promise<{ deleted: boolean }> {
-    const result = await this.reportSectionRepository.delete({ id: sectionId });
+    // Escopo por SC obrigatório — mesmo motivo de updateReportSection: evita
+    // apagar seção de laudo de outro tenant via sectionId não escopado.
+    const result = await this.reportSectionRepository.delete({
+      id: sectionId,
+      surgeryRequestId,
+    });
     return { deleted: (result.affected ?? 0) > 0 };
   }
 
@@ -111,10 +119,10 @@ export class SurgeryRequestReportService {
     const surgeryRequestParam = `$${params.length + 1}`;
 
     await this.dataSource.query(
-      `UPDATE report_section rs
+      `UPDATE report_sections rs
        SET "order" = v.new_order
        FROM (VALUES ${rows}) AS v(id, new_order)
-       WHERE rs.id = v.id AND rs.surgeryRequestId = ${surgeryRequestParam}`,
+       WHERE rs.id = v.id AND rs.surgery_request_id = ${surgeryRequestParam}`,
       [...params, id],
     );
 

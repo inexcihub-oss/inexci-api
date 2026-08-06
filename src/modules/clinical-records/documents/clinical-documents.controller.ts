@@ -25,6 +25,11 @@ import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 import { CreateMedicalCertificateDto } from './dto/create-medical-certificate.dto';
 import { CreateExamReferralDto } from './dto/create-exam-referral.dto';
 import {
+  PreviewExamReferralDto,
+  PreviewMedicalCertificateDto,
+  PreviewPrescriptionDto,
+} from './dto/preview-clinical-document.dto';
+import {
   AuthenticatedUser,
   CurrentUser,
 } from 'src/shared/decorators/current-user.decorator';
@@ -102,17 +107,20 @@ export class ClinicalDocumentsController {
   // Devolve o HTML do documento (mesmo template da emissão) para o médico
   // conferir na tela. Nada é gravado, e nenhum PDF é gerado: subir o Chromium
   // a cada clique em "Visualizar" custa segundos e o arquivo seria descartado.
+  //
+  // A ficha é opcional aqui (e só aqui): conferir um documento não pode criar
+  // prontuário. Sem `clinicalRecordId`, o HTML é montado a partir do paciente e
+  // dos campos que estão na tela — ver `PreviewTargetDto`.
 
   @Post('prescription/preview')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Pré-visualizar receita' })
   async previewPrescription(
-    @Body() data: CreatePrescriptionDto,
+    @Body() data: PreviewPrescriptionDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const html =
       await this.clinicalDocumentGenerationService.previewPrescription(
-        data.clinicalRecordId,
         data,
         user.userId,
       );
@@ -123,12 +131,11 @@ export class ClinicalDocumentsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Pré-visualizar atestado médico' })
   async previewMedicalCertificate(
-    @Body() data: CreateMedicalCertificateDto,
+    @Body() data: PreviewMedicalCertificateDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const html =
       await this.clinicalDocumentGenerationService.previewMedicalCertificate(
-        data.clinicalRecordId,
         data,
         user.userId,
       );
@@ -139,12 +146,11 @@ export class ClinicalDocumentsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Pré-visualizar encaminhamento de exames' })
   async previewExamReferral(
-    @Body() data: CreateExamReferralDto,
+    @Body() data: PreviewExamReferralDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const html =
       await this.clinicalDocumentGenerationService.previewExamReferral(
-        data.clinicalRecordId,
         data,
         user.userId,
       );

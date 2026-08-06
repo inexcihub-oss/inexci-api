@@ -16,6 +16,8 @@ describe('Emissão de documentos do atendimento (rotas)', () => {
   let app: INestApplication;
 
   const recordId = '33333333-3333-4333-8333-333333333333';
+  const patientId = '44444444-4444-4444-8444-444444444444';
+  const doctorId = '55555555-5555-4555-8555-555555555555';
 
   const generationService = {
     generatePrescription: jest.fn().mockResolvedValue({ id: 'doc-1' }),
@@ -170,10 +172,61 @@ describe('Emissão de documentos do atendimento (rotas)', () => {
       // custaria segundos de Puppeteer por clique.
       expect(response.body).toEqual({ html: '<html>previa</html>' });
       expect(generationService.previewPrescription).toHaveBeenCalledWith(
-        recordId,
-        expect.objectContaining({ items: [{ name: 'Dipirona 500mg' }] }),
+        expect.objectContaining({
+          clinicalRecordId: recordId,
+          items: [{ name: 'Dipirona 500mg' }],
+        }),
         'user-1',
       );
+      expect(generationService.generatePrescription).not.toHaveBeenCalled();
+    });
+
+    /**
+     * D-11: "Visualizar" não pode criar ficha. Sem `clinicalRecordId` a prévia
+     * ainda tem que passar — é o payload que o frontend manda em um atendimento
+     * ainda não salvo.
+     */
+    it('aceita a prévia sem ficha, com paciente e ficha em memória', async () => {
+      await request(app.getHttpServer())
+        .post('/clinical-records/documents/prescription/preview')
+        .send({ patientId, doctorId, items: [{ name: 'Dipirona 500mg' }] })
+        .expect(200);
+
+      expect(generationService.previewPrescription).toHaveBeenCalledWith(
+        expect.objectContaining({ patientId, doctorId }),
+        'user-1',
+      );
+    });
+
+    it('aceita os CIDs da ficha em memória no atestado e no encaminhamento', async () => {
+      const cidCodes = [{ code: 'M54.5', description: 'Dor lombar baixa' }];
+
+      await request(app.getHttpServer())
+        .post('/clinical-records/documents/medical-certificate/preview')
+        .send({ patientId, restDays: 2, includeCid: true, cidCodes })
+        .expect(200);
+      expect(generationService.previewMedicalCertificate).toHaveBeenCalledWith(
+        expect.objectContaining({ patientId, cidCodes }),
+        'user-1',
+      );
+
+      await request(app.getHttpServer())
+        .post('/clinical-records/documents/exam-referral/preview')
+        .send({ patientId, exams: [{ name: 'Hemograma' }], cidCodes })
+        .expect(200);
+      expect(generationService.previewExamReferral).toHaveBeenCalledWith(
+        expect.objectContaining({ patientId, cidCodes }),
+        'user-1',
+      );
+    });
+
+    /** A emissão continua exigindo a ficha — só a prévia é que dispensa. */
+    it('não afrouxa a emissão: receita sem ficha continua recusada', async () => {
+      await request(app.getHttpServer())
+        .post('/clinical-records/documents/prescription')
+        .send({ patientId, items: [{ name: 'Dipirona 500mg' }] })
+        .expect(400);
+
       expect(generationService.generatePrescription).not.toHaveBeenCalled();
     });
 

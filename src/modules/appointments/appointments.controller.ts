@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -29,6 +30,12 @@ import { FindAppointmentsDto } from './dto/find-appointments.dto';
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
+  // `appointments.id` e `patients.id` são `uuid`. Sem o pipe, um id malformado
+  // chega cru ao Postgres, a query aborta ("invalid input syntax for type
+  // uuid") e o `AllExceptionsFilter` devolve um 400 genérico de banco — que não
+  // diz o que está errado e ainda gasta uma ida ao banco. Mesmo padrão do
+  // `ClinicalRecordsController`.
+
   @Get()
   @ApiOperation({ summary: 'Listar consultas da agenda por intervalo de data' })
   @RequirePermission(Permission.AGENDA, Permission.ATENDIMENTO)
@@ -43,7 +50,7 @@ export class AppointmentsController {
   @ApiOperation({ summary: 'Histórico de consultas de um paciente' })
   @RequirePermission(Permission.AGENDA, Permission.ATENDIMENTO)
   findByPatient(
-    @Param('patientId') patientId: string,
+    @Param('patientId', ParseUUIDPipe) patientId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.appointmentsService.findByPatient(patientId, user.userId);
@@ -52,7 +59,10 @@ export class AppointmentsController {
   @Get(':id')
   @ApiOperation({ summary: 'Buscar consulta por ID' })
   @RequirePermission(Permission.AGENDA, Permission.ATENDIMENTO)
-  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.appointmentsService.findOne(id, user.userId);
   }
 
@@ -68,7 +78,7 @@ export class AppointmentsController {
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar/reagendar consulta' })
   update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() data: UpdateAppointmentDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
@@ -78,7 +88,7 @@ export class AppointmentsController {
   @Patch(':id/status')
   @ApiOperation({ summary: 'Alterar status da consulta' })
   updateStatus(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() data: UpdateAppointmentStatusDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
@@ -87,7 +97,10 @@ export class AppointmentsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Excluir consulta' })
-  delete(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
     return this.appointmentsService.delete(id, user.userId);
   }
 }

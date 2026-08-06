@@ -1,5 +1,5 @@
 import { Reflector } from '@nestjs/core';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { PERMISSIONS_KEY } from 'src/shared/decorators/require-permission.decorator';
 import { UsersController } from './users.controller';
 
@@ -54,9 +54,17 @@ describe('UsersController — permissões declaradas', () => {
     expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
   });
 
+  // Diretório do staff (nome/e-mail/CPF/telefone dos colegas): antes liberado a
+  // qualquer autenticado, agora exige ao menos uma área (RequireAnyArea) — o
+  // service continua escopando por ownerId/vínculo.
+  it.each(['findMany', 'findOne'] as const)(
+    'exige ao menos uma área em %s (RequireAnyArea)',
+    (metodo) => {
+      expect(exigidoEm(metodo)).toEqual([...ALL_PERMISSIONS]);
+    },
+  );
+
   it.each([
-    'findMany',
-    'findOne',
     'getProfile',
     'updateProfile',
     'updateProfileById',

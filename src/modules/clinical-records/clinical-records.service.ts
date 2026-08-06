@@ -185,9 +185,7 @@ export class ClinicalRecordsService {
     }))!;
 
     if (record.appointmentId) {
-      await this.appointmentRepository.update(record.appointmentId, {
-        status: AppointmentStatus.COMPLETED,
-      });
+      await this.completeLinkedAppointment(record.appointmentId);
     }
 
     if (record.surgicalIndication) {
@@ -211,6 +209,38 @@ export class ClinicalRecordsService {
     }
 
     return finalized;
+  }
+
+  /**
+   * Promove a consulta vinculada para "realizada" — mas só se ela ainda estava
+   * na agenda (agendada/confirmada).
+   *
+   * Uma consulta cancelada ou marcada como falta já saiu da agenda e carrega o
+   * motivo do cancelamento; promovê-la produzia o estado inconsistente
+   * "realizada com motivo de cancelamento". A finalização da ficha em si não
+   * depende disso e segue adiante — o registro clínico do médico vale mesmo
+   * quando o status da agenda ficou para trás.
+   */
+  private async completeLinkedAppointment(appointmentId: string) {
+    const appointment = await this.appointmentRepository.findOne({
+      id: appointmentId,
+    });
+    if (!appointment) return;
+
+    const isActive =
+      appointment.status === AppointmentStatus.SCHEDULED ||
+      appointment.status === AppointmentStatus.CONFIRMED;
+
+    if (!isActive) {
+      this.logger.warn(
+        `Ficha do atendimento finalizada com a consulta ${appointmentId} em "${appointment.status}"; status da agenda preservado.`,
+      );
+      return;
+    }
+
+    await this.appointmentRepository.update(appointmentId, {
+      status: AppointmentStatus.COMPLETED,
+    });
   }
 
   async delete(id: string, userId: string): Promise<void> {

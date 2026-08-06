@@ -9,7 +9,10 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import {
+  RequireAnyArea,
+  RequirePermission,
+} from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
@@ -24,15 +27,19 @@ import { BulkDeletePatientsDto } from './dto/bulk-delete-patients.dto';
 @ApiTags('Pacientes')
 @ApiBearerAuth()
 @Controller('patients')
-// Paciente é cadastro transversal, não pertence a nenhuma área: Agenda busca
-// e cria paciente ao agendar (NewAppointmentModal), Atendimento usa na
-// ficha/prontuário, Solicitações usa no wizard de criação e Administração usa
-// na tela de colaborador/assistente. Anotar a classe com as áreas de negócio
-// quebraria alguma dessas telas; anotar as quatro seria o mesmo que não
-// anotar nada. O recorte real de acesso já existe e não é por permissão de
-// área: é o `ownerId` (isolamento entre clínicas). Só excluir é ato
-// restrito — por isso `delete`/`bulkDelete` têm `@RequirePermission`
-// individual abaixo. NÃO adicione um `@RequirePermission` de classe aqui.
+// Paciente é cadastro transversal, não pertence a UMA área: Agenda busca e cria
+// paciente ao agendar (NewAppointmentModal), Atendimento usa na ficha/prontuário,
+// Solicitações usa no wizard de criação e Administração usa na tela de
+// colaborador/assistente. Por isso NÃO anotamos uma área específica — mas
+// também não deixamos a classe sem decorator: rota sem metadata fica liberada a
+// QUALQUER autenticado, inclusive um colaborador com `permissions: []`, que
+// passava a ler/criar/editar toda a base de pacientes (dado de saúde sensível,
+// LGPD art. 11). `@RequireAnyArea()` exige ao menos UMA das quatro áreas: é
+// transversal (qualquer usuário de qualquer área passa) e ainda assim
+// fail-closed para quem não tem acesso a área nenhuma. O isolamento entre
+// clínicas continua sendo o `ownerId`; excluir permanece restrito a
+// `ADMINISTRACAO` via `@RequirePermission` nos métodos delete/bulkDelete.
+@RequireAnyArea()
 export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
 

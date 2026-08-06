@@ -41,7 +41,7 @@ import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { RefreshTokenStore } from '../auth/refresh-token.store';
 
-import { generateValidationCode } from 'src/shared/utils';
+import { generateValidationCode, omitUserSecrets } from 'src/shared/utils';
 
 @Injectable()
 export class UsersService {
@@ -254,10 +254,12 @@ export class UsersService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Remove senha e campos internos (permissions cru e isPlatformAdmin) do
-    // retorno — não são dados que a rota de perfil deve expor.
-    const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
-      user;
+    // Remove credenciais e campos internos (permissions cru e isPlatformAdmin)
+    // do retorno — não são dados que a rota de perfil deve expor. O spread
+    // final escapa do `ClassSerializerInterceptor`, então o `@Exclude()` da
+    // entidade não cobre esta resposta.
+    const { permissions, isPlatformAdmin, ...comCredenciais } = user;
+    const userWithoutPassword = omitUserSecrets(comCredenciais);
 
     // Gerar signed URL para assinatura do médico (bucket privado)
     const profile = userWithoutPassword.doctorProfile;
@@ -506,7 +508,11 @@ export class UsersService {
       void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
 
-    return newUser;
+    // `repository.save()` devolve a entidade com o hash que acabamos de
+    // gravar. Aqui o `ClassSerializerInterceptor` até cobriria (é instância de
+    // `User`), mas a garantia não pode depender de o retorno continuar sendo
+    // uma instância — qualquer spread futuro reabriria o vazamento.
+    return omitUserSecrets(newUser);
   }
 
   async changePassword(
@@ -668,7 +674,10 @@ export class UsersService {
         const { permissions, isPlatformAdmin, ...collaboratorFields } = c;
 
         return {
-          ...collaboratorFields,
+          // `emailVerificationToken`/`...ExpiresAt` também vêm crus do
+          // `find` sem `select`, e o spread abaixo escapa do
+          // `ClassSerializerInterceptor` que honraria o `@Exclude()`.
+          ...omitUserSecrets(collaboratorFields),
           avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
           // A permissão EFETIVA, não a coluna crua — mesmo motivo do
           // getProfile/findCollaboratorById.
@@ -814,8 +823,12 @@ export class UsersService {
     const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
       newUser;
 
+    // `omitUserSecrets` porque este retorno é um objeto literal, não a
+    // entidade: o `ClassSerializerInterceptor` global só aplica `@Exclude()`
+    // sobre instâncias, então sem isto o hash bcrypt recém-gerado (e o
+    // `emailVerificationToken`) saíam no corpo do 201.
     return {
-      ...newUserWithoutInternalFields,
+      ...omitUserSecrets(newUserWithoutInternalFields),
       permissions: resolveEffectivePermissions({
         role: newUser.role,
         permissions,
@@ -968,8 +981,10 @@ export class UsersService {
         ? data.permissions
         : (collaborator.permissions ?? []);
 
+    // Mesmo motivo do `createCollaborator`: spread de entidade escapa do
+    // `ClassSerializerInterceptor`.
     return {
-      ...updated,
+      ...omitUserSecrets(updated),
       // Efetiva — para exibir. Ver `findCollaboratorById` para o motivo de
       // nunca usar este campo para semear um formulário de edição.
       permissions: resolveEffectivePermissions({
@@ -1104,9 +1119,11 @@ export class UsersService {
 
     const records = await Promise.all(
       doctors.map(async (d) => {
-        const { password, ...rest } = d;
+        // `findDoctorsByOwnerId` não define `select`: além da senha, o
+        // `emailVerificationToken` viria cru — e o spread escapa do
+        // `ClassSerializerInterceptor`.
         return {
-          ...rest,
+          ...omitUserSecrets(d),
           avatarUrl: await this.resolveStorageUrl(d.avatarUrl),
         };
       }),
@@ -1270,8 +1287,8 @@ export class UsersService {
     // crua é retirada do spread e devolvida à parte como `grantedPermissions`
     // (ver abaixo) — só esta rota pode expor a coluna crua, porque é a única
     // gated por `ADMINISTRACAO` que a tela de edição de colaborador consome.
-    const { password, permissions, isPlatformAdmin, ...userWithoutPassword } =
-      collaborator;
+    const { permissions, isPlatformAdmin, ...comCredenciais } = collaborator;
+    const userWithoutPassword = omitUserSecrets(comCredenciais);
 
     const [avatarUrl, signatureUrl] = await Promise.all([
       this.resolveStorageUrl(userWithoutPassword.avatarUrl),

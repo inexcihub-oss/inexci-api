@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
+import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import {
   Appointment,
@@ -24,6 +25,7 @@ export class AppointmentsService {
   constructor(
     private readonly appointmentRepository: AppointmentRepository,
     private readonly patientRepository: PatientRepository,
+    private readonly clinicalRecordRepository: ClinicalRecordRepository,
     private readonly accessControlService: AccessControlService,
   ) {}
 
@@ -39,13 +41,20 @@ export class AppointmentsService {
     ]);
     if (doctorIds.length === 0) return { total: 0, records: [] };
 
-    // Filtro por médico: só é aplicado se o médico for acessível (fail-closed).
-    const scopedDoctorIds =
-      query.doctorId && doctorIds.includes(query.doctorId)
-        ? [query.doctorId]
-        : doctorIds;
+    // Filtro por médico fail-closed: um `doctorId` fora do conjunto acessível
+    // devolve lista vazia, nunca a agenda inteira. Ignorar o filtro em silêncio
+    // fazia a tela responder "as consultas do médico X" mostrando as de todos.
+    // Lista vazia (e não 403) também evita enumerar ids de médicos.
+    if (query.doctorId && !doctorIds.includes(query.doctorId)) {
+      return { total: 0, records: [] };
+    }
+    const scopedDoctorIds = query.doctorId ? [query.doctorId] : doctorIds;
 
-    const records = await this.appointmentRepository.findAgenda(
+    // `total` é a contagem real no banco, não o tamanho da página: quando o
+    // teto de `APPOINTMENTS_MAX_TAKE` corta a lista, `total > records.length`
+    // é o único sinal que o consumidor tem de que faltou coisa. Devolver
+    // `records.length` fazia o teto se disfarçar de total.
+    const { records, total } = await this.appointmentRepository.findAgenda(
       ownerId,
       scopedDoctorIds,
       {
@@ -57,7 +66,7 @@ export class AppointmentsService {
       },
     );
 
-    return { total: records.length, records };
+    return { total, records };
   }
 
   /** Histórico completo de consultas de um paciente (aba Consultas / timeline). */
@@ -161,6 +170,16 @@ export class AppointmentsService {
       updateData.durationMinutes = durationMinutes;
     if (data.notes !== undefined) updateData.notes = data.notes.trim() || null;
 
+    // Reagendou de fato: o lembrete já enviado era da data antiga, então a
+    // marca de idempotência precisa cair — senão o paciente nunca é avisado do
+    // novo horário. Reenviar o mesmo horário (ou mexer em notas/tipo) não zera.
+    if (
+      data.scheduledAt !== undefined &&
+      start.getTime() !== new Date(appointment.scheduledAt).getTime()
+    ) {
+      updateData.reminderSentAt = null;
+    }
+
     return (await this.appointmentRepository.update(id, updateData))!;
   }
 
@@ -169,7 +188,24 @@ export class AppointmentsService {
     data: UpdateAppointmentStatusDto,
     userId: string,
   ): Promise<Appointment> {
-    await this.findOne(id, userId);
+    const appointment = await this.findOne(id, userId);
+
+    // Reativar (cancelada/falta → agendada/confirmada) devolve a consulta à
+    // agenda, e o horário pode ter sido ocupado enquanto ela estava fora: sem
+    // revalidar, ficavam duas consultas ativas do mesmo médico no mesmo slot.
+    // Transições entre status ativos (→ realizada) ou saídas da agenda
+    // (→ cancelada/falta) não passam por aqui.
+    if (
+      !AppointmentsService.isActiveStatus(appointment.status) &&
+      AppointmentsService.isActiveStatus(data.status)
+    ) {
+      await this.assertNoOverlap(
+        appointment.doctorId,
+        appointment.scheduledAt,
+        this.endOf(appointment.scheduledAt, appointment.durationMinutes),
+        id,
+      );
+    }
 
     const updateData: Partial<Appointment> = { status: data.status };
     updateData.cancellationReason =
@@ -182,7 +218,28 @@ export class AppointmentsService {
 
   async delete(id: string, userId: string): Promise<void> {
     await this.findOne(id, userId);
+
+    // Dado clínico não pode ficar órfão: a ficha aponta para a consulta, e sem
+    // a consulta a tela `/atendimento/[appointmentId]` não abre mais — o
+    // rascunho continuaria na timeline do paciente, inalcançável pela UI.
+    const record = await this.clinicalRecordRepository.findOne({
+      appointmentId: id,
+    });
+    if (record) {
+      throw new ConflictException(
+        'Esta consulta possui uma ficha de atendimento e não pode ser excluída.',
+      );
+    }
+
     await this.appointmentRepository.delete(id);
+  }
+
+  /** Status que ocupam a agenda do médico (contam para conflito de horário). */
+  private static isActiveStatus(status: AppointmentStatus): boolean {
+    return (
+      status === AppointmentStatus.SCHEDULED ||
+      status === AppointmentStatus.CONFIRMED
+    );
   }
 
   private async assertNoOverlap(

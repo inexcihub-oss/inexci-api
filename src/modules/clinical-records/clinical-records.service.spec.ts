@@ -48,6 +48,14 @@ describe('ClinicalRecordsService', () => {
     mockClinicalRepo.create.mockImplementation((d) =>
       Promise.resolve({ id: 'cr-1', ...d }),
     );
+    // Consulta vinculada, ainda na agenda — o caso comum de `finalize`.
+    mockAppointmentRepo.findOne.mockResolvedValue({
+      id: 'a1',
+      ownerId,
+      patientId,
+      doctorId,
+      status: AppointmentStatus.SCHEDULED,
+    });
 
     mockSurgicalIndication.createForRecord.mockResolvedValue({ id: 'sc-1' });
 
@@ -234,6 +242,81 @@ describe('ClinicalRecordsService', () => {
 
       await service.finalize('cr-1', userId);
 
+      expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+    });
+
+    // D-02: promover uma consulta cancelada para "realizada" mantinha o
+    // `cancellationReason` gravado — realizada e cancelada ao mesmo tempo.
+    it.each([AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW])(
+      'não promove para realizada a consulta em %s',
+      async (status) => {
+        mockClinicalRepo.findOne.mockResolvedValue({
+          id: 'cr-1',
+          ownerId,
+          finalizedAt: null,
+          appointmentId: 'a1',
+        });
+        mockClinicalRepo.update.mockResolvedValue({
+          id: 'cr-1',
+          finalizedAt: new Date(),
+        });
+        mockAppointmentRepo.findOne.mockResolvedValue({
+          id: 'a1',
+          ownerId,
+          patientId,
+          doctorId,
+          status,
+          cancellationReason: 'paciente desmarcou',
+        });
+
+        const result = await service.finalize('cr-1', userId);
+
+        // A ficha é finalizada assim mesmo: o registro clínico do médico não
+        // pode depender do status da agenda.
+        expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
+          finalizedAt: expect.any(Date),
+        });
+        expect(result).toMatchObject({ id: 'cr-1' });
+        expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it('promove a consulta confirmada para realizada', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+      mockAppointmentRepo.findOne.mockResolvedValue({
+        id: 'a1',
+        ownerId,
+        patientId,
+        doctorId,
+        status: AppointmentStatus.CONFIRMED,
+      });
+
+      await service.finalize('cr-1', userId);
+
+      expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
+        status: AppointmentStatus.COMPLETED,
+      });
+    });
+
+    it('finaliza sem quebrar quando a consulta vinculada sumiu', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+      mockAppointmentRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.finalize('cr-1', userId)).resolves.toMatchObject({
+        id: 'cr-1',
+      });
       expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
     });
 
