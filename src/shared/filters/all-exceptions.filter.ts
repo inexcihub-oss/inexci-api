@@ -9,6 +9,7 @@ import {
 import { QueryFailedError, EntityNotFoundError } from 'typeorm';
 import { Response, Request } from 'express';
 import { getRequestContext } from '../logging/request-context';
+import { PaymentGatewayError } from '../payment-gateway/payment-gateway.interface';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -42,6 +43,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (exception instanceof EntityNotFoundError) {
       status = HttpStatus.NOT_FOUND;
       message = 'Recurso não encontrado';
+    } else if (exception instanceof PaymentGatewayError) {
+      // 502, não o status que a Stripe devolveu: um `No such price` é 400 lá,
+      // mas do lado do cliente a requisição estava correta — quem errou foi a
+      // nossa configuração. Repassar o 400 culparia quem só clicou em "assinar".
+      status = HttpStatus.BAD_GATEWAY;
+      message =
+        'Não foi possível falar com o gateway de pagamento. Tente novamente em instantes; se persistir, acione o suporte informando o requestId.';
+      // O `code` vai no corpo (`resource_missing`, `api_key_expired`, …) para
+      // o suporte fechar o diagnóstico sem acesso ao servidor. A mensagem crua
+      // da Stripe fica só no log: cita IDs internos e não ajuda o usuário.
+      extra = { gatewayCode: exception.code };
+      this.logger.error(
+        `Gateway de pagamento recusou [${exception.code}] em ${request.method} ${request.url}: ${exception.message}`,
+        exception.stack,
+      );
     } else if (isPayloadTooLargeError(exception)) {
       status = HttpStatus.PAYLOAD_TOO_LARGE;
       message = 'Conteúdo muito grande. Reduza o tamanho do texto ou do anexo.';

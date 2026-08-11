@@ -620,6 +620,82 @@ describe('SubscriptionService', () => {
       expect(result.url).toBe('https://checkout.stripe.com/new');
     });
 
+    /**
+     * A Stripe recusa `trial_end` a menos de 48 h no futuro. A checagem antiga
+     * era só `> new Date()`, então um trial terminando em poucas horas fazia o
+     * checkout inteiro estourar — e a rejeição chegava como 500 opaco.
+     */
+    describe('trial_end enviado ao gateway', () => {
+      function prepararComTrial(trialEndsAt: Date | null) {
+        userRepo.findOne.mockResolvedValue(buildOwner());
+        planRepo.findOne.mockResolvedValue(plan);
+        subscriptionRepo.findByOwnerId.mockResolvedValue({
+          id: 'sub-1',
+          gatewayCustomerId: 'cus_existing',
+          trialEndsAt,
+        });
+        gateway.getCustomer.mockResolvedValue({ id: 'cus_existing' });
+        gateway.createCheckoutSession.mockResolvedValue({
+          id: 'cs_x',
+          url: 'https://checkout.stripe.com/x',
+        });
+      }
+
+      const emHoras = (horas: number) =>
+        new Date(Date.now() + horas * 60 * 60 * 1000);
+
+      it('envia o trial quando falta mais de 48h para acabar', async () => {
+        const trial = emHoras(72);
+        prepararComTrial(trial);
+
+        await service.startCheckout('owner-1', 'plan-1');
+
+        expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
+          expect.objectContaining({ trialEnd: trial }),
+        );
+      });
+
+      it('descarta o trial que acaba dentro da janela de 48h', async () => {
+        prepararComTrial(emHoras(10));
+
+        await service.startCheckout('owner-1', 'plan-1');
+
+        expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
+          expect.objectContaining({ trialEnd: null }),
+        );
+      });
+
+      it('descarta o trial exatamente no limite de 48h', async () => {
+        prepararComTrial(emHoras(48));
+
+        await service.startCheckout('owner-1', 'plan-1');
+
+        expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
+          expect.objectContaining({ trialEnd: null }),
+        );
+      });
+
+      it('descarta trial já vencido', async () => {
+        prepararComTrial(emHoras(-24));
+
+        await service.startCheckout('owner-1', 'plan-1');
+
+        expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
+          expect.objectContaining({ trialEnd: null }),
+        );
+      });
+
+      it('envia null quando não há trial', async () => {
+        prepararComTrial(null);
+
+        await service.startCheckout('owner-1', 'plan-1');
+
+        expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
+          expect.objectContaining({ trialEnd: null }),
+        );
+      });
+    });
+
     it('lança BadRequest quando plano não tem gatewayPriceId', async () => {
       userRepo.findOne.mockResolvedValue(buildOwner());
       planRepo.findOne.mockResolvedValue({ ...plan, gatewayPriceId: null });
