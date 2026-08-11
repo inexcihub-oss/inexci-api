@@ -29,7 +29,10 @@ import { BulkDeleteManufacturersDto } from './dto/bulk-delete-manufacturers.dto'
 @Controller('manufacturers')
 // Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
 // uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Métodos de escrita mantêm `@RequirePermission(ADMINISTRACAO)`.
+// específica. Criar e atualizar herdam essa regra: quem monta a solicitação
+// precisa cadastrar o fabricante de OPME que faltou, sem depender do admin.
+// Só `delete`/`bulkDelete` seguem em `ADMINISTRACAO` — apagar um fabricante
+// afeta OPMEs que já o referenciam.
 @RequireAnyArea()
 export class ManufacturersController {
   constructor(private readonly manufacturersService: ManufacturersService) {}
@@ -50,7 +53,6 @@ export class ManufacturersController {
   }
 
   @Post()
-  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar fabricante' })
   create(
     @Body() data: CreateManufacturerDto,
@@ -60,7 +62,6 @@ export class ManufacturersController {
   }
 
   @Patch(':id')
-  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar fabricante' })
   update(
     @Param('id') id: string,

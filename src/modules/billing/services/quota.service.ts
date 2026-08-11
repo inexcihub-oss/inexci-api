@@ -17,6 +17,23 @@ export interface QuotaSnapshot {
 }
 
 /**
+ * Recorte da cota seguro para **qualquer** usuário da conta (não só o dono).
+ *
+ * Diferente do `QuotaSnapshot`, `remaining` é `null` quando o plano é
+ * ilimitado. O snapshot usa `Number.POSITIVE_INFINITY` ali, e
+ * `JSON.stringify(Infinity)` serializa como `null` — o campo já chegava nulo
+ * no cliente, só que com um tipo que dizia `number`. Aqui isso é explícito.
+ */
+export interface QuotaStatus {
+  used: number;
+  limit: number;
+  isUnlimited: boolean;
+  remaining: number | null;
+  periodStart: Date;
+  periodEnd: Date;
+}
+
+/**
  * Servi\u00e7o respons\u00e1vel pela contagem e enforcement de cota mensal de
  * solicita\u00e7\u00f5es cir\u00fargicas.
  *
@@ -133,6 +150,27 @@ export class QuotaService {
     );
     if (!period) return null;
     return this.toSnapshot(period);
+  }
+
+  /**
+   * Cota corrente no formato exposto ao banner de aviso, para qualquer usuário
+   * da conta que possa criar solicitações — não apenas o dono.
+   *
+   * Deliberadamente **não** carrega preço, status de pagamento nem gateway:
+   * esses continuam só em `GET /billing/subscription`, que exige ser o dono.
+   */
+  async getQuotaStatus(ownerId: string): Promise<QuotaStatus | null> {
+    const snapshot = await this.getQuotaSnapshot(ownerId);
+    if (!snapshot) return null;
+
+    return {
+      used: snapshot.used,
+      limit: snapshot.limit,
+      isUnlimited: snapshot.isUnlimited,
+      remaining: snapshot.isUnlimited ? null : snapshot.remaining,
+      periodStart: snapshot.periodStart,
+      periodEnd: snapshot.periodEnd,
+    };
   }
 
   private toSnapshot(p: SubscriptionQuotaPeriod): QuotaSnapshot {

@@ -228,6 +228,15 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
       expect(res.body.records[0].patient?.name).toBe(
         'Paciente Atendimento E2E',
       );
+      // ...mas só id e nome. A agenda é liberada por `Permission.AGENDA`, que
+      // não dá acesso a prontuário: com `leftJoinAndSelect` a entidade inteira
+      // saía, e `Patient` não tem `@Exclude` em campo nenhum — CPF, endereço,
+      // nascimento e `medicalNotes` de todo paciente da janela iam para quem
+      // só marca consulta.
+      expect(Object.keys(res.body.records[0].patient).sort()).toEqual([
+        'id',
+        'name',
+      ]);
     });
 
     it('D-05: doctorId inacessível devolve lista vazia, não a agenda do médico acessível', async () => {

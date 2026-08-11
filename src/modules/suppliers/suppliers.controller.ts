@@ -29,7 +29,10 @@ import { BulkDeleteSuppliersDto } from './dto/bulk-delete-suppliers.dto';
 @Controller('suppliers')
 // Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
 // uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Métodos de escrita mantêm `@RequirePermission(ADMINISTRACAO)`.
+// específica. Criar e atualizar herdam essa regra: quem monta a solicitação
+// precisa cadastrar o fornecedor de OPME que faltou, sem depender do admin.
+// Só `delete`/`bulkDelete` seguem em `ADMINISTRACAO` — apagar um fornecedor
+// afeta OPMEs e cotações que já o referenciam.
 @RequireAnyArea()
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
@@ -50,7 +53,6 @@ export class SuppliersController {
   }
 
   @Post()
-  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar fornecedor' })
   create(
     @Body() data: CreateSupplierDto,
@@ -60,7 +62,6 @@ export class SuppliersController {
   }
 
   @Patch(':id')
-  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar fornecedor' })
   update(
     @Param('id') id: string,

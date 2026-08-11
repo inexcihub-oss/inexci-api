@@ -671,6 +671,10 @@ export class SurgeryRequestsService {
     return this.templateService.getTemplates(userId, ownerId);
   }
 
+  getTemplate(id: string, userId: string, ownerId: string | null) {
+    return this.templateService.getTemplate(id, userId, ownerId);
+  }
+
   deleteTemplate(id: string, userId: string, ownerId: string | null) {
     return this.templateService.deleteTemplate(id, userId, ownerId);
   }

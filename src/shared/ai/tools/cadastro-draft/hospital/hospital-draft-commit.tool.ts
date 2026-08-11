@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { CadastroDraftDeps } from '../_types';
@@ -9,10 +9,11 @@ export function buildHospitalDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, hospitalsService } = deps;
   return {
     name: 'hospital_draft_commit',
-    // Diferente de paciente (cadastro transversal), criar hospital é
-    // restrito no HTTP: `HospitalsController.create` exige
-    // `@RequirePermission(Permission.ADMINISTRACAO)`.
-    requiredPermission: Permission.ADMINISTRACAO,
+    // Mesma regra do HTTP: `HospitalsController.create` herda o
+    // `@RequireAnyArea()` da classe — hospital é cadastro transversal, então
+    // qualquer área cria, mas o colaborador sem área nenhuma não. Excluir
+    // continua sendo ato do admin e não tem tool.
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {

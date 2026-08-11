@@ -224,6 +224,55 @@ describe('AuthService', () => {
       expect(result.account).toBeNull();
     });
 
+    // ─── `accountId` é o nome do campo no contrato do frontend ────
+    // `AuthContext.tsx` deriva `isAccountOwner` de
+    // `user.role === 'admin' && user.id === user.accountId`. Enquanto
+    // esta rota devolvia só `ownerId`, `accountId` chegava `undefined` e
+    // `isAccountOwner` era `false` para TODO MUNDO — inclusive o dono —,
+    // escondendo a aba "Plano e Faturamento" e todo o billing.
+    it('devolve accountId (além de ownerId) para o dono da conta', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'dono-1',
+        role: UserRole.ADMIN,
+        name: 'Dono',
+        phone: '11999999999',
+        email: 'dono@example.com',
+        ownerId: 'dono-1',
+        avatarUrl: null,
+        emailVerified: true,
+        doctorProfile: null,
+      });
+
+      const result = await service.me('dono-1');
+
+      expect(result.accountId).toBe('dono-1');
+      expect(result.ownerId).toBe('dono-1');
+    });
+
+    it('devolve accountId apontando para o dono no caso do colaborador', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+          name: 'Cláudia',
+          phone: '11999999999',
+          email: 'claudia@example.com',
+          ownerId: 'owner-1',
+          avatarUrl: null,
+          emailVerified: true,
+          doctorProfile: null,
+        })
+        .mockResolvedValueOnce({
+          id: 'owner-1',
+          name: 'Dr. Diogo',
+          doctorProfile: { id: 'dp-1' },
+        });
+
+      const result = await service.me('collab-1');
+
+      expect(result.accountId).toBe('owner-1');
+    });
+
     // ─── Achado Critical: /auth/me nunca devolvia `permissions` ────
     // (`AuthContext.tsx` do frontend lê `user.permissions` para montar
     // `can()`; sem o campo, `can()` é sempre `false` para TODO MUNDO,
@@ -683,6 +732,28 @@ describe('AuthService', () => {
       expect(result!.user.email).toBe('test@example.com');
       expect(result!.access_token).toBe('mock-jwt-token');
       expect(result!.user.isDoctor).toBe(false);
+    });
+
+    // Mesmo contrato de `/auth/me`: o frontend guarda o payload do login no
+    // localStorage e usa `accountId` para derivar `isAccountOwner`.
+    it('devolve accountId (além de ownerId) no payload do login', async () => {
+      (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
+      const authenticatedUser = mockAuthenticatedUser();
+      mockUserRepository.findOne.mockResolvedValue(authenticatedUser);
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        ...authenticatedUser,
+        permissions: [],
+        isPlatformAdmin: false,
+        doctorProfile: null,
+      });
+
+      const result = await service.login({
+        email: 'test@example.com',
+        password: '123456',
+      });
+
+      expect(result!.user.accountId).toBe('user-1');
+      expect(result!.user.ownerId).toBe('user-1');
     });
 
     // ─── Achado Critical: /auth/login nunca devolvia `permissions` ────

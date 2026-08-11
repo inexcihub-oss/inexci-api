@@ -1,25 +1,47 @@
 import { Reflector } from '@nestjs/core';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { PERMISSIONS_KEY } from 'src/shared/decorators/require-permission.decorator';
 import { HospitalsController } from './hospitals.controller';
 
+/**
+ * A exigência é lida do mesmo jeito que o `PermissionsGuard` lê:
+ * `getAllAndOverride([método, classe])`. Olhar só o método esconderia o
+ * `@RequireAnyArea()` da classe e faria uma rota parecer aberta a qualquer
+ * autenticado quando na verdade exige ao menos uma área.
+ */
 describe('HospitalsController — permissões declaradas', () => {
   const reflector = new Reflector();
 
   const exigidoEm = (metodo: keyof HospitalsController) =>
-    reflector.get<Permission[]>(
-      PERMISSIONS_KEY,
+    reflector.getAllAndOverride<Permission[]>(PERMISSIONS_KEY, [
       HospitalsController.prototype[metodo],
-    );
+      HospitalsController,
+    ]);
 
-  it.each(['create', 'update', 'delete', 'bulkDelete'] as const)(
-    'exige administração em %s',
+  it.each(['findAll', 'create', 'update'] as const)(
+    'aceita qualquer área em %s',
+    (metodo) => {
+      expect(exigidoEm(metodo)).toEqual(ALL_PERMISSIONS);
+    },
+  );
+
+  it.each(['delete', 'bulkDelete'] as const)(
+    'mantém %s em administração',
     (metodo) => {
       expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
     },
   );
 
-  it('deixa a listagem aberta a qualquer autenticado', () => {
-    expect(exigidoEm('findAll')).toBeUndefined();
+  it('nunca deixa a rota sem exigência (colaborador sem área nenhuma)', () => {
+    const metodos = [
+      'findAll',
+      'create',
+      'update',
+      'delete',
+      'bulkDelete',
+    ] as const;
+    metodos.forEach((metodo) => {
+      expect(exigidoEm(metodo)?.length).toBeGreaterThan(0);
+    });
   });
 });

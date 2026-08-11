@@ -54,13 +54,15 @@ describe('UsersController — permissões declaradas', () => {
     expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
   });
 
-  // Diretório do staff (nome/e-mail/CPF/telefone dos colegas): antes liberado a
-  // qualquer autenticado, agora exige ao menos uma área (RequireAnyArea) — o
-  // service continua escopando por ownerId/vínculo.
+  // O diretório do staff (`GET /users` e `GET /users/one`) foi removido — não
+  // tinha consumidor e devolvia nome/e-mail/telefone/CPF dos colegas a
+  // qualquer autenticado com uma área. Este teste trava a remoção: se alguém
+  // reintroduzir a rota, precisa reabrir a decisão em vez de herdar o gate
+  // frouxo de antes.
   it.each(['findMany', 'findOne'] as const)(
-    'exige ao menos uma área em %s (RequireAnyArea)',
+    'não existe mais o método %s no controller',
     (metodo) => {
-      expect(exigidoEm(metodo)).toEqual([...ALL_PERMISSIONS]);
+      expect(UsersController.prototype).not.toHaveProperty(metodo);
     },
   );
 

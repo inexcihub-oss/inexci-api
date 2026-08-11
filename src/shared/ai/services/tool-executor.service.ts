@@ -3,7 +3,26 @@ import OpenAI from 'openai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ToolRegistryService } from './tool-registry.service';
 import { AiRedisService } from './ai-redis.service';
-import { ToolContext } from '../tools/tool.interface';
+import { AiTool, ToolContext } from '../tools/tool.interface';
+
+/**
+ * Espelho do `PermissionsGuard` para o WhatsApp: uma lista de permissões
+ * exigidas significa **qualquer uma destas** (OR), nunca todas. Exportado para
+ * ser testado direto — a regra é fail-closed e é o único gate de permissão do
+ * assistente, já que o guard HTTP não passa por aqui.
+ *
+ * Contexto sem `permissions` é tratado como "nenhuma permissão".
+ */
+export function temPermissaoParaTool(
+  exigida: AiTool['requiredPermission'],
+  context: Pick<ToolContext, 'permissions'>,
+): boolean {
+  if (!exigida) return true;
+  const aceitas = Array.isArray(exigida) ? exigida : [exigida];
+  if (aceitas.length === 0) return true;
+  const concedidas = context.permissions ?? [];
+  return aceitas.some((p) => concedidas.includes(p));
+}
 
 /**
  * Payload emitido nos eventos de telemetria de tools.
@@ -76,10 +95,7 @@ export class ToolExecutorService {
 
         const tool = this.toolRegistry.getTool(fn.name);
 
-        if (
-          tool?.requiredPermission &&
-          !(context.permissions ?? []).includes(tool.requiredPermission)
-        ) {
+        if (!temPermissaoParaTool(tool?.requiredPermission, context)) {
           this.logger.warn(
             `[TOOL_PERMISSION] ${fn.name} recusada para user=${context.userId}`,
           );

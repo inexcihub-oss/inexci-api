@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { CadastroDraftDeps } from '../_types';
@@ -11,10 +11,11 @@ export function buildHealthPlanDraftCommitTool(
   const { draftService, healthPlansService } = deps;
   return {
     name: 'health_plan_draft_commit',
-    // Diferente de paciente (cadastro transversal), criar convênio é
-    // restrito no HTTP: `HealthPlansController.create` exige
-    // `@RequirePermission(Permission.ADMINISTRACAO)`.
-    requiredPermission: Permission.ADMINISTRACAO,
+    // Mesma regra do HTTP: `HealthPlansController.create` herda o
+    // `@RequireAnyArea()` da classe — convênio é cadastro transversal, então
+    // qualquer área cria, mas o colaborador sem área nenhuma não. Excluir
+    // continua sendo ato do admin e não tem tool.
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {

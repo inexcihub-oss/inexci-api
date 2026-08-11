@@ -3,6 +3,27 @@ import { DataSource, FindOptionsWhere } from 'typeorm';
 import { Patient } from '../entities/patient.entity';
 import { BaseRepository } from './base.repository';
 
+/**
+ * O que a listagem de pacientes precisa: as cinco colunas da tela `/pacientes`
+ * mais os timestamps (o "há X dias" da tela de colaborador). Os seletores do
+ * wizard e da agenda usam um subconjunto disto (nome e CPF).
+ *
+ * `Patient` não tem `@Exclude` em campo nenhum, então sem `select` a entidade
+ * sai inteira — inclusive `medicalNotes`, que é dado clínico e não tem por que
+ * trafegar numa listagem. Quem precisa do cadastro completo usa
+ * `GET /patients/:id`, que passa pelo `auditProntuarioAccess`.
+ */
+const COLUNAS_DA_LISTAGEM = [
+  'p.id',
+  'p.name',
+  'p.cpf',
+  'p.email',
+  'p.phone',
+  'p.birthDate',
+  'p.createdAt',
+  'p.updatedAt',
+];
+
 @Injectable()
 export class PatientRepository extends BaseRepository<Patient> {
   constructor(private readonly dataSource: DataSource) {
@@ -97,6 +118,7 @@ export class PatientRepository extends BaseRepository<Patient> {
   ): Promise<[Patient[], number]> {
     const qb = this.repository
       .createQueryBuilder('p')
+      .select(COLUNAS_DA_LISTAGEM)
       .where('p.owner_id = :ownerId', { ownerId })
       .orderBy('p.name', 'ASC')
       .skip(skip)

@@ -130,4 +130,67 @@ describe('QuotaService', () => {
       expect(quotaPeriodRepo.tryConsume).not.toHaveBeenCalled();
     });
   });
+
+  describe('getQuotaStatus', () => {
+    it('devolve null quando a conta não tem assinatura', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(null);
+      await expect(service.getQuotaStatus('owner-1')).resolves.toBeNull();
+    });
+
+    it('devolve null quando não há período de cota ativo', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(buildSub());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(null);
+      await expect(service.getQuotaStatus('owner-1')).resolves.toBeNull();
+    });
+
+    it('devolve o consumo do ciclo corrente', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(buildSub());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(
+        buildPeriod({ surgeryRequestsLimit: 20, surgeryRequestsUsed: 17 }),
+      );
+
+      await expect(service.getQuotaStatus('owner-1')).resolves.toEqual({
+        used: 17,
+        limit: 20,
+        isUnlimited: false,
+        remaining: 3,
+        periodStart: new Date('2026-01-01'),
+        periodEnd: new Date('2026-02-01'),
+      });
+    });
+
+    it('devolve remaining null (e não Infinity) quando ilimitado', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(buildSub());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(
+        buildPeriod({ surgeryRequestsLimit: -1, surgeryRequestsUsed: 42 }),
+      );
+
+      const status = await service.getQuotaStatus('owner-1');
+
+      expect(status).toMatchObject({ isUnlimited: true, remaining: null });
+      // Infinity vira `null` no JSON.stringify — o cliente já recebia nulo,
+      // só que tipado como `number`. Aqui o contrato é honesto.
+      expect(JSON.parse(JSON.stringify(status)).remaining).toBeNull();
+    });
+
+    it('não vaza campos de cobrança (preço, status, gateway)', async () => {
+      subscriptionRepo.findByOwnerId.mockResolvedValue(
+        buildSub({ gatewayProvider: 'stripe', gatewayCustomerId: 'cus_1' }),
+      );
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(
+        buildPeriod(),
+      );
+
+      const status = await service.getQuotaStatus('owner-1');
+
+      expect(Object.keys(status!).sort()).toEqual([
+        'isUnlimited',
+        'limit',
+        'periodEnd',
+        'periodStart',
+        'remaining',
+        'used',
+      ]);
+    });
+  });
 });
