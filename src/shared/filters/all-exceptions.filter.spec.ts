@@ -8,6 +8,7 @@ import {
 
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { BillingRequiredException } from '../../modules/billing/billing.exceptions';
+import { PaymentGatewayError } from '../payment-gateway/payment-gateway.interface';
 
 interface RespostaCapturada {
   status: number;
@@ -176,6 +177,107 @@ describe('AllExceptionsFilter', () => {
       );
 
       expect(capturado.body.details).toEqual({ campo: 'cpf' });
+    });
+  });
+
+  /**
+   * `POST /billing/subscription/checkout` com um `gateway_price_id` que não
+   * existia na conta Stripe devolvia 500 "Erro interno do servidor": o
+   * `PaymentGatewayError` estende `Error`, não `HttpException`, e caía no
+   * `else` genérico. Toda falha de billing ficava indistinguível de crash.
+   */
+  describe('erro vindo do gateway de pagamento', () => {
+    function erroDaStripe(code = 'resource_missing', httpStatus = 400) {
+      return new PaymentGatewayError(
+        "No such price: 'price_1TlcmSLNyiMJJQlzOHOymxB4'",
+        code,
+        httpStatus,
+      );
+    }
+
+    it('devolve 502 em vez de 500', () => {
+      const { host, capturado } = criarHost('/billing/subscription/checkout');
+
+      filter.catch(erroDaStripe(), host);
+
+      expect(capturado.status).toBe(HttpStatus.BAD_GATEWAY);
+      expect(capturado.body.statusCode).toBe(HttpStatus.BAD_GATEWAY);
+    });
+
+    it('expõe o `gatewayCode` para o suporte fechar o diagnóstico', () => {
+      const { host, capturado } = criarHost('/billing/subscription/checkout');
+
+      filter.catch(erroDaStripe('api_key_expired', 401), host);
+
+      expect(capturado.body.gatewayCode).toBe('api_key_expired');
+    });
+
+    /**
+     * O status da Stripe não é repassado de propósito: `No such price` é 400
+     * lá, mas a requisição do cliente estava correta — quem errou foi a nossa
+     * configuração. Um 400 culparia quem só clicou em "assinar".
+     */
+    it('não repassa o status HTTP que a Stripe devolveu', () => {
+      const { host, capturado } = criarHost('/billing/subscription/checkout');
+
+      filter.catch(erroDaStripe('resource_missing', 400), host);
+
+      expect(capturado.status).not.toBe(HttpStatus.BAD_REQUEST);
+      expect(capturado.status).toBe(HttpStatus.BAD_GATEWAY);
+    });
+
+    it('não vaza a mensagem crua da Stripe no corpo da resposta', () => {
+      const { host, capturado } = criarHost('/billing/subscription/checkout');
+
+      filter.catch(erroDaStripe(), host);
+
+      expect(capturado.body.message).not.toContain('price_1TlcmS');
+      expect(capturado.body.message).toEqual(
+        expect.stringContaining('gateway'),
+      );
+    });
+
+    it('registra a mensagem crua no log, com rota e code', () => {
+      const { host } = criarHost('/billing/subscription/checkout');
+      const logger = (filter as unknown as { logger: Logger }).logger;
+      const error = jest.spyOn(logger, 'error').mockImplementation();
+
+      filter.catch(erroDaStripe(), host);
+
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('price_1TlcmSLNyiMJJQlzOHOymxB4'),
+        expect.anything(),
+      );
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('resource_missing'),
+        expect.anything(),
+      );
+
+      error.mockRestore();
+    });
+
+    it('não registra como "Unhandled exception"', () => {
+      const { host } = criarHost('/billing/subscription/checkout');
+      const logger = (filter as unknown as { logger: Logger }).logger;
+      const error = jest.spyOn(logger, 'error').mockImplementation();
+
+      filter.catch(erroDaStripe(), host);
+
+      expect(error).not.toHaveBeenCalledWith(
+        expect.stringContaining('Unhandled exception'),
+        expect.anything(),
+      );
+
+      error.mockRestore();
+    });
+
+    it('mantém o formato padronizado da resposta de erro', () => {
+      const { host, capturado } = criarHost('/billing/subscription/portal');
+
+      filter.catch(erroDaStripe(), host);
+
+      expect(capturado.body.path).toBe('/billing/subscription/portal');
+      expect(capturado.body.timestamp).toEqual(expect.any(String));
     });
   });
 

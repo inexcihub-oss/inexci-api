@@ -27,6 +27,9 @@ import {
   GatewaySubscriptionStatus,
 } from 'src/shared/payment-gateway/payment-gateway.types';
 
+/** Antecedência mínima que a Stripe exige em `trial_end` (48 h). */
+const TRIAL_END_ANTECEDENCIA_MINIMA_MS = 48 * 60 * 60 * 1000;
+
 /**
  * Orquestrador do ciclo de vida da assinatura.
  *
@@ -376,13 +379,29 @@ export class SubscriptionService {
       successUrl: `${dashboardUrl}/configuracoes?tab=plan&checkout=success`,
       cancelUrl: `${dashboardUrl}/configuracoes?tab=plan&checkout=cancel`,
       subscriptionId: sub?.id ?? owner.id,
-      trialEnd:
-        sub?.trialEndsAt && sub.trialEndsAt > new Date()
-          ? sub.trialEndsAt
-          : null,
+      trialEnd: this.trialEndParaCheckout(sub?.trialEndsAt ?? null),
     });
 
     return { url: session.url };
+  }
+
+  /**
+   * O trial que sobrevive à ida para o Stripe.
+   *
+   * A Stripe recusa `trial_end` a menos de 48 h no futuro ("trial_end must be
+   * at least 48 hours in the future"); a checagem anterior era só
+   * `> new Date()`, então um trial terminando hoje ou amanhã fazia o checkout
+   * inteiro estourar — e a rejeição chegava ao usuário como 500 opaco.
+   *
+   * Dentro da janela de 48 h o trial é descartado e a cobrança começa na hora,
+   * que é o desfecho certo: o período de teste está acabando de qualquer jeito,
+   * e é melhor cobrar do que impedir a assinatura.
+   */
+  private trialEndParaCheckout(trialEndsAt: Date | null): Date | null {
+    if (!trialEndsAt) return null;
+
+    const minimo = new Date(Date.now() + TRIAL_END_ANTECEDENCIA_MINIMA_MS);
+    return trialEndsAt > minimo ? trialEndsAt : null;
   }
 
   /**
