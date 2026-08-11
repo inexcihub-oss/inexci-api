@@ -54,4 +54,31 @@ describe('UserRepository', () => {
     const call = mockRepository.findOne.mock.calls[0][0];
     expect(call.select).toMatchObject({ permissions: true });
   });
+
+  /**
+   * `findMany` alimenta duas coisas: `GET /users` — o diretório do staff,
+   * liberado a qualquer área via `@RequireAnyArea()` — e a resolução de nomes
+   * de médico do assistente do WhatsApp, que lê só `id` e `name`. Nenhuma das
+   * duas precisa de CPF, gênero ou nascimento; a primeira entregava os três de
+   * todo colega do tenant a qualquer autenticado.
+   */
+  it('findMany não traz CPF, gênero nem nascimento', async () => {
+    const mockRepository = { find: jest.fn().mockResolvedValue([]) };
+    const repo = new UserRepository(mockRepository as never);
+
+    await repo.findMany({ ownerId: 'dono-1' }, 0, 20);
+
+    const { select } = mockRepository.find.mock.calls[0][0];
+    for (const campo of ['cpf', 'gender', 'birthDate']) {
+      expect(select).not.toHaveProperty(campo);
+    }
+    // O que a rota realmente usa continua vindo.
+    expect(select).toMatchObject({
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      status: true,
+    });
+  });
 });

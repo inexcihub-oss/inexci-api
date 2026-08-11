@@ -30,107 +30,6 @@ describe('Users (e2e)', () => {
     await closeTestApp(app);
   });
 
-  describe('/users (GET)', () => {
-    it('should return list of users', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/users')
-        .set(getAuthHeader(authToken))
-        .expect(200);
-
-      expect(response.body).toBeDefined();
-      expect(response.body).toHaveProperty('total');
-      expect(response.body).toHaveProperty('records');
-      expect(Array.isArray(response.body.records)).toBe(true);
-    });
-
-    // Só checar `total`/`records` não prova filtro nenhum: a resposta tem essas
-    // chaves com ou sem `role`. O que precisa valer é que NADA fora do role
-    // pedido volte — o usuário autenticado do teste é admin, então sem o filtro
-    // ele apareceria aqui.
-    it('deve devolver apenas usuários do role pedido', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/users')
-        .query({ role: 'collaborator' })
-        .set(getAuthHeader(authToken))
-        .expect(200);
-
-      expect(Array.isArray(response.body.records)).toBe(true);
-      for (const record of response.body.records) {
-        expect(record.role).toBe('collaborator');
-      }
-      expect(
-        response.body.records.some((r: any) => r.id === currentUser.id),
-      ).toBe(false);
-    });
-
-    // `total` é a contagem sem paginação e `records` é a página: o take tem que
-    // limitar o segundo sem mexer no primeiro.
-    it('deve limitar a página ao valor de take', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/users')
-        .query({ skip: 0, take: 1 })
-        .set(getAuthHeader(authToken))
-        .expect(200);
-
-      expect(typeof response.body.total).toBe('number');
-      expect(response.body.records.length).toBeLessThanOrEqual(1);
-      expect(response.body.records.length).toBeLessThanOrEqual(
-        response.body.total,
-      );
-    });
-
-    it('should fail without authentication', async () => {
-      await request(app.getHttpServer()).get('/users').expect(401);
-    });
-  });
-
-  describe('/users/one (GET)', () => {
-    it('should return user by id when user exists', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/users/one')
-        .query({ id: currentUser.id })
-        .set(getAuthHeader(authToken))
-        .expect(200);
-
-      expect(response.body).toHaveProperty('id');
-      expect(response.body.id).toBe(currentUser.id);
-    });
-
-    // `users.id` é `uuid`: id fora do formato tem que parar no pipe (400), não
-    // virar 500 do Postgres — era o que acontecia antes do `ParseUUIDPipe`.
-    it('deve responder 400 (nunca 500) para id fora do formato uuid', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/users/one')
-        .query({ id: 999999 })
-        .set(getAuthHeader(authToken));
-
-      expect(response.status).toBe(400);
-    });
-
-    // 404 exato: `UsersService.findOne` escopa a busca por `ownerId`, então
-    // para o admin autenticado o id inexistente nunca chega a produzir 403 — o
-    // 403 só existe no ramo médico/colaborador, que este teste não exercita.
-    // Aceitar os dois deixaria passar uma troca de comportamento silenciosa.
-    it('deve responder 404 para uuid válido inexistente', async () => {
-      const response = await request(app.getHttpServer())
-        .get('/users/one')
-        .query({ id: '00000000-0000-4000-8000-000000000000' })
-        .set(getAuthHeader(authToken));
-
-      expect(response.status).toBe(404);
-    });
-
-    // 401 e não 400: o `JwtAuthGuard` é global e roda antes dos pipes, então o
-    // `ParseUUIDPipe` do `id` nem chega a ser avaliado para quem não está
-    // autenticado — sem token, o formato do id é irrelevante.
-    it('should fail without authentication', async () => {
-      await request(app.getHttpServer())
-        .get('/users/one')
-        .query({ id: 1 })
-        .expect(401);
-    });
-  });
-
   describe('/users/profile (GET)', () => {
     // Antes o teste aceitava 200, 401 ou 500 — com token válido, 401 significa
     // autenticação quebrada e 500 é defeito; aceitar os três fazia o teste
@@ -247,16 +146,19 @@ describe('Users (e2e)', () => {
     });
   });
 
+  // Usa `/users/profile` porque `GET /users` foi removido: o `JwtAuthGuard`
+  // roda DEPOIS do roteamento, então uma rota inexistente devolve 404 e o
+  // teste passaria a medir o 404 em vez do 401 que ele existe para provar.
   describe('Authorization', () => {
     it('should deny access with invalid token', async () => {
       await request(app.getHttpServer())
-        .get('/users')
+        .get('/users/profile')
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
     });
 
     it('should deny access without token', async () => {
-      await request(app.getHttpServer()).get('/users').expect(401);
+      await request(app.getHttpServer()).get('/users/profile').expect(401);
     });
   });
 });

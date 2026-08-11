@@ -115,6 +115,21 @@ describe('DTOs de solicitação cirúrgica — ids uuid', () => {
       const dto = plainToInstance(ProcedureItemDto, item);
       expect(await validate(dto)).toHaveLength(0);
     });
+
+    /**
+     * `procedureId` é campo morto — `ProceduresService.create` nunca o lê. Ele
+     * era validado como uuid, mas o catálogo TUSS vem de `tuss.json` e não tem
+     * uuid nenhum: o frontend mandava o próprio código no campo e o payload
+     * inteiro voltava 400, deixando a SC criada por modelo sem TUSS.
+     * Tolerado como string livre para não quebrar cliente com bundle antigo.
+     */
+    it('tolera procedureId com o código TUSS, que não é uuid', async () => {
+      const dto = plainToInstance(ProcedureItemDto, {
+        ...item,
+        procedureId: '3.07.15.09-1',
+      });
+      expect(await validate(dto)).toHaveLength(0);
+    });
   });
 
   describe('AuthorizeProceduresDto', () => {

@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { normalizeNameForCompare } from '../../catalog.helpers';
@@ -10,10 +10,10 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, proceduresService } = deps;
   return {
     name: 'procedure_draft_commit',
-    // Diferente de paciente (cadastro transversal), criar procedimento é
-    // restrito no HTTP: `ProceduresController.create` exige
-    // `@RequirePermission(Permission.ADMINISTRACAO)`.
-    requiredPermission: Permission.ADMINISTRACAO,
+    // Mesma regra do HTTP: `ProceduresController.create` herda o
+    // `@RequireAnyArea()` da classe — qualquer área cria, mas o colaborador
+    // sem área nenhuma não. Excluir continua sendo ato do admin e não tem tool.
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {

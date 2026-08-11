@@ -73,9 +73,17 @@ export interface AiTool {
    */
   bypassesService?: boolean;
   /**
-   * Área que a tool exige. Ausente = qualquer usuário autenticado da conta.
+   * Área(s) que a tool exige. Uma lista significa **qualquer uma destas** (OR),
+   * igual ao `@RequirePermission(...)` do HTTP — e `ALL_PERMISSIONS` é o
+   * equivalente ao `@RequireAnyArea()`: cadastro transversal, que pede ao menos
+   * uma área sem amarrar a uma específica.
+   *
+   * Ausente = qualquer usuário autenticado da conta, **inclusive** o
+   * colaborador criado com `permissions: []`. Para tools de mutação isso
+   * raramente é o que se quer; prefira `ALL_PERMISSIONS`.
+   *
    * Checado pelo `ToolExecutorService` contra `context.permissions`.
    */
-  requiredPermission?: Permission;
+  requiredPermission?: Permission | readonly Permission[];
   execute(args: Record<string, any>, context: ToolContext): Promise<string>;
 }

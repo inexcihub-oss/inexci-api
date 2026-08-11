@@ -28,7 +28,11 @@ import {
 @Controller('procedures')
 // Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
 // uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Métodos de escrita mantêm `@RequirePermission(ADMINISTRACAO)`.
+// específica. Criar e atualizar herdam essa regra: o procedimento que falta no
+// catálogo aparece no meio do wizard de solicitação e ao montar um modelo —
+// quem está ali é o médico ou o colaborador, não o admin. Só `delete` segue em
+// `ADMINISTRACAO` — apagar um procedimento afeta solicitações e modelos que já
+// o referenciam.
 @RequireAnyArea()
 export class ProceduresController {
   constructor(private readonly proceduresService: ProceduresService) {}
@@ -49,7 +53,6 @@ export class ProceduresController {
   }
 
   @Post()
-  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Criar procedimento' })
   create(
     @Body() data: CreateProcedureDto,
@@ -59,7 +62,6 @@ export class ProceduresController {
   }
 
   @Patch(':id')
-  @RequirePermission(Permission.ADMINISTRACAO)
   @ApiOperation({ summary: 'Atualizar procedimento' })
   update(
     @Param('id') id: string,

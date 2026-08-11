@@ -700,6 +700,23 @@ export class SurgeryRequestsController {
     );
   }
 
+  /**
+   * GET /surgery-requests/templates/:id
+   * Modelo completo, com o `templateData`. A listagem devolve só o resumo — o
+   * conteúdo pesado é buscado aqui, quando o modelo é aberto para edição ou
+   * usado para criar uma solicitação.
+   */
+  @Get('templates/:id')
+  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @ApiOperation({ summary: 'Detalhar template' })
+  getTemplate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.surgeryRequestsService.getTemplate(
+      id,
+      user.userId,
+      user.ownerId,
+    );
+  }
+
   @Post('templates/:id/increment-usage')
   @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
   @ApiOperation({ summary: 'Incrementar uso do template' })

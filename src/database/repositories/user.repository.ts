@@ -140,6 +140,10 @@ export class UserRepository extends BaseRepository<User> {
       skip,
       take,
       relations: ['doctorProfile'],
+      // Sem CPF, gênero e nascimento de propósito: `GET /users` é o diretório
+      // do staff, liberado a qualquer área autenticada, e nenhum consumidor
+      // usa esses três (a camada de IA lê só `id`/`name`). Quem precisa do
+      // cadastro completo de uma pessoa usa a rota por id.
       select: {
         id: true,
         role: true,
@@ -147,9 +151,6 @@ export class UserRepository extends BaseRepository<User> {
         email: true,
         name: true,
         phone: true,
-        cpf: true,
-        gender: true,
-        birthDate: true,
         avatarUrl: true,
         ownerId: true,
         adminId: true,

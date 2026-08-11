@@ -22,6 +22,7 @@ import { BillingWebhookService } from './services/billing-webhook.service';
 
 import { PlansController } from './controllers/plans.controller';
 import { SubscriptionsController } from './controllers/subscriptions.controller';
+import { QuotaController } from './controllers/quota.controller';
 import { BillingWebhooksController } from './controllers/billing-webhooks.controller';
 
 @Module({
@@ -49,6 +50,7 @@ import { BillingWebhooksController } from './controllers/billing-webhooks.contro
   controllers: [
     PlansController,
     SubscriptionsController,
+    QuotaController,
     BillingWebhooksController,
   ],
   exports: [SubscriptionService, QuotaService],

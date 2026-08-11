@@ -1,6 +1,9 @@
-import { ToolExecutorService } from './tool-executor.service';
+import {
+  ToolExecutorService,
+  temPermissaoParaTool,
+} from './tool-executor.service';
 import { AiTool } from '../tools/tool.interface';
-import { Permission } from '../../permissions';
+import { ALL_PERMISSIONS, Permission } from '../../permissions';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -429,6 +432,90 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
 
       expect(resultado.output).toContain('não tem permissão');
       expect(execute).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Lista = "qualquer uma destas" (OR), igual ao `@RequirePermission(...)` do
+     * HTTP. `ALL_PERMISSIONS` é como as tools de cadastro transversal
+     * (hospital, convênio) expressam o `@RequireAnyArea()`: pede uma área
+     * qualquer, mas não deixa passar quem não tem nenhuma.
+     */
+    function buildTransversalTool(executeFn: jest.Mock): AiTool {
+      return {
+        ...buildTool('hospital_draft_commit', executeFn),
+        requiredPermission: ALL_PERMISSIONS,
+      };
+    }
+
+    it.each(ALL_PERMISSIONS)(
+      'executa a tool transversal para quem tem só %s',
+      async (permissao) => {
+        const execute = jest.fn().mockResolvedValue('ok');
+        const svc = new ToolExecutorService(
+          buildRegistryMock([buildTransversalTool(execute)]) as any,
+          buildRedisOffline() as any,
+        );
+
+        await svc.executeMany([makeCall('hospital_draft_commit', {})], {
+          userId: 'u-1',
+          permissions: [permissao],
+        } as never);
+
+        expect(execute).toHaveBeenCalled();
+      },
+    );
+
+    it('recusa a tool transversal para quem não tem área nenhuma', async () => {
+      const execute = jest.fn();
+      const svc = new ToolExecutorService(
+        buildRegistryMock([buildTransversalTool(execute)]) as any,
+        buildRedisOffline() as any,
+      );
+
+      const [resultado] = await svc.executeMany(
+        [makeCall('hospital_draft_commit', {})],
+        { userId: 'u-1', permissions: [] } as never,
+      );
+
+      expect(resultado.output).toContain('não tem permissão');
+      expect(execute).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── regra de permissão isolada ───────────────────────────────────────────
+
+  describe('temPermissaoParaTool', () => {
+    it('libera quando a tool não exige nada', () => {
+      expect(temPermissaoParaTool(undefined, { permissions: [] })).toBe(true);
+    });
+
+    it('exige a permissão única declarada', () => {
+      expect(
+        temPermissaoParaTool(Permission.SOLICITACOES, {
+          permissions: [Permission.AGENDA],
+        }),
+      ).toBe(false);
+      expect(
+        temPermissaoParaTool(Permission.SOLICITACOES, {
+          permissions: [Permission.SOLICITACOES],
+        }),
+      ).toBe(true);
+    });
+
+    it('trata lista como OR, nunca como AND', () => {
+      const exigidas = [Permission.SOLICITACOES, Permission.ATENDIMENTO];
+      expect(
+        temPermissaoParaTool(exigidas, {
+          permissions: [Permission.ATENDIMENTO],
+        }),
+      ).toBe(true);
+      expect(
+        temPermissaoParaTool(exigidas, { permissions: [Permission.AGENDA] }),
+      ).toBe(false);
+    });
+
+    it('é fail-closed sem `permissions` no contexto', () => {
+      expect(temPermissaoParaTool(ALL_PERMISSIONS, {})).toBe(false);
     });
   });
 });

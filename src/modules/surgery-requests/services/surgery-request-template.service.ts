@@ -6,10 +6,36 @@ import {
 } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
 import { SurgeryRequestTemplate } from 'src/database/entities/surgery-request-template.entity';
+import { SurgeryRequestPriority } from 'src/database/entities/surgery-request.entity';
+import { sanitizeTemplateData } from './surgery-request-template-data';
 
 export interface TemplateUsageIncrementResponse {
   id: string;
   usageCount: number;
+}
+
+/**
+ * O que a listagem devolve. As duas telas que a consomem — o seletor de modelo
+ * do wizard e a tabela de Procedimentos — só pintam texto; os itens TUSS, OPME
+ * e documentos aparecem no detalhe (`getTemplate`), quando o modelo é aberto ou
+ * usado. Antes ia o `templateData` inteiro por linha mais o `User` do médico,
+ * com cpf, telefone e endereço junto.
+ */
+export interface SurgeryRequestTemplateSummary {
+  id: string;
+  name: string;
+  /** Os ids acompanham os nomes porque o formulário de nova SC preenche com eles. */
+  procedureId: string | null;
+  procedureName: string | null;
+  hospitalId: string | null;
+  hospitalName: string | null;
+  healthPlanId: string | null;
+  healthPlanName: string | null;
+  priority: SurgeryRequestPriority | null;
+  doctorName: string | null;
+  usageCount: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 @Injectable()
@@ -28,23 +54,73 @@ export class SurgeryRequestTemplateService {
       doctorId: userId,
       ownerId: tenantOwnerId,
       name: dto.name,
-      templateData: dto.templateData,
+      templateData: sanitizeTemplateData(dto.templateData),
     });
     const saved = await templateRepo.save(template);
-    return templateRepo.findOne({
-      where: { id: saved.id },
-      relations: ['doctor'],
-    });
+    return templateRepo.findOne({ where: { id: saved.id } });
   }
 
-  getTemplates(userId: string, ownerId: string | null): Promise<any[]> {
+  async getTemplates(
+    userId: string,
+    ownerId: string | null,
+  ): Promise<SurgeryRequestTemplateSummary[]> {
     const tenantOwnerId = this.requireOwnerId(ownerId);
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
-    return templateRepo.find({
+    const templates = await templateRepo.find({
       where: { doctorId: userId, ownerId: tenantOwnerId },
+      // `templateData` entra porque o resumo é derivado dele, mas não sai na
+      // resposta; do médico vem só o nome, exibido na coluna "Criado por".
+      select: {
+        id: true,
+        name: true,
+        usageCount: true,
+        createdAt: true,
+        updatedAt: true,
+        templateData: true,
+        doctor: { name: true },
+      },
       relations: ['doctor'],
       order: { createdAt: 'DESC' },
     });
+
+    return templates.map((template) => this.toSummary(template));
+  }
+
+  async getTemplate(
+    id: string,
+    userId: string,
+    ownerId: string | null,
+  ): Promise<SurgeryRequestTemplate> {
+    const tenantOwnerId = this.requireOwnerId(ownerId);
+    const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
+    const template = await templateRepo.findOne({
+      where: { id, doctorId: userId, ownerId: tenantOwnerId },
+    });
+    if (!template) {
+      throw new NotFoundException('Template não encontrado ou sem permissão.');
+    }
+    return template;
+  }
+
+  private toSummary(
+    template: SurgeryRequestTemplate,
+  ): SurgeryRequestTemplateSummary {
+    const data = sanitizeTemplateData(template.templateData);
+    return {
+      id: template.id,
+      name: template.name,
+      procedureId: data.procedure?.id ?? null,
+      procedureName: data.procedure?.name ?? data.procedureName ?? null,
+      hospitalId: data.hospital?.id ?? null,
+      hospitalName: data.hospital?.name ?? null,
+      healthPlanId: data.healthPlan?.id ?? null,
+      healthPlanName: data.healthPlan?.name ?? null,
+      priority: data.priority ?? null,
+      doctorName: template.doctor?.name ?? null,
+      usageCount: template.usageCount,
+      createdAt: template.createdAt,
+      updatedAt: template.updatedAt,
+    };
   }
 
   async updateTemplate(
@@ -63,7 +139,7 @@ export class SurgeryRequestTemplateService {
     }
     if (dto.name !== undefined) template.name = dto.name;
     if (dto.templateData !== undefined)
-      template.templateData = dto.templateData;
+      template.templateData = sanitizeTemplateData(dto.templateData);
     return templateRepo.save(template);
   }
 

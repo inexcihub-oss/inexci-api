@@ -9,21 +9,50 @@ import {
   Index,
 } from 'typeorm';
 import { User } from './user.entity';
+import { SurgeryRequestPriority } from './surgery-request.entity';
+
+export interface TemplateEntityRef {
+  id: string;
+  name: string;
+}
+
+export interface TemplateTussItem {
+  tussCode: string;
+  name: string;
+  quantity: number;
+}
+
+export interface TemplateOpmeItem {
+  name: string;
+  quantity: number;
+  manufacturers: string[];
+  suppliers: string[];
+}
+
+export interface TemplateRequiredDocument {
+  type: string;
+  name: string;
+}
 
 /**
- * Estrutura do templateData armazenado em jsonb.
+ * Estrutura do `template_data` (jsonb).
+ *
+ * O modelo é um *snapshot*, não uma referência à SC que o originou: ele
+ * sobrevive à exclusão dela, é editável por conta própria e pode nascer do
+ * zero, sem SC nenhuma. O que ele não pode ser é um despejo da SC — só entra
+ * aqui o que o wizard reaproveita ao criar a próxima. `sanitizeTemplateData`
+ * (no módulo de solicitações) é o único caminho de escrita que garante isso.
  */
 export interface SurgeryRequestTemplateData {
-  procedureId?: string;
-  opmeItems?: Array<{
-    name: string;
-    manufacturers?: string[];
-    distributor?: string;
-    suppliers?: string[];
-    quantity: number;
-  }>;
-  requiredDocuments?: string[];
-  requiredExams?: string[];
+  procedure?: TemplateEntityRef;
+  /** Usado quando o modelo não aponta para um procedimento do catálogo. */
+  procedureName?: string;
+  hospital?: TemplateEntityRef;
+  healthPlan?: TemplateEntityRef;
+  priority?: SurgeryRequestPriority;
+  tussItems?: TemplateTussItem[];
+  opmeItems?: TemplateOpmeItem[];
+  requiredDocuments?: TemplateRequiredDocument[];
 }
 
 /**

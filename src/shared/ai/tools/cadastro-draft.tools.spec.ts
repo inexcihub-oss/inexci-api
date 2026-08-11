@@ -3,7 +3,7 @@ import { buildCadastroDraftTools } from './cadastro-draft.tools';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { ToolContext } from './tool.interface';
 import { parseToolResult } from './tool-result';
-import { Permission } from 'src/shared/permissions';
+import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 
 describe('cadastro draft tools (preview + commit)', () => {
   let conv: any;
@@ -103,19 +103,24 @@ describe('cadastro draft tools (preview + commit)', () => {
     ]);
   });
 
-  it('paciente é cadastro transversal (sem requiredPermission); hospital/convênio/procedimento exigem ADMINISTRACAO no commit', () => {
+  /**
+   * O assistente tem que exigir o mesmo que a rota HTTP equivalente. Hospital e
+   * convênio são cadastros transversais (`@RequireAnyArea()` em
+   * `HospitalsController`/`HealthPlansController`): qualquer área cria. Enquanto
+   * a tool pedia ADMINISTRACAO, o colaborador cadastrava pela tela e levava
+   * "você não tem permissão" pelo WhatsApp — a mesma ação, duas respostas.
+   */
+  it.each([
+    'hospital_draft_commit',
+    'health_plan_draft_commit',
+    'procedure_draft_commit',
+  ])('%s aceita qualquer área, como no HTTP', (tool) => {
+    expect(getTool(tool).requiredPermission).toEqual(ALL_PERMISSIONS);
+  });
+
+  it('paciente é cadastro transversal (sem requiredPermission)', () => {
     expect(getTool('patient_draft_preview').requiredPermission).toBeUndefined();
     expect(getTool('patient_draft_commit').requiredPermission).toBeUndefined();
-
-    expect(getTool('hospital_draft_commit').requiredPermission).toBe(
-      Permission.ADMINISTRACAO,
-    );
-    expect(getTool('health_plan_draft_commit').requiredPermission).toBe(
-      Permission.ADMINISTRACAO,
-    );
-    expect(getTool('procedure_draft_commit').requiredPermission).toBe(
-      Permission.ADMINISTRACAO,
-    );
   });
 
   describe('create_patient', () => {

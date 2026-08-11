@@ -1,5 +1,4 @@
 import { CreateUserDto } from './dto/create-user.dto';
-import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
 import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
@@ -17,14 +16,9 @@ import {
   Patch,
   Post,
   Put,
-  Query,
-  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import {
-  RequireAnyArea,
-  RequirePermission,
-} from 'src/shared/decorators/require-permission.decorator';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
@@ -37,35 +31,11 @@ import {
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Get()
-  // Diretório do staff expõe nome/e-mail/CPF/telefone dos colegas do tenant.
-  // Sem decorator ficava liberado a qualquer autenticado (colaborador sem
-  // área inclusive). O service já escopa por ownerId/vínculo; a área é o gate
-  // de entrada.
-  @RequireAnyArea()
-  @ApiOperation({ summary: 'Listar usuários' })
-  async findMany(
-    @Query() query: FindManyUsersDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return await this.usersService.findMany(query, user.userId);
-  }
-
-  @Get('one')
-  @RequireAnyArea()
-  @ApiOperation({ summary: 'Buscar usuário por ID' })
-  async findOne(
-    // `users.id` é `uuid`: sem o pipe, `?id=999999` chega cru ao repositório e
-    // o Postgres aborta a query ("invalid input syntax for type uuid"), que o
-    // `AllExceptionsFilter` traduz num 400 genérico de banco (500 nos e2e, que
-    // não registram o filtro). O pipe devolve um 400 que diz o que está errado,
-    // sem gastar ida ao banco — mesmo defeito que o `SurgeryRequestOwnerGuard`
-    // tinha com o `:id` da solicitação.
-    @Query('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return await this.usersService.findOne(id, user.userId);
-  }
+  // `GET /users` (diretório do staff) e `GET /users/one` foram removidos: não
+  // tinham consumidor e o primeiro devolvia nome, e-mail, telefone e CPF de
+  // todo colega do tenant a qualquer autenticado com uma área. A gestão de
+  // equipe usa as rotas `collaborators`/`doctors`, gated por `ADMINISTRACAO`;
+  // o autoatendimento usa `profile`.
 
   @Get('profile')
   @ApiOperation({ summary: 'Obter perfil do usuário autenticado' })

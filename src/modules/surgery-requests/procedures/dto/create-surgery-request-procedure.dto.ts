@@ -14,9 +14,17 @@ export class ProcedureItemDto {
   @IsUUID()
   id?: string;
 
+  /**
+   * Campo morto: `ProceduresService.create` nunca o lê — o id do item é
+   * gerado pelo banco e o código TUSS vem de `tuss.json`, que não tem uuid.
+   * Validá-lo como uuid fazia o payload inteiro voltar 400 quando o cliente
+   * mandava o próprio código aqui. Segue aceito como string livre só para não
+   * quebrar bundle antigo em cache (`forbidNonWhitelisted: true` recusaria a
+   * propriedade); nenhum caminho do frontend o envia mais.
+   */
   @IsOptional()
-  @IsUUID()
-  procedureId?: string; // mantido por compatibilidade, não utilizado no save
+  @IsString()
+  procedureId?: string;
 
   @IsString()
   @IsNotEmpty()

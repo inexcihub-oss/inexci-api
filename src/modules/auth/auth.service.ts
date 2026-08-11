@@ -292,6 +292,9 @@ export class AuthService {
           cpf: result.cpf,
           status: result.status,
           ownerId: fullUser?.ownerId,
+          // Mesmo dado de `ownerId`, sob o nome que o frontend usa no
+          // contrato (`User.accountId`). Ver o comentário em `me()`.
+          accountId: fullUser?.ownerId,
           account,
           isDoctor: !!doctorProfile,
           emailVerified: fullUser?.emailVerified ?? false,
@@ -344,6 +347,13 @@ export class AuthService {
       phone: user.phone,
       email: user.email,
       ownerId: user.ownerId,
+      // `owner_id` é exposto ao frontend como `accountId` (mesmo nome usado
+      // por `UsersService.findById`). `AuthContext` deriva `isAccountOwner`
+      // de `user.id === user.accountId` — sem este campo, o dono da conta
+      // não é reconhecido como dono e a aba "Plano e Faturamento" (e o
+      // restante do billing) some para todo mundo. `ownerId` continua no
+      // payload por retrocompatibilidade.
+      accountId: user.ownerId,
       account,
       avatarUrl,
       isDoctor: !!doctorProfile,

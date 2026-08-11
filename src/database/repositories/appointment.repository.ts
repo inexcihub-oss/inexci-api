@@ -12,6 +12,16 @@ export interface FindAgendaOptions {
   take: number;
 }
 
+/**
+ * O que a agenda precisa do paciente: o nome do card. Nada mais.
+ *
+ * A agenda é liberada por `Permission.AGENDA`, que não implica acesso ao
+ * prontuário — um `leftJoinAndSelect` aqui entrega CPF, endereço, nascimento e
+ * `medicalNotes` de todo paciente da janela a quem só marca consulta. `Patient`
+ * não tem `@Exclude` em campo nenhum, então a entidade inteira sai serializada.
+ */
+const COLUNAS_PACIENTE_NO_CARD = ['patient.id', 'patient.name'];
+
 @Injectable()
 export class AppointmentRepository extends BaseRepository<Appointment> {
   constructor(private readonly dataSource: DataSource) {
@@ -32,7 +42,8 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   ): Promise<{ records: Appointment[]; total: number }> {
     const qb = this.repository
       .createQueryBuilder('appointment')
-      .leftJoinAndSelect('appointment.patient', 'patient')
+      .leftJoin('appointment.patient', 'patient')
+      .addSelect(COLUNAS_PACIENTE_NO_CARD)
       .where('appointment.ownerId = :ownerId', { ownerId })
       .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds });
 
@@ -72,7 +83,8 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   ): Promise<Appointment[]> {
     return this.repository
       .createQueryBuilder('appointment')
-      .leftJoinAndSelect('appointment.patient', 'patient')
+      .leftJoin('appointment.patient', 'patient')
+      .addSelect(COLUNAS_PACIENTE_NO_CARD)
       .where('appointment.ownerId = :ownerId', { ownerId })
       .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
       .andWhere('appointment.patientId = :patientId', { patientId })

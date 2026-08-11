@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import * as sanitizeHtml from 'sanitize-html';
-import { FindOptionsWhere, Not, In, QueryFailedError } from 'typeorm';
+import { Not, In, QueryFailedError } from 'typeorm';
 import {
   BadRequestException,
   Logger,
@@ -15,7 +15,6 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CreateUserDto } from './dto/create-user.dto';
-import { FindManyUsersDto } from './dto/find-many.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
 import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
@@ -122,132 +121,6 @@ export class UsersService {
         'O dono da conta não pode ser alterado por outro usuário.',
       );
     }
-  }
-
-  /**
-   * Lista usuários
-   * - Admin: pode ver todos da conta
-   * - Médico (com doctorProfile): pode ver quem tem acesso via user_doctor_access
-   * - Colaborador: só pode ver a si mesmo
-   */
-  async findMany(query: FindManyUsersDto, userId: string) {
-    const user = await this.userRepository.findOne({ id: userId });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    const where: FindOptionsWhere<User> = {};
-
-    // Admin pode ver todos da conta
-    if (user.role === UserRole.ADMIN) {
-      where.ownerId = user.ownerId;
-      if (query.role) {
-        where.role = query.role;
-      }
-    } else {
-      // Verificar se é médico (tem doctorProfile) - pode ver quem tem acesso
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      if (doctorProfile) {
-        const accesses =
-          await this.userDoctorAccessRepository.findActiveByDoctorUserId(
-            userId,
-          );
-        const accessUserIds = accesses.map((a) => a.userId);
-        where.id = In([userId, ...accessUserIds]);
-      } else {
-        // Colaboradores só podem ver a si mesmos
-        where.id = userId;
-      }
-      if (query.role) {
-        where.role = query.role;
-      }
-    }
-
-    const [total, resp] = await Promise.all([
-      this.userRepository.total(where),
-      this.userRepository.findMany(where, query.skip ?? 0, query.take ?? 20),
-    ]);
-
-    return { total, records: resp };
-  }
-
-  async findOne(id: string, userId: string) {
-    if (!id) throw new BadRequestException('ID é obrigatório');
-
-    const requestingUser = await this.userRepository.findOne({ id: userId });
-    if (!requestingUser) throw new NotFoundException('Usuário não encontrado');
-
-    let user: Awaited<ReturnType<typeof this.userRepository.findOne>>;
-
-    // Admin pode ver qualquer um da conta
-    if (requestingUser.role === UserRole.ADMIN) {
-      // Escopo de tenant igual ao do findMany logo acima. Sem ownerId aqui,
-      // qualquer conta (todo register cria um ADMIN) lia CPF, endereco e a
-      // signed URL da assinatura de medicos de outras clinicas.
-      user = await this.userRepository.findOne({
-        id,
-        ownerId: requestingUser.ownerId,
-      });
-      if (!user) throw new NotFoundException('Usuário não encontrado');
-    } else {
-      // Médico (com doctorProfile) pode ver a si mesmo ou quem tem acesso
-      const doctorProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      if (doctorProfile) {
-        if (id !== userId) {
-          const accesses =
-            await this.userDoctorAccessRepository.findActiveByDoctorUserId(
-              userId,
-            );
-          const accessUserIds = accesses.map((a) => a.userId);
-          if (!accessUserIds.includes(id)) {
-            throw new ForbiddenException('Sem permissão para ver este usuário');
-          }
-        }
-      } else if (id !== userId) {
-        throw new ForbiddenException('Sem permissão para ver este usuário');
-      }
-
-      user = await this.userRepository.findOne({ id });
-      if (!user) throw new NotFoundException('Usuário não encontrado');
-    }
-
-    const [avatarUrl, signatureUrl] = await Promise.all([
-      this.resolveStorageUrl(user.avatarUrl),
-      this.resolveStorageUrl(user.doctorProfile?.signatureUrl),
-    ]);
-
-    // Spread de entidade escapa do ClassSerializerInterceptor: o interceptor
-    // so aplica @Exclude() quando o objeto e instancia de classe. Campos
-    // explicitos evitam vazar password/emailVerificationToken/etc.
-    const result: Record<string, unknown> = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      cpf: user.cpf,
-      // `char(1)` volta preenchido com espaço quando gravado vazio. Normaliza
-      // na leitura para que registros antigos não devolvam `' '` ao formulário
-      // — o valor voltaria no PATCH seguinte e seria recusado pelo DTO.
-      gender: user.gender?.trim() || null,
-      birthDate: user.birthDate,
-      cep: user.cep,
-      address: user.address,
-      addressNumber: user.addressNumber,
-      addressComplement: user.addressComplement,
-      city: user.city,
-      state: user.state,
-      role: user.role,
-      status: user.status,
-      accountId: user.ownerId,
-      doctorProfile: user.doctorProfile,
-      avatarUrl,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
-    if (user.doctorProfile) {
-      result.doctorProfile = { ...user.doctorProfile, signatureUrl };
-    }
-    return result;
   }
 
   async getProfile(userId: string) {
@@ -665,29 +538,36 @@ export class UsersService {
       (c) => c.id !== userId && c.id !== admin.ownerId,
     );
 
+    // Projeção explícita, não spread: `findByOwnerId` não define `select`, e
+    // um spread da entidade escapa do `ClassSerializerInterceptor` (que só
+    // honra `@Exclude()` em instância de classe). Antes saíam junto o hash da
+    // senha, os tokens de verificação, `isPlatformAdmin` e — o motivo desta
+    // lista — CPF, CEP, endereço, cidade, UF, gênero e nascimento de cada
+    // colega, que a tela `/colaboradores` não exibe. Quem precisa do cadastro
+    // completo abre a edição, que usa `findCollaboratorById`.
     const records = await Promise.all(
-      filtered.map(async (c) => {
-        // `findByOwnerId` não define `select`, então devolve `permissions` e
-        // `isPlatformAdmin` crus do TypeORM (vazamento pré-existente) — não
-        // podem sair na resposta. `password` já não vem: a coluna tem
-        // `select: false` na entidade.
-        const { permissions, isPlatformAdmin, ...collaboratorFields } = c;
-
-        return {
-          // `emailVerificationToken`/`...ExpiresAt` também vêm crus do
-          // `find` sem `select`, e o spread abaixo escapa do
-          // `ClassSerializerInterceptor` que honraria o `@Exclude()`.
-          ...omitUserSecrets(collaboratorFields),
-          avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
-          // A permissão EFETIVA, não a coluna crua — mesmo motivo do
-          // getProfile/findCollaboratorById.
-          permissions: resolveEffectivePermissions({
-            role: c.role,
-            permissions,
-            isDoctor: !!c.doctorProfile,
-          }),
-        };
-      }),
+      filtered.map(async (c) => ({
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        role: c.role,
+        status: c.status,
+        ownerId: c.ownerId,
+        adminId: c.adminId,
+        emailVerified: c.emailVerified,
+        doctorProfile: c.doctorProfile ?? null,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
+        // A permissão EFETIVA, não a coluna crua — mesmo motivo do
+        // getProfile/findCollaboratorById.
+        permissions: resolveEffectivePermissions({
+          role: c.role,
+          permissions: c.permissions,
+          isDoctor: !!c.doctorProfile,
+        }),
+      })),
     );
 
     return { records };
@@ -1117,16 +997,24 @@ export class UsersService {
       admin.ownerId,
     );
 
+    // Mesma projeção explícita de `findCollaborators`, pelo mesmo motivo:
+    // `findDoctorsByOwnerId` não define `select` e o spread escapa do
+    // `ClassSerializerInterceptor`. Esta lista alimenta seletores de médico
+    // (nome, CRM, especialidade, status) — não é tela de cadastro.
     const records = await Promise.all(
-      doctors.map(async (d) => {
-        // `findDoctorsByOwnerId` não define `select`: além da senha, o
-        // `emailVerificationToken` viria cru — e o spread escapa do
-        // `ClassSerializerInterceptor`.
-        return {
-          ...omitUserSecrets(d),
-          avatarUrl: await this.resolveStorageUrl(d.avatarUrl),
-        };
-      }),
+      doctors.map(async (d) => ({
+        id: d.id,
+        name: d.name,
+        email: d.email,
+        phone: d.phone,
+        role: d.role,
+        status: d.status,
+        ownerId: d.ownerId,
+        doctorProfile: d.doctorProfile ?? null,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+        avatarUrl: await this.resolveStorageUrl(d.avatarUrl),
+      })),
     );
 
     return { records };

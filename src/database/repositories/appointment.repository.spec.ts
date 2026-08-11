@@ -9,7 +9,9 @@ import { AppointmentStatus } from '../entities/appointment.entity';
 describe('AppointmentRepository.findAgenda', () => {
   function buildRepo() {
     const qb = {
+      leftJoin: jest.fn().mockReturnThis(),
       leftJoinAndSelect: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
@@ -115,5 +117,51 @@ describe('AppointmentRepository.findAgenda', () => {
     expect(qb.getManyAndCount).toHaveBeenCalled();
     expect(qb.getMany).not.toHaveBeenCalled();
     expect(resultado).toEqual({ records: [{ id: 'a-1' }], total: 1103 });
+  });
+
+  // A agenda é liberada por `Permission.AGENDA`, que não implica acesso ao
+  // prontuário. Trazer o paciente inteiro entregava CPF, endereço, nascimento
+  // e `medicalNotes` de todo paciente da janela a quem só marca consulta — e o
+  // frontend descarta tudo menos o nome (`mapAppointment`).
+  it('traz do paciente apenas id e nome', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAgenda('owner-1', ['d-1'], { take: 1000 });
+
+    expect(qb.leftJoinAndSelect).not.toHaveBeenCalled();
+    expect(qb.leftJoin).toHaveBeenCalledWith('appointment.patient', 'patient');
+    expect(qb.addSelect).toHaveBeenCalledWith(['patient.id', 'patient.name']);
+  });
+});
+
+describe('AppointmentRepository.findByPatient', () => {
+  function buildRepo() {
+    const qb = {
+      leftJoin: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    const dataSource = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      }),
+    };
+    return { repo: new AppointmentRepository(dataSource as never), qb };
+  }
+
+  // Mesmo motivo do `findAgenda`: o histórico do paciente alimenta a aba
+  // "Consultas", que mostra data, tipo e status — nunca os dados cadastrais.
+  it('traz do paciente apenas id e nome', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findByPatient('owner-1', ['d-1'], 'p-1');
+
+    expect(qb.leftJoinAndSelect).not.toHaveBeenCalled();
+    expect(qb.leftJoin).toHaveBeenCalledWith('appointment.patient', 'patient');
+    expect(qb.addSelect).toHaveBeenCalledWith(['patient.id', 'patient.name']);
   });
 });
