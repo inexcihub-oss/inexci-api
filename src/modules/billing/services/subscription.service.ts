@@ -406,19 +406,72 @@ export class SubscriptionService {
 
   /**
    * Cria uma sessão no Stripe Customer Portal para o admin gerenciar a assinatura.
+   *
+   * Com `planId`, o portal abre já na confirmação de troca para aquele plano —
+   * antes o plano escolhido na aplicação se perdia e o usuário aterrissava na
+   * home do portal tendo que reencontrá-lo na Stripe.
    */
-  async openBillingPortal(userId: string): Promise<{ url: string }> {
+  async openBillingPortal(
+    userId: string,
+    planId?: string,
+  ): Promise<{ url: string }> {
     const owner = await this.assertOwner(userId);
 
     const customerId = await this.ensureGatewayCustomer(owner.id);
 
     const dashboardUrl = this.config.get<string>('DASHBOARD_URL', '');
+    const returnUrl = `${dashboardUrl}/configuracoes?tab=plan`;
+
+    const subscriptionUpdate = planId
+      ? await this.resolveSubscriptionUpdate(owner.id, planId)
+      : null;
+
+    if (subscriptionUpdate) {
+      try {
+        const session = await this.gateway.createBillingPortalSession({
+          customerId,
+          returnUrl,
+          subscriptionUpdate,
+        });
+        return { url: session.url };
+      } catch (err) {
+        // O fluxo de troca depende de o "subscription_update" estar habilitado
+        // na configuração do portal. Se a Stripe recusar, o portal simples
+        // ainda resolve — melhor cair nele do que devolver erro.
+        this.logger.warn(
+          `[openBillingPortal] fluxo de troca recusado (plano=${planId}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
     const session = await this.gateway.createBillingPortalSession({
       customerId,
-      returnUrl: `${dashboardUrl}/configuracoes?tab=plan`,
+      returnUrl,
     });
 
     return { url: session.url };
+  }
+
+  /**
+   * Só há o que trocar quando existe assinatura no gateway e o plano de destino
+   * tem preço lá. Fora disso o portal abre normal, sem fluxo.
+   */
+  private async resolveSubscriptionUpdate(
+    ownerId: string,
+    planId: string,
+  ): Promise<{ subscriptionId: string; priceId: string } | null> {
+    const plan = await this.planRepo.findOne({ id: planId });
+    if (!plan || !plan.isActive || !plan.gatewayPriceId) return null;
+
+    const sub = await this.subscriptionRepo.findByOwnerId(ownerId);
+    if (!sub?.gatewaySubscriptionId) return null;
+
+    return {
+      subscriptionId: sub.gatewaySubscriptionId,
+      priceId: plan.gatewayPriceId,
+    };
   }
 
   // ───── Sincronização via webhook ─────

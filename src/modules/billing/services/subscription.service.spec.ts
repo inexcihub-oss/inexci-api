@@ -780,6 +780,87 @@ describe('SubscriptionService', () => {
       );
       expect(result.url).toBe('https://billing.stripe.com/portal');
     });
+
+    it('abre o portal já no fluxo de troca quando um plano é informado', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue({
+        id: 'sub-1',
+        gatewayCustomerId: 'cus_abc',
+        gatewaySubscriptionId: 'sub_gw_1',
+      });
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-2',
+        isActive: true,
+        gatewayPriceId: 'price_essencial',
+      });
+      gateway.getCustomer.mockResolvedValue({ id: 'cus_abc' });
+      gateway.createBillingPortalSession.mockResolvedValue({
+        url: 'https://billing.stripe.com/portal/update',
+      });
+
+      const result = await service.openBillingPortal('owner-1', 'plan-2');
+
+      expect(gateway.createBillingPortalSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerId: 'cus_abc',
+          subscriptionUpdate: {
+            subscriptionId: 'sub_gw_1',
+            priceId: 'price_essencial',
+          },
+        }),
+      );
+      expect(result.url).toBe('https://billing.stripe.com/portal/update');
+    });
+
+    it('cai no portal simples quando a Stripe recusa o fluxo de troca', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue({
+        id: 'sub-1',
+        gatewayCustomerId: 'cus_abc',
+        gatewaySubscriptionId: 'sub_gw_1',
+      });
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-2',
+        isActive: true,
+        gatewayPriceId: 'price_essencial',
+      });
+      gateway.getCustomer.mockResolvedValue({ id: 'cus_abc' });
+      gateway.createBillingPortalSession
+        .mockRejectedValueOnce(new Error('subscription_update not enabled'))
+        .mockResolvedValue({ url: 'https://billing.stripe.com/portal' });
+
+      const result = await service.openBillingPortal('owner-1', 'plan-2');
+
+      expect(gateway.createBillingPortalSession).toHaveBeenCalledTimes(2);
+      expect(gateway.createBillingPortalSession).toHaveBeenLastCalledWith(
+        expect.not.objectContaining({ subscriptionUpdate: expect.anything() }),
+      );
+      expect(result.url).toBe('https://billing.stripe.com/portal');
+    });
+
+    it('ignora o plano quando não há assinatura no gateway para trocar', async () => {
+      userRepo.findOne.mockResolvedValue(buildOwner());
+      subscriptionRepo.findByOwnerId.mockResolvedValue({
+        id: 'sub-1',
+        gatewayCustomerId: 'cus_abc',
+        gatewaySubscriptionId: null,
+      });
+      planRepo.findOne.mockResolvedValue({
+        id: 'plan-2',
+        isActive: true,
+        gatewayPriceId: 'price_essencial',
+      });
+      gateway.getCustomer.mockResolvedValue({ id: 'cus_abc' });
+      gateway.createBillingPortalSession.mockResolvedValue({
+        url: 'https://billing.stripe.com/portal',
+      });
+
+      await service.openBillingPortal('owner-1', 'plan-2');
+
+      expect(gateway.createBillingPortalSession).toHaveBeenCalledWith(
+        expect.not.objectContaining({ subscriptionUpdate: expect.anything() }),
+      );
+    });
   });
 
   describe('syncFromGatewaySubscription', () => {

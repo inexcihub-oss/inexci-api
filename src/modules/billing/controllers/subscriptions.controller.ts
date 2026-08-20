@@ -18,6 +18,7 @@ import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decor
 import { SubscriptionService } from '../services/subscription.service';
 import { QuotaService } from '../services/quota.service';
 import { StartCheckoutDto } from '../dto/start-checkout.dto';
+import { OpenPortalDto } from '../dto/open-portal.dto';
 
 @ApiTags('Billing')
 @ApiBearerAuth()
@@ -88,9 +89,12 @@ export class SubscriptionsController {
   @ApiOperation({
     summary: 'Abre o Customer Portal da Stripe para gerenciar a assinatura',
   })
-  async portal(@CurrentUser() user: AuthenticatedUser) {
+  async portal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: OpenPortalDto,
+  ) {
     this.assertEhDono(user);
-    return this.subscriptionService.openBillingPortal(user.userId);
+    return this.subscriptionService.openBillingPortal(user.userId, dto.planId);
   }
 
   /**

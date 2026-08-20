@@ -518,6 +518,40 @@ describe('AuthService', () => {
     });
   });
 
+  describe('checkPhoneAvailability', () => {
+    it('deve retornar available quando o telefone não pertence a ninguém', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.checkPhoneAvailability('11999998888'),
+      ).resolves.toEqual({ status: 'available' });
+    });
+
+    it('deve retornar registered quando o telefone já tem conta', async () => {
+      mockUserRepository.findOne.mockResolvedValue({
+        id: 'user-1',
+        phone: '11999998888',
+      });
+
+      await expect(
+        service.checkPhoneAvailability('11999998888'),
+      ).resolves.toEqual({ status: 'registered' });
+    });
+
+    // O usuário digita o telefone mascarado. Sem normalizar, a etapa 1 diria
+    // "disponível" para um número que o submit recusaria — a checagem
+    // antecipada tem de consultar exatamente o que o `register` grava.
+    it('deve normalizar a máscara antes de consultar', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+
+      await service.checkPhoneAvailability('(11) 99999-8888');
+
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        phone: '11999998888',
+      });
+    });
+  });
+
   describe('register', () => {
     const mockPlan = { id: 'plan-1', name: 'Básico', isActive: true };
 
@@ -552,6 +586,70 @@ describe('AuthService', () => {
         } as any),
       ).rejects.toThrow(
         'Este e-mail está associado a um convite pendente. Verifique sua caixa de entrada para ativar sua conta.',
+      );
+    });
+
+    // Antes desta checagem o cadastro só olhava o e-mail: um telefone repetido
+    // passava direto e só estourava no INSERT, contra o índice parcial
+    // `IDX_users_phone_unique`. O QueryFailedError subia sem tratamento e o
+    // usuário recebia 500 — visto em produção em 16/08/2026, requestId
+    // 1efdb601-5217-4c09-8ec3-f7a5540ebad2.
+    it('should throw a friendly error when the phone already belongs to another account', async () => {
+      mockUserRepository.findOne.mockImplementation((where: any) =>
+        Promise.resolve(
+          where?.phone === '11999998888'
+            ? { id: 'outro-user', phone: '11999998888' }
+            : null,
+        ),
+      );
+
+      await expect(
+        service.register({
+          name: 'Test',
+          email: 'novo@example.com',
+          password: '123456',
+          phone: '(11) 99999-8888',
+          planSlug: 'basico',
+        } as any),
+      ).rejects.toThrow(
+        'Este telefone já está sendo utilizado por outra conta.',
+      );
+
+      expect(mockUserRepository.create).not.toHaveBeenCalled();
+    });
+
+    // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro pode
+    // gravar o mesmo número. O índice único é quem de fato garante a regra, e
+    // a violação dele precisa virar a mesma mensagem — não um 500.
+    it('should convert the unique phone violation into the same friendly error', async () => {
+      mockUserRepository.findOne.mockResolvedValue(null);
+      (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
+
+      const violacao = Object.assign(
+        new Error(
+          'duplicate key value violates unique constraint "IDX_users_phone_unique"',
+        ),
+        {
+          code: '23505',
+          constraint: 'IDX_users_phone_unique',
+          driverError: {
+            code: '23505',
+            constraint: 'IDX_users_phone_unique',
+          },
+        },
+      );
+      mockUserRepository.create.mockRejectedValue(violacao);
+
+      await expect(
+        service.register({
+          name: 'Test',
+          email: 'novo@example.com',
+          password: '123456',
+          phone: '11999998888',
+          planSlug: 'basico',
+        } as any),
+      ).rejects.toThrow(
+        'Este telefone já está sendo utilizado por outra conta.',
       );
     });
 

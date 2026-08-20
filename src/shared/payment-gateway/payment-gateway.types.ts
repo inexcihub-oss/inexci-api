@@ -123,6 +123,15 @@ export interface CreateBillingPortalSessionInput {
   customerId: string;
   /** URL de retorno exibida no portal ("← Voltar para Inexci"). */
   returnUrl: string;
+  /**
+   * Abre o portal direto na confirmação de troca para este preço, em vez da
+   * home do portal. Sem isso o plano escolhido na aplicação se perde no
+   * caminho e o usuário precisa reencontrá-lo dentro da Stripe.
+   */
+  subscriptionUpdate?: {
+    subscriptionId: string;
+    priceId: string;
+  };
 }
 
 export interface VerifyWebhookInput {
