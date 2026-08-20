@@ -41,11 +41,20 @@ describe('SubscriptionsController — só o dono mexe em dinheiro', () => {
   });
 
   it('deixa o dono abrir o portal', async () => {
-    await expect(controller.portal(dono)).resolves.not.toThrow();
+    await expect(controller.portal(dono, {})).resolves.not.toThrow();
+  });
+
+  it('repassa o plano escolhido para o portal', async () => {
+    await controller.portal(dono, { planId: 'plan-2' });
+
+    expect(subscriptionService.openBillingPortal).toHaveBeenCalledWith(
+      dono.userId,
+      'plan-2',
+    );
   });
 
   it('bloqueia o admin delegado no portal', async () => {
-    await expect(controller.portal(delegado)).rejects.toThrow(
+    await expect(controller.portal(delegado, {})).rejects.toThrow(
       ForbiddenException,
     );
     expect(subscriptionService.openBillingPortal).not.toHaveBeenCalled();

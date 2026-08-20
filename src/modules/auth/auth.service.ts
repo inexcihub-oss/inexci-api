@@ -242,27 +242,29 @@ export class AuthService {
     const userId = uuidv4();
 
     // Cria o usuário como Admin com ownerId = self.id na mesma operação
-    const user = await this.userRepository.create({
-      id: userId,
-      name: data.name,
-      email: data.email,
-      password: hashedPassword,
-      role: UserRole.ADMIN,
-      status: UserStatus.ACTIVE,
-      phone: phoneDigits,
-      ownerId: userId, // self-referência — mesmo ID
-    } as Partial<User>).catch((err: unknown) => {
-      // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro
-      // pode gravar o mesmo número. Quem garante a regra de fato é o índice
-      // único — e a violação dele tem que virar a mesma mensagem, não um 500.
-      if (isPhoneUniqueViolation(err)) {
-        throw new HttpException(
-          PHONE_ALREADY_IN_USE_MESSAGE,
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      throw err;
-    });
+    const user = await this.userRepository
+      .create({
+        id: userId,
+        name: data.name,
+        email: data.email,
+        password: hashedPassword,
+        role: UserRole.ADMIN,
+        status: UserStatus.ACTIVE,
+        phone: phoneDigits,
+        ownerId: userId, // self-referência — mesmo ID
+      } as Partial<User>)
+      .catch((err: unknown) => {
+        // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro
+        // pode gravar o mesmo número. Quem garante a regra de fato é o índice
+        // único — e a violação dele tem que virar a mesma mensagem, não um 500.
+        if (isPhoneUniqueViolation(err)) {
+          throw new HttpException(
+            PHONE_ALREADY_IN_USE_MESSAGE,
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        throw err;
+      });
 
     await Promise.all(
       DEFAULT_PROCEDURE_NAMES.map((name) =>

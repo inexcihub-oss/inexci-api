@@ -34,6 +34,12 @@ type CheckoutSessionCreateParams = NonNullable<
 type StripeCheckoutSubscriptionData = NonNullable<
   CheckoutSessionCreateParams['subscription_data']
 >;
+type BillingPortalSessionCreateParams = NonNullable<
+  Parameters<StripeInstance['billingPortal']['sessions']['create']>[0]
+>;
+type BillingPortalFlowData = NonNullable<
+  BillingPortalSessionCreateParams['flow_data']
+>;
 
 @Injectable()
 export class StripeProvider implements PaymentGateway {
@@ -122,11 +128,46 @@ export class StripeProvider implements PaymentGateway {
       const session = await this.stripe.billingPortal.sessions.create({
         customer: input.customerId,
         return_url: input.returnUrl,
+        ...(input.subscriptionUpdate
+          ? {
+              flow_data: await this.buildSubscriptionUpdateFlow(
+                input.subscriptionUpdate,
+              ),
+            }
+          : {}),
       });
       return { url: session.url, raw: session };
     } catch (err) {
       throw this.wrapError(err);
     }
+  }
+
+  /**
+   * A Stripe exige o **item** da assinatura (não só o preço) para montar o
+   * fluxo de troca, então a assinatura precisa ser lida antes.
+   */
+  private async buildSubscriptionUpdateFlow(update: {
+    subscriptionId: string;
+    priceId: string;
+  }): Promise<BillingPortalFlowData> {
+    const sub = await this.stripe.subscriptions.retrieve(update.subscriptionId);
+    const item = sub.items?.data?.[0];
+    if (!item) {
+      throw new PaymentGatewayError(
+        `Assinatura ${update.subscriptionId} não tem itens para trocar`,
+        'subscription_without_items',
+      );
+    }
+
+    return {
+      type: 'subscription_update_confirm',
+      subscription_update_confirm: {
+        subscription: update.subscriptionId,
+        items: [
+          { id: item.id, price: update.priceId, quantity: item.quantity ?? 1 },
+        ],
+      },
+    };
   }
 
   // ───── Subscriptions ─────
