@@ -13,7 +13,7 @@ describe('AppointmentsService', () => {
   const mockAppointmentRepository = {
     findAgenda: jest.fn(),
     findByPatient: jest.fn(),
-    findOne: jest.fn(),
+    findOneComRelacoes: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
@@ -25,6 +25,10 @@ describe('AppointmentsService', () => {
   };
 
   const mockClinicalRecordRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockClinicRepository = {
     findOne: jest.fn(),
   };
 
@@ -51,9 +55,16 @@ describe('AppointmentsService', () => {
     );
     mockPatientRepository.findOne.mockResolvedValue({ id: patientId, ownerId });
     mockClinicalRecordRepository.findOne.mockResolvedValue(null);
+    mockClinicRepository.findOne.mockResolvedValue({
+      id: 'clinic-1',
+      ownerId,
+    });
     mockAppointmentRepository.hasOverlap.mockResolvedValue(false);
     mockAppointmentRepository.create.mockImplementation((d) =>
       Promise.resolve({ id: 'appt-1', ...d }),
+    );
+    mockAppointmentRepository.update.mockImplementation(
+      (id: string, d: unknown) => Promise.resolve({ id, ...(d as object) }),
     );
 
     service = new AppointmentsService(
@@ -61,6 +72,7 @@ describe('AppointmentsService', () => {
       mockPatientRepository as any,
       mockClinicalRecordRepository as any,
       mockAccessControlService as any,
+      mockClinicRepository as any,
     );
   });
 
@@ -104,7 +116,9 @@ describe('AppointmentsService', () => {
     const appointment = { id: 'appt-1', ownerId, doctorId: 'doctor-2' };
 
     it('exige acesso ao médico da consulta, não só à clínica', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        appointment,
+      );
       mockAccessControlService.assertCanAccessDoctorResource.mockRejectedValue(
         new ForbiddenException(),
       );
@@ -141,7 +155,9 @@ describe('AppointmentsService', () => {
     ])(
       'bloqueia %s a consulta de um médico fora do acesso do usuário',
       async (_label, action) => {
-        mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          appointment,
+        );
         mockAccessControlService.assertCanAccessDoctorResource.mockRejectedValue(
           new ForbiddenException(),
         );
@@ -203,7 +219,7 @@ describe('AppointmentsService', () => {
 
   describe('update', () => {
     it('revalida conflito ao reagendar, ignorando a própria consulta', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -227,7 +243,7 @@ describe('AppointmentsService', () => {
     });
 
     it('não revalida conflito quando apenas as notas mudam', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -244,7 +260,7 @@ describe('AppointmentsService', () => {
     // D-03: sem zerar a marca, o lembrete "já enviado" era o da data antiga e
     // o paciente nunca era avisado do novo horário.
     it('zera reminderSentAt ao reagendar para outro horário', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -270,7 +286,7 @@ describe('AppointmentsService', () => {
     });
 
     it('não zera reminderSentAt quando o horário enviado é o mesmo', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -293,7 +309,7 @@ describe('AppointmentsService', () => {
     });
 
     it('não zera reminderSentAt quando só a duração muda', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -314,7 +330,7 @@ describe('AppointmentsService', () => {
 
   describe('updateStatus', () => {
     it('grava o motivo ao cancelar', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -337,7 +353,7 @@ describe('AppointmentsService', () => {
     });
 
     it('limpa o motivo ao mudar para um status não-cancelado', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -368,7 +384,7 @@ describe('AppointmentsService', () => {
     ])(
       'bloqueia reativar de %s para %s quando o horário foi reocupado',
       async (from, to) => {
-        mockAppointmentRepository.findOne.mockResolvedValue({
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
           id: 'appt-1',
           ownerId,
           doctorId,
@@ -393,7 +409,7 @@ describe('AppointmentsService', () => {
     );
 
     it('reativa a consulta quando o horário continua livre', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue({
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
         ownerId,
         doctorId,
@@ -424,7 +440,7 @@ describe('AppointmentsService', () => {
     ])(
       'não revalida conflito ao %s (não é reativação)',
       async (_label, from, to) => {
-        mockAppointmentRepository.findOne.mockResolvedValue({
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
           id: 'appt-1',
           ownerId,
           doctorId,
@@ -454,7 +470,9 @@ describe('AppointmentsService', () => {
     // D-06: sem a consulta, `/atendimento/[appointmentId]` dá 404 e o rascunho
     // clínico fica inalcançável pela UI, mas continua na timeline do paciente.
     it('bloqueia a exclusão quando existe ficha de atendimento vinculada', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        appointment,
+      );
       mockClinicalRecordRepository.findOne.mockResolvedValue({ id: 'cr-1' });
 
       await expect(service.delete('appt-1', userId)).rejects.toThrow(
@@ -468,7 +486,9 @@ describe('AppointmentsService', () => {
     });
 
     it('exclui a consulta sem ficha vinculada', async () => {
-      mockAppointmentRepository.findOne.mockResolvedValue(appointment);
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        appointment,
+      );
       mockClinicalRecordRepository.findOne.mockResolvedValue(null);
 
       await service.delete('appt-1', userId);
@@ -618,6 +638,77 @@ describe('AppointmentsService', () => {
 
       expect(result.total).toBe(2);
       expect(result.records).toHaveLength(2);
+    });
+  });
+
+  describe('vínculo com a clínica', () => {
+    it('grava o clinicId quando a clínica é da mesma conta', async () => {
+      await service.create({ ...baseCreate, clinicId: 'clinic-1' }, userId);
+
+      expect(mockAppointmentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ clinicId: 'clinic-1' }),
+      );
+    });
+
+    it('grava null quando a consulta não tem clínica', async () => {
+      await service.create({ ...baseCreate }, userId);
+
+      expect(mockAppointmentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ clinicId: null }),
+      );
+    });
+
+    it('recusa clínica de outra conta com 404', async () => {
+      mockClinicRepository.findOne.mockResolvedValue({
+        id: 'clinic-1',
+        ownerId: 'outro-owner',
+      });
+
+      await expect(
+        service.create({ ...baseCreate, clinicId: 'clinic-1' }, userId),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('recusa clínica inexistente com 404', async () => {
+      mockClinicRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({ ...baseCreate, clinicId: 'clinic-1' }, userId),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('desvincula quando o update manda clinicId null', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        clinicId: 'clinic-1',
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        status: AppointmentStatus.SCHEDULED,
+      });
+
+      await service.update('appt-1', { clinicId: null }, userId);
+
+      const [, dados] = mockAppointmentRepository.update.mock.calls[0];
+      expect(dados.clinicId).toBeNull();
+    });
+
+    it('não mexe no vínculo quando o update não menciona clinicId', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        clinicId: 'clinic-1',
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        status: AppointmentStatus.SCHEDULED,
+      });
+
+      await service.update('appt-1', { notes: 'obs' }, userId);
+
+      const [, dados] = mockAppointmentRepository.update.mock.calls[0];
+      expect(dados).not.toHaveProperty('clinicId');
     });
   });
 });

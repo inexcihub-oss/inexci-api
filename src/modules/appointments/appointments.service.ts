@@ -7,6 +7,7 @@ import {
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
+import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import {
   Appointment,
@@ -27,11 +28,26 @@ export class AppointmentsService {
     private readonly patientRepository: PatientRepository,
     private readonly clinicalRecordRepository: ClinicalRecordRepository,
     private readonly accessControlService: AccessControlService,
+    private readonly clinicRepository: ClinicRepository,
   ) {}
 
   /** Fim da consulta = início + duração. */
   private endOf(start: Date, durationMinutes: number): Date {
     return new Date(start.getTime() + durationMinutes * 60_000);
+  }
+
+  /**
+   * Valida que a clínica escolhida é da mesma conta. 404 (e não 403) pelo
+   * mesmo motivo do paciente: não confirmar a existência de id de outra conta.
+   */
+  private async assertClinicaDaConta(
+    clinicId: string,
+    ownerId: string,
+  ): Promise<void> {
+    const clinic = await this.clinicRepository.findOne({ id: clinicId });
+    if (!clinic || clinic.ownerId !== ownerId) {
+      throw new NotFoundException('Clínica não encontrada');
+    }
   }
 
   async findAgenda(query: FindAppointmentsDto, userId: string) {
@@ -92,7 +108,7 @@ export class AppointmentsService {
    * `findAgenda`/`findByPatient` e `create` já aplicam.
    */
   async findOne(id: string, userId: string): Promise<Appointment> {
-    const appointment = await this.appointmentRepository.findOne({ id });
+    const appointment = await this.appointmentRepository.findOneComRelacoes(id);
     if (!appointment) throw new NotFoundException('Consulta não encontrada');
     await this.accessControlService.assertCanAccessDoctorResource(
       userId,
@@ -123,6 +139,10 @@ export class AppointmentsService {
       throw new NotFoundException('Paciente não encontrado');
     }
 
+    if (data.clinicId) {
+      await this.assertClinicaDaConta(data.clinicId, ownerId);
+    }
+
     const start = new Date(data.scheduledAt);
     const durationMinutes = data.durationMinutes ?? 30;
     const end = this.endOf(start, durationMinutes);
@@ -133,6 +153,7 @@ export class AppointmentsService {
       ownerId,
       doctorId: data.doctorId,
       patientId: data.patientId,
+      clinicId: data.clinicId ?? null,
       type: data.type,
       scheduledAt: start,
       durationMinutes,
@@ -169,6 +190,13 @@ export class AppointmentsService {
     if (data.durationMinutes !== undefined)
       updateData.durationMinutes = durationMinutes;
     if (data.notes !== undefined) updateData.notes = data.notes.trim() || null;
+    if (data.clinicId !== undefined) {
+      if (data.clinicId) {
+        const ownerId = await this.accessControlService.getOwnerId(userId);
+        await this.assertClinicaDaConta(data.clinicId, ownerId);
+      }
+      updateData.clinicId = data.clinicId ?? null;
+    }
 
     // Reagendou de fato: o lembrete já enviado era da data antiga, então a
     // marca de idempotência precisa cair — senão o paciente nunca é avisado do
