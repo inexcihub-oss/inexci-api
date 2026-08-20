@@ -22,6 +22,13 @@ export interface FindAgendaOptions {
  */
 const COLUNAS_PACIENTE_NO_CARD = ['patient.id', 'patient.name'];
 
+/**
+ * O que a agenda precisa da clínica: id e nome. Seleção explícita pelo mesmo
+ * motivo do paciente — `leftJoinAndSelect` entregaria CNPJ, endereço e a grade
+ * inteira a quem só marca consulta.
+ */
+const COLUNAS_CLINICA_NO_CARD = ['clinic.id', 'clinic.name'];
+
 @Injectable()
 export class AppointmentRepository extends BaseRepository<Appointment> {
   constructor(private readonly dataSource: DataSource) {
@@ -42,10 +49,32 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   ): Promise<{ records: Appointment[]; total: number }> {
     const qb = this.repository
       .createQueryBuilder('appointment')
-      .leftJoin('appointment.patient', 'patient')
+      // `withDeleted()` PRECISA vir ANTES dos joins. O TypeORM decide se anexa
+      // `deleted_at IS NULL` à condição do join no instante em que `leftJoin`
+      // é chamado, lendo o flag naquele momento (0.3.28,
+      // `SelectQueryBuilder.join`). Chamado depois, o flag ainda vale para o
+      // root, mas o join da clínica já saiu com o filtro fixado — e a clínica
+      // excluída, que o soft delete existe justamente para preservar no
+      // histórico, volta como `null`.
+      .withDeleted()
+      // Condição própria no join do paciente: o `withDeleted()` acima vale
+      // para a query inteira e, de carona, reexibiria o nome de paciente
+      // soft-deletado. A assimetria é proposital — só o paciente tem a
+      // condição; a clínica deve mesmo voltar mesmo excluída.
+      .leftJoin('appointment.patient', 'patient', 'patient.deleted_at IS NULL')
       .addSelect(COLUNAS_PACIENTE_NO_CARD)
+      .leftJoin('appointment.clinic', 'clinic')
+      .addSelect(COLUNAS_CLINICA_NO_CARD)
       .where('appointment.ownerId = :ownerId', { ownerId })
-      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds });
+      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
+      // `withDeleted()` desliga o filtro de soft delete do root também, então
+      // ele volta na mão aqui — senão consulta excluída entra na agenda.
+      //
+      // Importante: este `andWhere` precisa vir DEPOIS do `.where()` acima —
+      // `.where()` limpa (`expressionMap.wheres = []`) qualquer condição
+      // adicionada antes dele, então um `andWhere` colocado antes seria
+      // descartado em silêncio e o filtro nunca chegaria ao SQL gerado.
+      .andWhere('appointment.deletedAt IS NULL');
 
     if (options.from) {
       qb.andWhere('appointment.scheduledAt >= :from', { from: options.from });
@@ -81,15 +110,69 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     doctorIds: string[],
     patientId: string,
   ): Promise<Appointment[]> {
-    return this.repository
-      .createQueryBuilder('appointment')
-      .leftJoin('appointment.patient', 'patient')
-      .addSelect(COLUNAS_PACIENTE_NO_CARD)
-      .where('appointment.ownerId = :ownerId', { ownerId })
-      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
-      .andWhere('appointment.patientId = :patientId', { patientId })
-      .orderBy('appointment.scheduledAt', 'DESC')
-      .getMany();
+    return (
+      this.repository
+        .createQueryBuilder('appointment')
+        // `withDeleted()` PRECISA vir ANTES dos joins. O TypeORM decide se anexa
+        // `deleted_at IS NULL` à condição do join no instante em que `leftJoin`
+        // é chamado, lendo o flag naquele momento (0.3.28,
+        // `SelectQueryBuilder.join`). Chamado depois, o flag ainda vale para o
+        // root, mas o join da clínica já saiu com o filtro fixado — e a clínica
+        // excluída, que o soft delete existe justamente para preservar no
+        // histórico, volta como `null`.
+        .withDeleted()
+        // Mesma assimetria proposital de `findAgenda`: condição de soft
+        // delete no join do paciente, clínica sem condição própria.
+        .leftJoin(
+          'appointment.patient',
+          'patient',
+          'patient.deleted_at IS NULL',
+        )
+        .addSelect(COLUNAS_PACIENTE_NO_CARD)
+        .leftJoin('appointment.clinic', 'clinic')
+        .addSelect(COLUNAS_CLINICA_NO_CARD)
+        .where('appointment.ownerId = :ownerId', { ownerId })
+        .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
+        .andWhere('appointment.patientId = :patientId', { patientId })
+        // Mesmo motivo de `findAgenda`: `andWhere` depois do `.where()` acima,
+        // senão `.where()` limpa a condição e a consulta excluída volta na lista.
+        .andWhere('appointment.deletedAt IS NULL')
+        .orderBy('appointment.scheduledAt', 'DESC')
+        .getMany()
+    );
+  }
+
+  /**
+   * Consulta por id com paciente e clínica. Serve tanto a leitura da tela
+   * quanto os caminhos de mutação — o root vem completo; os joins só limitam
+   * as colunas das relações.
+   */
+  findOneComRelacoes(id: string): Promise<Appointment | null> {
+    return (
+      this.repository
+        .createQueryBuilder('appointment')
+        // `withDeleted()` PRECISA vir ANTES dos joins. O TypeORM decide se anexa
+        // `deleted_at IS NULL` à condição do join no instante em que `leftJoin`
+        // é chamado, lendo o flag naquele momento (0.3.28,
+        // `SelectQueryBuilder.join`). Chamado depois, o flag ainda vale para o
+        // root, mas o join da clínica já saiu com o filtro fixado — e a clínica
+        // excluída, que o soft delete existe justamente para preservar no
+        // histórico, volta como `null`.
+        .withDeleted()
+        // Mesma assimetria proposital de `findAgenda`: condição de soft
+        // delete no join do paciente, clínica sem condição própria.
+        .leftJoin(
+          'appointment.patient',
+          'patient',
+          'patient.deleted_at IS NULL',
+        )
+        .addSelect(COLUNAS_PACIENTE_NO_CARD)
+        .leftJoin('appointment.clinic', 'clinic')
+        .addSelect(COLUNAS_CLINICA_NO_CARD)
+        .where('appointment.id = :id', { id })
+        .andWhere('appointment.deletedAt IS NULL')
+        .getOne()
+    );
   }
 
   /**

@@ -20,6 +20,11 @@ export class CreateAppointmentDto {
   @IsNotEmpty()
   doctorId: string;
 
+  /** Local de atendimento (opcional). */
+  @IsOptional()
+  @IsUUID()
+  clinicId?: string;
+
   @IsOptional()
   @IsEnum(AppointmentType)
   type?: AppointmentType;

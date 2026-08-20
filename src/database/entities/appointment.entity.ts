@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Patient } from './patient.entity';
+import { Clinic } from './clinic.entity';
 
 /** Tipo da consulta. */
 export enum AppointmentType {
@@ -38,6 +39,7 @@ export enum AppointmentStatus {
 @Index('idx_appointments_doctor_id', ['doctorId'])
 @Index('idx_appointments_patient_id', ['patientId'])
 @Index('idx_appointments_scheduled_at', ['scheduledAt'])
+@Index('idx_appointments_clinic_id', ['clinicId'])
 export class Appointment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -51,6 +53,10 @@ export class Appointment {
 
   @Column({ name: 'patient_id', type: 'uuid' })
   patientId: string;
+
+  /** Local de atendimento. Opcional: consulta pode não ter unidade definida. */
+  @Column({ name: 'clinic_id', type: 'uuid', nullable: true })
+  clinicId: string | null;
 
   @Column({ type: 'varchar', length: 20, default: AppointmentType.FIRST_VISIT })
   type: AppointmentType;
@@ -96,4 +102,8 @@ export class Appointment {
   @ManyToOne(() => Patient, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
+
+  @ManyToOne(() => Clinic, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'clinic_id' })
+  clinic: Clinic | null;
 }

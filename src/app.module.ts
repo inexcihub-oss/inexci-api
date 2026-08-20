@@ -31,6 +31,7 @@ import { PatientsModule } from './modules/patients/patients.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { ClinicalRecordsModule } from './modules/clinical-records/clinical-records.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
+import { ClinicsModule } from './modules/clinics/clinics.module';
 import { ProceduresModule as SurgeryProceduresModule } from './modules/surgery-requests/procedures/procedures.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { CidModule } from './modules/surgery-requests/cid/cid.module';
@@ -129,6 +130,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
     AppointmentsModule,
     ClinicalRecordsModule,
     HospitalsModule,
+    ClinicsModule,
     SurgeryProceduresModule,
     ReportsModule,
     CidModule,

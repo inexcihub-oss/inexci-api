@@ -4,8 +4,10 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { AppointmentType } from 'src/database/entities/appointment.entity';
 
@@ -14,6 +16,12 @@ export class UpdateAppointmentDto {
   @IsOptional()
   @IsEnum(AppointmentType)
   type?: AppointmentType;
+
+  /** `null` desvincula a consulta da clínica. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  clinicId?: string | null;
 
   @IsOptional()
   @IsDateString()
