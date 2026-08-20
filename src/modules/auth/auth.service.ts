@@ -39,6 +39,53 @@ import {
   consumirTentativa,
 } from './recovery-code-attempts.util';
 
+/**
+ * Mensagem única para telefone já em uso. Vive numa constante porque os dois
+ * caminhos que a produzem (checagem prévia e violação do índice único) têm de
+ * dizer exatamente a mesma coisa — o frontend classifica o erro por ela.
+ */
+export const PHONE_ALREADY_IN_USE_MESSAGE =
+  'Este telefone já está sendo utilizado por outra conta.';
+
+/** Índice parcial criado em `AddUniqueIndexUserPhone1752300900000`. */
+const PHONE_UNIQUE_INDEX = 'IDX_users_phone_unique';
+
+/**
+ * O telefone é gravado só com dígitos, e é assim que o índice único o compara.
+ * Normalizar no mesmo ponto para a checagem antecipada e para o cadastro é o
+ * que faz "(11) 99999-8888" colidir com "11999998888" nos dois caminhos.
+ */
+function normalizePhone(phone: string): string {
+  return phone.replace(/\D/g, '');
+}
+
+/**
+ * Identifica a violação de unicidade do telefone no erro cru do Postgres
+ * (SQLSTATE 23505). O TypeORM embrulha o erro do driver em `QueryFailedError`,
+ * mas nem sempre copia `constraint` para o nível de cima — por isso olha os
+ * dois níveis, e cai na mensagem como último recurso.
+ */
+function isPhoneUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+
+  const erro = err as {
+    code?: string;
+    constraint?: string;
+    message?: string;
+    driverError?: { code?: string; constraint?: string; message?: string };
+  };
+  const driver = erro.driverError ?? {};
+
+  if ((erro.code ?? driver.code) !== '23505') return false;
+
+  return (
+    erro.constraint === PHONE_UNIQUE_INDEX ||
+    driver.constraint === PHONE_UNIQUE_INDEX ||
+    (erro.message ?? '').includes(PHONE_UNIQUE_INDEX) ||
+    (driver.message ?? '').includes(PHONE_UNIQUE_INDEX)
+  );
+}
+
 @Injectable()
 @LogTrace()
 export class AuthService {
@@ -132,6 +179,26 @@ export class AuthService {
     return { status: 'registered' };
   }
 
+  /**
+   * Equivalente do `checkEmailAvailability` para o telefone, pelo mesmo motivo:
+   * o índice único `IDX_users_phone_unique` recusa o número no submit, e sem
+   * esta checagem o usuário só descobriria depois de escolher o plano.
+   *
+   * Não existe `pending_invite` aqui — convite é chaveado por e-mail; o
+   * telefone só responde "livre" ou "ocupado".
+   */
+  async checkPhoneAvailability(
+    phone: string,
+  ): Promise<{ status: 'available' | 'registered' }> {
+    // Mesmo lookup do `register`, sobre o mesmo valor normalizado, para que a
+    // etapa 1 nunca discorde do submit.
+    const existingUser = await this.userRepository.findOne({
+      phone: normalizePhone(phone),
+    });
+
+    return { status: existingUser ? 'registered' : 'available' };
+  }
+
   async register(data: RegisterDto) {
     // Verifica se o email já existe
     const existingUser = await this.userRepository.findOne({
@@ -147,6 +214,21 @@ export class AuthService {
       }
       throw new HttpException(
         'Este e-mail já está cadastrado. Faça login ou recupere sua senha.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const phoneDigits = normalizePhone(data.phone);
+
+    // Sem esta checagem o telefone repetido só era barrado pelo índice único,
+    // no INSERT, e o QueryFailedError virava 500 na cara do usuário.
+    const phoneOwner = await this.userRepository.findOne({
+      phone: phoneDigits,
+    });
+
+    if (phoneOwner) {
+      throw new HttpException(
+        PHONE_ALREADY_IN_USE_MESSAGE,
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -167,9 +249,20 @@ export class AuthService {
       password: hashedPassword,
       role: UserRole.ADMIN,
       status: UserStatus.ACTIVE,
-      phone: data.phone.replace(/\D/g, ''),
+      phone: phoneDigits,
       ownerId: userId, // self-referência — mesmo ID
-    } as Partial<User>);
+    } as Partial<User>).catch((err: unknown) => {
+      // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro
+      // pode gravar o mesmo número. Quem garante a regra de fato é o índice
+      // único — e a violação dele tem que virar a mesma mensagem, não um 500.
+      if (isPhoneUniqueViolation(err)) {
+        throw new HttpException(
+          PHONE_ALREADY_IN_USE_MESSAGE,
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      throw err;
+    });
 
     await Promise.all(
       DEFAULT_PROCEDURE_NAMES.map((name) =>

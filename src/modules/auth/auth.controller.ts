@@ -24,6 +24,7 @@ import {
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { CheckEmailDto } from './dto/check-email.dto';
+import { CheckPhoneDto } from './dto/check-phone.dto';
 import { AuthService } from './auth.service';
 import { Public } from 'src/shared/decorator/is-public.decorator';
 import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decorator';
@@ -151,6 +152,30 @@ export class AuthController {
   })
   async checkEmail(@Body() req: CheckEmailDto) {
     return await this.authService.checkEmailAvailability(req.email);
+  }
+
+  @Public()
+  // Mesmo trade-off do `check-email` acima, e o mesmo throttle. A diferença é
+  // que telefone tem espaço de busca muito menor que e-mail (um DDD + 9 dígitos
+  // é enumerável; um endereço arbitrário não), então o limite por hora é o que
+  // segura o volume — e ele só passou a valer por cliente de verdade depois do
+  // `real_ip` da Cloudflare no nginx: antes, todo mundo compartilhava a mesma
+  // chave (o IP do edge) e o limite era simultaneamente inútil e injusto.
+  @Throttle({
+    short: { ttl: 60000, limit: 5 },
+    long: { ttl: 3600000, limit: 20 },
+  })
+  @Post('check-phone')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Checa disponibilidade de telefone no fluxo de cadastro',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'available | registered',
+  })
+  async checkPhone(@Body() req: CheckPhoneDto) {
+    return await this.authService.checkPhoneAvailability(req.phone);
   }
 
   @Public()

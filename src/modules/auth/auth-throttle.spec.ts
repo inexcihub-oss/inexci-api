@@ -9,6 +9,7 @@ const THROTTLERS_CONFIGURADOS = ['short', 'medium', 'long'];
 /** Rotas que precisam de limite próprio, mais estrito que o global. */
 const ROTAS_COM_LIMITE = [
   'checkEmail',
+  'checkPhone',
   'login',
   'sendRecoveryPasswordEmail',
   'validateRecoveryPasswordCode',
