@@ -127,11 +127,15 @@ export class UsersService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Remove credenciais e campos internos (permissions cru e isPlatformAdmin)
-    // do retorno — não são dados que a rota de perfil deve expor. O spread
-    // final escapa do `ClassSerializerInterceptor`, então o `@Exclude()` da
-    // entidade não cobre esta resposta.
-    const { permissions, isPlatformAdmin, ...comCredenciais } = user;
+    // Remove credenciais e campos internos (permissions cru, isPlatformAdmin
+    // e onboardingState cru) do retorno — não são dados que a rota de perfil
+    // deve expor. `onboardingState` cru pode vir `null` e nunca passou por
+    // `normalizeOnboardingState` (isso é feito só em `AuthService.me()`); o
+    // consumidor desta rota não deve receber a coluna crua para se defender.
+    // O spread final escapa do `ClassSerializerInterceptor`, então o
+    // `@Exclude()` da entidade não cobre esta resposta.
+    const { permissions, isPlatformAdmin, onboardingState, ...comCredenciais } =
+      user;
     const userWithoutPassword = omitUserSecrets(comCredenciais);
 
     // Gerar signed URL para assinatura do médico (bucket privado)
@@ -1171,11 +1175,16 @@ export class UsersService {
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    // Remove senha e campo interno (isPlatformAdmin) do retorno. `permissions`
-    // crua é retirada do spread e devolvida à parte como `grantedPermissions`
-    // (ver abaixo) — só esta rota pode expor a coluna crua, porque é a única
-    // gated por `ADMINISTRACAO` que a tela de edição de colaborador consome.
-    const { permissions, isPlatformAdmin, ...comCredenciais } = collaborator;
+    // Remove senha e campos internos (isPlatformAdmin, onboardingState cru)
+    // do retorno. `permissions` crua é retirada do spread e devolvida à parte
+    // como `grantedPermissions` (ver abaixo) — só esta rota pode expor a
+    // coluna crua, porque é a única gated por `ADMINISTRACAO` que a tela de
+    // edição de colaborador consome. `onboardingState` não tem equivalente:
+    // nunca deve sair daqui cru (pode vir `null`, sem passar por
+    // `normalizeOnboardingState`) — o admin não tem por que ver o onboarding
+    // do colaborador por esta rota.
+    const { permissions, isPlatformAdmin, onboardingState, ...comCredenciais } =
+      collaborator;
     const userWithoutPassword = omitUserSecrets(comCredenciais);
 
     const [avatarUrl, signatureUrl] = await Promise.all([

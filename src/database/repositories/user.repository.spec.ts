@@ -56,6 +56,22 @@ describe('UserRepository', () => {
   });
 
   /**
+   * Sem `onboardingState` no select, `AuthService.me()` recebe
+   * `user.onboardingState === undefined` e `normalizeOnboardingState`
+   * devolve sempre o estado vazio (`not_started`) — bug silencioso que
+   * nenhum teste com repositório mockado à mão pega. Trava a regressão do
+   * mesmo jeito que o teste de `permissions` acima trava a dele.
+   */
+  it('findOneWithProfile inclui onboardingState no select', async () => {
+    const { repo, mockRepository } = buildRepo();
+
+    await repo.findOneWithProfile({ id: 'user-1' });
+
+    const call = mockRepository.findOne.mock.calls[0][0];
+    expect(call.select).toMatchObject({ onboardingState: true });
+  });
+
+  /**
    * `findMany` alimenta duas coisas: `GET /users` — o diretório do staff,
    * liberado a qualquer área via `@RequireAnyArea()` — e a resolução de nomes
    * de médico do assistente do WhatsApp, que lê só `id` e `name`. Nenhuma das
