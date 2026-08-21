@@ -2,9 +2,19 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { UpdateOnboardingStateDto } from './update-onboarding-state.dto';
 
+/**
+ * Espelha a configuração real do `ValidationPipe` global
+ * (`whitelist` + `forbidNonWhitelisted`). Com apenas `whitelist`, apagar um
+ * decorator de validação faria o campo ser silenciosamente descartado em vez
+ * de validado — e o teste do caminho feliz continuaria passando, mascarando a
+ * regressão.
+ */
 async function erros(payload: Record<string, unknown>) {
   const dto = plainToInstance(UpdateOnboardingStateDto, payload);
-  const resultado = await validate(dto, { whitelist: true });
+  const resultado = await validate(dto, {
+    whitelist: true,
+    forbidNonWhitelisted: true,
+  });
   return resultado.map((e) => e.property);
 }
 
@@ -41,6 +51,12 @@ describe('UpdateOnboardingStateDto', () => {
   it('rejeita valor que não é timestamp', async () => {
     expect(
       await erros({ completedSteps: { 'criar-solicitacao': 'ontem' } }),
+    ).toEqual(['completedSteps']);
+  });
+
+  it('rejeita data parseável que não é ISO-8601', async () => {
+    expect(
+      await erros({ completedSteps: { 'criar-solicitacao': 'August 21, 2026' } }),
     ).toEqual(['completedSteps']);
   });
 

@@ -1,4 +1,4 @@
-import { ValidationOptions, registerDecorator } from 'class-validator';
+import { ValidationOptions, isISO8601, registerDecorator } from 'class-validator';
 
 /**
  * Valida um mapa `chave conhecida → timestamp ISO`.
@@ -25,11 +25,15 @@ export function IsTimestampMapOf(
           ) {
             return false;
           }
+          // `isISO8601`, não `Date.parse`: este último aceita "August 21, 2026"
+          // e "2026-08-21" sem hora, é dependente de engine, e entregaria menos
+          // do que o nome do campo e a mensagem de erro prometem. Os campos de
+          // topo deste mesmo DTO usam `@IsISO8601()` — o mapa segue a regra.
           return Object.entries(value as Record<string, unknown>).every(
             ([chave, valor]) =>
               allowed.includes(chave) &&
               typeof valor === 'string' &&
-              !Number.isNaN(Date.parse(valor)),
+              isISO8601(valor),
           );
         },
         defaultMessage() {

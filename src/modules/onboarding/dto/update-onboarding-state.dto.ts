@@ -13,8 +13,13 @@ import { IsTimestampMapOf } from '../validators/is-timestamp-map-of.validator';
  * Patch parcial do estado de onboarding. Campo ausente é preservado pelo
  * merge — este DTO só descreve o que PODE mudar.
  *
- * `version` não está aqui de propósito: é do servidor, e o `ValidationPipe`
- * global (com `whitelist`) descarta o que não for declarado.
+ * `version` é do servidor e nunca vem do cliente — mas está DECLARADO aqui,
+ * com `@Exclude()`, e isso é deliberado. O pipe global roda com
+ * `forbidNonWhitelisted: true`: um cliente que devolva o `OnboardingState`
+ * que recebeu do GET (que carrega `version`) tomaria 400 se o campo virasse
+ * propriedade própria da instância. O `@Exclude()` o remove antes da
+ * transformação, então ele é ignorado em silêncio em vez de rejeitar a
+ * requisição. Não remova o campo por parecer morto.
  */
 export class UpdateOnboardingStateDto {
   @Exclude()
