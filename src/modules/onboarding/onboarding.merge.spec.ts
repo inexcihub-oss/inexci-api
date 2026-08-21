@@ -2,6 +2,7 @@ import { emptyOnboardingState } from './onboarding.constants';
 import {
   mergeOnboardingState,
   normalizeOnboardingState,
+  type OnboardingPatch,
 } from './onboarding.merge';
 
 describe('normalizeOnboardingState', () => {
@@ -93,10 +94,18 @@ describe('mergeOnboardingState', () => {
     });
   });
 
+  /**
+   * O patch chega como JSON de um cliente: o `Omit<…, 'version'>` do tipo não
+   * existe em runtime. O teste precisa mesmo carregar um `version` conflitante,
+   * senão passa igual com ou sem a defesa.
+   */
   it('não deixa o cliente rebaixar a versão do estado', () => {
-    const proximo = mergeOnboardingState(emptyOnboardingState(), {
+    const atual = { ...emptyOnboardingState(), version: 1 };
+
+    const proximo = mergeOnboardingState(atual, {
       status: 'in_progress',
-    } as never);
+      version: 99,
+    } as unknown as OnboardingPatch);
 
     expect(proximo.version).toBe(1);
   });
