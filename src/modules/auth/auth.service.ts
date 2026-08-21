@@ -26,6 +26,7 @@ import { changePasswordDto } from './dto/change-password.dto';
 import { ChangePasswordAuthenticatedDto } from './dto/change-password-authenticated.dto';
 import { generateValidationCode } from 'src/shared/utils';
 import { ConsentService } from '../privacy/consent.service';
+import { normalizeOnboardingState } from '../onboarding/onboarding.merge';
 import { SubscriptionService } from '../billing/services/subscription.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { BCRYPT_ROUNDS, precisaRehash } from 'src/shared/constants/bcrypt';
@@ -473,6 +474,10 @@ export class AuthService {
           }
         : null,
       consents: this.consentService.buildStatusFromUser(user),
+      // Embutido no payload pelo mesmo motivo dos consentimentos: sem isso o
+      // boot paga um request extra só para decidir se mostra o modal de
+      // boas-vindas — e o modal pisca depois da tela já ter carregado.
+      onboardingState: normalizeOnboardingState(user.onboardingState),
     };
   }
 

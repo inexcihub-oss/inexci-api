@@ -94,6 +94,7 @@ export class UserRepository extends BaseRepository<User> {
         state: true,
         createdAt: true,
         updatedAt: true,
+        onboardingState: true,
       },
     });
   }
