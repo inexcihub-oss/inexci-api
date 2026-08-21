@@ -49,6 +49,7 @@ import { WebhookModule } from './modules/webhook/webhook.module';
 import { AiModule } from './shared/ai/ai.module';
 import { RagModule } from './shared/rag/rag.module';
 import { PrivacyModule } from './modules/privacy/privacy.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdminModule } from './modules/admin/admin.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -145,6 +146,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
     AiModule,
     RagModule,
     PrivacyModule,
+    OnboardingModule,
     AdminModule,
     BillingModule,
     ObservabilityModule,
