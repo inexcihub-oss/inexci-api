@@ -515,10 +515,16 @@ export class UsersService {
     if (!updated) throw new NotFoundException('Usuário alvo não encontrado');
 
     // Quem chama esta rota pode ser um colaborador vinculado só-assinatura
-    // (isLinkedCollaborator acima); permissions cru e isPlatformAdmin do
-    // médico-alvo não devem vazar nessa resposta.
-    const { permissions, isPlatformAdmin, ...updatedWithoutInternalFields } =
-      updated;
+    // (isLinkedCollaborator acima); permissions cru, isPlatformAdmin e
+    // onboardingState cru do médico-alvo não devem vazar nessa resposta —
+    // terceira instância do mesmo vazamento já corrigido em getProfile e
+    // findCollaboratorById (achado Important da revisão final).
+    const {
+      permissions,
+      isPlatformAdmin,
+      onboardingState,
+      ...updatedWithoutInternalFields
+    } = updated;
     return updatedWithoutInternalFields;
   }
 

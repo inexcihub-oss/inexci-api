@@ -2264,6 +2264,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           // restrito à assinatura não deve recebê-la na resposta.
           permissions: [Permission.SOLICITACOES],
           isPlatformAdmin: true,
+          onboardingState: null,
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-1' },
@@ -2283,6 +2284,47 @@ describe('UsersService — Colaboradores e Permissões', () => {
       // ver permissions/isPlatformAdmin do médico-alvo na resposta.
       expect(result).not.toHaveProperty('permissions');
       expect(result).not.toHaveProperty('isPlatformAdmin');
+    });
+
+    /**
+     * Achado Important da revisão final: terceira instância do mesmo
+     * vazamento já corrigido em `getProfile` e `findCollaboratorById`, e a
+     * mais sensível das três — `PATCH /users/doctor-profile/:id` é
+     * alcançável por um colaborador com só `SOLICITACOES` vinculado ao
+     * médico (caminho `isLinkedCollaborator`/`onlySignature`), então o
+     * `onboardingState` cru do MÉDICO-ALVO, não do próprio chamador, vazava
+     * para um terceiro. O mock precisa mesmo trazer `onboardingState`
+     * preenchido — com `null` o teste passaria mesmo sem o destructure.
+     */
+    it('não expõe onboardingState cru do médico-alvo (nem null)', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1' },
+          adminId: 'real-admin',
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/x.png' },
+          permissions: [Permission.SOLICITACOES],
+          isPlatformAdmin: false,
+          onboardingState: null,
+        });
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'doctor-1' },
+      ]);
+
+      const result = await service.updateDoctorProfileById(
+        'doctor-1',
+        { signatureImageUrl: 'signatures/x.png' },
+        'collab-1',
+      );
+
+      expect(result).not.toHaveProperty('onboardingState');
     });
 
     it('deve barrar colaborador vinculado que tenta editar CRM', async () => {
