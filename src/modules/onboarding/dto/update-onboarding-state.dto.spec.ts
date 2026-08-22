@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { emptyOnboardingState } from '../onboarding.constants';
 import { UpdateOnboardingStateDto } from './update-onboarding-state.dto';
 
 /**
@@ -73,5 +74,26 @@ describe('UpdateOnboardingStateDto', () => {
   it('rejeita version — a versão é do servidor', async () => {
     const dto = plainToInstance(UpdateOnboardingStateDto, { version: 99 });
     expect((dto as Record<string, unknown>).version).toBeUndefined();
+  });
+
+  /**
+   * Achado CRITICAL da revisão final: o frontend manda o `OnboardingState`
+   * inteiro menos `version` (`OnboardingProvider.tsx`:
+   * `const { version: _version, ...patch } = paraEnviar`), o que inclui
+   * `restartedAt` — campo que o DTO não declarava. Resultado em produção:
+   * todo `PATCH /onboarding/state` do cliente real tomava 400 e o onboarding
+   * nunca persistia, com as duas suítes verdes, porque nenhum teste montava
+   * o payload a partir do shape real do GET.
+   *
+   * Este teste monta esse payload real — `emptyOnboardingState()` menos
+   * `version` — para não poder divergir do shape verdadeiro, e exige ZERO
+   * erros. Sem os dois `@Exclude()` (`version` e `restartedAt`), essas duas
+   * chaves sobram como propriedade própria da instância e
+   * `forbidNonWhitelisted` rejeita a requisição.
+   */
+  it('aceita o OnboardingState completo devolvido pelo GET, menos version', async () => {
+    const { version: _version, ...estadoCompleto } = emptyOnboardingState();
+
+    expect(await erros(estadoCompleto)).toEqual([]);
   });
 });

@@ -13,17 +13,30 @@ import { IsTimestampMapOf } from '../validators/is-timestamp-map-of.validator';
  * Patch parcial do estado de onboarding. Campo ausente é preservado pelo
  * merge — este DTO só descreve o que PODE mudar.
  *
- * `version` é do servidor e nunca vem do cliente — mas está DECLARADO aqui,
- * com `@Exclude()`, e isso é deliberado. O pipe global roda com
- * `forbidNonWhitelisted: true`: um cliente que devolva o `OnboardingState`
- * que recebeu do GET (que carrega `version`) tomaria 400 se o campo virasse
- * propriedade própria da instância. O `@Exclude()` o remove antes da
- * transformação, então ele é ignorado em silêncio em vez de rejeitar a
- * requisição. Não remova o campo por parecer morto.
+ * `version` e `restartedAt` são do servidor e nunca vêm do cliente — mas
+ * estão DECLARADOS aqui, com `@Exclude()`, e isso é deliberado. O pipe
+ * global roda com `forbidNonWhitelisted: true`: um cliente que devolva o
+ * `OnboardingState` inteiro que recebeu do GET (que carrega os dois campos)
+ * tomaria 400 se algum deles virasse propriedade própria da instância — é
+ * exatamente o que o frontend faz (`OnboardingProvider.tsx` manda o estado
+ * inteiro menos `version`, o que inclui `restartedAt`). O `@Exclude()`
+ * remove os dois antes da transformação, então são ignorados em silêncio em
+ * vez de rejeitarem a requisição. Não remova nenhum dos dois campos por
+ * parecerem mortos.
+ *
+ * Esse truque só funciona porque `tsconfig.json` mira ES2021, o que deixa
+ * `useDefineForClassFields` desligado por padrão — a declaração não emite
+ * `Object.defineProperty` e o campo nunca vira propriedade própria da
+ * instância. Subir o target para ES2022 reativa isso e os dois campos
+ * voltam a existir na instância, e todo PATCH volta a tomar 400.
  */
 export class UpdateOnboardingStateDto {
   @Exclude()
   version?: undefined;
+
+  @Exclude()
+  restartedAt?: undefined;
+
   @ApiPropertyOptional({ enum: ONBOARDING_STATUSES as unknown as string[] })
   @IsOptional()
   @IsIn(ONBOARDING_STATUSES as unknown as string[])
