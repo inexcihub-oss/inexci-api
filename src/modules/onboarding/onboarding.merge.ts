@@ -36,6 +36,17 @@ export function normalizeOnboardingState(raw: unknown): OnboardingState {
  * sobrescreveriam se o patch trocasse o objeto inteiro.
  *
  * `version` vem sempre do servidor — o cliente não rebaixa o formato.
+ *
+ * O resultado passa de novo por `normalizeOnboardingState` antes de voltar.
+ * `@IsOptional()` no DTO trata `null` como "campo ausente" para fins de
+ * validação — então `{ "status": null }` passa ileso e, sem essa segunda
+ * normalização, o spread acima gravaria `null` na coluna, um valor fora da
+ * união `OnboardingStatus`. A leitura seguinte já se autocorrige via
+ * `normalizeOnboardingState` (por isso o bug nunca sobrevivia a um refresh),
+ * mas a resposta imediata deste PATCH devolveria `status: null` enquanto o
+ * próximo GET diria `not_started` — a mesma tela mostrando dois estados.
+ * Normalizar aqui fecha esse campo e qualquer outro que vier a sofrer o
+ * mesmo problema, de graça.
  */
 export function mergeOnboardingState(
   current: OnboardingState,
@@ -43,7 +54,7 @@ export function mergeOnboardingState(
 ): OnboardingState {
   const base = normalizeOnboardingState(current);
 
-  return {
+  return normalizeOnboardingState({
     ...base,
     ...patch,
     version: ONBOARDING_STATE_VERSION,
@@ -55,5 +66,5 @@ export function mergeOnboardingState(
       ...base.toursSeen,
       ...(patch.toursSeen ?? {}),
     },
-  };
+  });
 }

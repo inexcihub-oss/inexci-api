@@ -110,6 +110,23 @@ describe('mergeOnboardingState', () => {
     expect(proximo.version).toBe(1);
   });
 
+  /**
+   * `@IsOptional()` do DTO trata `null` como "campo ausente" e deixa
+   * `{ status: null }` passar pela validação — sem normalizar o resultado do
+   * merge, esse `null` (fora da união `OnboardingStatus`) seria gravado na
+   * coluna e devolvido ao cliente, divergindo do que o próximo GET diria
+   * (`not_started`, via `normalizeOnboardingState`).
+   */
+  it('normaliza status: null em vez de persistir um valor fora do enum', () => {
+    const atual = { ...emptyOnboardingState(), status: 'in_progress' as const };
+
+    const proximo = mergeOnboardingState(atual, {
+      status: null,
+    } as unknown as OnboardingPatch);
+
+    expect(proximo.status).toBe('not_started');
+  });
+
   it('não muta o estado recebido', () => {
     const atual = emptyOnboardingState();
 
