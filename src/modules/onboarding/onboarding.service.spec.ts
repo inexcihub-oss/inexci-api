@@ -106,6 +106,14 @@ describe('OnboardingService', () => {
       expect(estado.welcomeSeenAt).toBeNull();
       expect(estado.checklistDismissedAt).toBeNull();
       expect(estado.restartedAt).not.toBeNull();
+      // Achado Important da revisão final: só o objeto devolvido era
+      // verificado. Um `reset` que computasse o estado zerado e esquecesse
+      // de gravá-lo passaria aqui — e pareceria correto na tela, porque o
+      // frontend semeia o estado local a partir da resposta do endpoint,
+      // não de uma releitura do banco.
+      expect(userRepoMock.update).toHaveBeenCalledWith('u1', {
+        onboardingState: estado,
+      });
     });
   });
 });
