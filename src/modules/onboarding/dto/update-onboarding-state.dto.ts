@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiHideProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import { IsIn, IsISO8601, IsOptional } from 'class-validator';
 import {
@@ -31,9 +31,16 @@ import { IsTimestampMapOf } from '../validators/is-timestamp-map-of.validator';
  * voltam a existir na instância, e todo PATCH volta a tomar 400.
  */
 export class UpdateOnboardingStateDto {
+  // `@ApiHideProperty()` não é enfeite: o plugin do Swagger (`nest-cli.json`,
+  // `introspectComments`) gera metadata para toda propriedade de `*.dto.ts`, e
+  // um campo tipado `undefined` não tem tipo que ele consiga resolver — o
+  // `SchemaObjectFactory` interpreta como dependência circular e DERRUBA o boot
+  // da API. Sem esta linha, o backend não sobe.
+  @ApiHideProperty()
   @Exclude()
   version?: undefined;
 
+  @ApiHideProperty()
   @Exclude()
   restartedAt?: undefined;
 
