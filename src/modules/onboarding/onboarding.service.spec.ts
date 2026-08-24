@@ -1,16 +1,26 @@
 import { NotFoundException } from '@nestjs/common';
+import { User } from '../../database/entities/user.entity';
 import { OnboardingService } from './onboarding.service';
 
 describe('OnboardingService', () => {
   const userRepoMock = {
     findOne: jest.fn(),
     update: jest.fn(),
+    manager: {
+      transaction: jest.fn(),
+    },
   };
 
   let service: OnboardingService;
 
   beforeEach(() => {
     jest.resetAllMocks();
+    userRepoMock.manager.transaction.mockImplementation(async (work) =>
+      work({
+        findOne: userRepoMock.findOne,
+        update: userRepoMock.update,
+      }),
+    );
     service = new OnboardingService(userRepoMock as never);
   });
 
@@ -77,9 +87,15 @@ describe('OnboardingService', () => {
         'enviar-solicitacao': '2026-08-02T00:00:00.000Z',
       });
       expect(estado.welcomeSeenAt).toBe('2026-08-01T00:00:00.000Z');
-      expect(userRepoMock.update).toHaveBeenCalledWith('u1', {
+      expect(userRepoMock.update).toHaveBeenCalledWith(User, 'u1', {
         onboardingState: estado,
       });
+      expect(userRepoMock.findOne).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({
+          lock: { mode: 'pessimistic_write' },
+        }),
+      );
     });
   });
 
@@ -111,7 +127,7 @@ describe('OnboardingService', () => {
       // de gravá-lo passaria aqui — e pareceria correto na tela, porque o
       // frontend semeia o estado local a partir da resposta do endpoint,
       // não de uma releitura do banco.
-      expect(userRepoMock.update).toHaveBeenCalledWith('u1', {
+      expect(userRepoMock.update).toHaveBeenCalledWith(User, 'u1', {
         onboardingState: estado,
       });
     });
