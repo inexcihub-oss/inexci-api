@@ -31,6 +31,15 @@ describe('UpdateOnboardingStateDto', () => {
     ).toEqual([]);
   });
 
+  it('aceita a trilha e o passo do dashboard', async () => {
+    expect(
+      await erros({
+        completedSteps: { 'ver-dashboard': '2026-08-24T14:09:40.000Z' },
+        toursSeen: { dashboard: '2026-08-24T14:09:40.000Z' },
+      }),
+    ).toEqual([]);
+  });
+
   it('aceita patch vazio', async () => {
     expect(await erros({})).toEqual([]);
   });

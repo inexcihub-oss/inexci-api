@@ -22,7 +22,8 @@ export type StepKey =
   | 'atender-consulta'
   | 'cadastros-basicos'
   | 'convidar-colaborador'
-  | 'plano-e-cota';
+  | 'plano-e-cota'
+  | 'ver-dashboard';
 
 export type TrackId =
   | 'boas-vindas'
@@ -32,7 +33,8 @@ export type TrackId =
   | 'agenda'
   | 'cadastros'
   | 'administracao'
-  | 'plano-e-cota';
+  | 'plano-e-cota'
+  | 'dashboard';
 
 export interface OnboardingState {
   version: number;

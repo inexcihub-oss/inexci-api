@@ -24,6 +24,7 @@ export const ONBOARDING_STEP_KEYS: readonly StepKey[] = [
   'cadastros-basicos',
   'convidar-colaborador',
   'plano-e-cota',
+  'ver-dashboard',
 ];
 
 export const ONBOARDING_TRACK_IDS: readonly TrackId[] = [
@@ -35,6 +36,7 @@ export const ONBOARDING_TRACK_IDS: readonly TrackId[] = [
   'cadastros',
   'administracao',
   'plano-e-cota',
+  'dashboard',
 ];
 
 export const ONBOARDING_STATUSES: readonly OnboardingStatus[] = [
