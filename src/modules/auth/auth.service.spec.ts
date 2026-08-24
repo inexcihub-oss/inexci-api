@@ -372,6 +372,60 @@ describe('AuthService', () => {
         ]);
       });
     });
+
+    // ─── onboardingState embutido no payload (mesmo motivo de `consents`) ──
+    describe('onboardingState', () => {
+      it('devolve o estado de onboarding vazio para quem nunca começou', async () => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'u1',
+          role: 'admin',
+          name: 'Dra. Ana',
+          email: 'ana@inexci.com',
+          phone: '11999999999',
+          ownerId: 'u1',
+          permissions: [],
+          onboardingState: null,
+        });
+
+        const resultado = await service.me('u1');
+
+        expect(resultado.onboardingState).toEqual(
+          expect.objectContaining({
+            status: 'not_started',
+            completedSteps: {},
+            toursSeen: {},
+          }),
+        );
+      });
+
+      it('devolve o estado gravado', async () => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'u1',
+          role: 'admin',
+          name: 'Dra. Ana',
+          email: 'ana@inexci.com',
+          phone: '11999999999',
+          ownerId: 'u1',
+          permissions: [],
+          onboardingState: {
+            version: 1,
+            status: 'in_progress',
+            welcomeSeenAt: '2026-08-01T00:00:00.000Z',
+            checklistDismissedAt: null,
+            completedSteps: { 'criar-solicitacao': '2026-08-01T00:00:00.000Z' },
+            toursSeen: {},
+            restartedAt: null,
+          },
+        });
+
+        const resultado = await service.me('u1');
+
+        expect(resultado.onboardingState.status).toBe('in_progress');
+        expect(resultado.onboardingState.welcomeSeenAt).toBe(
+          '2026-08-01T00:00:00.000Z',
+        );
+      });
+    });
   });
 
   // ─── validateUser ───────────────────────────────────────────────

@@ -8,6 +8,7 @@ import {
 import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owner.guard';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
+import { PENDENCIES_CONFIG } from 'src/config/pendencies.config';
 
 @ApiTags('Pendências')
 @ApiBearerAuth()
@@ -18,6 +19,32 @@ export class PendenciesController {
   constructor(
     private readonly pendencyValidatorService: PendencyValidatorService,
   ) {}
+
+  /**
+   * Requisitos ESTÁTICOS por status, direto do `pendencies.config.ts`.
+   *
+   * As demais rotas deste controller calculam pendências de UMA solicitação e
+   * exigem o id dela. O onboarding precisa da lista antes de existir
+   * solicitação alguma — e lê daqui em vez de repetir os rótulos na copy, para
+   * que mudar uma pendência no config mude o tour junto.
+   *
+   * O `SurgeryRequestOwnerGuard` de classe não interfere: sem `:id` nem
+   * `:surgeryRequestId` nos params, ele devolve `true` sem consultar nada.
+   */
+  @Get('requirements')
+  @ApiOperation({ summary: 'Requisitos estáticos por status (onboarding).' })
+  getRequirements() {
+    return PENDENCIES_CONFIG.map((cfg) => ({
+      status: cfg.status,
+      label: cfg.label,
+      pendencies: cfg.pendencies.map((p) => ({
+        key: p.key,
+        label: p.label,
+        blocking: p.blocking,
+        responsibleRole: p.responsibleRole,
+      })),
+    }));
+  }
 
   /**
    * Resumo em lote para múltiplas solicitações (para Kanban)

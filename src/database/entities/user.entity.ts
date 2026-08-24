@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { Permission } from 'src/shared/permissions';
+import { OnboardingState } from '../../modules/onboarding/onboarding.types';
 import { DoctorProfile } from './doctor-profile.entity';
 import { UserDoctorAccess } from './user-doctor-access.entity';
 import { RecoveryCode } from './recovery-code.entity';
@@ -195,6 +196,17 @@ export class User {
     nullable: true,
   })
   aiConsentAcceptedAt: Date | null;
+
+  /**
+   * Progresso do onboarding in-app. `null` = nunca começou.
+   *
+   * Registra que o usuário PASSOU pelo tour, não que o dado existe no
+   * domínio: "cadastrar paciente" marcado aqui não significa que há paciente
+   * cadastrado. Se um dia o checklist quiser refletir o dado real, isso é uma
+   * consulta ao domínio na montagem — nunca uma escrita cruzada nesta coluna.
+   */
+  @Column({ name: 'onboarding_state', type: 'jsonb', nullable: true })
+  onboardingState: OnboardingState | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

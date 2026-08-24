@@ -94,13 +94,18 @@ export class UserRepository extends BaseRepository<User> {
         state: true,
         createdAt: true,
         updatedAt: true,
+        onboardingState: true,
       },
     });
   }
 
   /**
    * Carrega vários usuários (com doctorProfile) em uma única query (WHERE id IN),
-   * evitando o N+1 de buscar um a um. Mesmo shape de select do findOneWithProfile.
+   * evitando o N+1 de buscar um a um. Select mais enxuto que o de
+   * `findOneWithProfile` — não inclui `isPlatformAdmin`, `permissions` nem
+   * `onboardingState`, que passaram a fazer parte daquele desde que
+   * `onboardingState` foi adicionado; ajuste os dois juntos se um consumidor
+   * futuro desta função precisar de algum desses campos.
    */
   async findManyWithProfileByIds(ids: string[]): Promise<User[]> {
     if (ids.length === 0) return [];

@@ -262,6 +262,29 @@ describe('UsersService — Colaboradores e Permissões', () => {
       expect(result).not.toHaveProperty('isPlatformAdmin');
       expect(result).not.toHaveProperty('password');
     });
+
+    /**
+     * Achado Important da revisão da Task 5: `findOneWithProfile` passou a
+     * trazer `onboardingState` no select (para o `/auth/me`). `getProfile`
+     * espalha o retorno do repositório quase direto na resposta HTTP — sem
+     * excluir o campo, `GET /users/me` vazaria a coluna crua (possivelmente
+     * `null`, nunca normalizada por `normalizeOnboardingState`), quebrando o
+     * princípio de nunca expor `null` cru para o consumidor se defender.
+     */
+    it('não expõe onboardingState cru (nem null)', async () => {
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'user-1',
+        role: UserRole.COLLABORATOR,
+        permissions: [],
+        isPlatformAdmin: false,
+        doctorProfile: null,
+        onboardingState: null,
+      });
+
+      const result = await service.getProfile('user-1');
+
+      expect(result).not.toHaveProperty('onboardingState');
+    });
   });
 
   describe('findCollaboratorById', () => {
@@ -302,6 +325,35 @@ describe('UsersService — Colaboradores e Permissões', () => {
       // efetiva — senão a tela de edição semeia o formulário com o bônus de
       // médico e regrava-o como se tivesse sido concedido de fato.
       expect(result.grantedPermissions).toEqual([]);
+    });
+
+    /**
+     * Achado Important da revisão da Task 5: mesmo vazamento de
+     * `onboardingState` cru descrito em `getProfile`, só que aqui é o admin
+     * vendo o estado de onboarding do colaborador em `GET
+     * /users/collaborators/:id`.
+     */
+    it('não expõe onboardingState cru do colaborador (nem null)', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'dono-1',
+          role: UserRole.ADMIN,
+          ownerId: 'dono-1',
+        }) // assertPodeGerirEquipe
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [],
+          isPlatformAdmin: false,
+          doctorProfile: null,
+          onboardingState: null,
+        });
+      mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
+
+      const result = await service.findCollaboratorById('collab-1', 'dono-1');
+
+      expect(result).not.toHaveProperty('onboardingState');
     });
 
     /**
@@ -2212,6 +2264,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           // restrito à assinatura não deve recebê-la na resposta.
           permissions: [Permission.SOLICITACOES],
           isPlatformAdmin: true,
+          onboardingState: null,
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-1' },
@@ -2231,6 +2284,47 @@ describe('UsersService — Colaboradores e Permissões', () => {
       // ver permissions/isPlatformAdmin do médico-alvo na resposta.
       expect(result).not.toHaveProperty('permissions');
       expect(result).not.toHaveProperty('isPlatformAdmin');
+    });
+
+    /**
+     * Achado Important da revisão final: terceira instância do mesmo
+     * vazamento já corrigido em `getProfile` e `findCollaboratorById`, e a
+     * mais sensível das três — `PATCH /users/doctor-profile/:id` é
+     * alcançável por um colaborador com só `SOLICITACOES` vinculado ao
+     * médico (caminho `isLinkedCollaborator`/`onlySignature`), então o
+     * `onboardingState` cru do MÉDICO-ALVO, não do próprio chamador, vazava
+     * para um terceiro. O mock precisa mesmo trazer `onboardingState`
+     * preenchido — com `null` o teste passaria mesmo sem o destructure.
+     */
+    it('não expõe onboardingState cru do médico-alvo (nem null)', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1' },
+          adminId: 'real-admin',
+        })
+        .mockResolvedValueOnce({
+          id: 'doctor-1',
+          doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/x.png' },
+          permissions: [Permission.SOLICITACOES],
+          isPlatformAdmin: false,
+          onboardingState: null,
+        });
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'doctor-1' },
+      ]);
+
+      const result = await service.updateDoctorProfileById(
+        'doctor-1',
+        { signatureImageUrl: 'signatures/x.png' },
+        'collab-1',
+      );
+
+      expect(result).not.toHaveProperty('onboardingState');
     });
 
     it('deve barrar colaborador vinculado que tenta editar CRM', async () => {
