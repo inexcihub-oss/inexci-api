@@ -54,13 +54,24 @@ export class SurgeryRequestDocumentExtractionProcessor {
         userId,
       );
 
-      await this.jobsService.markDone(
-        jobId,
-        userId,
-        result,
-        file.originalname,
-        notifyOnCompletion,
-      );
+      // Jobs já enfileirados antes da nova flag não a possuem. Não passamos
+      // `undefined` para manter a assinatura legada e o default do service.
+      if (notifyOnCompletion === undefined) {
+        await this.jobsService.markDone(
+          jobId,
+          userId,
+          result,
+          file.originalname,
+        );
+      } else {
+        await this.jobsService.markDone(
+          jobId,
+          userId,
+          result,
+          file.originalname,
+          notifyOnCompletion,
+        );
+      }
     } catch (err: any) {
       this.logger.warn(
         `[DOC_EXTRACT_JOB] falha jobId=${jobId} attempt=${job.attemptsMade + 1} userId=${userId} err=${err?.message}`,
@@ -76,13 +87,24 @@ export class SurgeryRequestDocumentExtractionProcessor {
 
     const jobId = String(job.id);
     const userId = job.data.userId;
-    await this.jobsService.markError(
-      jobId,
-      userId,
-      FRIENDLY_ERROR_MESSAGE,
-      job.data?.file?.originalname,
-      job.data?.notifyOnCompletion,
-    );
+    const documentName = job.data?.file?.originalname;
+    const { notifyOnCompletion } = job.data;
+    if (notifyOnCompletion === undefined) {
+      await this.jobsService.markError(
+        jobId,
+        userId,
+        FRIENDLY_ERROR_MESSAGE,
+        documentName,
+      );
+    } else {
+      await this.jobsService.markError(
+        jobId,
+        userId,
+        FRIENDLY_ERROR_MESSAGE,
+        documentName,
+        notifyOnCompletion,
+      );
+    }
     this.logger.error(
       `[DOC_EXTRACT_JOB] dead-letter jobId=${jobId} userId=${userId} attempts=${job.attemptsMade} error=${error.message}`,
     );

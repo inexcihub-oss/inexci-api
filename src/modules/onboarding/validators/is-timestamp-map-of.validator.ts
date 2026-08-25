@@ -1,4 +1,8 @@
-import { ValidationOptions, isISO8601, registerDecorator } from 'class-validator';
+import {
+  ValidationOptions,
+  isISO8601,
+  registerDecorator,
+} from 'class-validator';
 
 /**
  * Valida um mapa `chave conhecida → timestamp ISO`.

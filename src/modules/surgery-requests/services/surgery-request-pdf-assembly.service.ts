@@ -378,8 +378,6 @@ export class SurgeryRequestPdfAssemblyService {
       ?.content?.replace(messageActivityPrefix, '')
       ?.trim();
 
-    const patient = request.patient;
-
     const tussItems = await this.dataSource
       .getRepository(SurgeryRequestTussItem)
       .find({ where: { surgeryRequestId: id } });
@@ -390,12 +388,6 @@ export class SurgeryRequestPdfAssemblyService {
       requestedQuantity: item.quantity,
       authorizedQuantity: item.authorizedQuantity ?? null,
     }));
-
-    const splitAndNormalize = (value?: string | null): string[] =>
-      (value ?? '')
-        .split(/[,;|\n]+/)
-        .map((part) => part.trim())
-        .filter(Boolean);
 
     const unique = (values: string[]): string[] =>
       Array.from(new Set(values.filter(Boolean)));

@@ -26,7 +26,10 @@ describe('OnboardingService', () => {
 
   describe('get', () => {
     it('devolve o estado vazio quando a coluna é null', async () => {
-      userRepoMock.findOne.mockResolvedValue({ id: 'u1', onboardingState: null });
+      userRepoMock.findOne.mockResolvedValue({
+        id: 'u1',
+        onboardingState: null,
+      });
 
       const estado = await service.get('u1');
 

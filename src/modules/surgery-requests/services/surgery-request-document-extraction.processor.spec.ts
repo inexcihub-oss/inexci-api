@@ -82,6 +82,33 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
     expect(getRequestContext()).toBeUndefined();
   });
 
+  it('propaga a preferência de notificação dos novos jobs', async () => {
+    const job = {
+      id: 'job-4',
+      data: {
+        userId: 'user-1',
+        notifyOnCompletion: false,
+        file: {
+          originalname: 'doc.pdf',
+          mimetype: 'application/pdf',
+          size: 100,
+          bufferBase64: Buffer.from('abc').toString('base64'),
+        },
+      },
+      attemptsMade: 0,
+    } as Job<any>;
+
+    await processor.handleExtractFromDocument(job);
+
+    expect(jobsService.markDone).toHaveBeenCalledWith(
+      'job-4',
+      'user-1',
+      expect.objectContaining({ kind: 'medical_report' }),
+      'doc.pdf',
+      false,
+    );
+  });
+
   it('registra erro amigável no dead-letter quando esgota tentativas', async () => {
     const job = {
       id: 'job-2',

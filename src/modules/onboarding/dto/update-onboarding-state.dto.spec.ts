@@ -54,7 +54,9 @@ describe('UpdateOnboardingStateDto', () => {
 
   it('rejeita chave desconhecida em toursSeen', async () => {
     expect(
-      await erros({ toursSeen: { trilha_inventada: '2026-08-21T14:00:00.000Z' } }),
+      await erros({
+        toursSeen: { trilha_inventada: '2026-08-21T14:00:00.000Z' },
+      }),
     ).toEqual(['toursSeen']);
   });
 
@@ -66,7 +68,9 @@ describe('UpdateOnboardingStateDto', () => {
 
   it('rejeita data parseável que não é ISO-8601', async () => {
     expect(
-      await erros({ completedSteps: { 'criar-solicitacao': 'August 21, 2026' } }),
+      await erros({
+        completedSteps: { 'criar-solicitacao': 'August 21, 2026' },
+      }),
     ).toEqual(['completedSteps']);
   });
 
