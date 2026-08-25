@@ -19,7 +19,12 @@ import {
   CreateFromDocumentDto,
   NewPatientFromDocumentDto,
 } from '../dto/create-from-document.dto';
-import { SurgeryRequestPriority } from 'src/database/entities/surgery-request.entity';
+import { ApplyDocumentExtractionDto } from '../dto/apply-document-extraction.dto';
+import {
+  SurgeryRequest,
+  SurgeryRequestPriority,
+  SurgeryRequestStatus,
+} from 'src/database/entities/surgery-request.entity';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 import { v4 as uuid } from 'uuid';
 import * as path from 'path';
@@ -162,6 +167,9 @@ export class SurgeryRequestFromDocumentService {
     userId: string,
   ): Promise<{ id: string; protocol: string; warnings: string[] }> {
     const ownerId = await this.accessControl.getOwnerId(userId);
+    if (dto.tempStoragePath) {
+      this.assertOwnedTemporaryStoragePath(dto.tempStoragePath, ownerId);
+    }
 
     const resolvedHospitalId =
       dto.hospitalId ||
@@ -265,6 +273,112 @@ export class SurgeryRequestFromDocumentService {
     return { id: sc.id, protocol: sc.protocol ?? sc.id, warnings };
   }
 
+  /** Aplica os grupos confirmados, sem substituir dados já preenchidos. */
+  async applyDocumentExtraction(
+    requestId: string,
+    dto: ApplyDocumentExtractionDto,
+    userId: string,
+  ): Promise<{ warnings: string[] }> {
+    const detail = await this.surgeryRequestsService.findOne(requestId, userId);
+    if (detail.status !== SurgeryRequestStatus.PENDING) {
+      throw new BadRequestException(
+        'A complementação por documento está disponível apenas para solicitações pendentes.',
+      );
+    }
+    const ownerId = await this.accessControl.getOwnerId(userId);
+    if (dto.tempStoragePath) {
+      this.assertOwnedTemporaryStoragePath(dto.tempStoragePath, ownerId);
+    }
+    const repo = this.dataSource.getRepository(SurgeryRequest);
+    const request = await repo.findOne({ where: { id: requestId, ownerId } });
+    if (!request)
+      throw new BadRequestException('Solicitação cirúrgica não encontrada.');
+
+    const update: Partial<
+      Pick<
+        SurgeryRequest,
+        'procedureId' | 'hospitalId' | 'healthPlanId' | 'healthPlanRegistration'
+      >
+    > = {};
+    if (dto.procedure && !request.procedureId) {
+      update.procedureId =
+        (await this.resolveOrCreateProcedureId(dto.procedureName, ownerId)) ??
+        null;
+    }
+    if (dto.hospital && !request.hospitalId) {
+      update.hospitalId =
+        (await this.resolveOrCreateHospitalId(dto.hospitalName, ownerId)) ??
+        null;
+    }
+    if (dto.healthPlan && !request.healthPlanId) {
+      update.healthPlanId =
+        (await this.resolveOrCreateHealthPlanId(dto.healthPlanName, ownerId)) ??
+        null;
+    }
+    if (
+      dto.healthPlan &&
+      !request.healthPlanRegistration &&
+      dto.healthPlanNumber?.trim()
+    ) {
+      update.healthPlanRegistration = dto.healthPlanNumber.trim();
+    }
+    if (Object.keys(update).length) await repo.update(requestId, update);
+    const healthPlanId = update.healthPlanId ?? request.healthPlanId;
+    if (dto.healthPlan && healthPlanId) {
+      await this.backfillExistingPatientInsurance({
+        patientId: request.patientId,
+        ownerId,
+        healthPlanId,
+        healthPlanNumber: dto.healthPlanNumber,
+      });
+    }
+
+    const { warnings } = await this.assemblyService.assembleFromExtracted({
+      scId: requestId,
+      userId,
+      notes: dto.report ? dto.notes : undefined,
+      sections: dto.report ? dto.sections : undefined,
+      tussItems: dto.tuss
+        ? dto.tussItems?.map((item) => ({
+            code: item.tussCode,
+            description: item.name,
+            quantity: item.quantity,
+          }))
+        : undefined,
+      opmeItems: dto.opme
+        ? dto.opmeItems?.map((item) => ({
+            description: item.description,
+            qty: item.qty,
+            supplier: item.supplier,
+            manufacturer: item.manufacturer,
+          }))
+        : undefined,
+      suggestedSuppliers: dto.opme ? dto.suggestedSuppliers : undefined,
+    });
+    if (dto.tempStoragePath) {
+      try {
+        const newPath = await this.storage.move(
+          dto.tempStoragePath,
+          `documents/${ownerId}`,
+        );
+        await this.documentsService.createFromPath({
+          surgeryRequestId: requestId,
+          storagePath: newPath,
+          type: DOCUMENT_KEYS.SC_CREATION_SOURCE,
+          key: DOCUMENT_KEYS.SC_CREATION_SOURCE,
+          name: this.capDocumentName(
+            dto.originalFileName || path.basename(dto.tempStoragePath),
+          ),
+          contentType: this.guessMimeFromPath(dto.tempStoragePath),
+          createdById: userId,
+        });
+      } catch (err: any) {
+        warnings.push(`anexo do documento (${err?.message || 'erro'})`);
+      }
+    }
+    return { warnings };
+  }
+
   private async createPatient(
     data: NewPatientFromDocumentDto,
     healthPlanId: string | undefined,
@@ -306,6 +420,27 @@ export class SurgeryRequestFromDocumentService {
       .map((s) => s.trim())
       .filter(Boolean);
     return parts.length ? parts : undefined;
+  }
+
+  /**
+   * O caminho de upload temporário vem do cliente, portanto não pode ser
+   * tratado como uma capacidade de acesso ao storage. Só aceitamos arquivos
+   * gerados pela extração deste tenant e diretamente dentro do seu prefixo.
+   */
+  private assertOwnedTemporaryStoragePath(
+    storagePath: string,
+    ownerId: string,
+  ): void {
+    const prefix = `${TEMP_FOLDER}/${ownerId}/`;
+    const fileName = storagePath.slice(prefix.length);
+    if (
+      !storagePath.startsWith(prefix) ||
+      !fileName ||
+      fileName.includes('/') ||
+      fileName.includes('\\')
+    ) {
+      throw new BadRequestException('Documento temporário inválido.');
+    }
   }
 
   private async resolveOrCreateHospitalId(

@@ -33,6 +33,7 @@ import { Response } from 'express';
 import { SurgeryRequestsService } from './surgery-requests.service';
 import { SurgeryRequestFromDocumentService } from './services/surgery-request-from-document.service';
 import { CreateFromDocumentDto } from './dto/create-from-document.dto';
+import { ApplyDocumentExtractionDto } from './dto/apply-document-extraction.dto';
 import {
   ExtractFromDocumentJobStatusResponseDto,
   ExtractFromDocumentQueuedResponseDto,
@@ -112,7 +113,13 @@ export class SurgeryRequestsController {
   extractFromDocument(
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: AuthenticatedUser,
+    @Body('notifyOnCompletion') notifyOnCompletion?: string,
   ): Promise<ExtractFromDocumentQueuedResponseDto> {
+    if (notifyOnCompletion === 'false') {
+      return this.documentExtractionJobsService.enqueue(file, user.userId, {
+        notifyOnCompletion: false,
+      });
+    }
     return this.documentExtractionJobsService.enqueue(file, user.userId);
   }
 
@@ -138,6 +145,22 @@ export class SurgeryRequestsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.fromDocumentService.createFromDocument(data, user.userId);
+  }
+
+  @Post(':id/apply-document-extraction')
+  @ApiOperation({
+    summary: 'Complementa uma SC pendente com dados extraídos de documento',
+  })
+  applyDocumentExtraction(
+    @Param('id') id: string,
+    @Body() data: ApplyDocumentExtractionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.fromDocumentService.applyDocumentExtraction(
+      id,
+      data,
+      user.userId,
+    );
   }
 
   // ============================================================

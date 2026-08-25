@@ -66,7 +66,7 @@ describe('SurgeryRequestFromDocumentService', () => {
     storage = {
       uploadBuffer: jest
         .fn()
-        .mockResolvedValue('sc-from-document-tmp/uuid.pdf'),
+        .mockResolvedValue('sc-from-document-tmp/owner-1/uuid.pdf'),
       move: jest.fn().mockResolvedValue('documents/owner-1/uuid.pdf'),
     };
     accessControl = {
@@ -147,7 +147,9 @@ describe('SurgeryRequestFromDocumentService', () => {
     expect(result.confidence).toBeCloseTo(0.88);
     expect(result.patientMatchedByCpf).toBe(true);
     expect(result.candidates.patient).toHaveLength(1);
-    expect(result.tempStoragePath).toBe('sc-from-document-tmp/uuid.pdf');
+    expect(result.tempStoragePath).toBe(
+      'sc-from-document-tmp/owner-1/uuid.pdf',
+    );
   });
 
   it('lança BadRequestException quando arquivo excede tamanho máximo', async () => {
@@ -198,7 +200,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         doctorId: 'doctor-1',
         patientId: 'patient-1',
         procedureId: 'proc-1',
-        tempStoragePath: 'sc-from-document-tmp/doc.pdf',
+        tempStoragePath: 'sc-from-document-tmp/owner-1/doc.pdf',
         originalFileName: 'laudo.pdf',
       },
       'user-1',
@@ -215,7 +217,7 @@ describe('SurgeryRequestFromDocumentService', () => {
       expect.objectContaining({ scId: 'sc-1' }),
     );
     expect(storage.move).toHaveBeenCalledWith(
-      'sc-from-document-tmp/doc.pdf',
+      'sc-from-document-tmp/owner-1/doc.pdf',
       'documents/owner-1',
     );
     expect(documentsService.createFromPath).toHaveBeenCalledWith(
@@ -238,7 +240,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         doctorId: 'doctor-1',
         patientId: 'patient-1',
         procedureId: 'proc-1',
-        tempStoragePath: 'sc-from-document-tmp/doc.pdf',
+        tempStoragePath: 'sc-from-document-tmp/owner-1/doc.pdf',
         originalFileName: longName,
       },
       'user-1',
@@ -325,7 +327,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         doctorId: 'doctor-1',
         patientId: 'patient-1',
         procedureId: 'proc-1',
-        tempStoragePath: 'sc-from-document-tmp/doc.pdf',
+        tempStoragePath: 'sc-from-document-tmp/owner-1/doc.pdf',
       },
       'user-1',
     );
@@ -682,5 +684,63 @@ describe('SurgeryRequestFromDocumentService', () => {
       expect.objectContaining({ procedureId: undefined }),
       'user-1',
     );
+  });
+
+  describe('applyDocumentExtraction', () => {
+    it('rejeita um caminho temporário que não pertence ao tenant', async () => {
+      surgeryRequestsService.findOne = jest
+        .fn()
+        .mockResolvedValue({ status: 1 });
+
+      await expect(
+        service.applyDocumentExtraction(
+          'sc-1',
+          { tempStoragePath: 'sc-from-document-tmp/other-owner/document.pdf' },
+          'user-1',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(storage.move).not.toHaveBeenCalled();
+      expect(assemblyService.assembleFromExtracted).not.toHaveBeenCalled();
+    });
+
+    it('preenche a carteirinha pendente sem substituir o convênio existente', async () => {
+      const surgeryRequestRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'sc-1',
+          patientId: 'patient-1',
+          healthPlanId: 'hp-1',
+          healthPlanRegistration: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      };
+      const patientRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'patient-1',
+          healthPlanId: 'hp-1',
+          healthPlanNumber: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      };
+      dataSource.getRepository.mockImplementation((entity: any) =>
+        entity?.name === 'SurgeryRequest' ? surgeryRequestRepo : patientRepo,
+      );
+      surgeryRequestsService.findOne = jest
+        .fn()
+        .mockResolvedValue({ status: 1 });
+
+      await service.applyDocumentExtraction(
+        'sc-1',
+        { healthPlan: true, healthPlanNumber: '123456' },
+        'user-1',
+      );
+
+      expect(surgeryRequestRepo.update).toHaveBeenCalledWith('sc-1', {
+        healthPlanRegistration: '123456',
+      });
+      expect(patientRepo.update).toHaveBeenCalledWith('patient-1', {
+        healthPlanNumber: '123456',
+      });
+    });
   });
 });
