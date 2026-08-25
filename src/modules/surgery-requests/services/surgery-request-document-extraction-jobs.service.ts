@@ -43,6 +43,8 @@ export interface DocumentExtractionJobData {
   };
   /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
+  /** Fluxos em primeiro plano exibem o resultado no próprio modal. */
+  notifyOnCompletion?: boolean;
 }
 
 export interface DocumentExtractionStatusEvent {
@@ -86,6 +88,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
   async enqueue(
     file: Express.Multer.File,
     userId: string,
+    options: { notifyOnCompletion?: boolean } = {},
   ): Promise<ExtractFromDocumentQueuedResponseDto> {
     this.assertFileSize(file);
 
@@ -108,6 +111,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
             bufferBase64: file.buffer.toString('base64'),
           },
           requestId: getRequestContext()?.requestId,
+          notifyOnCompletion: options.notifyOnCompletion ?? true,
         } satisfies DocumentExtractionJobData,
         {
           jobId,
@@ -177,6 +181,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     userId: string,
     result: ExtractFromDocumentResponseDto,
     documentName?: string,
+    notifyOnCompletion = true,
   ): Promise<void> {
     await this.setState(jobId, {
       userId,
@@ -185,7 +190,9 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
       updatedAt: new Date().toISOString(),
     });
     this.emitStatus(userId, { jobId, status: 'done', result });
-    await this.notifyBackgroundDone(userId, jobId, documentName);
+    if (notifyOnCompletion) {
+      await this.notifyBackgroundDone(userId, jobId, documentName);
+    }
   }
 
   async markError(
@@ -193,6 +200,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     userId: string,
     message = FRIENDLY_ERROR_MESSAGE,
     documentName?: string,
+    notifyOnCompletion = true,
   ): Promise<void> {
     await this.setState(jobId, {
       userId,
@@ -201,7 +209,9 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
       updatedAt: new Date().toISOString(),
     });
     this.emitStatus(userId, { jobId, status: 'error', message });
-    await this.notifyBackgroundError(userId, jobId, message, documentName);
+    if (notifyOnCompletion) {
+      await this.notifyBackgroundError(userId, jobId, message, documentName);
+    }
   }
 
   private buildNotificationLink(jobId: string): string {

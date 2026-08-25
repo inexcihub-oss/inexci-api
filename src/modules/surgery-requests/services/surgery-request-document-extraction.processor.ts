@@ -39,7 +39,7 @@ export class SurgeryRequestDocumentExtractionProcessor {
     job: Job<DocumentExtractionJobData>,
   ) {
     const jobId = String(job.id);
-    const { userId, file } = job.data;
+    const { userId, file, notifyOnCompletion } = job.data;
 
     await this.jobsService.markProcessing(jobId, userId);
 
@@ -54,7 +54,13 @@ export class SurgeryRequestDocumentExtractionProcessor {
         userId,
       );
 
-      await this.jobsService.markDone(jobId, userId, result, file.originalname);
+      await this.jobsService.markDone(
+        jobId,
+        userId,
+        result,
+        file.originalname,
+        notifyOnCompletion,
+      );
     } catch (err: any) {
       this.logger.warn(
         `[DOC_EXTRACT_JOB] falha jobId=${jobId} attempt=${job.attemptsMade + 1} userId=${userId} err=${err?.message}`,
@@ -75,6 +81,7 @@ export class SurgeryRequestDocumentExtractionProcessor {
       userId,
       FRIENDLY_ERROR_MESSAGE,
       job.data?.file?.originalname,
+      job.data?.notifyOnCompletion,
     );
     this.logger.error(
       `[DOC_EXTRACT_JOB] dead-letter jobId=${jobId} userId=${userId} attempts=${job.attemptsMade} error=${error.message}`,
