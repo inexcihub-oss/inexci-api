@@ -3,9 +3,10 @@ import { WebhookController } from './webhook.controller';
 import { WebhookService } from './webhook.service';
 import { AiModule } from '../../shared/ai/ai.module';
 import { WhatsappModule } from '../../shared/whatsapp/whatsapp.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AiModule, WhatsappModule],
+  imports: [AiModule, WhatsappModule, NotificationsModule],
   controllers: [WebhookController],
   providers: [WebhookService],
 })

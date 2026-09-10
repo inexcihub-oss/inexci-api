@@ -14,7 +14,7 @@ describe('AppointmentReminderService', () => {
   const mockPatientRepository = { findOne: jest.fn() };
   const mockUserRepository = { findOne: jest.fn() };
   const mockMailService = { sendAppointmentReminder: jest.fn() };
-  const mockWhatsappService = { sendAppointmentReminder: jest.fn() };
+  const mockWhatsappService = { sendAppointmentConfirmation: jest.fn() };
 
   const appt = {
     id: 'appt-1',
@@ -58,11 +58,15 @@ describe('AppointmentReminderService', () => {
         doctorName: 'Dr(a). House',
       }),
     );
-    expect(mockWhatsappService.sendAppointmentReminder).toHaveBeenCalledWith(
+    expect(
+      mockWhatsappService.sendAppointmentConfirmation,
+    ).toHaveBeenCalledWith(
       '5511999',
-      'Ana',
-      expect.any(String),
-      'Dr(a). House',
+      expect.objectContaining({
+        patientName: 'Ana',
+        doctorName: 'Dr(a). House',
+        when: expect.any(String),
+      }),
     );
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
       reminderSentAt: expect.any(Date),
@@ -92,11 +96,15 @@ describe('AppointmentReminderService', () => {
       'ana@x.com',
       expect.objectContaining({ doctorName: 'Dr. Carlos Mendonça' }),
     );
-    expect(mockWhatsappService.sendAppointmentReminder).toHaveBeenCalledWith(
+    expect(
+      mockWhatsappService.sendAppointmentConfirmation,
+    ).toHaveBeenCalledWith(
       '5511999',
-      'Ana',
-      expect.any(String),
-      'Dr. Carlos Mendonça',
+      expect.objectContaining({
+        patientName: 'Ana',
+        doctorName: 'Dr. Carlos Mendonça',
+        when: expect.any(String),
+      }),
     );
   });
 
@@ -113,7 +121,9 @@ describe('AppointmentReminderService', () => {
 
     expect(sent).toBe(0);
     expect(mockMailService.sendAppointmentReminder).not.toHaveBeenCalled();
-    expect(mockWhatsappService.sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(
+      mockWhatsappService.sendAppointmentConfirmation,
+    ).not.toHaveBeenCalled();
     // Ainda marca para não reprocessar toda hora (idempotência).
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
       reminderSentAt: expect.any(Date),
@@ -174,7 +184,7 @@ describe('AppointmentReminderService', () => {
     mockMailService.sendAppointmentReminder.mockRejectedValue(
       new Error('redis down'),
     );
-    mockWhatsappService.sendAppointmentReminder.mockRejectedValue(
+    mockWhatsappService.sendAppointmentConfirmation.mockRejectedValue(
       new Error('redis down'),
     );
 
@@ -195,13 +205,15 @@ describe('AppointmentReminderService', () => {
     mockMailService.sendAppointmentReminder.mockRejectedValue(
       new Error('smtp fora'),
     );
-    mockWhatsappService.sendAppointmentReminder.mockResolvedValue(undefined);
+    mockWhatsappService.sendAppointmentConfirmation.mockResolvedValue(
+      undefined,
+    );
 
     const sent = await service.sendDueReminders();
 
     expect(sent).toBe(1);
     // A falha do e-mail não pode cancelar o WhatsApp.
-    expect(mockWhatsappService.sendAppointmentReminder).toHaveBeenCalled();
+    expect(mockWhatsappService.sendAppointmentConfirmation).toHaveBeenCalled();
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
       reminderSentAt: expect.any(Date),
     });

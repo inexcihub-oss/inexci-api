@@ -32,6 +32,15 @@ describe('AppointmentsService', () => {
     findOne: jest.fn(),
   };
 
+  const mockUserRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockWhatsappService = {
+    sendAppointmentCancelled: jest.fn(),
+    sendAppointmentScheduled: jest.fn(),
+  };
+
   const mockAccessControlService = {
     getOwnerId: jest.fn(),
     getAccessibleDoctorIds: jest.fn(),
@@ -60,6 +69,12 @@ describe('AppointmentsService', () => {
       ownerId,
     });
     mockAppointmentRepository.hasOverlap.mockResolvedValue(false);
+    mockUserRepository.findOne.mockResolvedValue({
+      id: doctorId,
+      name: 'House',
+    });
+    mockWhatsappService.sendAppointmentCancelled.mockResolvedValue(undefined);
+    mockWhatsappService.sendAppointmentScheduled.mockResolvedValue(undefined);
     mockAppointmentRepository.create.mockImplementation((d) =>
       Promise.resolve({ id: 'appt-1', ...d }),
     );
@@ -73,6 +88,8 @@ describe('AppointmentsService', () => {
       mockClinicalRecordRepository as any,
       mockAccessControlService as any,
       mockClinicRepository as any,
+      mockUserRepository as any,
+      mockWhatsappService as any,
     );
   });
 
@@ -418,6 +435,12 @@ describe('AppointmentsService', () => {
         durationMinutes: 30,
       });
       mockAppointmentRepository.hasOverlap.mockResolvedValue(false);
+      mockUserRepository.findOne.mockResolvedValue({
+        id: doctorId,
+        name: 'House',
+      });
+      mockWhatsappService.sendAppointmentCancelled.mockResolvedValue(undefined);
+      mockWhatsappService.sendAppointmentScheduled.mockResolvedValue(undefined);
       mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
 
       await service.updateStatus(
@@ -709,6 +732,244 @@ describe('AppointmentsService', () => {
 
       const [, dados] = mockAppointmentRepository.update.mock.calls[0];
       expect(dados).not.toHaveProperty('clinicId');
+    });
+  });
+  // ─── Aviso de cancelamento ao paciente (template appointment_cancelled) ──
+
+  describe('aviso de cancelamento pelo WhatsApp', () => {
+    const consultaAgendada = {
+      id: 'appt-1',
+      ownerId,
+      patientId,
+      doctorId,
+      status: AppointmentStatus.SCHEDULED,
+      scheduledAt: new Date('2026-08-01T17:00:00.000Z'),
+      durationMinutes: 30,
+    };
+
+    beforeEach(() => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consultaAgendada,
+      );
+      mockAppointmentRepository.update.mockResolvedValue({ id: 'appt-1' });
+      mockPatientRepository.findOne.mockResolvedValue({
+        id: patientId,
+        ownerId,
+        name: 'Ana Souza',
+        phone: '5511998877665',
+      });
+    });
+
+    it('avisa o paciente quando a clínica cancela a consulta', async () => {
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.CANCELLED },
+        userId,
+      );
+
+      expect(mockWhatsappService.sendAppointmentCancelled).toHaveBeenCalledWith(
+        '5511998877665',
+        expect.objectContaining({
+          patientName: 'Ana Souza',
+          doctorName: 'Dr(a). House',
+          when: expect.stringContaining('01/08'),
+        }),
+      );
+    });
+
+    it('não avisa em mudança de status que não é cancelamento', async () => {
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.COMPLETED },
+        userId,
+      );
+
+      expect(
+        mockWhatsappService.sendAppointmentCancelled,
+      ).not.toHaveBeenCalled();
+    });
+
+    /**
+     * O paciente já recebeu esse mesmo aviso na tela do WhatsApp quando a
+     * consulta foi cancelada; recancelar não é um fato novo para ele.
+     */
+    it('não reavisa quando a consulta já estava cancelada', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        ...consultaAgendada,
+        status: AppointmentStatus.CANCELLED,
+      });
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.CANCELLED },
+        userId,
+      );
+
+      expect(
+        mockWhatsappService.sendAppointmentCancelled,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('não avisa paciente sem telefone', async () => {
+      mockPatientRepository.findOne.mockResolvedValue({
+        id: patientId,
+        ownerId,
+        name: 'Ana Souza',
+        phone: null,
+      });
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.CANCELLED },
+        userId,
+      );
+
+      expect(
+        mockWhatsappService.sendAppointmentCancelled,
+      ).not.toHaveBeenCalled();
+    });
+
+    /** Aviso é efeito colateral: Redis fora não pode desfazer o cancelamento. */
+    it('cancela mesmo quando o aviso falha', async () => {
+      mockWhatsappService.sendAppointmentCancelled.mockRejectedValue(
+        new Error('redis down'),
+      );
+
+      await expect(
+        service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.CANCELLED },
+          userId,
+        ),
+      ).resolves.toBeDefined();
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
+        status: AppointmentStatus.CANCELLED,
+        cancellationReason: null,
+      });
+    });
+  });
+  // ─── Aviso de agendamento ao paciente (template appointment_scheduled) ───
+
+  describe('aviso de consulta marcada pelo WhatsApp', () => {
+    beforeEach(() => {
+      mockPatientRepository.findOne.mockResolvedValue({
+        id: patientId,
+        ownerId,
+        name: 'Ana Souza',
+        phone: '5511998877665',
+      });
+    });
+
+    it('avisa o paciente ao marcar a consulta', async () => {
+      await service.create(
+        { ...baseCreate, scheduledAt: '2026-08-01T17:00:00.000Z' },
+        userId,
+      );
+
+      expect(mockWhatsappService.sendAppointmentScheduled).toHaveBeenCalledWith(
+        '5511998877665',
+        expect.objectContaining({
+          patientName: 'Ana Souza',
+          doctorName: 'Dr(a). House',
+          when: expect.stringContaining('01/08'),
+        }),
+      );
+    });
+
+    it('não avisa paciente sem telefone', async () => {
+      mockPatientRepository.findOne.mockResolvedValue({
+        id: patientId,
+        ownerId,
+        name: 'Ana Souza',
+        phone: null,
+      });
+
+      await service.create(baseCreate, userId);
+
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
+    });
+
+    /** Aviso é efeito colateral: a consulta tem de ser criada de qualquer jeito. */
+    it('cria a consulta mesmo quando o aviso falha', async () => {
+      mockWhatsappService.sendAppointmentScheduled.mockRejectedValue(
+        new Error('redis down'),
+      );
+
+      await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
+      expect(mockAppointmentRepository.create).toHaveBeenCalled();
+    });
+
+    // ─── Reagendamento ────────────────────────────────────────────────────
+
+    it('reavisa com a data nova quando a consulta é remarcada', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        patientId,
+        doctorId,
+        status: AppointmentStatus.SCHEDULED,
+        scheduledAt: new Date('2026-08-01T17:00:00.000Z'),
+        durationMinutes: 30,
+      });
+
+      await service.update(
+        'appt-1',
+        { scheduledAt: '2026-08-05T17:00:00.000Z' },
+        userId,
+      );
+
+      expect(mockWhatsappService.sendAppointmentScheduled).toHaveBeenCalledWith(
+        '5511998877665',
+        expect.objectContaining({
+          patientName: 'Ana Souza',
+          doctorName: 'Dr(a). House',
+          when: expect.stringContaining('05/08'),
+        }),
+      );
+    });
+
+    /** Mexer em notas ou tipo não é notícia para o paciente. */
+    it('não reavisa quando o horário não mudou', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        patientId,
+        doctorId,
+        status: AppointmentStatus.SCHEDULED,
+        scheduledAt: new Date('2026-08-01T17:00:00.000Z'),
+        durationMinutes: 30,
+      });
+
+      await service.update('appt-1', { notes: 'trazer exames' }, userId);
+
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('não reavisa quando o PATCH repete o mesmo horário', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        patientId,
+        doctorId,
+        status: AppointmentStatus.SCHEDULED,
+        scheduledAt: new Date('2026-08-01T17:00:00.000Z'),
+        durationMinutes: 30,
+      });
+
+      await service.update(
+        'appt-1',
+        { scheduledAt: '2026-08-01T17:00:00.000Z' },
+        userId,
+      );
+
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
     });
   });
 });

@@ -7,6 +7,11 @@ import { SurgeryRequestRepository } from 'src/database/repositories/surgery-requ
 import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
+import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
+import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import { Clinic } from 'src/database/entities/clinic.entity';
+import { NotificationsService } from 'src/modules/notifications/notifications.service';
+import { formatAppointmentWhen, formatClinicAddress } from 'src/shared/utils';
 
 @Injectable()
 export class WebhookService {
@@ -14,6 +19,33 @@ export class WebhookService {
 
   private static readonly SCHEDULING_PATIENT_SELECTED_STATUS_LABEL =
     'Em agendamento';
+
+  /**
+   * Ids do template `appointment_confirmation`, próprios deste fluxo. Os
+   * `opcao_*` pertencem ao agendamento cirúrgico e NÃO entram aqui — foi
+   * exatamente essa sobreposição que fazia a resposta do paciente à consulta
+   * ser lida como escolha de data da cirurgia. O texto do botão entra como
+   * fallback para quando o Twilio manda `ButtonText` sem `ButtonPayload`.
+   */
+  private static readonly APPOINTMENT_CONFIRM_TOKENS = [
+    'consulta_confirmar',
+    'confirmar',
+    'confirmo',
+  ];
+
+  private static readonly APPOINTMENT_CANCEL_TOKENS = [
+    'consulta_cancelar',
+    'cancelar',
+    'cancela',
+  ];
+
+  /**
+   * Janela em que a consulta respondida pode estar. O lembrete sai até 24h
+   * antes, e a resposta pode chegar com a consulta recém-passada — daí a folga
+   * para trás.
+   */
+  private static readonly APPOINTMENT_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+  private static readonly APPOINTMENT_LOOKAHEAD_MS = 26 * 60 * 60 * 1000;
 
   private static readonly SCHEDULING_PATIENT_SELECTED_NEXT_STEP =
     'Paciente escolheu uma opção de data para a cirurgia. Confirme a data da cirurgia';
@@ -23,7 +55,143 @@ export class WebhookService {
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly surgeryRequestActivityRepository: SurgeryRequestActivityRepository,
     private readonly whatsappService: WhatsappService,
+    private readonly appointmentRepository: AppointmentRepository,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  /**
+   * Traduz o botão do template `appointment_confirmation`.
+   *
+   * Só reconhece os ids próprios deste fluxo (ver
+   * `APPOINTMENT_CONFIRM_TOKENS`). `opcao_1`/`opcao_2` pertencem ao
+   * agendamento cirúrgico e são recusados aqui de propósito.
+   */
+  private parseAppointmentAnswer(
+    buttonPayload: string,
+    buttonText: string,
+  ): 'confirmed' | 'cancelled' | null {
+    const candidatos = [buttonPayload, buttonText].map((v) =>
+      (v || '').trim().toLowerCase(),
+    );
+
+    if (
+      WebhookService.APPOINTMENT_CONFIRM_TOKENS.some((t) =>
+        candidatos.includes(t),
+      )
+    ) {
+      return 'confirmed';
+    }
+    if (
+      WebhookService.APPOINTMENT_CANCEL_TOKENS.some((t) =>
+        candidatos.includes(t),
+      )
+    ) {
+      return 'cancelled';
+    }
+    return null;
+  }
+
+  /**
+   * Processa a resposta do paciente ao lembrete de consulta.
+   *
+   * Localiza a consulta pelo telefone do remetente dentro da janela do lembrete
+   * e devolve `false` quando não acha nada — assim uma resposta que não é de
+   * consulta segue para o próximo handler.
+   *
+   * Com ids de botão próprios, este handler e o de agendamento cirúrgico não
+   * disputam mais o mesmo payload — a ordem entre os dois no controller passou
+   * a ser indiferente.
+   */
+  async tryHandleAppointmentConfirmation(params: {
+    from: string;
+    messageSid: string;
+    buttonPayload: string;
+    buttonText: string;
+  }): Promise<boolean> {
+    const answer = this.parseAppointmentAnswer(
+      params.buttonPayload,
+      params.buttonText,
+    );
+    if (!answer) return false;
+
+    const phoneCandidates = this.normalizePhoneDigitsCandidates(params.from);
+    if (phoneCandidates.length === 0) return false;
+
+    const agora = Date.now();
+    const appointment = await this.appointmentRepository.findAtivaPorTelefone(
+      phoneCandidates,
+      {
+        from: new Date(agora - WebhookService.APPOINTMENT_LOOKBACK_MS),
+        to: new Date(agora + WebhookService.APPOINTMENT_LOOKAHEAD_MS),
+      },
+    );
+    if (!appointment) {
+      this.logger.warn(
+        `Resposta de lembrete de consulta sem consulta ativa na janela (sid=${params.messageSid})`,
+      );
+      return false;
+    }
+
+    const patientName = appointment.patient?.name ?? 'Paciente';
+    const when = formatAppointmentWhen(appointment.scheduledAt);
+
+    if (answer === 'confirmed') {
+      await this.appointmentRepository.update(appointment.id, {
+        status: AppointmentStatus.CONFIRMED,
+      });
+    } else {
+      await this.appointmentRepository.update(appointment.id, {
+        status: AppointmentStatus.CANCELLED,
+        cancellationReason: 'Cancelada pelo paciente pelo WhatsApp',
+      });
+    }
+
+    await this.notificationsService.notifyAppointmentPatientResponse({
+      appointmentId: appointment.id,
+      ownerId: appointment.ownerId,
+      doctorId: appointment.doctorId,
+      patientName,
+      when,
+      response: answer,
+    });
+
+    // Resposta em texto livre: a janela de 24h está aberta porque o paciente
+    // acabou de interagir, então não gasta template — e é por isso que o local
+    // do atendimento cabe aqui e não no lembrete (variável opcional faria a
+    // Meta recusar o envio às consultas sem unidade).
+    //
+    // Best-effort: o status já está gravado. Deixar a exceção subir faria o
+    // controller cair no catch e entregar o clique ao orquestrador de IA, que
+    // responderia sobre uma consulta que já mudou de estado.
+    try {
+      await this.whatsappService.sendMessage(
+        params.from,
+        answer === 'confirmed'
+          ? `Obrigado, ${patientName}! Sua consulta de ${when} está confirmada. Até lá!` +
+              this.linhaDoLocal(appointment.clinic)
+          : `Tudo bem, ${patientName}. Sua consulta de ${when} foi cancelada. Para remarcar, fale com a clínica.`,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Consulta ${appointment.id} ${answer} pelo paciente, mas a confirmação não foi entregue (sid=${params.messageSid}): ${err?.message}`,
+      );
+    }
+
+    return true;
+  }
+
+  /**
+   * Linha com o local do atendimento, para anexar à confirmação. Vazia quando a
+   * consulta não tem unidade vinculada; só com o nome quando a unidade existe
+   * mas não tem endereço cadastrado.
+   */
+  private linhaDoLocal(clinic?: Clinic | null): string {
+    const nome = clinic?.name?.trim();
+    if (!nome) return '';
+
+    const endereco = formatClinicAddress(clinic ?? null);
+    return endereco ? `\n📍 ${nome} — ${endereco}` : `\n📍 ${nome}`;
+  }
 
   private parseSchedulingButtonIndex(
     buttonPayload: string,

@@ -29,6 +29,22 @@ const COLUNAS_PACIENTE_NO_CARD = ['patient.id', 'patient.name'];
  */
 const COLUNAS_CLINICA_NO_CARD = ['clinic.id', 'clinic.name'];
 
+/**
+ * O que a resposta ao lembrete de WhatsApp precisa da clínica: o endereço, para
+ * dizer ao paciente onde é o atendimento. Recorte próprio (e não o do card)
+ * porque é um consumidor diferente, com necessidade diferente — o card da
+ * agenda continua sem endereço.
+ */
+const COLUNAS_CLINICA_NO_AVISO = [
+  'clinic.id',
+  'clinic.name',
+  'clinic.address',
+  'clinic.addressNumber',
+  'clinic.neighborhood',
+  'clinic.city',
+  'clinic.state',
+];
+
 @Injectable()
 export class AppointmentRepository extends BaseRepository<Appointment> {
   constructor(private readonly dataSource: DataSource) {
@@ -173,6 +189,49 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
         .andWhere('appointment.deletedAt IS NULL')
         .getOne()
     );
+  }
+
+  /**
+   * Consulta ativa de um paciente localizada **pelo telefone**, dentro de uma
+   * janela de datas — é o que a resposta ao lembrete de WhatsApp tem em mãos:
+   * o webhook do Twilio entrega o número, não o id da consulta.
+   *
+   * Devolve aquela cujo lembrete saiu por último. A janela olha para trás, e
+   * uma consulta já ocorrida que ninguém marcou como realizada continua ativa
+   * dentro dela — ordenar por horário fazia essa consulta velha roubar a
+   * resposta do lembrete da seguinte, cancelando a consulta errada em silêncio.
+   * `reminderSentAt` é o desempate certo: o lembrete respondido é o último
+   * enviado. O horário só desempata quando nenhuma das duas foi lembrada.
+   *
+   * `phoneDigits` já vem normalizado em variantes (com/sem DDI, com/sem o 9) —
+   * o lado do banco só tira a máscara do que está cadastrado. Traz a unidade
+   * junto porque a resposta ao paciente informa o local do atendimento.
+   */
+  findAtivaPorTelefone(
+    phoneDigits: string[],
+    janela: { from: Date; to: Date },
+  ): Promise<Appointment | null> {
+    if (!phoneDigits.length) return Promise.resolve(null);
+
+    return this.repository
+      .createQueryBuilder('appointment')
+      .innerJoin('appointment.patient', 'patient', 'patient.deleted_at IS NULL')
+      .addSelect(COLUNAS_PACIENTE_NO_CARD)
+      .leftJoin('appointment.clinic', 'clinic')
+      .addSelect(COLUNAS_CLINICA_NO_AVISO)
+      .where(
+        "regexp_replace(patient.phone, '[^0-9]', '', 'g') IN (:...phones)",
+        { phones: phoneDigits },
+      )
+      .andWhere('appointment.status IN (:...statuses)', {
+        statuses: [AppointmentStatus.SCHEDULED, AppointmentStatus.CONFIRMED],
+      })
+      .andWhere('appointment.scheduledAt >= :from', { from: janela.from })
+      .andWhere('appointment.scheduledAt < :to', { to: janela.to })
+      .andWhere('appointment.deletedAt IS NULL')
+      .orderBy('appointment.reminderSentAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('appointment.scheduledAt', 'ASC')
+      .getOne();
   }
 
   /**

@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
@@ -9,6 +10,9 @@ import { PatientRepository } from 'src/database/repositories/patient.repository'
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { UserRepository } from 'src/database/repositories/user.repository';
+import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
+import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
 import {
   Appointment,
   AppointmentStatus,
@@ -23,12 +27,16 @@ import {
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
   constructor(
     private readonly appointmentRepository: AppointmentRepository,
     private readonly patientRepository: PatientRepository,
     private readonly clinicalRecordRepository: ClinicalRecordRepository,
     private readonly accessControlService: AccessControlService,
     private readonly clinicRepository: ClinicRepository,
+    private readonly userRepository: UserRepository,
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   /** Fim da consulta = início + duração. */
@@ -149,7 +157,7 @@ export class AppointmentsService {
 
     await this.assertNoOverlap(data.doctorId, start, end);
 
-    return this.appointmentRepository.create({
+    const criada = await this.appointmentRepository.create({
       ownerId,
       doctorId: data.doctorId,
       patientId: data.patientId,
@@ -160,6 +168,11 @@ export class AppointmentsService {
       notes: data.notes?.trim() || null,
       status: AppointmentStatus.SCHEDULED,
     });
+
+    // `patient` já veio da validação de conta acima — sem query extra.
+    await this.avisarPacienteDoAgendamento(patient, data.doctorId, start);
+
+    return criada;
   }
 
   async update(
@@ -201,14 +214,30 @@ export class AppointmentsService {
     // Reagendou de fato: o lembrete já enviado era da data antiga, então a
     // marca de idempotência precisa cair — senão o paciente nunca é avisado do
     // novo horário. Reenviar o mesmo horário (ou mexer em notas/tipo) não zera.
-    if (
+    const remarcou =
       data.scheduledAt !== undefined &&
-      start.getTime() !== new Date(appointment.scheduledAt).getTime()
-    ) {
+      start.getTime() !== new Date(appointment.scheduledAt).getTime();
+    if (remarcou) {
       updateData.reminderSentAt = null;
     }
 
-    return (await this.appointmentRepository.update(id, updateData))!;
+    const atualizada = (await this.appointmentRepository.update(
+      id,
+      updateData,
+    ))!;
+
+    if (remarcou) {
+      const patient = await this.patientRepository.findOne({
+        id: appointment.patientId,
+      });
+      await this.avisarPacienteDoAgendamento(
+        patient,
+        appointment.doctorId,
+        start,
+      );
+    }
+
+    return atualizada;
   }
 
   async updateStatus(
@@ -241,7 +270,77 @@ export class AppointmentsService {
         ? data.cancellationReason?.trim() || null
         : null;
 
-    return (await this.appointmentRepository.update(id, updateData))!;
+    const atualizada = (await this.appointmentRepository.update(
+      id,
+      updateData,
+    ))!;
+
+    // Só o cancelamento vindo de um status ativo é novidade para o paciente:
+    // recancelar uma consulta já cancelada repetiria o mesmo aviso.
+    if (
+      data.status === AppointmentStatus.CANCELLED &&
+      AppointmentsService.isActiveStatus(appointment.status)
+    ) {
+      await this.avisarPacienteDoCancelamento(appointment);
+    }
+
+    return atualizada;
+  }
+
+  /**
+   * Avisa o paciente que a consulta foi marcada — ou remarcada — para uma data.
+   *
+   * Best-effort: a consulta já está gravada, e uma falha de WhatsApp (ou um
+   * paciente sem telefone) não pode desfazê-la nem devolver erro para a tela.
+   */
+  private async avisarPacienteDoAgendamento(
+    patient: { name: string; phone: string | null } | null,
+    doctorId: string,
+    scheduledAt: Date,
+  ): Promise<void> {
+    if (!patient?.phone) return;
+
+    try {
+      const doctor = await this.userRepository.findOne({ id: doctorId });
+      await this.whatsappService.sendAppointmentScheduled(patient.phone, {
+        patientName: patient.name,
+        doctorName: formatDoctorName(doctor?.name),
+        when: formatAppointmentWhen(scheduledAt),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao avisar paciente do agendamento da consulta: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Avisa o paciente, pelo template aprovado, que a consulta foi cancelada.
+   *
+   * Best-effort de ponta a ponta: o cancelamento já está gravado, e uma falha
+   * de WhatsApp (ou um paciente sem telefone) não pode desfazê-lo. O telefone
+   * é buscado no cadastro porque a agenda só carrega id e nome do paciente.
+   */
+  private async avisarPacienteDoCancelamento(
+    appointment: Appointment,
+  ): Promise<void> {
+    try {
+      const [patient, doctor] = await Promise.all([
+        this.patientRepository.findOne({ id: appointment.patientId }),
+        this.userRepository.findOne({ id: appointment.doctorId }),
+      ]);
+      if (!patient?.phone) return;
+
+      await this.whatsappService.sendAppointmentCancelled(patient.phone, {
+        patientName: patient.name,
+        doctorName: formatDoctorName(doctor?.name),
+        when: formatAppointmentWhen(appointment.scheduledAt),
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao avisar paciente do cancelamento da consulta ${appointment.id}: ${err?.message}`,
+      );
+    }
   }
 
   async delete(id: string, userId: string): Promise<void> {

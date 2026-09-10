@@ -9,7 +9,7 @@ import {
   Appointment,
   AppointmentType,
 } from 'src/database/entities/appointment.entity';
-import { formatDoctorName } from 'src/shared/utils';
+import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -106,7 +106,7 @@ export class AppointmentReminderService {
 
     const doctor = await this.userRepository.findOne({ id: appt.doctorId });
     const doctorName = formatDoctorName(doctor?.name);
-    const when = this.formatWhen(appt.scheduledAt);
+    const when = formatAppointmentWhen(appt.scheduledAt);
 
     let attempted = false;
     let delivered = false;
@@ -132,12 +132,11 @@ export class AppointmentReminderService {
     if (patient.phone) {
       attempted = true;
       try {
-        await this.whatsappService.sendAppointmentReminder(
-          patient.phone,
-          patient.name,
-          when,
+        await this.whatsappService.sendAppointmentConfirmation(patient.phone, {
+          patientName: patient.name,
           doctorName,
-        );
+          when,
+        });
         delivered = true;
       } catch (err: any) {
         this.logger.warn(
@@ -147,21 +146,5 @@ export class AppointmentReminderService {
     }
 
     return { attempted, delivered };
-  }
-
-  /** Formata a data/hora em pt-BR no fuso de São Paulo (ex.: "sex., 01/08 às 14:00"). */
-  private formatWhen(date: Date): string {
-    const day = new Intl.DateTimeFormat('pt-BR', {
-      weekday: 'short',
-      day: '2-digit',
-      month: '2-digit',
-      timeZone: 'America/Sao_Paulo',
-    }).format(date);
-    const time = new Intl.DateTimeFormat('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'America/Sao_Paulo',
-    }).format(date);
-    return `${day} às ${time}`;
   }
 }
