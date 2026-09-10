@@ -134,7 +134,10 @@ export class Patient {
   @JoinColumn({ name: 'owner_id' })
   owner: User;
 
-  @ManyToOne(() => HealthPlan, (hp) => hp.patients, { nullable: true })
+  @ManyToOne(() => HealthPlan, (hp) => hp.patients, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'health_plan_id' })
   healthPlan: HealthPlan | null;
 

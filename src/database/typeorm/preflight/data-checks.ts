@@ -53,8 +53,66 @@ export const TELEFONE_DUPLICADO: VerificacaoPreMigration = {
     })),
 };
 
+/**
+ * `FixUserDeletionReferentialActions` derruba e recria cinco chaves
+ * estrangeiras. Recriar valida as linhas existentes: qualquer órfã — filho
+ * apontando para um pai que não existe mais — aborta o `ADD CONSTRAINT` no
+ * meio da migration, com um erro que não diz qual linha é.
+ *
+ * Órfã não deveria existir com a constraint antiga de pé, mas existe banco em
+ * que ela foi derrubada à mão para destravar uma exclusão — que é exatamente a
+ * dor que esta migration resolve.
+ */
+export const ORFAOS_ANTES_DA_CASCATA: VerificacaoPreMigration = {
+  migration: 'FixUserDeletionReferentialActions1755700100000',
+  descricao:
+    'linha órfã nas relações que a migration recria (o pai referenciado não existe)',
+  sql: `SELECT 'surgery_requests.created_by_id -> users' AS relacao,
+               string_agg(sr."id"::text, ', ') AS ids
+          FROM "surgery_requests" sr
+          LEFT JOIN "users" u ON u."id" = sr."created_by_id"
+         WHERE sr."created_by_id" IS NOT NULL AND u."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'surgery_requests.hospital_id -> hospitals',
+               string_agg(sr."id"::text, ', ')
+          FROM "surgery_requests" sr
+          LEFT JOIN "hospitals" h ON h."id" = sr."hospital_id"
+         WHERE sr."hospital_id" IS NOT NULL AND h."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'surgery_requests.health_plan_id -> health_plans',
+               string_agg(sr."id"::text, ', ')
+          FROM "surgery_requests" sr
+          LEFT JOIN "health_plans" hp ON hp."id" = sr."health_plan_id"
+         WHERE sr."health_plan_id" IS NOT NULL AND hp."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'patients.health_plan_id -> health_plans',
+               string_agg(p."id"::text, ', ')
+          FROM "patients" p
+          LEFT JOIN "health_plans" hp ON hp."id" = p."health_plan_id"
+         WHERE p."health_plan_id" IS NOT NULL AND hp."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'surgery_request_quotations.supplier_id -> suppliers',
+               string_agg(q."id"::text, ', ')
+          FROM "surgery_request_quotations" q
+          LEFT JOIN "suppliers" s ON s."id" = q."supplier_id"
+         WHERE q."supplier_id" IS NOT NULL AND s."id" IS NULL
+        HAVING count(*) > 0`,
+  comoResolver:
+    'Aponte cada linha para um pai existente ou apague-a. As colunas nulas aceitam NULL, exceto surgery_requests.created_by_id — nesse caso a solicitação precisa de um usuário válido ou de ser removida.',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: String(linha.relacao ?? ''),
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
+  ORFAOS_ANTES_DA_CASCATA,
 ];
 
 /** Mensagem única, usada tanto no erro da migration quanto no pré-flight. */
