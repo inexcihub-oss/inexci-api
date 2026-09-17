@@ -16,6 +16,7 @@ import { Supplier } from 'src/database/entities/supplier.entity';
 import { Manufacturer } from 'src/database/entities/manufacturer.entity';
 import { OpmeItem } from 'src/database/entities/opme-item.entity';
 import { CreateOpmeResponseDto } from './dto/opme-response.dto';
+import { isGenericOptionName } from 'src/shared/constants/generic-option';
 
 const MIN_OPME_OPTIONS = 3;
 
@@ -242,6 +243,20 @@ export class OpmeService {
       const normalized = trimmed.toLowerCase();
       if (addedNamesNormalized.has(normalized)) continue;
 
+      // "Outro" não é um nome digitado: é o fornecedor genérico da conta, a
+      // resposta para "nenhum dos cadastrados". Antes desta regra o
+      // preenchimento automático dos slots o transformava num cadastro real,
+      // que aparecia no catálogo e o usuário não tinha pedido.
+      if (isGenericOptionName(trimmed)) {
+        const generico = await this.supplierRepository.ensureGeneric(ownerId);
+        if (!addedIds.has(generico.id)) {
+          result.push(generico);
+          addedIds.add(generico.id);
+        }
+        addedNamesNormalized.add(generico.name.trim().toLowerCase());
+        continue;
+      }
+
       const existing = await this.supplierRepository.findByNameIncludingDeleted(
         ownerId,
         trimmed,
@@ -313,6 +328,19 @@ export class OpmeService {
 
       const normalized = trimmed.toLowerCase();
       if (addedNamesNormalized.has(normalized)) continue;
+
+      // Mesma regra dos fornecedores: "Outro" é o fabricante genérico da
+      // conta, não um nome a cadastrar.
+      if (isGenericOptionName(trimmed)) {
+        const generico =
+          await this.manufacturerRepository.ensureGeneric(ownerId);
+        if (!addedIds.has(generico.id)) {
+          result.push(generico);
+          addedIds.add(generico.id);
+        }
+        addedNamesNormalized.add(generico.name.trim().toLowerCase());
+        continue;
+      }
 
       const existing =
         await this.manufacturerRepository.findByNameIncludingDeleted(

@@ -39,6 +39,69 @@ describe('ManufacturersService', () => {
     );
   });
 
+  /**
+   * "Outro" é o fabricante genérico da conta — a resposta para "nenhum dos
+   * cadastrados", não um cadastro. Ele aparece nos itens OPME, mas não é do
+   * usuário: deixá-lo no catálogo o convida a editar ou excluir uma linha que
+   * a plataforma usa como conceito.
+   */
+  describe('opção genérica "Outro"', () => {
+    it('fica fora da listagem do catálogo', async () => {
+      mockManufacturerRepository.total.mockResolvedValue(0);
+      mockManufacturerRepository.findMany.mockResolvedValue([]);
+
+      await service.findAll({} as never, userId);
+
+      expect(
+        mockManufacturerRepository.findMany.mock.calls[0][0],
+      ).toMatchObject({
+        ownerId,
+        isGeneric: false,
+      });
+      expect(mockManufacturerRepository.total.mock.calls[0][0]).toMatchObject({
+        isGeneric: false,
+      });
+    });
+
+    it('não pode ser editado', async () => {
+      mockManufacturerRepository.findOne.mockResolvedValue({
+        id: 'gen-1',
+        ownerId,
+        isGeneric: true,
+      });
+
+      await expect(
+        service.update('gen-1', { name: 'Meu Fabricante' } as never, userId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockManufacturerRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('não pode ser excluído', async () => {
+      mockManufacturerRepository.findOne.mockResolvedValue({
+        id: 'gen-1',
+        ownerId,
+        isGeneric: true,
+      });
+
+      await expect(service.delete('gen-1', userId)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockManufacturerRepository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('não pode ser excluído em lote junto com cadastros de verdade', async () => {
+      mockManufacturerRepository.findMany.mockResolvedValue([
+        { id: 'real-1', ownerId, isGeneric: false },
+        { id: 'gen-1', ownerId, isGeneric: true },
+      ]);
+
+      await expect(
+        service.bulkDelete(['real-1', 'gen-1'], userId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockManufacturerRepository.bulkSoftDelete).not.toHaveBeenCalled();
+    });
+  });
+
   describe('delete', () => {
     it('deve aplicar soft delete em vez de remover o registro', async () => {
       mockManufacturerRepository.findOne.mockResolvedValue({

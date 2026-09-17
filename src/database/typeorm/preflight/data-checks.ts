@@ -110,9 +110,60 @@ export const ORFAOS_ANTES_DA_CASCATA: VerificacaoPreMigration = {
     })),
 };
 
+/**
+ * A unificação das linhas legadas chamadas "Outro"/"Outros" não é feita por
+ * migration: ela é história do banco de produção. Essas linhas nasceram do
+ * preenchimento automático dos slots de OPME, que mandava a string como se
+ * fosse um nome digitado e fazia o backend criar um cadastro de verdade. Banco
+ * novo nunca teve esse código escrevendo nele — não há o que fundir.
+ *
+ * Quem funde é `scripts/sql/outro-generico-aplicar.sql`, rodado uma vez à mão.
+ * Esta verificação é o que impede a migration de completar o schema num banco
+ * onde a fusão ainda não passou: `ensureGeneric` insere a linha genérica com o
+ * nome "Outro", e em `manufacturers` o índice `uq_manufacturers_owner_name_active`
+ * já protege `(owner_id, LOWER(name))` — a legada de mesmo nome derrubaria o
+ * insert em runtime, num 500 que não diz o que aconteceu.
+ *
+ * `to_jsonb(...) ->> 'is_generic'` em vez de ler a coluna direto: a verificação
+ * roda também ANTES de a coluna existir (banco que nunca recebeu nem o script
+ * nem a migration), e ali um `WHERE "is_generic"` seria erro de coluna
+ * inexistente. Ausente, o campo vem NULL e a linha conta como não unificada,
+ * que é exatamente o que ela é.
+ */
+export const OUTRO_NAO_UNIFICADO: VerificacaoPreMigration = {
+  migration: 'AddGenericSupplierAndManufacturer1755700200000',
+  descricao:
+    'fornecedor/fabricante legado chamado "Outro"/"Outros" ainda não unificado',
+  sql: `SELECT 'supplier' AS tipo,
+               s."name" AS nome,
+               string_agg(s."id"::text, ', ' ORDER BY s."created_at") AS ids
+          FROM "suppliers" s
+         WHERE lower(btrim(s."name")) IN ('outro', 'outros')
+           AND s."deleted_at" IS NULL
+           AND COALESCE(to_jsonb(s) ->> 'is_generic', 'false') <> 'true'
+         GROUP BY s."name"
+         UNION ALL
+        SELECT 'manufacturer' AS tipo,
+               m."name" AS nome,
+               string_agg(m."id"::text, ', ' ORDER BY m."created_at") AS ids
+          FROM "manufacturers" m
+         WHERE lower(btrim(m."name")) IN ('outro', 'outros')
+           AND m."deleted_at" IS NULL
+           AND COALESCE(to_jsonb(m) ->> 'is_generic', 'false') <> 'true'
+         GROUP BY m."name"`,
+  comoResolver:
+    'Rode scripts/sql/outro-generico-aplicar.sql neste banco antes de repetir o deploy — ele funde as linhas numa só e marca a genérica. Confira antes com scripts/sql/outro-generico-conferencia.sql.',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `${String(linha.tipo ?? '')}: ${String(linha.nome ?? '')}`,
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,
+  OUTRO_NAO_UNIFICADO,
 ];
 
 /** Mensagem única, usada tanto no erro da migration quanto no pré-flight. */

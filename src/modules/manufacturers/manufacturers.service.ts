@@ -24,7 +24,13 @@ export class ManufacturersService {
 
   async findAll(query: FindManyManufacturerDto, userId: string) {
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const where: FindOptionsWhere<Manufacturer> = { ownerId };
+    // O genérico "Outro" não é cadastro do usuário: ele responde
+    // "nenhum dos cadastrados" nos itens OPME. No catálogo, só
+    // convidaria a editar ou excluir uma linha que a plataforma usa.
+    const where: FindOptionsWhere<Manufacturer> = {
+      ownerId,
+      isGeneric: false,
+    };
 
     const [total, records] = await Promise.all([
       this.manufacturerRepository.total(where),
@@ -45,6 +51,19 @@ export class ManufacturersService {
     return manufacturer;
   }
 
+  /**
+   * "Outro" é conceito da plataforma, não cadastro da clínica: editar ou
+   * excluir a linha genérica quebraria os itens OPME que a referenciam e o
+   * significado do que já foi aprovado.
+   */
+  private assertNaoEGenerico(registro: { isGeneric?: boolean }): void {
+    if (registro.isGeneric) {
+      throw new ForbiddenException(
+        'O fabricante "Outro" é da plataforma e não pode ser alterado nem excluído.',
+      );
+    }
+  }
+
   async update(
     id: string,
     data: UpdateManufacturerDto,
@@ -57,6 +76,7 @@ export class ManufacturersService {
       userId,
       manufacturer.ownerId,
     );
+    this.assertNaoEGenerico(manufacturer);
     return (await this.manufacturerRepository.update(id, data))!;
   }
 
@@ -107,6 +127,7 @@ export class ManufacturersService {
       userId,
       manufacturer.ownerId,
     );
+    this.assertNaoEGenerico(manufacturer);
     await this.manufacturerRepository.softDelete(id);
     this.logger.log(`Fabricante soft-deleted: id=${id}`);
   }
@@ -132,6 +153,8 @@ export class ManufacturersService {
         'Um ou mais fabricantes não foram encontrados.',
       );
     }
+
+    manufacturers.forEach((registro) => this.assertNaoEGenerico(registro));
 
     await this.manufacturerRepository.bulkSoftDelete(uniqueIds);
     this.logger.log(

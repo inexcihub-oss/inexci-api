@@ -132,6 +132,15 @@ export class Supplier {
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
+  /**
+   * Marca o fornecedor genérico "Outro" da conta — o que significa "nenhum dos
+   * cadastrados". Uma linha por conta, escondida do catálogo e criada sob
+   * demanda. É flag e não nome para que relatório possa contá-lo ou excluí-lo
+   * sem comparar texto.
+   */
+  @Column({ name: 'is_generic', type: 'boolean', default: false })
+  isGeneric: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
