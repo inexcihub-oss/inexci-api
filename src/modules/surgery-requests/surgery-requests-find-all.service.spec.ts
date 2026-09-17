@@ -32,6 +32,7 @@ describe('SurgeryRequestsService.findAll', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     return { service, accessControlService, surgeryRequestRepository };
@@ -143,6 +144,7 @@ describe('SurgeryRequestsService.findAll — ponte atendimento/solicitações', 
       accessControlService as never,
       {} as never,
       surgeryRequestRepository as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

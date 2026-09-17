@@ -53,8 +53,117 @@ export const TELEFONE_DUPLICADO: VerificacaoPreMigration = {
     })),
 };
 
+/**
+ * `FixUserDeletionReferentialActions` derruba e recria cinco chaves
+ * estrangeiras. Recriar valida as linhas existentes: qualquer órfã — filho
+ * apontando para um pai que não existe mais — aborta o `ADD CONSTRAINT` no
+ * meio da migration, com um erro que não diz qual linha é.
+ *
+ * Órfã não deveria existir com a constraint antiga de pé, mas existe banco em
+ * que ela foi derrubada à mão para destravar uma exclusão — que é exatamente a
+ * dor que esta migration resolve.
+ */
+export const ORFAOS_ANTES_DA_CASCATA: VerificacaoPreMigration = {
+  migration: 'FixUserDeletionReferentialActions1755700100000',
+  descricao:
+    'linha órfã nas relações que a migration recria (o pai referenciado não existe)',
+  sql: `SELECT 'surgery_requests.created_by_id -> users' AS relacao,
+               string_agg(sr."id"::text, ', ') AS ids
+          FROM "surgery_requests" sr
+          LEFT JOIN "users" u ON u."id" = sr."created_by_id"
+         WHERE sr."created_by_id" IS NOT NULL AND u."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'surgery_requests.hospital_id -> hospitals',
+               string_agg(sr."id"::text, ', ')
+          FROM "surgery_requests" sr
+          LEFT JOIN "hospitals" h ON h."id" = sr."hospital_id"
+         WHERE sr."hospital_id" IS NOT NULL AND h."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'surgery_requests.health_plan_id -> health_plans',
+               string_agg(sr."id"::text, ', ')
+          FROM "surgery_requests" sr
+          LEFT JOIN "health_plans" hp ON hp."id" = sr."health_plan_id"
+         WHERE sr."health_plan_id" IS NOT NULL AND hp."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'patients.health_plan_id -> health_plans',
+               string_agg(p."id"::text, ', ')
+          FROM "patients" p
+          LEFT JOIN "health_plans" hp ON hp."id" = p."health_plan_id"
+         WHERE p."health_plan_id" IS NOT NULL AND hp."id" IS NULL
+        HAVING count(*) > 0
+         UNION ALL
+        SELECT 'surgery_request_quotations.supplier_id -> suppliers',
+               string_agg(q."id"::text, ', ')
+          FROM "surgery_request_quotations" q
+          LEFT JOIN "suppliers" s ON s."id" = q."supplier_id"
+         WHERE q."supplier_id" IS NOT NULL AND s."id" IS NULL
+        HAVING count(*) > 0`,
+  comoResolver:
+    'Aponte cada linha para um pai existente ou apague-a. As colunas nulas aceitam NULL, exceto surgery_requests.created_by_id — nesse caso a solicitação precisa de um usuário válido ou de ser removida.',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: String(linha.relacao ?? ''),
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
+/**
+ * A unificação das linhas legadas chamadas "Outro"/"Outros" não é feita por
+ * migration: ela é história do banco de produção. Essas linhas nasceram do
+ * preenchimento automático dos slots de OPME, que mandava a string como se
+ * fosse um nome digitado e fazia o backend criar um cadastro de verdade. Banco
+ * novo nunca teve esse código escrevendo nele — não há o que fundir.
+ *
+ * Quem funde é `scripts/sql/outro-generico-aplicar.sql`, rodado uma vez à mão.
+ * Esta verificação é o que impede a migration de completar o schema num banco
+ * onde a fusão ainda não passou: `ensureGeneric` insere a linha genérica com o
+ * nome "Outro", e em `manufacturers` o índice `uq_manufacturers_owner_name_active`
+ * já protege `(owner_id, LOWER(name))` — a legada de mesmo nome derrubaria o
+ * insert em runtime, num 500 que não diz o que aconteceu.
+ *
+ * `to_jsonb(...) ->> 'is_generic'` em vez de ler a coluna direto: a verificação
+ * roda também ANTES de a coluna existir (banco que nunca recebeu nem o script
+ * nem a migration), e ali um `WHERE "is_generic"` seria erro de coluna
+ * inexistente. Ausente, o campo vem NULL e a linha conta como não unificada,
+ * que é exatamente o que ela é.
+ */
+export const OUTRO_NAO_UNIFICADO: VerificacaoPreMigration = {
+  migration: 'AddGenericSupplierAndManufacturer1755700200000',
+  descricao:
+    'fornecedor/fabricante legado chamado "Outro"/"Outros" ainda não unificado',
+  sql: `SELECT 'supplier' AS tipo,
+               s."name" AS nome,
+               string_agg(s."id"::text, ', ' ORDER BY s."created_at") AS ids
+          FROM "suppliers" s
+         WHERE lower(btrim(s."name")) IN ('outro', 'outros')
+           AND s."deleted_at" IS NULL
+           AND COALESCE(to_jsonb(s) ->> 'is_generic', 'false') <> 'true'
+         GROUP BY s."name"
+         UNION ALL
+        SELECT 'manufacturer' AS tipo,
+               m."name" AS nome,
+               string_agg(m."id"::text, ', ' ORDER BY m."created_at") AS ids
+          FROM "manufacturers" m
+         WHERE lower(btrim(m."name")) IN ('outro', 'outros')
+           AND m."deleted_at" IS NULL
+           AND COALESCE(to_jsonb(m) ->> 'is_generic', 'false') <> 'true'
+         GROUP BY m."name"`,
+  comoResolver:
+    'Rode scripts/sql/outro-generico-aplicar.sql neste banco antes de repetir o deploy — ele funde as linhas numa só e marca a genérica. Confira antes com scripts/sql/outro-generico-conferencia.sql.',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `${String(linha.tipo ?? '')}: ${String(linha.nome ?? '')}`,
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
+  ORFAOS_ANTES_DA_CASCATA,
+  OUTRO_NAO_UNIFICADO,
 ];
 
 /** Mensagem única, usada tanto no erro da migration quanto no pré-flight. */

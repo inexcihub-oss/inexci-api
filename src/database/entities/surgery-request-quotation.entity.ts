@@ -66,7 +66,10 @@ export class SurgeryRequestQuotation {
   @JoinColumn({ name: 'surgery_request_id' })
   surgeryRequest: SurgeryRequest;
 
-  @ManyToOne(() => Supplier, (supplier) => supplier.quotations)
+  // A cotação não sobrevive ao fornecedor: `supplier_id` é NOT NULL.
+  @ManyToOne(() => Supplier, (supplier) => supplier.quotations, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'supplier_id' })
   supplier: Supplier;
 }

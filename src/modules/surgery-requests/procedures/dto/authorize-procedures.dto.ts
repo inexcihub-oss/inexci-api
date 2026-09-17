@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsNumber,
   ValidateNested,
   IsNotEmpty,
@@ -21,6 +22,15 @@ export class AuthorizeOpmeItemDto extends AuthorizeProcedureDto {
   @IsOptional()
   @IsUUID('4')
   selectedSupplierId?: string;
+
+  /**
+   * O convênio aprovou alguém fora dos cotados. Grava o fornecedor genérico
+   * "Outro" da conta — que o cliente não precisa (nem consegue) descobrir o id,
+   * já que ele fica escondido do catálogo.
+   */
+  @IsOptional()
+  @IsBoolean()
+  selectedSupplierIsGeneric?: boolean;
 }
 
 export class AuthorizeProceduresDto {

@@ -4,6 +4,7 @@ describe('WebhookController', () => {
   const webhookServiceMock = {
     validateTwilioSignature: jest.fn(),
     tryHandleSchedulingSelection: jest.fn(),
+    tryHandleAppointmentConfirmation: jest.fn(),
   };
 
   const aiOrchestratorMock = {
@@ -15,6 +16,9 @@ describe('WebhookController', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     webhookServiceMock.tryHandleSchedulingSelection.mockResolvedValue(false);
+    webhookServiceMock.tryHandleAppointmentConfirmation.mockResolvedValue(
+      false,
+    );
     controller = new WebhookController(
       webhookServiceMock as any,
       aiOrchestratorMock as any,
@@ -217,5 +221,104 @@ describe('WebhookController', () => {
     );
     expect(aiOrchestratorMock.enqueueInboundMessage).not.toHaveBeenCalled();
     expect(response).toBe('<Response></Response>');
+  });
+  /** Handler que resolveu a mensagem encerra o processamento. */
+  it('não tenta a confirmação de consulta quando o agendamento cirúrgico resolveu', async () => {
+    webhookServiceMock.tryHandleSchedulingSelection.mockResolvedValue(true);
+
+    const reqMock = {
+      get: () => 'api.inexci.local',
+      originalUrl: '/webhooks/twilio',
+      protocol: 'https',
+      body: {
+        From: 'whatsapp:+5511999990000',
+        MessageSid: 'SM-901',
+        ButtonPayload: 'opcao_1',
+      },
+    };
+
+    await controller.handleTwilioWebhook(
+      {
+        From: 'whatsapp:+5511999990000',
+        Body: '',
+        MessageSid: 'SM-901',
+        ButtonPayload: 'opcao_1',
+      },
+      'signature',
+      reqMock as any,
+    );
+
+    expect(
+      webhookServiceMock.tryHandleAppointmentConfirmation,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('encerra o processamento quando a confirmação de consulta é tratada', async () => {
+    webhookServiceMock.tryHandleAppointmentConfirmation.mockResolvedValue(true);
+
+    const reqMock = {
+      get: () => 'api.inexci.local',
+      originalUrl: '/webhooks/twilio',
+      protocol: 'https',
+      body: {
+        From: 'whatsapp:+5511999990000',
+        MessageSid: 'SM-902',
+        ButtonPayload: 'consulta_confirmar',
+      },
+    };
+
+    const response = await controller.handleTwilioWebhook(
+      {
+        From: 'whatsapp:+5511999990000',
+        Body: '',
+        MessageSid: 'SM-902',
+        ButtonPayload: 'consulta_confirmar',
+      },
+      'signature',
+      reqMock as any,
+    );
+
+    expect(
+      webhookServiceMock.tryHandleAppointmentConfirmation,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'whatsapp:+5511999990000',
+        messageSid: 'SM-902',
+        buttonPayload: 'consulta_confirmar',
+      }),
+    );
+    expect(aiOrchestratorMock.enqueueInboundMessage).not.toHaveBeenCalled();
+    expect(response).toBe('<Response></Response>');
+  });
+
+  /** Falhar aqui não pode engolir a mensagem: a IA ainda tem de recebê-la. */
+  it('segue para a IA quando a confirmação de consulta falha', async () => {
+    webhookServiceMock.tryHandleAppointmentConfirmation.mockRejectedValue(
+      new Error('db down'),
+    );
+
+    const reqMock = {
+      get: () => 'api.inexci.local',
+      originalUrl: '/webhooks/twilio',
+      protocol: 'https',
+      body: {
+        From: 'whatsapp:+5511999990000',
+        MessageSid: 'SM-903',
+        ButtonPayload: 'consulta_confirmar',
+      },
+    };
+
+    await controller.handleTwilioWebhook(
+      {
+        From: 'whatsapp:+5511999990000',
+        Body: '',
+        MessageSid: 'SM-903',
+        ButtonPayload: 'consulta_confirmar',
+      },
+      'signature',
+      reqMock as any,
+    );
+
+    expect(aiOrchestratorMock.enqueueInboundMessage).toHaveBeenCalled();
   });
 });

@@ -160,4 +160,69 @@ describe('WhatsappService', () => {
       expect(jobData.body).toBeUndefined();
     });
   });
+  /**
+   * A ordem das variáveis difere entre os dois templates de consulta
+   * (confirmação: paciente/médico/quando; cancelamento: paciente/quando/médico).
+   * Trocá-las manda o paciente para o horário errado, então cada mapeamento é
+   * fixado aqui.
+   */
+  describe('sendAppointmentConfirmation', () => {
+    it('mapeia paciente, médico e horário nas variáveis 1, 2 e 3', async () => {
+      await service.sendAppointmentConfirmation('+5511988887777', {
+        patientName: 'Ana Souza',
+        doctorName: 'Dr(a). House',
+        when: '20/10 às 10h',
+      });
+
+      const [, jobData] = mockQueue.add.mock.calls[0];
+      expect(jobData.to).toBe('+5511988887777');
+      expect(jobData.contentSid).toBe(
+        WHATSAPP_TEMPLATES.APPOINTMENT_CONFIRMATION,
+      );
+      expect(jobData.variables).toEqual({
+        '1': 'Ana Souza',
+        '2': 'Dr(a). House',
+        '3': '20/10 às 10h',
+      });
+      expect(jobData.body).toBeUndefined();
+    });
+  });
+
+  describe('sendAppointmentCancelled', () => {
+    it('mapeia paciente, horário e médico nas variáveis 1, 2 e 3', async () => {
+      await service.sendAppointmentCancelled('+5511988887777', {
+        patientName: 'Ana Souza',
+        doctorName: 'Dr(a). House',
+        when: '20/10 às 10h',
+      });
+
+      const [, jobData] = mockQueue.add.mock.calls[0];
+      expect(jobData.contentSid).toBe(WHATSAPP_TEMPLATES.APPOINTMENT_CANCELLED);
+      expect(jobData.variables).toEqual({
+        '1': 'Ana Souza',
+        '2': '20/10 às 10h',
+        '3': 'Dr(a). House',
+      });
+      expect(jobData.body).toBeUndefined();
+    });
+  });
+  describe('sendAppointmentScheduled', () => {
+    it('mapeia paciente, médico e horário nas variáveis 1, 2 e 3', async () => {
+      // Mesma ordem do template de confirmação, de propósito.
+      await service.sendAppointmentScheduled('+5511988887777', {
+        patientName: 'Ana Souza',
+        doctorName: 'Dr(a). House',
+        when: '20/10 às 10h',
+      });
+
+      const [, jobData] = mockQueue.add.mock.calls[0];
+      expect(jobData.contentSid).toBe(WHATSAPP_TEMPLATES.APPOINTMENT_SCHEDULED);
+      expect(jobData.variables).toEqual({
+        '1': 'Ana Souza',
+        '2': 'Dr(a). House',
+        '3': '20/10 às 10h',
+      });
+      expect(jobData.body).toBeUndefined();
+    });
+  });
 });

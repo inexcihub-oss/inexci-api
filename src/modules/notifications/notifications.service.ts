@@ -451,6 +451,76 @@ export class NotificationsService {
   }
 
   /**
+   * Avisa a equipe que o paciente respondeu ao template de confirmação de
+   * consulta pelo WhatsApp. Vai para o médico e para todo colaborador da conta
+   * que enxerga a agenda dele — o mesmo recorte de `notifyStatusChange`.
+   *
+   * Best-effort: é reação a um webhook público do Twilio, e falhar aqui não
+   * pode desfazer a mudança de status que já foi gravada.
+   */
+  async notifyAppointmentPatientResponse(params: {
+    appointmentId: string;
+    ownerId: string;
+    doctorId: string;
+    patientName: string;
+    when: string;
+    response: 'confirmed' | 'cancelled';
+  }): Promise<void> {
+    try {
+      const usuariosDaConta = await this.userRepository.findByOwnerId(
+        params.ownerId,
+      );
+
+      const acessos = await Promise.all(
+        usuariosDaConta.map(async (u) => {
+          try {
+            const doctorIds =
+              (await this.accessControlService?.getAccessibleDoctorIds(u.id)) ??
+              [];
+            return doctorIds.includes(params.doctorId) ? u.id : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      // O médico entra sempre, fora do recorte: é a agenda dele que mudou. Sem
+      // isto, um `AccessControlService` ausente (é `@Optional`) ou uma falha na
+      // consulta de acesso deixavam o cancelamento sem ninguém para ver.
+      const destinatarios = [
+        ...new Set([
+          params.doctorId,
+          ...acessos.filter((id): id is string => Boolean(id)),
+        ]),
+      ];
+
+      const confirmou = params.response === 'confirmed';
+      const title = confirmou
+        ? 'Consulta confirmada pelo paciente'
+        : 'Consulta cancelada pelo paciente';
+      const message = confirmou
+        ? `${params.patientName} confirmou presença na consulta de ${params.when} pelo WhatsApp.`
+        : `${params.patientName} cancelou a consulta de ${params.when} pelo WhatsApp.`;
+
+      await this.createNotificationForUsers(destinatarios, {
+        type: NotificationType.STATUS_UPDATE,
+        title,
+        message,
+        link: '/agenda',
+        metadata: {
+          appointmentId: params.appointmentId,
+          doctorId: params.doctorId,
+          response: params.response,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Falha ao notificar resposta do paciente à consulta ${params.appointmentId}: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
    * Notifica todos os admins da conta sobre uma ação realizada por um usuário.
    * O próprio ator não recebe notificação.
    */

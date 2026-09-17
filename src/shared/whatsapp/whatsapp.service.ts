@@ -20,6 +20,18 @@ export interface WhatsappJobData {
   tenantId?: string | null;
 }
 
+/**
+ * Dados dos três templates de consulta. Objeto nomeado, e não parâmetros
+ * soltos: os três campos são string e os templates numeram as variáveis em
+ * ordens diferentes — posicional, trocar dois deles compila e só aparece na
+ * mensagem que chega ao paciente.
+ */
+export interface DadosDaConsulta {
+  patientName: string;
+  doctorName: string;
+  when: string;
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
@@ -115,28 +127,38 @@ export class WhatsappService {
   }
 
   /**
-   * Lembrete proativo de consulta agendada. Só envia se o template
-   * `APPOINTMENT_REMINDER` já estiver aprovado na Meta/Twilio (contentSid não
-   * vazio); caso contrário, apenas registra e ignora — o lembrete por e-mail
-   * cobre o canal enquanto o template não é aprovado.
+   * Lembrete de consulta 24h antes, pedindo que o paciente confirme presença
+   * pelos botões do template.
    */
-  async sendAppointmentReminder(
+  sendAppointmentConfirmation(
     to: string,
-    patientName: string,
-    when: string,
-    doctorName: string,
+    dados: DadosDaConsulta,
   ): Promise<void> {
-    const contentSid = WHATSAPP_TEMPLATES.APPOINTMENT_REMINDER;
-    if (!contentSid) {
-      this.logger.warn(
-        'Template APPOINTMENT_REMINDER não configurado — lembrete WhatsApp ignorado (usando e-mail).',
-      );
-      return;
-    }
-    return this.sendTemplate(to, contentSid, {
-      '1': patientName,
-      '2': when,
-      '3': doctorName,
+    return this.sendTemplate(to, WHATSAPP_TEMPLATES.APPOINTMENT_CONFIRMATION, {
+      '1': dados.patientName,
+      '2': dados.doctorName,
+      '3': dados.when,
+    });
+  }
+
+  /** Aviso de que a consulta foi marcada (ou remarcada) para uma data. */
+  sendAppointmentScheduled(to: string, dados: DadosDaConsulta): Promise<void> {
+    return this.sendTemplate(to, WHATSAPP_TEMPLATES.APPOINTMENT_SCHEDULED, {
+      '1': dados.patientName,
+      '2': dados.doctorName,
+      '3': dados.when,
+    });
+  }
+
+  /**
+   * Aviso de consulta cancelada. Este template numera as variáveis em outra
+   * ordem — paciente → horário → médico — e é só aqui que isso aparece.
+   */
+  sendAppointmentCancelled(to: string, dados: DadosDaConsulta): Promise<void> {
+    return this.sendTemplate(to, WHATSAPP_TEMPLATES.APPOINTMENT_CANCELLED, {
+      '1': dados.patientName,
+      '2': dados.when,
+      '3': dados.doctorName,
     });
   }
 }

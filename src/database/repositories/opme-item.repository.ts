@@ -25,19 +25,32 @@ export class OpmeItemRepository extends BaseRepository<OpmeItem> {
     return this.repository.save(opmeItem);
   }
 
-  /** Fornecedores vencedores (selectedSupplier) por solicitação. Usado na agenda. */
-  async findSelectedSuppliersByRequestIds(
-    requestIds: string[],
-  ): Promise<Array<{ surgeryRequestId: string; supplierName: string }>> {
+  /**
+   * Fornecedores ESCOLHIDOS nos itens OPME das solicitações pedidas. É esta a
+   * definição de "fornecedor da SC" em toda a plataforma — a coluna Fornecedor
+   * da agenda, o filtro do kanban e a tela do próprio fornecedor.
+   */
+  async findSelectedSuppliersByRequestIds(requestIds: string[]): Promise<
+    Array<{
+      surgeryRequestId: string;
+      supplierId: string;
+      supplierName: string;
+    }>
+  > {
     if (requestIds.length === 0) return [];
     return this.repository
       .createQueryBuilder('opmeItem')
       .innerJoin('opmeItem.selectedSupplier', 'supplier')
       .where('opmeItem.surgeryRequestId IN (:...requestIds)', { requestIds })
       .select('opmeItem.surgeryRequestId', 'surgeryRequestId')
+      .addSelect('supplier.id', 'supplierId')
       .addSelect('supplier.name', 'supplierName')
       .distinct(true)
-      .getRawMany<{ surgeryRequestId: string; supplierName: string }>();
+      .getRawMany<{
+        surgeryRequestId: string;
+        supplierId: string;
+        supplierName: string;
+      }>();
   }
 
   async findSuppliedSurgeryRequestsBySupplierId(supplierId: string): Promise<

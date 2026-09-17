@@ -728,4 +728,158 @@ describe('NotificationsService', () => {
       expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
     });
   });
+  // ─── Resposta do paciente ao template de confirmação de consulta ─────────
+
+  describe('notifyAppointmentPatientResponse', () => {
+    /**
+     * Instância própria: o módulo de teste acima não injeta o
+     * `AccessControlService` (é `@Optional`), e aqui ele é justamente o que
+     * define quem enxerga a agenda daquele médico.
+     */
+    function comAcesso(accessibleByUser: Record<string, string[]>) {
+      const accessControl = {
+        getAccessibleDoctorIds: jest.fn(
+          async (userId: string) => accessibleByUser[userId] ?? [],
+        ),
+      };
+      const svc = new NotificationsService(
+        mockNotificationRepository as any,
+        mockSettingsRepository as any,
+        mockUserRepository as any,
+        mockSurgeryRequestRepository as any,
+        mockWhatsappService as any,
+        mockGateway as any,
+        accessControl as any,
+      );
+      return { svc, accessControl };
+    }
+
+    const params = {
+      appointmentId: 'appt-1',
+      ownerId: 'acc-1',
+      doctorId: 'doctor-1',
+      patientName: 'Ana Souza',
+      when: '20/10 às 10h',
+      response: 'cancelled' as const,
+    };
+
+    beforeEach(() => {
+      mockUserRepository.findByOwnerId.mockResolvedValue([
+        { id: 'doctor-1', ownerId: 'acc-1' },
+        { id: 'secretaria-1', ownerId: 'acc-1' },
+        { id: 'outro-medico', ownerId: 'acc-1' },
+      ]);
+    });
+
+    it('notifica o médico e quem tem acesso a ele, e ninguém mais', async () => {
+      const { svc } = comAcesso({
+        'doctor-1': ['doctor-1'],
+        'secretaria-1': ['doctor-1'],
+        'outro-medico': ['outro-medico'],
+      });
+
+      await svc.notifyAppointmentPatientResponse(params);
+
+      const [userIds] = mockNotificationRepository.createBulk.mock.calls[0];
+      expect(userIds.map((n: any) => n.userId).sort()).toEqual([
+        'doctor-1',
+        'secretaria-1',
+      ]);
+    });
+
+    /**
+     * O `AccessControlService` é `@Optional`: sem ele o recorte por acesso não
+     * existe e a notificação saía para ninguém, em silêncio — justamente o
+     * médico dono da agenda ficava sem saber que o paciente cancelou.
+     */
+    it('avisa o médico mesmo sem o serviço de acesso injetado', async () => {
+      const svc = new NotificationsService(
+        mockNotificationRepository as any,
+        mockSettingsRepository as any,
+        mockUserRepository as any,
+        mockSurgeryRequestRepository as any,
+        mockWhatsappService as any,
+        mockGateway as any,
+        undefined as any,
+      );
+
+      await svc.notifyAppointmentPatientResponse(params);
+
+      const [userIds] = mockNotificationRepository.createBulk.mock.calls[0];
+      expect(userIds.map((n: any) => n.userId)).toContain('doctor-1');
+    });
+
+    /** O dono da agenda nunca depende do recorte para ser avisado. */
+    it('avisa o médico mesmo quando o recorte de acesso falha para ele', async () => {
+      const accessControl = {
+        getAccessibleDoctorIds: jest.fn(async () => {
+          throw new Error('indisponível');
+        }),
+      };
+      const comFalha = new NotificationsService(
+        mockNotificationRepository as any,
+        mockSettingsRepository as any,
+        mockUserRepository as any,
+        mockSurgeryRequestRepository as any,
+        mockWhatsappService as any,
+        mockGateway as any,
+        accessControl as any,
+      );
+
+      await comFalha.notifyAppointmentPatientResponse(params);
+
+      const [userIds] = mockNotificationRepository.createBulk.mock.calls[0];
+      expect(userIds.map((n: any) => n.userId)).toEqual(['doctor-1']);
+    });
+
+    it('descreve o cancelamento feito pelo paciente e aponta para a agenda', async () => {
+      const { svc } = comAcesso({ 'doctor-1': ['doctor-1'] });
+
+      await svc.notifyAppointmentPatientResponse(params);
+
+      const [notificacoes] =
+        mockNotificationRepository.createBulk.mock.calls[0];
+      expect(notificacoes[0].message).toContain('Ana Souza');
+      expect(notificacoes[0].message).toContain('20/10 às 10h');
+      expect(notificacoes[0].message.toLowerCase()).toContain('cancel');
+      expect(notificacoes[0].link).toBe('/agenda');
+      expect(notificacoes[0].metadata).toEqual(
+        expect.objectContaining({ appointmentId: 'appt-1' }),
+      );
+    });
+
+    it('usa texto de confirmação quando o paciente confirmou presença', async () => {
+      const { svc } = comAcesso({ 'doctor-1': ['doctor-1'] });
+
+      await svc.notifyAppointmentPatientResponse({
+        ...params,
+        response: 'confirmed',
+      });
+
+      const [notificacoes] =
+        mockNotificationRepository.createBulk.mock.calls[0];
+      expect(notificacoes[0].message.toLowerCase()).toContain('confirm');
+      expect(notificacoes[0].message.toLowerCase()).not.toContain('cancel');
+    });
+
+    /** Notificar é efeito colateral: nunca pode derrubar o webhook do Twilio. */
+    it('não propaga erro quando a busca de usuários falha', async () => {
+      mockUserRepository.findByOwnerId.mockRejectedValue(new Error('db down'));
+      const { svc } = comAcesso({});
+
+      await expect(
+        svc.notifyAppointmentPatientResponse(params),
+      ).resolves.toBeUndefined();
+    });
+
+    /** Ninguém da equipe enxerga aquele médico — mas o próprio médico enxerga. */
+    it('avisa só o médico quando mais ninguém tem acesso a ele', async () => {
+      const { svc } = comAcesso({});
+
+      await svc.notifyAppointmentPatientResponse(params);
+
+      const [userIds] = mockNotificationRepository.createBulk.mock.calls[0];
+      expect(userIds.map((n: any) => n.userId)).toEqual(['doctor-1']);
+    });
+  });
 });

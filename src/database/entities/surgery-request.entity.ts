@@ -276,7 +276,13 @@ export class SurgeryRequest {
   @JoinColumn({ name: 'owner_id' })
   owner: User;
 
-  @ManyToOne(() => User, { nullable: false })
+  /**
+   * `created_by_id` é NOT NULL, então `ON DELETE SET NULL` aqui nunca chegou a
+   * funcionar: apagar o usuário abortava por violação de not-null. Cascata é o
+   * que permite excluir a conta — e, como `owner_id` já cascateia, na prática
+   * ela só muda o caso de apagar um colaborador isolado por SQL.
+   */
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'created_by_id' })
   createdBy: User;
 
@@ -286,12 +292,14 @@ export class SurgeryRequest {
 
   @ManyToOne(() => Hospital, (hospital) => hospital.surgeryRequests, {
     nullable: true,
+    onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'hospital_id' })
   hospital: Hospital | null;
 
   @ManyToOne(() => HealthPlan, (plan) => plan.surgeryRequests, {
     nullable: true,
+    onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'health_plan_id' })
   healthPlan: HealthPlan | null;

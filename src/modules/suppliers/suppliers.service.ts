@@ -26,7 +26,10 @@ export class SuppliersService {
   async findAll(query: FindManySupplierDto, userId: string) {
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    const where: FindOptionsWhere<Supplier> = { ownerId };
+    // O genérico "Outro" não é cadastro do usuário: ele responde
+    // "nenhum dos cadastrados" nos itens OPME. No catálogo, só
+    // convidaria a editar ou excluir uma linha que a plataforma usa.
+    const where: FindOptionsWhere<Supplier> = { ownerId, isGeneric: false };
 
     const [total, records] = await Promise.all([
       this.supplierRepository.total(where),
@@ -68,6 +71,19 @@ export class SuppliersService {
     };
   }
 
+  /**
+   * "Outro" é conceito da plataforma, não cadastro da clínica: editar ou
+   * excluir a linha genérica quebraria os itens OPME que a referenciam e o
+   * significado do que já foi aprovado.
+   */
+  private assertNaoEGenerico(registro: { isGeneric?: boolean }): void {
+    if (registro.isGeneric) {
+      throw new ForbiddenException(
+        'O fornecedor "Outro" é da plataforma e não pode ser alterado nem excluído.',
+      );
+    }
+  }
+
   async update(
     id: string,
     data: UpdateSupplierDto,
@@ -76,6 +92,7 @@ export class SuppliersService {
     const supplier = await this.supplierRepository.findOne({ id });
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
+    this.assertNaoEGenerico(supplier);
     return (await this.supplierRepository.update(id, data))!;
   }
 
@@ -119,6 +136,7 @@ export class SuppliersService {
     const supplier = await this.supplierRepository.findOne({ id });
     if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
     await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
+    this.assertNaoEGenerico(supplier);
     await this.supplierRepository.softDelete(id);
     this.logger.log(`Fornecedor soft-deleted: id=${id}`);
   }
@@ -144,6 +162,8 @@ export class SuppliersService {
         'Um ou mais fornecedores não foram encontrados.',
       );
     }
+
+    suppliers.forEach((registro) => this.assertNaoEGenerico(registro));
 
     await this.supplierRepository.bulkSoftDelete(uniqueIds);
     this.logger.log(

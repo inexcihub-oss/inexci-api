@@ -49,3 +49,65 @@ export function formatDoctorName(name?: string | null): string {
   if (!trimmed) return '';
   return DOCTOR_TITLE_PREFIX.test(trimmed) ? trimmed : `Dr(a). ${trimmed}`;
 }
+
+/**
+ * Data/hora de uma consulta em pt-BR, no fuso de São Paulo
+ * (ex.: "sáb., 01/08 às 14:00").
+ *
+ * Compartilhado pelo lembrete e pela resposta do paciente no WhatsApp: o
+ * horário que ele confirma tem de ser, letra por letra, o que ele recebeu.
+ */
+export function formatAppointmentWhen(date: Date): string {
+  const day = new Intl.DateTimeFormat('pt-BR', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  }).format(date);
+  const time = new Intl.DateTimeFormat('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Sao_Paulo',
+  }).format(date);
+  return `${day} às ${time}`;
+}
+
+/** Campos de endereço da unidade de atendimento, todos opcionais na entidade. */
+export interface EnderecoDaClinica {
+  address: string | null;
+  addressNumber: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+}
+
+/**
+ * Endereço da unidade em uma linha, para mensagens de texto livre no WhatsApp
+ * (ex.: "Rua das Flores, 120 - Centro, São Paulo/SP").
+ *
+ * Cada pedaço só entra se existir — a clínica pode ter sido cadastrada pela
+ * metade, e concatenar às cegas produzia ", - , /". Sem logradouro não há
+ * endereço a mostrar, então devolve vazio e quem chama omite a linha.
+ */
+export function formatClinicAddress(
+  clinic: EnderecoDaClinica | null | undefined,
+): string {
+  const logradouro = clinic?.address?.trim();
+  if (!logradouro) return '';
+
+  let linha = logradouro;
+  if (clinic?.addressNumber?.trim()) {
+    linha += `, ${clinic.addressNumber.trim()}`;
+  }
+  if (clinic?.neighborhood?.trim()) {
+    linha += ` - ${clinic.neighborhood.trim()}`;
+  }
+
+  const cidade = clinic?.city?.trim();
+  const uf = clinic?.state?.trim();
+  if (cidade) {
+    linha += `, ${cidade}${uf ? `/${uf}` : ''}`;
+  }
+
+  return linha;
+}

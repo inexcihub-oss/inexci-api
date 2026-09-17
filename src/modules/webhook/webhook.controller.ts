@@ -190,6 +190,28 @@ export class WebhookController {
       );
     }
 
+    // Os dois handlers têm ids de botão próprios e não disputam payload, então
+    // a ordem entre eles é indiferente: cada um devolve `false` de imediato
+    // para o botão do outro.
+    try {
+      const appointmentHandled =
+        await this.webhookService.tryHandleAppointmentConfirmation({
+          from,
+          messageSid,
+          buttonPayload,
+          buttonText,
+        });
+
+      if (appointmentHandled) {
+        return '<Response></Response>';
+      }
+    } catch (error) {
+      this.logger.error(
+        `Falha ao processar confirmação de consulta (${messageSid})`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
     try {
       await this.aiOrchestrator.enqueueInboundMessage({
         from,

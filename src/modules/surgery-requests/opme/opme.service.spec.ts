@@ -20,6 +20,7 @@ describe('OpmeService', () => {
     getRepository: jest.fn(),
     findByNameIncludingDeleted: jest.fn(),
     restore: jest.fn(),
+    ensureGeneric: jest.fn(),
   };
 
   const mockAccessValidator = {
@@ -32,6 +33,7 @@ describe('OpmeService', () => {
     findByNameIncludingDeleted: jest.fn(),
     restore: jest.fn(),
     findOne: jest.fn(),
+    ensureGeneric: jest.fn(),
   };
 
   const mockTypeOrmRepository = {
@@ -88,6 +90,16 @@ describe('OpmeService', () => {
         ...payload,
       }),
     );
+    mockSupplierRepository.ensureGeneric.mockResolvedValue({
+      id: 'generic-supplier',
+      name: 'Outro',
+      isGeneric: true,
+    });
+    mockManufacturerRepository.ensureGeneric.mockResolvedValue({
+      id: 'generic-manufacturer',
+      name: 'Outro',
+      isGeneric: true,
+    });
     mockAccessValidator.validateAndFetch.mockResolvedValue(fakeSurgeryRequest);
 
     service = new OpmeService(
@@ -100,6 +112,92 @@ describe('OpmeService', () => {
 
   it('deve estar definido', () => {
     expect(service).toBeDefined();
+  });
+
+  /**
+   * A plataforma exige 3 fornecedores e 3 fabricantes por item OPME, então um
+   * rascunho que só tem um preenche o resto com "Outro". Antes desta regra, o
+   * nome era tratado como qualquer outro digitado e virava cadastro de verdade
+   * no catálogo da clínica — um por conta, criado sem ninguém pedir.
+   */
+  describe('opção genérica "Outro"', () => {
+    beforeEach(() => {
+      mockSupplierRepository.create.mockImplementation(
+        async (payload: any) => ({ id: 'supplier-id', ...payload }),
+      );
+      mockTypeOrmRepository.create.mockImplementation((payload: any) => ({
+        id: 'opme-1',
+        ...payload,
+      }));
+      mockTypeOrmRepository.save.mockImplementation(
+        async (entity: any) => entity,
+      );
+    });
+
+    const criarComOutro = (extras: Record<string, unknown>) =>
+      service.create(
+        {
+          name: 'Parafuso',
+          quantity: 1,
+          surgeryRequestId: 'sr-1',
+          ...extras,
+        } as never,
+        'user-1',
+      );
+
+    it('resolve "Outro" para a linha genérica em vez de cadastrar', async () => {
+      await criarComOutro({
+        manufacturerNames: validManufacturerNames,
+        supplierNames: ['Fornecedor A', 'Outro', 'Outro'],
+      });
+
+      expect(mockSupplierRepository.ensureGeneric).toHaveBeenCalledWith(
+        'owner-1',
+      );
+      expect(
+        mockSupplierRepository.findByNameIncludingDeleted,
+      ).not.toHaveBeenCalledWith('owner-1', 'Outro');
+      const salvo = mockTypeOrmRepository.create.mock.calls[0][0];
+      expect(salvo.suppliers.filter((s: any) => s.isGeneric)).toHaveLength(1);
+    });
+
+    it('aceita o plural que o preenchimento antigo gravou', async () => {
+      await criarComOutro({
+        manufacturerNames: validManufacturerNames,
+        supplierNames: ['Fornecedor A', 'Outros', 'OUTROS'],
+      });
+
+      expect(mockSupplierRepository.ensureGeneric).toHaveBeenCalledWith(
+        'owner-1',
+      );
+      const salvo = mockTypeOrmRepository.create.mock.calls[0][0];
+      expect(salvo.suppliers.filter((s: any) => s.isGeneric)).toHaveLength(1);
+    });
+
+    it('vale igual para fabricante', async () => {
+      await criarComOutro({
+        manufacturerNames: ['Fabricante A', 'Outro', 'Outros'],
+        supplierNames: ['Fornecedor A', 'Fornecedor B', 'Fornecedor C'],
+      });
+
+      expect(mockManufacturerRepository.ensureGeneric).toHaveBeenCalledWith(
+        'owner-1',
+      );
+      const salvo = mockTypeOrmRepository.create.mock.calls[0][0];
+      expect(salvo.manufacturers.filter((m: any) => m.isGeneric)).toHaveLength(
+        1,
+      );
+    });
+
+    it('não cria a linha genérica quando ninguém pediu por ela', async () => {
+      await criarComOutro({
+        manufacturerNames: validManufacturerNames,
+        supplierNames: ['Fornecedor A', 'Fornecedor B', 'Fornecedor C'],
+      });
+
+      expect(mockSupplierRepository.ensureGeneric).not.toHaveBeenCalled();
+      expect(mockManufacturerRepository.ensureGeneric).not.toHaveBeenCalled();
+    });
   });
 
   // ─── create ───────────────────────────────────────────────────────────────

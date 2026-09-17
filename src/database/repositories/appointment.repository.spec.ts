@@ -343,3 +343,126 @@ describe('AppointmentRepository — join da clínica', () => {
     expect(withDeletedVeioAntesDosJoins()).toBe(true);
   });
 });
+
+/**
+ * Resposta do paciente ao lembrete de consulta pelo WhatsApp: o webhook só tem
+ * o telefone dele, e é por ele que a consulta é localizada.
+ */
+describe('AppointmentRepository.findAtivaPorTelefone', () => {
+  function buildRepo(resultado: unknown = null) {
+    const qb = {
+      innerJoinAndSelect: jest.fn().mockReturnThis(),
+      innerJoin: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(resultado),
+    };
+    const dataSource = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      }),
+    };
+    return { repo: new AppointmentRepository(dataSource as never), qb };
+  }
+
+  const clauses = (qb: { andWhere: jest.Mock; where: jest.Mock }) =>
+    [...qb.where.mock.calls, ...qb.andWhere.mock.calls]
+      .map((c) => c[0] as string)
+      .join(' | ');
+
+  const janela = {
+    from: new Date('2026-08-01T00:00:00.000Z'),
+    to: new Date('2026-08-02T06:00:00.000Z'),
+  };
+
+  it('casa o telefone do paciente ignorando máscara e formato', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAtivaPorTelefone(['11998877665', '5511998877665'], janela);
+
+    expect(clauses(qb)).toContain(
+      "regexp_replace(patient.phone, '[^0-9]', '', 'g') IN (:...phones)",
+    );
+  });
+
+  /** Consulta cancelada ou já realizada não é o que o paciente está respondendo. */
+  it('só considera consultas ativas na agenda', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAtivaPorTelefone(['11998877665'], janela);
+
+    const [, params] = qb.andWhere.mock.calls.find((c) =>
+      (c[0] as string).includes('status'),
+    )!;
+    expect(
+      (params as { statuses: AppointmentStatus[] }).statuses.sort(),
+    ).toEqual(
+      [AppointmentStatus.CONFIRMED, AppointmentStatus.SCHEDULED].sort(),
+    );
+  });
+
+  it('recorta pela janela do lembrete', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAtivaPorTelefone(['11998877665'], janela);
+
+    expect(clauses(qb)).toContain('appointment.scheduledAt >= :from');
+    expect(clauses(qb)).toContain('appointment.scheduledAt < :to');
+  });
+
+  /**
+   * A janela olha 6h para trás, então uma consulta que já aconteceu mas que
+   * ninguém marcou como realizada continua ativa e cai dentro dela. Por horário
+   * ela vinha primeiro e roubava a resposta do lembrete da consulta seguinte —
+   * o paciente cancelava a de amanhã e o sistema cancelava a de hoje de manhã.
+   * Quem desempata é o lembrete: o respondido é o último que saiu.
+   */
+  it('elege a consulta cujo lembrete saiu por último, não a mais antiga', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAtivaPorTelefone(['11998877665'], janela);
+
+    expect(qb.orderBy).toHaveBeenCalledWith(
+      'appointment.reminderSentAt',
+      'DESC',
+      'NULLS LAST',
+    );
+    expect(qb.addOrderBy).toHaveBeenCalledWith(
+      'appointment.scheduledAt',
+      'ASC',
+    );
+  });
+
+  it('não consulta o banco quando não há telefone para casar', async () => {
+    const { repo, qb } = buildRepo();
+
+    await expect(repo.findAtivaPorTelefone([], janela)).resolves.toBeNull();
+    expect(qb.getOne).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A resposta ao lembrete é respondida em texto livre com o local do
+   * atendimento — daí trazer o endereço junto, em vez de uma segunda consulta.
+   */
+  it('traz o endereço da unidade para montar a resposta ao paciente', async () => {
+    const { repo, qb } = buildRepo();
+
+    await repo.findAtivaPorTelefone(['11998877665'], janela);
+
+    const colunas = qb.addSelect.mock.calls.flatMap((c) => c[0] as string[]);
+    expect(colunas).toEqual(
+      expect.arrayContaining([
+        'clinic.name',
+        'clinic.address',
+        'clinic.addressNumber',
+        'clinic.neighborhood',
+        'clinic.city',
+        'clinic.state',
+      ]),
+    );
+  });
+});
