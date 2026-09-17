@@ -1,15 +1,20 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { CreateSurgeryRequestProcedureDto } from './dto/create-surgery-request-procedure.dto';
 import { UpdateSurgeryRequestProcedureDto } from './dto/update-surgery-request-procedure.dto';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
-import { AuthorizeProceduresDto } from './dto/authorize-procedures.dto';
+import {
+  AuthorizeOpmeItemDto,
+  AuthorizeProceduresDto,
+} from './dto/authorize-procedures.dto';
+import { SupplierRepository } from 'src/database/repositories/supplier.repository';
 import { SurgeryRequestAccessValidator } from 'src/shared/services/surgery-request-access.validator';
 import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
 import { OpmeItem } from 'src/database/entities/opme-item.entity';
@@ -24,6 +29,7 @@ export class ProceduresService {
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly accessValidator: SurgeryRequestAccessValidator,
+    private readonly supplierRepository: SupplierRepository,
   ) {}
 
   async create(data: CreateSurgeryRequestProcedureDto, userId: string) {
@@ -92,9 +98,73 @@ export class ProceduresService {
     );
   }
 
+  /**
+   * Resolve o fornecedor vencedor de cada item OPME antes da transação.
+   *
+   * Duas respostas são válidas: um fornecedor da própria conta, ou o genérico
+   * "Outro" — o convênio aprovou alguém fora dos cotados. O id vem do cliente e
+   * até aqui só era validado como UUID: apontar o item para o fornecedor de
+   * outra clínica fazia o nome dela sair no PDF da solicitação.
+   */
+  private async resolverFornecedores(
+    opmeItems: AuthorizeOpmeItemDto[],
+    ownerId: string,
+  ): Promise<Map<string, string>> {
+    const porItem = new Map<string, string>();
+
+    const idsInformados = [
+      ...new Set(
+        opmeItems
+          .filter((item) => !item.selectedSupplierIsGeneric)
+          .map((item) => item.selectedSupplierId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    if (idsInformados.length > 0) {
+      const daConta = await this.supplierRepository.findMany({
+        id: In(idsInformados),
+        ownerId,
+      });
+      const permitidos = new Set(daConta.map((supplier) => supplier.id));
+      const estranhos = idsInformados.filter((id) => !permitidos.has(id));
+
+      if (estranhos.length > 0) {
+        throw new ForbiddenException(
+          `Fornecedor não pertence a esta clínica: ${estranhos.join(', ')}`,
+        );
+      }
+    }
+
+    const precisaDoGenerico = opmeItems.some(
+      (item) => item.selectedSupplierIsGeneric,
+    );
+    const generico = precisaDoGenerico
+      ? await this.supplierRepository.ensureGeneric(ownerId)
+      : null;
+
+    for (const item of opmeItems) {
+      if (item.selectedSupplierIsGeneric && generico) {
+        porItem.set(item.id, generico.id);
+      } else if (item.selectedSupplierId !== undefined) {
+        porItem.set(item.id, item.selectedSupplierId);
+      }
+    }
+
+    return porItem;
+  }
+
   async authorize(data: AuthorizeProceduresDto, userId: string) {
     // Fail-closed: garante posse da SC-pai antes de autorizar itens (V1).
-    await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
+    const surgeryRequest = await this.accessValidator.validateAndFetch(
+      data.surgeryRequestId,
+      userId,
+    );
+
+    const fornecedorPorItem = await this.resolverFornecedores(
+      data.opmeItems,
+      surgeryRequest.ownerId,
+    );
 
     // Tudo ou nada: um id estranho no meio da lista não pode deixar os itens
     // anteriores já autorizados.
@@ -136,11 +206,11 @@ export class ProceduresService {
               `Item OPME ${item.id} não pertence a esta solicitação`,
             );
           }
+          const selectedSupplierId = fornecedorPorItem.get(item.id);
+
           await opmeRepo.update(item.id, {
             authorizedQuantity: item.authorizedQuantity,
-            ...(item.selectedSupplierId !== undefined && {
-              selectedSupplierId: item.selectedSupplierId,
-            }),
+            ...(selectedSupplierId !== undefined && { selectedSupplierId }),
           });
         }
       },
