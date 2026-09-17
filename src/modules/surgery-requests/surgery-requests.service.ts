@@ -191,20 +191,64 @@ export class SurgeryRequestsService {
 
         const ids = records.map((record) => String(record.id));
         const ownerId = await this.accessControlService.getOwnerId(userId);
-        const summaries = ids.length
-          ? await this.pendencyValidatorService.getBatchSummary(
-              ids.join(','),
-              ownerId,
-            )
-          : {};
+        // Em paralelo: são consultas independentes na rota mais quente da
+        // aplicação, encadeá-las só somaria latência.
+        const [summaries, suppliersById] = await Promise.all([
+          ids.length
+            ? this.pendencyValidatorService.getBatchSummary(
+                ids.join(','),
+                ownerId,
+              )
+            : Promise.resolve(
+                {} as Record<
+                  string,
+                  { pending: number; total: number; canAdvance: boolean }
+                >,
+              ),
+          this.loadSelectedSuppliers(ids),
+        ]);
 
         const cards = records.map((record) =>
-          this.toKanbanCard(record, summaries[String(record.id)]),
+          this.toKanbanCard(
+            record,
+            summaries[String(record.id)],
+            suppliersById.get(String(record.id)),
+          ),
         );
 
         return { total, records: cards };
       },
     );
+  }
+
+  /**
+   * Fornecedores escolhidos no OPME, agrupados por solicitação. Vão como
+   * referências `{ id, name }` e não como texto concatenado: o filtro do
+   * kanban precisa do id, e juntar os nomes numa string obrigaria o cliente a
+   * separá-los de volta — o que quebra em nome com vírgula
+   * ("Medtronic Comercial, Ltda").
+   */
+  private async loadSelectedSuppliers(
+    requestIds: string[],
+  ): Promise<Map<string, Array<{ id: string; name: string }>>> {
+    const byRequest = new Map<string, Array<{ id: string; name: string }>>();
+    if (requestIds.length === 0) return byRequest;
+
+    const rows =
+      await this.opmeItemRepository.findSelectedSuppliersByRequestIds(
+        requestIds,
+      );
+
+    for (const row of rows) {
+      const list = byRequest.get(row.surgeryRequestId) ?? [];
+      // Vários itens OPME podem apontar para o mesmo fornecedor.
+      if (!list.some((supplier) => supplier.id === row.supplierId)) {
+        list.push({ id: row.supplierId, name: row.supplierName });
+      }
+      byRequest.set(row.surgeryRequestId, list);
+    }
+
+    return byRequest;
   }
 
   private toKanbanCard(
@@ -214,7 +258,7 @@ export class SurgeryRequestsService {
       hasIncompletePayment: boolean;
     },
     summary?: { pending: number; total: number; canAdvance: boolean },
-    suppliers?: string | null,
+    suppliers?: Array<{ id: string; name: string }>,
   ) {
     const ref = (
       entity?: { id: string; name: string } | null,
@@ -240,7 +284,7 @@ export class SurgeryRequestsService {
       totalPendencies: summary?.total ?? record.totalPendencies,
       canAdvance: summary?.canAdvance ?? true,
       hasIncompletePayment: record.hasIncompletePayment,
-      suppliers: suppliers ?? null,
+      suppliers: suppliers ?? [],
     };
   }
 
@@ -272,16 +316,9 @@ export class SurgeryRequestsService {
           this.surgeryRequestRepository.findMany(where, 0, AGENDA_MAX_TAKE),
         ]);
 
-        const supplierRows =
-          await this.opmeItemRepository.findSelectedSuppliersByRequestIds(
-            records.map((record) => String(record.id)),
-          );
-        const suppliersById = new Map<string, string[]>();
-        for (const row of supplierRows) {
-          const list = suppliersById.get(row.surgeryRequestId) ?? [];
-          if (!list.includes(row.supplierName)) list.push(row.supplierName);
-          suppliersById.set(row.surgeryRequestId, list);
-        }
+        const suppliersById = await this.loadSelectedSuppliers(
+          records.map((record) => String(record.id)),
+        );
 
         return {
           total,
@@ -289,7 +326,7 @@ export class SurgeryRequestsService {
             this.toKanbanCard(
               record,
               undefined,
-              suppliersById.get(String(record.id))?.join(', ') ?? null,
+              suppliersById.get(String(record.id)),
             ),
           ),
         };
