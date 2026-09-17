@@ -40,6 +40,11 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       supplierId: string;
       supplierName: string;
     }>;
+    clinicRows?: Array<{
+      surgeryRequestId: string;
+      clinicId: string;
+      clinicName: string;
+    }>;
   }) {
     const accessControlService = {
       getAccessibleDoctorIds: jest
@@ -61,6 +66,11 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
         .fn()
         .mockResolvedValue(overrides.supplierRows ?? []),
     };
+    const clinicalRecordRepository = {
+      findClinicsBySurgeryRequestIds: jest
+        .fn()
+        .mockResolvedValue(overrides.clinicRows ?? []),
+    };
 
     const service = new SurgeryRequestsService(
       {} as never,
@@ -77,6 +87,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       {} as never,
       {} as never,
       {} as never,
+      clinicalRecordRepository as never,
     );
 
     return {
@@ -85,6 +96,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       surgeryRequestRepository,
       pendencyValidatorService,
       opmeItemRepository,
+      clinicalRecordRepository,
     };
   }
 
@@ -192,6 +204,50 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
     ).not.toHaveBeenCalled();
   });
 
+  /**
+   * SC não tem clínica própria: ela vem da consulta cuja ficha indicou a
+   * cirurgia. O filtro de clínica do kanban depende deste campo.
+   */
+  it('leva a clínica da consulta de origem para o card', async () => {
+    const { service, clinicalRecordRepository } = makeService({
+      records: [buildRecord(), buildRecord({ id: 'sr-2' })],
+      clinicRows: [
+        {
+          surgeryRequestId: 'sr-1',
+          clinicId: 'c-1',
+          clinicName: 'Unidade Centro',
+        },
+        // Linha de outra SC não pode vazar para este card.
+        { surgeryRequestId: 'sr-9', clinicId: 'c-9', clinicName: 'Outra' },
+      ],
+    });
+
+    const result = await service.findAllForKanban({}, 'user-1');
+
+    expect(
+      clinicalRecordRepository.findClinicsBySurgeryRequestIds,
+    ).toHaveBeenCalledWith(['sr-1', 'sr-2']);
+    const [comClinica, semClinica] = result.records as Array<
+      Record<string, unknown>
+    >;
+    expect(comClinica.clinic).toEqual({ id: 'c-1', name: 'Unidade Centro' });
+    // SC criada fora do atendimento (wizard, documento, WhatsApp).
+    expect(semClinica.clinic).toBeNull();
+  });
+
+  it('não consulta clínicas quando não há card nenhum', async () => {
+    const { service, clinicalRecordRepository } = makeService({
+      records: [],
+      total: 0,
+    });
+
+    await service.findAllForKanban({}, 'user-1');
+
+    expect(
+      clinicalRecordRepository.findClinicsBySurgeryRequestIds,
+    ).not.toHaveBeenCalled();
+  });
+
   it('aplica filtro de status no where quando informado', async () => {
     const { service, surgeryRequestRepository } = makeService({
       records: [buildRecord()],
@@ -223,6 +279,7 @@ describe('SurgeryRequestsService.findAgenda', () => {
       surgeryRequestRepository as never,
       {} as never,
       opmeItemRepository as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

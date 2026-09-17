@@ -43,4 +43,31 @@ export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
       .take(limit)
       .getMany();
   }
+
+  /**
+   * Clínica de origem de cada SC: a unidade da consulta cuja ficha indicou a
+   * cirurgia. SC criada fora do atendimento não tem ficha e fica de fora.
+   *
+   * `withDeleted`: a SC continua tendo nascido naquela unidade mesmo depois de
+   * a ficha ou a clínica serem excluídas — sumir com o vínculo faria a SC
+   * escapar do filtro sem ninguém ter mexido nela.
+   */
+  findClinicsBySurgeryRequestIds(
+    requestIds: string[],
+  ): Promise<
+    Array<{ surgeryRequestId: string; clinicId: string; clinicName: string }>
+  > {
+    if (requestIds.length === 0) return Promise.resolve([]);
+    return this.repository
+      .createQueryBuilder('record')
+      .withDeleted()
+      .innerJoin('record.appointment', 'appointment')
+      .innerJoin('appointment.clinic', 'clinic')
+      .where('record.surgeryRequestId IN (:...requestIds)', { requestIds })
+      .select('record.surgeryRequestId', 'surgeryRequestId')
+      .addSelect('clinic.id', 'clinicId')
+      .addSelect('clinic.name', 'clinicName')
+      .orderBy('record.createdAt', 'ASC')
+      .getRawMany();
+  }
 }

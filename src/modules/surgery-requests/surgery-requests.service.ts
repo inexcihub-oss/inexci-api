@@ -23,6 +23,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
+import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
@@ -84,6 +85,7 @@ export class SurgeryRequestsService {
     private readonly templateService: SurgeryRequestTemplateService,
     private readonly realtimeService: SurgeryRequestRealtimeService,
     private readonly cidService: CidService,
+    private readonly clinicalRecordRepository: ClinicalRecordRepository,
   ) {}
 
   // ============================================================
@@ -193,7 +195,7 @@ export class SurgeryRequestsService {
         const ownerId = await this.accessControlService.getOwnerId(userId);
         // Em paralelo: são consultas independentes na rota mais quente da
         // aplicação, encadeá-las só somaria latência.
-        const [summaries, suppliersById] = await Promise.all([
+        const [summaries, suppliersById, clinicsById] = await Promise.all([
           ids.length
             ? this.pendencyValidatorService.getBatchSummary(
                 ids.join(','),
@@ -206,15 +208,17 @@ export class SurgeryRequestsService {
                 >,
               ),
           this.loadSelectedSuppliers(ids),
+          this.loadOriginClinics(ids),
         ]);
 
-        const cards = records.map((record) =>
-          this.toKanbanCard(
+        const cards = records.map((record) => ({
+          ...this.toKanbanCard(
             record,
             summaries[String(record.id)],
             suppliersById.get(String(record.id)),
           ),
-        );
+          clinic: clinicsById.get(String(record.id)) ?? null,
+        }));
 
         return { total, records: cards };
       },
@@ -248,6 +252,32 @@ export class SurgeryRequestsService {
       byRequest.set(row.surgeryRequestId, list);
     }
 
+    return byRequest;
+  }
+
+  /**
+   * Clínica de origem por solicitação. Só o kanban usa (filtro de clínica),
+   * por isso fica fora do `toKanbanCard` compartilhado com a agenda.
+   */
+  private async loadOriginClinics(
+    requestIds: string[],
+  ): Promise<Map<string, { id: string; name: string }>> {
+    const byRequest = new Map<string, { id: string; name: string }>();
+    if (requestIds.length === 0) return byRequest;
+
+    const rows =
+      await this.clinicalRecordRepository.findClinicsBySurgeryRequestIds(
+        requestIds,
+      );
+    for (const row of rows) {
+      // Vem ordenado pela ficha mais antiga: a que originou a SC vence.
+      if (!byRequest.has(row.surgeryRequestId)) {
+        byRequest.set(row.surgeryRequestId, {
+          id: row.clinicId,
+          name: row.clinicName,
+        });
+      }
+    }
     return byRequest;
   }
 
