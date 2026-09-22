@@ -21,6 +21,7 @@ import {
   AuthenticatedUser,
   CurrentUser,
 } from '../../shared/decorators/current-user.decorator';
+import { MAX_STORAGE_FILE_SIZE } from '../../config/storage.config';
 
 @ApiTags('Upload')
 @ApiBearerAuth()
@@ -35,7 +36,7 @@ export class UploadController {
    */
   @Post('single')
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+    FileInterceptor('file', { limits: { fileSize: MAX_STORAGE_FILE_SIZE } }),
   )
   @ApiOperation({ summary: 'Upload de um único arquivo' })
   @ApiConsumes('multipart/form-data')
@@ -80,7 +81,9 @@ export class UploadController {
   @ApiOperation({ summary: 'Upload de múltiplos arquivos' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FilesInterceptor('files', 10, { limits: { fileSize: 10 * 1024 * 1024 } }),
+    FilesInterceptor('files', 10, {
+      limits: { fileSize: MAX_STORAGE_FILE_SIZE },
+    }),
   )
   async uploadMultiple(
     @UploadedFiles() files: Express.Multer.File[],

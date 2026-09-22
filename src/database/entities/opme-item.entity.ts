@@ -21,7 +21,7 @@ export class OpmeItem {
   @Column({ name: 'surgery_request_id', type: 'uuid' })
   surgeryRequestId: string;
 
-  @Column({ type: 'varchar', length: 75 })
+  @Column({ type: 'varchar', length: 255 })
   name: string;
 
   @Column({ type: 'int' })
