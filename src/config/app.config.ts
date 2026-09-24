@@ -145,6 +145,10 @@ export const envValidationSchema = Joi.object({
   AI_DOC_MAX_PAGES: Joi.number().default(15),
   AI_DOC_OCR_PARALLEL_WORKERS: Joi.number().default(3),
   AI_DOC_PENDING_TTL_MINUTES: Joi.number().default(10),
+
+  // Menções (@) em comentários da solicitação: minutos de espera antes do
+  // e-mail, que só sai se a notificação in-app continuar não lida.
+  MENTION_EMAIL_DELAY_MINUTES: Joi.number().default(10),
   AI_DOC_TMP_FOLDER: Joi.string().allow('').default('whatsapp-tmp'),
   AI_DOC_TMP_RETENTION_HOURS: Joi.number().default(1),
   AI_DOC_OCR_LANG: Joi.string().allow('').default('por'),

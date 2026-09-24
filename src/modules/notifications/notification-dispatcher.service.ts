@@ -3,7 +3,10 @@ import { NotificationRepository } from 'src/database/repositories/notification.r
 import { UserNotificationSettingsRepository } from 'src/database/repositories/user-notification-settings.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
-import { NotificationType } from 'src/database/entities/notification.entity';
+import {
+  Notification,
+  NotificationType,
+} from 'src/database/entities/notification.entity';
 import { NotificationsGateway } from './notifications.gateway';
 
 export interface DispatchNotificationDto {
@@ -41,10 +44,11 @@ export class NotificationDispatcherService {
     @Optional() private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
-  async dispatch(dto: DispatchNotificationDto): Promise<void> {
+  async dispatch(dto: DispatchNotificationDto): Promise<Notification | null> {
     const { userId } = dto;
     const settings = await this.getSettings(userId);
     const typeEnabled = this.isTypeEnabled(settings, dto.type);
+    let criada: Notification | null = null;
 
     // Push (in-app + WS)
     try {
@@ -57,6 +61,7 @@ export class NotificationDispatcherService {
           link: dto.link,
           metadata: dto.metadata,
         });
+        criada = notification;
         this.notificationsGateway?.emitToUser(userId, {
           id: notification.id,
           type: notification.type,
@@ -94,6 +99,8 @@ export class NotificationDispatcherService {
         `Falha ao enviar WhatsApp para ${userId}: ${err?.message}`,
       );
     }
+
+    return criada;
   }
 
   async dispatchToMany(
@@ -112,6 +119,12 @@ export class NotificationDispatcherService {
   private isTypeEnabled(settings: any, type: NotificationType): boolean {
     if (!settings) return true;
     switch (type) {
+      // Menção é ato direcionado de uma pessoa a outra, não alerta
+      // automático: não entra no liga/desliga por tipo. Quem quiser cortar
+      // o in-app desliga `pushNotifications`; o toggle `mentionEmails`
+      // existe só para o canal de e-mail (ver MentionEmailsProcessor).
+      case NotificationType.MENTION:
+        return true;
       case NotificationType.NEW_SURGERY_REQUEST:
         return settings.newSurgeryRequest !== false;
       case NotificationType.STATUS_UPDATE:

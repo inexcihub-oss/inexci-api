@@ -29,6 +29,7 @@ describe('ClinicalRecordsService', () => {
     assertIsDoctor: jest.fn(),
   };
   const mockSurgicalIndication = { createForRecord: jest.fn() };
+  const mockProcedureRepo = { findOne: jest.fn() };
 
   const ownerId = 'owner-1';
   const userId = 'user-1';
@@ -58,6 +59,7 @@ describe('ClinicalRecordsService', () => {
     });
 
     mockSurgicalIndication.createForRecord.mockResolvedValue({ id: 'sc-1' });
+    mockProcedureRepo.findOne.mockResolvedValue({ id: 'proc-1', ownerId });
 
     service = new ClinicalRecordsService(
       mockClinicalRepo as any,
@@ -65,6 +67,7 @@ describe('ClinicalRecordsService', () => {
       mockAppointmentRepo as any,
       mockAccess as any,
       mockSurgicalIndication as any,
+      mockProcedureRepo as any,
     );
   });
 
@@ -164,6 +167,28 @@ describe('ClinicalRecordsService', () => {
       const result = await service.create({ patientId }, userId);
       expect(result).toMatchObject({ surgicalIndication: false });
     });
+
+    it('persiste o procedimento escolhido quando pertence à clínica', async () => {
+      const result = await service.create(
+        { patientId, procedureId: 'proc-1' },
+        userId,
+      );
+      expect(mockProcedureRepo.findOne).toHaveBeenCalledWith({
+        id: 'proc-1',
+      });
+      expect(result).toMatchObject({ procedureId: 'proc-1' });
+    });
+
+    it('rejeita procedimento de outra clínica', async () => {
+      mockProcedureRepo.findOne.mockResolvedValue({
+        id: 'proc-1',
+        ownerId: 'outra-clinica',
+      });
+      await expect(
+        service.create({ patientId, procedureId: 'proc-1' }, userId),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockClinicalRepo.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('update', () => {
@@ -205,6 +230,41 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
         surgicalIndication: true,
       });
+    });
+
+    it('atualiza o procedimento quando pertence à clínica', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+
+      await service.update('cr-1', { procedureId: 'proc-1' }, userId);
+
+      expect(mockProcedureRepo.findOne).toHaveBeenCalledWith({
+        id: 'proc-1',
+      });
+      expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
+        procedureId: 'proc-1',
+      });
+    });
+
+    it('rejeita procedimento de outra clínica ao atualizar', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+      });
+      mockProcedureRepo.findOne.mockResolvedValue({
+        id: 'proc-1',
+        ownerId: 'outra-clinica',
+      });
+
+      await expect(
+        service.update('cr-1', { procedureId: 'proc-1' }, userId),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockClinicalRepo.update).not.toHaveBeenCalled();
     });
   });
 

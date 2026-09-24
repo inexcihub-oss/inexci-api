@@ -76,6 +76,17 @@ export class SendAnalysisHandler {
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.SENT);
     await this.pendencyValidator.assertCanAdvance(id);
 
+    // "Confirmar com documento de origem" permite refletir um envio que já
+    // aconteceu fora da plataforma (ex.: usuário esqueceu de atualizar o
+    // status no dia). Pode ser anterior à criação da SC — clínica usando a
+    // plataforma como histórico —, mas nunca no futuro.
+    const sentAt = dto.sentAt ? parseCalendarDate(dto.sentAt) : new Date();
+    if (sentAt.getTime() > Date.now()) {
+      throw new BadRequestException(
+        'A data de envio não pode estar no futuro.',
+      );
+    }
+
     // Consome cota mensal de solicitações cirúrgicas. Bloqueia se a
     // assinatura estiver suspensa, cancelada ou se o limite do plano
     // foi atingido. A unidade de cota é o ENVIO (PENDING → SENT) — rascunhos
@@ -90,7 +101,7 @@ export class SendAnalysisHandler {
           { id },
           {
             status: SurgeryRequestStatus.SENT,
-            sentAt: new Date(),
+            sentAt,
             sendMethod: dto.method,
           },
         );
@@ -100,6 +111,7 @@ export class SendAnalysisHandler {
           request.status,
           SurgeryRequestStatus.SENT,
           userId,
+          sentAt,
         );
       },
       { logger: this.logger, operationName: 'sendRequest' },

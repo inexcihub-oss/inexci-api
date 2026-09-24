@@ -32,6 +32,7 @@ const FRIENDLY_ERROR_MESSAGE =
 const EXPIRED_ERROR_MESSAGE =
   'Não encontramos o resultado deste processamento. Envie o documento novamente.';
 const DOCUMENT_EXTRACTION_LINK_BASE = '/solicitacoes-cirurgicas';
+const APPLY_DOCUMENT_EXTRACTION_LINK_BASE = '/solicitacao';
 
 export interface DocumentExtractionJobData {
   userId: string;
@@ -45,6 +46,12 @@ export interface DocumentExtractionJobData {
   requestId?: string;
   /** Fluxos em primeiro plano exibem o resultado no próprio modal. */
   notifyOnCompletion?: boolean;
+  /**
+   * Presente quando o documento é enviado para completar uma SC já
+   * existente (`ApplyDocumentExtractionModal`), em vez de criar uma nova.
+   * Muda o texto e o link da notificação de conclusão.
+   */
+  surgeryRequestId?: string;
 }
 
 export interface DocumentExtractionStatusEvent {
@@ -88,7 +95,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
   async enqueue(
     file: Express.Multer.File,
     userId: string,
-    options: { notifyOnCompletion?: boolean } = {},
+    options: { notifyOnCompletion?: boolean; surgeryRequestId?: string } = {},
   ): Promise<ExtractFromDocumentQueuedResponseDto> {
     this.assertFileSize(file);
 
@@ -112,6 +119,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
           },
           requestId: getRequestContext()?.requestId,
           notifyOnCompletion: options.notifyOnCompletion ?? true,
+          surgeryRequestId: options.surgeryRequestId,
         } satisfies DocumentExtractionJobData,
         {
           jobId,
@@ -182,6 +190,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     result: ExtractFromDocumentResponseDto,
     documentName?: string,
     notifyOnCompletion = true,
+    surgeryRequestId?: string,
   ): Promise<void> {
     await this.setState(jobId, {
       userId,
@@ -191,7 +200,12 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     });
     this.emitStatus(userId, { jobId, status: 'done', result });
     if (notifyOnCompletion) {
-      await this.notifyBackgroundDone(userId, jobId, documentName);
+      await this.notifyBackgroundDone(
+        userId,
+        jobId,
+        documentName,
+        surgeryRequestId,
+      );
     }
   }
 
@@ -201,6 +215,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     message = FRIENDLY_ERROR_MESSAGE,
     documentName?: string,
     notifyOnCompletion = true,
+    surgeryRequestId?: string,
   ): Promise<void> {
     await this.setState(jobId, {
       userId,
@@ -210,11 +225,24 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     });
     this.emitStatus(userId, { jobId, status: 'error', message });
     if (notifyOnCompletion) {
-      await this.notifyBackgroundError(userId, jobId, message, documentName);
+      await this.notifyBackgroundError(
+        userId,
+        jobId,
+        message,
+        documentName,
+        surgeryRequestId,
+      );
     }
   }
 
-  private buildNotificationLink(jobId: string): string {
+  private buildNotificationLink(
+    jobId: string,
+    surgeryRequestId?: string,
+  ): string {
+    if (surgeryRequestId) {
+      const params = new URLSearchParams({ applyDocExtractionJobId: jobId });
+      return `${APPLY_DOCUMENT_EXTRACTION_LINK_BASE}/${surgeryRequestId}?${params.toString()}`;
+    }
     const params = new URLSearchParams({ docExtractionJobId: jobId });
     return `${DOCUMENT_EXTRACTION_LINK_BASE}?${params.toString()}`;
   }
@@ -223,23 +251,28 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     userId: string,
     jobId: string,
     documentName?: string,
+    surgeryRequestId?: string,
   ) {
     if (!this.notificationsService) return;
     const normalizedDocumentName = documentName?.trim();
+    const destination = surgeryRequestId
+      ? 'completar a solicitação'
+      : 'continuar a criação da solicitação';
     const message = normalizedDocumentName
-      ? `A análise do documento "${normalizedDocumentName}" terminou. Clique para continuar a criação da solicitação.`
-      : 'A análise do documento terminou. Clique para continuar a criação da solicitação.';
+      ? `A análise do documento "${normalizedDocumentName}" terminou. Clique para ${destination}.`
+      : `A análise do documento terminou. Clique para ${destination}.`;
 
     await this.notificationsService.createNotification({
       userId,
       type: NotificationType.INFO,
       title: 'Análise de documento concluída',
       message,
-      link: this.buildNotificationLink(jobId),
+      link: this.buildNotificationLink(jobId, surgeryRequestId),
       metadata: {
         category: 'document_extraction',
         jobId,
         status: 'done',
+        ...(surgeryRequestId ? { surgeryRequestId } : {}),
         ...(normalizedDocumentName
           ? { documentName: normalizedDocumentName }
           : {}),
@@ -252,24 +285,29 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
     jobId: string,
     message: string,
     documentName?: string,
+    surgeryRequestId?: string,
   ) {
     if (!this.notificationsService) return;
     const normalizedDocumentName = documentName?.trim();
-    const composedMessage = normalizedDocumentName
+    const baseMessage = normalizedDocumentName
       ? `Não foi possível concluir a análise de "${normalizedDocumentName}". ${message || 'Clique para tentar novamente.'}`
       : message ||
         'Não foi possível concluir a análise. Clique para tentar novamente.';
+    const composedMessage = surgeryRequestId
+      ? `${baseMessage} Tente novamente para completar a solicitação.`
+      : baseMessage;
 
     await this.notificationsService.createNotification({
       userId,
       type: NotificationType.INFO,
       title: 'Falha na análise do documento',
       message: composedMessage,
-      link: this.buildNotificationLink(jobId),
+      link: this.buildNotificationLink(jobId, surgeryRequestId),
       metadata: {
         category: 'document_extraction',
         jobId,
         status: 'error',
+        ...(surgeryRequestId ? { surgeryRequestId } : {}),
         ...(normalizedDocumentName
           ? { documentName: normalizedDocumentName }
           : {}),

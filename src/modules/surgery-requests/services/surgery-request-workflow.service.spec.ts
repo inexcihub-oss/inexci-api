@@ -327,6 +327,60 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(mailService.sendSurgeryRequestSent).not.toHaveBeenCalled();
     });
 
+    it('usa a data informada (sentAt) para sentAt e lastStatusChangedAt quando method é document', async () => {
+      const request = makeRequest();
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+
+      let capturedRepos: Record<string, any> | null = null;
+      dataSource.transaction.mockImplementationOnce(
+        async (cb: (manager: any) => Promise<any>) => {
+          const mockManager = createMockManager();
+          capturedRepos = mockManager.repos;
+          return cb(mockManager);
+        },
+      );
+
+      await service.sendRequest(
+        'req-1',
+        { method: SendMethod.DOCUMENT, sentAt: '2026-01-10' },
+        'user-1',
+      );
+
+      const expectedDate = new Date(Date.UTC(2026, 0, 10, 12, 0, 0));
+      expect(capturedRepos!.SurgeryRequest.update).toHaveBeenCalledWith(
+        { id: 'req-1' },
+        expect.objectContaining({ sentAt: expectedDate }),
+      );
+      expect(surgeryRequestRepository.recordStatusChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'req-1',
+        request.status,
+        SurgeryRequestStatus.SENT,
+        'user-1',
+        expectedDate,
+      );
+    });
+
+    it('rejeita sentAt no futuro', async () => {
+      const request = makeRequest();
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+
+      const futureDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+      const futureDateStr = futureDate.toISOString().slice(0, 10);
+
+      await expect(
+        service.sendRequest(
+          'req-1',
+          { method: SendMethod.DOCUMENT, sentAt: futureDateStr },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('should email source document when useSourceDocument is true', async () => {
       const request = makeRequest({
         documents: [

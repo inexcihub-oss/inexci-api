@@ -24,6 +24,15 @@ export class ActivitiesController {
     return this.activitiesService.findAll(id, user.userId);
   }
 
+  @Get('mentionable-users')
+  @ApiOperation({ summary: 'Listar usuários mencionáveis nesta solicitação' })
+  findMentionableUsers(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.activitiesService.findMentionableUsers(id, user.userId);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Criar atividade' })
   create(

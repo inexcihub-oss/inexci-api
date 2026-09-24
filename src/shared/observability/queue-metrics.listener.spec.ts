@@ -31,6 +31,7 @@ describe('QueueMetricsListener', () => {
   let aiMessagesQueue: ReturnType<typeof createFakeQueue>;
   let documentExtractionQueue: ReturnType<typeof createFakeQueue>;
   let indicationDocumentsQueue: ReturnType<typeof createFakeQueue>;
+  let mentionEmailsQueue: ReturnType<typeof createFakeQueue>;
   let listener: QueueMetricsListener;
 
   beforeEach(() => {
@@ -42,6 +43,7 @@ describe('QueueMetricsListener', () => {
     aiMessagesQueue = createFakeQueue('ai-messages');
     documentExtractionQueue = createFakeQueue('document-extraction');
     indicationDocumentsQueue = createFakeQueue('indication-documents');
+    mentionEmailsQueue = createFakeQueue('mention-emails');
 
     listener = new QueueMetricsListener(
       mailQueue as never,
@@ -50,12 +52,13 @@ describe('QueueMetricsListener', () => {
       aiMessagesQueue as never,
       documentExtractionQueue as never,
       indicationDocumentsQueue as never,
+      mentionEmailsQueue as never,
     );
 
     listener.onModuleInit();
   });
 
-  it('assina os eventos completed/failed das 6 filas', () => {
+  it('assina os eventos completed/failed das 7 filas', () => {
     [
       mailQueue,
       whatsappQueue,
@@ -63,6 +66,7 @@ describe('QueueMetricsListener', () => {
       aiMessagesQueue,
       indicationDocumentsQueue,
       documentExtractionQueue,
+      mentionEmailsQueue,
     ].forEach((queue) => {
       expect(queue.on).toHaveBeenCalledWith('completed', expect.any(Function));
       expect(queue.on).toHaveBeenCalledWith('failed', expect.any(Function));

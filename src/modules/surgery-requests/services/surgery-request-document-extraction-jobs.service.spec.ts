@@ -40,6 +40,7 @@ describe('SurgeryRequestDocumentExtractionJobsService', () => {
   let queue: { add: jest.Mock; getJob: jest.Mock };
   let config: ConfigService;
   let notificationsGateway: { emitDocumentExtractionStatus: jest.Mock };
+  let notificationsService: { createNotification: jest.Mock };
   let service: SurgeryRequestDocumentExtractionJobsService;
 
   beforeEach(() => {
@@ -63,10 +64,15 @@ describe('SurgeryRequestDocumentExtractionJobsService', () => {
       emitDocumentExtractionStatus: jest.fn(),
     };
 
+    notificationsService = {
+      createNotification: jest.fn().mockResolvedValue(undefined),
+    };
+
     service = new SurgeryRequestDocumentExtractionJobsService(
       queue as any,
       config,
       notificationsGateway as any,
+      notificationsService as any,
     );
   });
 
@@ -143,5 +149,84 @@ describe('SurgeryRequestDocumentExtractionJobsService', () => {
 
     const status = await service.getStatus('missing-job', 'user-1');
     expect(status).toEqual({ status: 'processing' });
+  });
+
+  it('propaga surgeryRequestId para o job enfileirado', async () => {
+    await service.enqueue(
+      {
+        originalname: 'laudo.pdf',
+        mimetype: 'application/pdf',
+        size: 1024,
+        buffer: Buffer.from('pdf-content'),
+      } as Express.Multer.File,
+      'user-1',
+      { surgeryRequestId: 'sc-123' },
+    );
+
+    expect(queue.add).toHaveBeenCalledWith(
+      'extract-from-document',
+      expect.objectContaining({ surgeryRequestId: 'sc-123' }),
+      expect.anything(),
+    );
+  });
+
+  const fakeResult = {
+    kind: 'medical_report',
+    confidence: 0.9,
+    extracted: {},
+    suggestedDocumentType: 'medical_report',
+    patientCpfMissing: false,
+    patientMatchedByCpf: false,
+    candidates: { patient: [], hospital: [], healthPlan: [], procedure: [] },
+    tempStoragePath: 'tmp/doc.pdf',
+  } as any;
+
+  it('notifica com link e mensagem de criação de SC quando não há surgeryRequestId', async () => {
+    await service.markDone('job-1', 'user-1', fakeResult, 'laudo.pdf');
+
+    expect(notificationsService.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('continuar a criação da solicitação'),
+        link: '/solicitacoes-cirurgicas?docExtractionJobId=job-1',
+      }),
+    );
+  });
+
+  it('notifica com link e mensagem de completar SC quando há surgeryRequestId', async () => {
+    await service.markDone(
+      'job-1',
+      'user-1',
+      fakeResult,
+      'laudo.pdf',
+      true,
+      'sc-123',
+    );
+
+    expect(notificationsService.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('completar a solicitação'),
+        link: '/solicitacao/sc-123?applyDocExtractionJobId=job-1',
+        metadata: expect.objectContaining({ surgeryRequestId: 'sc-123' }),
+      }),
+    );
+  });
+
+  it('notifica erro com link e mensagem de completar SC quando há surgeryRequestId', async () => {
+    await service.markError(
+      'job-1',
+      'user-1',
+      'Falha na extração.',
+      'laudo.pdf',
+      true,
+      'sc-123',
+    );
+
+    expect(notificationsService.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('completar a solicitação'),
+        link: '/solicitacao/sc-123?applyDocExtractionJobId=job-1',
+        metadata: expect.objectContaining({ surgeryRequestId: 'sc-123' }),
+      }),
+    );
   });
 });

@@ -7,7 +7,11 @@ import { FindOptionsWhere, In } from 'typeorm';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
-import { User, UserRole } from '../../database/entities/user.entity';
+import {
+  User,
+  UserRole,
+  UserStatus,
+} from '../../database/entities/user.entity';
 import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
 import { Permission, resolveEffectivePermissions } from '../permissions';
 
@@ -139,6 +143,47 @@ export class AccessControlService {
       if (seen.has(d.id)) return false;
       seen.add(d.id);
       return true;
+    });
+  }
+
+  /**
+   * Usuários da conta que enxergam os dados de um médico — o inverso de
+   * `getAccessibleDoctorIds`, usado para saber quem pode ser mencionado num
+   * comentário da solicitação.
+   *
+   * O filtro por `Permission.SOLICITACOES` **efetiva** (e não pelo array
+   * gravado) é o que evita mencionar alguém que recebe a notificação e toma
+   * 403 ao abrir o link: quem só tem Agenda ou Atendimento não entra na
+   * lista, e o médico entra mesmo com o array vazio, porque a permissão dele
+   * é derivada do `doctor_profile`.
+   */
+  async getUsersWithAccessToDoctor(
+    doctorUserId: string,
+    ownerId: string,
+  ): Promise<User[]> {
+    const [usuariosDaConta, vinculos] = await Promise.all([
+      this.userRepository.findByOwnerId(ownerId),
+      this.userDoctorAccessRepository.findActiveByDoctorUserId(doctorUserId),
+    ]);
+
+    const vinculados = new Set(vinculos.map((v) => v.userId));
+
+    return usuariosDaConta.filter((usuario) => {
+      if (usuario.status !== UserStatus.ACTIVE) return false;
+
+      const temAcesso =
+        usuario.id === doctorUserId ||
+        usuario.role === UserRole.ADMIN ||
+        vinculados.has(usuario.id);
+      if (!temAcesso) return false;
+
+      const permissoes = resolveEffectivePermissions({
+        role: usuario.role,
+        permissions: usuario.permissions,
+        isDoctor: Boolean(usuario.doctorProfile) || usuario.id === doctorUserId,
+      });
+
+      return permissoes.includes(Permission.SOLICITACOES);
     });
   }
 

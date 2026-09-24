@@ -94,4 +94,27 @@ describe('SurgeryRequestFromIndicationService', () => {
       expect.objectContaining({ cidCode: null }),
     );
   });
+
+  it('repassa o procedimento escolhido na ficha', async () => {
+    await service.createPendingFromIndication({
+      manager: manager as never,
+      ...base,
+      procedureId: 'proc-1',
+    });
+
+    expect(scRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ procedureId: 'proc-1' }),
+    );
+  });
+
+  it('cria sem procedimento quando a ficha não tem um selecionado', async () => {
+    await service.createPendingFromIndication({
+      manager: manager as never,
+      ...base,
+    });
+
+    expect(scRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ procedureId: null }),
+    );
+  });
 });

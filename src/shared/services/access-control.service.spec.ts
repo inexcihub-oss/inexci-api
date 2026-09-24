@@ -4,7 +4,7 @@ import { AccessControlService } from './access-control.service';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
-import { UserRole } from '../../database/entities/user.entity';
+import { UserRole, UserStatus } from '../../database/entities/user.entity';
 import { Permission } from '../permissions';
 
 describe('AccessControlService', () => {
@@ -25,6 +25,7 @@ describe('AccessControlService', () => {
 
     userDoctorAccessRepository = {
       findActiveByUserId: jest.fn(),
+      findActiveByDoctorUserId: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -437,6 +438,116 @@ describe('AccessControlService', () => {
       await expect(service.getEffectivePermissions('sumiu')).resolves.toEqual(
         [],
       );
+    });
+  });
+  // ─── getUsersWithAccessToDoctor ───
+
+  describe('getUsersWithAccessToDoctor', () => {
+    const medico = {
+      id: 'doc-1',
+      name: 'Dra. Ana',
+      ownerId: 'owner-1',
+      role: UserRole.COLLABORATOR,
+      status: UserStatus.ACTIVE,
+      permissions: [],
+      doctorProfile: { id: 'dp-1' },
+    };
+
+    it('inclui o médico, os colaboradores vinculados e os admins da conta', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        medico,
+        {
+          id: 'admin-1',
+          name: 'Dono',
+          ownerId: 'owner-1',
+          role: UserRole.ADMIN,
+          status: UserStatus.ACTIVE,
+          permissions: [],
+          doctorProfile: null,
+        },
+        {
+          id: 'col-1',
+          name: 'Secretária',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.ACTIVE,
+          permissions: [Permission.SOLICITACOES],
+          doctorProfile: null,
+        },
+        {
+          id: 'col-2',
+          name: 'Sem vínculo',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.ACTIVE,
+          permissions: [Permission.SOLICITACOES],
+          doctorProfile: null,
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([
+        { userId: 'col-1', doctorUserId: 'doc-1' },
+      ] as any);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'doc-1',
+        'owner-1',
+      );
+
+      expect(result.map((u) => u.id).sort()).toEqual([
+        'admin-1',
+        'col-1',
+        'doc-1',
+      ]);
+    });
+
+    it('exclui quem não tem a permissão de solicitações', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        medico,
+        {
+          id: 'col-agenda',
+          name: 'Só agenda',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.ACTIVE,
+          permissions: [Permission.AGENDA],
+          doctorProfile: null,
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([
+        { userId: 'col-agenda', doctorUserId: 'doc-1' },
+      ] as any);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'doc-1',
+        'owner-1',
+      );
+
+      expect(result.map((u) => u.id)).toEqual(['doc-1']);
+    });
+
+    it('exclui usuários inativos', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        medico,
+        {
+          id: 'col-inativo',
+          name: 'Desativado',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.INACTIVE,
+          permissions: [Permission.SOLICITACOES],
+          doctorProfile: null,
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([
+        { userId: 'col-inativo', doctorUserId: 'doc-1' },
+      ] as any);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'doc-1',
+        'owner-1',
+      );
+
+      expect(result.map((u) => u.id)).toEqual(['doc-1']);
     });
   });
 });
