@@ -163,6 +163,27 @@ describe('SurgicalIndicationService', () => {
       );
     });
 
+    it('repassa o procedimento escolhido na ficha', async () => {
+      recordRepo.findOne.mockResolvedValue({
+        ...finalizedRecord,
+        procedureId: 'proc-1',
+      });
+
+      await service.createForRecord('cr-1');
+
+      expect(fromIndication.createPendingFromIndication).toHaveBeenCalledWith(
+        expect.objectContaining({ procedureId: 'proc-1' }),
+      );
+    });
+
+    it('cria a SC sem procedimento quando a ficha não tem um selecionado', async () => {
+      await service.createForRecord('cr-1');
+
+      expect(fromIndication.createPendingFromIndication).toHaveBeenCalledWith(
+        expect.objectContaining({ procedureId: null }),
+      );
+    });
+
     it('avisa o kanban de todos com acesso ao médico, após a transação', async () => {
       await service.createForRecord('cr-1', 'user-1');
 

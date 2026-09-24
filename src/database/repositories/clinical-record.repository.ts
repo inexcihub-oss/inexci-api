@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, In } from 'typeorm';
+import { DataSource, FindOptionsWhere, In } from 'typeorm';
 import { ClinicalRecord } from '../entities/clinical-record.entity';
 import { BaseRepository } from './base.repository';
 
@@ -7,6 +7,16 @@ import { BaseRepository } from './base.repository';
 export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
   constructor(private readonly dataSource: DataSource) {
     super(dataSource.getRepository(ClinicalRecord));
+  }
+
+  /**
+   * Carrega o procedimento junto: a ficha (leitura, edição, finalização)
+   * precisa do nome para exibir, sem obrigar cada chamador a buscá-lo à parte.
+   */
+  findOne(
+    where: FindOptionsWhere<ClinicalRecord>,
+  ): Promise<ClinicalRecord | null> {
+    return this.repository.findOne({ where, relations: ['procedure'] });
   }
 
   /**

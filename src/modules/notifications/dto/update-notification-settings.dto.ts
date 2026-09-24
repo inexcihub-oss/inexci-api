@@ -28,4 +28,8 @@ export class UpdateNotificationSettingsDto {
   @IsOptional()
   @IsBoolean()
   weeklyReport?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  mentionEmails?: boolean;
 }

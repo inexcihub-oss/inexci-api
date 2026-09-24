@@ -13,6 +13,7 @@ import { User } from './user.entity';
 import { Patient } from './patient.entity';
 import { Appointment } from './appointment.entity';
 import { SurgeryRequest } from './surgery-request.entity';
+import { Procedure } from './procedure.entity';
 
 /** Código CID-10 associado a um atendimento. */
 export interface ClinicalCidCode {
@@ -78,6 +79,14 @@ export class ClinicalRecord {
   surgicalIndication: boolean;
 
   /**
+   * Procedimento escolhido (ou criado) ao marcar "paciente cirúrgico".
+   * Opcional — sem ele, a SC nasce sem procedimento e pode ser completada
+   * depois direto na solicitação.
+   */
+  @Column({ name: 'procedure_id', type: 'uuid', nullable: true })
+  procedureId: string | null;
+
+  /**
    * SC gerada ao finalizar o atendimento. Enquanto a ficha estiver finalizada
    * com `surgicalIndication` e este campo nulo, a criação está pendente e o
    * sweeper do `SurgicalIndicationService` vai retomá-la.
@@ -119,4 +128,8 @@ export class ClinicalRecord {
   @ManyToOne(() => SurgeryRequest, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'surgery_request_id' })
   surgeryRequest: SurgeryRequest | null;
+
+  @ManyToOne(() => Procedure, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'procedure_id' })
+  procedure: Procedure | null;
 }

@@ -693,9 +693,16 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
     statusChangedAt?: Date,
     note?: string | null,
   ): Promise<void> {
+    // Resolvido uma única vez: quando `statusChangedAt` é uma data retroativa
+    // (ex.: "Confirmar com documento de origem" perguntando a data real de
+    // envio), tanto o registro na SC quanto a atividade da timeline precisam
+    // concordar — senão o kanban mostra dias parado enquanto a aba
+    // Atividades diz "agora".
+    const effectiveChangedAt = statusChangedAt ?? new Date();
+
     const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
     await surgeryRequestRepo.update(surgeryRequestId, {
-      lastStatusChangedAt: statusChangedAt ?? new Date(),
+      lastStatusChangedAt: effectiveChangedAt,
     });
 
     const activityRepo = manager.getRepository(SurgeryRequestActivity);
@@ -710,6 +717,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       userId,
       type: ActivityType.STATUS_CHANGE,
       content,
+      createdAt: effectiveChangedAt,
     });
   }
 

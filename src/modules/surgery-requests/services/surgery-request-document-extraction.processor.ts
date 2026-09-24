@@ -39,7 +39,7 @@ export class SurgeryRequestDocumentExtractionProcessor {
     job: Job<DocumentExtractionJobData>,
   ) {
     const jobId = String(job.id);
-    const { userId, file, notifyOnCompletion } = job.data;
+    const { userId, file, notifyOnCompletion, surgeryRequestId } = job.data;
 
     await this.jobsService.markProcessing(jobId, userId);
 
@@ -54,24 +54,17 @@ export class SurgeryRequestDocumentExtractionProcessor {
         userId,
       );
 
-      // Jobs já enfileirados antes da nova flag não a possuem. Não passamos
-      // `undefined` para manter a assinatura legada e o default do service.
-      if (notifyOnCompletion === undefined) {
-        await this.jobsService.markDone(
-          jobId,
-          userId,
-          result,
-          file.originalname,
-        );
-      } else {
-        await this.jobsService.markDone(
-          jobId,
-          userId,
-          result,
-          file.originalname,
-          notifyOnCompletion,
-        );
-      }
+      // `notifyOnCompletion` explicitamente `undefined` cai no default do
+      // service (`= true`) — jobs enfileirados antes da flag existir também
+      // não a possuem e continuam se comportando como antes.
+      await this.jobsService.markDone(
+        jobId,
+        userId,
+        result,
+        file.originalname,
+        notifyOnCompletion,
+        surgeryRequestId,
+      );
     } catch (err: any) {
       this.logger.warn(
         `[DOC_EXTRACT_JOB] falha jobId=${jobId} attempt=${job.attemptsMade + 1} userId=${userId} err=${err?.message}`,
@@ -88,23 +81,15 @@ export class SurgeryRequestDocumentExtractionProcessor {
     const jobId = String(job.id);
     const userId = job.data.userId;
     const documentName = job.data?.file?.originalname;
-    const { notifyOnCompletion } = job.data;
-    if (notifyOnCompletion === undefined) {
-      await this.jobsService.markError(
-        jobId,
-        userId,
-        FRIENDLY_ERROR_MESSAGE,
-        documentName,
-      );
-    } else {
-      await this.jobsService.markError(
-        jobId,
-        userId,
-        FRIENDLY_ERROR_MESSAGE,
-        documentName,
-        notifyOnCompletion,
-      );
-    }
+    const { notifyOnCompletion, surgeryRequestId } = job.data;
+    await this.jobsService.markError(
+      jobId,
+      userId,
+      FRIENDLY_ERROR_MESSAGE,
+      documentName,
+      notifyOnCompletion,
+      surgeryRequestId,
+    );
     this.logger.error(
       `[DOC_EXTRACT_JOB] dead-letter jobId=${jobId} userId=${userId} attempts=${job.attemptsMade} error=${error.message}`,
     );

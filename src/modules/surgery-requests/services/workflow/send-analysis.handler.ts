@@ -19,7 +19,10 @@ import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
-import { parseCalendarDate } from 'src/shared/utils/date.util';
+import {
+  parseCalendarDate,
+  todayCalendarDate,
+} from 'src/shared/utils/date.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
@@ -76,6 +79,31 @@ export class SendAnalysisHandler {
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.SENT);
     await this.pendencyValidator.assertCanAdvance(id);
 
+    // "Confirmar com documento de origem" permite refletir um envio que já
+    // aconteceu fora da plataforma (ex.: usuário esqueceu de atualizar o
+    // status no dia). Pode ser anterior à criação da SC — clínica usando a
+    // plataforma como histórico —, mas nunca no futuro.
+    // Só vale para esse método: é o único em que o DTO valida `sentAt` —
+    // nos demais o envio acontece agora, pela plataforma.
+    const sentAt =
+      dto.method === SendMethod.DOCUMENT && dto.sentAt
+        ? parseCalendarDate(dto.sentAt)
+        : new Date();
+    if (Number.isNaN(sentAt.getTime())) {
+      throw new BadRequestException('Data de envio inválida.');
+    }
+    // Dia com dia (ambos ao meio-dia UTC): comparar com o instante atual
+    // rejeitaria "hoje" antes das 09:00 de São Paulo.
+    if (
+      dto.method === SendMethod.DOCUMENT &&
+      dto.sentAt &&
+      sentAt.getTime() > todayCalendarDate().getTime()
+    ) {
+      throw new BadRequestException(
+        'A data de envio não pode estar no futuro.',
+      );
+    }
+
     // Consome cota mensal de solicitações cirúrgicas. Bloqueia se a
     // assinatura estiver suspensa, cancelada ou se o limite do plano
     // foi atingido. A unidade de cota é o ENVIO (PENDING → SENT) — rascunhos
@@ -90,7 +118,7 @@ export class SendAnalysisHandler {
           { id },
           {
             status: SurgeryRequestStatus.SENT,
-            sentAt: new Date(),
+            sentAt,
             sendMethod: dto.method,
           },
         );
@@ -100,6 +128,7 @@ export class SendAnalysisHandler {
           request.status,
           SurgeryRequestStatus.SENT,
           userId,
+          sentAt,
         );
       },
       { logger: this.logger, operationName: 'sendRequest' },

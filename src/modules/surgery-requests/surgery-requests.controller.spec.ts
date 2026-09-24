@@ -116,6 +116,28 @@ describe('SurgeryRequestsController', () => {
     expect(result).toEqual({ jobId: 'job-1', status: 'processing' });
   });
 
+  it('repassa surgeryRequestId ao enfileirar extração para completar uma SC existente', async () => {
+    const file = {
+      originalname: 'doc.pdf',
+      mimetype: 'application/pdf',
+      size: 100,
+      buffer: Buffer.from('abc'),
+    } as Express.Multer.File;
+
+    await controller.extractFromDocument(
+      file,
+      { userId: 'user-1' } as any,
+      undefined,
+      'sc-123',
+    );
+
+    expect(documentExtractionJobsService.enqueue).toHaveBeenCalledWith(
+      file,
+      'user-1',
+      { surgeryRequestId: 'sc-123' },
+    );
+  });
+
   it('consulta status do job com escopo do usuário autenticado', async () => {
     const result = await controller.getExtractFromDocumentStatus('job-1', {
       userId: 'user-1',
