@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { In } from 'typeorm';
+import { In, IsNull } from 'typeorm';
 import { SurgeryRequestActivityMention } from '../entities/surgery-request-activity-mention.entity';
 import { SurgeryRequestActivityMentionRepository } from './surgery-request-activity-mention.repository';
 
@@ -72,14 +72,30 @@ describe('SurgeryRequestActivityMentionRepository', () => {
     });
   });
 
-  describe('markEmailSent', () => {
-    it('carimba a data de envio', async () => {
-      await repository.markEmailSent('mention-1');
+  describe('claimEmailSend', () => {
+    it('carimba a data só se ainda não houver envio', async () => {
+      await expect(repository.claimEmailSend('mention-1')).resolves.toBe(true);
 
       expect(typeorm.update).toHaveBeenCalledWith(
-        'mention-1',
-        expect.objectContaining({ emailSentAt: expect.any(Date) }),
+        { id: 'mention-1', emailSentAt: IsNull() },
+        { emailSentAt: expect.any(Date) },
       );
+    });
+
+    it('devolve false quando outra tentativa já reservou', async () => {
+      typeorm.update.mockResolvedValue({ affected: 0 });
+
+      await expect(repository.claimEmailSend('mention-1')).resolves.toBe(false);
+    });
+  });
+
+  describe('releaseEmailSend', () => {
+    it('limpa a reserva', async () => {
+      await repository.releaseEmailSend('mention-1');
+
+      expect(typeorm.update).toHaveBeenCalledWith('mention-1', {
+        emailSentAt: null,
+      });
     });
   });
 

@@ -13,7 +13,8 @@ describe('MentionEmailsProcessor', () => {
   let processor: MentionEmailsProcessor;
   let mentionRepository: {
     findOneWithUser: jest.Mock;
-    markEmailSent: jest.Mock;
+    claimEmailSend: jest.Mock;
+    releaseEmailSend: jest.Mock;
   };
   let notificationRepository: { findOne: jest.Mock };
   let settingsRepository: { findByUserId: jest.Mock };
@@ -26,6 +27,7 @@ describe('MentionEmailsProcessor', () => {
       surgeryRequestId: 'sc-1',
       authorName: 'Dra. Ana',
       content: 'confere o laudo',
+      inAppNotified: true,
     } as MentionEmailJobData,
   } as Job<MentionEmailJobData>;
 
@@ -42,7 +44,8 @@ describe('MentionEmailsProcessor', () => {
           email: 'bruno@example.com',
         },
       }),
-      markEmailSent: jest.fn().mockResolvedValue(undefined),
+      claimEmailSend: jest.fn().mockResolvedValue(true),
+      releaseEmailSend: jest.fn().mockResolvedValue(undefined),
     };
     notificationRepository = {
       findOne: jest.fn().mockResolvedValue({ id: 'notif-1', read: false }),
@@ -99,7 +102,7 @@ describe('MentionEmailsProcessor', () => {
         linkText: 'Abrir solicitação',
       }),
     );
-    expect(mentionRepository.markEmailSent).toHaveBeenCalledWith('mention-1');
+    expect(mentionRepository.claimEmailSend).toHaveBeenCalledWith('mention-1');
   });
 
   it('diz de qual solicitação a menção veio', async () => {
@@ -154,7 +157,7 @@ describe('MentionEmailsProcessor', () => {
       expect.anything(),
       expect.objectContaining({ context: undefined }),
     );
-    expect(mentionRepository.markEmailSent).toHaveBeenCalledWith('mention-1');
+    expect(mentionRepository.claimEmailSend).toHaveBeenCalledWith('mention-1');
   });
 
   it('não envia quando a notificação já foi lida', async () => {
@@ -166,7 +169,7 @@ describe('MentionEmailsProcessor', () => {
     await processor.handleSend(job);
 
     expect(mailService.sendGenericNotification).not.toHaveBeenCalled();
-    expect(mentionRepository.markEmailSent).not.toHaveBeenCalled();
+    expect(mentionRepository.claimEmailSend).not.toHaveBeenCalled();
   });
 
   it('não envia duas vezes', async () => {
@@ -202,10 +205,76 @@ describe('MentionEmailsProcessor', () => {
       mentionedUser: { email: 'bruno@example.com', name: 'Dr. Bruno' },
     });
 
-    await processor.handleSend(job);
+    await processor.handleSend({
+      data: { ...job.data, inAppNotified: false },
+    } as Job<MentionEmailJobData>);
 
     expect(mailService.sendGenericNotification).toHaveBeenCalled();
     expect(notificationRepository.findOne).not.toHaveBeenCalled();
+  });
+
+  it('não envia quando o usuário excluiu a notificação (FK virou nula)', async () => {
+    mentionRepository.findOneWithUser.mockResolvedValue({
+      id: 'mention-1',
+      mentionedUserId: 'user-2',
+      notificationId: null,
+      emailSentAt: null,
+      mentionedUser: { email: 'bruno@example.com', name: 'Dr. Bruno' },
+    });
+
+    await processor.handleSend(job);
+
+    expect(mailService.sendGenericNotification).not.toHaveBeenCalled();
+  });
+
+  it('não envia quando a notificação sumiu entre as consultas', async () => {
+    notificationRepository.findOne.mockResolvedValue(null);
+
+    await processor.handleSend(job);
+
+    expect(mailService.sendGenericNotification).not.toHaveBeenCalled();
+  });
+
+  it('job antigo, sem inAppNotified, mantém o envio sem notificação', async () => {
+    mentionRepository.findOneWithUser.mockResolvedValue({
+      id: 'mention-1',
+      mentionedUserId: 'user-2',
+      notificationId: null,
+      emailSentAt: null,
+      mentionedUser: { email: 'bruno@example.com', name: 'Dr. Bruno' },
+    });
+    const { inAppNotified: _, ...legado } = job.data;
+
+    await processor.handleSend({ data: legado } as Job<MentionEmailJobData>);
+
+    expect(mailService.sendGenericNotification).toHaveBeenCalled();
+  });
+
+  it('não envia quando outra tentativa do job já reservou o envio', async () => {
+    mentionRepository.claimEmailSend.mockResolvedValue(false);
+
+    await processor.handleSend(job);
+
+    expect(mailService.sendGenericNotification).not.toHaveBeenCalled();
+  });
+
+  it('reserva o envio antes de ir para a fila de e-mail', async () => {
+    await processor.handleSend(job);
+
+    expect(
+      mentionRepository.claimEmailSend.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      mailService.sendGenericNotification.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('desfaz a reserva quando o envio falha, para o retry tentar de novo', async () => {
+    mailService.sendGenericNotification.mockRejectedValue(new Error('smtp'));
+
+    await expect(processor.handleSend(job)).rejects.toThrow('smtp');
+    expect(mentionRepository.releaseEmailSend).toHaveBeenCalledWith(
+      'mention-1',
+    );
   });
 
   it('sai quieto quando a menção foi apagada junto com a atividade', async () => {

@@ -19,7 +19,10 @@ import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
-import { parseCalendarDate } from 'src/shared/utils/date.util';
+import {
+  parseCalendarDate,
+  todayCalendarDate,
+} from 'src/shared/utils/date.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
 
@@ -80,8 +83,22 @@ export class SendAnalysisHandler {
     // aconteceu fora da plataforma (ex.: usuário esqueceu de atualizar o
     // status no dia). Pode ser anterior à criação da SC — clínica usando a
     // plataforma como histórico —, mas nunca no futuro.
-    const sentAt = dto.sentAt ? parseCalendarDate(dto.sentAt) : new Date();
-    if (sentAt.getTime() > Date.now()) {
+    // Só vale para esse método: é o único em que o DTO valida `sentAt` —
+    // nos demais o envio acontece agora, pela plataforma.
+    const sentAt =
+      dto.method === SendMethod.DOCUMENT && dto.sentAt
+        ? parseCalendarDate(dto.sentAt)
+        : new Date();
+    if (Number.isNaN(sentAt.getTime())) {
+      throw new BadRequestException('Data de envio inválida.');
+    }
+    // Dia com dia (ambos ao meio-dia UTC): comparar com o instante atual
+    // rejeitaria "hoje" antes das 09:00 de São Paulo.
+    if (
+      dto.method === SendMethod.DOCUMENT &&
+      dto.sentAt &&
+      sentAt.getTime() > todayCalendarDate().getTime()
+    ) {
       throw new BadRequestException(
         'A data de envio não pode estar no futuro.',
       );

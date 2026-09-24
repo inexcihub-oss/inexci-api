@@ -23,9 +23,13 @@ const TAMANHO_PREVIA = 240;
  *
  * Três portas, nesta ordem: já enviado (o job pode reprocessar), o usuário
  * desligou o canal, e — a regra que o usuário pediu — a notificação dentro
- * da plataforma continua não lida. Sem `notificationId` não há o que ler
- * (o push do usuário está desligado), e aí o e-mail é o único aviso
- * possível: mandamos.
+ * da plataforma continua não lida. Sem notificação criada no disparo (push
+ * desligado) não há o que ler, e aí o e-mail é o único aviso possível:
+ * mandamos. Já a notificação que existiu e sumiu foi excluída pelo usuário —
+ * ele a viu, então conta como lida.
+ *
+ * O envio é reservado no banco (`claimEmailSend`) antes de ir para a fila
+ * de e-mail: um retry do job depois do envio encontra a reserva e para.
  */
 @Injectable()
 @Processor(MENTION_EMAILS_QUEUE)
@@ -50,7 +54,8 @@ export class MentionEmailsProcessor {
   }
 
   private async processSend(job: Job<MentionEmailJobData>): Promise<void> {
-    const { mentionId, surgeryRequestId, authorName, content } = job.data;
+    const { mentionId, surgeryRequestId, authorName, content, inAppNotified } =
+      job.data;
 
     const mention = await this.mentionRepository.findOneWithUser(mentionId);
     if (!mention) return;
@@ -73,8 +78,14 @@ export class MentionEmailsProcessor {
       const notification = await this.notificationRepository.findOne({
         id: mention.notificationId,
       });
-      if (notification?.read) return;
+      // Sem a linha: excluída entre a leitura da menção e esta consulta.
+      if (!notification || notification.read) return;
+    } else if (inAppNotified) {
+      // A FK é ON DELETE SET NULL: a notificação existiu e foi excluída.
+      return;
     }
+
+    if (!(await this.mentionRepository.claimEmailSend(mentionId))) return;
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL', '');
     const limpo = content.trim();
@@ -83,25 +94,29 @@ export class MentionEmailsProcessor {
         ? `${limpo.slice(0, TAMANHO_PREVIA)}…`
         : limpo;
 
-    await this.mailService.sendGenericNotification(
-      destinatario.email,
-      // Assunto sem nome de paciente, de propósito: nenhum dos e-mails da
-      // plataforma identifica paciente no assunto, que vaza para prévia de
-      // notificação e lista da caixa de entrada. A identificação da SC vai no
-      // corpo, onde os outros templates já a colocam.
-      `${authorName} mencionou você em uma solicitação`,
-      {
-        userName: destinatario.name,
-        title: `${authorName} mencionou você`,
-        context: await this.descreverSolicitacao(surgeryRequestId),
-        message: `"${previa}"`,
-        link: `${dashboardUrl}/solicitacao/${surgeryRequestId}?sidebar=atividades`,
-        linkText: 'Abrir solicitação',
-        preferencesUrl: `${dashboardUrl}/configuracoes`,
-      },
-    );
+    try {
+      await this.mailService.sendGenericNotification(
+        destinatario.email,
+        // Assunto sem nome de paciente, de propósito: nenhum dos e-mails da
+        // plataforma identifica paciente no assunto, que vaza para prévia de
+        // notificação e lista da caixa de entrada. A identificação da SC vai no
+        // corpo, onde os outros templates já a colocam.
+        `${authorName} mencionou você em uma solicitação`,
+        {
+          userName: destinatario.name,
+          title: `${authorName} mencionou você`,
+          context: await this.descreverSolicitacao(surgeryRequestId),
+          message: `"${previa}"`,
+          link: `${dashboardUrl}/solicitacao/${surgeryRequestId}?sidebar=atividades`,
+          linkText: 'Abrir solicitação',
+          preferencesUrl: `${dashboardUrl}/configuracoes`,
+        },
+      );
+    } catch (err) {
+      await this.mentionRepository.releaseEmailSend(mentionId);
+      throw err;
+    }
 
-    await this.mentionRepository.markEmailSent(mentionId);
     this.logger.log(`[MENCAO] E-mail da menção ${mentionId} enviado.`);
   }
 

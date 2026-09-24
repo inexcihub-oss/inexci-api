@@ -381,6 +381,71 @@ describe('SurgeryRequestWorkflowService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('aceita a data de hoje antes das 09:00 de São Paulo', async () => {
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+      // 07:00 em São Paulo (10:00 UTC): meio-dia UTC de hoje ainda não chegou.
+      jest.setSystemTime(new Date('2026-06-10T10:00:00.000Z'));
+      try {
+        const request = makeRequest();
+        surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+          request,
+        );
+
+        await expect(
+          service.sendRequest(
+            'req-1',
+            { method: SendMethod.DOCUMENT, sentAt: '2026-06-10' },
+            'user-1',
+          ),
+        ).resolves.toEqual(
+          expect.objectContaining({ method: SendMethod.DOCUMENT }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('ignora sentAt quando o método não é document', async () => {
+      const request = makeRequest();
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+
+      let capturedRepos: Record<string, any> | null = null;
+      dataSource.transaction.mockImplementationOnce(
+        async (cb: (manager: any) => Promise<any>) => {
+          const mockManager = createMockManager();
+          capturedRepos = mockManager.repos;
+          return cb(mockManager);
+        },
+      );
+
+      const before = Date.now();
+      await service.sendRequest(
+        'req-1',
+        { method: SendMethod.DOWNLOAD, sentAt: '2020-01-01' },
+        'user-1',
+      );
+
+      const [, fields] = capturedRepos!.SurgeryRequest.update.mock.calls[0];
+      expect(fields.sentAt.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it('rejeita sentAt inválido', async () => {
+      const request = makeRequest();
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        request,
+      );
+
+      await expect(
+        service.sendRequest(
+          'req-1',
+          { method: SendMethod.DOCUMENT, sentAt: 'lixo' },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('should email source document when useSourceDocument is true', async () => {
       const request = makeRequest({
         documents: [

@@ -12,6 +12,13 @@ export interface MentionEmailJobData {
   surgeryRequestId: string;
   authorName: string;
   content: string;
+  /**
+   * Se a notificação in-app foi criada no disparo. Distingue, no worker,
+   * "push desligado" (nunca houve o que ler) de "notificação excluída pelo
+   * usuário" — nos dois casos `notificationId` chega nulo, porque a FK é
+   * `ON DELETE SET NULL`. Ausente em jobs anteriores a este campo.
+   */
+  inAppNotified?: boolean;
   /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
 }

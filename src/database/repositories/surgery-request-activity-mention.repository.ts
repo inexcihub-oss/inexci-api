@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { SurgeryRequestActivityMention } from '../entities/surgery-request-activity-mention.entity';
 import { BaseRepository } from './base.repository';
 
@@ -53,7 +53,21 @@ export class SurgeryRequestActivityMentionRepository extends BaseRepository<Surg
     await this.repository.update(id, { notificationId });
   }
 
-  async markEmailSent(id: string): Promise<void> {
-    await this.repository.update(id, { emailSentAt: new Date() });
+  /**
+   * Reserva o envio do e-mail: carimba `email_sent_at` só se ainda estiver
+   * vazio, num único UPDATE. Devolve `false` quando outra tentativa do job
+   * já reservou — é o que impede o retry do Bull de mandar o e-mail de novo.
+   */
+  async claimEmailSend(id: string): Promise<boolean> {
+    const result = await this.repository.update(
+      { id, emailSentAt: IsNull() },
+      { emailSentAt: new Date() },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /** Desfaz a reserva quando o envio falhou, para o retry poder tentar. */
+  async releaseEmailSend(id: string): Promise<void> {
+    await this.repository.update(id, { emailSentAt: null });
   }
 }

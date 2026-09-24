@@ -173,7 +173,18 @@ describe('ActivityMentionsService', () => {
         surgeryRequestId: 'sc-1',
         authorName: 'Dra. Ana',
         content: 'confere o laudo, por favor',
+        inAppNotified: true,
       }),
+    );
+  });
+
+  it('marca o job sem notificação in-app quando o push está desligado', async () => {
+    dispatcher.dispatch.mockResolvedValue(null);
+
+    await service.register(params);
+
+    expect(mentionEmailsJobs.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ inAppNotified: false }),
     );
   });
 });

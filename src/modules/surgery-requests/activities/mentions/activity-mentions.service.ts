@@ -125,6 +125,7 @@ export class ActivityMentionsService {
         surgeryRequestId: params.surgeryRequestId,
         authorName: params.authorName,
         content: params.content,
+        inAppNotified: Boolean(notification),
       });
     } catch (err: any) {
       this.logger.warn(
