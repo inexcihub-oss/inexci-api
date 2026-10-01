@@ -19,6 +19,9 @@ import {
 import { CreateClinicalRecordDto } from './dto/create-clinical-record.dto';
 import { UpdateClinicalRecordDto } from './dto/update-clinical-record.dto';
 import { SurgicalIndicationService } from './surgical-indication/surgical-indication.service';
+import { AppointmentActivityRepository } from 'src/database/repositories/appointment-activity.repository';
+import { AppointmentActivityType } from 'src/database/entities/appointment-activity.entity';
+import { registrarNoHistorico } from 'src/modules/appointments/appointment-history';
 
 @Injectable()
 export class ClinicalRecordsService {
@@ -30,6 +33,7 @@ export class ClinicalRecordsService {
     private readonly appointmentRepository: AppointmentRepository,
     private readonly accessControlService: AccessControlService,
     private readonly surgicalIndicationService: SurgicalIndicationService,
+    private readonly appointmentActivityRepository: AppointmentActivityRepository,
   ) {}
 
   /**
@@ -158,7 +162,7 @@ export class ClinicalRecordsService {
     });
 
     if (data.appointmentId) {
-      await this.startLinkedAppointment(data.appointmentId);
+      await this.startLinkedAppointment(data.appointmentId, userId);
     }
     return criada;
   }
@@ -168,7 +172,10 @@ export class ClinicalRecordsService {
    * ou aguardando viram "em atendimento" (a recepção vê na agenda que o
    * paciente entrou). Outros status ficam como estão.
    */
-  private async startLinkedAppointment(appointmentId: string): Promise<void> {
+  private async startLinkedAppointment(
+    appointmentId: string,
+    userId: string,
+  ): Promise<void> {
     const appointment = await this.appointmentRepository.findOne({
       id: appointmentId,
     });
@@ -182,6 +189,18 @@ export class ClinicalRecordsService {
     await this.appointmentRepository.update(appointmentId, {
       status: AppointmentStatus.IN_PROGRESS,
     });
+    await registrarNoHistorico(
+      this.appointmentActivityRepository,
+      this.logger,
+      {
+        appointmentId,
+        userId,
+        type: AppointmentActivityType.STATUS_CHANGE,
+        fromStatus: appointment.status,
+        toStatus: AppointmentStatus.IN_PROGRESS,
+        content: 'Atendimento iniciado',
+      },
+    );
   }
 
   async update(
@@ -220,7 +239,7 @@ export class ClinicalRecordsService {
     }))!;
 
     if (record.appointmentId) {
-      await this.completeLinkedAppointment(record.appointmentId);
+      await this.completeLinkedAppointment(record.appointmentId, userId);
     }
 
     if (record.surgicalIndication) {
@@ -270,7 +289,10 @@ export class ClinicalRecordsService {
    * depende disso e segue adiante — o registro clínico do médico vale mesmo
    * quando o status da agenda ficou para trás.
    */
-  private async completeLinkedAppointment(appointmentId: string) {
+  private async completeLinkedAppointment(
+    appointmentId: string,
+    userId: string,
+  ) {
     const appointment = await this.appointmentRepository.findOne({
       id: appointmentId,
     });
@@ -289,6 +311,18 @@ export class ClinicalRecordsService {
     await this.appointmentRepository.update(appointmentId, {
       status: AppointmentStatus.COMPLETED,
     });
+    await registrarNoHistorico(
+      this.appointmentActivityRepository,
+      this.logger,
+      {
+        appointmentId,
+        userId,
+        type: AppointmentActivityType.STATUS_CHANGE,
+        fromStatus: appointment.status,
+        toStatus: AppointmentStatus.COMPLETED,
+        content: 'Atendimento finalizado',
+      },
+    );
   }
 
   async delete(id: string, userId: string): Promise<void> {

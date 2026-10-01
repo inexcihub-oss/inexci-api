@@ -30,6 +30,7 @@ describe('ClinicalRecordsService', () => {
     assertIsPhysician: jest.fn(),
   };
   const mockSurgicalIndication = { createForRecord: jest.fn() };
+  const mockActivityRepo = { create: jest.fn().mockResolvedValue({}) };
 
   const ownerId = 'owner-1';
   const userId = 'user-1';
@@ -67,6 +68,7 @@ describe('ClinicalRecordsService', () => {
       mockAppointmentRepo as any,
       mockAccess as any,
       mockSurgicalIndication as any,
+      mockActivityRepo as any,
     );
   });
 
@@ -614,6 +616,16 @@ describe('ClinicalRecordsService', () => {
       expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
         status: AppointmentStatus.IN_PROGRESS,
       });
+      expect(mockActivityRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appointmentId: 'a1',
+          userId,
+          type: 'status_change',
+          fromStatus: AppointmentStatus.WAITING,
+          toStatus: AppointmentStatus.IN_PROGRESS,
+          content: 'Atendimento iniciado',
+        }),
+      );
     });
 
     it('não mexe em consulta cancelada ao abrir a ficha', async () => {
@@ -650,6 +662,13 @@ describe('ClinicalRecordsService', () => {
         expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
           status: AppointmentStatus.COMPLETED,
         });
+        expect(mockActivityRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'status_change',
+            toStatus: AppointmentStatus.COMPLETED,
+            content: 'Atendimento finalizado',
+          }),
+        );
       },
     );
   });

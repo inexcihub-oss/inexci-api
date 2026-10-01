@@ -45,6 +45,11 @@ describe('AppointmentsService', () => {
     findOne: jest.fn(),
   };
 
+  const mockActivityRepository = {
+    create: jest.fn(),
+    findByAppointment: jest.fn(),
+  };
+
   const mockWhatsappService = {
     sendAppointmentCancelled: jest.fn(),
     sendAppointmentScheduled: jest.fn(),
@@ -101,6 +106,10 @@ describe('AppointmentsService', () => {
       mockWhatsappService as any,
       mockClinicRoomRepository as any,
       mockHealthPlanRepository as any,
+      mockActivityRepository as any,
+    );
+    mockActivityRepository.create.mockImplementation((d) =>
+      Promise.resolve({ id: 'act-1', ...d }),
     );
   });
 
@@ -1253,6 +1262,189 @@ describe('AppointmentsService', () => {
         'appt-1',
         expect.objectContaining({ status: AppointmentStatus.CANCELLED }),
       );
+    });
+  });
+  // ─── MIG-04: histórico da consulta ───
+  describe('histórico (MIG-04)', () => {
+    const tipos = () =>
+      mockActivityRepository.create.mock.calls.map(([d]) => d.type);
+    const existente = (parcial: object = {}) => ({
+      id: 'appt-1',
+      ownerId,
+      doctorId,
+      patientId,
+      clinicId: 'clinic-1',
+      roomId: null,
+      isWalkIn: false,
+      healthPlanId: null,
+      type: 'return',
+      notes: null,
+      scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+      durationMinutes: 30,
+      status: AppointmentStatus.SCHEDULED,
+      ...parcial,
+    });
+
+    it('agendar registra a criação, com quem agendou', async () => {
+      await service.create({ ...baseCreate, isWalkIn: true }, userId);
+
+      expect(mockActivityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appointmentId: 'appt-1',
+          userId,
+          type: 'created',
+          toStatus: AppointmentStatus.SCHEDULED,
+          content: expect.stringMatching(
+            /^Consulta agendada para .*\(encaixe\)$/,
+          ),
+        }),
+      );
+    });
+
+    it('falha ao gravar o histórico não derruba o agendamento', async () => {
+      mockActivityRepository.create.mockRejectedValue(new Error('banco'));
+
+      await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
+    });
+
+    it('mudança de status registra de/para e o motivo do cancelamento', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.CANCELLED, cancellationReason: ' viagem ' },
+        userId,
+      );
+
+      expect(mockActivityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'status_change',
+          fromStatus: AppointmentStatus.SCHEDULED,
+          toStatus: AppointmentStatus.CANCELLED,
+          content: 'viagem',
+        }),
+      );
+    });
+
+    it('reenviar o mesmo status não registra nada', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.SCHEDULED },
+        userId,
+      );
+
+      expect(mockActivityRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('remarcar registra o antes e o depois', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+
+      await service.update(
+        'appt-1',
+        { scheduledAt: '2026-08-02T14:00:00.000Z' },
+        userId,
+      );
+
+      expect(tipos()).toEqual(['rescheduled']);
+      expect(mockActivityRepository.create.mock.calls[0][0].content).toMatch(
+        /^De .* para .*/,
+      );
+    });
+
+    it('mudar sala e convênio registra os campos alterados', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+      mockClinicRoomRepository.findOne.mockResolvedValue({
+        id: 'room-1',
+        ownerId,
+        clinicId: 'clinic-1',
+        active: true,
+      });
+      mockHealthPlanRepository.findOne.mockResolvedValue({
+        id: 'hp-1',
+        ownerId,
+      });
+
+      await service.update(
+        'appt-1',
+        { roomId: 'room-1', healthPlanId: 'hp-1' },
+        userId,
+      );
+
+      expect(mockActivityRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'updated',
+          content: 'Alterou: sala, convênio',
+        }),
+      );
+    });
+
+    it('salvar sem mudar nada não registra nada', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+
+      await service.update(
+        'appt-1',
+        {
+          scheduledAt: '2026-08-01T14:00:00.000Z',
+          durationMinutes: 30,
+          notes: '',
+          type: 'return' as never,
+        },
+        userId,
+      );
+
+      expect(mockActivityRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('lista o histórico só depois de conferir o acesso à consulta', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+      mockActivityRepository.findByAppointment.mockResolvedValue([
+        { id: 'act-1' },
+      ]);
+
+      await expect(service.findActivities('appt-1', userId)).resolves.toEqual([
+        { id: 'act-1' },
+      ]);
+      expect(
+        mockAccessControlService.assertCanAccessDoctorResource,
+      ).toHaveBeenCalled();
+    });
+
+    it('não lista histórico de consulta inexistente', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(null);
+
+      await expect(service.findActivities('x', userId)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockActivityRepository.findByAppointment).not.toHaveBeenCalled();
+    });
+
+    it('comentário entra aparado, como comentário de quem escreveu', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        existente(),
+      );
+
+      await service.addComment('appt-1', '  paciente pediu remarcar  ', userId);
+
+      expect(mockActivityRepository.create).toHaveBeenCalledWith({
+        appointmentId: 'appt-1',
+        userId,
+        type: 'comment',
+        content: 'paciente pediu remarcar',
+      });
     });
   });
 });

@@ -21,6 +21,12 @@ import {
 } from 'src/database/entities/appointment.entity';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
+import { AppointmentActivityRepository } from 'src/database/repositories/appointment-activity.repository';
+import {
+  AppointmentActivity,
+  AppointmentActivityType,
+} from 'src/database/entities/appointment-activity.entity';
+import { registrarNoHistorico } from './appointment-history';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
@@ -43,7 +49,50 @@ export class AppointmentsService {
     private readonly whatsappService: WhatsappService,
     private readonly clinicRoomRepository: ClinicRoomRepository,
     private readonly healthPlanRepository: HealthPlanRepository,
+    private readonly activityRepository: AppointmentActivityRepository,
   ) {}
+
+  private registrar(
+    appointmentId: string,
+    userId: string,
+    type: AppointmentActivityType,
+    dados: {
+      fromStatus?: string;
+      toStatus?: string;
+      content?: string | null;
+    } = {},
+  ): Promise<void> {
+    return registrarNoHistorico(this.activityRepository, this.logger, {
+      appointmentId,
+      userId,
+      type,
+      ...dados,
+    });
+  }
+
+  /** Linha do tempo da consulta, com o mesmo recorte de acesso do `findOne`. */
+  async findActivities(
+    id: string,
+    userId: string,
+  ): Promise<AppointmentActivity[]> {
+    await this.findOne(id, userId);
+    return this.activityRepository.findByAppointment(id);
+  }
+
+  /** Comentário livre no histórico da consulta. */
+  async addComment(
+    id: string,
+    content: string,
+    userId: string,
+  ): Promise<AppointmentActivity> {
+    await this.findOne(id, userId);
+    return this.activityRepository.create({
+      appointmentId: id,
+      userId,
+      type: AppointmentActivityType.COMMENT,
+      content: content.trim(),
+    });
+  }
 
   /**
    * Sala tem que ser da conta, da clínica da consulta e estar ativa. Consulta
@@ -226,6 +275,11 @@ export class AppointmentsService {
       status: AppointmentStatus.SCHEDULED,
     });
 
+    await this.registrar(criada.id, userId, AppointmentActivityType.CREATED, {
+      toStatus: AppointmentStatus.SCHEDULED,
+      content: `Consulta agendada para ${formatAppointmentWhen(start)}${isWalkIn ? ' (encaixe)' : ''}`,
+    });
+
     // `patient` já veio da validação de conta acima — sem query extra.
     await this.avisarPacienteDoAgendamento(patient, data.doctorId, start);
 
@@ -320,6 +374,8 @@ export class AppointmentsService {
       updateData,
     ))!;
 
+    await this.registrarEdicao(appointment, updateData, userId);
+
     if (remarcou) {
       const patient = await this.patientRepository.findOne({
         id: appointment.patientId,
@@ -369,6 +425,14 @@ export class AppointmentsService {
       id,
       updateData,
     ))!;
+
+    if (appointment.status !== data.status) {
+      await this.registrar(id, userId, AppointmentActivityType.STATUS_CHANGE, {
+        fromStatus: appointment.status,
+        toStatus: data.status,
+        content: updateData.cancellationReason ?? null,
+      });
+    }
 
     // Só o cancelamento vindo de um status ativo é novidade para o paciente:
     // recancelar uma consulta já cancelada repetiria o mesmo aviso.
@@ -454,6 +518,60 @@ export class AppointmentsService {
     }
 
     await this.appointmentRepository.delete(id);
+  }
+
+  /**
+   * Remarcação (data ou duração mudou) vira uma linha própria, com o antes e o
+   * depois; as demais mudanças viram uma linha "alterou: …" com os campos.
+   * Reenviar o mesmo valor não registra nada.
+   */
+  private async registrarEdicao(
+    antes: Appointment,
+    mudancas: Partial<Appointment>,
+    userId: string,
+  ): Promise<void> {
+    const mudou = <K extends keyof Appointment>(campo: K) =>
+      campo in mudancas &&
+      String(mudancas[campo] ?? '') !== String(antes[campo] ?? '');
+
+    const novoInicio = mudancas.scheduledAt;
+    const remarcou =
+      !!novoInicio &&
+      new Date(novoInicio).getTime() !== new Date(antes.scheduledAt).getTime();
+    if (remarcou || mudou('durationMinutes')) {
+      const de = formatAppointmentWhen(new Date(antes.scheduledAt));
+      const para = formatAppointmentWhen(
+        new Date(novoInicio ?? antes.scheduledAt),
+      );
+      const duracao = mudou('durationMinutes')
+        ? ` (${antes.durationMinutes} → ${mudancas.durationMinutes} min)`
+        : '';
+      await this.registrar(
+        antes.id,
+        userId,
+        AppointmentActivityType.RESCHEDULED,
+        {
+          content: remarcou
+            ? `De ${de} para ${para}${duracao}`
+            : `Duração${duracao}`,
+        },
+      );
+    }
+
+    const rotulos: [keyof Appointment, string][] = [
+      ['type', 'tipo'],
+      ['clinicId', 'clínica'],
+      ['roomId', 'sala'],
+      ['healthPlanId', 'convênio'],
+      ['isWalkIn', 'encaixe'],
+      ['notes', 'observações'],
+    ];
+    const campos = rotulos.filter(([campo]) => mudou(campo)).map(([, r]) => r);
+    if (campos.length) {
+      await this.registrar(antes.id, userId, AppointmentActivityType.UPDATED, {
+        content: `Alterou: ${campos.join(', ')}`,
+      });
+    }
   }
 
   /**

@@ -21,6 +21,7 @@ import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
 import { FindAppointmentsDto } from './dto/find-appointments.dto';
+import { CreateAppointmentCommentDto } from './dto/create-appointment-comment.dto';
 
 @ApiTags('Consultas')
 @ApiBearerAuth()
@@ -64,6 +65,26 @@ export class AppointmentsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.appointmentsService.findOne(id, user.userId);
+  }
+
+  @Get(':id/activities')
+  @ApiOperation({ summary: 'Histórico da consulta (linha do tempo)' })
+  @RequirePermission(Permission.AGENDA, Permission.ATENDIMENTO)
+  findActivities(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.appointmentsService.findActivities(id, user.userId);
+  }
+
+  @Post(':id/activities')
+  @ApiOperation({ summary: 'Comentar no histórico da consulta' })
+  addComment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: CreateAppointmentCommentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.appointmentsService.addComment(id, data.content, user.userId);
   }
 
   @Post()
