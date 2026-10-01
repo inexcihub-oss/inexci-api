@@ -500,3 +500,49 @@ describe('AppointmentRepository.findAtivaPorTelefone', () => {
     );
   });
 });
+
+describe('AppointmentRepository.hasOverlap', () => {
+  const qb = {
+    where: jest.fn(),
+    andWhere: jest.fn(),
+    getCount: jest.fn(),
+  };
+  const repository = { createQueryBuilder: jest.fn(() => qb), metadata: {} };
+  const repo = new AppointmentRepository({
+    getRepository: () => repository,
+  } as any);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    qb.where.mockReturnValue(qb);
+    qb.andWhere.mockReturnValue(qb);
+    qb.getCount.mockResolvedValue(0);
+  });
+
+  // MIG-03: falta não segura o horário — a recepção usa o horário vago sem
+  // precisar marcar encaixe.
+  it('não conta cancelada nem falta como horário ocupado', async () => {
+    await repo.hasOverlap('d-1', new Date(), new Date());
+
+    expect(qb.andWhere).toHaveBeenCalledWith(
+      'appointment.status NOT IN (:...livres)',
+      { livres: ['cancelled', 'no_show'] },
+    );
+  });
+
+  it('ignora a própria consulta ao reagendar', async () => {
+    await repo.hasOverlap('d-1', new Date(), new Date(), 'a-1');
+
+    expect(qb.andWhere).toHaveBeenCalledWith('appointment.id != :excludeId', {
+      excludeId: 'a-1',
+    });
+  });
+
+  it('há conflito quando alguma consulta ocupa o intervalo', async () => {
+    qb.getCount.mockResolvedValue(1);
+
+    await expect(repo.hasOverlap('d-1', new Date(), new Date())).resolves.toBe(
+      true,
+    );
+  });
+});

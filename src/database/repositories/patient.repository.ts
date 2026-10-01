@@ -23,6 +23,10 @@ const COLUNAS_DA_LISTAGEM = [
   // avatar da lista. O caminho em si não abre nada sem passar pelo
   // `UploadService.getSignedUrl`, que confere o tenant.
   'p.photoPath',
+  // Só a referência ao convênio (não o número da carteirinha): o modal de
+  // agendamento usa para sugerir o convênio da consulta sem abrir o cadastro
+  // completo, que passa pelo audit de prontuário.
+  'p.healthPlanId',
   'p.birthDate',
   'p.createdAt',
   'p.updatedAt',

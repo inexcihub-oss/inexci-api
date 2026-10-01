@@ -260,9 +260,14 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   }
 
   /**
-   * Detecta conflito de horário para um médico: uma consulta ativa (não
-   * cancelada) cujo intervalo [scheduled_at, scheduled_at + duração) sobrepõe
+   * Detecta conflito de horário para um médico: uma consulta que ainda ocupa
+   * o horário cujo intervalo [scheduled_at, scheduled_at + duração) sobrepõe
    * [start, end). `excludeId` ignora a própria consulta ao reagendar.
+   *
+   * Cancelada e falta não ocupam: se o paciente das 10h não veio, a recepção
+   * usa o horário sem precisar marcar encaixe. É o mesmo critério de
+   * `AppointmentsService.isActiveStatus`, que já não contava a falta ao
+   * reativar uma consulta. Realizada continua contando: o horário foi usado.
    */
   async hasOverlap(
     doctorId: string,
@@ -273,7 +278,9 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     const qb = this.repository
       .createQueryBuilder('appointment')
       .where('appointment.doctorId = :doctorId', { doctorId })
-      .andWhere('appointment.status != :cancelled', { cancelled: 'cancelled' })
+      .andWhere('appointment.status NOT IN (:...livres)', {
+        livres: [AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW],
+      })
       .andWhere('appointment.scheduledAt < :end', { end })
       .andWhere(
         `appointment.scheduledAt + (appointment.durationMinutes * interval '1 minute') > :start`,

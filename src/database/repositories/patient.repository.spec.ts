@@ -41,6 +41,7 @@ describe('PatientRepository.findAndCountWithSearch', () => {
         'p.cpf',
         'p.createdAt',
         'p.email',
+        'p.healthPlanId',
         'p.id',
         'p.name',
         'p.phone',
