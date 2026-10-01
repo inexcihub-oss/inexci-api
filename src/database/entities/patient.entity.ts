@@ -42,8 +42,28 @@ export class Patient {
   @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string | null;
 
-  @Column({ type: 'varchar', length: 14 })
-  cpf: string;
+  /** Telefone adicional (fixo, recado). O principal continua sendo `phone`. */
+  @Column({
+    name: 'secondary_phone',
+    type: 'varchar',
+    length: 15,
+    nullable: true,
+  })
+  secondaryPhone: string | null;
+
+  /**
+   * Opcional: pacientes migrados de outros sistemas, estrangeiros e menores
+   * podem não ter. A SC continua exigindo CPF para avançar.
+   */
+  @Column({ type: 'varchar', length: 14, nullable: true })
+  cpf: string | null;
+
+  /**
+   * Caminho interno da foto no R2 (`patient-photos/<ownerId>/...`), nunca URL.
+   * A URL assinada é gerada na leitura (`PatientsService`).
+   */
+  @Column({ name: 'photo_path', type: 'varchar', length: 255, nullable: true })
+  photoPath: string | null;
 
   @Column({ type: 'char', length: 1, nullable: true })
   gender: string | null;

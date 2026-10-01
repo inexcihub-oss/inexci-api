@@ -19,6 +19,10 @@ const COLUNAS_DA_LISTAGEM = [
   'p.cpf',
   'p.email',
   'p.phone',
+  // Caminho da foto (não a URL): o service assina e devolve `photoUrl` para o
+  // avatar da lista. O caminho em si não abre nada sem passar pelo
+  // `UploadService.getSignedUrl`, que confere o tenant.
+  'p.photoPath',
   'p.birthDate',
   'p.createdAt',
   'p.updatedAt',

@@ -44,6 +44,7 @@ describe('PatientRepository.findAndCountWithSearch', () => {
         'p.id',
         'p.name',
         'p.phone',
+        'p.photoPath',
         'p.updatedAt',
       ].sort(),
     );

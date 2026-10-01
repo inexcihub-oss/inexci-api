@@ -49,6 +49,20 @@ const PASTAS_PUBLICAS = [
 
 const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
+/**
+ * Pastas que só aceitam um subconjunto dos tipos de `MIME_TO_EXT`. Foto de
+ * paciente vira `<img>` na tela: PDF, áudio ou vídeo ali não têm uso e só
+ * abririam porta para guardar outro tipo de arquivo atrás de uma "foto".
+ */
+const MIME_PERMITIDOS_POR_PASTA: Record<string, readonly string[]> = {
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+  ],
+};
+
 @Injectable()
 export class UploadService {
   constructor(
@@ -76,7 +90,11 @@ export class UploadService {
     }
 
     const ext = MIME_TO_EXT[file.mimetype];
-    if (!ext) {
+    const permitidosNaPasta = MIME_PERMITIDOS_POR_PASTA[folder];
+    if (
+      !ext ||
+      (permitidosNaPasta && !permitidosNaPasta.includes(file.mimetype))
+    ) {
       throw new BadRequestException(
         `Tipo de arquivo não permitido: ${file.mimetype}`,
       );

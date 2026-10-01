@@ -55,7 +55,7 @@ export class PatientsController {
   @Get(':id')
   @ApiOperation({ summary: 'Buscar paciente por ID' })
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.patientsService.findOne(id, user.userId);
+    return this.patientsService.findOneWithPhoto(id, user.userId);
   }
 
   @Post()
@@ -74,7 +74,7 @@ export class PatientsController {
     @Body() data: UpdatePatientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.patientsService.update(id, data, user.userId);
+    return this.patientsService.updateWithPhoto(id, data, user.userId);
   }
 
   @Delete(':id')

@@ -1,7 +1,15 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UploadService } from './upload.service';
 import { StorageService } from '../../shared/storage/storage.service';
 import { DocumentRepository } from '../../database/repositories/document.repository';
+
+// `file-type` é ESM puro e o Jest (CommonJS) não o resolve; o que se testa aqui
+// é a regra de pasta/tenant, não a detecção de magic bytes.
+jest.mock(
+  'file-type',
+  () => ({ fileTypeFromBuffer: jest.fn().mockResolvedValue(undefined) }),
+  { virtual: true },
+);
 
 describe('UploadService — IDOR (VULN-03)', () => {
   let service: UploadService;
@@ -104,6 +112,63 @@ describe('UploadService — IDOR (VULN-03)', () => {
       await expect(
         service.getSignedUrl('pdfs/owner-a/laudo.pdf', 'owner-a'),
       ).resolves.toEqual({ url: 'https://example.com/signed' });
+    });
+  });
+  describe('fotos de paciente (patient-photos)', () => {
+    const PNG = Buffer.from(
+      '89504e470d0a1a0a0000000d4948445200000001000000010806000000',
+      'hex',
+    );
+    const arquivo = (mimetype: string, buffer: Buffer = PNG) =>
+      ({
+        originalname: 'foto.png',
+        mimetype,
+        buffer,
+      }) as Express.Multer.File;
+
+    beforeEach(() => {
+      mockStorageService.create = jest
+        .fn()
+        .mockResolvedValue('patient-photos/owner-a/uuid-foto.png');
+    });
+
+    it('não é pasta pública: recusa foto de paciente de outro tenant', async () => {
+      await expect(
+        service.getSignedUrl('patient-photos/owner-b/foto.png', 'owner-a'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockStorageService.getSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it('gera URL para foto do próprio tenant', async () => {
+      await expect(
+        service.getSignedUrl('patient-photos/owner-a/foto.png', 'owner-a'),
+      ).resolves.toEqual({ url: 'https://example.com/signed' });
+    });
+
+    it('grava a foto com o ownerId no caminho', async () => {
+      const result = await service.uploadFile(
+        arquivo('image/png'),
+        'patient-photos',
+        'owner-a',
+      );
+
+      expect(mockStorageService.create).toHaveBeenCalledWith(
+        expect.anything(),
+        'patient-photos',
+        'owner-a',
+      );
+      expect(result.path).toBe('patient-photos/owner-a/uuid-foto.png');
+    });
+
+    it('recusa PDF na pasta de foto de paciente', async () => {
+      await expect(
+        service.uploadFile(
+          arquivo('application/pdf', Buffer.from('%PDF-1.4')),
+          'patient-photos',
+          'owner-a',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockStorageService.create).not.toHaveBeenCalled();
     });
   });
 });

@@ -160,6 +160,34 @@ export const OUTRO_NAO_UNIFICADO: VerificacaoPreMigration = {
     })),
 };
 
+/**
+ * `MakePatientCpfNullable` afrouxa o schema no `up` (CPF passa a ser opcional,
+ * para receber pacientes migrados de outros sistemas sem CPF). Quem aperta é o
+ * `down`: devolver o `NOT NULL` quebra assim que existir um paciente sem CPF.
+ *
+ * Por isso esta verificação **não** entra em `VERIFICACOES_PRE_MIGRATION`: o
+ * pré-flight de deploy olha migrations pendentes indo para cima, e o `up` desta
+ * não tem dado legado que o viole. Ela é usada só pelo `down`, para abortar com
+ * a lista de pacientes em vez do erro cru do Postgres.
+ */
+export const PACIENTE_SEM_CPF: VerificacaoPreMigration = {
+  migration: 'MakePatientCpfNullable1755800000000',
+  descricao: 'paciente sem CPF em "patients" (impede reverter para NOT NULL)',
+  sql: `SELECT p."owner_id" AS owner_id,
+               string_agg(p."id"::text, ', ' ORDER BY p."created_at") AS ids
+          FROM "patients" p
+         WHERE p."cpf" IS NULL
+         GROUP BY p."owner_id"
+         ORDER BY p."owner_id"`,
+  comoResolver:
+    'Preencha o CPF desses pacientes (ou exclua-os definitivamente) antes de reverter a migration.',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `conta ${String(linha.owner_id ?? '')}`,
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,

@@ -78,6 +78,24 @@ describe('PendencyValidatorService — patient_data', () => {
     ]);
   });
 
+  // CPF do paciente passou a ser anulável (MIG-01): paciente migrado sem CPF
+  // chega com `cpf: null`, e a SC tem que continuar travada até preencher.
+  it('considera patient_data incompleto com CPF null (paciente sem CPF no cadastro)', async () => {
+    mockRepository.findOne.mockResolvedValue({
+      ...baseRequest,
+      patient: { name: 'João Silva', cpf: null },
+    });
+
+    const result = await service.validateForStatus('req-1');
+
+    const patientData = result.pendencies.find((p) => p.key === 'patient_data');
+    expect(patientData?.isComplete).toBe(false);
+    expect(patientData?.checkItems).toContainEqual({
+      label: 'CPF',
+      done: false,
+    });
+  });
+
   it('considera medical_report completo com nome, CPF, seção e assinatura', async () => {
     mockRepository.findOne.mockResolvedValue(baseRequest);
 

@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
@@ -10,6 +15,16 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { MailService } from 'src/shared/mail/mail.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
+import { StorageService } from 'src/shared/storage/storage.service';
+import { STORAGE_FOLDERS } from 'src/config/storage.config';
+
+/** Paciente como sai nas respostas HTTP: com a URL assinada da foto. */
+export type PatientWithPhoto = Patient & { photoUrl: string | null };
+
+/** Campo de texto opcional: vazio ou só espaços vira `null`, nunca `''`. */
+function textoOuNulo(valor: string | null | undefined): string | null {
+  return valor?.trim() || null;
+}
 
 @Injectable()
 export class PatientsService {
@@ -20,6 +35,7 @@ export class PatientsService {
     private readonly whatsappService: WhatsappService,
     private readonly accessControlService: AccessControlService,
     private readonly mailService: MailService,
+    private readonly storageService: StorageService,
   ) {}
 
   async findAll(query: FindManyPatientDto, userId: string) {
@@ -35,7 +51,7 @@ export class PatientsService {
         query.take ?? 10,
       );
 
-    return { total, records };
+    return { total, records: await this.comFotos(records) };
   }
 
   /**
@@ -101,19 +117,36 @@ export class PatientsService {
     return patient;
   }
 
+  /**
+   * `findOne` + URL assinada da foto, para a resposta HTTP. O `findOne` puro
+   * continua sem a URL porque também é usado pela tool do assistente de
+   * WhatsApp, que repassa o paciente ao modelo — URL assinada não vai para a
+   * OpenAI.
+   */
+  async findOneWithPhoto(
+    id: string,
+    userId: string,
+  ): Promise<PatientWithPhoto> {
+    const patient = await this.findOne(id, userId);
+    return { ...patient, photoUrl: await this.urlDaFoto(patient.photoPath) };
+  }
+
   async create(data: CreatePatientDto, userId: string): Promise<Patient> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
     const ownerId = user.ownerId;
     const doctorId = ownerId;
+    const photoPath = this.validarFoto(data.photoPath, ownerId);
 
     const patient = await this.patientRepository.create({
       doctorId,
       ownerId,
       name: data.name,
       phone: data.phone?.trim() || null,
-      cpf: data.cpf,
+      secondaryPhone: textoOuNulo(data.secondaryPhone),
+      cpf: textoOuNulo(data.cpf),
+      photoPath,
       gender: data.gender,
       birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
       healthPlanId: data.healthPlanId,
@@ -159,7 +192,11 @@ export class PatientsService {
     if (data.name !== undefined) updateData.name = data.name;
     if (data.phone !== undefined) updateData.phone = data.phone.trim() || null;
     if (data.email !== undefined) updateData.email = data.email.trim() || null;
-    if (data.cpf !== undefined) updateData.cpf = data.cpf;
+    if (data.cpf !== undefined) updateData.cpf = textoOuNulo(data.cpf);
+    if (data.secondaryPhone !== undefined)
+      updateData.secondaryPhone = textoOuNulo(data.secondaryPhone);
+    if (data.photoPath !== undefined)
+      updateData.photoPath = this.validarFoto(data.photoPath, patient.ownerId);
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.birthDate !== undefined)
       updateData.birthDate = new Date(data.birthDate);
@@ -182,7 +219,30 @@ export class PatientsService {
     if (data.medicalNotes !== undefined)
       updateData.medicalNotes = data.medicalNotes;
 
-    return (await this.patientRepository.update(id, updateData))!;
+    const atualizado = (await this.patientRepository.update(id, updateData))!;
+
+    if (
+      updateData.photoPath !== undefined &&
+      patient.photoPath &&
+      patient.photoPath !== updateData.photoPath
+    ) {
+      await this.apagarFotoAntiga(patient.photoPath);
+    }
+
+    return atualizado;
+  }
+
+  /** Resposta HTTP do update: mesmo formato do `findOneWithPhoto`. */
+  async updateWithPhoto(
+    id: string,
+    data: UpdatePatientDto,
+    userId: string,
+  ): Promise<PatientWithPhoto> {
+    const atualizado = await this.update(id, data, userId);
+    return {
+      ...atualizado,
+      photoUrl: await this.urlDaFoto(atualizado.photoPath),
+    };
   }
 
   async delete(id: string, userId: string): Promise<void> {
@@ -216,5 +276,60 @@ export class PatientsService {
     );
 
     return { deleted: uniqueIds.length };
+  }
+
+  /**
+   * Só aceita foto enviada por esta conta para a pasta de fotos de paciente.
+   * Sem isso, um caminho de outro tenant (ou de outra pasta, como `documents/`)
+   * gravado aqui viraria uma URL assinada gerada pelo próprio backend, por fora
+   * da checagem de posse do `UploadService.getSignedUrl`.
+   */
+  private validarFoto(
+    photoPath: string | null | undefined,
+    ownerId: string,
+  ): string | null {
+    const caminho = textoOuNulo(photoPath);
+    if (!caminho) return null;
+
+    const prefixo = `${STORAGE_FOLDERS.PATIENT_PHOTOS}/${ownerId}/`;
+    const nome = caminho.slice(prefixo.length);
+    if (
+      !caminho.startsWith(prefixo) ||
+      !nome ||
+      nome.includes('/') ||
+      nome.includes('..')
+    ) {
+      throw new BadRequestException('Foto do paciente inválida.');
+    }
+    return caminho;
+  }
+
+  private async urlDaFoto(photoPath: string | null): Promise<string | null> {
+    if (!photoPath) return null;
+    try {
+      return await this.storageService.getSignedUrl(photoPath);
+    } catch {
+      // Foto que sumiu do storage não pode derrubar a ficha do paciente.
+      this.logger.warn('Falha ao gerar URL da foto de paciente');
+      return null;
+    }
+  }
+
+  private async comFotos(pacientes: Patient[]): Promise<PatientWithPhoto[]> {
+    return Promise.all(
+      pacientes.map(async (p) => ({
+        ...p,
+        photoUrl: await this.urlDaFoto(p.photoPath),
+      })),
+    );
+  }
+
+  /** Best-effort: o cadastro já foi gravado; objeto órfão no R2 não é erro. */
+  private async apagarFotoAntiga(photoPath: string): Promise<void> {
+    try {
+      await this.storageService.delete(photoPath);
+    } catch {
+      this.logger.warn('Falha ao apagar foto antiga de paciente do storage');
+    }
   }
 }
