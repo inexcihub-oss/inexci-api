@@ -4,10 +4,28 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
 import { StorageService } from 'src/shared/storage/storage.service';
 import { CustomHeaderData } from './pdf.service';
 
+/**
+ * `CRM 12345/RJ`. Sem número, nada é impresso (como antes). Perfil antigo sem
+ * `council` carregado é CRM — aqui é só exibição, não decide permissão.
+ */
+export function formatarRegistroProfissional(
+  profile:
+    | { council?: string | null; crm?: string | null; crmState?: string | null }
+    | null
+    | undefined,
+): string | undefined {
+  if (!profile?.crm) return undefined;
+  const conselho = profile.council || 'CRM';
+  return `${conselho} ${profile.crm}${profile.crmState ? `/${profile.crmState}` : ''}`;
+}
+
 export interface DoctorPdfContext {
   doctor: any;
   profile: any;
-  /** CRM já formatado para impressão (ex.: `CRM 12345/RJ`). */
+  /**
+   * Registro no conselho já formatado para impressão (ex.: `CRM 12345/RJ`,
+   * `CRN 4567/RJ`). Nome histórico `doctorCrm`: os templates `.hbs` o usam.
+   */
   doctorCrm?: string;
   doctorSignatureUrl?: string;
   customHeader: CustomHeaderData | null;
@@ -44,10 +62,7 @@ export class DoctorPdfContextService {
   async buildForDoctor(doctor: any): Promise<DoctorPdfContext> {
     const profile = doctor?.doctorProfile;
 
-    let doctorCrm: string | undefined;
-    if (profile?.crm) {
-      doctorCrm = `CRM ${profile.crm}${profile.crmState ? `/${profile.crmState}` : ''}`;
-    }
+    const doctorCrm = formatarRegistroProfissional(profile);
 
     const doctorSignatureUrl = await this.resolveSignatureUrl(profile);
     const customHeader = await this.resolveCustomHeader(profile);

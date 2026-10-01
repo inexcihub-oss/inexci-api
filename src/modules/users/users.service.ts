@@ -34,7 +34,11 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { BCRYPT_ROUNDS } from 'src/shared/constants/bcrypt';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
-import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
+import {
+  DoctorProfile,
+  isPhysicianProfile,
+  ProfessionalCouncil,
+} from 'src/database/entities/doctor-profile.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
@@ -99,6 +103,7 @@ export class UsersService {
       role: usuario.role,
       permissions: usuario.permissions,
       isDoctor: !!usuario.doctorProfile,
+      isPhysician: isPhysicianProfile(usuario.doctorProfile),
     });
 
     if (!permissoes.includes(Permission.ADMINISTRACAO)) {
@@ -153,12 +158,14 @@ export class UsersService {
     return {
       ...userWithoutPassword,
       isDoctor: !!userWithoutPassword.doctorProfile,
+      isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
       // A permissão EFETIVA, não a coluna crua: o frontend precisa saber o
       // que o usuário pode de fato, incluindo o que ganha por ser médico.
       permissions: resolveEffectivePermissions({
         role: userWithoutPassword.role,
         permissions,
         isDoctor: !!userWithoutPassword.doctorProfile,
+        isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
       }),
     };
   }
@@ -466,6 +473,7 @@ export class UsersService {
       role: requesting.role,
       permissions: requesting.permissions,
       isDoctor: !!requesting.doctorProfile,
+      isPhysician: isPhysicianProfile(requesting.doctorProfile),
     });
     const isAdmin =
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
@@ -474,6 +482,7 @@ export class UsersService {
     // Colaborador vinculado ao médico pode atualizar APENAS a assinatura.
     // CRM/estado/especialidade continuam restritos ao próprio médico ou admin.
     const onlySignature =
+      data.council === undefined &&
       data.crm === undefined &&
       data.crmState === undefined &&
       data.specialty === undefined;
@@ -496,11 +505,42 @@ export class UsersService {
       throw new BadRequestException('Este usuário não é médico');
     }
 
+    // Trocar o conselho muda o que a pessoa pode fazer (só CRM emite receita,
+    // indica cirurgia e vê Solicitações). Por isso é ato de Administração —
+    // nem o próprio profissional nem o colaborador vinculado o fazem.
+    const mudaConselho =
+      data.council !== undefined &&
+      data.council !== target.doctorProfile.council;
+    if (mudaConselho && !isAdmin) {
+      throw new ForbiddenException(
+        'Somente a administração da conta altera o conselho profissional.',
+      );
+    }
+
     // Atualiza no DoctorProfile
     const profileUpdates: Partial<DoctorProfile> = {};
-    if (data.crm !== undefined) profileUpdates.crm = data.crm;
-    if (data.crmState !== undefined) profileUpdates.crmState = data.crmState;
+    if (data.council !== undefined) profileUpdates.council = data.council;
+    if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
+    if (data.crmState !== undefined)
+      profileUpdates.crmState = data.crmState?.trim() || null;
     if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
+
+    // O banco não garante mais número/UF: valida o estado FINAL do perfil —
+    // mas só quando a requisição mexe no registro. Perfil antigo com `crm`
+    // vazio (o código anterior chegou a gravar '') continua podendo trocar só
+    // a assinatura ou a especialidade.
+    if (
+      data.council !== undefined ||
+      data.crm !== undefined ||
+      data.crmState !== undefined
+    )
+      UsersService.assertRegistroDoConselho(
+        profileUpdates.council ?? target.doctorProfile.council,
+        'crm' in profileUpdates ? profileUpdates.crm : target.doctorProfile.crm,
+        'crmState' in profileUpdates
+          ? profileUpdates.crmState
+          : target.doctorProfile.crmState,
+      );
     if (data.signatureImageUrl !== undefined)
       profileUpdates.signatureUrl = data.signatureImageUrl ?? null;
 
@@ -508,6 +548,11 @@ export class UsersService {
       target.doctorProfile.id,
       profileUpdates,
     );
+    if (mudaConselho) {
+      // Mesmo motivo do `updateCollaborator`: o assistente do WhatsApp guarda
+      // a permissão em cache.
+      this.emitAccessChanged(targetId, target.phone);
+    }
 
     const updated = await this.userRepository.findOneWithProfile({
       id: targetId,
@@ -576,6 +621,7 @@ export class UsersService {
           role: c.role,
           permissions: c.permissions,
           isDoctor: !!c.doctorProfile,
+          isPhysician: isPhysicianProfile(c.doctorProfile),
         }),
       })),
     );
@@ -609,8 +655,15 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
 
+    const council = data.council ?? ProfessionalCouncil.CRM;
     const hasDoctorCredentials = Boolean(data.crm && data.crmState);
+    // Compat: sem `isDoctor` explícito, CRM + UF informados continuam
+    // significando "é médico". Para os demais conselhos o número é opcional,
+    // então só `isDoctor: true` cria o perfil.
     const isDoctor = data.isDoctor ?? hasDoctorCredentials;
+    if (isDoctor) {
+      UsersService.assertRegistroDoConselho(council, data.crm, data.crmState);
+    }
 
     // Gera uma senha aleatória apenas para satisfazer o schema — o colaborador
     // nunca saberá esta senha; ela será substituída ao definir a senha pelo link.
@@ -644,12 +697,13 @@ export class UsersService {
       throw err;
     }
 
-    // Se é médico, criar doctorProfile
-    if (isDoctor && data.crm && data.crmState) {
+    // Profissional de saúde: cria o perfil (médico se o conselho for CRM).
+    if (isDoctor) {
       await this.doctorProfileRepository.create({
         userId: newUser.id,
-        crm: data.crm,
-        crmState: data.crmState,
+        council,
+        crm: data.crm?.trim() || null,
+        crmState: data.crmState?.trim() || null,
         specialty: data.specialty || null,
       });
     }
@@ -723,6 +777,7 @@ export class UsersService {
         role: newUser.role,
         permissions,
         isDoctor,
+        isPhysician: isDoctor && council === ProfessionalCouncil.CRM,
       }),
     };
   }
@@ -790,55 +845,53 @@ export class UsersService {
       updates.permissions = data.permissions;
     }
 
-    // Gestão do doctorProfile
-    if (data.isDoctor !== undefined) {
-      if (data.isDoctor && !hasProfile) {
-        // Criar doctorProfile
-        await this.doctorProfileRepository.create({
-          userId: collaboratorId,
-          crm: data.crm || '',
-          crmState: data.crmState || '',
-          specialty: data.specialty || null,
-        });
-      } else if (!data.isDoctor && hasProfile) {
-        // Remover doctorProfile
-        await this.doctorProfileRepository.delete(
-          collaborator.doctorProfile!.id,
-        );
-      } else if (data.isDoctor && hasProfile) {
-        // Atualizar doctorProfile
-        const profileUpdates: Partial<DoctorProfile> = {};
-        if (data.crm !== undefined) profileUpdates.crm = data.crm;
-        if (data.crmState !== undefined)
-          profileUpdates.crmState = data.crmState;
-        if (data.specialty !== undefined)
-          profileUpdates.specialty = data.specialty;
-        if (Object.keys(profileUpdates).length > 0) {
-          await this.doctorProfileRepository.update(
-            collaborator.doctorProfile!.id,
-            profileUpdates,
-          );
-        }
-      }
-    } else {
-      // Atualizar campos médicos no doctorProfile se existem
-      if (
-        hasProfile &&
-        (data.crm !== undefined ||
-          data.crmState !== undefined ||
-          data.specialty !== undefined)
-      ) {
-        const profileUpdates: Partial<DoctorProfile> = {};
-        if (data.crm !== undefined) profileUpdates.crm = data.crm;
-        if (data.crmState !== undefined)
-          profileUpdates.crmState = data.crmState;
-        if (data.specialty !== undefined)
-          profileUpdates.specialty = data.specialty;
-        await this.doctorProfileRepository.update(
-          collaborator.doctorProfile!.id,
-          profileUpdates,
-        );
-      }
+    // Gestão do doctorProfile. O banco não garante mais número/UF (outros
+    // conselhos podem não ter), então o estado FINAL do perfil é validado aqui
+    // antes de gravar: CRM continua exigindo número e UF.
+    const perfilAtual = collaborator.doctorProfile ?? null;
+    const profileUpdates: Partial<DoctorProfile> = {};
+    if (data.council !== undefined) profileUpdates.council = data.council;
+    if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
+    if (data.crmState !== undefined)
+      profileUpdates.crmState = data.crmState?.trim() || null;
+    if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
+
+    const terPerfil = data.isDoctor !== undefined ? data.isDoctor : hasProfile;
+    const councilFinal =
+      profileUpdates.council ?? perfilAtual?.council ?? ProfessionalCouncil.CRM;
+
+    // Valida o registro quando o perfil nasce ou quando a requisição mexe nele
+    // (mesmo motivo do `updateDoctorProfileById`: perfil antigo com `crm`
+    // vazio não pode travar a edição de outros campos do colaborador).
+    const mexeNoRegistro =
+      data.council !== undefined ||
+      data.crm !== undefined ||
+      data.crmState !== undefined;
+    if (terPerfil && (!hasProfile || mexeNoRegistro)) {
+      const crmFinal =
+        'crm' in profileUpdates ? profileUpdates.crm : perfilAtual?.crm;
+      const ufFinal =
+        'crmState' in profileUpdates
+          ? profileUpdates.crmState
+          : perfilAtual?.crmState;
+      UsersService.assertRegistroDoConselho(councilFinal, crmFinal, ufFinal);
+    }
+
+    if (terPerfil && !hasProfile) {
+      await this.doctorProfileRepository.create({
+        userId: collaboratorId,
+        council: councilFinal,
+        crm: profileUpdates.crm ?? null,
+        crmState: profileUpdates.crmState ?? null,
+        specialty: profileUpdates.specialty ?? null,
+      });
+    } else if (!terPerfil && hasProfile) {
+      await this.doctorProfileRepository.delete(perfilAtual!.id);
+    } else if (terPerfil && Object.keys(profileUpdates).length > 0) {
+      await this.doctorProfileRepository.update(
+        perfilAtual!.id,
+        profileUpdates,
+      );
     }
 
     const updated = await this.userRepository.update(collaboratorId, updates);
@@ -851,8 +904,9 @@ export class UsersService {
     // (antes) + a mesma lógica de branches acima já dizem se o
     // `doctor_profile` existe agora, e a permissão gravada é `data.permissions`
     // quando informada, ou a que já estava em `collaborator` quando omitida.
-    const isDoctorAfterUpdate =
-      data.isDoctor !== undefined ? data.isDoctor : hasProfile;
+    const isDoctorAfterUpdate = terPerfil;
+    const isPhysicianAfterUpdate =
+      terPerfil && councilFinal === ProfessionalCouncil.CRM;
 
     // O assistente do WhatsApp deriva `permissions` a partir de caches em
     // memória (identidade do usuário por telefone, ~10 min; médicos
@@ -862,7 +916,12 @@ export class UsersService {
     // deixaria uma janela de até 10 min em que o WhatsApp ainda opera com a
     // permissão antiga. Emitido só quando o que afeta a permissão efetiva
     // (`data.permissions` ou `data.isDoctor`) de fato mudou.
-    if (data.permissions !== undefined || data.isDoctor !== undefined) {
+    // O conselho também muda a permissão efetiva (só CRM ganha Solicitações).
+    if (
+      data.permissions !== undefined ||
+      data.isDoctor !== undefined ||
+      data.council !== undefined
+    ) {
       this.emitAccessChanged(collaboratorId, collaborator.phone);
     }
 
@@ -881,6 +940,7 @@ export class UsersService {
         role: collaborator.role,
         permissions: grantedPermissionsAfterUpdate,
         isDoctor: isDoctorAfterUpdate,
+        isPhysician: isPhysicianAfterUpdate,
       }),
       // Crua — para editar (o que a tela deve guardar como novo baseline).
       grantedPermissions: grantedPermissionsAfterUpdate,
@@ -1205,6 +1265,7 @@ export class UsersService {
         ? { ...userWithoutPassword.doctorProfile, signatureUrl }
         : userWithoutPassword.doctorProfile,
       isDoctor: !!collaborator.doctorProfile,
+      isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       doctorAccesses: accesses,
       // A permissão EFETIVA (com o bônus de médico já somado) — para EXIBIR
       // o que o colaborador pode fazer hoje. Nunca usar este campo para
@@ -1218,6 +1279,7 @@ export class UsersService {
         role: collaborator.role,
         permissions,
         isDoctor: !!collaborator.doctorProfile,
+        isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       }),
       // A coluna CRUA (o que foi de fato concedido) — para EDITAR. É este
       // campo que a tela de colaborador deve semear no formulário e
@@ -1281,6 +1343,7 @@ export class UsersService {
       role: requesting.role,
       permissions: requesting.permissions,
       isDoctor: !!requesting.doctorProfile,
+      isPhysician: isPhysicianProfile(requesting.doctorProfile),
     });
     const isAccountAdmin =
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
@@ -1397,6 +1460,27 @@ export class UsersService {
         'Apenas médicos podem atualizar a assinatura digital.',
       );
     await this.doctorProfileRepository.update(profile.id, { signatureUrl });
+  }
+
+  /**
+   * CRM exige número e UF: é o que sai impresso em receita, atestado e laudo.
+   * Os demais conselhos podem ficar sem número (profissional migrado de outro
+   * sistema sem o registro cadastrado). Era garantido pelo NOT NULL do banco
+   * até o `AddCouncilToDoctorProfiles`; agora é aqui.
+   */
+  private static assertRegistroDoConselho(
+    council: ProfessionalCouncil,
+    crm: string | null | undefined,
+    crmState: string | null | undefined,
+  ): void {
+    if (
+      council === ProfessionalCouncil.CRM &&
+      (!crm?.trim() || !crmState?.trim())
+    ) {
+      throw new BadRequestException(
+        'Número e UF do CRM são obrigatórios para médicos.',
+      );
+    }
   }
 
   private async resolveStorageUrl(

@@ -264,7 +264,7 @@ describe('AccessControlService', () => {
       const linkedDoctor = {
         id: 'linked-doc-id',
         name: 'Linked Doctor',
-        doctorProfile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
       };
       userRepository.findOneWithProfile.mockResolvedValue(collaborator as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
@@ -362,6 +362,59 @@ describe('AccessControlService', () => {
       await expect(service.getAccountId('missing-id')).rejects.toThrow(
         'Usuário missing-id não encontrado',
       );
+    });
+  });
+
+  // ─── assertIsPhysician (MIG-02) ───
+
+  describe('assertIsPhysician', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it('libera perfil com conselho CRM', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM' });
+
+      await expect(service.assertIsPhysician('u-1')).resolves.toBeUndefined();
+    });
+
+    it.each(['CRN', 'CRP', 'COREN', 'OUTRO'])(
+      'bloqueia perfil de outro conselho (%s)',
+      async (council) => {
+        comPerfil({ id: 'p-1', council });
+
+        await expect(service.assertIsPhysician('u-1')).rejects.toThrow(
+          ForbiddenException,
+        );
+      },
+    );
+
+    // Estrito: perfil carregado sem a coluna não vira médico por omissão.
+    it('bloqueia perfil sem council carregado', async () => {
+      comPerfil({ id: 'p-1' });
+
+      await expect(service.assertIsPhysician('u-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('bloqueia quem não tem perfil', async () => {
+      comPerfil(null);
+
+      await expect(service.assertIsPhysician('u-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('usa a mensagem informada', async () => {
+      comPerfil({ id: 'p-1', council: 'CRN' });
+
+      await expect(
+        service.assertIsPhysician('u-1', 'mensagem própria'),
+      ).rejects.toThrow('mensagem própria');
     });
   });
 

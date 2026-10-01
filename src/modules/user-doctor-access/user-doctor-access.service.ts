@@ -1,3 +1,4 @@
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import {
   BadRequestException,
   ForbiddenException,
@@ -47,6 +48,7 @@ export class UserDoctorAccessService {
       role: admin.role,
       permissions: admin.permissions,
       isDoctor: !!admin.doctorProfile,
+      isPhysician: isPhysicianProfile(admin.doctorProfile),
     });
     if (!permissoes.includes(Permission.ADMINISTRACAO)) {
       throw new ForbiddenException(

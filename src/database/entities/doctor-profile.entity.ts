@@ -11,9 +11,41 @@ import { User } from './user.entity';
 import { DoctorHeader } from './doctor-header.entity';
 
 /**
- * Perfil profissional do médico.
- * Um usuário (admin ou collaborator) é médico se e somente se
- * existir um registro nesta tabela com seu userId.
+ * Conselho profissional. Gravado como texto em `doctor_profiles.council`.
+ *
+ * Só `CRM` é médico: emite receita, atestado e pedido de exame, indica cirurgia
+ * e enxerga Solicitações. Os demais (psicologia, nutrição, enfermagem…) têm
+ * agenda e prontuário próprios.
+ */
+export enum ProfessionalCouncil {
+  CRM = 'CRM',
+  CRP = 'CRP',
+  CRN = 'CRN',
+  COREN = 'COREN',
+  CREFITO = 'CREFITO',
+  CRFA = 'CRFA',
+  CRO = 'CRO',
+  CRBM = 'CRBM',
+  CREF = 'CREF',
+  OUTRO = 'OUTRO',
+}
+
+/**
+ * Médico de fato: perfil com conselho CRM. Estrito de propósito — um perfil
+ * carregado sem a coluna `council` (select parcial) **não** vira médico por
+ * omissão, para não abrir Solicitações e receita a quem não é.
+ */
+export function isPhysicianProfile(
+  profile: { council?: string | null } | null | undefined,
+): boolean {
+  return !!profile && profile.council === ProfessionalCouncil.CRM;
+}
+
+/**
+ * Perfil profissional de saúde (nome histórico: "doctor profile").
+ * Um usuário (admin ou collaborator) atende pacientes se e somente se existir
+ * um registro nesta tabela com seu userId. Se é **médico** depende do
+ * `council` — ver `isPhysicianProfile`.
  */
 @Entity('doctor_profiles')
 export class DoctorProfile {
@@ -23,11 +55,23 @@ export class DoctorProfile {
   @Column({ name: 'user_id', type: 'uuid', unique: true })
   userId: string;
 
-  @Column({ type: 'varchar', length: 20 })
-  crm: string;
+  @Column({
+    type: 'varchar',
+    length: 10,
+    default: ProfessionalCouncil.CRM,
+  })
+  council: ProfessionalCouncil;
 
-  @Column({ name: 'crm_state', type: 'char', length: 2 })
-  crmState: string;
+  /**
+   * Número no conselho (nome histórico `crm`). Obrigatório para CRM — regra no
+   * DTO/service, não no banco; opcional para os demais conselhos.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  crm: string | null;
+
+  /** UF do conselho (nome histórico `crm_state`). */
+  @Column({ name: 'crm_state', type: 'char', length: 2, nullable: true })
+  crmState: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   specialty: string | null;

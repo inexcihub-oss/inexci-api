@@ -4,16 +4,24 @@ import { ALL_PERMISSIONS, Permission } from './permission.enum';
 export interface PermissionSubject {
   role: UserRole;
   permissions?: Permission[] | null;
-  /** Existência de `doctor_profile` — "médico" não é um role. */
+  /**
+   * Existência de `doctor_profile` — profissional de saúde que atende (tem
+   * agenda e prontuário). "Médico" não é um role.
+   */
   isDoctor: boolean;
+  /**
+   * Perfil com conselho CRM (`isPhysicianProfile`). Obrigatório de propósito:
+   * esquecer de informar daria Solicitações a uma nutricionista por omissão.
+   */
+  isPhysician: boolean;
 }
 
 /**
  * Traduz o que está gravado no banco na permissão que de fato vale.
  *
  * O dono da conta recebe tudo: restringir quem paga a assinatura não faz
- * sentido. E quem tem `doctor_profile` recebe Agenda, Atendimento e
- * Solicitações por cima do array: finalizar uma ficha com indicação
+ * sentido. Quem tem `doctor_profile` recebe Agenda e Atendimento por cima do
+ * array; se o perfil for de médico (CRM), recebe também Solicitações: finalizar uma ficha com indicação
  * cirúrgica abre a SC — um médico sem Solicitações criaria uma solicitação
  * invisível para si mesmo; e o médico marca a própria consulta como
  * realizada e agenda o retorno a partir da ficha do paciente e da sidebar do
@@ -31,8 +39,15 @@ export function resolveEffectivePermissions(
 
   const concedidas = new Set<Permission>(subject.permissions ?? []);
   if (subject.isDoctor) {
+    // Qualquer profissional com perfil atende: agenda a própria consulta e
+    // registra o atendimento.
     concedidas.add(Permission.AGENDA);
     concedidas.add(Permission.ATENDIMENTO);
+  }
+  if (subject.isDoctor && subject.isPhysician) {
+    // Só o médico (CRM) indica cirurgia, e a SC nasce da ficha dele. Psicóloga
+    // ou nutricionista não ganham o kanban cirúrgico por ter perfil — se a
+    // conta quiser, concede `solicitacoes` no array, como a qualquer colaborador.
     concedidas.add(Permission.SOLICITACOES);
   }
 

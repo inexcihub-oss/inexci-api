@@ -1,12 +1,15 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 
 /**
- * Service responsável por resolver o doctorId para operações de escrita.
+ * Service responsável por resolver o doctorId de uma **solicitação cirúrgica**
+ * nova (único consumidor: `SurgeryRequestMutationService`).
  *
- * Centraliza a lógica de identificação do médico responsável,
- * eliminando duplicação entre services de criação/atualização.
+ * SC é de médico (CRM): o médico resolvido aqui tem que ser médico, não só
+ * profissional de saúde. Psicóloga, nutricionista ou enfermagem têm agenda e
+ * prontuário, mas não abrem SC — nem em nome próprio, nem por um colaborador.
  */
 @Injectable()
 export class DoctorResolutionService {
@@ -18,10 +21,10 @@ export class DoctorResolutionService {
   ) {}
 
   /**
-   * Resolve o doctorId para operações de escrita.
-   * - Se doctorIdFromPayload fornecido: valida acesso e retorna
-   * - Se usuário é médico (tem doctorProfile): retorna user.id
-   * - Caso contrário: retorna o primeiro médico acessível
+   * Resolve o doctorId para criar uma SC.
+   * - `doctorIdFromPayload` informado: valida acesso e que é médico (CRM).
+   * - Usuário é médico (CRM): retorna o próprio id.
+   * - Caso contrário: o primeiro médico (CRM) acessível.
    */
   async resolveDoctorId(
     userId: string,
@@ -35,19 +38,33 @@ export class DoctorResolutionService {
           'Você não tem permissão para criar solicitações para este médico.',
         );
       }
+      await this.accessControlService.assertIsPhysician(
+        doctorIdFromPayload,
+        'Solicitação cirúrgica só pode ser criada em nome de um médico (CRM).',
+      );
       return doctorIdFromPayload;
     }
 
     const user = await this.userRepository.findOneWithProfile({ id: userId });
-    if (user?.doctorProfile) return user.id;
+    if (isPhysicianProfile(user?.doctorProfile)) return user!.id;
 
+    // Mantém a ordem de `getAccessibleDoctorIds` (o primeiro acessível
+    // continua sendo o escolhido), pulando quem não é médico.
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
-    if (doctorIds.length === 0) {
+    const perfis =
+      await this.userRepository.findManyWithProfileByIds(doctorIds);
+    const medicos = new Set(
+      perfis
+        .filter((u) => isPhysicianProfile(u.doctorProfile))
+        .map((u) => u.id),
+    );
+    const primeiro = doctorIds.find((id) => medicos.has(id));
+    if (!primeiro) {
       throw new ForbiddenException(
-        'Nenhum médico acessível encontrado para este usuário.',
+        'Nenhum médico (CRM) acessível encontrado para este usuário.',
       );
     }
-    return doctorIds[0];
+    return primeiro;
   }
 }

@@ -191,4 +191,50 @@ describe('CreateCollaboratorDto', () => {
       expect(permissionsError).toBeDefined();
     });
   });
+  describe('conselho profissional (MIG-02)', () => {
+    const base = {
+      name: 'Ana Souza',
+      email: 'ana@email.com',
+      phone: '11999998888',
+      isDoctor: true,
+    };
+    const erroEm = async (dados: object, campo: string) =>
+      (await validate(plainToInstance(CreateCollaboratorDto, dados))).find(
+        (e) => e.property === campo,
+      );
+
+    it('sem council continua exigindo CRM e UF (médico por padrão)', async () => {
+      expect(await erroEm(base, 'crm')).toBeDefined();
+      expect(await erroEm(base, 'crmState')).toBeDefined();
+    });
+
+    it('CRM explícito sem número falha', async () => {
+      expect(await erroEm({ ...base, council: 'CRM' }, 'crm')).toBeDefined();
+    });
+
+    it('CRN sem número e sem UF é válido', async () => {
+      const errors = await validate(
+        plainToInstance(CreateCollaboratorDto, { ...base, council: 'CRN' }),
+      );
+      expect(errors).toHaveLength(0);
+    });
+
+    it('CRN com número vazio é válido (campo não informado)', async () => {
+      const errors = await validate(
+        plainToInstance(CreateCollaboratorDto, {
+          ...base,
+          council: 'CRN',
+          crm: '',
+          crmState: '',
+        }),
+      );
+      expect(errors).toHaveLength(0);
+    });
+
+    it('recusa conselho fora da lista', async () => {
+      expect(
+        await erroEm({ ...base, council: 'XPTO' }, 'council'),
+      ).toBeDefined();
+    });
+  });
 });

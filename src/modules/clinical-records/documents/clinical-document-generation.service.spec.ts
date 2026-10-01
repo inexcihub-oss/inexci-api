@@ -45,7 +45,7 @@ describe('ClinicalDocumentGenerationService', () => {
   const accessControlService = {
     assertSameOwner: jest.fn(),
     assertCanAccessDoctorResource: jest.fn(),
-    assertIsDoctor: jest.fn(),
+    assertIsPhysician: jest.fn(),
   };
   const storageService = { create: jest.fn(), getSignedUrl: jest.fn() };
   const pdfService = {
@@ -79,7 +79,7 @@ describe('ClinicalDocumentGenerationService', () => {
     accessControlService.assertCanAccessDoctorResource.mockResolvedValue(
       undefined,
     );
-    accessControlService.assertIsDoctor.mockResolvedValue(undefined);
+    accessControlService.assertIsPhysician.mockResolvedValue(undefined);
     doctorPdfContextService.buildForDoctorId.mockResolvedValue({
       doctor: { name: 'Dra. Ana Souza' },
       profile: { specialty: 'Ortopedia' },
@@ -589,7 +589,7 @@ describe('ClinicalDocumentGenerationService', () => {
     });
 
     it('bloqueia não-médico', async () => {
-      accessControlService.assertIsDoctor.mockRejectedValue(
+      accessControlService.assertIsPhysician.mockRejectedValue(
         new ForbiddenException(),
       );
 
@@ -689,12 +689,13 @@ describe('ClinicalDocumentGenerationService', () => {
 
   /**
    * Receita, atestado e pedido de exame saem com o CRM e a assinatura do médico
-   * da ficha. Emiti-los é ato médico: quem não tem `doctor_profile` não passa
-   * daqui — nem na prévia, que é o mesmo documento renderizado na tela.
+   * da ficha. Emiti-los é ato médico (CRM): quem não é médico — inclusive
+   * profissional de outro conselho, com `doctor_profile` — não passa daqui,
+   * nem na prévia, que é o mesmo documento renderizado na tela.
    */
   describe('somente médico emite', () => {
     beforeEach(() => {
-      accessControlService.assertIsDoctor.mockRejectedValue(
+      accessControlService.assertIsPhysician.mockRejectedValue(
         new ForbiddenException(),
       );
     });
@@ -757,11 +758,55 @@ describe('ClinicalDocumentGenerationService', () => {
     ])('bloqueia não-médico em %s', async (_label, action) => {
       await expect(action()).rejects.toThrow(ForbiddenException);
 
-      expect(accessControlService.assertIsDoctor).toHaveBeenCalledWith(
+      expect(accessControlService.assertIsPhysician).toHaveBeenCalledWith(
         'secretaria-id',
       );
       expect(documentRepository.create).not.toHaveBeenCalled();
       expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
+    });
+  });
+  /**
+   * MIG-02: o documento sai em nome do médico da ficha, que pode não ser quem
+   * clicou. Um médico (CRM) não emite receita em nome de uma nutricionista.
+   */
+  describe('documento em nome de profissional que não é médico', () => {
+    beforeEach(() => {
+      accessControlService.assertIsPhysician.mockImplementation((id: string) =>
+        id === 'nutricionista-1'
+          ? Promise.reject(new ForbiddenException())
+          : Promise.resolve(undefined),
+      );
+      clinicalRecordRepository.findOne.mockResolvedValue({
+        ...record,
+        doctorId: 'nutricionista-1',
+      });
+    });
+
+    it('recusa a receita mesmo emitida por médico', async () => {
+      await expect(
+        service.generatePrescription(
+          'record-1',
+          prescriptionDto as any,
+          'doctor-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(accessControlService.assertIsPhysician).toHaveBeenCalledWith(
+        'nutricionista-1',
+        expect.any(String),
+      );
+      expect(documentRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('não checa de novo quando quem emite é o próprio médico da ficha', async () => {
+      clinicalRecordRepository.findOne.mockResolvedValue(record);
+
+      await service.previewPrescription(
+        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+        'doctor-1',
+      );
+
+      expect(accessControlService.assertIsPhysician).toHaveBeenCalledTimes(1);
     });
   });
 });

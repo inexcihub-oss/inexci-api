@@ -280,12 +280,21 @@ export class ClinicalDocumentGenerationService {
    * Vale também para a prévia: é o mesmo documento, só que na tela.
    */
   private async buildBaseContext(source: DocumentSource, userId: string) {
-    await this.accessControlService.assertIsDoctor(userId);
+    // Receita, atestado e pedido de exame são atos de médico (CRM): quem
+    // emite tem que ser médico, e o documento também tem que sair em nome de
+    // um — o `doctorId` da ficha pode ser outro profissional da conta.
+    await this.accessControlService.assertIsPhysician(userId);
 
     const { record, patient, doctorId, cidCodes } = await this.resolveSubject(
       source,
       userId,
     );
+    if (doctorId !== userId) {
+      await this.accessControlService.assertIsPhysician(
+        doctorId,
+        'Este documento só pode ser emitido em nome de um médico (CRM).',
+      );
+    }
 
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.doctorPdfContextService.buildForDoctorId(doctorId);

@@ -1,3 +1,4 @@
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import { Between, FindOptionsWhere, In } from 'typeorm';
 import {
   ForbiddenException,
@@ -507,6 +508,9 @@ export class SurgeryRequestsService {
       crm: d.doctorProfile?.crm,
       crmState: d.doctorProfile?.crmState,
       specialty: d.doctorProfile?.specialty,
+      // A Agenda lista todos os profissionais; o wizard de SC só os médicos.
+      council: d.doctorProfile?.council,
+      isPhysician: isPhysicianProfile(d.doctorProfile),
     }));
   }
 

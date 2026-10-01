@@ -1,3 +1,4 @@
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
@@ -55,6 +56,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: user.role,
         permissions: user.permissions,
         isDoctor: !!user.doctorProfile,
+        isPhysician: isPhysicianProfile(user.doctorProfile),
       }),
       privacyPolicyAcceptedAt: user.privacyPolicyAcceptedAt ?? null,
       termsOfUseAcceptedAt: user.termsOfUseAcceptedAt ?? null,

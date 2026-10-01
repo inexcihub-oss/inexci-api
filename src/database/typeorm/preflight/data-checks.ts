@@ -188,6 +188,31 @@ export const PACIENTE_SEM_CPF: VerificacaoPreMigration = {
     })),
 };
 
+/**
+ * `AddCouncilToDoctorProfiles` afrouxa `crm`/`crm_state` (profissional de
+ * outro conselho pode não ter número cadastrado). Como em `PACIENTE_SEM_CPF`,
+ * quem aperta é o `down`, então esta verificação fica fora de
+ * `VERIFICACOES_PRE_MIGRATION` e só é usada por ele.
+ */
+export const PERFIL_SEM_REGISTRO: VerificacaoPreMigration = {
+  migration: 'AddCouncilToDoctorProfiles1755800200000',
+  descricao:
+    'perfil profissional sem número ou UF do conselho em "doctor_profiles" (impede reverter para NOT NULL)',
+  sql: `SELECT dp."council" AS council,
+               string_agg(dp."user_id"::text, ', ' ORDER BY dp."created_at") AS ids
+          FROM "doctor_profiles" dp
+         WHERE dp."crm" IS NULL OR dp."crm_state" IS NULL
+         GROUP BY dp."council"
+         ORDER BY dp."council"`,
+  comoResolver:
+    'Preencha número e UF do conselho desses profissionais (ou remova o perfil) antes de reverter a migration.',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `conselho ${String(linha.council ?? '')}`,
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,

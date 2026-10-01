@@ -191,7 +191,7 @@ describe('AuthService', () => {
       const owner = {
         id: 'owner-1',
         name: 'Dr. Diogo',
-        doctorProfile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
       };
       mockUserRepository.findOneWithProfile
         .mockResolvedValueOnce(collaborator) // lookup do próprio usuário
@@ -265,7 +265,7 @@ describe('AuthService', () => {
         .mockResolvedValueOnce({
           id: 'owner-1',
           name: 'Dr. Diogo',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
       const result = await service.me('collab-1');
@@ -315,7 +315,7 @@ describe('AuthService', () => {
           emailVerified: true,
           permissions: [],
           isPlatformAdmin: false,
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
         const result = await service.me('med-1');
@@ -359,7 +359,7 @@ describe('AuthService', () => {
           emailVerified: true,
           permissions: [],
           isPlatformAdmin: true,
-          doctorProfile: { id: 'dp-1' }, // efetiva soma 3 áreas — prova que não é a crua repassada
+          doctorProfile: { id: 'dp-1', council: 'CRM' }, // efetiva soma 3 áreas — prova que não é a crua repassada
         });
 
         const result = await service.me('colab-1');
@@ -972,7 +972,7 @@ describe('AuthService', () => {
           permissions: [],
           isPlatformAdmin: true,
           // efetiva soma 3 áreas — prova que não é a coluna crua repassada
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
         const result = await service.login({

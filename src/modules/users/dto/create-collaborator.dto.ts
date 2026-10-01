@@ -10,6 +10,14 @@ import {
 } from 'class-validator';
 import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 import { Permission } from 'src/shared/permissions';
+import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
+
+const informado = (v: unknown) => v !== undefined && v !== null && v !== '';
+
+/** CRM é o default: sem `council`, o perfil continua sendo de médico. */
+const exigeRegistroCrm = (o: CreateCollaboratorDto) =>
+  o.isDoctor === true &&
+  (o.council ?? ProfessionalCouncil.CRM) === ProfessionalCouncil.CRM;
 
 export class CreateCollaboratorDto {
   @IsString()
@@ -30,13 +38,24 @@ export class CreateCollaboratorDto {
   @IsOptional()
   isDoctor?: boolean;
 
+  /**
+   * Conselho do profissional. Omitido = CRM (médico). Psicologia, nutrição,
+   * enfermagem etc. têm agenda e prontuário, mas não emitem receita nem
+   * indicam cirurgia.
+   */
+  @IsOptional()
+  @IsEnum(ProfessionalCouncil)
+  council?: ProfessionalCouncil;
+
+  /** Número no conselho. Obrigatório só para CRM. */
+  @ValidateIf((o) => exigeRegistroCrm(o) || informado(o.crm))
   @IsString()
-  @ValidateIf((o) => o.isDoctor === true)
   @IsNotEmpty({ message: 'CRM é obrigatório para médicos' })
   crm?: string;
 
+  /** UF do conselho. Obrigatória só para CRM. */
+  @ValidateIf((o) => exigeRegistroCrm(o) || informado(o.crmState))
   @IsString()
-  @ValidateIf((o) => o.isDoctor === true)
   @IsNotEmpty({ message: 'Estado do CRM é obrigatório para médicos' })
   crmState?: string;
 

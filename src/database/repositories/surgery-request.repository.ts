@@ -287,6 +287,7 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
           email: true,
           phone: true,
           doctorProfile: {
+            council: true,
             crm: true,
             crmState: true,
             specialty: true,

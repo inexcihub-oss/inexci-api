@@ -1,3 +1,4 @@
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import {
   ForbiddenException,
   Injectable,
@@ -222,10 +223,11 @@ export class AccessControlService {
   }
 
   /**
-   * Garante que o usuário é médico (tem `doctor_profile`).
+   * Garante que o usuário é profissional de saúde (tem `doctor_profile`), de
+   * qualquer conselho.
    *
-   * Vale para os atos privativos do médico — atender e emitir receita,
-   * atestado ou pedido de exame. Não substitui o recorte por clínica/médico:
+   * Vale para o ato de atender (registrar a ficha). Receita, atestado, pedido
+   * de exame e indicação cirúrgica exigem mais: `assertIsPhysician`. Não substitui o recorte por clínica/médico:
    * é uma condição a mais, aplicada junto com `assertCanAccessDoctorResource`.
    *
    * "Médico" não é um role: um admin sem `doctor_profile` administra a clínica,
@@ -237,6 +239,25 @@ export class AccessControlService {
       throw new ForbiddenException(
         'Apenas médicos podem realizar esta operação.',
       );
+    }
+  }
+
+  /**
+   * Garante que o usuário é **médico** (perfil com conselho CRM), não só
+   * profissional de saúde. Vale para os atos que só médico pratica: emitir
+   * receita, atestado e pedido de exame, e indicar cirurgia (que abre a SC).
+   *
+   * Use junto com `assertIsDoctor`/`assertCanAccessDoctorResource`, não no
+   * lugar deles. Para o médico **em nome de quem** o ato sai (o `doctorId` da
+   * ficha), passe esse id — não basta checar quem clicou.
+   */
+  async assertIsPhysician(
+    userId: string,
+    mensagem = 'Apenas médicos (CRM) podem realizar esta operação.',
+  ): Promise<void> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!isPhysicianProfile(user?.doctorProfile)) {
+      throw new ForbiddenException(mensagem);
     }
   }
 
@@ -256,6 +277,7 @@ export class AccessControlService {
       role: user.role,
       permissions: user.permissions,
       isDoctor: !!user.doctorProfile,
+      isPhysician: isPhysicianProfile(user.doctorProfile),
     });
   }
 

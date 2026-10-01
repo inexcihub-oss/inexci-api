@@ -115,6 +115,9 @@ export class ClinicalRecordsService {
     if (!canAccess) {
       throw new ForbiddenException('Médico não acessível para esta operação.');
     }
+    if (data.surgicalIndication) {
+      await this.assertIndicacaoCirurgicaPermitida(doctorId);
+    }
 
     if (data.appointmentId) {
       await this.assertAppointmentBelongs(
@@ -168,6 +171,9 @@ export class ClinicalRecordsService {
     if (data.conduct !== undefined) updateData.conduct = data.conduct;
     if (data.surgicalIndication !== undefined)
       updateData.surgicalIndication = data.surgicalIndication;
+    if (data.surgicalIndication) {
+      await this.assertIndicacaoCirurgicaPermitida(record.doctorId);
+    }
 
     return (await this.clinicalRecordRepository.update(record.id, updateData))!;
   }
@@ -209,6 +215,20 @@ export class ClinicalRecordsService {
     }
 
     return finalized;
+  }
+
+  /**
+   * Indicação cirúrgica abre uma SC em nome do médico da ficha, e SC é de
+   * médico (CRM). Ficha de psicóloga, nutricionista ou enfermagem não indica
+   * cirurgia — o profissional encaminha ao médico.
+   */
+  private async assertIndicacaoCirurgicaPermitida(
+    doctorId: string,
+  ): Promise<void> {
+    await this.accessControlService.assertIsPhysician(
+      doctorId,
+      'Indicação cirúrgica só pode ser feita por médico (CRM).',
+    );
   }
 
   /**

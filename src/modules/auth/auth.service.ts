@@ -1,3 +1,4 @@
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import {
   BadRequestException,
   HttpException,
@@ -324,6 +325,7 @@ export class AuthService {
         status: user.status,
         ownerId: user.ownerId,
         isDoctor: !!doctorProfile,
+        isPhysician: isPhysicianProfile(doctorProfile),
         emailVerified: user.emailVerified ?? false,
         // A permissão EFETIVA, não a coluna crua — `register` só cria
         // ADMIN (dono da conta), então isto é sempre ALL_PERMISSIONS
@@ -332,12 +334,14 @@ export class AuthService {
           role: user.role,
           permissions: user.permissions,
           isDoctor: !!doctorProfile,
+          isPhysician: isPhysicianProfile(doctorProfile),
         }),
         doctorProfile: doctorProfile
           ? {
               id: doctorProfile.id,
               crm: doctorProfile.crm,
               crmState: doctorProfile.crmState,
+              council: doctorProfile.council,
               specialty: doctorProfile.specialty,
               signatureUrl: doctorProfile.signatureUrl,
               clinicName: doctorProfile.clinicName,
@@ -393,6 +397,7 @@ export class AuthService {
           accountId: fullUser?.ownerId,
           account,
           isDoctor: !!doctorProfile,
+          isPhysician: isPhysicianProfile(doctorProfile),
           emailVerified: fullUser?.emailVerified ?? false,
           // A permissão EFETIVA, não a coluna crua — decide o que o
           // AuthContext do frontend (`permissions`/`can`) libera para este
@@ -401,12 +406,14 @@ export class AuthService {
             role: result.role,
             permissions: fullUser?.permissions,
             isDoctor: !!doctorProfile,
+            isPhysician: isPhysicianProfile(doctorProfile),
           }),
           doctorProfile: doctorProfile
             ? {
                 id: doctorProfile.id,
                 crm: doctorProfile.crm,
                 crmState: doctorProfile.crmState,
+                council: doctorProfile.council,
                 specialty: doctorProfile.specialty,
                 signatureUrl: doctorProfile.signatureUrl,
                 clinicName: doctorProfile.clinicName,
@@ -453,6 +460,7 @@ export class AuthService {
       account,
       avatarUrl,
       isDoctor: !!doctorProfile,
+      isPhysician: isPhysicianProfile(doctorProfile),
       emailVerified: user.emailVerified ?? false,
       // A permissão EFETIVA, não a coluna crua — é o que decide o que o
       // AuthContext do frontend (`permissions`/`can`) libera no menu,
@@ -462,12 +470,14 @@ export class AuthService {
         role: user.role,
         permissions: user.permissions,
         isDoctor: !!doctorProfile,
+        isPhysician: isPhysicianProfile(doctorProfile),
       }),
       doctorProfile: doctorProfile
         ? {
             id: doctorProfile.id,
             crm: doctorProfile.crm,
             crmState: doctorProfile.crmState,
+            council: doctorProfile.council,
             specialty: doctorProfile.specialty,
             signatureUrl,
             clinicName: doctorProfile.clinicName,

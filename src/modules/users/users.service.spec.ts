@@ -1,3 +1,4 @@
+import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
 import {
   ForbiddenException,
   NotFoundException,
@@ -217,7 +218,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           role: UserRole.COLLABORATOR,
           permissions: [],
           isPlatformAdmin: true,
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         },
       ]);
 
@@ -249,7 +250,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         password: 'hash-secreto',
         permissions: [],
         isPlatformAdmin: true,
-        doctorProfile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
       });
 
       const result = await service.getProfile('user-1');
@@ -308,7 +309,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           password: 'hash-secreto',
           permissions: [],
           isPlatformAdmin: false,
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
       mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
 
@@ -1482,7 +1483,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         role: UserRole.COLLABORATOR,
         ownerId: 'dono-1',
         permissions: [],
-        doctorProfile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
       });
 
       const perfil = await service.getProfile('med-1');
@@ -2233,7 +2234,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
           adminId: 'real-admin',
         });
 
@@ -2254,7 +2255,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
           adminId: 'real-admin',
         })
         .mockResolvedValueOnce({
@@ -2304,7 +2305,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
           adminId: 'real-admin',
         })
         .mockResolvedValueOnce({
@@ -2335,7 +2336,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
           adminId: 'real-admin',
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
@@ -2631,6 +2632,220 @@ describe('UsersService — Colaboradores e Permissões', () => {
         mockDoctorHeaderRepository.removeByDoctorProfileId,
       ).toHaveBeenCalledWith('profile-1');
       expect(result).toEqual({ message: 'Cabeçalho removido com sucesso' });
+    });
+  });
+  // ─── MIG-02: conselho profissional ───
+  describe('conselho profissional (MIG-02)', () => {
+    const adminUser = {
+      id: 'dono-1',
+      name: 'Admin',
+      role: UserRole.ADMIN,
+      ownerId: 'dono-1',
+    };
+
+    describe('createCollaborator', () => {
+      beforeEach(() => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue(adminUser);
+        mockUserRepository.findOne.mockResolvedValue(null);
+        mockUserRepository.findOneWithDeleted.mockResolvedValue(null);
+        mockDoctorProfileRepository.findByUserId.mockResolvedValue(null);
+        mockUserRepository.create.mockResolvedValue({
+          id: 'new-1',
+          name: 'Nutri',
+          email: 'nutri@email.com',
+          role: UserRole.COLLABORATOR,
+          permissions: [],
+        });
+      });
+
+      it('cria perfil de nutricionista sem número, com agenda e atendimento', async () => {
+        const result = await service.createCollaborator(
+          {
+            name: 'Nutri',
+            email: 'nutri@email.com',
+            phone: '11999998888',
+            isDoctor: true,
+            council: ProfessionalCouncil.CRN,
+          },
+          'dono-1',
+        );
+
+        expect(mockDoctorProfileRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'new-1',
+            council: ProfessionalCouncil.CRN,
+            crm: null,
+            crmState: null,
+          }),
+        );
+        expect(result.permissions).toEqual([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+        ]);
+      });
+
+      it('médico sem council continua CRM e ganha solicitações', async () => {
+        const result = await service.createCollaborator(
+          {
+            name: 'Dr',
+            email: 'dr@email.com',
+            phone: '11999998888',
+            isDoctor: true,
+            crm: '123',
+            crmState: 'RJ',
+          },
+          'dono-1',
+        );
+
+        expect(mockDoctorProfileRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ council: ProfessionalCouncil.CRM }),
+        );
+        expect(result.permissions).toContain(Permission.SOLICITACOES);
+      });
+
+      it('recusa CRM sem número mesmo que o DTO deixe passar', async () => {
+        await expect(
+          service.createCollaborator(
+            {
+              name: 'Dr',
+              email: 'dr@email.com',
+              phone: '11999998888',
+              isDoctor: true,
+              council: ProfessionalCouncil.CRM,
+            },
+            'dono-1',
+          ),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockUserRepository.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('updateCollaborator', () => {
+      const colaboradorCrm = {
+        id: 'collab-1',
+        ownerId: 'dono-1',
+        adminId: 'dono-1',
+        phone: '11999990000',
+        permissions: [],
+        doctorProfile: {
+          id: 'dp-1',
+          council: ProfessionalCouncil.CRM,
+          crm: '123',
+          crmState: 'RJ',
+        },
+      };
+
+      beforeEach(() => {
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(adminUser)
+          .mockResolvedValueOnce(colaboradorCrm);
+        mockUserRepository.findOne.mockResolvedValue(null);
+        mockUserRepository.update.mockResolvedValue({ id: 'collab-1' });
+      });
+
+      it('trocar para COREN tira solicitações e avisa o assistente', async () => {
+        const result = await service.updateCollaborator(
+          'collab-1',
+          { council: ProfessionalCouncil.COREN },
+          'dono-1',
+        );
+
+        expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+          'dp-1',
+          expect.objectContaining({ council: ProfessionalCouncil.COREN }),
+        );
+        expect(result.permissions).not.toContain(Permission.SOLICITACOES);
+        expect(mockEventEmitter.emit).toHaveBeenCalled();
+      });
+
+      it('recusa apagar o número de um médico CRM', async () => {
+        await expect(
+          service.updateCollaborator('collab-1', { crm: '' }, 'dono-1'),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('updateDoctorProfileById', () => {
+      it('o próprio profissional não troca o conselho', async () => {
+        const nutri = {
+          id: 'nutri-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [],
+          doctorProfile: { id: 'dp-n', council: ProfessionalCouncil.CRN },
+        };
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(nutri)
+          .mockResolvedValueOnce(nutri);
+
+        await expect(
+          service.updateDoctorProfileById(
+            'nutri-1',
+            {
+              council: ProfessionalCouncil.CRM,
+              crm: '999',
+              crmState: 'RJ',
+            },
+            'nutri-1',
+          ),
+        ).rejects.toThrow(ForbiddenException);
+        expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('a administração troca o conselho e o assistente é avisado', async () => {
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(adminUser)
+          .mockResolvedValueOnce({
+            id: 'nutri-1',
+            ownerId: 'dono-1',
+            phone: '11999990000',
+            doctorProfile: { id: 'dp-n', council: ProfessionalCouncil.CRN },
+          })
+          .mockResolvedValueOnce({
+            id: 'nutri-1',
+            doctorProfile: { id: 'dp-n', council: ProfessionalCouncil.COREN },
+          });
+
+        await service.updateDoctorProfileById(
+          'nutri-1',
+          { council: ProfessionalCouncil.COREN },
+          'dono-1',
+        );
+
+        expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+          'dp-n',
+          expect.objectContaining({ council: ProfessionalCouncil.COREN }),
+        );
+        expect(mockEventEmitter.emit).toHaveBeenCalled();
+      });
+
+      it('médico antigo com número vazio ainda troca só a especialidade', async () => {
+        const legado = {
+          id: 'dr-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [],
+          doctorProfile: {
+            id: 'dp-1',
+            council: ProfessionalCouncil.CRM,
+            crm: '',
+            crmState: '',
+          },
+        };
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(legado)
+          .mockResolvedValueOnce(legado)
+          .mockResolvedValueOnce(legado);
+
+        await service.updateDoctorProfileById(
+          'dr-1',
+          { specialty: 'Ortopedia' },
+          'dr-1',
+        );
+
+        expect(mockDoctorProfileRepository.update).toHaveBeenCalled();
+      });
     });
   });
 });
