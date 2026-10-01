@@ -296,6 +296,32 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   }
 
   /**
+   * Consultas que ocupam a agenda do profissional em `[from, to)` — mesmo
+   * critério de `hasOverlap` (cancelada e falta liberam o horário). Só os
+   * campos que a disponibilidade usa.
+   */
+  findOcupando(doctorId: string, from: Date, to: Date): Promise<Appointment[]> {
+    return this.repository
+      .createQueryBuilder('appointment')
+      .select([
+        'appointment.id',
+        'appointment.scheduledAt',
+        'appointment.durationMinutes',
+      ])
+      .where('appointment.doctorId = :doctorId', { doctorId })
+      .andWhere('appointment.status NOT IN (:...livres)', {
+        livres: [AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW],
+      })
+      .andWhere('appointment.scheduledAt < :to', { to })
+      .andWhere(
+        `appointment.scheduledAt + (appointment.durationMinutes * interval '1 minute') > :from`,
+        { from },
+      )
+      .orderBy('appointment.scheduledAt', 'ASC')
+      .getMany();
+  }
+
+  /**
    * Consultas ativas (agendada/confirmada) que começam na janela [now, until]
    * e ainda não tiveram lembrete enviado. Base do lembrete automático de 24h.
    */

@@ -27,6 +27,7 @@ import {
   AppointmentActivityType,
 } from 'src/database/entities/appointment-activity.entity';
 import { registrarNoHistorico } from './appointment-history';
+import { AvailabilityService } from '../availability/availability.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
@@ -50,6 +51,7 @@ export class AppointmentsService {
     private readonly clinicRoomRepository: ClinicRoomRepository,
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly activityRepository: AppointmentActivityRepository,
+    private readonly availabilityService: AvailabilityService,
   ) {}
 
   private registrar(
@@ -258,6 +260,14 @@ export class AppointmentsService {
     if (!isWalkIn) {
       await this.assertNoOverlap(data.doctorId, start, end);
     }
+    // Bloqueio e feriado valem também para encaixe: o profissional não está.
+    await this.availabilityService.assertNaoBloqueado({
+      ownerId,
+      doctorId: data.doctorId,
+      clinicId: data.clinicId ?? null,
+      start,
+      end,
+    });
 
     const criada = await this.appointmentRepository.create({
       ownerId,
@@ -283,7 +293,7 @@ export class AppointmentsService {
     // `patient` já veio da validação de conta acima — sem query extra.
     await this.avisarPacienteDoAgendamento(patient, data.doctorId, start);
 
-    return criada;
+    return this.comAvisos(criada, data.doctorId, start, end);
   }
 
   async update(
@@ -314,6 +324,22 @@ export class AppointmentsService {
         this.endOf(start, durationMinutes),
         id,
       );
+    }
+
+    const mudouHorario =
+      data.scheduledAt !== undefined || data.durationMinutes !== undefined;
+    const end = this.endOf(start, durationMinutes);
+    if (mudouHorario || data.clinicId !== undefined) {
+      await this.availabilityService.assertNaoBloqueado({
+        ownerId: appointment.ownerId,
+        doctorId: appointment.doctorId,
+        clinicId:
+          data.clinicId !== undefined
+            ? (data.clinicId ?? null)
+            : appointment.clinicId,
+        start,
+        end,
+      });
     }
 
     const updateData: Partial<Appointment> = {};
@@ -387,7 +413,9 @@ export class AppointmentsService {
       );
     }
 
-    return atualizada;
+    return mudouHorario
+      ? this.comAvisos(atualizada, appointment.doctorId, start, end)
+      : atualizada;
   }
 
   async updateStatus(
@@ -413,6 +441,21 @@ export class AppointmentsService {
         this.endOf(appointment.scheduledAt, appointment.durationMinutes),
         id,
       );
+    }
+
+    // Voltar à agenda num dia que foi bloqueado enquanto a consulta estava
+    // cancelada também é agendar num horário bloqueado.
+    if (
+      !AppointmentsService.isActiveStatus(appointment.status) &&
+      AppointmentsService.isActiveStatus(data.status)
+    ) {
+      await this.availabilityService.assertNaoBloqueado({
+        ownerId: appointment.ownerId,
+        doctorId: appointment.doctorId,
+        clinicId: appointment.clinicId,
+        start: appointment.scheduledAt,
+        end: this.endOf(appointment.scheduledAt, appointment.durationMinutes),
+      });
     }
 
     const updateData: Partial<Appointment> = { status: data.status };
@@ -580,6 +623,22 @@ export class AppointmentsService {
    */
   private static isActiveStatus(status: AppointmentStatus): boolean {
     return isActiveAppointmentStatus(status);
+  }
+
+  /**
+   * Fora da grade não é erro (como fora do horário da clínica): a consulta é
+   * gravada e a resposta leva `warnings: ['fora_da_grade']` para a tela avisar.
+   */
+  private async comAvisos(
+    consulta: Appointment,
+    doctorId: string,
+    start: Date,
+    end: Date,
+  ): Promise<Appointment & { warnings?: string[] }> {
+    if (!(await this.availabilityService.foraDaGrade(doctorId, start, end))) {
+      return consulta;
+    }
+    return Object.assign(consulta, { warnings: ['fora_da_grade'] });
   }
 
   private async assertNoOverlap(

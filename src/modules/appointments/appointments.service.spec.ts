@@ -49,6 +49,10 @@ describe('AppointmentsService', () => {
     create: jest.fn(),
     findByAppointment: jest.fn(),
   };
+  const mockAvailabilityService = {
+    assertNaoBloqueado: jest.fn(),
+    foraDaGrade: jest.fn(),
+  };
 
   const mockWhatsappService = {
     sendAppointmentCancelled: jest.fn(),
@@ -107,7 +111,10 @@ describe('AppointmentsService', () => {
       mockClinicRoomRepository as any,
       mockHealthPlanRepository as any,
       mockActivityRepository as any,
+      mockAvailabilityService as any,
     );
+    mockAvailabilityService.assertNaoBloqueado.mockResolvedValue(undefined);
+    mockAvailabilityService.foraDaGrade.mockResolvedValue(false);
     mockActivityRepository.create.mockImplementation((d) =>
       Promise.resolve({ id: 'act-1', ...d }),
     );
@@ -1445,6 +1452,102 @@ describe('AppointmentsService', () => {
         type: 'comment',
         content: 'paciente pediu remarcar',
       });
+    });
+  });
+
+  describe('disponibilidade (MIG-05)', () => {
+    const bloqueado = new ConflictException(
+      'Horário bloqueado na agenda do profissional: congresso.',
+    );
+
+    it('agendar em horário bloqueado → 409, sem gravar', async () => {
+      mockAvailabilityService.assertNaoBloqueado.mockRejectedValue(bloqueado);
+      await expect(service.create(baseCreate as any, userId)).rejects.toBe(
+        bloqueado,
+      );
+      expect(mockAppointmentRepository.create).not.toHaveBeenCalled();
+      expect(mockAvailabilityService.assertNaoBloqueado).toHaveBeenCalledWith({
+        ownerId,
+        doctorId,
+        clinicId: null,
+        start: new Date('2026-08-01T14:00:00.000Z'),
+        end: new Date('2026-08-01T14:30:00.000Z'),
+      });
+    });
+
+    it('encaixe não pula o bloqueio', async () => {
+      mockAvailabilityService.assertNaoBloqueado.mockRejectedValue(bloqueado);
+      await expect(
+        service.create({ ...baseCreate, isWalkIn: true } as any, userId),
+      ).rejects.toBe(bloqueado);
+      expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
+    });
+
+    it('fora da grade cria a consulta e devolve o aviso', async () => {
+      mockAvailabilityService.foraDaGrade.mockResolvedValue(true);
+      const criada = await service.create(baseCreate as any, userId);
+      expect(criada).toMatchObject({
+        id: 'appt-1',
+        warnings: ['fora_da_grade'],
+      });
+    });
+
+    it('dentro da grade (ou sem grade) não tem aviso', async () => {
+      const criada = await service.create(baseCreate as any, userId);
+      expect(criada).not.toHaveProperty('warnings');
+    });
+
+    const existente = {
+      id: 'appt-9',
+      ownerId,
+      doctorId,
+      patientId,
+      clinicId: 'clinic-1',
+      status: 'scheduled',
+      isWalkIn: false,
+      scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+      durationMinutes: 30,
+    };
+
+    it('remarcar para horário bloqueado → 409', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
+      mockAvailabilityService.assertNaoBloqueado.mockRejectedValue(bloqueado);
+      await expect(
+        service.update(
+          'appt-9',
+          { scheduledAt: '2026-08-02T14:00:00.000Z' } as any,
+          userId,
+        ),
+      ).rejects.toBe(bloqueado);
+      expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('editar só as observações não consulta bloqueio nem grade', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
+      await service.update('appt-9', { notes: 'trazer exames' } as any, userId);
+      expect(mockAvailabilityService.assertNaoBloqueado).not.toHaveBeenCalled();
+      expect(mockAvailabilityService.foraDaGrade).not.toHaveBeenCalled();
+    });
+
+    it('reativar consulta cancelada num dia bloqueado → 409', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        ...existente,
+        status: 'cancelled',
+      });
+      mockAvailabilityService.assertNaoBloqueado.mockRejectedValue(bloqueado);
+      await expect(
+        service.updateStatus('appt-9', { status: 'scheduled' } as any, userId),
+      ).rejects.toBe(bloqueado);
+    });
+
+    it('cancelar não consulta bloqueio', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
+      await service.updateStatus(
+        'appt-9',
+        { status: 'cancelled' } as any,
+        userId,
+      );
+      expect(mockAvailabilityService.assertNaoBloqueado).not.toHaveBeenCalled();
     });
   });
 });
