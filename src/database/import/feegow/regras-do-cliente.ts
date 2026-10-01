@@ -22,3 +22,10 @@ export const PROCEDIMENTOS_DE_RETORNO = new Set(['30', '24']);
  * enfermagem do protocolo de dor, id 9) → `follow_up`.
  */
 export const PROFISSIONAIS_DE_ACOMPANHAMENTO = new Set(['9']);
+
+/**
+ * Formulário "importado" (7): texto livre trazido de um sistema anterior, em
+ * que a conduta vem no meio do texto depois de "cdt:" ou "conduta:". O trecho
+ * a partir daí vai para a conduta da ficha.
+ */
+export const MODELOS_COM_CONDUTA_NO_TEXTO = new Set(['7']);

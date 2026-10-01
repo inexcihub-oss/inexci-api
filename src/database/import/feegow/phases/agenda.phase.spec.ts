@@ -131,6 +131,7 @@ describe('planejarAgenda (export sintético)', () => {
         {},
         {
           opcoes: {
+            ...contextoDeTeste().opcoes,
             somenteComAtividade: false,
             lembretes: false,
             passadasSemAtendimento: 'no_show',
@@ -168,6 +169,7 @@ describe('planejarAgenda (export sintético)', () => {
         {},
         {
           opcoes: {
+            ...contextoDeTeste().opcoes,
             somenteComAtividade: false,
             lembretes: true,
             passadasSemAtendimento: 'manter',

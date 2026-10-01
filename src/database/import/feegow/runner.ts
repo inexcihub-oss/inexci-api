@@ -9,12 +9,28 @@ import { ExportFeegow } from './export';
 import { gravarCadastro, planejarCadastro } from './phases/cadastro.phase';
 import { gravarAgenda, planejarAgenda } from './phases/agenda.phase';
 import { gravarHistorico, planejarHistorico } from './phases/historico.phase';
+import {
+  gravarProntuario,
+  planejarProntuario,
+} from './phases/prontuario.phase';
+import {
+  enviarAnexos,
+  gravarAnexos,
+  planejarAnexosDaFase,
+} from './phases/anexos.phase';
+import { gravarModelos, planejarModelos } from './phases/modelos.phase';
+import { ArmazenamentoImportacao } from '../core/armazenamento';
 
 /** Fases do importador, na ordem em que precisam rodar. */
 export interface Fase<P = unknown> {
   nome: string;
   planejar(exp: ExportFeegow, ctx: ContextoImportacao): P;
   gravar(plano: P, manager: EntityManager): Promise<void>;
+  /**
+   * Passo fora do banco antes da transação (upload de arquivos). Devolve o
+   * que criou, para o runner desfazer se a gravação falhar.
+   */
+  enviar?(plano: P, armazenamento: ArmazenamentoImportacao): Promise<string[]>;
 }
 
 export const FASES: Fase<any>[] = [
@@ -25,6 +41,18 @@ export const FASES: Fase<any>[] = [
     planejar: planejarHistorico,
     gravar: gravarHistorico,
   },
+  {
+    nome: 'prontuario',
+    planejar: planejarProntuario,
+    gravar: gravarProntuario,
+  },
+  {
+    nome: 'anexos',
+    planejar: planejarAnexosDaFase,
+    enviar: enviarAnexos,
+    gravar: gravarAnexos,
+  },
+  { nome: 'modelos', planejar: planejarModelos, gravar: gravarModelos },
 ];
 
 export interface OpcoesCli {
@@ -38,6 +66,9 @@ export interface OpcoesCli {
   somenteComAtividade: boolean;
   lembretes: boolean;
   passadasSemAtendimento: 'manter' | 'completed' | 'no_show';
+  caixaLivre: 'anamnesis' | 'conduct';
+  incluirRascunhos: boolean;
+  modelosVazios: boolean;
   hoje: string;
   confirmar: boolean;
 }
@@ -47,6 +78,7 @@ const USO = `Uso:
     --fase ${FASES.map((f) => f.nome).join('|')}|tudo [--dry-run] [--sem-banco] [--out <pasta>] \\
     [--mapear prof:8=email@x.com] [--mapear func:2=email@x.com] \\
     [--somente-com-atividade] [--lembretes] [--passadas-sem-atendimento completed|no_show] \\
+    [--caixa-livre anamnesis|conduct] [--incluir-rascunhos] [--modelos-vazios] \\
     [--hoje AAAA-MM-DD] [--sim]
 
   --dry-run      planeja e grava só o relatório (nada no banco, ledger intacto)
@@ -54,7 +86,12 @@ const USO = `Uso:
   --sim          não pede confirmação antes de gravar (use só em ambiente local)
   --lembretes    deixa a INEXCI enviar lembrete das consultas futuras importadas
   --passadas-sem-atendimento  reclassifica consultas passadas que ficaram em
-                 aberto sem atendimento (padrão: manter como no Feegow)`;
+                 aberto sem atendimento (padrão: manter como no Feegow)
+  --caixa-livre  campo da ficha que recebe os formulários de texto livre
+                 (padrão: anamnesis)
+  --incluir-rascunhos  formulários em rascunho no Feegow com texto entram na
+                 ficha, marcados como rascunho
+  --modelos-vazios  cria um modelo de anamnese vazio por formulário do Feegow`;
 
 export function interpretarArgumentos(argv: string[]): OpcoesCli {
   const valor = (nome: string) => {
@@ -94,6 +131,13 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     );
   }
 
+  const caixaLivre = valor('--caixa-livre') ?? 'anamnesis';
+  if (!['anamnesis', 'conduct'].includes(caixaLivre)) {
+    throw new Error(
+      `--caixa-livre inválido: ${caixaLivre} (use anamnesis ou conduct)`,
+    );
+  }
+
   const hoje = valor('--hoje') ?? new Date().toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(hoje))
     throw new Error('--hoje deve ser AAAA-MM-DD');
@@ -109,6 +153,9 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     somenteComAtividade: tem('--somente-com-atividade'),
     lembretes: tem('--lembretes'),
     passadasSemAtendimento: passadas as OpcoesCli['passadasSemAtendimento'],
+    caixaLivre: caixaLivre as OpcoesCli['caixaLivre'],
+    incluirRascunhos: tem('--incluir-rascunhos'),
+    modelosVazios: tem('--modelos-vazios'),
     hoje,
     confirmar: !tem('--sim'),
   };
@@ -223,6 +270,9 @@ export function baseDoContexto(
       somenteComAtividade: opcoes.somenteComAtividade,
       lembretes: opcoes.lembretes,
       passadasSemAtendimento: opcoes.passadasSemAtendimento,
+      caixaLivre: opcoes.caixaLivre,
+      incluirRascunhos: opcoes.incluirRascunhos,
+      modelosVazios: opcoes.modelosVazios,
     },
   };
 }

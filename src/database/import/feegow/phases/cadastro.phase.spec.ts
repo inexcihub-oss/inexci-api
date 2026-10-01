@@ -318,6 +318,7 @@ describe('planejarCadastro (export sintético)', () => {
     it('--somente-com-atividade deixa de fora quem nunca consultou', () => {
       const ctx = contextoDeTeste({
         opcoes: {
+          ...contextoDeTeste().opcoes,
           somenteComAtividade: true,
           lembretes: false,
           passadasSemAtendimento: 'manter',

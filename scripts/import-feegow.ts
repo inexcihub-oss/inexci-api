@@ -1,7 +1,11 @@
 import 'dotenv/config';
 import { createInterface } from 'readline/promises';
 import { join } from 'path';
+import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import { createR2Client } from '../src/config/r2.config';
+import { StorageService } from '../src/shared/storage/storage.service';
+import { ArmazenamentoImportacao } from '../src/database/import/core/armazenamento';
 import { dataSourceOptions } from '../src/database/typeorm/data-source';
 import { Ledger } from '../src/database/import/core/ledger';
 import { Relatorio } from '../src/database/import/core/report';
@@ -84,7 +88,24 @@ async function main(): Promise<void> {
         }
       }
 
-      await ds!.transaction((manager) => fase.gravar(plano, manager));
+      // Arquivos sobem antes da transação (não dá para fazer rollback de
+      // upload); se a gravação falhar, o que subiu é apagado.
+      const armazenamento = fase.enviar ? criarArmazenamento() : null;
+      const enviados =
+        fase.enviar && armazenamento
+          ? await fase.enviar(plano, armazenamento)
+          : [];
+      if (enviados.length)
+        console.log(`  ${enviados.length} arquivos enviados.`);
+      try {
+        await ds!.transaction((manager) => fase.gravar(plano, manager));
+      } catch (erro) {
+        if (armazenamento && enviados.length) {
+          console.log('  gravação falhou: apagando os arquivos enviados...');
+          await armazenamento.apagar(enviados);
+        }
+        throw erro;
+      }
       trabalho.salvar();
       // As próximas fases resolvem referências pelo que acabou de entrar.
       absorver(ledger, trabalho);
@@ -93,6 +114,35 @@ async function main(): Promise<void> {
   } finally {
     await ds?.destroy();
   }
+}
+
+/**
+ * R2 montado fora do Nest, com as mesmas variáveis da API (`R2_ACCOUNT_ID`,
+ * `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`).
+ */
+function criarArmazenamento(): ArmazenamentoImportacao {
+  const env = {
+    get: (chave: string, padrao?: string) => process.env[chave] ?? padrao,
+  } as unknown as ConfigService;
+  const storage = new StorageService(createR2Client(env), {
+    get: () => process.env.R2_BUCKET,
+  } as unknown as ConfigService);
+  return {
+    enviar: (a) =>
+      storage.uploadBuffer(
+        a.conteudo,
+        a.pasta,
+        a.nome,
+        a.contentType,
+        a.tenantId,
+      ),
+    apagar: async (caminhos) => {
+      // DeleteObjects aceita até 1000 chaves por chamada.
+      for (let i = 0; i < caminhos.length; i += 1000) {
+        await storage.deleteMany(caminhos.slice(i, i + 1000));
+      }
+    },
+  };
 }
 
 /** Copia para `destino` tudo o que `origem` registrou. */

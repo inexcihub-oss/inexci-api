@@ -44,6 +44,16 @@ export interface ContextoImportacao {
      * Feegow), `completed` ou `no_show`.
      */
     passadasSemAtendimento: 'manter' | 'completed' | 'no_show';
+    /** Campo da ficha que recebe os formulários de caixa livre (decisão do cliente: anamnese). */
+    caixaLivre: 'anamnesis' | 'conduct';
+    /**
+     * Formulários com `sys_active = 0` (rascunho no Feegow) que têm texto
+     * entram na ficha, marcados como rascunho. Sem a opção, só os contados
+     * no relatório.
+     */
+    incluirRascunhos: boolean;
+    /** Cria um modelo de anamnese vazio com o nome de cada formulário do Feegow. */
+    modelosVazios: boolean;
   };
 }
 

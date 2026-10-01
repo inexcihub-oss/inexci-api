@@ -368,3 +368,20 @@ export function autoresDoFeegow(
     }),
   );
 }
+
+/**
+ * Como `autoresDoFeegow`, mas só para usuários que são **profissionais**:
+ * o médico de uma ficha não pode ser um funcionário da recepção.
+ */
+export function profissionaisDoFeegow(
+  exp: ExportFeegow,
+  ctx: ContextoImportacao,
+): Map<string, string> {
+  const mapa = new Map<string, string>();
+  for (const u of exp.tabela('usuarios')) {
+    if ((u.tipo_usuario ?? '').toLowerCase() !== 'profissionais') continue;
+    const uuid = ctx.ledger.resolver(LEDGER_PROFISSIONAL, u.id_relativo);
+    if (u.id && uuid) mapa.set(u.id, uuid);
+  }
+  return mapa;
+}

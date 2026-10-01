@@ -153,6 +153,9 @@ export function contextoDeTeste(
       somenteComAtividade: false,
       lembretes: false,
       passadasSemAtendimento: 'manter',
+      caixaLivre: 'anamnesis',
+      incluirRascunhos: false,
+      modelosVazios: false,
     },
     ...parcial,
   };
