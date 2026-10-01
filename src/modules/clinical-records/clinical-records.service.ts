@@ -12,7 +12,10 @@ import { AppointmentRepository } from 'src/database/repositories/appointment.rep
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
-import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import {
+  AppointmentStatus,
+  isActiveAppointmentStatus,
+} from 'src/database/entities/appointment.entity';
 import { CreateClinicalRecordDto } from './dto/create-clinical-record.dto';
 import { UpdateClinicalRecordDto } from './dto/update-clinical-record.dto';
 import { SurgicalIndicationService } from './surgical-indication/surgical-indication.service';
@@ -141,7 +144,7 @@ export class ClinicalRecordsService {
       }
     }
 
-    return this.clinicalRecordRepository.create({
+    const criada = await this.clinicalRecordRepository.create({
       ownerId,
       doctorId,
       patientId: data.patientId,
@@ -152,6 +155,32 @@ export class ClinicalRecordsService {
       cidCodes: data.cidCodes ?? null,
       conduct: data.conduct ?? null,
       surgicalIndication: data.surgicalIndication ?? false,
+    });
+
+    if (data.appointmentId) {
+      await this.startLinkedAppointment(data.appointmentId);
+    }
+    return criada;
+  }
+
+  /**
+   * Abrir a ficha da consulta é o atendimento começando: agendada, confirmada
+   * ou aguardando viram "em atendimento" (a recepção vê na agenda que o
+   * paciente entrou). Outros status ficam como estão.
+   */
+  private async startLinkedAppointment(appointmentId: string): Promise<void> {
+    const appointment = await this.appointmentRepository.findOne({
+      id: appointmentId,
+    });
+    if (
+      !appointment ||
+      appointment.status === AppointmentStatus.IN_PROGRESS ||
+      !isActiveAppointmentStatus(appointment.status)
+    ) {
+      return;
+    }
+    await this.appointmentRepository.update(appointmentId, {
+      status: AppointmentStatus.IN_PROGRESS,
     });
   }
 
@@ -247,9 +276,8 @@ export class ClinicalRecordsService {
     });
     if (!appointment) return;
 
-    const isActive =
-      appointment.status === AppointmentStatus.SCHEDULED ||
-      appointment.status === AppointmentStatus.CONFIRMED;
+    // Agendada, confirmada, aguardando ou em atendimento → realizada.
+    const isActive = isActiveAppointmentStatus(appointment.status);
 
     if (!isActive) {
       this.logger.warn(

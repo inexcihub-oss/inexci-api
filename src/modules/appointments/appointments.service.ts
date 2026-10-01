@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -16,7 +17,10 @@ import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
 import {
   Appointment,
   AppointmentStatus,
+  isActiveAppointmentStatus,
 } from 'src/database/entities/appointment.entity';
+import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
+import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
@@ -37,7 +41,42 @@ export class AppointmentsService {
     private readonly clinicRepository: ClinicRepository,
     private readonly userRepository: UserRepository,
     private readonly whatsappService: WhatsappService,
+    private readonly clinicRoomRepository: ClinicRoomRepository,
+    private readonly healthPlanRepository: HealthPlanRepository,
   ) {}
+
+  /**
+   * Sala tem que ser da conta, da clínica da consulta e estar ativa. Consulta
+   * sem clínica não tem sala. 404 pelo mesmo motivo da clínica.
+   */
+  private async assertSalaDaClinica(
+    roomId: string,
+    clinicId: string | null,
+    ownerId: string,
+  ): Promise<void> {
+    const room = await this.clinicRoomRepository.findOne({ id: roomId });
+    if (!room || room.ownerId !== ownerId) {
+      throw new NotFoundException('Sala não encontrada');
+    }
+    if (!clinicId || room.clinicId !== clinicId) {
+      throw new BadRequestException(
+        'A sala precisa ser da clínica da consulta.',
+      );
+    }
+    if (!room.active) {
+      throw new BadRequestException('Esta sala está desativada.');
+    }
+  }
+
+  private async assertConvenioDaConta(
+    healthPlanId: string,
+    ownerId: string,
+  ): Promise<void> {
+    const plan = await this.healthPlanRepository.findOne({ id: healthPlanId });
+    if (!plan || plan.ownerId !== ownerId) {
+      throw new NotFoundException('Convênio não encontrado');
+    }
+  }
 
   /** Fim da consulta = início + duração. */
   private endOf(start: Date, durationMinutes: number): Date {
@@ -150,18 +189,36 @@ export class AppointmentsService {
     if (data.clinicId) {
       await this.assertClinicaDaConta(data.clinicId, ownerId);
     }
+    if (data.roomId) {
+      await this.assertSalaDaClinica(
+        data.roomId,
+        data.clinicId ?? null,
+        ownerId,
+      );
+    }
+    if (data.healthPlanId) {
+      await this.assertConvenioDaConta(data.healthPlanId, ownerId);
+    }
 
     const start = new Date(data.scheduledAt);
     const durationMinutes = data.durationMinutes ?? 30;
     const end = this.endOf(start, durationMinutes);
+    const isWalkIn = data.isWalkIn ?? false;
 
-    await this.assertNoOverlap(data.doctorId, start, end);
+    // Encaixe é marcado de propósito em cima de outro horário.
+    if (!isWalkIn) {
+      await this.assertNoOverlap(data.doctorId, start, end);
+    }
 
     const criada = await this.appointmentRepository.create({
       ownerId,
       doctorId: data.doctorId,
       patientId: data.patientId,
       clinicId: data.clinicId ?? null,
+      roomId: data.roomId ?? null,
+      isWalkIn,
+      healthPlanId: data.healthPlanId ?? null,
+      createdById: userId,
       type: data.type,
       scheduledAt: start,
       durationMinutes,
@@ -186,9 +243,17 @@ export class AppointmentsService {
       ? new Date(data.scheduledAt)
       : appointment.scheduledAt;
     const durationMinutes = data.durationMinutes ?? appointment.durationMinutes;
+    const isWalkIn = data.isWalkIn ?? appointment.isWalkIn;
 
-    // Só revalida conflito se o horário/duração mudou.
-    if (data.scheduledAt !== undefined || data.durationMinutes !== undefined) {
+    // Só revalida conflito se o horário/duração mudou — ou se deixou de ser
+    // encaixe, porque aí passa a disputar o horário como consulta normal.
+    const deixouDeSerEncaixe = appointment.isWalkIn && data.isWalkIn === false;
+    if (
+      !isWalkIn &&
+      (data.scheduledAt !== undefined ||
+        data.durationMinutes !== undefined ||
+        deixouDeSerEncaixe)
+    ) {
       await this.assertNoOverlap(
         appointment.doctorId,
         start,
@@ -203,12 +268,41 @@ export class AppointmentsService {
     if (data.durationMinutes !== undefined)
       updateData.durationMinutes = durationMinutes;
     if (data.notes !== undefined) updateData.notes = data.notes.trim() || null;
+    if (data.isWalkIn !== undefined) updateData.isWalkIn = data.isWalkIn;
     if (data.clinicId !== undefined) {
       if (data.clinicId) {
-        const ownerId = await this.accessControlService.getOwnerId(userId);
-        await this.assertClinicaDaConta(data.clinicId, ownerId);
+        await this.assertClinicaDaConta(data.clinicId, appointment.ownerId);
       }
       updateData.clinicId = data.clinicId ?? null;
+    }
+
+    // A sala segue a clínica: trocando a clínica sem mandar sala, a sala
+    // antiga (de outra clínica) cai em vez de ficar inconsistente.
+    const clinicaFinal =
+      data.clinicId !== undefined
+        ? (data.clinicId ?? null)
+        : appointment.clinicId;
+    if (data.roomId !== undefined) {
+      if (data.roomId) {
+        await this.assertSalaDaClinica(
+          data.roomId,
+          clinicaFinal,
+          appointment.ownerId,
+        );
+      }
+      updateData.roomId = data.roomId ?? null;
+    } else if (data.clinicId !== undefined && appointment.roomId) {
+      updateData.roomId = null;
+    }
+
+    if (data.healthPlanId !== undefined) {
+      if (data.healthPlanId) {
+        await this.assertConvenioDaConta(
+          data.healthPlanId,
+          appointment.ownerId,
+        );
+      }
+      updateData.healthPlanId = data.healthPlanId ?? null;
     }
 
     // Reagendou de fato: o lembrete já enviado era da data antiga, então a
@@ -253,6 +347,7 @@ export class AppointmentsService {
     // Transições entre status ativos (→ realizada) ou saídas da agenda
     // (→ cancelada/falta) não passam por aqui.
     if (
+      !appointment.isWalkIn &&
       !AppointmentsService.isActiveStatus(appointment.status) &&
       AppointmentsService.isActiveStatus(data.status)
     ) {
@@ -361,12 +456,12 @@ export class AppointmentsService {
     await this.appointmentRepository.delete(id);
   }
 
-  /** Status que ocupam a agenda do médico (contam para conflito de horário). */
+  /**
+   * Status que ocupam a agenda do médico (contam para conflito de horário):
+   * agendada, confirmada, aguardando e em atendimento.
+   */
   private static isActiveStatus(status: AppointmentStatus): boolean {
-    return (
-      status === AppointmentStatus.SCHEDULED ||
-      status === AppointmentStatus.CONFIRMED
-    );
+    return isActiveAppointmentStatus(status);
   }
 
   private async assertNoOverlap(

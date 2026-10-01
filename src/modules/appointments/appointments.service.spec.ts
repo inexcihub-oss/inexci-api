@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -33,6 +34,14 @@ describe('AppointmentsService', () => {
   };
 
   const mockUserRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockClinicRoomRepository = {
+    findOne: jest.fn(),
+  };
+
+  const mockHealthPlanRepository = {
     findOne: jest.fn(),
   };
 
@@ -90,6 +99,8 @@ describe('AppointmentsService', () => {
       mockClinicRepository as any,
       mockUserRepository as any,
       mockWhatsappService as any,
+      mockClinicRoomRepository as any,
+      mockHealthPlanRepository as any,
     );
   });
 
@@ -970,6 +981,278 @@ describe('AppointmentsService', () => {
       expect(
         mockWhatsappService.sendAppointmentScheduled,
       ).not.toHaveBeenCalled();
+    });
+  });
+  // ─── MIG-03: sala, encaixe, convênio, autor e sala de espera ───
+  describe('sala, encaixe, convênio e autor (MIG-03)', () => {
+    const sala = (parcial: object = {}) => ({
+      id: 'room-1',
+      ownerId,
+      clinicId: 'clinic-1',
+      active: true,
+      ...parcial,
+    });
+
+    beforeEach(() => {
+      mockClinicRoomRepository.findOne.mockResolvedValue(sala());
+      mockHealthPlanRepository.findOne.mockResolvedValue({
+        id: 'hp-1',
+        ownerId,
+      });
+    });
+
+    it('grava sala, encaixe, convênio e quem agendou', async () => {
+      await service.create(
+        {
+          ...baseCreate,
+          clinicId: 'clinic-1',
+          roomId: 'room-1',
+          healthPlanId: 'hp-1',
+          isWalkIn: false,
+        },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          roomId: 'room-1',
+          healthPlanId: 'hp-1',
+          isWalkIn: false,
+          createdById: userId,
+        }),
+      );
+    });
+
+    it('sem nada informado: sem sala, particular, não é encaixe', async () => {
+      await service.create(baseCreate, userId);
+
+      expect(mockAppointmentRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          roomId: null,
+          healthPlanId: null,
+          isWalkIn: false,
+          createdById: userId,
+        }),
+      );
+    });
+
+    it('encaixe não passa pela checagem de conflito', async () => {
+      mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+      await expect(
+        service.create({ ...baseCreate, isWalkIn: true }, userId),
+      ).resolves.toBeDefined();
+      expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
+    });
+
+    it('consulta normal em cima de outra continua dando conflito', async () => {
+      mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+      await expect(service.create(baseCreate, userId)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('recusa sala de outra clínica, sala sem clínica e sala inativa', async () => {
+      mockClinicRoomRepository.findOne.mockResolvedValue(
+        sala({ clinicId: 'outra' }),
+      );
+      await expect(
+        service.create(
+          { ...baseCreate, clinicId: 'clinic-1', roomId: 'room-1' },
+          userId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      mockClinicRoomRepository.findOne.mockResolvedValue(sala());
+      await expect(
+        service.create({ ...baseCreate, roomId: 'room-1' }, userId),
+      ).rejects.toThrow(BadRequestException);
+
+      mockClinicRoomRepository.findOne.mockResolvedValue(
+        sala({ active: false }),
+      );
+      await expect(
+        service.create(
+          { ...baseCreate, clinicId: 'clinic-1', roomId: 'room-1' },
+          userId,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('sala e convênio de outra conta respondem 404', async () => {
+      mockClinicRoomRepository.findOne.mockResolvedValue(
+        sala({ ownerId: 'outra' }),
+      );
+      await expect(
+        service.create(
+          { ...baseCreate, clinicId: 'clinic-1', roomId: 'room-1' },
+          userId,
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      mockHealthPlanRepository.findOne.mockResolvedValue({
+        id: 'hp-1',
+        ownerId: 'outra',
+      });
+      await expect(
+        service.create({ ...baseCreate, healthPlanId: 'hp-1' }, userId),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    describe('update', () => {
+      const existente = (parcial: object = {}) => ({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        patientId,
+        clinicId: 'clinic-1',
+        roomId: 'room-1',
+        isWalkIn: false,
+        healthPlanId: null,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        status: AppointmentStatus.SCHEDULED,
+        ...parcial,
+      });
+
+      it('trocar de clínica sem mandar sala tira a sala antiga', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          existente(),
+        );
+        mockClinicRepository.findOne.mockResolvedValue({
+          id: 'clinic-2',
+          ownerId,
+        });
+
+        await service.update('appt-1', { clinicId: 'clinic-2' }, userId);
+
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.objectContaining({ clinicId: 'clinic-2', roomId: null }),
+        );
+      });
+
+      it('remarcar um encaixe não checa conflito', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          existente({ isWalkIn: true }),
+        );
+        mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+        await service.update(
+          'appt-1',
+          { scheduledAt: '2026-08-01T15:00:00.000Z' },
+          userId,
+        );
+
+        expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
+      });
+
+      it('deixar de ser encaixe passa a disputar o horário', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          existente({ isWalkIn: true }),
+        );
+        mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+        await expect(
+          service.update('appt-1', { isWalkIn: false }, userId),
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('troca o convênio e volta para particular', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          existente(),
+        );
+
+        await service.update('appt-1', { healthPlanId: null }, userId);
+
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.objectContaining({ healthPlanId: null }),
+        );
+      });
+    });
+  });
+
+  describe('sala de espera (MIG-03)', () => {
+    const consulta = (status: AppointmentStatus, parcial: object = {}) => ({
+      id: 'appt-1',
+      ownerId,
+      doctorId,
+      patientId,
+      isWalkIn: false,
+      scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+      durationMinutes: 30,
+      status,
+      ...parcial,
+    });
+
+    it('marca a chegada (aguardando) sem checar conflito', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consulta(AppointmentStatus.CONFIRMED),
+      );
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.WAITING },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.objectContaining({ status: AppointmentStatus.WAITING }),
+      );
+      expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
+    });
+
+    it('reativar cancelada direto para aguardando checa conflito', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consulta(AppointmentStatus.CANCELLED),
+      );
+      mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+      await expect(
+        service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.WAITING },
+          userId,
+        ),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('reativar encaixe cancelado não checa conflito', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consulta(AppointmentStatus.CANCELLED, { isWalkIn: true }),
+      );
+      mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+      await expect(
+        service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.SCHEDULED },
+          userId,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('cancelar a partir de aguardando é permitido (paciente foi embora)', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+        consulta(AppointmentStatus.WAITING),
+      );
+
+      await service.updateStatus(
+        'appt-1',
+        {
+          status: AppointmentStatus.CANCELLED,
+          cancellationReason: 'foi embora',
+        },
+        userId,
+      );
+
+      expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+        'appt-1',
+        expect.objectContaining({ status: AppointmentStatus.CANCELLED }),
+      );
     });
   });
 });

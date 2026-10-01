@@ -12,6 +12,8 @@ import {
 import { User } from './user.entity';
 import { Patient } from './patient.entity';
 import { Clinic } from './clinic.entity';
+import { ClinicRoom } from './clinic-room.entity';
+import { HealthPlan } from './health-plan.entity';
 
 /** Tipo da consulta. */
 export enum AppointmentType {
@@ -24,10 +26,29 @@ export enum AppointmentType {
 export enum AppointmentStatus {
   SCHEDULED = 'scheduled',
   CONFIRMED = 'confirmed',
+  /** Paciente chegou e aguarda na recepção (sala de espera). */
+  WAITING = 'waiting',
+  /** Atendimento em andamento (a ficha foi aberta). */
+  IN_PROGRESS = 'in_progress',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
   NO_SHOW = 'no_show',
 }
+
+/**
+ * Status que ocupam a agenda do médico: contam para conflito de horário e
+ * ainda podem virar "realizada". Lista única para o service de consultas e
+ * para a ficha de atendimento não divergirem.
+ */
+export const ACTIVE_APPOINTMENT_STATUSES: readonly AppointmentStatus[] = [
+  AppointmentStatus.SCHEDULED,
+  AppointmentStatus.CONFIRMED,
+  AppointmentStatus.WAITING,
+  AppointmentStatus.IN_PROGRESS,
+];
+
+export const isActiveAppointmentStatus = (status: AppointmentStatus): boolean =>
+  ACTIVE_APPOINTMENT_STATUSES.includes(status);
 
 /**
  * Appointment — Consulta/retorno agendado para um paciente com um médico.
@@ -57,6 +78,26 @@ export class Appointment {
   /** Local de atendimento. Opcional: consulta pode não ter unidade definida. */
   @Column({ name: 'clinic_id', type: 'uuid', nullable: true })
   clinicId: string | null;
+
+  /** Sala dentro da clínica (opcional; precisa ser da mesma `clinicId`). */
+  @Column({ name: 'room_id', type: 'uuid', nullable: true })
+  roomId: string | null;
+
+  /**
+   * Encaixe: marcado de propósito em cima de outro horário. Não passa pela
+   * checagem de conflito; uma consulta normal continua não podendo ser
+   * marcada em cima dele.
+   */
+  @Column({ name: 'is_walk_in', type: 'boolean', default: false })
+  isWalkIn: boolean;
+
+  /** Convênio da consulta; `null` = particular. */
+  @Column({ name: 'health_plan_id', type: 'uuid', nullable: true })
+  healthPlanId: string | null;
+
+  /** Quem agendou. `null` em consultas anteriores a este campo. */
+  @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
+  createdById: string | null;
 
   @Column({ type: 'varchar', length: 20, default: AppointmentType.FIRST_VISIT })
   type: AppointmentType;
@@ -106,4 +147,16 @@ export class Appointment {
   @ManyToOne(() => Clinic, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'clinic_id' })
   clinic: Clinic | null;
+
+  @ManyToOne(() => ClinicRoom, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'room_id' })
+  room: ClinicRoom | null;
+
+  @ManyToOne(() => HealthPlan, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'health_plan_id' })
+  healthPlan: HealthPlan | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'created_by_id' })
+  createdBy: User | null;
 }

@@ -30,6 +30,19 @@ const COLUNAS_PACIENTE_NO_CARD = ['patient.id', 'patient.name'];
 const COLUNAS_CLINICA_NO_CARD = ['clinic.id', 'clinic.name'];
 
 /**
+ * Sala, convênio e quem agendou: só id e nome, pelo mesmo motivo — o card não
+ * precisa de mais, e `User` tem CPF, telefone e endereço.
+ */
+const COLUNAS_EXTRAS_NO_CARD = [
+  'room.id',
+  'room.name',
+  'healthPlan.id',
+  'healthPlan.name',
+  'createdBy.id',
+  'createdBy.name',
+];
+
+/**
  * O que a resposta ao lembrete de WhatsApp precisa da clínica: o endereço, para
  * dizer ao paciente onde é o atendimento. Recorte próprio (e não o do card)
  * porque é um consumidor diferente, com necessidade diferente — o card da
@@ -81,6 +94,10 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       .addSelect(COLUNAS_PACIENTE_NO_CARD)
       .leftJoin('appointment.clinic', 'clinic')
       .addSelect(COLUNAS_CLINICA_NO_CARD)
+      .leftJoin('appointment.room', 'room')
+      .leftJoin('appointment.healthPlan', 'healthPlan')
+      .leftJoin('appointment.createdBy', 'createdBy')
+      .addSelect(COLUNAS_EXTRAS_NO_CARD)
       .where('appointment.ownerId = :ownerId', { ownerId })
       .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
       // `withDeleted()` desliga o filtro de soft delete do root também, então
@@ -147,6 +164,10 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
         .addSelect(COLUNAS_PACIENTE_NO_CARD)
         .leftJoin('appointment.clinic', 'clinic')
         .addSelect(COLUNAS_CLINICA_NO_CARD)
+        .leftJoin('appointment.room', 'room')
+        .leftJoin('appointment.healthPlan', 'healthPlan')
+        .leftJoin('appointment.createdBy', 'createdBy')
+        .addSelect(COLUNAS_EXTRAS_NO_CARD)
         .where('appointment.ownerId = :ownerId', { ownerId })
         .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
         .andWhere('appointment.patientId = :patientId', { patientId })
@@ -185,6 +206,10 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
         .addSelect(COLUNAS_PACIENTE_NO_CARD)
         .leftJoin('appointment.clinic', 'clinic')
         .addSelect(COLUNAS_CLINICA_NO_CARD)
+        .leftJoin('appointment.room', 'room')
+        .leftJoin('appointment.healthPlan', 'healthPlan')
+        .leftJoin('appointment.createdBy', 'createdBy')
+        .addSelect(COLUNAS_EXTRAS_NO_CARD)
         .where('appointment.id = :id', { id })
         .andWhere('appointment.deletedAt IS NULL')
         .getOne()

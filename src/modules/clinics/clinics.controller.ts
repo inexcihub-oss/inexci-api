@@ -29,6 +29,11 @@ import { CreateClinicDto } from './dto/create-clinic.dto';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
 import { FindManyClinicDto } from './dto/find-many-clinic.dto';
 import { BulkDeleteClinicsDto } from './dto/bulk-delete-clinics.dto';
+import { ClinicRoomsService } from './clinic-rooms.service';
+import {
+  CreateClinicRoomDto,
+  UpdateClinicRoomDto,
+} from './dto/clinic-room.dto';
 
 @ApiTags('Clínicas')
 @ApiBearerAuth()
@@ -40,7 +45,10 @@ import { BulkDeleteClinicsDto } from './dto/bulk-delete-clinics.dto';
 // horário". Exceção deliberada; não "corrija" fechando os GETs.
 @RequirePermission(Permission.ADMINISTRACAO)
 export class ClinicsController {
-  constructor(private readonly clinicsService: ClinicsService) {}
+  constructor(
+    private readonly clinicsService: ClinicsService,
+    private readonly clinicRoomsService: ClinicRoomsService,
+  ) {}
 
   @Get()
   @RequireAnyArea()
@@ -98,5 +106,49 @@ export class ClinicsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.clinicsService.bulkDelete(data.ids, user.userId);
+  }
+  // ─── Salas (consultórios) ───
+  // Ler segue a clínica: qualquer área (a Agenda escolhe a sala da consulta).
+  // Cadastrar, renomear, desativar e excluir: Administração (decorator da classe).
+
+  @Get(':id/rooms')
+  @RequireAnyArea()
+  @ApiOperation({ summary: 'Listar salas da clínica' })
+  listRooms(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicRoomsService.list(id, user.userId);
+  }
+
+  @Post(':id/rooms')
+  @ApiOperation({ summary: 'Criar sala na clínica' })
+  createRoom(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() data: CreateClinicRoomDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicRoomsService.create(id, data, user.userId);
+  }
+
+  @Patch(':id/rooms/:roomId')
+  @ApiOperation({ summary: 'Renomear ou (des)ativar sala' })
+  updateRoom(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @Body() data: UpdateClinicRoomDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicRoomsService.update(id, roomId, data, user.userId);
+  }
+
+  @Delete(':id/rooms/:roomId')
+  @ApiOperation({ summary: 'Excluir sala (soft delete)' })
+  deleteRoom(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('roomId', ParseUUIDPipe) roomId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.clinicRoomsService.delete(id, roomId, user.userId);
   }
 }

@@ -597,4 +597,60 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.create).not.toHaveBeenCalled();
     });
   });
+  // MIG-03: sala de espera. A ficha move a consulta pela agenda.
+  describe('status da consulta pela ficha (MIG-03)', () => {
+    it('abrir a ficha da consulta leva a consulta para em atendimento', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue(null);
+      mockAppointmentRepo.findOne.mockResolvedValue({
+        id: 'a1',
+        ownerId,
+        patientId,
+        doctorId,
+        status: AppointmentStatus.WAITING,
+      });
+
+      await service.create({ patientId, appointmentId: 'a1' }, userId);
+
+      expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
+        status: AppointmentStatus.IN_PROGRESS,
+      });
+    });
+
+    it('não mexe em consulta cancelada ao abrir a ficha', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue(null);
+      mockAppointmentRepo.findOne.mockResolvedValue({
+        id: 'a1',
+        ownerId,
+        patientId,
+        doctorId,
+        status: AppointmentStatus.CANCELLED,
+      });
+
+      await service.create({ patientId, appointmentId: 'a1' }, userId);
+
+      expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+    });
+
+    it.each([AppointmentStatus.WAITING, AppointmentStatus.IN_PROGRESS])(
+      'finalizar a ficha fecha a consulta em %s como realizada',
+      async (status) => {
+        mockClinicalRepo.findOne.mockResolvedValue({
+          id: 'cr-1',
+          ownerId,
+          doctorId,
+          appointmentId: 'a1',
+          finalizedAt: null,
+          surgicalIndication: false,
+        });
+        mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+        mockAppointmentRepo.findOne.mockResolvedValue({ id: 'a1', status });
+
+        await service.finalize('cr-1', userId);
+
+        expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
+          status: AppointmentStatus.COMPLETED,
+        });
+      },
+    );
+  });
 });

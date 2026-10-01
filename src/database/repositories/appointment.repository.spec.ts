@@ -223,6 +223,40 @@ describe('AppointmentRepository — join da clínica', () => {
     repo = new AppointmentRepository(dataSource);
   });
 
+  // MIG-03: sala, convênio e quem agendou entram no card com id e nome — nada
+  // do cadastro do usuário que agendou (CPF, telefone, endereço).
+  it.each([
+    [
+      'findAgenda',
+      () => repo.findAgenda('owner-1', ['doctor-1'], { take: 10 }),
+    ],
+    ['findByPatient', () => repo.findByPatient('owner-1', ['doctor-1'], 'p-1')],
+    ['findOneComRelacoes', () => repo.findOneComRelacoes('a-1')],
+  ])(
+    '%s traz sala, convênio e autor só com id e nome',
+    async (_nome, chamar) => {
+      await (chamar as () => Promise<unknown>)();
+
+      expect(qb.leftJoin).toHaveBeenCalledWith('appointment.room', 'room');
+      expect(qb.leftJoin).toHaveBeenCalledWith(
+        'appointment.healthPlan',
+        'healthPlan',
+      );
+      expect(qb.leftJoin).toHaveBeenCalledWith(
+        'appointment.createdBy',
+        'createdBy',
+      );
+      expect(qb.addSelect).toHaveBeenCalledWith([
+        'room.id',
+        'room.name',
+        'healthPlan.id',
+        'healthPlan.name',
+        'createdBy.id',
+        'createdBy.name',
+      ]);
+    },
+  );
+
   it('findAgenda junta a clínica selecionando só id e nome', async () => {
     await repo.findAgenda('owner-1', ['doctor-1'], { take: 10 });
 

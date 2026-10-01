@@ -17,7 +17,7 @@ describe('ClinicsController — permissões declaradas', () => {
       ClinicsController,
     ]);
 
-  it.each(['findAll', 'findOne'] as const)(
+  it.each(['findAll', 'findOne', 'listRooms'] as const)(
     'libera a leitura em %s para qualquer área',
     (metodo) => {
       // Quem só tem Agenda precisa ler a lista para preencher o seletor do
@@ -26,12 +26,17 @@ describe('ClinicsController — permissões declaradas', () => {
     },
   );
 
-  it.each(['create', 'update', 'delete', 'bulkDelete'] as const)(
-    'mantém %s em administração',
-    (metodo) => {
-      expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
-    },
-  );
+  it.each([
+    'create',
+    'update',
+    'delete',
+    'bulkDelete',
+    'createRoom',
+    'updateRoom',
+    'deleteRoom',
+  ] as const)('mantém %s em administração', (metodo) => {
+    expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
+  });
 
   it('nunca deixa rota sem exigência (colaborador sem área nenhuma)', () => {
     const metodos = [
@@ -41,6 +46,10 @@ describe('ClinicsController — permissões declaradas', () => {
       'update',
       'delete',
       'bulkDelete',
+      'listRooms',
+      'createRoom',
+      'updateRoom',
+      'deleteRoom',
     ] as const;
     metodos.forEach((metodo) => {
       expect(exigidoEm(metodo)?.length).toBeGreaterThan(0);
