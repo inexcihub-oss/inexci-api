@@ -14,6 +14,8 @@ import { PdfService } from 'src/shared/pdf/pdf.service';
 import { DoctorPdfContextService } from 'src/shared/pdf/doctor-pdf-context.service';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
 import { ClinicalDocumentGenerationService } from './clinical-document-generation.service';
+import { ClinicalDocumentTemplatesService } from '../document-templates/clinical-document-templates.service';
+import { ClinicalDocumentTemplateKind } from 'src/database/entities/clinical-document-template.entity';
 
 describe('ClinicalDocumentGenerationService', () => {
   let service: ClinicalDocumentGenerationService;
@@ -55,6 +57,10 @@ describe('ClinicalDocumentGenerationService', () => {
     renderClinicalDocumentHtml: jest.fn(),
   };
   const doctorPdfContextService = { buildForDoctorId: jest.fn() };
+  const documentTemplatesService = {
+    getForUse: jest.fn(),
+    incrementUsage: jest.fn(),
+  };
 
   const prescriptionDto = {
     items: [
@@ -117,6 +123,10 @@ describe('ClinicalDocumentGenerationService', () => {
         {
           provide: DoctorPdfContextService,
           useValue: doctorPdfContextService,
+        },
+        {
+          provide: ClinicalDocumentTemplatesService,
+          useValue: documentTemplatesService,
         },
       ],
     }).compile();
@@ -807,6 +817,134 @@ describe('ClinicalDocumentGenerationService', () => {
       );
 
       expect(accessControlService.assertIsPhysician).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('modelos de texto (MIG-06)', () => {
+    const modeloAtestado = {
+      id: 'tpl-1',
+      kind: ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+      body: 'Atesto que {{paciente.nome}} (CPF {{paciente.cpf}}) precisa de {{dias}} dias. {{medico.nome}} — {{medico.registro}} {{desconhecido}}',
+    };
+
+    beforeEach(() => {
+      documentTemplatesService.getForUse.mockResolvedValue(modeloAtestado);
+      documentTemplatesService.incrementUsage.mockResolvedValue(undefined);
+    });
+
+    it('atestado com templateId e sem observações usa o texto do modelo preenchido', async () => {
+      await service.generateMedicalCertificate(
+        'record-1',
+        { clinicalRecordId: 'record-1', restDays: 3, templateId: 'tpl-1' },
+        'doctor-1',
+      );
+
+      expect(documentTemplatesService.getForUse).toHaveBeenCalledWith(
+        'tpl-1',
+        ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+        'doctor-1',
+      );
+      const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
+      expect(pdfData.observations).toBe(
+        'Atesto que Alessandro Filho (CPF 146.858.546-08) precisa de 3 dias. Dra. Ana Souza — CRM 12345/RJ {{desconhecido}}',
+      );
+      // Emitir com modelo não conta uso: quem conta é o "aplicar".
+      expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
+    });
+
+    it('o texto enviado vence o modelo', async () => {
+      await service.generateMedicalCertificate(
+        'record-1',
+        {
+          clinicalRecordId: 'record-1',
+          templateId: 'tpl-1',
+          observations: 'Texto editado pelo médico',
+        },
+        'doctor-1',
+      );
+
+      expect(documentTemplatesService.getForUse).not.toHaveBeenCalled();
+      expect(
+        pdfService.generateMedicalCertificatePdf.mock.calls[0][0].observations,
+      ).toBe('Texto editado pelo médico');
+    });
+
+    it('pedido de exame com modelo preenche a indicação clínica e pede o tipo certo', async () => {
+      documentTemplatesService.getForUse.mockResolvedValue({
+        id: 'tpl-2',
+        kind: ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+        body: 'Investigação em {{paciente.nome}}, {{data}}',
+      });
+
+      await service.generateExamReferral(
+        'record-1',
+        {
+          clinicalRecordId: 'record-1',
+          exams: [{ name: 'RM joelho' }],
+          templateId: 'tpl-2',
+        },
+        'doctor-1',
+      );
+
+      expect(documentTemplatesService.getForUse).toHaveBeenCalledWith(
+        'tpl-2',
+        ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+        'doctor-1',
+      );
+      expect(
+        pdfService.generateExamReferralPdf.mock.calls[0][0].clinicalIndication,
+      ).toMatch(/^Investigação em Alessandro Filho, \d{2}\/\d{2}\/\d{4}$/);
+    });
+
+    it('modelo de outro tipo é recusado pela checagem do service de modelos', async () => {
+      documentTemplatesService.getForUse.mockRejectedValue(
+        new BadRequestException('Este modelo é de outro tipo de documento.'),
+      );
+
+      await expect(
+        service.generateExamReferral(
+          'record-1',
+          {
+            clinicalRecordId: 'record-1',
+            exams: [{ name: 'RX' }],
+            templateId: 'tpl-1',
+          },
+          'doctor-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(pdfService.generateExamReferralPdf).not.toHaveBeenCalled();
+    });
+
+    it('aplicar devolve o texto preenchido para o paciente da tela e conta o uso', async () => {
+      const resultado = await service.applyTemplate(
+        'tpl-1',
+        { patientId: 'patient-1', restDays: 2 },
+        'doctor-1',
+      );
+
+      expect(resultado).toEqual({
+        id: 'tpl-1',
+        kind: ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+        body: expect.stringContaining('Atesto que Alessandro Filho'),
+      });
+      expect(resultado.body).toContain('precisa de 2 dias');
+      expect(documentTemplatesService.incrementUsage).toHaveBeenCalledWith(
+        'tpl-1',
+      );
+      // Sem ficha gravada, nada é lido nem criado no prontuário.
+      expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
+    });
+
+    it('aplicar exige o mesmo que emitir: só médico com CRM', async () => {
+      accessControlService.assertIsPhysician.mockRejectedValueOnce(
+        new ForbiddenException('Somente médicos (CRM)'),
+      );
+
+      await expect(
+        service.applyTemplate('tpl-1', { patientId: 'patient-1' }, 'tec-1'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(documentTemplatesService.getForUse).not.toHaveBeenCalled();
+      expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
     });
   });
 });

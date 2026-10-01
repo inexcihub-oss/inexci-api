@@ -54,4 +54,12 @@ export class CreateMedicalCertificateDto {
   @IsOptional()
   @MaxLength(2000)
   observations?: string;
+
+  /**
+   * Modelo de texto (MIG-06) para a observações, com os placeholders preenchidos
+   * no servidor. Só vale quando o texto não veio: o texto enviado sempre vence.
+   */
+  @IsUUID()
+  @IsOptional()
+  templateId?: string;
 }

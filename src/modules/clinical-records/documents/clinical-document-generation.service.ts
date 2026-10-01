@@ -25,6 +25,13 @@ import { Patient } from 'src/database/entities/patient.entity';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
 import { formatCpf, formatDateBR, formatPhone } from 'src/shared/utils';
 import { CidCodeDto } from '../dto/cid-code.dto';
+import { ClinicalDocumentTemplateKind } from 'src/database/entities/clinical-document-template.entity';
+import {
+  aplicarPlaceholders,
+  PlaceholderValues,
+} from 'src/shared/pdf/placeholders.util';
+import { ClinicalDocumentTemplatesService } from '../document-templates/clinical-document-templates.service';
+import { ApplyClinicalDocumentTemplateDto } from '../document-templates/dto/apply-clinical-document-template.dto';
 import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 import { CreateMedicalCertificateDto } from './dto/create-medical-certificate.dto';
 import { CreateExamReferralDto } from './dto/create-exam-referral.dto';
@@ -90,6 +97,7 @@ export class ClinicalDocumentGenerationService {
     private readonly storageService: StorageService,
     private readonly pdfService: PdfService,
     private readonly doctorPdfContextService: DoctorPdfContextService,
+    private readonly documentTemplatesService: ClinicalDocumentTemplatesService,
   ) {}
 
   /** Receituário. */
@@ -201,6 +209,81 @@ export class ClinicalDocumentGenerationService {
     return this.pdfService.renderClinicalDocumentHtml('exam-referral', pdfData);
   }
 
+  // ── Modelos de texto (MIG-06) ─────────────────────────────────────────────
+
+  /**
+   * Texto do modelo já com os placeholders do paciente e do médico que
+   * assina — o mesmo contexto que vai para o PDF, para o texto aplicado e o
+   * documento emitido não divergirem. Aplicar é o que conta o uso.
+   *
+   * Exige o mesmo que emitir (médico com CRM e acesso ao paciente e ao médico
+   * que assina): o texto devolvido já traz nome e CPF do paciente.
+   */
+  async applyTemplate(
+    id: string,
+    data: ApplyClinicalDocumentTemplateDto,
+    userId: string,
+  ): Promise<{ id: string; kind: ClinicalDocumentTemplateKind; body: string }> {
+    const { base } = await this.buildBaseContext(previewSource(data), userId);
+    const template = await this.documentTemplatesService.getForUse(
+      id,
+      null,
+      userId,
+    );
+    await this.documentTemplatesService.incrementUsage(id);
+    return {
+      id: template.id,
+      kind: template.kind,
+      body: aplicarPlaceholders(
+        template.body,
+        this.placeholderValues(base, data.restDays),
+      ),
+    };
+  }
+
+  private async textoDoModelo(
+    templateId: string | undefined,
+    kind: ClinicalDocumentTemplateKind,
+    base: Awaited<
+      ReturnType<ClinicalDocumentGenerationService['buildBaseContext']>
+    >['base'],
+    restDays: number | undefined,
+    userId: string,
+  ): Promise<string | undefined> {
+    if (!templateId) return undefined;
+    const template = await this.documentTemplatesService.getForUse(
+      templateId,
+      kind,
+      userId,
+    );
+    return aplicarPlaceholders(
+      template.body,
+      this.placeholderValues(base, restDays),
+    );
+  }
+
+  private placeholderValues(
+    base: {
+      patientName?: string;
+      patientCpf?: string;
+      patientBirthDate?: string;
+      doctorName: string;
+      doctorCrm?: string | null;
+      today: string;
+    },
+    restDays?: number,
+  ): PlaceholderValues {
+    return {
+      'paciente.nome': base.patientName,
+      'paciente.cpf': base.patientCpf,
+      'paciente.nascimento': base.patientBirthDate,
+      'medico.nome': base.doctorName,
+      'medico.registro': base.doctorCrm,
+      data: base.today,
+      dias: restDays,
+    };
+  }
+
   // ── Montagem dos PDFs (compartilhada por emitir e pré-visualizar) ─────────
 
   private async buildPrescription(
@@ -239,7 +322,15 @@ export class ClinicalDocumentGenerationService {
       restDaysLabel: this.buildRestDaysLabel(data.restDays),
       startDate: data.startDate ? formatDateBR(data.startDate) : undefined,
       cid,
-      observations: data.observations,
+      observations:
+        data.observations ??
+        (await this.textoDoModelo(
+          data.templateId,
+          ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+          base,
+          data.restDays,
+          userId,
+        )),
     };
 
     return { record, pdfData };
@@ -258,7 +349,15 @@ export class ClinicalDocumentGenerationService {
     const pdfData: ExamReferralPdfData = {
       ...base,
       exams: data.exams,
-      clinicalIndication: data.clinicalIndication,
+      clinicalIndication:
+        data.clinicalIndication ??
+        (await this.textoDoModelo(
+          data.templateId,
+          ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+          base,
+          undefined,
+          userId,
+        )),
       // Por padrão o pedido carrega a hipótese diagnóstica já registrada na
       // ficha — é o que o convênio exige para autorizar o exame.
       cidCodes: data.cidCodes ?? cidCodes ?? undefined,

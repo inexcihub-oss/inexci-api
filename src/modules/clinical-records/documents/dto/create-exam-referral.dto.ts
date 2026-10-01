@@ -51,6 +51,14 @@ export class CreateExamReferralDto {
   @MaxLength(2000)
   clinicalIndication?: string;
 
+  /**
+   * Modelo de texto (MIG-06) para a indicação clínica, com os placeholders preenchidos
+   * no servidor. Só vale quando o texto não veio: o texto enviado sempre vence.
+   */
+  @IsUUID()
+  @IsOptional()
+  templateId?: string;
+
   /** Sobrescreve os CIDs da ficha, quando o pedido usa outra hipótese. */
   @IsArray()
   @IsOptional()

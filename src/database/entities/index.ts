@@ -17,6 +17,7 @@ import {
 } from './appointment.entity';
 import { ClinicalRecord } from './clinical-record.entity';
 import { ClinicalRecordTemplate } from './clinical-record-template.entity';
+import { ClinicalDocumentTemplate } from './clinical-document-template.entity';
 import { Clinic } from './clinic.entity';
 import { ClinicRoom } from './clinic-room.entity';
 import {
@@ -79,6 +80,7 @@ export { Patient };
 export { Appointment, AppointmentType, AppointmentStatus };
 export { ClinicalRecord };
 export { ClinicalRecordTemplate };
+export { ClinicalDocumentTemplate };
 export { Clinic };
 export { ClinicRoom };
 export { AppointmentActivity, AppointmentActivityType };
@@ -146,6 +148,7 @@ export const ENTITIES = [
   AppointmentActivity,
   ClinicalRecord,
   ClinicalRecordTemplate,
+  ClinicalDocumentTemplate,
   Clinic,
   ClinicRoom,
   Hospital,
