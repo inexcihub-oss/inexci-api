@@ -35,6 +35,7 @@ import {
 } from 'src/shared/decorators/current-user.decorator';
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
+import { MAX_STORAGE_FILE_SIZE } from 'src/config/storage.config';
 
 @ApiTags('Documentos do Atendimento')
 @ApiBearerAuth()
@@ -50,7 +51,9 @@ export class ClinicalDocumentsController {
   @ApiOperation({ summary: 'Enviar documento/exame do paciente' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('document', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('document', {
+      limits: { fileSize: MAX_STORAGE_FILE_SIZE },
+    }),
   )
   create(
     @Body() data: CreateClinicalDocumentDto,

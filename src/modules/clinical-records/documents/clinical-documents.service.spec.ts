@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ClinicalDocumentsService } from './clinical-documents.service';
+import { STORAGE_FOLDERS } from 'src/config/storage.config';
 
 const PATIENT = { id: 'pat-1', ownerId: 'owner-1' };
 const RECORD = {
@@ -74,6 +75,52 @@ describe('ClinicalDocumentsService', () => {
   });
 
   const file = { originalname: 'exame.pdf' } as Express.Multer.File;
+
+  // Diferente de `surgery-requests/documents`, este service não checava o
+  // limite por pasta (`STORAGE_FOLDER_SIZE_LIMITS`) — só o corte grosso do
+  // `FileInterceptor`. Como o corte grosso agora é o maior limite da config
+  // (50 MB), sem esta checagem qualquer pasta pequena (ex.: assinatura,
+  // 500 KB) aceitaria um arquivo bem maior que o previsto.
+  describe('create — limite de tamanho por pasta', () => {
+    const arquivo = (bytes: number): Express.Multer.File =>
+      ({
+        originalname: 'exame.pdf',
+        buffer: Buffer.alloc(bytes),
+        size: bytes,
+      }) as Express.Multer.File;
+
+    it('recusa arquivo acima do limite da pasta', async () => {
+      await expect(
+        service.create(
+          {
+            patientId: 'pat-1',
+            key: 'k',
+            name: 'n',
+            folder: STORAGE_FOLDERS.SIGNATURES,
+          },
+          'user-1',
+          arquivo(600 * 1024), // limite de signatures: 500 KB
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(storageService.create).not.toHaveBeenCalled();
+    });
+
+    it('aceita arquivo dentro do limite da pasta (40 MB em documents)', async () => {
+      await expect(
+        service.create(
+          {
+            patientId: 'pat-1',
+            key: 'k',
+            name: 'n',
+            folder: STORAGE_FOLDERS.DOCUMENTS,
+          },
+          'user-1',
+          arquivo(40 * 1024 * 1024), // dentro dos 50 MB da config
+        ),
+      ).resolves.toMatchObject({ id: 'doc-1' });
+      expect(storageService.create).toHaveBeenCalled();
+    });
+  });
 
   describe('create', () => {
     it('sobe o arquivo no owner do paciente e persiste o Document vinculado', async () => {

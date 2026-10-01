@@ -15,6 +15,7 @@ import { transformDocumentUrls } from 'src/shared/transformers/signed-url.transf
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { Document } from 'src/database/entities/document.entity';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { STORAGE_FOLDER_SIZE_LIMITS } from 'src/config/storage.config';
 import { CreateClinicalDocumentDto } from './dto/create-clinical-document.dto';
 import { DeleteClinicalDocumentDto } from './dto/delete-clinical-document.dto';
 
@@ -42,6 +43,18 @@ export class ClinicalDocumentsService {
     file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException('File is required');
+
+    // `STORAGE_FOLDER_SIZE_LIMITS` é a fonte de verdade do limite de tamanho:
+    // o `FileInterceptor` só consegue cortar pelo maior limite, porque a pasta
+    // chega no corpo, depois do interceptor (mesmo padrão de
+    // `surgery-requests/documents`).
+    const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[data.folder];
+    const fileSize = file.size ?? file.buffer?.length ?? 0;
+    if (sizeLimit !== undefined && fileSize > sizeLimit) {
+      throw new BadRequestException(
+        `Arquivo excede o tamanho máximo permitido para esta pasta (${Math.round(sizeLimit / 1024)} KB)`,
+      );
+    }
 
     const patient = await this.assertPatientAccess(data.patientId, userId);
 

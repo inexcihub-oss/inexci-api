@@ -39,7 +39,7 @@ describe('DocumentsService', () => {
 
   // O limite real do upload é `STORAGE_FOLDER_SIZE_LIMITS` (config): o
   // `FileInterceptor` é só um corte grosso, e antes ele era menor (5 MB) que o
-  // teto da config (10 MB) — o limite configurado era inalcançável.
+  // teto da config (50 MB) — o limite configurado era inalcançável.
   describe('create — limite de tamanho por pasta', () => {
     const arquivo = (bytes: number): Express.Multer.File =>
       ({
@@ -67,7 +67,7 @@ describe('DocumentsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('aceita arquivo dentro do limite da pasta (6 MB em documents)', async () => {
+    it('aceita arquivo dentro do limite da pasta (40 MB em documents)', async () => {
       const storageService = {
         create: jest.fn().mockResolvedValue('documents/owner-1/exame.pdf'),
         getSignedUrl: jest.fn().mockResolvedValue('https://signed'),
@@ -85,7 +85,7 @@ describe('DocumentsService', () => {
           dados(STORAGE_FOLDERS.DOCUMENTS) as any,
           'user-1',
           'owner-1',
-          arquivo(6 * 1024 * 1024), // acima dos 5 MB antigos, dentro dos 10 MB da config
+          arquivo(40 * 1024 * 1024), // acima dos 5 MB antigos, dentro dos 50 MB da config
         ),
       ).resolves.toMatchObject({ id: 'doc-1' });
       expect(storageService.create).toHaveBeenCalled();
