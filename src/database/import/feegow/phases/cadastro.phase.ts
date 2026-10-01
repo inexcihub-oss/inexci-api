@@ -1,4 +1,4 @@
-import { EntityManager, ObjectLiteral, EntityTarget } from 'typeorm';
+import { EntityManager } from 'typeorm';
 import { Clinic } from 'src/database/entities/clinic.entity';
 import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
@@ -11,6 +11,7 @@ import { NovaClinica, planejarClinica } from '../mappers/clinic.mapper';
 import { NovoConvenio, planejarConvenios } from '../mappers/health-plan.mapper';
 import { NovoPaciente, planejarPacientes } from '../mappers/patient.mapper';
 import { PlanoEquipe, planejarEquipe } from '../mappers/team.mapper';
+import { inserirEmLotes } from './inserir-em-lotes';
 
 export interface PlanoCadastro {
   clinica: NovaClinica | null;
@@ -33,26 +34,6 @@ export function planejarCadastro(
   const convenios = planejarConvenios(exp, ctx);
   const pacientes = planejarPacientes(exp, ctx);
   return { clinica, equipe, convenios, pacientes };
-}
-
-/** Tamanho do lote por INSERT: longe do limite de parâmetros do Postgres. */
-const LOTE = 200;
-
-async function inserirEmLotes<T extends ObjectLiteral>(
-  manager: EntityManager,
-  entidade: EntityTarget<T>,
-  linhas: object[],
-  ignorarConflito = false,
-): Promise<void> {
-  for (let i = 0; i < linhas.length; i += LOTE) {
-    const qb = manager
-      .createQueryBuilder()
-      .insert()
-      .into(entidade)
-      .values(linhas.slice(i, i + LOTE) as never);
-    if (ignorarConflito) qb.orIgnore();
-    await qb.execute();
-  }
 }
 
 /**

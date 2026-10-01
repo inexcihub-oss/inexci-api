@@ -1,15 +1,11 @@
 import { normalizarTexto } from '../../core/normalizers';
 import { chaveDeNome, ContextoImportacao } from '../context';
 import { ExportFeegow } from '../export';
+import { CONVENIOS_QUE_SAO_TIPO_DE_CONSULTA } from '../regras-do-cliente';
+
+export { CONVENIOS_QUE_SAO_TIPO_DE_CONSULTA };
 
 export const LEDGER_CONVENIO = 'health_plan';
-
-/**
- * "Convênios" do Feegow que na verdade são tipos de consulta (CONSULTA
- * PARTICULAR CONSULTORIO, PRIMEIRA CONSULTA -TRIAGEM, REVER EXAMES / RETORNO).
- * Específicos deste cliente — confirmados no relatório de migração.
- */
-export const CONVENIOS_QUE_SAO_TIPO_DE_CONSULTA = new Set(['5', '11', '12']);
 
 export interface NovoConvenio {
   id: string;

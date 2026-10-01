@@ -33,6 +33,17 @@ export interface ContextoImportacao {
   mapear: Map<string, string>;
   opcoes: {
     somenteComAtividade: boolean;
+    /**
+     * Consulta futura importada já sai como "lembrete enviado" (o Feegow já
+     * lembrou ou vai lembrar); `--lembretes` deixa a INEXCI disparar o dela.
+     */
+    lembretes: boolean;
+    /**
+     * Consulta passada que ficou em agendada/confirmada/aguardando/em
+     * atendimento sem atendimento registrado: `manter` (default, igual ao
+     * Feegow), `completed` ou `no_show`.
+     */
+    passadasSemAtendimento: 'manter' | 'completed' | 'no_show';
   };
 }
 

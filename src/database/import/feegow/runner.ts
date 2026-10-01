@@ -7,6 +7,7 @@ import { Relatorio } from '../core/report';
 import { chaveDeNome, ContextoImportacao, UsuarioExistente } from './context';
 import { ExportFeegow } from './export';
 import { gravarCadastro, planejarCadastro } from './phases/cadastro.phase';
+import { gravarAgenda, planejarAgenda } from './phases/agenda.phase';
 
 /** Fases do importador, na ordem em que precisam rodar. */
 export interface Fase<P = unknown> {
@@ -17,6 +18,7 @@ export interface Fase<P = unknown> {
 
 export const FASES: Fase<any>[] = [
   { nome: 'cadastro', planejar: planejarCadastro, gravar: gravarCadastro },
+  { nome: 'agenda', planejar: planejarAgenda, gravar: gravarAgenda },
 ];
 
 export interface OpcoesCli {
@@ -28,6 +30,8 @@ export interface OpcoesCli {
   out: string;
   mapear: Map<string, string>;
   somenteComAtividade: boolean;
+  lembretes: boolean;
+  passadasSemAtendimento: 'manter' | 'completed' | 'no_show';
   hoje: string;
   confirmar: boolean;
 }
@@ -36,11 +40,15 @@ const USO = `Uso:
   yarn import:feegow --dir <pasta do export> --owner-email <e-mail do dono> \\
     --fase ${FASES.map((f) => f.nome).join('|')}|tudo [--dry-run] [--sem-banco] [--out <pasta>] \\
     [--mapear prof:8=email@x.com] [--mapear func:2=email@x.com] \\
-    [--somente-com-atividade] [--hoje AAAA-MM-DD] [--sim]
+    [--somente-com-atividade] [--lembretes] [--passadas-sem-atendimento completed|no_show] \\
+    [--hoje AAAA-MM-DD] [--sim]
 
   --dry-run      planeja e grava só o relatório (nada no banco, ledger intacto)
   --sem-banco    dry-run sem conexão (não confere e-mails/telefones já usados)
-  --sim          não pede confirmação antes de gravar (use só em ambiente local)`;
+  --sim          não pede confirmação antes de gravar (use só em ambiente local)
+  --lembretes    deixa a INEXCI enviar lembrete das consultas futuras importadas
+  --passadas-sem-atendimento  reclassifica consultas passadas que ficaram em
+                 aberto sem atendimento (padrão: manter como no Feegow)`;
 
 export function interpretarArgumentos(argv: string[]): OpcoesCli {
   const valor = (nome: string) => {
@@ -73,6 +81,13 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     mapear.set(`${m[1]}:${m[2]}`, m[3].toLowerCase());
   });
 
+  const passadas = valor('--passadas-sem-atendimento') ?? 'manter';
+  if (!['manter', 'completed', 'no_show'].includes(passadas)) {
+    throw new Error(
+      `--passadas-sem-atendimento inválido: ${passadas} (use completed ou no_show)`,
+    );
+  }
+
   const hoje = valor('--hoje') ?? new Date().toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(hoje))
     throw new Error('--hoje deve ser AAAA-MM-DD');
@@ -86,6 +101,8 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     out: valor('--out') ?? dir,
     mapear,
     somenteComAtividade: tem('--somente-com-atividade'),
+    lembretes: tem('--lembretes'),
+    passadasSemAtendimento: passadas as OpcoesCli['passadasSemAtendimento'],
     hoje,
     confirmar: !tem('--sim'),
   };
@@ -196,7 +213,11 @@ export function baseDoContexto(
     relatorio,
     novoId: randomUUID,
     mapear: opcoes.mapear,
-    opcoes: { somenteComAtividade: opcoes.somenteComAtividade },
+    opcoes: {
+      somenteComAtividade: opcoes.somenteComAtividade,
+      lembretes: opcoes.lembretes,
+      passadasSemAtendimento: opcoes.passadasSemAtendimento,
+    },
   };
 }
 

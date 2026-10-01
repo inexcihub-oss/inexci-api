@@ -72,6 +72,7 @@ export function exportSintetico(sobrescrever: Tabelas = {}): ExportFeegow {
     ],
     usuarios: [
       {
+        id: '173',
         tipo_usuario: 'Funcionarios',
         id_relativo: '2',
         permissoes: '|agendaV|, |usuariosA|',
@@ -105,6 +106,18 @@ export function exportSintetico(sobrescrever: Tabelas = {}): ExportFeegow {
         estado: 'Selecione',
       },
     ],
+    locais: [
+      { id: '1', NomeLocal: 'Consultório 01', sys_active: '1' },
+      { id: '2', NomeLocal: 'Consultório 02', sys_active: '1' },
+      { id: '4', NomeLocal: 'Hospital (excluído)', sys_active: '-1' },
+    ],
+    agendamento_status: [
+      { id: '1', nome_status: 'Marcado - não confirmado' },
+      { id: '3', nome_status: 'Atendido' },
+      { id: '4', nome_status: 'Aguardando' },
+      { id: '11', nome_status: 'Desmarcado pelo paciente' },
+    ],
+    agendamento_canais: [{ id: '-1', nome_canal: 'Doctoralia' }],
     paciente_convenio: [
       { paciente_id: '10', convenio_id1: '15', matricula1: 'ABC123' },
     ],
@@ -136,7 +149,11 @@ export function contextoDeTeste(
     telefonesEmUso: new Set(),
     conveniosExistentes: new Map(),
     mapear: new Map(),
-    opcoes: { somenteComAtividade: false },
+    opcoes: {
+      somenteComAtividade: false,
+      lembretes: false,
+      passadasSemAtendimento: 'manter',
+    },
     ...parcial,
   };
 }
@@ -202,13 +219,26 @@ function pac(
   };
 }
 
-function ag(paciente: string, prof: string, data: string, convenio: string) {
+export function ag(
+  paciente: string | null,
+  prof: string,
+  data: string,
+  convenio: string,
+  extra: Record<string, string | null> = {},
+) {
   return {
+    id: `${paciente ?? 'x'}-${prof}-${data}`,
     paciente_id: paciente,
     profissional_id: prof,
     Data: data,
     Hora: '09:00:00',
     convenio_id: convenio,
+    status_id: '3',
+    tempo: '30',
+    local_id: '1',
+    usuario_id: '0',
+    sys_date: '2024-12-01 10:00:00',
     sys_active: '1',
+    ...extra,
   };
 }

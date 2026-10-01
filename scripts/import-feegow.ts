@@ -61,6 +61,10 @@ async function main(): Promise<void> {
       console.log(`  relatório: ${salvarRelatorio(opcoes.out, relatorio)}`);
 
       if (opcoes.dryRun) {
+        // Nada gravado e o ledger.json não é salvo; mas a fase seguinte da
+        // simulação precisa enxergar o que esta planejou (o paciente que a
+        // agenda referencia), então o ledger em memória recebe o plano.
+        absorver(ledger, trabalho);
         console.log('  dry-run: nada gravado.');
         continue;
       }
@@ -83,15 +87,20 @@ async function main(): Promise<void> {
       await ds!.transaction((manager) => fase.gravar(plano, manager));
       trabalho.salvar();
       // As próximas fases resolvem referências pelo que acabou de entrar.
-      for (const [entidade, mapa] of Object.entries(trabalho.paraObjeto())) {
-        for (const [origem, uuid] of Object.entries(mapa)) {
-          ledger.registrar(entidade, origem, uuid);
-        }
-      }
+      absorver(ledger, trabalho);
       console.log(`  fase ${fase.nome} gravada; ledger atualizado.`);
     }
   } finally {
     await ds?.destroy();
+  }
+}
+
+/** Copia para `destino` tudo o que `origem` registrou. */
+function absorver(destino: Ledger, origem: Ledger): void {
+  for (const [entidade, mapa] of Object.entries(origem.paraObjeto())) {
+    for (const [idOrigem, uuid] of Object.entries(mapa)) {
+      destino.registrar(entidade, idOrigem, uuid);
+    }
   }
 }
 

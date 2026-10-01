@@ -316,7 +316,13 @@ describe('planejarCadastro (export sintético)', () => {
     });
 
     it('--somente-com-atividade deixa de fora quem nunca consultou', () => {
-      const ctx = contextoDeTeste({ opcoes: { somenteComAtividade: true } });
+      const ctx = contextoDeTeste({
+        opcoes: {
+          somenteComAtividade: true,
+          lembretes: false,
+          passadasSemAtendimento: 'manter',
+        },
+      });
       const p = planejarCadastro(exportSintetico(), ctx);
 
       expect(p.pacientes.map((x) => x.name)).toEqual([
