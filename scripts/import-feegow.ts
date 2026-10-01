@@ -1,0 +1,103 @@
+import 'dotenv/config';
+import { createInterface } from 'readline/promises';
+import { join } from 'path';
+import { DataSource } from 'typeorm';
+import { dataSourceOptions } from '../src/database/typeorm/data-source';
+import { Ledger } from '../src/database/import/core/ledger';
+import { Relatorio } from '../src/database/import/core/report';
+import { ExportFeegow } from '../src/database/import/feegow/export';
+import {
+  assertBancoPermitido,
+  baseDoContexto,
+  contextoDoBanco,
+  contextoSemBanco,
+  FASES,
+  interpretarArgumentos,
+  salvarRelatorio,
+} from '../src/database/import/feegow/runner';
+
+/**
+ * Importa o backup estruturado do Feegow para a conta de um cliente.
+ * Ver `planos-implementacao/MIG-07-importador-feegow.md`.
+ *
+ * Cada fase roda numa transação: ou entra tudo, ou nada. O `ledger.json`
+ * (id Feegow → uuid INEXCI) só é salvo depois do COMMIT.
+ *
+ * Saída: 0 ok · 1 erro de uso/configuração · 2 falha na gravação.
+ */
+async function main(): Promise<void> {
+  const opcoes = interpretarArgumentos(process.argv.slice(2));
+  const exp = new ExportFeegow(opcoes.dir);
+  const ledger = new Ledger(join(opcoes.out, 'ledger.json'));
+  const fases =
+    opcoes.fase === 'tudo'
+      ? FASES
+      : FASES.filter((f) => f.nome === opcoes.fase);
+
+  let ds: DataSource | null = null;
+  if (!opcoes.semBanco) {
+    ds = await new DataSource({
+      ...dataSourceOptions,
+      logging: ['error'],
+    }).initialize();
+    const [{ current_database: banco }] = await ds.query(
+      'SELECT current_database()',
+    );
+    assertBancoPermitido(banco, process.env.NODE_ENV);
+    console.log(`[import-feegow] banco: ${banco}`);
+  }
+
+  try {
+    for (const fase of fases) {
+      const trabalho = ledger.clonar();
+      const relatorio = new Relatorio(fase.nome);
+      const base = baseDoContexto(opcoes, trabalho, relatorio);
+      const ctx = ds
+        ? await contextoDoBanco(ds, opcoes.ownerEmail!, base)
+        : contextoSemBanco(base);
+
+      const plano = fase.planejar(exp, ctx);
+      console.log(relatorio.resumo());
+      console.log(`  relatório: ${salvarRelatorio(opcoes.out, relatorio)}`);
+
+      if (opcoes.dryRun) {
+        console.log('  dry-run: nada gravado.');
+        continue;
+      }
+
+      if (opcoes.confirmar) {
+        const rl = createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        const resposta = await rl.question(
+          `Gravar a fase "${fase.nome}" na conta de ${opcoes.ownerEmail}? Digite o e-mail do dono para confirmar: `,
+        );
+        rl.close();
+        if (resposta.trim().toLowerCase() !== opcoes.ownerEmail) {
+          console.log('  Cancelado.');
+          return;
+        }
+      }
+
+      await ds!.transaction((manager) => fase.gravar(plano, manager));
+      trabalho.salvar();
+      // As próximas fases resolvem referências pelo que acabou de entrar.
+      for (const [entidade, mapa] of Object.entries(trabalho.paraObjeto())) {
+        for (const [origem, uuid] of Object.entries(mapa)) {
+          ledger.registrar(entidade, origem, uuid);
+        }
+      }
+      console.log(`  fase ${fase.nome} gravada; ledger atualizado.`);
+    }
+  } finally {
+    await ds?.destroy();
+  }
+}
+
+main().catch((err: Error) => {
+  console.error(`[import-feegow] ${err.message}`);
+  process.exit(
+    err.message.startsWith('--') || err.message.includes('Uso:') ? 1 : 2,
+  );
+});
