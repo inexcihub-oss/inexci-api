@@ -8,6 +8,7 @@ import { chaveDeNome, ContextoImportacao, UsuarioExistente } from './context';
 import { ExportFeegow } from './export';
 import { gravarCadastro, planejarCadastro } from './phases/cadastro.phase';
 import { gravarAgenda, planejarAgenda } from './phases/agenda.phase';
+import { gravarHistorico, planejarHistorico } from './phases/historico.phase';
 
 /** Fases do importador, na ordem em que precisam rodar. */
 export interface Fase<P = unknown> {
@@ -19,6 +20,11 @@ export interface Fase<P = unknown> {
 export const FASES: Fase<any>[] = [
   { nome: 'cadastro', planejar: planejarCadastro, gravar: gravarCadastro },
   { nome: 'agenda', planejar: planejarAgenda, gravar: gravarAgenda },
+  {
+    nome: 'historico',
+    planejar: planejarHistorico,
+    gravar: gravarHistorico,
+  },
 ];
 
 export interface OpcoesCli {

@@ -1,6 +1,7 @@
 import {
   cpfValido,
   dataHoraCompleta,
+  decodificarEntidadesHtml,
   dataHoraSaoPaulo,
   normalizarCep,
   normalizarCpf,
@@ -115,5 +116,25 @@ describe('normalizadores', () => {
         '2026-01-15T03:00:00.000Z',
       );
     });
+  });
+});
+
+describe('decodificarEntidadesHtml', () => {
+  it('monta letras acentuadas e cedilha', () => {
+    expect(
+      decodificarEntidadesHtml(
+        'Altera&ccedil;&atilde;o de hor&aacute;rio &Eacute; &ecirc;',
+      ),
+    ).toBe('Alteração de horário É ê');
+  });
+
+  it('entidades nomeadas comuns e numéricas', () => {
+    expect(decodificarEntidadesHtml('a &amp; b&nbsp;&#231;&#xE3;')).toBe(
+      'a & b çã',
+    );
+  });
+
+  it('entidade desconhecida fica como está', () => {
+    expect(decodificarEntidadesHtml('&foo; &xacute')).toBe('&foo; &xacute');
   });
 });

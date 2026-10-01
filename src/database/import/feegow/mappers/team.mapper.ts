@@ -341,3 +341,30 @@ export function conjuntoDePermissoes(
       .filter(Boolean),
   );
 }
+
+/**
+ * Usuário do Feegow (`usuarios.id`, o `usuario_id`/`usuario` dos agendamentos
+ * e do log) → uuid do usuário importado. Um usuário do Feegow é um
+ * profissional ou um funcionário (`tipo_usuario` + `id_relativo`). Fora do
+ * mapa (`0`, sistema, equipe não importada) = sem autor.
+ */
+export function autoresDoFeegow(
+  exp: ExportFeegow,
+  ctx: ContextoImportacao,
+): Map<string, string | null> {
+  return new Map(
+    exp.tabela('usuarios').map((u): [string, string | null] => {
+      const tipo = (u.tipo_usuario ?? '').toLowerCase();
+      const entidade =
+        tipo === 'profissionais'
+          ? LEDGER_PROFISSIONAL
+          : tipo === 'funcionarios'
+            ? LEDGER_FUNCIONARIO
+            : null;
+      return [
+        u.id ?? '',
+        entidade ? ctx.ledger.resolver(entidade, u.id_relativo) : null,
+      ];
+    }),
+  );
+}

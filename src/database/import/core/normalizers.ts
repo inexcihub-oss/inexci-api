@@ -183,3 +183,41 @@ export function dataHoraCompleta(
   const m = /^(\S+)[ T](\d{2}:\d{2}(?::\d{2})?)/.exec(v);
   return m ? dataHoraSaoPaulo(m[1], m[2]) : dataHoraSaoPaulo(v);
 }
+
+const ENTIDADES_HTML: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  ordm: 'º',
+  ordf: 'ª',
+};
+
+/**
+ * Entidades HTML (`&ccedil;`, `&atilde;`, `&#231;`…) → caractere. O Feegow
+ * gravou parte dos textos de log já escapados. Letras acentuadas são
+ * montadas pela regra do nome (`&Xacute;` = X + acento agudo); entidade
+ * desconhecida fica como está.
+ */
+export function decodificarEntidadesHtml(texto: string): string {
+  const acentos: Record<string, string> = {
+    acute: '́',
+    grave: '̀',
+    circ: '̂',
+    tilde: '̃',
+    uml: '̈',
+    cedil: '̧',
+  };
+  return texto
+    .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) =>
+      String.fromCodePoint(parseInt(n, 16)),
+    )
+    .replace(/&([a-zA-Z]+);/g, (inteira, nome: string) => {
+      if (ENTIDADES_HTML[nome]) return ENTIDADES_HTML[nome];
+      const m = /^([a-zA-Z])(acute|grave|circ|tilde|uml|cedil)$/.exec(nome);
+      return m ? (m[1] + acentos[m[2]]).normalize('NFC') : inteira;
+    });
+}

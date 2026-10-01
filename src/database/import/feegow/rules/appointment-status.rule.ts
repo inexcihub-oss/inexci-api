@@ -15,6 +15,13 @@ const STATUS_FEEGOW: Record<string, AppointmentStatus> = {
   '15': AppointmentStatus.CANCELLED, // Remarcado (o horário antigo)
 };
 
+/** Status da INEXCI equivalente ao `status_id` do Feegow (sem as exceções da carga). */
+export function statusDoFeegow(
+  statusId: string | null | undefined,
+): AppointmentStatus | null {
+  return STATUS_FEEGOW[statusId ?? ''] ?? null;
+}
+
 /** Status que, no Feegow, ainda estavam "em aberto". */
 const EM_ABERTO = new Set<AppointmentStatus>([
   AppointmentStatus.SCHEDULED,

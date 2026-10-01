@@ -15,7 +15,7 @@ import { tipoDaConsulta } from '../rules/appointment-type.rule';
 import { LEDGER_CLINICA } from './clinic.mapper';
 import { LEDGER_CONVENIO } from './health-plan.mapper';
 import { LEDGER_PACIENTE } from './patient.mapper';
-import { LEDGER_FUNCIONARIO, LEDGER_PROFISSIONAL } from './team.mapper';
+import { autoresDoFeegow, LEDGER_PROFISSIONAL } from './team.mapper';
 
 export const LEDGER_SALA = 'room';
 export const LEDGER_CONSULTA = 'appointment';
@@ -128,21 +128,7 @@ export function planejarConsultas(
       .map((a) => a.agendamento_id)
       .filter((id): id is string => !!id && id !== '0'),
   );
-  const autorPorUsuario = new Map(
-    exp.tabela('usuarios').map((u) => {
-      const tipo = (u.tipo_usuario ?? '').toLowerCase();
-      const entidade =
-        tipo === 'profissionais'
-          ? LEDGER_PROFISSIONAL
-          : tipo === 'funcionarios'
-            ? LEDGER_FUNCIONARIO
-            : null;
-      return [
-        u.id,
-        entidade ? ctx.ledger.resolver(entidade, u.id_relativo) : null,
-      ];
-    }),
-  );
+  const autorPorUsuario = autoresDoFeegow(exp, ctx);
 
   const consultas: NovaConsulta[] = [];
   // uuid gerado → ids do Feegow, para o relatório falar a língua do cliente.
