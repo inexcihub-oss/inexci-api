@@ -19,6 +19,10 @@ import {
   planejarAnexosDaFase,
 } from './phases/anexos.phase';
 import { gravarModelos, planejarModelos } from './phases/modelos.phase';
+import {
+  gravarDisponibilidade,
+  planejarDisponibilidade,
+} from './phases/disponibilidade.phase';
 import { ArmazenamentoImportacao } from '../core/armazenamento';
 
 /** Fases do importador, na ordem em que precisam rodar. */
@@ -53,6 +57,11 @@ export const FASES: Fase<any>[] = [
     gravar: gravarAnexos,
   },
   { nome: 'modelos', planejar: planejarModelos, gravar: gravarModelos },
+  {
+    nome: 'disponibilidade',
+    planejar: planejarDisponibilidade,
+    gravar: gravarDisponibilidade,
+  },
 ];
 
 export interface OpcoesCli {
@@ -69,6 +78,7 @@ export interface OpcoesCli {
   caixaLivre: 'anamnesis' | 'conduct';
   incluirRascunhos: boolean;
   modelosVazios: boolean;
+  bloqueiosSoFuturos: boolean;
   hoje: string;
   confirmar: boolean;
 }
@@ -79,6 +89,7 @@ const USO = `Uso:
     [--mapear prof:8=email@x.com] [--mapear func:2=email@x.com] \\
     [--somente-com-atividade] [--lembretes] [--passadas-sem-atendimento completed|no_show] \\
     [--caixa-livre anamnesis|conduct] [--incluir-rascunhos] [--modelos-vazios] \\
+    [--bloqueios-so-futuros] \\
     [--hoje AAAA-MM-DD] [--sim]
 
   --dry-run      planeja e grava só o relatório (nada no banco, ledger intacto)
@@ -91,7 +102,8 @@ const USO = `Uso:
                  (padrão: anamnesis)
   --incluir-rascunhos  formulários em rascunho no Feegow com texto entram na
                  ficha, marcados como rascunho
-  --modelos-vazios  cria um modelo de anamnese vazio por formulário do Feegow`;
+  --modelos-vazios  cria um modelo de anamnese vazio por formulário do Feegow
+  --bloqueios-so-futuros  importa só os bloqueios de agenda de hoje em diante`;
 
 export function interpretarArgumentos(argv: string[]): OpcoesCli {
   const valor = (nome: string) => {
@@ -156,6 +168,7 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     caixaLivre: caixaLivre as OpcoesCli['caixaLivre'],
     incluirRascunhos: tem('--incluir-rascunhos'),
     modelosVazios: tem('--modelos-vazios'),
+    bloqueiosSoFuturos: tem('--bloqueios-so-futuros'),
     hoje,
     confirmar: !tem('--sim'),
   };
@@ -273,6 +286,7 @@ export function baseDoContexto(
       caixaLivre: opcoes.caixaLivre,
       incluirRascunhos: opcoes.incluirRascunhos,
       modelosVazios: opcoes.modelosVazios,
+      bloqueiosSoFuturos: opcoes.bloqueiosSoFuturos,
     },
   };
 }

@@ -240,7 +240,7 @@ export function planejarConsultas(
   return { consultas, colisoes: colisoesEntre(consultas, origem) };
 }
 
-function clinicaImportada(
+export function clinicaImportada(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
 ): string | null {

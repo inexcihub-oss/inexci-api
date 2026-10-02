@@ -99,6 +99,14 @@ describe('opções do prontuário (T9)', () => {
     });
   });
 
+  it('--bloqueios-so-futuros (padrão: traz o histórico)', () => {
+    expect(interpretarArgumentos(base).bloqueiosSoFuturos).toBe(false);
+    expect(
+      interpretarArgumentos([...base, '--bloqueios-so-futuros'])
+        .bloqueiosSoFuturos,
+    ).toBe(true);
+  });
+
   it('recusa --caixa-livre inválido', () => {
     expect(() =>
       interpretarArgumentos([...base, '--caixa-livre', 'diagnosis']),
@@ -113,6 +121,7 @@ describe('opções do prontuário (T9)', () => {
       'prontuario',
       'anexos',
       'modelos',
+      'disponibilidade',
     ]);
     expect(FASES.filter((f) => f.enviar).map((f) => f.nome)).toEqual([
       'anexos',

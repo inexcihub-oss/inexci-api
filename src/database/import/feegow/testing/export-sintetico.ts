@@ -156,6 +156,7 @@ export function contextoDeTeste(
       caixaLivre: 'anamnesis',
       incluirRascunhos: false,
       modelosVazios: false,
+      bloqueiosSoFuturos: false,
     },
     ...parcial,
   };

@@ -54,6 +54,8 @@ export interface ContextoImportacao {
     incluirRascunhos: boolean;
     /** Cria um modelo de anamnese vazio com o nome de cada formulário do Feegow. */
     modelosVazios: boolean;
+    /** Só bloqueios de agenda de hoje em diante (sem o histórico). */
+    bloqueiosSoFuturos: boolean;
   };
 }
 
