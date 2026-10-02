@@ -19,6 +19,11 @@ import {
   interpretarArgumentos,
   salvarRelatorio,
 } from '../src/database/import/feegow/runner';
+import {
+  formatarConferencia,
+  verificarCarga,
+  verificarSchema,
+} from '../src/database/import/feegow/verificacao';
 
 /**
  * Importa o backup estruturado do Feegow para a conta de um cliente.
@@ -49,6 +54,42 @@ async function main(): Promise<void> {
     );
     assertBancoPermitido(banco, process.env.NODE_ENV);
     console.log(`[import-feegow] banco: ${banco}`);
+
+    // As fases gravam colunas criadas pelas trilhas T1–T10: sem as
+    // migrations, a transação morreria no meio com um erro cru do Postgres.
+    const faltando = await verificarSchema((sql, p) => ds!.query(sql, p));
+    if (faltando.length) {
+      await ds.destroy();
+      throw new Error(
+        `Banco sem as migrations da migração Feegow (falta: ${faltando.join(', ')}). Rode "yarn typeorm:migration:run" antes.`,
+      );
+    }
+  }
+
+  if (opcoes.verificar) {
+    try {
+      const [dono] = await ds!.query(
+        `SELECT id FROM users WHERE lower(email) = $1 AND deleted_at IS NULL`,
+        [opcoes.ownerEmail],
+      );
+      if (!dono) throw new Error(`Dono não encontrado: ${opcoes.ownerEmail}`);
+      const linhas = await verificarCarga(
+        (sql, p) => ds!.query(sql, p),
+        ledger,
+        dono.id,
+      );
+      console.log(
+        '== Conferência da carga (encontrados / previstos no ledger)',
+      );
+      console.log(
+        linhas.length ? formatarConferencia(linhas) : '  ledger vazio.',
+      );
+      if (linhas.some((l) => l.encontrados !== l.previstos))
+        process.exitCode = 2;
+    } finally {
+      await ds?.destroy();
+    }
+    return;
   }
 
   try {

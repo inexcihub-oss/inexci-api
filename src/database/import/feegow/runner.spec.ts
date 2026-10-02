@@ -107,6 +107,20 @@ describe('opções do prontuário (T9)', () => {
     ).toBe(true);
   });
 
+  it('--verificar dispensa --fase e recusa --sem-banco', () => {
+    const o = interpretarArgumentos([
+      '--dir',
+      '/x',
+      '--owner-email',
+      'dono@x.com',
+      '--verificar',
+    ]);
+    expect(o).toMatchObject({ verificar: true, fase: 'tudo', dryRun: false });
+    expect(() =>
+      interpretarArgumentos(['--dir', '/x', '--verificar', '--sem-banco']),
+    ).toThrow('não combina com --sem-banco');
+  });
+
   it('recusa --caixa-livre inválido', () => {
     expect(() =>
       interpretarArgumentos([...base, '--caixa-livre', 'diagnosis']),

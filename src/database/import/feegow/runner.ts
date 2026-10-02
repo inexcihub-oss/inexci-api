@@ -79,6 +79,8 @@ export interface OpcoesCli {
   incluirRascunhos: boolean;
   modelosVazios: boolean;
   bloqueiosSoFuturos: boolean;
+  /** Só confere a carga já feita (ledger × banco); não roda fase. */
+  verificar: boolean;
   hoje: string;
   confirmar: boolean;
 }
@@ -90,6 +92,7 @@ const USO = `Uso:
     [--somente-com-atividade] [--lembretes] [--passadas-sem-atendimento completed|no_show] \\
     [--caixa-livre anamnesis|conduct] [--incluir-rascunhos] [--modelos-vazios] \\
     [--bloqueios-so-futuros] \\
+  yarn import:feegow --dir <pasta> --owner-email <e-mail> --verificar [--out <pasta>]
     [--hoje AAAA-MM-DD] [--sim]
 
   --dry-run      planeja e grava só o relatório (nada no banco, ledger intacto)
@@ -103,7 +106,8 @@ const USO = `Uso:
   --incluir-rascunhos  formulários em rascunho no Feegow com texto entram na
                  ficha, marcados como rascunho
   --modelos-vazios  cria um modelo de anamnese vazio por formulário do Feegow
-  --bloqueios-so-futuros  importa só os bloqueios de agenda de hoje em diante`;
+  --bloqueios-so-futuros  importa só os bloqueios de agenda de hoje em diante
+  --verificar    pós-carga: confere no banco cada registro do ledger.json`;
 
 export function interpretarArgumentos(argv: string[]): OpcoesCli {
   const valor = (nome: string) => {
@@ -113,9 +117,15 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
   const tem = (nome: string) => argv.includes(nome);
 
   const dir = valor('--dir');
-  const fase = valor('--fase');
+  const verificar = tem('--verificar');
+  const fase = valor('--fase') ?? (verificar ? 'tudo' : null);
   if (!dir || !fase)
     throw new Error(`--dir e --fase são obrigatórios.\n\n${USO}`);
+  if (verificar && tem('--sem-banco')) {
+    throw new Error(
+      '--verificar consulta o banco: não combina com --sem-banco.',
+    );
+  }
   if (fase !== 'tudo' && !FASES.some((f) => f.nome === fase)) {
     throw new Error(`Fase desconhecida: ${fase}.\n\n${USO}`);
   }
@@ -169,6 +179,7 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     incluirRascunhos: tem('--incluir-rascunhos'),
     modelosVazios: tem('--modelos-vazios'),
     bloqueiosSoFuturos: tem('--bloqueios-so-futuros'),
+    verificar,
     hoje,
     confirmar: !tem('--sim'),
   };
