@@ -73,6 +73,10 @@ const TABELAS_DEMOGRAFICAS: [
  * - Convênio: o da consulta ativa mais recente com convênio de verdade.
  * - Dados demográficos que a INEXCI não tem (estado civil, profissão…) vão
  *   para as observações, quando preenchidos.
+ * - CPF repetido só avisa: o mesmo CPF pode ser de pessoas diferentes
+ *   (filho com o CPF da mãe, digitação), então nada é mesclado sozinho.
+ * - Nome sem nenhuma letra (é um telefone), sem nenhum outro dado e sem
+ *   consulta, atendimento ou ficha: fora. Com qualquer um deles, entra com aviso.
  */
 export function planejarPacientes(
   exp: ExportFeegow,
@@ -101,6 +105,7 @@ export function planejarPacientes(
       ] as const,
   );
 
+  const atividade = pacientesComAtividade(exp);
   const novos: NovoPaciente[] = [];
   const cpfsVistos = new Map<string, string>();
   const nomesVistos = new Map<string, string>();
@@ -183,6 +188,31 @@ export function planejarPacientes(
 
     const end = enderecoPorPaciente.get(idOrigem);
     const conv = convenioPorPaciente.get(idOrigem);
+
+    // Nome que é um telefone ("24 98841-4691"): sem nenhum outro dado nem
+    // atividade, não há paciente aqui — é lixo de cadastro.
+    if (!/\p{L}/u.test(nome)) {
+      const temOutroDado =
+        cpf ||
+        normalizarData(p.nascimento) ||
+        normalizarEmail(p.email) ||
+        telefones.length > 0 ||
+        normalizarCep(end?.cep) ||
+        normalizarTexto(end?.logradouro, 200);
+      if (!temOutroDado && !atividade.has(idOrigem)) {
+        rel.rejeitar(
+          'paciente',
+          idOrigem,
+          'nome sem letras (parece um telefone) e nenhum outro dado',
+        );
+        continue;
+      }
+      rel.avisar(
+        'paciente',
+        idOrigem,
+        'nome sem letras (parece um telefone): revise o nome no cadastro',
+      );
+    }
 
     const notas: string[] = [];
     const obs = (p.Observacoes ?? '').trim();

@@ -68,6 +68,50 @@ const CONSELHOS: Record<string, ProfessionalCouncil> = {
   CREF: ProfessionalCouncil.CREF,
 };
 
+const sem = (texto: string) =>
+  texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+/**
+ * Especialidades que não são de médico → o conselho da profissão. Vem antes
+ * da lista médica porque "Enfermagem (Técnico)" ou "Nutrição clínica" não
+ * podem cair em CRM.
+ */
+const CONSELHO_DA_PROFISSAO: [RegExp, ProfessionalCouncil][] = [
+  [/enferm/, ProfessionalCouncil.COREN],
+  [/nutri/, ProfessionalCouncil.CRN],
+  [/psicolog|psicoterap|neuropsicolog/, ProfessionalCouncil.CRP],
+  [/fisioterap|terapia ocupacional/, ProfessionalCouncil.CREFITO],
+  [/fonoaudiolog/, ProfessionalCouncil.CRFA],
+  [/odonto|dentist/, ProfessionalCouncil.CRO],
+  [/biomedic/, ProfessionalCouncil.CRBM],
+  [/educacao fisica|personal/, ProfessionalCouncil.CREF],
+];
+
+/** Especialidades médicas reconhecidas (lista fechada: na dúvida, OUTRO). */
+const ESPECIALIDADE_MEDICA =
+  /medicina|clinica (geral|medica)|ortoped|traumato|cirurgi|cardiolog|dermatolog|endocrinolog|gastroenterolog|geriatr|ginecolog|obstetr|hematolog|infectolog|mastolog|nefrolog|neurolog|neurocirurg|oftalmolog|oncolog|otorrino|pediatr|pneumolog|psiquiatr|radiolog|reumatolog|urolog|anestesiolog|angiolog|coloproctolog|nutrolog|fisiatr|homeopat|acupuntur medica/;
+
+/**
+ * Conselho deduzido da especialidade, para profissional que veio do Feegow
+ * sem conselho. Profissão não médica reconhecida → o conselho dela;
+ * especialidade médica reconhecida → CRM; o resto → `null` (fica OUTRO).
+ * Lista fechada de propósito: CRM dá atos privativos (receita, atestado,
+ * indicação cirúrgica), então só entra quem a especialidade deixa claro.
+ */
+export function conselhoPelaEspecialidade(
+  especialidade: string | null | undefined,
+): ProfessionalCouncil | null {
+  if (!especialidade) return null;
+  const e = sem(especialidade);
+  for (const [padrao, conselho] of CONSELHO_DA_PROFISSAO) {
+    if (padrao.test(e)) return conselho;
+  }
+  return ESPECIALIDADE_MEDICA.test(e) ? ProfessionalCouncil.CRM : null;
+}
+
 interface Pessoa {
   tipo: 'prof' | 'func';
   idOrigem: string;
@@ -80,6 +124,8 @@ interface Pessoa {
   ativo: boolean;
   excluido: boolean;
   perfil: Omit<NovoPerfil, 'id' | 'userId'> | null;
+  /** Conselho veio da especialidade, não do Feegow. */
+  conselhoDeduzido?: boolean;
   permissoes: Permission[];
 }
 
@@ -212,6 +258,19 @@ export function planejarEquipe(
           p.idOrigem,
           'sem conselho no Feegow — entra como OUTRO; ajuste o conselho na tela de colaboradores',
         );
+      } else if (p.conselhoDeduzido) {
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          `sem conselho no Feegow — entra como ${p.perfil.council}, deduzido da especialidade "${p.perfil.specialty}"; confira na tela de colaboradores`,
+        );
+      }
+      if (p.perfil.council === ProfessionalCouncil.CRM && !p.perfil.crm) {
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          'CRM sem número — preencha o número na tela de colaboradores; até lá não emite receita, atestado nem pedido de exame',
+        );
       }
     }
     colaboradoresDaConta.push(id);
@@ -251,10 +310,12 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
 
   return exp.tabela('profissionais').map((p) => {
     const codigo = (conselhoPorId.get(p.conselho_id ?? '') ?? '').toUpperCase();
-    const council = CONSELHOS[codigo] ?? ProfessionalCouncil.OUTRO;
     const especialidade = nomeEspecialidade.get(
       especialidadePorProf.get(p.id ?? '') ?? '',
     );
+    const doFeegow = CONSELHOS[codigo];
+    const deduzido = doFeegow ? null : conselhoPelaEspecialidade(especialidade);
+    const council = doFeegow ?? deduzido ?? ProfessionalCouncil.OUTRO;
     return {
       tipo: 'prof' as const,
       idOrigem: p.id!,
@@ -278,6 +339,7 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
         crmState: null,
         specialty: normalizarTexto(especialidade, 100),
       },
+      conselhoDeduzido: !!deduzido,
       // O perfil já dá as áreas (agenda + atendimento, e solicitações se CRM).
       permissoes: [],
     };

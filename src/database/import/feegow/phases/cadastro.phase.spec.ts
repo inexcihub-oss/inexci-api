@@ -361,4 +361,103 @@ describe('planejarCadastro (export sintético)', () => {
       expect(avisos.some((a) => a.startsWith('colunas deslocadas'))).toBe(true);
     });
   });
+
+  describe('nome que é telefone', () => {
+    const paciente = (
+      id: string,
+      nome: string,
+      extra: Record<string, string | null> = {},
+    ) => ({
+      id,
+      nome_paciente: nome,
+      cpf: null,
+      celular: null,
+      sexo: null,
+      nascimento: null,
+      sys_active: '1',
+      sys_date: '2023-01-12 00:00:00',
+      ...extra,
+    });
+    const planejar = (
+      pacientes: ReturnType<typeof paciente>[],
+      agendamentos: Record<string, string>[] = [],
+    ) => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const plano = planejarCadastro(
+        exportSintetico({ pacientes, agendamentos }),
+        ctx,
+      );
+      return { ctx, plano };
+    };
+
+    it('sem nenhum outro dado fica de fora; com outro dado entra com aviso', () => {
+      const { ctx, plano } = planejar([
+        paciente('60', '24 98841-4691'),
+        paciente('61', '(24) 99999-0000', { email: 'x@exemplo.com' }),
+      ]);
+
+      expect(plano.pacientes.map((p) => p.name)).toEqual(['(24) 99999-0000']);
+      expect(ctx.relatorio.rejeicoes).toContainEqual(
+        expect.objectContaining({
+          idOrigem: '60',
+          motivo: 'nome sem letras (parece um telefone) e nenhum outro dado',
+        }),
+      );
+      expect(ctx.relatorio.avisos).toContainEqual(
+        expect.objectContaining({
+          idOrigem: '61',
+          aviso: expect.stringContaining('nome sem letras'),
+        }),
+      );
+    });
+
+    it('com consulta entra, para não perder a consulta', () => {
+      const { plano } = planejar(
+        [paciente('70', '24 98841-4691')],
+        [
+          {
+            id: 'c1',
+            paciente_id: '70',
+            profissional_id: '1',
+            Data: '2025-01-10',
+            Hora: '09:00:00',
+            sys_active: '1',
+          },
+        ],
+      );
+      expect(plano.pacientes).toHaveLength(1);
+    });
+  });
+
+  it('CPF repetido só avisa — nunca mescla pacientes', () => {
+    const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+    const base = {
+      cpf: '52998224725',
+      celular: null,
+      sexo: null,
+      nascimento: null,
+      sys_active: '1',
+      sys_date: '2023-01-12 00:00:00',
+    };
+    const plano = planejarCadastro(
+      exportSintetico({
+        pacientes: [
+          { ...base, id: '80', nome_paciente: 'Cristina Moura' },
+          { ...base, id: '81', nome_paciente: 'Cristina Maria Moura' },
+        ],
+      }),
+      ctx,
+    );
+
+    expect(plano.pacientes).toHaveLength(2);
+    expect(ctx.ledger.resolver(LEDGER_PACIENTE, '80')).not.toBe(
+      ctx.ledger.resolver(LEDGER_PACIENTE, '81'),
+    );
+    expect(ctx.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '81',
+        aviso: 'CPF repetido em outro paciente',
+      }),
+    );
+  });
 });
