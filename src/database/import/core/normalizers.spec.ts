@@ -2,6 +2,7 @@ import {
   cpfValido,
   dataHoraCompleta,
   decodificarEntidadesHtml,
+  repararNomeCortado,
   dataHoraSaoPaulo,
   normalizarCep,
   normalizarCpf,
@@ -136,5 +137,41 @@ describe('decodificarEntidadesHtml', () => {
 
   it('entidade desconhecida fica como está', () => {
     expect(decodificarEntidadesHtml('&foo; &xacute')).toBe('&foo; &xacute');
+  });
+});
+
+describe('repararNomeCortado', () => {
+  it('troca a entidade cortada pelo caractere e marca o corte', () => {
+    expect(repararNomeCortado('JOS&EACUTE')).toEqual({
+      nome: 'JOSÉ',
+      cortado: true,
+    });
+    expect(repararNomeCortado('MARCILENE GON&CCEDIL')).toEqual({
+      nome: 'MARCILENE GONÇ',
+      cortado: true,
+    });
+    expect(repararNomeCortado('THIAGO GUIMAR&ATILDE')).toEqual({
+      nome: 'THIAGO GUIMARÃ',
+      cortado: true,
+    });
+    expect(repararNomeCortado('RICARDO Q&PERIOD')).toEqual({
+      nome: 'RICARDO Q.',
+      cortado: true,
+    });
+    expect(repararNomeCortado('TERESA D&APOS')).toEqual({
+      nome: "TERESA D'",
+      cortado: true,
+    });
+  });
+
+  it('nome normal passa intacto; entidade desconhecida fica', () => {
+    expect(repararNomeCortado('MARIA SILVA')).toEqual({
+      nome: 'MARIA SILVA',
+      cortado: false,
+    });
+    expect(repararNomeCortado('ANA &XYZ')).toEqual({
+      nome: 'ANA &XYZ',
+      cortado: true,
+    });
   });
 });

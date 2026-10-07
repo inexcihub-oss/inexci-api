@@ -221,3 +221,33 @@ export function decodificarEntidadesHtml(texto: string): string {
       return m ? (m[1] + acentos[m[2]]).normalize('NFC') : inteira;
     });
 }
+
+const ENTIDADES_EM_MAIUSCULAS: Record<string, string> = {
+  PERIOD: '.',
+  APOS: "'",
+  QUOT: '"',
+  AMP: '&',
+  COMMA: ',',
+  HYPHEN: '-',
+};
+
+/**
+ * Nome que o export do Feegow cortou numa entidade HTML em maiúsculas sem o
+ * `;` (`JOS&EACUTE`, `GON&CCEDIL`): devolve o caractere (`JOSÉ`, `GONÇ`) e se
+ * houve corte. O resto do nome não veio no export — só dá para avisar.
+ */
+export function repararNomeCortado(nome: string): {
+  nome: string;
+  cortado: boolean;
+} {
+  let cortado = false;
+  const reparado = nome.replace(/&([A-Z]{2,8});?/g, (inteiro, ent: string) => {
+    cortado = true;
+    if (ENTIDADES_EM_MAIUSCULAS[ent]) return ENTIDADES_EM_MAIUSCULAS[ent];
+    const letra = decodificarEntidadesHtml(
+      `&${ent[0]}${ent.slice(1).toLowerCase()};`,
+    );
+    return letra.startsWith('&') ? inteiro : letra;
+  });
+  return { nome: reparado.trim(), cortado };
+}

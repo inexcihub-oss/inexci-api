@@ -8,6 +8,7 @@ import {
   normalizarSexo,
   normalizarTexto,
   normalizarUf,
+  repararNomeCortado,
   telefonesDistintos,
 } from '../../core/normalizers';
 import { chaveDeNome, ContextoImportacao } from '../context';
@@ -122,10 +123,28 @@ export function planejarPacientes(
       );
       continue;
     }
-    const nome = normalizarTexto(p.nome_paciente, 100);
-    if (!nome) {
+    const nomeBruto = normalizarTexto(p.nome_paciente, 100);
+    if (!nomeBruto) {
       rel.rejeitar('paciente', idOrigem, 'sem nome');
       continue;
+    }
+    // O export do Feegow cortou alguns nomes numa entidade HTML (`JOS&EACUTE`)
+    // e, nessas linhas, às vezes deslocou as colunas seguintes.
+    const { nome, cortado } = repararNomeCortado(nomeBruto);
+    if (cortado) {
+      rel.avisar(
+        'paciente',
+        idOrigem,
+        'nome incompleto no export do Feegow: revise o nome no cadastro',
+        nome,
+      );
+    }
+    if (/[@(]/.test(p.cpf ?? '')) {
+      rel.avisar(
+        'paciente',
+        idOrigem,
+        'colunas deslocadas no export do Feegow (telefone/e-mail fora do lugar): revise o cadastro',
+      );
     }
 
     const cpf = normalizarCpf(p.cpf);

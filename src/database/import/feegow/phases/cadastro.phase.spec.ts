@@ -332,4 +332,33 @@ describe('planejarCadastro (export sintético)', () => {
       ]);
     });
   });
+
+  describe('nomes cortados no export do Feegow', () => {
+    it('repara a entidade no fim do nome e avisa; linha deslocada também avisa', () => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const exp = exportSintetico({
+        pacientes: [
+          {
+            id: '50',
+            nome_paciente: 'JOS&EACUTE',
+            cpf: '(24) 999999999',
+            celular: 'alguem@exemplo.com',
+            sexo: '1',
+            sys_active: '1',
+            sys_date: '2023-01-12 00:00:00',
+          },
+        ],
+      });
+
+      const plano = planejarCadastro(exp, ctx);
+
+      expect(plano.pacientes[0].name).toBe('JOSÉ');
+      expect(plano.pacientes[0].cpf).toBeNull();
+      const avisos = ctx.relatorio.avisos.map((a) => a.aviso);
+      expect(avisos).toContain(
+        'nome incompleto no export do Feegow: revise o nome no cadastro',
+      );
+      expect(avisos.some((a) => a.startsWith('colunas deslocadas'))).toBe(true);
+    });
+  });
 });
