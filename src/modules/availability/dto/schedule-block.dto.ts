@@ -6,7 +6,11 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
+
+/** Opcional, mas sem aceitar `null` (ausente passa; `null` é recusado). */
+const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
 
 export class CreateScheduleBlockDto {
   /** Profissional bloqueado. Ausente/nulo = toda a clínica. */
@@ -26,7 +30,7 @@ export class CreateScheduleBlockDto {
   endsAt: string;
 
   @IsBoolean()
-  @IsOptional()
+  @SeInformado()
   allDay?: boolean;
 
   @IsString()
@@ -35,8 +39,13 @@ export class CreateScheduleBlockDto {
   reason?: string | null;
 }
 
+/**
+ * `null` em início/fim é recusado (viraria 1970); profissional, clínica e
+ * motivo aceitam nulo (`@IsOptional` próprio).
+ */
 export class UpdateScheduleBlockDto extends PartialType(
   CreateScheduleBlockDto,
+  { skipNullProperties: false },
 ) {}
 
 export class FindScheduleBlocksDto {

@@ -1,5 +1,8 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { ClinicRoomsService } from './clinic-rooms.service';
+import { UpdateClinicRoomDto } from './dto/clinic-room.dto';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
@@ -99,5 +102,18 @@ describe('ClinicRoomsService', () => {
       NotFoundException,
     );
     expect(roomRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it('PATCH de sala: nome ou ativo nulos são recusados; ausentes passam', async () => {
+    const erros = async (body: object) =>
+      (await validate(plainToInstance(UpdateClinicRoomDto, body)))
+        .map((e) => e.property)
+        .sort();
+    await expect(erros({ name: null, active: null })).resolves.toEqual([
+      'active',
+      'name',
+    ]);
+    await expect(erros({})).resolves.toEqual([]);
+    await expect(erros({ active: false })).resolves.toEqual([]);
   });
 });

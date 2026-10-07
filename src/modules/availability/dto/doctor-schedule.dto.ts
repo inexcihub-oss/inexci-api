@@ -8,7 +8,15 @@ import {
   Matches,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
+
+/**
+ * Campo opcional que **não aceita `null`**: ausente passa, `null` cai nos
+ * validadores do campo (e é recusado), em vez de virar `NULL` numa coluna
+ * obrigatória. `@IsOptional` deixaria o `null` passar.
+ */
+const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
 
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -42,7 +50,7 @@ export class CreateDoctorScheduleDto {
   @IsInt()
   @Min(5)
   @Max(240)
-  @IsOptional()
+  @SeInformado()
   slotMinutes?: number;
 
   @IsInt()
@@ -60,11 +68,16 @@ export class CreateDoctorScheduleDto {
   validTo?: string | null;
 
   @IsBoolean()
-  @IsOptional()
+  @SeInformado()
   active?: boolean;
 }
 
-/** O profissional da grade não muda depois de criada. */
+/**
+ * O profissional da grade não muda depois de criada. `skipNullProperties:
+ * false`: `null` em campo obrigatório (dia, horário) é recusado; os que
+ * aceitam nulo (clínica, sala, vigência…) têm `@IsOptional` próprio.
+ */
 export class UpdateDoctorScheduleDto extends PartialType(
   OmitType(CreateDoctorScheduleDto, ['doctorId'] as const),
+  { skipNullProperties: false },
 ) {}

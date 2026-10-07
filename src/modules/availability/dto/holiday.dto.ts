@@ -10,7 +10,11 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
+
+/** Opcional, mas sem aceitar `null` (ausente passa; `null` é recusado). */
+const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
 
 export class CreateHolidayDto {
   @IsString()
@@ -23,15 +27,18 @@ export class CreateHolidayDto {
   date: string;
 
   @IsBoolean()
-  @IsOptional()
+  @SeInformado()
   recurring?: boolean;
 
   @IsBoolean()
-  @IsOptional()
+  @SeInformado()
   blocksAgenda?: boolean;
 }
 
-export class UpdateHolidayDto extends PartialType(CreateHolidayDto) {}
+/** `null` em qualquer campo é recusado (nenhum deles é anulável). */
+export class UpdateHolidayDto extends PartialType(CreateHolidayDto, {
+  skipNullProperties: false,
+}) {}
 
 export class FindHolidaysDto {
   @Type(() => Number)

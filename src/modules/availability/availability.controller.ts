@@ -74,7 +74,11 @@ export class AvailabilityController {
     @Query('doctorId', ParseUUIDPipe) doctorId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.schedulesService.findByDoctor(doctorId, user.userId);
+    return this.schedulesService.findByDoctor(
+      doctorId,
+      user.userId,
+      user.permissions,
+    );
   }
 
   @Post('schedules')
@@ -128,7 +132,7 @@ export class AvailabilityController {
     @Body() data: CreateScheduleBlockDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.blocksService.create(data, user.userId);
+    return this.blocksService.create(data, user.userId, user.permissions);
   }
 
   @Patch('blocks/:id')
@@ -139,7 +143,7 @@ export class AvailabilityController {
     @Body() data: UpdateScheduleBlockDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.blocksService.update(id, data, user.userId);
+    return this.blocksService.update(id, data, user.userId, user.permissions);
   }
 
   @Delete('blocks/:id')
@@ -149,7 +153,7 @@ export class AvailabilityController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.blocksService.delete(id, user.userId);
+    return this.blocksService.delete(id, user.userId, user.permissions);
   }
 
   // ── Feriados ────────────────────────────────────────────────────────────

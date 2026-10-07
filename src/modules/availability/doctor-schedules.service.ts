@@ -8,7 +8,10 @@ import {
 import { DoctorSchedule } from 'src/database/entities/doctor-schedule.entity';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
-import { DoctorScheduleRepository } from 'src/database/repositories/doctor-schedule.repository';
+import {
+  DoctorScheduleRepository,
+  DoctorScheduleTx,
+} from 'src/database/repositories/doctor-schedule.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { Permission } from 'src/shared/permissions';
 import { AccessControlService } from 'src/shared/services/access-control.service';
@@ -21,8 +24,14 @@ import {
 /**
  * Grade de atendimento por profissional (MIG-05).
  *
- * Ler: quem acessa o profissional. Escrever: o próprio profissional na
- * própria grade, ou quem tem Administração na conta.
+ * Ler: quem acessa o profissional, ou quem tem Administração na conta (a
+ * mesma regra de quem escreve — senão o admin delegado gravaria uma grade
+ * que não consegue ler). Escrever: o próprio profissional na própria grade,
+ * ou quem tem Administração na conta.
+ *
+ * Validar e gravar rodam numa transação travada por profissional
+ * (`comTravaDoProfissional`), para a checagem de sobreposição não correr
+ * contra outro POST simultâneo.
  */
 @Injectable()
 export class DoctorSchedulesService {
@@ -37,18 +46,25 @@ export class DoctorSchedulesService {
   async findByDoctor(
     doctorId: string,
     userId: string,
+    permissions: readonly Permission[],
   ): Promise<DoctorSchedule[]> {
-    if (!(await this.accessControlService.canAccessDoctor(userId, doctorId))) {
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    if (
+      !(await this.accessControlService.canAccessDoctor(userId, doctorId)) &&
+      !(
+        permissions.includes(Permission.ADMINISTRACAO) &&
+        (await this.profissionalDaConta(doctorId, ownerId))
+      )
+    ) {
       throw new ForbiddenException('Médico não acessível para esta operação.');
     }
-    const ownerId = await this.accessControlService.getOwnerId(userId);
     return this.scheduleRepository.findByDoctor(ownerId, doctorId);
   }
 
   async create(
     data: CreateDoctorScheduleDto,
     userId: string,
-    permissions: Permission[],
+    permissions: readonly Permission[],
   ): Promise<DoctorSchedule> {
     const doctorId = data.doctorId ?? userId;
     const ownerId = await this.assertPodeEscrever(
@@ -70,15 +86,20 @@ export class DoctorSchedulesService {
       validTo: data.validTo?.slice(0, 10) ?? null,
       active: data.active ?? true,
     };
-    await this.validar(nova, null);
-    return this.scheduleRepository.create(nova);
+    return this.scheduleRepository.comTravaDoProfissional(
+      doctorId,
+      async (tx) => {
+        await this.validar(tx, nova, null, true);
+        return tx.create(nova);
+      },
+    );
   }
 
   async update(
     id: string,
     data: UpdateDoctorScheduleDto,
     userId: string,
-    permissions: Permission[],
+    permissions: readonly Permission[],
   ): Promise<DoctorSchedule> {
     const atual = await this.getOwned(id, userId);
     await this.assertPodeEscrever(atual.doctorId, userId, permissions);
@@ -102,14 +123,27 @@ export class DoctorSchedulesService {
       mudancas.validTo = data.validTo?.slice(0, 10) ?? null;
     if (data.active !== undefined) mudancas.active = data.active;
 
-    await this.validar({ ...atual, ...mudancas }, id);
-    return (await this.scheduleRepository.update(id, mudancas))!;
+    // Clínica/sala só são reconferidas quando mudam ou quando o período volta
+    // a valer: com a clínica ou a sala já removida, o período ainda pode ser
+    // editado — inclusive desativado.
+    const final = { ...atual, ...mudancas };
+    const verificarLocal =
+      data.clinicId !== undefined ||
+      data.roomId !== undefined ||
+      (final.active && !atual.active);
+    return this.scheduleRepository.comTravaDoProfissional(
+      atual.doctorId,
+      async (tx) => {
+        await this.validar(tx, final, id, verificarLocal);
+        return (await tx.update(id, mudancas))!;
+      },
+    );
   }
 
   async delete(
     id: string,
     userId: string,
-    permissions: Permission[],
+    permissions: readonly Permission[],
   ): Promise<void> {
     const atual = await this.getOwned(id, userId);
     await this.assertPodeEscrever(atual.doctorId, userId, permissions);
@@ -123,11 +157,22 @@ export class DoctorSchedulesService {
     return grade;
   }
 
+  /** O usuário é profissional de saúde da conta `ownerId`? */
+  private async profissionalDaConta(
+    doctorId: string,
+    ownerId: string,
+  ): Promise<boolean> {
+    const medico = await this.userRepository.findOneWithProfile({
+      id: doctorId,
+    });
+    return !!medico?.doctorProfile && (medico.ownerId ?? medico.id) === ownerId;
+  }
+
   /** Devolve o `ownerId` da conta. */
   private async assertPodeEscrever(
     doctorId: string,
     userId: string,
-    permissions: Permission[],
+    permissions: readonly Permission[],
   ): Promise<string> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
     const proprio = doctorId === userId;
@@ -148,8 +193,12 @@ export class DoctorSchedulesService {
     return ownerId;
   }
 
-  /** Horário coerente, clínica/sala da conta e sem sobreposição na vigência. */
+  /**
+   * Horário coerente, clínica/sala da conta (só com `verificarLocal`) e sem
+   * sobreposição na vigência. Roda dentro da transação travada.
+   */
   private async validar(
+    tx: DoctorScheduleTx,
     g: Pick<
       DoctorSchedule,
       | 'ownerId'
@@ -165,6 +214,7 @@ export class DoctorSchedulesService {
       | 'active'
     >,
     ignorarId: string | null,
+    verificarLocal: boolean,
   ): Promise<void> {
     const ini = horaParaMinutos(g.startTime);
     const fim = horaParaMinutos(g.endTime);
@@ -177,25 +227,26 @@ export class DoctorSchedulesService {
     if (g.validFrom && g.validTo && g.validFrom > g.validTo) {
       throw new BadRequestException('A vigência termina antes de começar.');
     }
-    if (g.clinicId) {
+    if (verificarLocal && g.clinicId) {
       const clinica = await this.clinicRepository.findOne({ id: g.clinicId });
       if (!clinica || clinica.ownerId !== g.ownerId) {
         throw new BadRequestException('Clínica não encontrada.');
       }
     }
-    if (g.roomId) {
+    if (verificarLocal && g.roomId) {
       const sala = await this.roomRepository.findOne({ id: g.roomId });
       if (!sala || sala.ownerId !== g.ownerId || sala.clinicId !== g.clinicId) {
         throw new BadRequestException(
           'A sala não pertence à clínica da grade.',
         );
       }
+      if (!sala.active) {
+        throw new BadRequestException('A sala está desativada.');
+      }
     }
     if (!g.active) return;
 
-    const conflito = (
-      await this.scheduleRepository.findActiveByDoctor(g.doctorId)
-    ).find(
+    const conflito = (await tx.findActiveByDoctor(g.doctorId)).find(
       (o) =>
         o.id !== ignorarId &&
         o.weekday === g.weekday &&

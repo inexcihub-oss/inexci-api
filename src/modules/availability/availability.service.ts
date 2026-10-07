@@ -53,14 +53,30 @@ export function feriadoDoDia(
   );
 }
 
-/** Bloqueio vale para a consulta: mesmo profissional (ou clínica toda) e clínica compatível. */
+/**
+ * O bloqueio atinge a consulta/horário (`doctorId`, `clinicId`)?
+ *
+ * | bloqueio (médico, clínica) | item na clínica X | item na clínica Y | item sem clínica |
+ * | -------------------------- | ----------------- | ----------------- | ---------------- |
+ * | (—, —) conta toda          | sim               | sim               | sim              |
+ * | (D, —) médico em qualquer  | sim               | sim               | sim              |
+ * | (—, X) clínica X           | sim               | não               | não              |
+ * | (D, X) médico na clínica X | sim               | não               | sim              |
+ *
+ * Bloqueio de outro médico nunca atinge. Bloqueio só de uma clínica não
+ * alcança o que não tem clínica — senão fechar uma unidade travaria a agenda
+ * "sem local" de todos os médicos. Quando o bloqueio também é do médico, o
+ * item sem clínica é dele e pode estar acontecendo ali: atinge.
+ */
 export function bloqueioAtinge(
   b: ScheduleBlock,
   doctorId: string,
   clinicId: string | null,
 ): boolean {
   if (b.doctorId && b.doctorId !== doctorId) return false;
-  return !b.clinicId || !clinicId || b.clinicId === clinicId;
+  if (!b.clinicId) return true;
+  if (clinicId) return b.clinicId === clinicId;
+  return !!b.doctorId;
 }
 
 const sobrepoe = (aIni: number, aFim: number, bIni: number, bFim: number) =>
@@ -89,13 +105,20 @@ export class AvailabilityService {
   ): Promise<DiaDisponivel[]> {
     const from = query.from.slice(0, 10);
     const to = query.to.slice(0, 10);
-    const datas = datasEntre(from, to);
-    if (!datas.length) throw new BadRequestException('Intervalo inválido.');
-    if (datas.length > SLOTS_MAX_DIAS) {
+    // Mede o intervalo antes de expandir: `datasEntre` aloca um dia por vez e
+    // o DTO não limita as datas (0001-01-01 a 9999-12-31 seriam ~3,6 mi).
+    const dias =
+      (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+        86_400_000 +
+      1;
+    if (!Number.isFinite(dias) || dias < 1)
+      throw new BadRequestException('Intervalo inválido.');
+    if (dias > SLOTS_MAX_DIAS) {
       throw new BadRequestException(
         `Consulte no máximo ${SLOTS_MAX_DIAS} dias por vez.`,
       );
     }
+    const datas = datasEntre(from, to);
     if (
       !(await this.accessControlService.canAccessDoctor(userId, query.doctorId))
     ) {
@@ -228,11 +251,16 @@ export class AvailabilityService {
   /**
    * O horário cai fora da grade do profissional? Só responde `true` quando o
    * profissional **tem** grade configurada: sem grade, nada está "fora".
+   *
+   * Período com clínica só cobre consulta naquela clínica; período sem
+   * clínica cobre qualquer uma. `clinicId` omitido (`undefined`) ignora a
+   * clínica — compatibilidade com quem ainda não a informa.
    */
   async foraDaGrade(
     doctorId: string,
     start: Date,
     end: Date,
+    clinicId?: string | null,
   ): Promise<boolean> {
     const grades = await this.scheduleRepository.findActiveByDoctor(doctorId);
     if (!grades.length) return false;
@@ -243,6 +271,7 @@ export class AvailabilityService {
     return !grades.some(
       (g) =>
         g.weekday === diaDaSemana(data) &&
+        (clinicId === undefined || !g.clinicId || g.clinicId === clinicId) &&
         vigente(data, g.validFrom, g.validTo) &&
         ini >= horaParaMinutos(g.startTime) &&
         fim <= horaParaMinutos(g.endTime),

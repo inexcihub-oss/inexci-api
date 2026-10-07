@@ -7,6 +7,7 @@ import {
 import { ScheduleBlock } from 'src/database/entities/schedule-block.entity';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ScheduleBlockRepository } from 'src/database/repositories/schedule-block.repository';
+import { Permission } from 'src/shared/permissions';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import {
   CreateScheduleBlockDto,
@@ -17,10 +18,16 @@ import {
 /** Janela máxima da listagem de bloqueios. */
 const BLOQUEIOS_MAX_DIAS = 93;
 
+const MSG_CLINICA_TODA =
+  'Apenas administradores da conta podem criar, editar ou remover bloqueios de toda a clínica.';
+
 /**
  * Bloqueios de agenda (MIG-05). Quem tem Agenda cria e altera; bloqueio de
- * um profissional exige acesso a ele, bloqueio da clínica toda vale para a
- * conta.
+ * um profissional exige acesso a ele. Bloqueio da clínica toda
+ * (`doctorId` nulo) afeta a agenda de todos os médicos da conta, então
+ * criar, editar, remover ou converter um bloqueio nele exige
+ * `Permission.ADMINISTRACAO` — um colaborador vinculado a um único médico
+ * não pode travar a agenda dos outros.
  */
 @Injectable()
 export class ScheduleBlocksService {
@@ -60,6 +67,7 @@ export class ScheduleBlocksService {
   async create(
     data: CreateScheduleBlockDto,
     userId: string,
+    permissions: readonly Permission[],
   ): Promise<ScheduleBlock> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
     const bloqueio = {
@@ -72,7 +80,7 @@ export class ScheduleBlocksService {
       reason: data.reason?.trim() || null,
       createdById: userId,
     };
-    await this.validar(bloqueio, userId);
+    await this.validar(bloqueio, userId, permissions);
     return this.blockRepository.create(bloqueio);
   }
 
@@ -80,8 +88,9 @@ export class ScheduleBlocksService {
     id: string,
     data: UpdateScheduleBlockDto,
     userId: string,
+    permissions: readonly Permission[],
   ): Promise<ScheduleBlock> {
-    const atual = await this.getEditable(id, userId);
+    const atual = await this.getEditable(id, userId, permissions);
     const mudancas: Partial<ScheduleBlock> = {};
     if (data.doctorId !== undefined) mudancas.doctorId = data.doctorId ?? null;
     if (data.clinicId !== undefined) mudancas.clinicId = data.clinicId ?? null;
@@ -91,22 +100,28 @@ export class ScheduleBlocksService {
     if (data.allDay !== undefined) mudancas.allDay = data.allDay;
     if (data.reason !== undefined)
       mudancas.reason = data.reason?.trim() || null;
-    await this.validar({ ...atual, ...mudancas }, userId);
+    await this.validar({ ...atual, ...mudancas }, userId, permissions);
     return (await this.blockRepository.update(id, mudancas))!;
   }
 
-  async delete(id: string, userId: string): Promise<void> {
-    await this.getEditable(id, userId);
+  async delete(
+    id: string,
+    userId: string,
+    permissions: readonly Permission[],
+  ): Promise<void> {
+    await this.getEditable(id, userId, permissions);
     await this.blockRepository.softDelete(id);
   }
 
   private async getEditable(
     id: string,
     userId: string,
+    permissions: readonly Permission[],
   ): Promise<ScheduleBlock> {
     const bloqueio = await this.blockRepository.findOne({ id });
     if (!bloqueio) throw new NotFoundException('Bloqueio não encontrado');
     await this.accessControlService.assertSameOwner(userId, bloqueio.ownerId);
+    if (!bloqueio.doctorId) this.assertPodeClinicaToda(permissions);
     if (
       bloqueio.doctorId &&
       !(await this.accessControlService.canAccessDoctor(
@@ -125,12 +140,14 @@ export class ScheduleBlocksService {
       'ownerId' | 'doctorId' | 'clinicId' | 'startsAt' | 'endsAt'
     >,
     userId: string,
+    permissions: readonly Permission[],
   ): Promise<void> {
     if (!(b.startsAt < b.endsAt)) {
       throw new BadRequestException(
         'O início do bloqueio deve ser antes do fim.',
       );
     }
+    if (!b.doctorId) this.assertPodeClinicaToda(permissions);
     if (
       b.doctorId &&
       !(await this.accessControlService.canAccessDoctor(userId, b.doctorId))
@@ -142,6 +159,12 @@ export class ScheduleBlocksService {
       if (!clinica || clinica.ownerId !== b.ownerId) {
         throw new BadRequestException('Clínica não encontrada.');
       }
+    }
+  }
+
+  private assertPodeClinicaToda(permissions: readonly Permission[]): void {
+    if (!permissions.includes(Permission.ADMINISTRACAO)) {
+      throw new ForbiddenException(MSG_CLINICA_TODA);
     }
   }
 }

@@ -3,7 +3,11 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { AvailabilityService, feriadoDoDia } from './availability.service';
+import {
+  AvailabilityService,
+  bloqueioAtinge,
+  feriadoDoDia,
+} from './availability.service';
 
 const OWNER = 'owner-1';
 const DOC = 'doc-1';
@@ -53,6 +57,19 @@ describe('AvailabilityService (MIG-05)', () => {
     service.getSlots({ doctorId: DOC, from, to }, 'u-1');
 
   describe('getSlots', () => {
+    it('recusa intervalo enorme sem expandir as datas', async () => {
+      await expect(slots('0001-01-01', '9999-12-31')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(access.canAccessDoctor).not.toHaveBeenCalled();
+    });
+
+    it('recusa intervalo invertido', async () => {
+      await expect(slots('2026-10-06', '2026-10-05')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
     it('expande a grade em horários de São Paulo no dia da semana certo', async () => {
       const [dia] = await slots();
       expect(dia.slots.map((s) => s.start)).toEqual([
@@ -236,10 +253,87 @@ describe('AvailabilityService (MIG-05)', () => {
       await expect(em('2026-10-06T03:00:00.000Z')).resolves.toBe(false);
     });
 
+    it('período com clínica só cobre consulta naquela clínica', async () => {
+      schedules.findActiveByDoctor.mockResolvedValue([
+        grade({ clinicId: 'c1' }),
+      ]);
+      const start = new Date('2026-10-05T11:00:00.000Z');
+      const end = new Date('2026-10-05T11:30:00.000Z');
+      await expect(service.foraDaGrade(DOC, start, end, 'c1')).resolves.toBe(
+        false,
+      );
+      await expect(service.foraDaGrade(DOC, start, end, 'c2')).resolves.toBe(
+        true,
+      );
+      await expect(service.foraDaGrade(DOC, start, end, null)).resolves.toBe(
+        true,
+      );
+      // Sem informar a clínica, a clínica não é considerada.
+      await expect(service.foraDaGrade(DOC, start, end)).resolves.toBe(false);
+    });
+
+    it('período sem clínica cobre consulta em qualquer clínica', async () => {
+      const start = new Date('2026-10-05T11:00:00.000Z');
+      const end = new Date('2026-10-05T11:30:00.000Z');
+      await expect(service.foraDaGrade(DOC, start, end, 'c2')).resolves.toBe(
+        false,
+      );
+    });
+
     it('dentro, atravessando o fim e em outro dia da semana', async () => {
       await expect(em('2026-10-05T11:00:00.000Z')).resolves.toBe(false); // 08:00 seg
       await expect(em('2026-10-05T12:45:00.000Z')).resolves.toBe(true); // 09:45–10:15
       await expect(em('2026-10-06T11:00:00.000Z')).resolves.toBe(true); // terça
+    });
+  });
+
+  describe('bloqueioAtinge (matriz)', () => {
+    const b = (doctorId: string | null, clinicId: string | null) =>
+      ({ doctorId, clinicId }) as never;
+    it.each([
+      // [bloqueio médico, bloqueio clínica, item clínica, atinge]
+      [null, null, 'c1', true],
+      [null, null, null, true],
+      [DOC, null, 'c1', true],
+      [DOC, null, null, true],
+      [null, 'c1', 'c1', true],
+      [null, 'c1', 'c2', false],
+      [null, 'c1', null, false],
+      [DOC, 'c1', 'c1', true],
+      [DOC, 'c1', 'c2', false],
+      [DOC, 'c1', null, true],
+      ['outro', null, 'c1', false],
+      ['outro', null, null, false],
+      ['outro', 'c1', 'c1', false],
+    ])(
+      'bloqueio (%s, %s) × item na clínica %s → %s',
+      (medico, clinica, itemClinica, esperado) => {
+        expect(bloqueioAtinge(b(medico, clinica), DOC, itemClinica)).toBe(
+          esperado,
+        );
+      },
+    );
+
+    it('bloqueio só da clínica não trava horário de grade sem clínica', async () => {
+      blocks.findInRange.mockResolvedValue([
+        {
+          doctorId: null,
+          clinicId: 'c1',
+          startsAt: new Date('2026-10-05T11:00:00.000Z'),
+          endsAt: new Date('2026-10-05T13:00:00.000Z'),
+        },
+      ]);
+      const [dia] = await slots();
+      expect(dia.slots.every((s) => s.free)).toBe(true);
+      await expect(
+        service.assertNaoBloqueado({
+          ownerId: OWNER,
+          doctorId: DOC,
+          clinicId: null,
+          start: new Date('2026-10-05T11:00:00.000Z'),
+          end: new Date('2026-10-05T11:30:00.000Z'),
+        }),
+      ).resolves.toBeUndefined();
     });
   });
 

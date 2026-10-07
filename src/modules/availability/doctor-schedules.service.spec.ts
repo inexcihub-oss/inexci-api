@@ -16,6 +16,7 @@ describe('DoctorSchedulesService (MIG-05)', () => {
     update: jest.fn(),
     softDelete: jest.fn(),
     findOne: jest.fn(),
+    comTravaDoProfissional: jest.fn(),
   };
   const clinics = { findOne: jest.fn() };
   const rooms = { findOne: jest.fn() };
@@ -45,6 +46,10 @@ describe('DoctorSchedulesService (MIG-05)', () => {
       doctorProfile: { id: 'p' },
     });
     repo.findActiveByDoctor.mockResolvedValue([]);
+    // A transação travada entrega as mesmas operações do repositório.
+    repo.comTravaDoProfissional.mockImplementation(
+      (_doctorId: string, fn: (tx: unknown) => unknown) => fn(repo),
+    );
     repo.create.mockImplementation((d: object) =>
       Promise.resolve({ id: 'g1', ...d }),
     );
@@ -179,9 +184,113 @@ describe('DoctorSchedulesService (MIG-05)', () => {
 
   it('ler exige acesso ao profissional', async () => {
     access.canAccessDoctor.mockResolvedValue(false);
-    await expect(service.findByDoctor('doc-1', 'u')).rejects.toThrow(
-      ForbiddenException,
+    await expect(
+      service.findByDoctor('doc-1', 'u', [Permission.AGENDA]),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('Administração lê a grade de profissional da conta fora do seu vínculo', async () => {
+    access.canAccessDoctor.mockResolvedValue(false);
+    repo.findByDoctor.mockResolvedValue([{ id: 'g1' }]);
+    await expect(
+      service.findByDoctor('doc-1', 'admin', [Permission.ADMINISTRACAO]),
+    ).resolves.toEqual([{ id: 'g1' }]);
+    expect(repo.findByDoctor).toHaveBeenCalledWith(OWNER, 'doc-1');
+
+    // Profissional de outra conta continua 403, mesmo com Administração.
+    users.findOneWithProfile.mockResolvedValue({
+      id: 'x',
+      ownerId: 'outra',
+      doctorProfile: {},
+    });
+    await expect(
+      service.findByDoctor('x', 'admin', [Permission.ADMINISTRACAO]),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  describe('clínica/sala removida ou desativada', () => {
+    const atual = {
+      id: 'g1',
+      ownerId: OWNER,
+      doctorId: 'doc-1',
+      clinicId: 'c1',
+      roomId: 'r1',
+      weekday: 1,
+      startTime: '08:00:00',
+      endTime: '12:00:00',
+      slotMinutes: 30,
+      validFrom: null,
+      validTo: null,
+      active: true,
+    };
+
+    beforeEach(() => {
+      repo.findOne.mockResolvedValue(atual);
+      // Clínica e sala soft-deletadas: não aparecem mais.
+      clinics.findOne.mockResolvedValue(null);
+      rooms.findOne.mockResolvedValue(null);
+    });
+
+    it('período ainda pode ser desativado e ter o horário editado', async () => {
+      await expect(
+        service.update('g1', { active: false }, 'doc-1', []),
+      ).resolves.toMatchObject({ active: false });
+      await expect(
+        service.update('g1', { endTime: '11:00' }, 'doc-1', []),
+      ).resolves.toMatchObject({ endTime: '11:00:00' });
+      expect(clinics.findOne).not.toHaveBeenCalled();
+    });
+
+    it('trocar a clínica ou reativar o período reconfere o local', async () => {
+      await expect(
+        service.update('g1', { clinicId: 'c1' }, 'doc-1', []),
+      ).rejects.toThrow('Clínica não encontrada.');
+      repo.findOne.mockResolvedValue({ ...atual, active: false });
+      await expect(
+        service.update('g1', { active: true }, 'doc-1', []),
+      ).rejects.toThrow('Clínica não encontrada.');
+    });
+
+    it('sala desativada não pode ser vinculada', async () => {
+      clinics.findOne.mockResolvedValue({ id: 'c1', ownerId: OWNER });
+      rooms.findOne.mockResolvedValue({
+        id: 'r1',
+        ownerId: OWNER,
+        clinicId: 'c1',
+        active: false,
+      });
+      await expect(
+        service.create({ ...base, clinicId: 'c1', roomId: 'r1' }, 'doc-1', []),
+      ).rejects.toThrow('A sala está desativada.');
+      await expect(
+        service.update('g1', { roomId: 'r1' }, 'doc-1', []),
+      ).rejects.toThrow('A sala está desativada.');
+    });
+  });
+
+  it('valida e grava dentro da transação travada pelo profissional', async () => {
+    const ordem: string[] = [];
+    repo.comTravaDoProfissional.mockImplementation(
+      async (doctorId: string, fn: (tx: unknown) => Promise<unknown>) => {
+        ordem.push(`trava:${doctorId}`);
+        const r = await fn({
+          findActiveByDoctor: () => {
+            ordem.push('checa');
+            return Promise.resolve([]);
+          },
+          create: (d: object) => {
+            ordem.push('grava');
+            return Promise.resolve({ id: 'g9', ...d });
+          },
+          update: jest.fn(),
+        });
+        ordem.push('commit');
+        return r;
+      },
     );
+    await service.create(base, 'doc-1', []);
+    expect(ordem).toEqual(['trava:doc-1', 'checa', 'grava', 'commit']);
+    expect(repo.create).not.toHaveBeenCalled();
   });
 
   it('remover é soft delete e segue a mesma regra de escrita', async () => {
