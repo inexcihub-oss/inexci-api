@@ -13,6 +13,7 @@ describe('AppointmentsService', () => {
 
   const mockAppointmentRepository = {
     findAgenda: jest.fn(),
+    countByDoctor: jest.fn(),
     findByPatient: jest.fn(),
     findOneComRelacoes: jest.fn(),
     create: jest.fn(),
@@ -548,6 +549,83 @@ describe('AppointmentsService', () => {
   });
 
   describe('findAgenda', () => {
+    describe('paginação e filtro do hub', () => {
+      beforeEach(() => {
+        mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
+          doctorId,
+          'doctor-2',
+        ]);
+        mockAppointmentRepository.findAgenda.mockResolvedValue({
+          records: [],
+          total: 48,
+        });
+        mockAppointmentRepository.countByDoctor.mockResolvedValue({
+          [doctorId]: 40,
+          'doctor-2': 8,
+        });
+      });
+
+      it('passa skip e take, limitando a página ao teto', async () => {
+        await service.findAgenda({ skip: 20, take: 20 } as any, userId);
+        expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+          ownerId,
+          [doctorId, 'doctor-2'],
+          expect.objectContaining({ skip: 20, take: 20 }),
+        );
+
+        await service.findAgenda({ take: 5000 } as any, userId);
+        expect(mockAppointmentRepository.findAgenda.mock.calls[1][2].take).toBe(
+          1000,
+        );
+      });
+
+      it('doctorIds filtra só os acessíveis; nenhum acessível = lista vazia', async () => {
+        await service.findAgenda(
+          { doctorIds: ['doctor-2', 'de-outra-conta'] } as any,
+          userId,
+        );
+        expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
+          ownerId,
+          ['doctor-2'],
+          expect.anything(),
+        );
+
+        mockAppointmentRepository.findAgenda.mockClear();
+        const vazio = await service.findAgenda(
+          { doctorIds: ['de-outra-conta'] } as any,
+          userId,
+        );
+        expect(vazio).toEqual({ total: 0, records: [] });
+        expect(mockAppointmentRepository.findAgenda).not.toHaveBeenCalled();
+      });
+
+      it('withDoctorCounts devolve a contagem de todos os acessíveis, ignorando o filtro', async () => {
+        const result = await service.findAgenda(
+          {
+            status: ['scheduled'],
+            doctorIds: [doctorId],
+            withDoctorCounts: true,
+          } as any,
+          userId,
+        );
+        expect(mockAppointmentRepository.countByDoctor).toHaveBeenCalledWith(
+          ownerId,
+          [doctorId, 'doctor-2'],
+          expect.objectContaining({ statuses: ['scheduled'] }),
+        );
+        expect(result).toMatchObject({
+          total: 48,
+          countByDoctorId: { [doctorId]: 40, 'doctor-2': 8 },
+        });
+      });
+
+      it('sem withDoctorCounts não conta', async () => {
+        const result = await service.findAgenda({} as any, userId);
+        expect(mockAppointmentRepository.countByDoctor).not.toHaveBeenCalled();
+        expect(result).not.toHaveProperty('countByDoctorId');
+      });
+    });
+
     it('retorna vazio quando não há médicos acessíveis', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([]);
 

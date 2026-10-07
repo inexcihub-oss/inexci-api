@@ -10,6 +10,8 @@ export interface FindAgendaOptions {
   statuses?: AppointmentStatus[];
   order?: 'ASC' | 'DESC';
   take: number;
+  /** Quantas pular (paginação da lista do hub). */
+  skip?: number;
 }
 
 /**
@@ -125,12 +127,50 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     // recorte inteiro. É o que permite ao consumidor saber que a lista veio
     // cortada pelo teto — antes o `total` era o tamanho da página, ou seja,
     // igual ao teto, e o corte passava despercebido.
+    // Desempate por id: com páginas, duas consultas no mesmo horário não
+    // podem trocar de lugar entre uma requisição e outra (sairiam repetidas
+    // ou sumiriam no "carregar mais").
     const [records, total] = await qb
       .orderBy('appointment.scheduledAt', options.order ?? 'ASC')
+      .addOrderBy('appointment.id', 'ASC')
+      .skip(options.skip ?? 0)
       .take(options.take)
       .getManyAndCount();
 
     return { records, total };
+  }
+
+  /**
+   * Quantas consultas cada médico tem no mesmo recorte da agenda (janela e
+   * status), sem paginação. Alimenta as contagens do filtro de profissionais,
+   * que precisam valer para a lista inteira, não só para a página carregada.
+   */
+  async countByDoctor(
+    ownerId: string,
+    doctorIds: string[],
+    options: Omit<FindAgendaOptions, 'take' | 'skip' | 'order'>,
+  ): Promise<Record<string, number>> {
+    const qb = this.repository
+      .createQueryBuilder('appointment')
+      .select('appointment.doctorId', 'doctorId')
+      .addSelect('COUNT(*)::int', 'total')
+      .where('appointment.ownerId = :ownerId', { ownerId })
+      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds });
+    if (options.from) {
+      qb.andWhere('appointment.scheduledAt >= :from', { from: options.from });
+    }
+    if (options.to) {
+      qb.andWhere('appointment.scheduledAt < :to', { to: options.to });
+    }
+    if (options.statuses?.length) {
+      qb.andWhere('appointment.status IN (:...statuses)', {
+        statuses: options.statuses,
+      });
+    }
+    const linhas: { doctorId: string; total: number }[] = await qb
+      .groupBy('appointment.doctorId')
+      .getRawMany();
+    return Object.fromEntries(linhas.map((l) => [l.doctorId, Number(l.total)]));
   }
 
   /**

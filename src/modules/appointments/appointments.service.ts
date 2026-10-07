@@ -158,29 +158,59 @@ export class AppointmentsService {
     // Filtro por médico fail-closed: um `doctorId` fora do conjunto acessível
     // devolve lista vazia, nunca a agenda inteira. Ignorar o filtro em silêncio
     // fazia a tela responder "as consultas do médico X" mostrando as de todos.
-    // Lista vazia (e não 403) também evita enumerar ids de médicos.
-    if (query.doctorId && !doctorIds.includes(query.doctorId)) {
-      return { total: 0, records: [] };
-    }
-    const scopedDoctorIds = query.doctorId ? [query.doctorId] : doctorIds;
+    // Lista vazia (e não 403) também evita enumerar ids de médicos. Vale o
+    // mesmo para `doctorIds`: só os acessíveis entram; nenhum = lista vazia.
+    const pedidos = [
+      ...(query.doctorId ? [query.doctorId] : []),
+      ...(query.doctorIds ?? []),
+    ];
+    const scopedDoctorIds = pedidos.length
+      ? doctorIds.filter((id) => pedidos.includes(id))
+      : doctorIds;
 
-    // `total` é a contagem real no banco, não o tamanho da página: quando o
-    // teto de `APPOINTMENTS_MAX_TAKE` corta a lista, `total > records.length`
-    // é o único sinal que o consumidor tem de que faltou coisa. Devolver
-    // `records.length` fazia o teto se disfarçar de total.
+    const filtros = {
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+      statuses: query.status,
+    };
+
+    // As contagens do filtro de profissionais valem para o recorte inteiro e
+    // para todos os médicos acessíveis — não só para os já filtrados nem só
+    // para a página carregada.
+    const countByDoctorId = query.withDoctorCounts
+      ? await this.appointmentRepository.countByDoctor(
+          ownerId,
+          doctorIds,
+          filtros,
+        )
+      : undefined;
+
+    if (scopedDoctorIds.length === 0) {
+      return {
+        total: 0,
+        records: [],
+        ...(countByDoctorId ? { countByDoctorId } : {}),
+      };
+    }
+
+    // `total` é a contagem real no banco, não o tamanho da página: quando a
+    // página (ou o teto de `APPOINTMENTS_MAX_TAKE`) corta a lista,
+    // `total > skip + records.length` é o sinal de que há mais para carregar.
     const { records, total } = await this.appointmentRepository.findAgenda(
       ownerId,
       scopedDoctorIds,
       {
-        from: query.from ? new Date(query.from) : undefined,
-        to: query.to ? new Date(query.to) : undefined,
-        statuses: query.status,
+        ...filtros,
         order: query.order,
-        take: APPOINTMENTS_MAX_TAKE,
+        skip: query.skip ?? 0,
+        take: Math.min(
+          query.take ?? APPOINTMENTS_MAX_TAKE,
+          APPOINTMENTS_MAX_TAKE,
+        ),
       },
     );
 
-    return { total, records };
+    return { total, records, ...(countByDoctorId ? { countByDoctorId } : {}) };
   }
 
   /** Histórico completo de consultas de um paciente (aba Consultas / timeline). */

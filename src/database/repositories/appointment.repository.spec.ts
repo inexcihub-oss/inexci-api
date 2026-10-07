@@ -15,6 +15,8 @@ describe('AppointmentRepository.findAgenda', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       withDeleted: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockResolvedValue([]),
@@ -139,6 +141,71 @@ describe('AppointmentRepository.findAgenda', () => {
   });
 });
 
+describe('AppointmentRepository — paginação e contagem por médico', () => {
+  function buildRepo(raw: unknown[] = []) {
+    const qb = {
+      leftJoin: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      withDeleted: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getRawMany: jest.fn().mockResolvedValue(raw),
+    };
+    const dataSource = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      }),
+    };
+    return { repo: new AppointmentRepository(dataSource as never), qb };
+  }
+
+  it('pula e limita a página, com desempate estável por id', async () => {
+    const { repo, qb } = buildRepo();
+    await repo.findAgenda('owner-1', ['d-1'], {
+      take: 20,
+      skip: 40,
+      order: 'DESC',
+    });
+    expect(qb.orderBy).toHaveBeenCalledWith('appointment.scheduledAt', 'DESC');
+    expect(qb.addOrderBy).toHaveBeenCalledWith('appointment.id', 'ASC');
+    expect(qb.skip).toHaveBeenCalledWith(40);
+    expect(qb.take).toHaveBeenCalledWith(20);
+  });
+
+  it('sem skip começa do início', async () => {
+    const { repo, qb } = buildRepo();
+    await repo.findAgenda('owner-1', ['d-1'], { take: 20 });
+    expect(qb.skip).toHaveBeenCalledWith(0);
+  });
+
+  it('countByDoctor agrupa por médico no mesmo recorte, na conta', async () => {
+    const { repo, qb } = buildRepo([
+      { doctorId: 'd-1', total: 96 },
+      { doctorId: 'd-2', total: '9' },
+    ]);
+    const contagem = await repo.countByDoctor('owner-1', ['d-1', 'd-2'], {
+      from: new Date('2026-10-01T00:00:00.000Z'),
+      statuses: [AppointmentStatus.SCHEDULED],
+    });
+    expect(contagem).toEqual({ 'd-1': 96, 'd-2': 9 });
+    const where = qb.andWhere.mock.calls.map((c) => c[0] as string).join(' | ');
+    expect(qb.where).toHaveBeenCalledWith('appointment.ownerId = :ownerId', {
+      ownerId: 'owner-1',
+    });
+    expect(where).toContain('appointment.doctorId IN (:...doctorIds)');
+    expect(where).toContain('appointment.scheduledAt >= :from');
+    expect(where).toContain('appointment.status IN (:...statuses)');
+    expect(qb.groupBy).toHaveBeenCalledWith('appointment.doctorId');
+  });
+});
+
 describe('AppointmentRepository.findByPatient', () => {
   function buildRepo() {
     const qb = {
@@ -190,6 +257,8 @@ describe('AppointmentRepository — join da clínica', () => {
     where: jest.fn(),
     andWhere: jest.fn(),
     orderBy: jest.fn(),
+    addOrderBy: jest.fn(),
+    skip: jest.fn(),
     take: jest.fn(),
     withDeleted: jest.fn(),
     getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
@@ -218,6 +287,8 @@ describe('AppointmentRepository — join da clínica', () => {
     qb.where.mockReturnValue(qb);
     qb.andWhere.mockReturnValue(qb);
     qb.orderBy.mockReturnValue(qb);
+    qb.addOrderBy.mockReturnValue(qb);
+    qb.skip.mockReturnValue(qb);
     qb.take.mockReturnValue(qb);
     qb.withDeleted.mockReturnValue(qb);
     repo = new AppointmentRepository(dataSource);

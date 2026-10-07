@@ -1,10 +1,14 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
   IsOptional,
   IsUUID,
+  Max,
+  Min,
 } from 'class-validator';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 
@@ -36,6 +40,37 @@ export class FindAppointmentsDto {
   @IsOptional()
   @IsUUID()
   doctorId?: string;
+
+  /** Vários médicos, separados por vírgula: `doctorIds=a,b` (filtro do hub). */
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.length > 0
+      ? value.split(',').map((item) => item.trim())
+      : undefined,
+  )
+  @IsUUID('all', { each: true })
+  doctorIds?: string[];
+
+  /** Paginação: quantas pular. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  skip?: number;
+
+  /** Paginação: tamanho da página (até `APPOINTMENTS_MAX_TAKE`). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(APPOINTMENTS_MAX_TAKE)
+  take?: number;
+
+  /** Devolve também `countByDoctorId` do recorte inteiro (sem paginação). */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  withDoctorCounts?: boolean;
 
   /** Status aceitos, separados por vírgula: `status=scheduled,confirmed`. */
   @IsOptional()
