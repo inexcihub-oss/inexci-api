@@ -74,16 +74,23 @@ export class UsersController {
 
   // ============ PERFIL MÉDICO ============
 
-  // Administração OU Solicitações: além do admin da conta, o editor de laudo
-  // (MedicalReportEditor) usa esta rota para o colaborador vinculado ao
-  // médico da solicitação subir/remover SOMENTE a assinatura — esse
-  // colaborador tem Solicitações, não Administração. A barreira grossa aqui
-  // é só isso: "está numa dessas duas áreas". Quem de fato restringe (o
-  // vínculo colaborador↔médico e o campo permitido) é a checagem fina em
-  // UsersService.updateDoctorProfileById (`isLinkedCollaborator` /
-  // `onlySignature`), que continua intacta.
+  // Administração, Solicitações OU Atendimento: além do admin da conta, o
+  // editor de laudo (MedicalReportEditor) usa esta rota para o colaborador
+  // vinculado ao médico da solicitação subir/remover SOMENTE a assinatura —
+  // esse colaborador tem Solicitações, não Administração. E o próprio
+  // profissional salva os dados dele em Configurações por aqui: quem não é
+  // CRM (nutricionista, psicóloga, dentista...) não tem Solicitações, mas
+  // todo perfil profissional recebe Atendimento. A barreira grossa aqui é só
+  // "está numa dessas áreas". Quem de fato restringe (o próprio, a
+  // administração do mesmo tenant, o vínculo colaborador↔médico e o campo
+  // permitido) é a checagem fina em UsersService.updateDoctorProfileById
+  // (`isSelf` / `isAdmin` / `isLinkedCollaborator` / `onlySignature`).
   @Patch('doctor-profile/:id')
-  @RequirePermission(Permission.ADMINISTRACAO, Permission.SOLICITACOES)
+  @RequirePermission(
+    Permission.ADMINISTRACAO,
+    Permission.SOLICITACOES,
+    Permission.ATENDIMENTO,
+  )
   @ApiOperation({ summary: 'Atualizar perfil médico' })
   async updateDoctorProfile(
     @Param('id') id: string,

@@ -501,6 +501,16 @@ export class UsersService {
       );
     }
 
+    // O registro profissional do dono da conta (conselho, número, UF e
+    // especialidade) só é alterado por ele mesmo — mesma regra de
+    // `assertAlvoNaoEhDono` em `updateProfileById`/`updateCollaborator`. Um
+    // admin delegado que trocasse o conselho do dono mudaria o que ele pode
+    // fazer (receita, indicação cirúrgica, Solicitações). A assinatura segue
+    // liberada ao colaborador vinculado, porque o editor de laudo depende dela.
+    if (!isSelf && !onlySignature) {
+      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
+    }
+
     if (!target.doctorProfile) {
       throw new BadRequestException('Este usuário não é médico');
     }

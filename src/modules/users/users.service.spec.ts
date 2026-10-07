@@ -2419,6 +2419,151 @@ describe('UsersService — Colaboradores e Permissões', () => {
     });
   });
 
+  describe('updateDoctorProfileById — registro profissional do dono da conta', () => {
+    const delegado = {
+      id: 'delegado-1',
+      role: UserRole.COLLABORATOR,
+      ownerId: 'dono-1',
+      permissions: [Permission.ADMINISTRACAO],
+      doctorProfile: null,
+    };
+    const dono = {
+      id: 'dono-1',
+      role: UserRole.ADMIN,
+      ownerId: 'dono-1',
+      phone: '11999990000',
+      doctorProfile: {
+        id: 'dp-dono',
+        council: ProfessionalCouncil.CRM,
+        crm: '111',
+        crmState: 'RJ',
+      },
+    };
+
+    it.each([
+      ['conselho', { council: ProfessionalCouncil.CRN }],
+      ['número', { crm: '999' }],
+      ['UF', { crmState: 'SP' }],
+      ['especialidade', { specialty: 'Nutrição' }],
+    ])(
+      'admin delegado não altera o %s do dono da conta',
+      async (_campo, dto) => {
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(delegado)
+          .mockResolvedValueOnce(dono);
+
+        await expect(
+          service.updateDoctorProfileById('dono-1', dto, 'delegado-1'),
+        ).rejects.toThrow(ForbiddenException);
+        expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+        expect(mockEventEmitter.emit).not.toHaveBeenCalled();
+      },
+    );
+
+    it('o dono altera o próprio conselho', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(dono)
+        .mockResolvedValueOnce(dono)
+        .mockResolvedValueOnce(dono);
+
+      await service.updateDoctorProfileById(
+        'dono-1',
+        { council: ProfessionalCouncil.CRO, crm: '222', crmState: 'RJ' },
+        'dono-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-dono',
+        expect.objectContaining({ council: ProfessionalCouncil.CRO }),
+      );
+    });
+
+    it('colaborador vinculado ao dono ainda troca só a assinatura dele', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          permissions: [Permission.SOLICITACOES],
+          doctorProfile: null,
+        })
+        .mockResolvedValueOnce(dono)
+        .mockResolvedValueOnce(dono);
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'dono-1' },
+      ]);
+
+      await service.updateDoctorProfileById(
+        'dono-1',
+        { signatureImageUrl: 'signatures/dono.png' },
+        'collab-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-dono',
+        { signatureUrl: 'signatures/dono.png' },
+      );
+    });
+  });
+
+  describe('updateDoctorProfileById — profissional só com Atendimento', () => {
+    const nutri = {
+      id: 'nutri-1',
+      role: UserRole.COLLABORATOR,
+      ownerId: 'dono-1',
+      permissions: [],
+      doctorProfile: {
+        id: 'dp-n',
+        council: ProfessionalCouncil.CRN,
+        crm: '123',
+        crmState: 'RJ',
+      },
+    };
+
+    it('salva os próprios dados (mesmo sem Solicitações)', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(nutri)
+        .mockResolvedValueOnce(nutri)
+        .mockResolvedValueOnce(nutri);
+
+      await service.updateDoctorProfileById(
+        'nutri-1',
+        { specialty: 'Nutrição esportiva', crm: '456' },
+        'nutri-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-n',
+        expect.objectContaining({
+          specialty: 'Nutrição esportiva',
+          crm: '456',
+        }),
+      );
+    });
+
+    it.each([
+      ['a assinatura', { signatureImageUrl: 'signatures/x.png' }],
+      ['a especialidade', { specialty: 'Cardiologia' }],
+    ])(
+      'não altera %s de outro profissional sem vínculo',
+      async (_campo, dto) => {
+        mockUserRepository.findOneWithProfile
+          .mockResolvedValueOnce(nutri)
+          .mockResolvedValueOnce({
+            id: 'doctor-1',
+            ownerId: 'dono-1',
+            doctorProfile: { id: 'dp-1', council: ProfessionalCouncil.CRM },
+          });
+        mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
+
+        await expect(
+          service.updateDoctorProfileById('doctor-1', dto, 'nutri-1'),
+        ).rejects.toThrow(ForbiddenException);
+        expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   // ─── Tarefa 6: cabeçalho de terceiro passa a ser gateado por Administração ───
   describe('getDoctorHeaderByUserId — admin delegado', () => {
     /**
