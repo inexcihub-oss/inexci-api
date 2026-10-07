@@ -12,6 +12,7 @@ describe('aplicarPlaceholders (MIG-06)', () => {
     'medico.registro': 'CRM 12345/RJ',
     data: '01/10/2026',
     dias: 3,
+    inicio: '02/10/2026',
   };
 
   it('preenche todos os placeholders conhecidos', () => {
@@ -19,7 +20,7 @@ describe('aplicarPlaceholders (MIG-06)', () => {
       .map((k) => `{{${k}}}`)
       .join('|');
     expect(aplicarPlaceholders(texto, valores)).toBe(
-      'Maria Silva|529.982.247-25|02/05/1990|Dr. João|CRM 12345/RJ|01/10/2026|3',
+      'Maria Silva|529.982.247-25|02/05/1990|Dr. João|CRM 12345/RJ|01/10/2026|3|02/10/2026',
     );
   });
 
@@ -50,5 +51,27 @@ describe('aplicarPlaceholders (MIG-06)', () => {
     expect(aplicarPlaceholders('Linha 1\n{{data}}', valores)).toBe(
       'Linha 1\n01/10/2026',
     );
+  });
+
+  it('mantém literal a chave sem valor listada em manterSemValor', () => {
+    expect(
+      aplicarPlaceholders(
+        '{{paciente.nome}}: {{dias}} dias a partir de {{inicio}}; CPF {{paciente.cpf}}',
+        { 'paciente.nome': 'Maria' },
+        { manterSemValor: ['dias', 'inicio'] },
+      ),
+    ).toBe('Maria: {{dias}} dias a partir de {{inicio}}; CPF ');
+  });
+
+  it('manterSemValor não impede preencher quando o valor existe', () => {
+    expect(
+      aplicarPlaceholders(
+        '{{dias}} dias',
+        { dias: 5 },
+        {
+          manterSemValor: ['dias'],
+        },
+      ),
+    ).toBe('5 dias');
   });
 });

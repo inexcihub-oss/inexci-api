@@ -2,7 +2,10 @@ import { Test } from '@nestjs/testing';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { DoctorPdfContextService } from './doctor-pdf-context.service';
+import {
+  DoctorPdfContextService,
+  formatarRegistroProfissional,
+} from './doctor-pdf-context.service';
 
 describe('DoctorPdfContextService', () => {
   let service: DoctorPdfContextService;
@@ -169,5 +172,17 @@ describe('DoctorPdfContextService', () => {
     await expect(service.buildForDoctorId('sumido')).rejects.toThrow(
       'Médico não encontrado para geração de PDF: sumido',
     );
+  });
+});
+
+describe('formatarRegistroProfissional', () => {
+  it('imprime o conselho do dentista: CRO nnn/UF', () => {
+    expect(
+      formatarRegistroProfissional({
+        council: 'CRO',
+        crm: '4321',
+        crmState: 'RJ',
+      }),
+    ).toBe('CRO 4321/RJ');
   });
 });

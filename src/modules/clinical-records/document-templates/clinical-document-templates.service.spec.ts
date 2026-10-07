@@ -17,7 +17,7 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
   };
   const access = {
     getOwnerId: jest.fn(),
-    assertIsPhysician: jest.fn(),
+    assertCanIssueClinicalDocuments: jest.fn(),
     resolveDefaultDoctorId: jest.fn(),
     canAccessDoctor: jest.fn(),
     assertCanAccessDoctorResource: jest.fn(),
@@ -38,7 +38,7 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     access.getOwnerId.mockResolvedValue('owner-1');
-    access.assertIsPhysician.mockResolvedValue(undefined);
+    access.assertCanIssueClinicalDocuments.mockResolvedValue(undefined);
     access.resolveDefaultDoctorId.mockResolvedValue('doc-1');
     access.canAccessDoctor.mockResolvedValue(true);
     access.assertCanAccessDoctorResource.mockResolvedValue(undefined);
@@ -79,7 +79,9 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
   });
 
   it('profissional sem CRM não cria modelo', async () => {
-    access.assertIsPhysician.mockRejectedValue(new ForbiddenException());
+    access.assertCanIssueClinicalDocuments.mockRejectedValue(
+      new ForbiddenException(),
+    );
     await expect(
       service.create(
         {
@@ -104,9 +106,9 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
       'doc-1',
     );
     expect(access.canAccessDoctor).toHaveBeenCalledWith('doc-1', 'doc-2');
-    expect(access.assertIsPhysician).toHaveBeenCalledWith(
+    expect(access.assertCanIssueClinicalDocuments).toHaveBeenCalledWith(
       'doc-2',
-      expect.any(String),
+      { mensagem: expect.stringContaining('dentista (CRO)') },
     );
 
     access.canAccessDoctor.mockResolvedValue(false);
@@ -146,7 +148,9 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
   });
 
   it('secretária sem CRM não altera nem exclui', async () => {
-    access.assertIsPhysician.mockRejectedValue(new ForbiddenException());
+    access.assertCanIssueClinicalDocuments.mockRejectedValue(
+      new ForbiddenException(),
+    );
     await expect(
       service.update('tpl-1', { name: 'x' }, 'sec-1'),
     ).rejects.toThrow(ForbiddenException);
@@ -164,6 +168,7 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
           'tpl-1',
           ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
           'doc-1',
+          'doc-1',
         ),
       ).resolves.toBe(modelo);
       expect(access.assertCanAccessDoctorResource).toHaveBeenCalledWith(
@@ -179,20 +184,29 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
           'tpl-1',
           ClinicalDocumentTemplateKind.EXAM_REFERRAL,
           'doc-1',
+          'doc-1',
         ),
       ).rejects.toThrow(BadRequestException);
-      await expect(service.getForUse('tpl-1', null, 'doc-1')).resolves.toBe(
-        modelo,
-      );
+      await expect(
+        service.getForUse('tpl-1', null, 'doc-1', 'doc-1'),
+      ).resolves.toBe(modelo);
     });
 
     it('modelo de outra clínica é recusado', async () => {
       access.assertCanAccessDoctorResource.mockRejectedValue(
         new ForbiddenException(),
       );
-      await expect(service.getForUse('tpl-1', null, 'intruso')).rejects.toThrow(
-        ForbiddenException,
-      );
+      await expect(
+        service.getForUse('tpl-1', null, 'intruso', 'doc-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    // Assistente com acesso a dois médicos não põe o texto do Dr. A num
+    // documento assinado pelo Dr. B.
+    it('modelo de outro profissional que não o que assina → 400', async () => {
+      await expect(
+        service.getForUse('tpl-1', null, 'assistente', 'doc-2'),
+      ).rejects.toThrow(/outro profissional/);
     });
   });
 });

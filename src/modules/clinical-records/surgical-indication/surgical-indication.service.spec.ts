@@ -14,6 +14,7 @@ describe('SurgicalIndicationService', () => {
   const fromIndication = { createPendingFromIndication: jest.fn() };
   const realtime = { broadcastChange: jest.fn() };
   const indicationDocuments = { schedule: jest.fn() };
+  const accessControl = { canIndicateSurgery: jest.fn() };
 
   const finalizedRecord = {
     id: 'cr-1',
@@ -35,6 +36,7 @@ describe('SurgicalIndicationService', () => {
     });
     realtime.broadcastChange.mockResolvedValue(undefined);
     indicationDocuments.schedule.mockResolvedValue(undefined);
+    accessControl.canIndicateSurgery.mockResolvedValue(true);
 
     service = new SurgicalIndicationService(
       dataSource as never,
@@ -42,6 +44,7 @@ describe('SurgicalIndicationService', () => {
       fromIndication as never,
       realtime as never,
       indicationDocuments as never,
+      accessControl as never,
     );
   });
 
@@ -143,6 +146,16 @@ describe('SurgicalIndicationService', () => {
       expect(fromIndication.createPendingFromIndication).not.toHaveBeenCalled();
     });
 
+    it('não cria SC quando o profissional da ficha não é médico (CRM) com registro', async () => {
+      accessControl.canIndicateSurgery.mockResolvedValue(false);
+
+      expect(await service.createForRecord('cr-1', 'user-1')).toBeNull();
+      expect(fromIndication.createPendingFromIndication).not.toHaveBeenCalled();
+      expect(recordRepo.update).not.toHaveBeenCalled();
+      expect(indicationDocuments.schedule).not.toHaveBeenCalled();
+      expect(realtime.broadcastChange).not.toHaveBeenCalled();
+    });
+
     it('não cria nada quando a ficha não existe', async () => {
       recordRepo.findOne.mockResolvedValue(null);
 
@@ -232,6 +245,21 @@ describe('SurgicalIndicationService', () => {
         .mockResolvedValueOnce(finalizedRecord);
 
       expect(await service.sweepPendingIndications()).toBe(1);
+    });
+
+    it('pula (sem criar SC) a ficha cujo profissional não pode mais indicar cirurgia', async () => {
+      clinicalRecordRepository.findPendingSurgicalIndications.mockResolvedValue(
+        [{ id: 'cr-1' }, { id: 'cr-2' }],
+      );
+      accessControl.canIndicateSurgery
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      expect(await service.sweepPendingIndications()).toBe(1);
+      expect(accessControl.canIndicateSurgery).toHaveBeenCalledWith('doctor-1');
+      expect(fromIndication.createPendingFromIndication).toHaveBeenCalledTimes(
+        1,
+      );
     });
 
     it('não conta ficha que já tinha SC', async () => {

@@ -1,4 +1,8 @@
-import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
+import {
+  hasCouncilRegistry,
+  isClinicalDocumentIssuerProfile,
+  isPhysicianProfile,
+} from 'src/database/entities/doctor-profile.entity';
 import {
   BadRequestException,
   ForbiddenException,
@@ -277,8 +281,10 @@ export class AccessControlService {
    * Garante que o usuário é profissional de saúde (tem `doctor_profile`), de
    * qualquer conselho.
    *
-   * Vale para o ato de atender (registrar a ficha). Receita, atestado, pedido
-   * de exame e indicação cirúrgica exigem mais: `assertIsPhysician`. Não substitui o recorte por clínica/médico:
+   * Vale para o ato de atender (registrar a ficha). Receita, atestado e pedido
+   * de exame exigem mais (`assertCanIssueClinicalDocuments`: CRM ou CRO), e a
+   * indicação cirúrgica mais ainda (`assertIsPhysicianWithRegistry`: só CRM).
+   * Não substitui o recorte por clínica/médico:
    * é uma condição a mais, aplicada junto com `assertCanAccessDoctorResource`.
    *
    * "Médico" não é um role: um admin sem `doctor_profile` administra a clínica,
@@ -295,8 +301,9 @@ export class AccessControlService {
 
   /**
    * Garante que o usuário é **médico** (perfil com conselho CRM), não só
-   * profissional de saúde. Vale para os atos que só médico pratica: emitir
-   * receita, atestado e pedido de exame, e indicar cirurgia (que abre a SC).
+   * profissional de saúde. Vale para os atos que só médico pratica, como
+   * indicar cirurgia (que abre a SC). Documentos clínicos aceitam também o
+   * CRO — ver `assertCanIssueClinicalDocuments`.
    *
    * Use junto com `assertIsDoctor`/`assertCanAccessDoctorResource`, não no
    * lugar deles. Para o médico **em nome de quem** o ato sai (o `doctorId` da
@@ -313,7 +320,7 @@ export class AccessControlService {
   }
 
   /**
-   * Médico (CRM) **com o número do registro preenchido**. O importador do
+   * Médico (CRM) **com o registro completo** (número e UF). O importador do
    * Feegow cria médico sem número quando a especialidade é médica mas o
    * registro não veio no export; ato que sai em nome dele (indicação
    * cirúrgica → solicitação cirúrgica) não pode sair com o CRM em branco.
@@ -327,11 +334,63 @@ export class AccessControlService {
     if (!isPhysicianProfile(user?.doctorProfile)) {
       throw new ForbiddenException(mensagem);
     }
-    if (!user?.doctorProfile?.crm?.trim()) {
-      throw new BadRequestException(
-        `Preencha o número do CRM de ${user?.name ?? 'quem assina'} em Colaboradores antes de ${acao}.`,
-      );
+    this.assertRegistroCompleto(user, acao);
+  }
+
+  /**
+   * Indicação cirúrgica permitida para o profissional, sem lançar: médico
+   * (CRM) com número e UF. Para quem não pode responder com erro HTTP — o
+   * cron que retoma as SCs pendentes.
+   */
+  async canIndicateSurgery(userId: string): Promise<boolean> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    return (
+      isPhysicianProfile(user?.doctorProfile) &&
+      hasCouncilRegistry(user?.doctorProfile)
+    );
+  }
+
+  /**
+   * Profissional que emite receita, atestado e pedido de exame: médico (CRM)
+   * ou dentista (CRO). Não é `assertIsPhysician` porque aquele também decide
+   * Solicitações e indicação cirúrgica, que seguem só do CRM.
+   *
+   * `exigirRegistro` vale para quem **assina** o documento (o `doctorId` da
+   * ficha): sem número e UF o documento sairia com o registro em branco. Para
+   * quem só clicou em nome de outro, basta o conselho.
+   */
+  async assertCanIssueClinicalDocuments(
+    userId: string,
+    opcoes: { mensagem?: string; exigirRegistro?: boolean; acao?: string } = {},
+  ): Promise<void> {
+    const {
+      mensagem = 'Apenas médicos (CRM) e dentistas (CRO) podem emitir receita, atestado e pedido de exame.',
+      exigirRegistro = false,
+      acao = 'emitir documentos',
+    } = opcoes;
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!isClinicalDocumentIssuerProfile(user?.doctorProfile)) {
+      throw new ForbiddenException(mensagem);
     }
+    if (exigirRegistro) this.assertRegistroCompleto(user, acao);
+  }
+
+  private assertRegistroCompleto(
+    user: {
+      name?: string | null;
+      doctorProfile?: {
+        council?: string | null;
+        crm?: string | null;
+        crmState?: string | null;
+      } | null;
+    } | null,
+    acao: string,
+  ): void {
+    if (hasCouncilRegistry(user?.doctorProfile)) return;
+    const conselho = user?.doctorProfile?.council || 'CRM';
+    throw new BadRequestException(
+      `Preencha o número e a UF do ${conselho} de ${user?.name ?? 'quem assina'} em Colaboradores antes de ${acao}.`,
+    );
   }
 
   /**

@@ -1,12 +1,16 @@
 <html lang='pt-BR'>
   <head>
     <meta charset='UTF-8' />
-    <title>Atestado Médico</title>
+    <title>{{#if certificateTitle}}{{certificateTitle}}{{else}}Atestado Médico{{/if}}</title>
     {{> clinical-styles}}
   </head>
   <body>
 
-    {{> clinical-header documentTitle='ATESTADO MÉDICO'}}
+    {{#if certificateTitle}}
+      {{> clinical-header documentTitle=certificateTitle}}
+    {{else}}
+      {{> clinical-header documentTitle='ATESTADO MÉDICO'}}
+    {{/if}}
 
     {{> clinical-patient}}
 
@@ -14,6 +18,10 @@
       {{#if text}}
         {{! Texto do modelo/digitado: quebra de linha do médico vale. }}
         <p class='statement body-text'>{{text}}</p>
+        {{! Dias/início do formulário que o texto não menciona — sem isto sumiam do PDF. }}
+        {{#if restPeriodNote}}
+          <p class='body-text'>{{restPeriodNote}}</p>
+        {{/if}}
       {{else}}
         <p class='statement'>
           Atesto, para os devidos fins, que o(a) paciente

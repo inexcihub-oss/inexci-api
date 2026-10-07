@@ -20,6 +20,7 @@ const TITULOS = new Set(
   [
     'atestado',
     'atestado medico',
+    'atestado odontologico',
     'atestado de comparecimento',
     'pedido de exame',
     'pedido de exames',
@@ -37,6 +38,32 @@ const CONSELHO = /^(crm|crn|crp|coren|crefito|crfa|cro|crf|crbm|crbio)\b/i;
 const TRATAMENTO = /^(dr|dra)\b/i;
 const ASSINATURA = /^(assinatura|carimbo)\b/i;
 const MAX_LINHA_ASSINATURA = 80;
+/** Nomes próprios no máximo assim ("Dr. João Pedro da Silva Santos"). */
+const MAX_PALAVRAS_DE_NOME = 4;
+
+/** Palavras fixas de uma linha de assinatura, em qualquer caixa. */
+const PALAVRA_FIXA =
+  /^(dr|dra|e|a|o|da|de|do|das|dos|assinatura|carimbo|medico|medica|crm|crn|crp|coren|crefito|crfa|cro|crf|crbm|crbio)$/;
+
+/**
+ * A linha inteira tem cara de assinatura: só tratamento, nome próprio,
+ * conselho, número e UF. Qualquer outra palavra minúscula ("Dra. Ana
+ * recomenda repouso", "CRO: encaminhar ao dentista") é corpo do texto, assim
+ * como frase terminada em ponto depois de palavra comprida.
+ */
+function soAssinatura(linha: string, nome: string, registro: string): boolean {
+  if (/[!?]$/.test(linha) || /\p{L}{4,}\.$/u.test(linha)) return false;
+  const doMedico = new Set(`${nome} ${registro}`.split(' ').filter(Boolean));
+  let palavrasDeNome = 0;
+  for (const token of linha.split(/[\s.,:;()/\-–—|_]+/)) {
+    const t = sem(token);
+    if (!t || /\d/.test(t) || doMedico.has(t) || PALAVRA_FIXA.test(t)) continue;
+    if (/^\p{Lu}{2}$/u.test(token)) continue; // UF
+    if (!/^\p{Lu}/u.test(token)) return false;
+    if (++palavrasDeNome > MAX_PALAVRAS_DE_NOME) return false;
+  }
+  return true;
+}
 
 export function limparTextoDoModelo(
   texto: string,
@@ -58,13 +85,13 @@ export function limparTextoDoModelo(
     // ("Eu, Dr. Fulano, atesto…") não pode sumir.
     if (t.length > MAX_LINHA_ASSINATURA) return false;
     const n = sem(t);
-    return (
+    const temSinal =
       (nome !== '' && n.includes(nome)) ||
       (registro !== '' && n.includes(registro)) ||
       CONSELHO.test(n) ||
       TRATAMENTO.test(n) ||
-      ASSINATURA.test(n)
-    );
+      ASSINATURA.test(n);
+    return temSinal && soAssinatura(t, nome, registro);
   };
 
   let fim = linhas.length;

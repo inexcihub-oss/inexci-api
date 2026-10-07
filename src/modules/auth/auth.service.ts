@@ -1,4 +1,7 @@
-import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
+import {
+  isClinicalDocumentIssuerProfile,
+  isPhysicianProfile,
+} from 'src/database/entities/doctor-profile.entity';
 import {
   BadRequestException,
   HttpException,
@@ -326,6 +329,8 @@ export class AuthService {
         ownerId: user.ownerId,
         isDoctor: !!doctorProfile,
         isPhysician: isPhysicianProfile(doctorProfile),
+        canIssueClinicalDocuments:
+          isClinicalDocumentIssuerProfile(doctorProfile),
         emailVerified: user.emailVerified ?? false,
         // A permissão EFETIVA, não a coluna crua — `register` só cria
         // ADMIN (dono da conta), então isto é sempre ALL_PERMISSIONS
@@ -398,6 +403,8 @@ export class AuthService {
           account,
           isDoctor: !!doctorProfile,
           isPhysician: isPhysicianProfile(doctorProfile),
+          canIssueClinicalDocuments:
+            isClinicalDocumentIssuerProfile(doctorProfile),
           emailVerified: fullUser?.emailVerified ?? false,
           // A permissão EFETIVA, não a coluna crua — decide o que o
           // AuthContext do frontend (`permissions`/`can`) libera para este
@@ -461,6 +468,7 @@ export class AuthService {
       avatarUrl,
       isDoctor: !!doctorProfile,
       isPhysician: isPhysicianProfile(doctorProfile),
+      canIssueClinicalDocuments: isClinicalDocumentIssuerProfile(doctorProfile),
       emailVerified: user.emailVerified ?? false,
       // A permissão EFETIVA, não a coluna crua — é o que decide o que o
       // AuthContext do frontend (`permissions`/`can`) libera no menu,

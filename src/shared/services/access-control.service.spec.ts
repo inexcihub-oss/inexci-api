@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
@@ -377,8 +377,8 @@ describe('AccessControlService', () => {
         doctorProfile,
       } as any);
 
-    it('libera médico com o número do CRM', async () => {
-      comPerfil({ id: 'p-1', council: 'CRM', crm: '12345' });
+    it('libera médico com o número e a UF do CRM', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '12345', crmState: 'RJ' });
 
       await expect(
         service.assertIsPhysicianWithRegistry(
@@ -390,7 +390,7 @@ describe('AccessControlService', () => {
     });
 
     it('médico sem número do CRM é recusado com orientação', async () => {
-      comPerfil({ id: 'p-1', council: 'CRM', crm: '  ' });
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '  ', crmState: 'RJ' });
 
       await expect(
         service.assertIsPhysicianWithRegistry(
@@ -399,8 +399,32 @@ describe('AccessControlService', () => {
           'indicar cirurgia',
         ),
       ).rejects.toThrow(
-        'Preencha o número do CRM de Karina Clínica em Colaboradores antes de indicar cirurgia.',
+        'Preencha o número e a UF do CRM de Karina Clínica em Colaboradores antes de indicar cirurgia.',
       );
+    });
+
+    it('médico com número mas sem UF também é recusado', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '12345', crmState: null });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('dentista (CRO) não indica cirurgia, mesmo com registro', async () => {
+      comPerfil({ id: 'p-1', council: 'CRO', crm: '4321', crmState: 'RJ' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(new ForbiddenException('só médico'));
     });
 
     it('quem não é médico continua recusado com a mensagem informada', async () => {
@@ -413,6 +437,83 @@ describe('AccessControlService', () => {
           'indicar cirurgia',
         ),
       ).rejects.toThrow(new ForbiddenException('só médico'));
+    });
+  });
+
+  // ─── canIndicateSurgery ───
+
+  describe('canIndicateSurgery', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it.each([
+      [{ council: 'CRM', crm: '12345', crmState: 'RJ' }, true],
+      [{ council: 'CRM', crm: '12345', crmState: null }, false],
+      [{ council: 'CRM', crm: null, crmState: 'RJ' }, false],
+      [{ council: 'CRO', crm: '4321', crmState: 'RJ' }, false],
+      [null, false],
+    ])('%j → %s', async (perfil, esperado) => {
+      comPerfil(perfil);
+      await expect(service.canIndicateSurgery('u-1')).resolves.toBe(esperado);
+    });
+  });
+
+  // ─── assertCanIssueClinicalDocuments (CRM ou CRO) ───
+
+  describe('assertCanIssueClinicalDocuments', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        name: 'Bruno Dentista',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it.each(['CRM', 'CRO'])('libera %s', async (council) => {
+      comPerfil({ council, crm: '1', crmState: 'RJ' });
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1', {
+          exigirRegistro: true,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it.each(['CRN', 'CRP', 'COREN', 'OUTRO', undefined])(
+      'recusa conselho %s com mensagem sem "apenas médicos (CRM)"',
+      async (council) => {
+        comPerfil({ council, crm: '1', crmState: 'RJ' });
+        await expect(
+          service.assertCanIssueClinicalDocuments('u-1'),
+        ).rejects.toThrow(
+          'Apenas médicos (CRM) e dentistas (CRO) podem emitir receita, atestado e pedido de exame.',
+        );
+      },
+    );
+
+    it('recusa quem não tem perfil profissional', async () => {
+      comPerfil(null);
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('registro só é exigido quando pedido, com o conselho na mensagem', async () => {
+      comPerfil({ council: 'CRO', crm: null, crmState: null });
+
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1'),
+      ).resolves.toBeUndefined();
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1', {
+          exigirRegistro: true,
+        }),
+      ).rejects.toThrow(
+        'Preencha o número e a UF do CRO de Bruno Dentista em Colaboradores antes de emitir documentos.',
+      );
     });
   });
 

@@ -27,6 +27,10 @@ import { formatCpf, formatDateBR, formatPhone } from 'src/shared/utils';
 import { CidCodeDto } from '../dto/cid-code.dto';
 import { ClinicalDocumentTemplateKind } from 'src/database/entities/clinical-document-template.entity';
 import {
+  hasCouncilRegistry,
+  ProfessionalCouncil,
+} from 'src/database/entities/doctor-profile.entity';
+import {
   aplicarPlaceholders,
   PlaceholderValues,
 } from 'src/shared/pdf/placeholders.util';
@@ -47,6 +51,58 @@ const DOCUMENT_NAME_MAX_LENGTH = 75;
 
 const digitsOnly = (value?: string | null): string =>
   value ? value.replace(/\D/g, '') : '';
+
+/** Contexto comum aos três documentos (paciente + profissional que assina). */
+type BaseContext = Awaited<
+  ReturnType<ClinicalDocumentGenerationService['buildBaseContext']>
+>['base'];
+
+/** Placeholders que o "aplicar modelo" deixa para a emissão preencher. */
+const PREENCHIDOS_NA_EMISSAO = ['dias', 'inicio'] as const;
+
+/**
+ * Título do atestado pelo conselho de quem assina: o dentista (CRO) emite
+ * atestado odontológico, não médico.
+ */
+const tituloDoAtestado = (council?: string | null): string =>
+  council === ProfessionalCouncil.CRO
+    ? 'ATESTADO ODONTOLÓGICO'
+    : 'ATESTADO MÉDICO';
+
+/**
+ * O texto já diz os dias de afastamento? Exige o número seguido de "dia(s)",
+ * com um extenso opcional entre parênteses ("5 (cinco) dias") — um número
+ * solto (CID, idade) não conta. Errar para o lado de repetir a informação é
+ * melhor do que sumir com ela do atestado.
+ */
+const mencionaDias = (texto: string, dias: number): boolean =>
+  new RegExp(`(^|\\D)${dias}\\s*(\\([^)]{0,30}\\)\\s*)?dias?\\b`, 'i').test(
+    texto,
+  );
+
+/**
+ * Linha de afastamento para o atestado com texto livre/modelo. A declaração
+ * padrão imprime dias e início; o texto a substitui e, sem esta linha, o que o
+ * médico preencheu no formulário sumia do PDF. Só entra o que o texto ainda
+ * não menciona. Início sem dias é ignorado, como na declaração padrão.
+ */
+export function montarNotaDeAfastamento(
+  texto: string,
+  restDays: number | undefined,
+  restDaysLabel: string | undefined,
+  startDate: string | undefined,
+): string | undefined {
+  if (!restDays || !restDaysLabel) return undefined;
+  const faltaDias = !mencionaDias(texto, restDays);
+  const faltaInicio = !!startDate && !texto.includes(startDate);
+
+  if (faltaDias) {
+    return faltaInicio
+      ? `Afastamento de ${restDaysLabel}, a partir de ${startDate}.`
+      : `Afastamento de ${restDaysLabel}.`;
+  }
+  return faltaInicio ? `Início do afastamento: ${startDate}.` : undefined;
+}
 
 /**
  * Origem dos dados do documento.
@@ -217,35 +273,50 @@ export class ClinicalDocumentGenerationService {
    * assina — o mesmo contexto que vai para o PDF, para o texto aplicado e o
    * documento emitido não divergirem. Aplicar é o que conta o uso.
    *
-   * Exige o mesmo que emitir (médico com CRM e acesso ao paciente e ao médico
-   * que assina): o texto devolvido já traz nome e CPF do paciente.
+   * Exige o mesmo que emitir (médico ou dentista, com acesso ao paciente e a
+   * quem assina): o texto devolvido já traz nome e CPF do paciente.
    */
   async applyTemplate(
     id: string,
     data: ApplyClinicalDocumentTemplateDto,
     userId: string,
   ): Promise<{ id: string; kind: ClinicalDocumentTemplateKind; body: string }> {
-    const { base } = await this.buildBaseContext(previewSource(data), userId);
+    const { base, doctorId } = await this.buildBaseContext(
+      previewSource(data),
+      userId,
+    );
     const template = await this.documentTemplatesService.getForUse(
       id,
       null,
       userId,
+      doctorId,
     );
-    await this.documentTemplatesService.incrementUsage(id);
+    if (!data.refresh) await this.documentTemplatesService.incrementUsage(id);
+    // `{{dias}}`/`{{inicio}}` ainda sem valor ficam literais: o médico pode
+    // aplicar o modelo antes de escolher o afastamento, e a emissão os preenche
+    // com o valor final (ver `buildMedicalCertificate`).
     return {
       id: template.id,
       kind: template.kind,
-      body: this.textoPronto(template.body, base, data.restDays),
+      body: this.textoPronto(
+        template.body,
+        this.placeholderValues(
+          base,
+          data.restDays,
+          data.startDate ? formatDateBR(data.startDate) : undefined,
+        ),
+        base,
+        PREENCHIDOS_NA_EMISSAO,
+      ),
     };
   }
 
   private async textoDoModelo(
     templateId: string | undefined,
     kind: ClinicalDocumentTemplateKind,
-    base: Awaited<
-      ReturnType<ClinicalDocumentGenerationService['buildBaseContext']>
-    >['base'],
-    restDays: number | undefined,
+    base: BaseContext,
+    valores: PlaceholderValues,
+    signingDoctorId: string,
     userId: string,
   ): Promise<string | undefined> {
     if (!templateId) return undefined;
@@ -253,8 +324,9 @@ export class ClinicalDocumentGenerationService {
       templateId,
       kind,
       userId,
+      signingDoctorId,
     );
-    return this.textoPronto(template.body, base, restDays);
+    return this.textoPronto(template.body, valores, base);
   }
 
   /**
@@ -263,13 +335,12 @@ export class ClinicalDocumentGenerationService {
    */
   private textoPronto(
     body: string,
-    base: Awaited<
-      ReturnType<ClinicalDocumentGenerationService['buildBaseContext']>
-    >['base'],
-    restDays: number | undefined,
+    valores: PlaceholderValues,
+    base: BaseContext,
+    manterSemValor?: readonly (keyof PlaceholderValues)[],
   ): string {
     return limparTextoDoModelo(
-      aplicarPlaceholders(body, this.placeholderValues(base, restDays)),
+      aplicarPlaceholders(body, valores, { manterSemValor }),
       { nome: base.doctorName, registro: base.doctorCrm },
     );
   }
@@ -284,6 +355,7 @@ export class ClinicalDocumentGenerationService {
       today: string;
     },
     restDays?: number,
+    inicio?: string,
   ): PlaceholderValues {
     return {
       'paciente.nome': base.patientName,
@@ -293,6 +365,7 @@ export class ClinicalDocumentGenerationService {
       'medico.registro': base.doctorCrm,
       data: base.today,
       dias: restDays,
+      inicio,
     };
   }
 
@@ -319,32 +392,49 @@ export class ClinicalDocumentGenerationService {
     data: CreateMedicalCertificateDto | PreviewMedicalCertificateDto,
     userId: string,
   ) {
-    const { record, base, cidCodes } = await this.buildBaseContext(
-      source,
-      userId,
-    );
+    const { record, base, cidCodes, doctorId, council } =
+      await this.buildBaseContext(source, userId);
 
     // O CID expõe o diagnóstico a quem recebe o atestado (empregador, escola),
     // então nunca entra sozinho: ou o médico escolhe o CID no atestado, ou
     // marca explicitamente para reaproveitar o da ficha.
     const cid = data.cid ?? (data.includeCid ? (cidCodes?.[0] ?? null) : null);
 
+    const restDaysLabel = this.buildRestDaysLabel(data.restDays);
+    const startDate = data.startDate ? formatDateBR(data.startDate) : undefined;
+    // Sem início informado, o afastamento conta da emissão (ver o DTO).
+    const valores = this.placeholderValues(
+      base,
+      data.restDays,
+      startDate ?? (restDaysLabel ? base.today : undefined),
+    );
+
+    // O modelo é o texto do atestado: substitui a declaração padrão. Antes
+    // ia para as observações e o atestado saía com o texto duas vezes. O
+    // texto que já vem pronto (modelo aplicado na tela) ainda pode trazer
+    // `{{dias}}`/`{{inicio}}` literais — preenchidos aqui com o valor final.
+    const text =
+      data.text !== undefined
+        ? aplicarPlaceholders(data.text, valores)
+        : await this.textoDoModelo(
+            data.templateId,
+            ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+            base,
+            valores,
+            doctorId,
+            userId,
+          );
+
     const pdfData: MedicalCertificatePdfData = {
       ...base,
-      restDaysLabel: this.buildRestDaysLabel(data.restDays),
-      startDate: data.startDate ? formatDateBR(data.startDate) : undefined,
+      certificateTitle: tituloDoAtestado(council),
+      restDaysLabel,
+      startDate,
+      restPeriodNote: text
+        ? montarNotaDeAfastamento(text, data.restDays, restDaysLabel, startDate)
+        : undefined,
       cid,
-      // O modelo é o texto do atestado: substitui a declaração padrão. Antes
-      // ia para as observações e o atestado saía com o texto duas vezes.
-      text:
-        data.text ??
-        (await this.textoDoModelo(
-          data.templateId,
-          ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
-          base,
-          data.restDays,
-          userId,
-        )),
+      text,
       observations: data.observations,
     };
 
@@ -356,23 +446,26 @@ export class ClinicalDocumentGenerationService {
     data: CreateExamReferralDto | PreviewExamReferralDto,
     userId: string,
   ) {
-    const { record, base, cidCodes } = await this.buildBaseContext(
+    const { record, base, cidCodes, doctorId } = await this.buildBaseContext(
       source,
       userId,
     );
+    const valores = this.placeholderValues(base);
 
     const pdfData: ExamReferralPdfData = {
       ...base,
       exams: data.exams,
       clinicalIndication:
-        data.clinicalIndication ??
-        (await this.textoDoModelo(
-          data.templateId,
-          ClinicalDocumentTemplateKind.EXAM_REFERRAL,
-          base,
-          undefined,
-          userId,
-        )),
+        data.clinicalIndication !== undefined
+          ? aplicarPlaceholders(data.clinicalIndication, valores)
+          : await this.textoDoModelo(
+              data.templateId,
+              ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+              base,
+              valores,
+              doctorId,
+              userId,
+            ),
       // Por padrão o pedido carrega a hipótese diagnóstica já registrada na
       // ficha — é o que o convênio exige para autorizar o exame.
       cidCodes: data.cidCodes ?? cidCodes ?? undefined,
@@ -386,39 +479,43 @@ export class ClinicalDocumentGenerationService {
    * três PDFs.
    *
    * São três verificações, e nenhuma cobre a outra: quem emite precisa ser
-   * médico (ato privativo), pertencer à clínica e ter vínculo com o médico do
-   * documento. O documento sai assinado com o nome, o CRM e a imagem de
-   * assinatura desse médico — sem isso, um assistente emitiria receita em nome
-   * dele.
+   * médico ou dentista (ato privativo), pertencer à clínica e ter vínculo com
+   * o profissional do documento. O documento sai assinado com o nome, o
+   * registro (CRM/CRO) e a imagem de assinatura desse profissional — sem isso,
+   * um assistente emitiria receita em nome dele.
    *
    * Vale também para a prévia: é o mesmo documento, só que na tela.
    */
   private async buildBaseContext(source: DocumentSource, userId: string) {
-    // Receita, atestado e pedido de exame são atos de médico (CRM): quem
-    // emite tem que ser médico, e o documento também tem que sair em nome de
-    // um — o `doctorId` da ficha pode ser outro profissional da conta.
-    await this.accessControlService.assertIsPhysician(userId);
+    // Receita, atestado e pedido de exame são atos de médico (CRM) ou de
+    // dentista (CRO): quem emite tem que ser um deles, e o documento também
+    // tem que sair em nome de um — o `doctorId` da ficha pode ser outro
+    // profissional da conta.
+    await this.accessControlService.assertCanIssueClinicalDocuments(userId);
 
     const { record, patient, doctorId, cidCodes } = await this.resolveSubject(
       source,
       userId,
     );
     if (doctorId !== userId) {
-      await this.accessControlService.assertIsPhysician(
+      await this.accessControlService.assertCanIssueClinicalDocuments(
         doctorId,
-        'Este documento só pode ser emitido em nome de um médico (CRM).',
+        {
+          mensagem:
+            'Este documento só pode ser emitido em nome de um médico (CRM) ou dentista (CRO).',
+        },
       );
     }
 
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.doctorPdfContextService.buildForDoctorId(doctorId);
 
-    // CRM sem número sai do importador (profissional sem conselho no Feegow
-    // e especialidade médica). Documento com o registro em branco não vale —
-    // recusa até alguém preencher o número na tela de colaboradores.
-    if (!profile?.crm?.trim()) {
+    // Registro sem número ou sem UF sai do importador (profissional sem
+    // conselho no Feegow e especialidade médica). Documento com o registro
+    // pela metade não vale — recusa até alguém completá-lo em Colaboradores.
+    if (!hasCouncilRegistry(profile)) {
       throw new BadRequestException(
-        `Preencha o número do CRM de ${doctor?.name ?? 'quem assina'} em Colaboradores antes de emitir documentos.`,
+        `Preencha o número e a UF do ${profile?.council || 'CRM'} de ${doctor?.name ?? 'quem assina'} em Colaboradores antes de emitir documentos.`,
       );
     }
 
@@ -432,7 +529,14 @@ export class ClinicalDocumentGenerationService {
       customHeader,
     };
 
-    return { record, patient, cidCodes, base };
+    return {
+      record,
+      patient,
+      cidCodes,
+      base,
+      doctorId,
+      council: (profile?.council as string | undefined) ?? null,
+    };
   }
 
   /**

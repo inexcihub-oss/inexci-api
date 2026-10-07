@@ -494,6 +494,48 @@ describe('ClinicalRecordsService', () => {
       expect(result).toMatchObject({ surgeryRequestId: 'sc-1' });
     });
 
+    it('recusa finalizar ficha com indicação quando o profissional não pode mais indicar cirurgia', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        doctorId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+        surgicalIndication: true,
+      });
+      mockAccess.assertIsPhysicianWithRegistry.mockRejectedValue(
+        new BadRequestException('Preencha o número e a UF do CRM'),
+      );
+
+      await expect(service.finalize('cr-1', userId)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(mockAccess.assertIsPhysicianWithRegistry).toHaveBeenCalledWith(
+        doctorId,
+        expect.stringContaining('Desmarque a indicação cirúrgica'),
+        expect.any(String),
+      );
+      // Nada muda: a ficha segue editável para desmarcar a indicação.
+      expect(mockClinicalRepo.update).not.toHaveBeenCalled();
+      expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
+    });
+
+    it('não confere o registro ao finalizar ficha sem indicação', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        finalizedAt: null,
+        appointmentId: null,
+        surgicalIndication: false,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+
+      await service.finalize('cr-1', userId);
+
+      expect(mockAccess.assertIsPhysicianWithRegistry).not.toHaveBeenCalled();
+    });
+
     it('não cria SC quando a ficha não tem indicação', async () => {
       mockClinicalRepo.findOne.mockResolvedValue({
         id: 'cr-1',

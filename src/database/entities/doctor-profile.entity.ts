@@ -13,9 +13,9 @@ import { DoctorHeader } from './doctor-header.entity';
 /**
  * Conselho profissional. Gravado como texto em `doctor_profiles.council`.
  *
- * Só `CRM` é médico: emite receita, atestado e pedido de exame, indica cirurgia
- * e enxerga Solicitações. Os demais (psicologia, nutrição, enfermagem…) têm
- * agenda e prontuário próprios.
+ * Só `CRM` é médico: indica cirurgia e enxerga Solicitações. Receita, atestado
+ * e pedido de exame saem do CRM e do CRO (dentista). Os demais (psicologia,
+ * nutrição, enfermagem…) têm agenda e prontuário próprios.
  */
 export enum ProfessionalCouncil {
   CRM = 'CRM',
@@ -39,6 +39,40 @@ export function isPhysicianProfile(
   profile: { council?: string | null } | null | undefined,
 ): boolean {
   return !!profile && profile.council === ProfessionalCouncil.CRM;
+}
+
+/**
+ * Conselhos cujo profissional emite receita, atestado e pedido de exame: o
+ * médico (CRM) e o cirurgião-dentista (CRO). Separado de `isPhysicianProfile`
+ * de propósito — aquele também decide Solicitações e indicação cirúrgica, que
+ * continuam só do CRM.
+ */
+const CONSELHOS_QUE_EMITEM_DOCUMENTOS: ReadonlySet<string> = new Set([
+  ProfessionalCouncil.CRM,
+  ProfessionalCouncil.CRO,
+]);
+
+/**
+ * Conselho habilitado a emitir documentos clínicos (CRM ou CRO). Estrito como
+ * `isPhysicianProfile`: perfil sem `council` carregado não emite.
+ */
+export function isClinicalDocumentIssuerProfile(
+  profile: { council?: string | null } | null | undefined,
+): boolean {
+  return (
+    !!profile?.council && CONSELHOS_QUE_EMITEM_DOCUMENTOS.has(profile.council)
+  );
+}
+
+/**
+ * Registro no conselho completo — número **e** UF. Documento ou SC assinados
+ * com o registro pela metade não valem (o importador do Feegow cria perfil sem
+ * número quando o export não traz o registro).
+ */
+export function hasCouncilRegistry(
+  profile: { crm?: string | null; crmState?: string | null } | null | undefined,
+): boolean {
+  return !!profile?.crm?.trim() && !!profile?.crmState?.trim();
 }
 
 /**

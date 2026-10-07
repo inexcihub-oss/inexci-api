@@ -145,6 +145,34 @@ describe('PdfService — documentos do atendimento', () => {
       expect(html).toContain('Retornar em 7 dias');
     });
 
+    it('com texto, imprime a linha de afastamento que o texto não traz', async () => {
+      await service.generateMedicalCertificatePdf({
+        ...baseData,
+        text: 'Atesto que Alessandro Filho foi atendido nesta data.',
+        restPeriodNote: 'Afastamento de 3 dias, a partir de 30/07/2026.',
+      } as any);
+
+      expect(renderedHtml()).toContain(
+        "<p class='body-text'>Afastamento de 3 dias, a partir de 30/07/2026.</p>",
+      );
+    });
+
+    it('título padrão é ATESTADO MÉDICO; CRO imprime ATESTADO ODONTOLÓGICO', async () => {
+      await service.generateMedicalCertificatePdf(baseData as any);
+      expect(renderedHtml()).toContain('ATESTADO MÉDICO');
+
+      htmlToPdf.mockClear();
+      await service.generateMedicalCertificatePdf({
+        ...baseData,
+        doctorCrm: 'CRO 4321/RJ',
+        certificateTitle: 'ATESTADO ODONTOLÓGICO',
+      } as any);
+      const html = renderedHtml();
+      expect(html).toContain('ATESTADO ODONTOLÓGICO');
+      expect(html).not.toContain('ATESTADO MÉDICO');
+      expect(html).toContain('CRO 4321/RJ');
+    });
+
     it('sem texto do modelo, mantém a declaração padrão', async () => {
       await service.generateMedicalCertificatePdf(baseData as any);
 

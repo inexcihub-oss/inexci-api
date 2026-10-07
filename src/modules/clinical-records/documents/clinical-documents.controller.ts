@@ -81,7 +81,9 @@ export class ClinicalDocumentsController {
   }
 
   @Post('medical-certificate')
-  @ApiOperation({ summary: 'Emitir atestado médico do atendimento' })
+  @ApiOperation({
+    summary: 'Emitir atestado (médico ou odontológico) do atendimento',
+  })
   createMedicalCertificate(
     @Body() data: CreateMedicalCertificateDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -132,7 +134,7 @@ export class ClinicalDocumentsController {
 
   @Post('medical-certificate/preview')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Pré-visualizar atestado médico' })
+  @ApiOperation({ summary: 'Pré-visualizar atestado (médico ou odontológico)' })
   async previewMedicalCertificate(
     @Body() data: PreviewMedicalCertificateDto,
     @CurrentUser() user: AuthenticatedUser,

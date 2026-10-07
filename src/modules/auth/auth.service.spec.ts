@@ -176,6 +176,32 @@ describe('AuthService', () => {
       expect(mockConsentService.getStatus).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['CRM', true, true],
+      ['CRO', false, true],
+      ['CRN', false, false],
+    ])(
+      'conselho %s: isPhysician=%s, canIssueClinicalDocuments=%s',
+      async (council, isPhysician, emite) => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'prof-1',
+          role: UserRole.COLLABORATOR,
+          name: 'Profissional',
+          phone: '11999999999',
+          email: 'prof@example.com',
+          ownerId: 'prof-1',
+          avatarUrl: null,
+          emailVerified: true,
+          doctorProfile: { id: 'dp-1', council, crm: '123', crmState: 'RJ' },
+        });
+
+        const result = await service.me('prof-1');
+
+        expect(result.isPhysician).toBe(isPhysician);
+        expect(result.canIssueClinicalDocuments).toBe(emite);
+      },
+    );
+
     it('inclui account (equipe) para colaborador vinculado a um dono médico', async () => {
       const collaborator = {
         id: 'collab-1',

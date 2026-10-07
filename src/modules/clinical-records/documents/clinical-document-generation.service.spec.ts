@@ -47,7 +47,7 @@ describe('ClinicalDocumentGenerationService', () => {
   const accessControlService = {
     assertSameOwner: jest.fn(),
     assertCanAccessDoctorResource: jest.fn(),
-    assertIsPhysician: jest.fn(),
+    assertCanIssueClinicalDocuments: jest.fn(),
   };
   const storageService = { create: jest.fn(), getSignedUrl: jest.fn() };
   const pdfService = {
@@ -85,10 +85,17 @@ describe('ClinicalDocumentGenerationService', () => {
     accessControlService.assertCanAccessDoctorResource.mockResolvedValue(
       undefined,
     );
-    accessControlService.assertIsPhysician.mockResolvedValue(undefined);
+    accessControlService.assertCanIssueClinicalDocuments.mockResolvedValue(
+      undefined,
+    );
     doctorPdfContextService.buildForDoctorId.mockResolvedValue({
       doctor: { name: 'Dra. Ana Souza' },
-      profile: { specialty: 'Ortopedia', crm: '12345' },
+      profile: {
+        council: 'CRM',
+        specialty: 'Ortopedia',
+        crm: '12345',
+        crmState: 'RJ',
+      },
       doctorCrm: 'CRM 12345/RJ',
       doctorSignatureUrl: 'https://r2/assinatura.png',
       customHeader: null,
@@ -308,6 +315,86 @@ describe('ClinicalDocumentGenerationService', () => {
   });
 
   describe('atestado', () => {
+    it('médico (CRM) emite ATESTADO MÉDICO', async () => {
+      await service.generateMedicalCertificate(
+        'record-1',
+        { restDays: 1 } as any,
+        'doctor-1',
+      );
+
+      expect(
+        pdfService.generateMedicalCertificatePdf.mock.calls[0][0]
+          .certificateTitle,
+      ).toBe('ATESTADO MÉDICO');
+    });
+
+    // Decisão de produto: dentista emite receita, atestado e pedido de exame.
+    it('dentista (CRO) emite ATESTADO ODONTOLÓGICO com o registro CRO', async () => {
+      doctorPdfContextService.buildForDoctorId.mockResolvedValue({
+        doctor: { name: 'Dr. Bruno Dentista' },
+        profile: { council: 'CRO', crm: '4321', crmState: 'RJ' },
+        doctorCrm: 'CRO 4321/RJ',
+        customHeader: null,
+      });
+
+      await service.generateMedicalCertificate(
+        'record-1',
+        { restDays: 2 } as any,
+        'doctor-1',
+      );
+
+      expect(pdfService.generateMedicalCertificatePdf).toHaveBeenCalledWith(
+        expect.objectContaining({
+          certificateTitle: 'ATESTADO ODONTOLÓGICO',
+          doctorCrm: 'CRO 4321/RJ',
+        }),
+      );
+      expect(documentRepository.create).toHaveBeenCalled();
+    });
+
+    describe('texto livre + afastamento do formulário', () => {
+      const emitir = (data: Record<string, unknown>) =>
+        service.generateMedicalCertificate(
+          'record-1',
+          { clinicalRecordId: 'record-1', ...data } as any,
+          'doctor-1',
+        );
+      const nota = () =>
+        pdfService.generateMedicalCertificatePdf.mock.calls[0][0]
+          .restPeriodNote;
+
+      it('texto sem dias nem início ganha a linha com os dois', async () => {
+        await emitir({
+          text: 'Atesto que o paciente esteve em consulta.',
+          restDays: 3,
+          startDate: '2026-07-30',
+        });
+        expect(nota()).toBe('Afastamento de 3 dias, a partir de 30/07/2026.');
+      });
+
+      it('texto que já diz os dias ganha só o início', async () => {
+        await emitir({
+          text: 'Necessita de 3 (três) dias de repouso.',
+          restDays: 3,
+          startDate: '2026-07-30',
+        });
+        expect(nota()).toBe('Início do afastamento: 30/07/2026.');
+      });
+
+      it('número solto (CID, idade) não conta como os dias', async () => {
+        await emitir({
+          text: 'Paciente de 3 anos, CID M54.3.',
+          restDays: 3,
+        });
+        expect(nota()).toBe('Afastamento de 3 dias.');
+      });
+
+      it('sem afastamento no formulário não há linha', async () => {
+        await emitir({ text: 'Compareceu à consulta.' });
+        expect(nota()).toBeUndefined();
+      });
+    });
+
     it('pluraliza o afastamento em dias', async () => {
       await service.generateMedicalCertificate(
         'record-1',
@@ -599,7 +686,7 @@ describe('ClinicalDocumentGenerationService', () => {
     });
 
     it('bloqueia não-médico', async () => {
-      accessControlService.assertIsPhysician.mockRejectedValue(
+      accessControlService.assertCanIssueClinicalDocuments.mockRejectedValue(
         new ForbiddenException(),
       );
 
@@ -705,7 +792,7 @@ describe('ClinicalDocumentGenerationService', () => {
    */
   describe('somente médico emite', () => {
     beforeEach(() => {
-      accessControlService.assertIsPhysician.mockRejectedValue(
+      accessControlService.assertCanIssueClinicalDocuments.mockRejectedValue(
         new ForbiddenException(),
       );
     });
@@ -768,9 +855,9 @@ describe('ClinicalDocumentGenerationService', () => {
     ])('bloqueia não-médico em %s', async (_label, action) => {
       await expect(action()).rejects.toThrow(ForbiddenException);
 
-      expect(accessControlService.assertIsPhysician).toHaveBeenCalledWith(
-        'secretaria-id',
-      );
+      expect(
+        accessControlService.assertCanIssueClinicalDocuments,
+      ).toHaveBeenCalledWith('secretaria-id');
       expect(documentRepository.create).not.toHaveBeenCalled();
       expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
     });
@@ -781,10 +868,11 @@ describe('ClinicalDocumentGenerationService', () => {
    */
   describe('documento em nome de profissional que não é médico', () => {
     beforeEach(() => {
-      accessControlService.assertIsPhysician.mockImplementation((id: string) =>
-        id === 'nutricionista-1'
-          ? Promise.reject(new ForbiddenException())
-          : Promise.resolve(undefined),
+      accessControlService.assertCanIssueClinicalDocuments.mockImplementation(
+        (id: string) =>
+          id === 'nutricionista-1'
+            ? Promise.reject(new ForbiddenException())
+            : Promise.resolve(undefined),
       );
       clinicalRecordRepository.findOne.mockResolvedValue({
         ...record,
@@ -801,10 +889,11 @@ describe('ClinicalDocumentGenerationService', () => {
         ),
       ).rejects.toThrow(ForbiddenException);
 
-      expect(accessControlService.assertIsPhysician).toHaveBeenCalledWith(
-        'nutricionista-1',
-        expect.any(String),
-      );
+      expect(
+        accessControlService.assertCanIssueClinicalDocuments,
+      ).toHaveBeenCalledWith('nutricionista-1', {
+        mensagem: expect.stringContaining('dentista (CRO)'),
+      });
       expect(documentRepository.create).not.toHaveBeenCalled();
     });
 
@@ -823,9 +912,28 @@ describe('ClinicalDocumentGenerationService', () => {
           'doctor-1',
         ),
       ).rejects.toThrow(
-        'Preencha o número do CRM de Karina Clínica em Colaboradores antes de emitir documentos.',
+        'Preencha o número e a UF do CRM de Karina Clínica em Colaboradores antes de emitir documentos.',
       );
       expect(pdfService.generatePrescriptionPdf).not.toHaveBeenCalled();
+    });
+
+    it('registro sem UF também não emite', async () => {
+      clinicalRecordRepository.findOne.mockResolvedValue(record);
+      doctorPdfContextService.buildForDoctorId.mockResolvedValue({
+        doctor: { name: 'Karina Clínica' },
+        profile: { council: 'CRM', crm: '12345', crmState: null },
+        doctorCrm: 'CRM 12345',
+        customHeader: null,
+      });
+
+      await expect(
+        service.generatePrescription(
+          'record-1',
+          prescriptionDto as any,
+          'doctor-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(documentRepository.create).not.toHaveBeenCalled();
     });
 
     it('não checa de novo quando quem emite é o próprio médico da ficha', async () => {
@@ -836,7 +944,9 @@ describe('ClinicalDocumentGenerationService', () => {
         'doctor-1',
       );
 
-      expect(accessControlService.assertIsPhysician).toHaveBeenCalledTimes(1);
+      expect(
+        accessControlService.assertCanIssueClinicalDocuments,
+      ).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -862,6 +972,7 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(documentTemplatesService.getForUse).toHaveBeenCalledWith(
         'tpl-1',
         ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+        'doctor-1',
         'doctor-1',
       );
       const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
@@ -938,6 +1049,7 @@ describe('ClinicalDocumentGenerationService', () => {
         'tpl-2',
         ClinicalDocumentTemplateKind.EXAM_REFERRAL,
         'doctor-1',
+        'doctor-1',
       );
       expect(
         pdfService.generateExamReferralPdf.mock.calls[0][0].clinicalIndication,
@@ -1005,8 +1117,20 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
     });
 
+    // Os dias mudaram e a tela refaz o texto: é o mesmo uso, não outro.
+    it('reaplicar só para atualizar a tela (refresh) não conta outro uso', async () => {
+      const resultado = await service.applyTemplate(
+        'tpl-1',
+        { patientId: 'patient-1', restDays: 5, refresh: true },
+        'doctor-1',
+      );
+
+      expect(resultado.body).toContain('precisa de 5 dias');
+      expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
+    });
+
     it('aplicar exige o mesmo que emitir: só médico com CRM', async () => {
-      accessControlService.assertIsPhysician.mockRejectedValueOnce(
+      accessControlService.assertCanIssueClinicalDocuments.mockRejectedValueOnce(
         new ForbiddenException('Somente médicos (CRM)'),
       );
 
@@ -1015,6 +1139,88 @@ describe('ClinicalDocumentGenerationService', () => {
       ).rejects.toThrow(ForbiddenException);
       expect(documentTemplatesService.getForUse).not.toHaveBeenCalled();
       expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
+    });
+
+    it('o modelo tem que ser de quem assina: o service de modelos recebe o médico da ficha', async () => {
+      clinicalRecordRepository.findOne.mockResolvedValue({
+        ...record,
+        doctorId: 'doctor-2',
+      });
+
+      await service.generateMedicalCertificate(
+        'record-1',
+        { clinicalRecordId: 'record-1', templateId: 'tpl-1' },
+        'doctor-1',
+      );
+      await service.applyTemplate(
+        'tpl-1',
+        { patientId: 'patient-1', doctorId: 'doctor-2' },
+        'doctor-1',
+      );
+
+      expect(documentTemplatesService.getForUse).toHaveBeenNthCalledWith(
+        1,
+        'tpl-1',
+        ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+        'doctor-1',
+        'doctor-2',
+      );
+      expect(documentTemplatesService.getForUse).toHaveBeenNthCalledWith(
+        2,
+        'tpl-1',
+        null,
+        'doctor-1',
+        'doctor-2',
+      );
+    });
+
+    it('aplicar antes de escolher o afastamento deixa {{dias}} e {{inicio}} para a emissão', async () => {
+      documentTemplatesService.getForUse.mockResolvedValue({
+        ...modeloAtestado,
+        body: 'Atesto que {{paciente.nome}} precisa de {{dias}} dias a partir de {{inicio}}.',
+      });
+
+      const aplicado = await service.applyTemplate(
+        'tpl-1',
+        { patientId: 'patient-1' },
+        'doctor-1',
+      );
+      expect(aplicado.body).toBe(
+        'Atesto que Alessandro Filho precisa de {{dias}} dias a partir de {{inicio}}.',
+      );
+
+      // A tela manda o texto aplicado; a emissão preenche com o valor final.
+      await service.generateMedicalCertificate(
+        'record-1',
+        {
+          clinicalRecordId: 'record-1',
+          restDays: 4,
+          startDate: '2026-07-30',
+          text: aplicado.body,
+        },
+        'doctor-1',
+      );
+      const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
+      expect(pdfData.text).toBe(
+        'Atesto que Alessandro Filho precisa de 4 dias a partir de 30/07/2026.',
+      );
+      // O texto já diz dias e início: nada de linha repetida.
+      expect(pdfData.restPeriodNote).toBeUndefined();
+    });
+
+    it('aplicar com o início informado preenche {{inicio}}', async () => {
+      documentTemplatesService.getForUse.mockResolvedValue({
+        ...modeloAtestado,
+        body: '{{dias}} dias a partir de {{inicio}}',
+      });
+
+      const aplicado = await service.applyTemplate(
+        'tpl-1',
+        { patientId: 'patient-1', restDays: 2, startDate: '2026-07-30' },
+        'doctor-1',
+      );
+
+      expect(aplicado.body).toBe('2 dias a partir de 30/07/2026');
     });
   });
 });

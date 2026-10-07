@@ -66,4 +66,21 @@ describe('limparTextoDoModelo', () => {
       'Repouso por 3 dias.',
     );
   });
+
+  it.each([
+    'Dra. Ana recomenda repouso de 3 dias.',
+    'CRO: encaminhar ao dentista',
+    'DRA. ANA RECOMENDA REPOUSO DE 3 DIAS.',
+  ])('última frase clínica não é assinatura: %s', (ultima) => {
+    const texto = `Paciente atendida nesta data.\n${ultima}`;
+
+    expect(limparTextoDoModelo(texto, medico)).toBe(texto);
+  });
+
+  it('assinatura de outro nome, com especialidade e UF, sai', () => {
+    const texto =
+      'Repouso.\n\nDr. João Pedro da Silva - Ortopedista\nCRM-SP 12345';
+
+    expect(limparTextoDoModelo(texto, medico)).toBe('Repouso.');
+  });
 });

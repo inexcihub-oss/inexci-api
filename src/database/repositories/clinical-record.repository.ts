@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, In } from 'typeorm';
 import { ClinicalRecord } from '../entities/clinical-record.entity';
+import { ProfessionalCouncil } from '../entities/doctor-profile.entity';
 import { BaseRepository } from './base.repository';
 
 @Injectable()
@@ -44,14 +45,29 @@ export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
    * uma falha persistente não deixe a mesma ficha esperando indefinidamente.
    */
   findPendingSurgicalIndications(limit: number): Promise<ClinicalRecord[]> {
-    return this.repository
-      .createQueryBuilder('record')
-      .where('record.surgicalIndication = true')
-      .andWhere('record.surgeryRequestId IS NULL')
-      .andWhere('record.finalizedAt IS NOT NULL')
-      .orderBy('record.finalizedAt', 'ASC')
-      .take(limit)
-      .getMany();
+    return (
+      this.repository
+        .createQueryBuilder('record')
+        .where('record.surgicalIndication = true')
+        .andWhere('record.surgeryRequestId IS NULL')
+        .andWhere('record.finalizedAt IS NOT NULL')
+        // Só quem pode indicar cirurgia (CRM com número e UF — o mesmo critério
+        // de `assertIsPhysicianWithRegistry`). Ficha de quem não pode fica no
+        // outbox sem ocupar o lote: senão 50 fichas bloqueadas travariam as novas.
+        .andWhere(
+          `EXISTS (
+           SELECT 1 FROM doctor_profiles dp
+            WHERE dp.user_id = record.doctor_id
+              AND dp.council = :crm
+              AND NULLIF(TRIM(dp.crm), '') IS NOT NULL
+              AND NULLIF(TRIM(dp.crm_state), '') IS NOT NULL
+         )`,
+          { crm: ProfessionalCouncil.CRM },
+        )
+        .orderBy('record.finalizedAt', 'ASC')
+        .take(limit)
+        .getMany()
+    );
   }
 
   /**

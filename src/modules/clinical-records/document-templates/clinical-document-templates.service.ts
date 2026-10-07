@@ -17,8 +17,9 @@ import { UpdateClinicalDocumentTemplateDto } from './dto/update-clinical-documen
  * Modelos de texto de atestado e pedido de exame (MIG-06).
  *
  * Ler segue o recorte da clínica, como os modelos de anamnese. Escrever exige
- * **médico com CRM** (`assertIsPhysician`), porque atestado e pedido de exame
- * são emitidos só por ele, e acesso ao médico dono do modelo.
+ * **médico (CRM) ou dentista (CRO)** (`assertCanIssueClinicalDocuments`),
+ * porque atestado e pedido de exame são emitidos só por eles, e acesso ao
+ * profissional dono do modelo.
  */
 @Injectable()
 export class ClinicalDocumentTemplatesService {
@@ -39,7 +40,7 @@ export class ClinicalDocumentTemplatesService {
     data: CreateClinicalDocumentTemplateDto,
     userId: string,
   ): Promise<ClinicalDocumentTemplate> {
-    await this.accessControlService.assertIsPhysician(userId);
+    await this.accessControlService.assertCanIssueClinicalDocuments(userId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
     const doctorId =
       data.doctorId ??
@@ -48,9 +49,12 @@ export class ClinicalDocumentTemplatesService {
       throw new ForbiddenException('Médico não acessível para esta operação.');
     }
     if (doctorId !== userId) {
-      await this.accessControlService.assertIsPhysician(
+      await this.accessControlService.assertCanIssueClinicalDocuments(
         doctorId,
-        'O modelo só pode pertencer a um médico (CRM).',
+        {
+          mensagem:
+            'O modelo só pode pertencer a um médico (CRM) ou dentista (CRO).',
+        },
       );
     }
 
@@ -82,14 +86,19 @@ export class ClinicalDocumentTemplatesService {
 
   /**
    * Modelo para emitir um documento do tipo `kind`: da mesma clínica, de um
-   * médico acessível e do tipo certo (um modelo de atestado não preenche o
-   * pedido de exame); `kind` nulo aceita qualquer tipo. Quem chama já conferiu
-   * que o usuário é médico.
+   * médico acessível, **do profissional que assina o documento** e do tipo
+   * certo (um modelo de atestado não preenche o pedido de exame); `kind` nulo
+   * aceita qualquer tipo. Quem chama já conferiu que o usuário pode emitir.
+   *
+   * O modelo é o texto do profissional: um assistente com acesso a dois
+   * médicos não pode pôr o texto do Dr. A num atestado assinado pelo Dr. B.
+   * Não existe modelo "da clínica" (`doctor_id` é obrigatório).
    */
   async getForUse(
     id: string,
     kind: ClinicalDocumentTemplateKind | null,
     userId: string,
+    signingDoctorId: string,
   ): Promise<ClinicalDocumentTemplate> {
     const template = await this.templateRepository.findOne({ id });
     if (!template) throw new NotFoundException('Modelo não encontrado');
@@ -98,6 +107,11 @@ export class ClinicalDocumentTemplatesService {
       template.ownerId,
       template.doctorId,
     );
+    if (template.doctorId !== signingDoctorId) {
+      throw new BadRequestException(
+        'Este modelo é de outro profissional — use um modelo de quem assina o documento.',
+      );
+    }
     if (kind && template.kind !== kind) {
       throw new BadRequestException(
         'Este modelo é de outro tipo de documento.',
@@ -114,7 +128,7 @@ export class ClinicalDocumentTemplatesService {
     id: string,
     userId: string,
   ): Promise<ClinicalDocumentTemplate> {
-    await this.accessControlService.assertIsPhysician(userId);
+    await this.accessControlService.assertCanIssueClinicalDocuments(userId);
     const template = await this.templateRepository.findOne({ id });
     if (!template) throw new NotFoundException('Modelo não encontrado');
     await this.accessControlService.assertCanAccessDoctorResource(

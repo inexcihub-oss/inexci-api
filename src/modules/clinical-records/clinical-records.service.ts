@@ -250,6 +250,17 @@ export class ClinicalRecordsService {
   async finalize(id: string, userId: string): Promise<ClinicalRecord> {
     const record = await this.getEditable(id, userId);
 
+    // A marcação foi conferida ao gravar, mas o conselho ou o registro do
+    // profissional podem ter mudado desde então. Depois de finalizada a ficha
+    // é imutável — a hora de recusar é agora, com a indicação ainda editável.
+    if (record.surgicalIndication) {
+      await this.accessControlService.assertIsPhysicianWithRegistry(
+        record.doctorId,
+        'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
+        'finalizar um atendimento com indicação cirúrgica',
+      );
+    }
+
     const finalized = (await this.clinicalRecordRepository.update(record.id, {
       finalizedAt: new Date(),
     }))!;
