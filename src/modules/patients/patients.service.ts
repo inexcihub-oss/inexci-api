@@ -8,7 +8,7 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { In } from 'typeorm';
+import { In, Not, QueryDeepPartialEntity } from 'typeorm';
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -127,8 +127,19 @@ export class PatientsService {
     id: string,
     userId: string,
   ): Promise<PatientWithPhoto> {
-    const patient = await this.findOne(id, userId);
-    return { ...patient, photoUrl: await this.urlDaFoto(patient.photoPath) };
+    return this.comFoto(await this.findOne(id, userId));
+  }
+
+  /**
+   * Resposta HTTP do create: mesmo formato do `findOneWithPhoto`, para quem
+   * cadastra com foto já receber a URL. O `create` puro fica sem ela pelo
+   * mesmo motivo do `findOne` (é o que o assistente de WhatsApp usa).
+   */
+  async createWithPhoto(
+    data: CreatePatientDto,
+    userId: string,
+  ): Promise<PatientWithPhoto> {
+    return this.comFoto(await this.create(data, userId));
   }
 
   async create(data: CreatePatientDto, userId: string): Promise<Patient> {
@@ -137,7 +148,7 @@ export class PatientsService {
 
     const ownerId = user.ownerId;
     const doctorId = ownerId;
-    const photoPath = this.validarFoto(data.photoPath, ownerId);
+    const photoPath = await this.validarFoto(data.photoPath, ownerId);
 
     const patient = await this.patientRepository.create({
       doctorId,
@@ -196,7 +207,11 @@ export class PatientsService {
     if (data.secondaryPhone !== undefined)
       updateData.secondaryPhone = textoOuNulo(data.secondaryPhone);
     if (data.photoPath !== undefined)
-      updateData.photoPath = this.validarFoto(data.photoPath, patient.ownerId);
+      updateData.photoPath = await this.validarFoto(
+        data.photoPath,
+        patient.ownerId,
+        id,
+      );
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.birthDate !== undefined)
       updateData.birthDate = new Date(data.birthDate);
@@ -219,17 +234,17 @@ export class PatientsService {
     if (data.medicalNotes !== undefined)
       updateData.medicalNotes = data.medicalNotes;
 
-    const atualizado = (await this.patientRepository.update(id, updateData))!;
-
-    if (
-      updateData.photoPath !== undefined &&
-      patient.photoPath &&
-      patient.photoPath !== updateData.photoPath
-    ) {
-      await this.apagarFotoAntiga(patient.photoPath);
+    if (updateData.photoPath === undefined) {
+      return (await this.patientRepository.update(id, updateData))!;
     }
 
-    return atualizado;
+    // Troca de foto: a antiga a apagar é a que o UPDATE de fato substituiu,
+    // não a lida lá em cima (o script de conversão pode tê-la trocado no
+    // meio — apagar a lida deixaria a WebP dele órfã no bucket).
+    const substituida = await this.gravarTrocandoFoto(id, updateData);
+    if (substituida) await this.apagarFotoAntiga(substituida);
+
+    return (await this.patientRepository.findOne({ id }))!;
   }
 
   /** Resposta HTTP do update: mesmo formato do `findOneWithPhoto`. */
@@ -238,11 +253,7 @@ export class PatientsService {
     data: UpdatePatientDto,
     userId: string,
   ): Promise<PatientWithPhoto> {
-    const atualizado = await this.update(id, data, userId);
-    return {
-      ...atualizado,
-      photoUrl: await this.urlDaFoto(atualizado.photoPath),
-    };
+    return this.comFoto(await this.update(id, data, userId));
   }
 
   async delete(id: string, userId: string): Promise<void> {
@@ -283,11 +294,15 @@ export class PatientsService {
    * Sem isso, um caminho de outro tenant (ou de outra pasta, como `documents/`)
    * gravado aqui viraria uma URL assinada gerada pelo próprio backend, por fora
    * da checagem de posse do `UploadService.getSignedUrl`.
+   *
+   * Também recusa a foto que já é de OUTRO paciente: trocar a foto de um apaga
+   * o objeto antigo do bucket, e o outro ficaria apontando para o nada.
    */
-  private validarFoto(
+  private async validarFoto(
     photoPath: string | null | undefined,
     ownerId: string,
-  ): string | null {
+    patientId?: string,
+  ): Promise<string | null> {
     const caminho = textoOuNulo(photoPath);
     if (!caminho) return null;
 
@@ -301,7 +316,51 @@ export class PatientsService {
     ) {
       throw new BadRequestException('Foto do paciente inválida.');
     }
+    if (await this.fotoEmUso(caminho, patientId)) {
+      throw new BadRequestException('Foto do paciente inválida.');
+    }
     return caminho;
+  }
+
+  /**
+   * Algum paciente (fora `excetoId`) aponta para este caminho? Conta também os
+   * excluídos (soft delete): um paciente restaurado não pode voltar sem foto.
+   */
+  private async fotoEmUso(
+    photoPath: string,
+    excetoId?: string,
+  ): Promise<boolean> {
+    const total = await this.patientRepository.getRepository().count({
+      where: excetoId ? { photoPath, id: Not(excetoId) } : { photoPath },
+      withDeleted: true,
+    });
+    return total > 0;
+  }
+
+  /**
+   * Grava o update com `SELECT … FOR UPDATE` na linha: lê o `photo_path`
+   * vigente e troca dentro da mesma transação, então ninguém (o script de
+   * conversão, outro save da tela) troca a foto entre a leitura e a escrita.
+   * Devolve o caminho efetivamente substituído (ou `null` se não havia foto
+   * ou ela não mudou) — esse, e só esse, é candidato a sair do bucket.
+   */
+  private gravarTrocandoFoto(
+    id: string,
+    updateData: Partial<Patient>,
+  ): Promise<string | null> {
+    return this.patientRepository
+      .getRepository()
+      .manager.transaction(async (em) => {
+        const repo = em.getRepository(Patient);
+        const atual = await repo.findOne({
+          where: { id },
+          select: { id: true, photoPath: true },
+          lock: { mode: 'pessimistic_write' },
+        });
+        await repo.update(id, updateData as QueryDeepPartialEntity<Patient>);
+        const antiga = atual?.photoPath ?? null;
+        return antiga && antiga !== updateData.photoPath ? antiga : null;
+      });
   }
 
   private async urlDaFoto(photoPath: string | null): Promise<string | null> {
@@ -315,18 +374,22 @@ export class PatientsService {
     }
   }
 
-  private async comFotos(pacientes: Patient[]): Promise<PatientWithPhoto[]> {
-    return Promise.all(
-      pacientes.map(async (p) => ({
-        ...p,
-        photoUrl: await this.urlDaFoto(p.photoPath),
-      })),
-    );
+  private async comFoto(paciente: Patient): Promise<PatientWithPhoto> {
+    return { ...paciente, photoUrl: await this.urlDaFoto(paciente.photoPath) };
   }
 
-  /** Best-effort: o cadastro já foi gravado; objeto órfão no R2 não é erro. */
+  private async comFotos(pacientes: Patient[]): Promise<PatientWithPhoto[]> {
+    return Promise.all(pacientes.map((p) => this.comFoto(p)));
+  }
+
+  /**
+   * Best-effort: o cadastro já foi gravado; objeto órfão no R2 não é erro.
+   * Não apaga objeto que outro paciente ainda referencia (foto compartilhada
+   * gravada antes da checagem do `validarFoto`, ou importação antiga).
+   */
   private async apagarFotoAntiga(photoPath: string): Promise<void> {
     try {
+      if (await this.fotoEmUso(photoPath)) return;
       await this.storageService.delete(photoPath);
     } catch {
       this.logger.warn('Falha ao apagar foto antiga de paciente do storage');

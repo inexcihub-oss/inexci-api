@@ -64,7 +64,7 @@ export class PatientsController {
     @Body() data: CreatePatientDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.patientsService.create(data, user.userId);
+    return this.patientsService.createWithPhoto(data, user.userId);
   }
 
   @Patch(':id')

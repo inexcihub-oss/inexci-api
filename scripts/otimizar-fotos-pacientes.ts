@@ -6,13 +6,20 @@ import { createR2Client } from '../src/config/r2.config';
 import { STORAGE_FOLDERS } from '../src/config/storage.config';
 import { StorageService } from '../src/shared/storage/storage.service';
 import { FOTO_PACIENTE_CONTENT_TYPE } from '../src/shared/storage/foto-paciente';
-import { converterFotosExistentes } from '../src/shared/storage/converter-fotos-existentes';
+import {
+  conversaoSimulada,
+  converterFotosExistentes,
+} from '../src/shared/storage/converter-fotos-existentes';
 
 /**
  * Converte as fotos de paciente já gravadas para WebP de até 800 px.
  *
  *   yarn ts-node -r tsconfig-paths/register scripts/otimizar-fotos-pacientes.ts \
- *     --owner-email <dono da conta> [--simular]
+ *     --owner-email <dono da conta> [--aplicar]
+ *
+ * Por padrão só SIMULA: baixa e mede, sem subir, trocar ou apagar nada. Para
+ * gravar de verdade (sobe as WebP, troca o caminho no paciente e APAGA as
+ * originais do bucket) é preciso passar `--aplicar` explicitamente.
  *
  * Fotos novas já entram otimizadas (upload e importador); isto é para as que
  * existiam antes. Idempotente: foto já em WebP é pulada.
@@ -24,8 +31,13 @@ async function main() {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const email = valor('--owner-email')?.toLowerCase();
-  const simular = argv.includes('--simular');
-  if (!email) throw new Error('--owner-email é obrigatório.');
+  // Destrutivo só com opt-in explícito (`--aplicar`).
+  const simular = conversaoSimulada(argv);
+  if (!email) {
+    throw new Error(
+      '--owner-email é obrigatório. Uso: --owner-email <email> [--aplicar]',
+    );
+  }
 
   const ds = await new DataSource({
     ...dataSourceOptions,
@@ -54,7 +66,11 @@ async function main() {
     } as unknown as ConfigService);
 
     console.log(
-      `[fotos] ${fotos.length} fotos na conta${simular ? ' (simulação)' : ''}...`,
+      `[fotos] ${fotos.length} fotos na conta${
+        simular
+          ? ' (SIMULAÇÃO — nada é gravado; use --aplicar para converter)'
+          : ' (APLICANDO: originais serão apagadas do bucket)'
+      }...`,
     );
     const r = await converterFotosExistentes(
       fotos,
@@ -76,9 +92,13 @@ async function main() {
           return linhas === 1;
         },
         apagar: async (caminhos) => {
+          const sobraram: string[] = [];
           for (let i = 0; i < caminhos.length; i += 1000) {
-            await storage.deleteMany(caminhos.slice(i, i + 1000));
+            sobraram.push(
+              ...(await storage.deleteMany(caminhos.slice(i, i + 1000))),
+            );
           }
+          return sobraram;
         },
       },
       simular,

@@ -1,5 +1,6 @@
 import {
   FOTO_PACIENTE_LADO_MAX,
+  FOTO_PACIENTE_MAX_PIXELS,
   nomeWebp,
   otimizarFotoPaciente,
   sharp,
@@ -59,9 +60,53 @@ describe('otimizarFotoPaciente', () => {
     ).rejects.toThrow();
   });
 
+  it('recusa imagem acima do teto de pixels (bomba de descompressão)', async () => {
+    // 6500×6500 = 42,25 Mpx: um PNG liso de poucos KB que, decodificado,
+    // ocuparia ~127 MB. O sharp recusa pelo cabeçalho, antes do decode.
+    expect(6500 * 6500).toBeGreaterThan(FOTO_PACIENTE_MAX_PIXELS);
+    const enorme = await imagem(6500, 6500, 'png');
+    await expect(otimizarFotoPaciente(enorme)).rejects.toThrow(/pixel limit/i);
+  });
+
+  it('recusa SVG mesmo sendo uma imagem válida para o sharp', async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+    );
+    await expect(otimizarFotoPaciente(svg)).rejects.toThrow(
+      'Formato de foto não suportado: svg',
+    );
+  });
+
+  it('recusa GIF (fora dos formatos de foto)', async () => {
+    const gif = await sharp({
+      create: { width: 10, height: 10, channels: 3, background: '#000' },
+    })
+      .gif()
+      .toBuffer();
+    await expect(otimizarFotoPaciente(gif)).rejects.toThrow(/gif/);
+  });
+
+  it('recusa JPEG truncado (failOn warning)', async () => {
+    const jpeg = await imagem(640, 480, 'jpeg');
+    const truncado = jpeg.subarray(0, Math.floor(jpeg.length / 2));
+    await expect(otimizarFotoPaciente(truncado)).rejects.toThrow();
+  });
+
   it('nomeWebp troca só a extensão', () => {
     expect(nomeWebp('abc.png')).toBe('abc.webp');
     expect(nomeWebp('foto.da.ana.JPG')).toBe('foto.da.ana.webp');
     expect(nomeWebp('sem-extensao')).toBe('sem-extensao.webp');
+  });
+
+  it('nomeWebp tira o prefixo uuid de uploads anteriores (sem crescer a cada reconversão)', () => {
+    const uuid = '3f2b8c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+    expect(nomeWebp(`${uuid}-foto.png`)).toBe('foto.webp');
+    expect(nomeWebp(`${uuid}-${uuid}-foto.png`)).toBe('foto.webp');
+    expect(nomeWebp(`${uuid}-.png`)).toBe('foto.webp');
+  });
+
+  it('nomeWebp corta nome muito longo (caminho cabe em varchar 255)', () => {
+    const nome = nomeWebp(`${'a'.repeat(400)}.png`);
+    expect(nome).toBe(`${'a'.repeat(100)}.webp`);
   });
 });

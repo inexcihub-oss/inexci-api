@@ -1,4 +1,5 @@
 import {
+  conversaoSimulada,
   converterFotosExistentes,
   DependenciasConversao,
 } from './converter-fotos-existentes';
@@ -23,7 +24,7 @@ describe('converterFotosExistentes', () => {
         `patient-photos/${owner}/novo-${nome}`,
     ),
     trocarCaminho: jest.fn(async () => true),
-    apagar: jest.fn(async () => undefined),
+    apagar: jest.fn(async (): Promise<string[]> => []),
     ...over,
   });
 
@@ -33,23 +34,81 @@ describe('converterFotosExistentes', () => {
     photoPath,
   });
 
-  it('converte, troca o caminho e só então apaga as originais', async () => {
+  it('converte, troca o caminho e apaga cada original logo após a troca', async () => {
     const d = deps();
     const r = await converterFotosExistentes([foto('p1'), foto('p2')], d);
 
     expect(r.convertidas).toBe(2);
+    expect(r.falhas).toEqual([]);
     expect(d.enviar.mock.calls[0][1]).toMatch(/\.webp$/);
     expect(d.trocarCaminho).toHaveBeenCalledWith(
       'p1',
       'patient-photos/o1/p1.png',
       'patient-photos/o1/novo-p1.webp',
     );
-    expect(d.apagar).toHaveBeenCalledTimes(1);
-    expect(d.apagar.mock.calls[0][0].sort()).toEqual([
-      'patient-photos/o1/p1.png',
-      'patient-photos/o1/p2.png',
+    // Uma chamada por foto, não um lote no fim.
+    expect(d.apagar).toHaveBeenCalledTimes(2);
+    expect(d.apagar.mock.calls.map((c) => c[0]).sort()).toEqual([
+      ['patient-photos/o1/p1.png'],
+      ['patient-photos/o1/p2.png'],
     ]);
+    // A original de cada foto só é apagada depois da troca dela.
+    const ordemTroca = d.trocarCaminho.mock.invocationCallOrder[0];
+    const ordemApaga = d.apagar.mock.invocationCallOrder[0];
+    expect(ordemApaga).toBeGreaterThan(ordemTroca);
     expect(r.bytesDepois).toBeLessThan(r.bytesAntes);
+  });
+
+  it('original que o bucket não apagou vira falha com o caminho (não conta como convertida)', async () => {
+    const d = deps({
+      apagar: jest.fn(async (c: string[]) => c),
+    });
+    const r = await converterFotosExistentes([foto('p1')], d);
+    expect(r.convertidas).toBe(0);
+    expect(r.falhas).toEqual([
+      {
+        patientId: 'p1',
+        motivo:
+          'convertida, mas a original não foi apagada do bucket: patient-photos/o1/p1.png',
+      },
+    ]);
+  });
+
+  it('apagar que lança também vira falha, sem derrubar o lote', async () => {
+    const d = deps({
+      apagar: jest.fn(async () => {
+        throw new Error('R2 fora');
+      }),
+    });
+    const r = await converterFotosExistentes([foto('p1'), foto('p2')], d);
+    expect(r.convertidas).toBe(0);
+    expect(r.falhas).toHaveLength(2);
+  });
+
+  it('UPDATE que falha depois do upload apaga a nova (sem órfã)', async () => {
+    const d = deps({
+      trocarCaminho: jest.fn(async () => {
+        throw new Error('conexão caiu');
+      }),
+    });
+    const r = await converterFotosExistentes([foto('p1')], d);
+    expect(r.falhas).toEqual([{ patientId: 'p1', motivo: 'conexão caiu' }]);
+    expect(d.apagar).toHaveBeenCalledWith(['patient-photos/o1/novo-p1.webp']);
+    expect(d.apagar).not.toHaveBeenCalledWith(['patient-photos/o1/p1.png']);
+  });
+
+  it('nome novo não acumula o uuid do upload anterior', async () => {
+    const d = deps();
+    await converterFotosExistentes(
+      [
+        foto(
+          'p1',
+          'patient-photos/o1/3f2b8c1e-1a2b-4c3d-8e9f-0a1b2c3d4e5f-maria.png',
+        ),
+      ],
+      d,
+    );
+    expect(d.enviar.mock.calls[0][1]).toBe('maria.webp');
   });
 
   it('já em WebP é pulada', async () => {
@@ -89,5 +148,24 @@ describe('converterFotosExistentes', () => {
     expect(d.enviar).not.toHaveBeenCalled();
     expect(d.trocarCaminho).not.toHaveBeenCalled();
     expect(d.apagar).not.toHaveBeenCalled();
+  });
+
+  describe('conversaoSimulada (argumentos do script)', () => {
+    it('sem flag nenhuma é simulação', () => {
+      expect(conversaoSimulada(['--owner-email', 'a@b.com'])).toBe(true);
+    });
+    it('--simular continua simulação', () => {
+      expect(conversaoSimulada(['--owner-email', 'a@b.com', '--simular'])).toBe(
+        true,
+      );
+    });
+    it('typo não vira destrutivo', () => {
+      expect(conversaoSimulada(['--aplica', '--apply'])).toBe(true);
+    });
+    it('só --aplicar grava', () => {
+      expect(conversaoSimulada(['--owner-email', 'a@b.com', '--aplicar'])).toBe(
+        false,
+      );
+    });
   });
 });

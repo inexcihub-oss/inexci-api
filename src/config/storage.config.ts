@@ -98,13 +98,17 @@ export const STORAGE_FOLDER_TTL: Record<string, number> = {
 
 /**
  * Pastas de imagem que a tela mostra muitas vezes (lista de pacientes,
- * cabeçalhos). O link assinado delas é estável dentro de uma janela do
- * tamanho do TTL e a resposta sai com `Cache-Control`: o navegador reaproveita
- * a imagem em vez de baixá-la de novo a cada tela. Antes, cada leitura do
- * paciente gerava uma assinatura nova — para o navegador, sempre outra URL.
+ * cabeçalhos). O link assinado delas é estável dentro de uma janela de TTL/2
+ * (vale TTL a partir do início da janela — ver `StorageService.getSignedUrl`)
+ * e a resposta sai com `Cache-Control`: o navegador reaproveita a imagem em
+ * vez de baixá-la de novo a cada tela. Antes, cada leitura do paciente gerava
+ * uma assinatura nova — para o navegador, sempre outra URL.
+ *
+ * `max-age` precisa ser ≤ TTL/2 da pasta: é o mínimo de validade que sobra
+ * num link entregue, então a cópia em cache nunca sobrevive à URL assinada.
  */
 export const STORAGE_FOLDER_CACHE_CONTROL: Record<string, string> = {
-  [STORAGE_FOLDERS.PATIENT_PHOTOS]: 'private, max-age=3600',
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: `private, max-age=${STORAGE_FOLDER_TTL[STORAGE_FOLDERS.PATIENT_PHOTOS] / 2}`,
 };
 
 // ── Limites de tamanho por pasta (bytes) ─────────────────────────────────────

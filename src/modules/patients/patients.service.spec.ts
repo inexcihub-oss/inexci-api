@@ -36,7 +36,13 @@ describe('PatientsService', () => {
     update: jest.Mock;
     findOne: jest.Mock;
     findAndCountWithSearch: jest.Mock;
+    getRepository: jest.Mock;
   };
+  /** Pacientes (fora o editado) que já apontam para o caminho consultado. */
+  let contagemDeUso: jest.Mock;
+  /** Linha lida com FOR UPDATE dentro da transação da troca de foto. */
+  let lidoNaTransacao: jest.Mock;
+  let transaction: jest.Mock;
   let storageService: { getSignedUrl: jest.Mock; delete: jest.Mock };
 
   beforeEach(() => {
@@ -47,7 +53,24 @@ describe('PatientsService', () => {
       ),
       findOne: jest.fn().mockResolvedValue(paciente()),
       findAndCountWithSearch: jest.fn(),
+      getRepository: jest.fn(),
     };
+    contagemDeUso = jest.fn().mockResolvedValue(0);
+    // Por padrão a linha travada é a mesma lida no início do update.
+    lidoNaTransacao = jest.fn(() => patientRepository.findOne());
+    transaction = jest.fn(
+      (cb: (em: { getRepository: () => unknown }) => unknown) =>
+        cb({
+          getRepository: () => ({
+            findOne: lidoNaTransacao,
+            update: patientRepository.update,
+          }),
+        }),
+    );
+    patientRepository.getRepository.mockReturnValue({
+      count: contagemDeUso,
+      manager: { transaction },
+    });
     storageService = {
       getSignedUrl: jest.fn((p: string) => Promise.resolve(`https://r2/${p}`)),
       delete: jest.fn().mockResolvedValue(undefined),
@@ -168,6 +191,82 @@ describe('PatientsService', () => {
       expect(storageService.delete).toHaveBeenCalledWith(FOTO);
     });
 
+    it('troca de foto roda com a linha travada (FOR UPDATE)', async () => {
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
+      );
+
+      await service.update('pac-1', { photoPath: FOTO }, 'user-1');
+
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(lidoNaTransacao).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'pac-1' },
+          lock: { mode: 'pessimistic_write' },
+        }),
+      );
+    });
+
+    it('apaga a foto que o UPDATE substituiu, não a lida no início (corrida com a conversão)', async () => {
+      // Lida no início: a PNG. Antes do UPDATE, o script trocou para a WebP.
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
+      );
+      lidoNaTransacao.mockResolvedValue(
+        paciente({ photoPath: `patient-photos/${OWNER}/convertida.webp` }),
+      );
+
+      await service.update('pac-1', { photoPath: FOTO }, 'user-1');
+
+      expect(storageService.delete).toHaveBeenCalledTimes(1);
+      expect(storageService.delete).toHaveBeenCalledWith(
+        `patient-photos/${OWNER}/convertida.webp`,
+      );
+    });
+
+    it('não apaga a antiga se outro paciente ainda a referencia', async () => {
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
+      );
+      // 1ª contagem: validarFoto(FOTO) → livre. 2ª: a antiga → em uso.
+      contagemDeUso.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+      await service.update('pac-1', { photoPath: FOTO }, 'user-1');
+
+      expect(gravadoNoUpdate().photoPath).toBe(FOTO);
+      expect(contagemDeUso).toHaveBeenLastCalledWith({
+        where: { photoPath: `patient-photos/${OWNER}/antiga.png` },
+        withDeleted: true,
+      });
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('recusa foto que já é de outro paciente (create)', async () => {
+      contagemDeUso.mockResolvedValue(1);
+
+      await expect(
+        service.create({ name: 'Maria', photoPath: FOTO }, 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+      expect(patientRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('recusa foto que já é de outro paciente (update), sem gravar nem apagar', async () => {
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
+      );
+      contagemDeUso.mockResolvedValue(1);
+
+      await expect(
+        service.update('pac-1', { photoPath: FOTO }, 'user-1'),
+      ).rejects.toThrow(BadRequestException);
+      // A checagem exclui o próprio paciente (manter a mesma foto é válido).
+      const where = contagemDeUso.mock.calls[0][0].where;
+      expect(where.photoPath).toBe(FOTO);
+      expect(where.id).toBeDefined();
+      expect(patientRepository.update).not.toHaveBeenCalled();
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
     it('update sem photoPath não apaga a foto', async () => {
       patientRepository.findOne.mockResolvedValue(
         paciente({ photoPath: FOTO }),
@@ -215,6 +314,33 @@ describe('PatientsService', () => {
       const resultado = await service.findOneWithPhoto('pac-1', 'user-1');
 
       expect(resultado.photoUrl).toBeNull();
+    });
+
+    it('createWithPhoto devolve a URL assinada da foto, como o update', async () => {
+      const criado = await service.createWithPhoto(
+        { name: 'Maria', photoPath: FOTO },
+        'user-1',
+      );
+
+      expect(criado.photoPath).toBe(FOTO);
+      expect(criado.photoUrl).toBe(`https://r2/${FOTO}`);
+    });
+
+    it('createWithPhoto sem foto devolve photoUrl null sem chamar o storage', async () => {
+      const criado = await service.createWithPhoto({ name: 'Maria' }, 'user-1');
+
+      expect(criado.photoUrl).toBeNull();
+      expect(storageService.getSignedUrl).not.toHaveBeenCalled();
+    });
+
+    it('create puro (usado pelo assistente) não gera URL assinada', async () => {
+      const criado = await service.create(
+        { name: 'Maria', photoPath: FOTO },
+        'user-1',
+      );
+
+      expect(criado).not.toHaveProperty('photoUrl');
+      expect(storageService.getSignedUrl).not.toHaveBeenCalled();
     });
 
     it('findOne puro (usado pelo assistente) não gera URL assinada', async () => {

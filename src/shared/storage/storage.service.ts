@@ -99,16 +99,25 @@ export class StorageService {
       if (!cacheControl) {
         return await getSignedUrl(this.s3, command, { expiresIn: ttl });
       }
-      // Link estável: assina com o início da janela atual (múltiplo do TTL),
-      // então todas as leituras dentro dela devolvem a MESMA URL e o
-      // navegador usa o cache. Validade de duas janelas garante que um link
-      // gerado no fim da janela ainda dure pelo menos um TTL inteiro.
-      const janelaMs = ttl * 1000;
+      // Link estável: assina com o início da janela atual (múltiplo de
+      // TTL/2), então todas as leituras dentro dela devolvem a MESMA URL e o
+      // navegador usa o cache. Validade = TTL: um link entregue no fim da
+      // janela ainda vale pelo menos TTL/2, e nenhum vale mais que TTL a
+      // partir da assinatura.
+      //
+      // Trade-off: quem pede no começo da janela recebe um link que vale
+      // quase TTL inteiro; quem pede no fim, só TTL/2. E todos os usuários da
+      // janela recebem a mesma URL (dado de paciente: a URL não deve ser
+      // repassada, mas se for, morre em no máximo TTL). Antes a validade era
+      // TTL×2 — uma foto de paciente aberta por até 2 h com um link só.
+      // O `max-age` da pasta (STORAGE_FOLDER_CACHE_CONTROL) fica em TTL/2,
+      // para a cópia no cache do navegador não sobreviver ao link.
+      const janelaMs = (ttl * 1000) / 2;
       const inicioDaJanela = new Date(
         Math.floor(Date.now() / janelaMs) * janelaMs,
       );
       return await getSignedUrl(this.s3, command, {
-        expiresIn: ttl * 2,
+        expiresIn: ttl,
         signingDate: inicioDaJanela,
       });
     } catch (error: any) {
@@ -257,20 +266,37 @@ export class StorageService {
     }
   }
 
-  async deleteMany(paths: string[]): Promise<void> {
-    if (!paths.length) return;
+  /**
+   * Apaga vários objetos numa chamada só (até 1000 por requisição, limite do
+   * S3). Não lança: devolve as chaves que NÃO foram apagadas — as que o R2
+   * recusou uma a uma (`Errors`) ou todas, se a requisição inteira falhou —
+   * para quem precisa saber (ex.: conversão de fotos) reportar o que sobrou.
+   */
+  async deleteMany(paths: string[]): Promise<string[]> {
+    if (!paths.length) return [];
     try {
-      await this.s3.send(
+      const resposta = await this.s3.send(
         new DeleteObjectsCommand({
           Bucket: this.bucket,
           Delete: {
             Objects: paths.map((Key) => ({ Key })),
+            // Com `Quiet`, o S3 ainda devolve `Errors`; só omite os sucessos.
             Quiet: true,
           },
         }),
       );
+      const falhas = (resposta?.Errors ?? [])
+        .map((e) => e.Key)
+        .filter((k): k is string => !!k);
+      if (falhas.length) {
+        this.logger.warn(
+          `R2 deleteMany: ${falhas.length} de ${paths.length} objetos não foram apagados`,
+        );
+      }
+      return falhas;
     } catch (err: any) {
       this.logger.warn(`R2 deleteMany error: ${err.message}`);
+      return [...paths];
     }
   }
 

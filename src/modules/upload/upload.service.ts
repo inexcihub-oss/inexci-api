@@ -68,6 +68,24 @@ const MIME_PERMITIDOS_POR_PASTA: Record<string, readonly string[]> = {
   ],
 };
 
+/** `image/jpg` não é MIME oficial, mas navegadores mandam; o `file-type` diz `image/jpeg`. */
+function mimeCanonico(mime: string): string {
+  return mime === 'image/jpg' ? 'image/jpeg' : mime;
+}
+
+/**
+ * Tipos declarados cuja assinatura (magic bytes) o `file-type` sempre
+ * reconhece: para eles, NÃO detectar nada já é prova de que o conteúdo não é
+ * o declarado. É o caso clássico do SVG (texto/XML, que o `file-type` não
+ * detecta) enviado como `image/png` — antes passava, porque só se recusava
+ * quando a detecção dava OUTRO tipo. Áudio/vídeo ficam de fora: o `file-type`
+ * devolve variantes (`audio/ogg; codecs=opus`, `video/mp4` para `.m4a`...)
+ * e endurecer ali quebraria upload legítimo sem ganho real.
+ */
+function exigeDeteccao(mime: string): boolean {
+  return mime.startsWith('image/') || mime === 'application/pdf';
+}
+
 @Injectable()
 export class UploadService {
   constructor(
@@ -114,19 +132,32 @@ export class UploadService {
 
     const { fileTypeFromBuffer } = await import('file-type');
     const detected = await fileTypeFromBuffer(file.buffer);
-    if (detected && detected.mime !== file.mimetype) {
+    const declarado = mimeCanonico(file.mimetype);
+    if (
+      (detected && mimeCanonico(detected.mime) !== declarado) ||
+      (!detected && exigeDeteccao(declarado)) ||
+      // Allowlist da pasta vale também para o tipo DETECTADO, não só o declarado.
+      (detected &&
+        permitidosNaPasta &&
+        !permitidosNaPasta.includes(detected.mime))
+    ) {
       throw new BadRequestException('Tipo de arquivo inválido');
     }
 
     // Foto de paciente vira WebP de até 800 px: a mesma versão serve a
     // miniatura e a foto ampliada, e um PNG de ~500 KB cai para ~15 KB.
+    // O `otimizarFotoPaciente` ainda confere o formato pelo decoder do sharp
+    // (jpeg/png/webp), limita os pixels da entrada e recusa imagem truncada —
+    // qualquer erro dele é culpa do arquivo enviado, então vira 400.
     let arquivo = file;
     if (folder === STORAGE_FOLDERS.PATIENT_PHOTOS) {
       let otimizada: Buffer;
       try {
         otimizada = await otimizarFotoPaciente(file.buffer);
       } catch {
-        throw new BadRequestException('Não foi possível ler a imagem enviada.');
+        throw new BadRequestException(
+          'Não foi possível ler a imagem enviada. Envie uma foto JPG, PNG ou WebP de até 40 megapixels.',
+        );
       }
       arquivo = {
         ...file,
