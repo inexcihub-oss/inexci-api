@@ -1,4 +1,9 @@
-import { assertBancoPermitido, FASES, interpretarArgumentos } from './runner';
+import {
+  assertBancoPermitido,
+  FASES,
+  hojeEmSaoPaulo,
+  interpretarArgumentos,
+} from './runner';
 
 describe('interpretarArgumentos', () => {
   const base = [
@@ -63,6 +68,20 @@ describe('interpretarArgumentos', () => {
       ['prof:8', 'fulano@clinica.com'],
       ['func:2', 'b@c.com'],
     ]);
+  });
+
+  it('--adotar-ledger é opt-in', () => {
+    expect(interpretarArgumentos(base).adotarLedger).toBe(false);
+    expect(
+      interpretarArgumentos([...base, '--adotar-ledger']).adotarLedger,
+    ).toBe(true);
+  });
+
+  it('--hoje padrão é a data de São Paulo, não a UTC', () => {
+    expect(interpretarArgumentos(base).hoje).toBe(hojeEmSaoPaulo());
+    // 22h de 06/10 em São Paulo = 01h de 07/10 em UTC.
+    expect(hojeEmSaoPaulo(new Date('2026-10-07T01:00:00Z'))).toBe('2026-10-06');
+    expect(hojeEmSaoPaulo(new Date('2026-10-07T03:00:00Z'))).toBe('2026-10-07');
   });
 
   it('recusa --mapear malformado', () => {

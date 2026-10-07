@@ -6,7 +6,7 @@ import {
   normalizarTexto,
   telefonesDistintos,
 } from '../../core/normalizers';
-import { ContextoImportacao } from '../context';
+import { ContextoImportacao, chaveDeNome } from '../context';
 import { ExportFeegow, excluido } from '../export';
 import { Permission } from 'src/shared/permissions/permission.enum';
 import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
@@ -68,11 +68,14 @@ const CONSELHOS: Record<string, ProfessionalCouncil> = {
   CREF: ProfessionalCouncil.CREF,
 };
 
-const sem = (texto: string) =>
-  texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
+/**
+ * Ocupações que não são de médico mesmo citando uma área médica
+ * ("Instrumentação Cirúrgica", "Técnico em Radiologia") ou de outro conselho
+ * que a INEXCI não tem (CRMV, CRF, CRBio): nunca viram CRM. Checado depois
+ * das profissões, porque "Técnico de Enfermagem" é COREN.
+ */
+const NAO_DEDUZ =
+  /instrument|tecnic|tecnolog|auxiliar|assistente|veterin|farmac|biolog/;
 
 /**
  * Especialidades que não são de médico → o conselho da profissão. Vem antes
@@ -85,31 +88,82 @@ const CONSELHO_DA_PROFISSAO: [RegExp, ProfessionalCouncil][] = [
   [/psicolog|psicoterap|neuropsicolog/, ProfessionalCouncil.CRP],
   [/fisioterap|terapia ocupacional/, ProfessionalCouncil.CREFITO],
   [/fonoaudiolog/, ProfessionalCouncil.CRFA],
-  [/odonto|dentist/, ProfessionalCouncil.CRO],
+  [
+    /odonto|dentist|bucomaxil|ortodont|endodont|periodont|implantodont/,
+    ProfessionalCouncil.CRO,
+  ],
   [/biomedic/, ProfessionalCouncil.CRBM],
   [/educacao fisica|personal/, ProfessionalCouncil.CREF],
 ];
 
 /** Especialidades médicas reconhecidas (lista fechada: na dúvida, OUTRO). */
 const ESPECIALIDADE_MEDICA =
-  /medicina|clinica (geral|medica)|ortoped|traumato|cirurgi|cardiolog|dermatolog|endocrinolog|gastroenterolog|geriatr|ginecolog|obstetr|hematolog|infectolog|mastolog|nefrolog|neurolog|neurocirurg|oftalmolog|oncolog|otorrino|pediatr|pneumolog|psiquiatr|radiolog|reumatolog|urolog|anestesiolog|angiolog|coloproctolog|nutrolog|fisiatr|homeopat|acupuntur medica/;
+  /medicina|clinica (geral|medica)|ortoped|traumato|cirurgi|cardiolog|dermatolog|endocrinolog|gastroenterolog|geriatr|ginecolog|obstetr|hematolog|infectolog|mastolog|nefrolog|neurolog|neurocirurg|oftalmolog|oncolog|otorrino|pediatr|pneumolog|psiquiatr|radiolog|reumatolog|urolog|anestesiolog|angiolog|coloproctolog|nutrolog|fisiatr|homeopat|acupuntura medica/;
 
-/**
- * Conselho deduzido da especialidade, para profissional que veio do Feegow
- * sem conselho. Profissão não médica reconhecida → o conselho dela;
- * especialidade médica reconhecida → CRM; o resto → `null` (fica OUTRO).
- * Lista fechada de propósito: CRM dá atos privativos (receita, atestado,
- * indicação cirúrgica), então só entra quem a especialidade deixa claro.
- */
-export function conselhoPelaEspecialidade(
-  especialidade: string | null | undefined,
-): ProfessionalCouncil | null {
-  if (!especialidade) return null;
-  const e = sem(especialidade);
+/** `null` = não reconhecida; `'veto'` = ocupação que impede deduzir CRM. */
+function conselhoDeUmaEspecialidade(
+  especialidade: string,
+): ProfessionalCouncil | 'veto' | null {
+  const e = chaveDeNome(especialidade);
   for (const [padrao, conselho] of CONSELHO_DA_PROFISSAO) {
     if (padrao.test(e)) return conselho;
   }
+  if (NAO_DEDUZ.test(e)) return 'veto';
   return ESPECIALIDADE_MEDICA.test(e) ? ProfessionalCouncil.CRM : null;
+}
+
+/**
+ * Conselho deduzido das especialidades, para profissional que veio do Feegow
+ * sem conselho nenhum. Profissão não médica reconhecida → o conselho dela;
+ * especialidade médica reconhecida → CRM; o resto → `null` (fica OUTRO).
+ * Lista fechada de propósito: CRM dá atos privativos (receita, atestado,
+ * indicação cirúrgica), então só entra quem a especialidade deixa claro.
+ * Com várias especialidades, as desconhecidas são ignoradas ("Ortopedia" +
+ * "Acupuntura" → CRM); conflito entre reconhecidas, ou uma ocupação de
+ * `NAO_DEDUZ` no meio, → OUTRO.
+ */
+export function conselhoPelaEspecialidade(
+  especialidades: string | null | undefined | (string | null | undefined)[],
+): ProfessionalCouncil | null {
+  const nomes = (
+    Array.isArray(especialidades) ? especialidades : [especialidades]
+  ).filter((e): e is string => !!e && !!e.trim());
+  const conselhos = new Set(nomes.map(conselhoDeUmaEspecialidade));
+  conselhos.delete(null);
+  if (conselhos.size !== 1 || conselhos.has('veto')) return null;
+  return [...conselhos][0] as ProfessionalCouncil;
+}
+
+/**
+ * Código do conselho no Feegow → chave de `CONSELHOS`. O cadastro às vezes
+ * traz a UF junto ("CRM-SP", "CRM/RJ", "CRM."): vale a sigla do começo.
+ */
+function siglaDoConselho(codigo: string | null | undefined): string {
+  return (codigo ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim()
+    .match(/^[A-Z]*/)![0];
+}
+
+/** Especialidades distintas, juntas até caber na coluna sem cortar nome. */
+function juntarEspecialidades(nomes: string[], max: number): string | null {
+  const unicos: string[] = [];
+  const chaves = new Set<string>();
+  for (const nome of nomes) {
+    const n = normalizarTexto(nome, max);
+    if (!n || chaves.has(chaveDeNome(n))) continue;
+    chaves.add(chaveDeNome(n));
+    unicos.push(n);
+  }
+  let texto = '';
+  for (const n of unicos) {
+    const proximo = texto ? `${texto}, ${n}` : n;
+    if (proximo.length > max) break;
+    texto = proximo;
+  }
+  return texto || null;
 }
 
 interface Pessoa {
@@ -126,6 +180,8 @@ interface Pessoa {
   perfil: Omit<NovoPerfil, 'id' | 'userId'> | null;
   /** Conselho veio da especialidade, não do Feegow. */
   conselhoDeduzido?: boolean;
+  /** Código de conselho do Feegow que a INEXCI não tem (CRMV, CRF…). */
+  conselhoDesconhecido?: string | null;
   permissoes: Permission[];
 }
 
@@ -252,7 +308,13 @@ export function planejarEquipe(
     if (p.perfil) {
       plano.perfis.push({ id: ctx.novoId(), userId: id, ...p.perfil });
       profissionaisDaConta.push(id);
-      if (p.perfil.council === ProfessionalCouncil.OUTRO) {
+      if (p.conselhoDesconhecido) {
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          `conselho ${p.conselhoDesconhecido} do Feegow não existe na INEXCI — entra como OUTRO; ajuste o conselho na tela de colaboradores`,
+        );
+      } else if (p.perfil.council === ProfessionalCouncil.OUTRO) {
         rel.avisar(
           rotulo,
           p.idOrigem,
@@ -299,22 +361,25 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
   const conselhoPorId = new Map(
     exp.tabela('conselhos_profissionais').map((c) => [c.id, c.codigo]),
   );
-  const especialidadePorProf = new Map(
-    exp
-      .tabela('profissional_especialidades')
-      .map((pe) => [pe.profissional_id, pe.especialidade_id]),
-  );
   const nomeEspecialidade = new Map(
     exp.tabela('especialidades').map((e) => [e.id, e.nome_especialidade]),
   );
+  const especialidadesPorProf = new Map<string, string[]>();
+  for (const pe of exp.tabela('profissional_especialidades')) {
+    const nome = nomeEspecialidade.get(pe.especialidade_id ?? '');
+    if (!pe.profissional_id || !nome) continue;
+    const lista = especialidadesPorProf.get(pe.profissional_id) ?? [];
+    lista.push(nome);
+    especialidadesPorProf.set(pe.profissional_id, lista);
+  }
 
   return exp.tabela('profissionais').map((p) => {
-    const codigo = (conselhoPorId.get(p.conselho_id ?? '') ?? '').toUpperCase();
-    const especialidade = nomeEspecialidade.get(
-      especialidadePorProf.get(p.id ?? '') ?? '',
-    );
+    const codigo = siglaDoConselho(conselhoPorId.get(p.conselho_id ?? ''));
+    const especialidades = especialidadesPorProf.get(p.id ?? '') ?? [];
     const doFeegow = CONSELHOS[codigo];
-    const deduzido = doFeegow ? null : conselhoPelaEspecialidade(especialidade);
+    // Só deduz quem veio sem conselho: um conselho que a INEXCI não tem
+    // (CRMV, CRF…) fica OUTRO, nunca vira CRM pela especialidade.
+    const deduzido = codigo ? null : conselhoPelaEspecialidade(especialidades);
     const council = doFeegow ?? deduzido ?? ProfessionalCouncil.OUTRO;
     return {
       tipo: 'prof' as const,
@@ -337,9 +402,13 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
         council,
         crm: normalizarTexto(p.documento_conselho, 20),
         crmState: null,
-        specialty: normalizarTexto(especialidade, 100),
+        specialty: juntarEspecialidades(especialidades, 100),
       },
       conselhoDeduzido: !!deduzido,
+      conselhoDesconhecido:
+        codigo && !doFeegow
+          ? (conselhoPorId.get(p.conselho_id ?? '') ?? codigo).trim()
+          : null,
       // O perfil já dá as áreas (agenda + atendimento, e solicitações se CRM).
       permissoes: [],
     };

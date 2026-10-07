@@ -28,6 +28,28 @@ describe('sanitizarHtmlClinico', () => {
   });
 });
 
+describe('blocos descartados não colam o texto', () => {
+  const tabela =
+    '<table><tr><td>Dipirona</td><td>500mg</td></tr><tr><td>Ibuprofeno</td><td>600mg</td></tr></table>';
+
+  it('sanitizarHtmlClinico: célula vira " | " e linha vira <br>', () => {
+    expect(sanitizarHtmlClinico(tabela)).toBe(
+      'Dipirona | 500mg<br />Ibuprofeno | 600mg',
+    );
+  });
+
+  it('sanitizarHtmlClinico: div quebra a linha, sem linha em branco entre divs', () => {
+    expect(
+      sanitizarHtmlClinico('<div>A</div><div>B</div>Texto<div>C</div>'),
+    ).toBe('A<br />B<br />Texto<br />C');
+  });
+
+  it('htmlParaTexto: tabela e div viram linhas', () => {
+    expect(htmlParaTexto(tabela)).toBe('Dipirona | 500mg\nIbuprofeno | 600mg');
+    expect(htmlParaTexto('<div>A</div><div>B</div>')).toBe('A\nB');
+  });
+});
+
 describe('htmlSemTexto', () => {
   it('só tags, espaços e &nbsp; contam como vazio', () => {
     expect(htmlSemTexto('<br>\n\n<p>&nbsp;</p>')).toBe(true);

@@ -100,6 +100,33 @@ describe('atividadesDoLog (MIG-04 §6)', () => {
     });
   });
 
+  it('status 15 sem o texto "Remarcado" continua remarcação, nunca cancelamento', () => {
+    const atividades = atividadesDoLog([
+      ev('A', '7'),
+      ev('R', '15', 'Alteração de status'),
+      ev('R', '15', 'paciente pediu outro dia'),
+      ev('R', '15', null),
+    ]);
+    expect(atividades.slice(1)).toEqual([
+      expect.objectContaining({
+        type: T.RESCHEDULED,
+        fromStatus: null,
+        toStatus: null,
+        content: null,
+      }),
+      expect.objectContaining({
+        type: T.RESCHEDULED,
+        fromStatus: null,
+        toStatus: null,
+        content: 'paciente pediu outro dia',
+      }),
+      expect.objectContaining({ type: T.RESCHEDULED, content: null }),
+    ]);
+    expect(
+      atividades.some((a) => a.toStatus === AppointmentStatus.CANCELLED),
+    ).toBe(false);
+  });
+
   it('R sem mudança de status: updated com texto, e nada sem texto', () => {
     const atividades = atividadesDoLog([
       ev('A', '1'),

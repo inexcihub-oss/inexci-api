@@ -400,7 +400,7 @@ describe('planejarCadastro (export sintético)', () => {
       expect(ctx.relatorio.rejeicoes).toContainEqual(
         expect.objectContaining({
           idOrigem: '60',
-          motivo: 'nome sem letras (parece um telefone) e nenhum outro dado',
+          motivo: 'nome sem letras e nenhum outro dado',
         }),
       );
       expect(ctx.relatorio.avisos).toContainEqual(
@@ -409,6 +409,77 @@ describe('planejarCadastro (export sintético)', () => {
           aviso: expect.stringContaining('nome sem letras'),
         }),
       );
+    });
+
+    it('descarte não deixa aviso nem bloqueia o nome para outro registro', () => {
+      const { ctx, plano } = planejar([
+        paciente('60', '24 98841-4691'),
+        paciente('62', '24 98841-4691', { email: 'y@exemplo.com' }),
+      ]);
+
+      expect(plano.pacientes).toHaveLength(1);
+      const doDescartado = ctx.relatorio.avisos.filter(
+        (a) => a.idOrigem === '60',
+      );
+      expect(doDescartado).toEqual([]);
+      expect(ctx.relatorio.avisos).not.toContainEqual(
+        expect.objectContaining({
+          idOrigem: '62',
+          aviso: 'nome repetido em outro paciente',
+        }),
+      );
+    });
+
+    it.each([
+      ['observações', { Observacoes: 'Alergia a dipirona' }],
+      ['bairro', {}],
+    ])('com %s entra', (_, extra) => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const plano = planejarCadastro(
+        exportSintetico({
+          pacientes: [paciente('63', '24 98841-4691', extra)],
+          paciente_endereco:
+            _ === 'bairro' ? [{ paciente_id: '63', bairro: 'Centro' }] : [],
+        }),
+        ctx,
+      );
+      expect(plano.pacientes).toHaveLength(1);
+    });
+
+    it('preenchimento vazio do Feegow não conta como dado', () => {
+      const { plano } = planejar([
+        paciente('66', '24 98841-4691', {
+          Peso: '0.00',
+          Altura: '0',
+          nascimento: '0000-00-00',
+          celular: '(  )     -    ',
+          cpf: '000.000.000-00',
+          estado_civil_id: '0',
+        }),
+      ]);
+      expect(plano.pacientes).toEqual([]);
+    });
+
+    it('com anexo ou foto entra, para não perder os arquivos', () => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const plano = planejarCadastro(
+        exportSintetico({
+          pacientes: [
+            paciente('64', '24 98841-4691'),
+            paciente('65', '24 98841-0000', { foto: 'foto.jpg' }),
+          ],
+          arquivos: [
+            {
+              id: 'a1',
+              PacienteID: '64',
+              NomeArquivo: 'exame.pdf',
+              sysActive: '1',
+            },
+          ],
+        }),
+        ctx,
+      );
+      expect(plano.pacientes).toHaveLength(2);
     });
 
     it('com consulta entra, para não perder a consulta', () => {

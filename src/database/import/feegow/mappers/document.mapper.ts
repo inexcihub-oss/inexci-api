@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'fs';
-import { extname } from 'path';
+import { extname, isAbsolute } from 'path';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
 import { dataHoraCompleta, normalizarTexto } from '../../core/normalizers';
 import { ContextoImportacao } from '../context';
@@ -166,6 +166,10 @@ function arquivoLocal(
   disco: Disco,
 ): ArquivoLocal | string {
   if (!nome) return 'sem nome de arquivo';
+  // `exp.arquivo` já recusa o que sai da pasta; aqui só dá o motivo certo.
+  if (isAbsolute(nome) || nome.split(/[\\/]/).includes('..')) {
+    return `nome de arquivo inválido, fora da pasta do export (${nome})`;
+  }
   const caminhoLocal = exp.arquivo(pasta, nome);
   if (!caminhoLocal || !disco.existe(caminhoLocal)) {
     return `arquivo ausente no export (${pasta}/${nome})`;

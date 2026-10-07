@@ -82,6 +82,21 @@ describe('tipoDaConsulta', () => {
     expect(t(null, '24', '1')).toBe(AppointmentType.RETURN);
   });
 
+  it('"convênio" PRIMEIRA CONSULTA -TRIAGEM (11) é primeira consulta; 12 é retorno', () => {
+    const c = (convenioId: string, prof = '1') =>
+      tipoDaConsulta({
+        primeiraVez: '0',
+        procedimentoId: '10',
+        profissionalId: prof,
+        convenioId,
+      });
+    expect(c('11')).toBe(AppointmentType.FIRST_VISIT);
+    expect(c('11', '9')).toBe(AppointmentType.FIRST_VISIT);
+    expect(c('12', '9')).toBe(AppointmentType.RETURN);
+    expect(c('5')).toBe(AppointmentType.RETURN);
+    expect(c('5', '9')).toBe(AppointmentType.FOLLOW_UP);
+  });
+
   it('sessões do profissional de acompanhamento', () => {
     expect(t('0', '10', '9')).toBe(AppointmentType.FOLLOW_UP);
   });

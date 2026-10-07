@@ -15,6 +15,13 @@ export const LEDGER_FERIADO = 'holiday';
 const INTERVALO_PADRAO = 30;
 
 /**
+ * Teto de bloqueios gerados por um único bloqueio do Feegow com janela de
+ * horário em vários dias (um por dia). Acima disso é configuração que a
+ * clínica recria na INEXCI, não centenas de linhas.
+ */
+const MAX_DIAS_BLOQUEIO_POR_DIA = 366;
+
+/**
  * Feriados de data móvel. No Feegow o Carnaval está marcado como "repete todo
  * ano" numa data fixa, o que bloquearia o mesmo dia em todos os anos.
  */
@@ -78,6 +85,19 @@ const hora = (v: string | null | undefined) =>
     ? `${v!.trim().slice(0, 5)}:00`
     : null;
 
+/** Datas `AAAA-MM-DD` de `de` a `ate`, inclusive. */
+const diasEntre = (de: string, ate: string): string[] => {
+  const dias: string[] = [];
+  for (
+    let t = Date.parse(`${de}T12:00:00Z`);
+    t <= Date.parse(`${ate}T12:00:00Z`);
+    t += 86_400_000
+  ) {
+    dias.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return dias;
+};
+
 const minutos = (h: string) => {
   const [hh, mm] = h.split(':').map(Number);
   return hh * 60 + mm;
@@ -89,8 +109,8 @@ const minutos = (h: string) => {
  * `grade_periodo` (um período de datas, um registro por dia da semana).
  *
  * O Feegow deixava períodos sobrepostos no mesmo dia; a INEXCI não aceita
- * (horários duplicados na agenda). Fica ativo o mais recente; o outro entra
- * inativo, com aviso, para a clínica revisar.
+ * (a expansão em horários soma as grades ativas e o horário apareceria
+ * duplicado). Ver `resolverSobreposicoes` para quem fica ativo.
  */
 export function planejarGrades(
   exp: ExportFeegow,
@@ -98,7 +118,7 @@ export function planejarGrades(
 ): NovaGrade[] {
   const rel = ctx.relatorio;
   const clinicId = clinicaImportada(exp, ctx);
-  const grades: (NovaGrade & { origem: string; ordem: number })[] = [];
+  const grades: GradePlanejada[] = [];
 
   const linhas: {
     chave: string;
@@ -203,7 +223,8 @@ export function planejarGrades(
       slot = Math.max(5, minutos(fim) - minutos(inicio));
     }
     const encaixes = Number(l.encaixes);
-    const criadoEm = dataHoraCompleta(l.criadoEm) ?? new Date();
+    const cadastro = dataHoraCompleta(l.criadoEm);
+    const criadoEm = cadastro ?? new Date();
     for (const weekday of l.weekdays) {
       grades.push({
         id: ctx.novoId(),
@@ -226,41 +247,101 @@ export function planejarGrades(
         updatedAt: criadoEm,
         origem: `${l.chave}:${weekday}`,
         ordem: l.ordem,
+        cadastro: cadastro?.getTime() ?? 0,
       });
     }
   }
 
-  // Sobreposição: o mais recente fica ativo.
-  const porOrdem = [...grades].sort((a, b) => b.ordem - a.ordem);
-  for (const [i, g] of porOrdem.entries()) {
-    if (!g.active) continue;
-    const conflito = porOrdem
-      .slice(0, i)
-      .find(
-        (o) =>
-          o.active &&
-          o.doctorId === g.doctorId &&
-          o.weekday === g.weekday &&
-          minutos(o.startTime) < minutos(g.endTime) &&
-          minutos(g.startTime) < minutos(o.endTime) &&
-          (!o.validTo || !g.validFrom || g.validFrom <= o.validTo) &&
-          (!g.validTo || !o.validFrom || o.validFrom <= g.validTo),
-      );
-    if (conflito) {
-      g.active = false;
-      rel.avisar(
-        'grade',
-        g.origem,
-        `sobrepõe ${conflito.origem} (${conflito.startTime.slice(0, 5)}–${conflito.endTime.slice(0, 5)}): entra inativa para revisão`,
-      );
-    }
-  }
+  resolverSobreposicoes(grades, ctx);
 
-  return grades.map(({ origem, ordem: _ordem, ...g }) => {
+  return grades.map(({ origem, ordem: _o, cadastro: _c, ...g }) => {
     ctx.ledger.registrar(LEDGER_GRADE, origem, g.id);
     rel.aceitar('grade');
     return g;
   });
+}
+
+type GradePlanejada = NovaGrade & {
+  origem: string;
+  /** Desempate: id no Feegow (período depois da fixa). */
+  ordem: number;
+  /** `datahora` do Feegow em ms (0 se ausente) — a recência da regra 3. */
+  cadastro: number;
+};
+
+/** Dia anterior a `AAAA-MM-DD`. */
+const diaAnterior = (data: string) =>
+  new Date(Date.parse(`${data}T12:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
+/**
+ * Grades ativas do mesmo profissional que se sobrepõem no dia da semana, no
+ * horário **e** na vigência (vigência vazia = sem limite daquele lado).
+ *
+ * Regras, nessa ordem:
+ * 1. As duas sem fim de vigência e com início diferente: a que começa depois
+ *    substitui a outra dali em diante — a mais antiga termina na véspera
+ *    (fica ativa até lá; se a véspera já passou, entra inativa).
+ * 2. Uma sem fim e outra com fim (período avulso, de um dia, ou futuro): a
+ *    sem fim — a grade semanal permanente — continua ativa; a limitada entra
+ *    inativa para revisão. Período pontual ou futuro nunca desliga a grade
+ *    em uso.
+ * 3. Demais casos (as duas limitadas, ou sem fim com o mesmo início): fica
+ *    ativa a cadastrada por último no Feegow (`datahora`, depois o id).
+ *
+ * Toda decisão vai para o relatório.
+ */
+function resolverSobreposicoes(
+  grades: GradePlanejada[],
+  ctx: ContextoImportacao,
+): void {
+  const rel = ctx.relatorio;
+  const recentesPrimeiro = [...grades].sort(
+    (a, b) => b.cadastro - a.cadastro || b.ordem - a.ordem,
+  );
+  const sobrepoe = (a: GradePlanejada, b: GradePlanejada) =>
+    a.active &&
+    b.active &&
+    a.doctorId === b.doctorId &&
+    a.weekday === b.weekday &&
+    minutos(a.startTime) < minutos(b.endTime) &&
+    minutos(b.startTime) < minutos(a.endTime) &&
+    (!a.validTo || !b.validFrom || b.validFrom <= a.validTo) &&
+    (!b.validTo || !a.validFrom || a.validFrom <= b.validTo);
+  const faixa = (g: GradePlanejada) =>
+    `${g.startTime.slice(0, 5)}–${g.endTime.slice(0, 5)}`;
+
+  for (const [i, g] of recentesPrimeiro.entries()) {
+    for (const o of recentesPrimeiro.slice(0, i)) {
+      if (!g.active) break;
+      if (!sobrepoe(o, g)) continue;
+
+      // 1. Substituição de uma grade permanente por outra.
+      if (!o.validTo && !g.validTo && o.validFrom !== g.validFrom) {
+        const [antiga, nova] =
+          (o.validFrom ?? '') < (g.validFrom ?? '') ? [o, g] : [g, o];
+        antiga.validTo = diaAnterior(nova.validFrom!);
+        antiga.active = antiga.validTo >= ctx.hoje;
+        rel.avisar(
+          'grade',
+          antiga.origem,
+          `substituída por ${nova.origem} (${faixa(nova)}) a partir de ${nova.validFrom}: vigência encerrada em ${antiga.validTo}${antiga.active ? '' : ', entra inativa'}`,
+        );
+        continue;
+      }
+
+      // 2. Permanente × limitada: a permanente fica. 3. Senão, a mais recente.
+      const perde = !o.validTo !== !g.validTo ? (o.validTo ? o : g) : g;
+      const fica = perde === g ? o : g;
+      perde.active = false;
+      rel.avisar(
+        'grade',
+        perde.origem,
+        `sobrepõe ${fica.origem} (${faixa(fica)}): entra inativa para revisão`,
+      );
+    }
+  }
 }
 
 /**
@@ -311,11 +392,45 @@ export function planejarBloqueios(
     const horaDe = hora(b.HoraDe) ?? '00:00:00';
     const horaAte = hora(b.HoraA);
     const allDay = horaDe === '00:00:00' && (!horaAte || horaAte >= '23:59:00');
-    const startsAt = dataHoraSaoPaulo(dataDe, allDay ? '00:00:00' : horaDe)!;
-    const endsAt = allDay
-      ? new Date(dataHoraSaoPaulo(dataAte, '00:00:00')!.getTime() + 86_400_000)
-      : dataHoraSaoPaulo(dataAte, horaAte ?? '23:59:59')!;
-    if (!(startsAt < endsAt)) {
+    const fimDoDia = horaAte ?? '23:59:59';
+
+    // Vários dias com janela de horário (DataDe..DataA, HoraDe..HoraA): no
+    // Feegow é a janela em cada dia, não um intervalo contínuo do 1º início
+    // ao último fim. Vira um bloqueio por dia. Janela que vira a noite
+    // (HoraA <= HoraDe) segue contínua, como era.
+    const porDia = !allDay && dataAte > dataDe && horaDe < fimDoDia;
+    let intervalos: { dia: string | null; startsAt: Date; endsAt: Date }[];
+    if (porDia) {
+      const dias = diasEntre(dataDe, dataAte);
+      if (dias.length > MAX_DIAS_BLOQUEIO_POR_DIA) {
+        rel.rejeitar(
+          'bloqueio',
+          idOrigem,
+          `janela de horário repetida por ${dias.length} dias (máximo ${MAX_DIAS_BLOQUEIO_POR_DIA}): recrie na INEXCI`,
+        );
+        continue;
+      }
+      intervalos = dias
+        .filter((dia) => !ctx.opcoes.bloqueiosSoFuturos || dia >= ctx.hoje)
+        .map((dia) => ({
+          dia,
+          startsAt: dataHoraSaoPaulo(dia, horaDe)!,
+          endsAt: dataHoraSaoPaulo(dia, fimDoDia)!,
+        }));
+    } else {
+      intervalos = [
+        {
+          dia: null,
+          startsAt: dataHoraSaoPaulo(dataDe, allDay ? '00:00:00' : horaDe)!,
+          // Dia inteiro termina à meia-noite do dia seguinte — somar 24 h
+          // erraria por 1 h no dia de troca do horário de verão.
+          endsAt: allDay
+            ? dataHoraSaoPaulo(diaSeguinte(dataAte), '00:00:00')!
+            : dataHoraSaoPaulo(dataAte, fimDoDia)!,
+        },
+      ];
+    }
+    if (!intervalos.every((i) => i.startsAt < i.endsAt)) {
       rel.rejeitar(
         'bloqueio',
         idOrigem,
@@ -331,23 +446,29 @@ export function planejarBloqueios(
         .filter(Boolean)
         .join(' — ')
         .slice(0, 200) || null;
-    const criadoEm = dataHoraCompleta(b.DHUp) ?? startsAt;
-    const id = ctx.novoId();
-    novos.push({
-      id,
-      ownerId: ctx.ownerId,
-      doctorId,
-      clinicId: null,
-      startsAt,
-      endsAt,
-      allDay,
-      reason: motivo,
-      createdById: autores.get(b.Usuario ?? '') ?? null,
-      createdAt: criadoEm,
-      updatedAt: criadoEm,
-    });
-    ctx.ledger.registrar(LEDGER_BLOQUEIO, idOrigem, id);
-    rel.aceitar('bloqueio');
+    const createdById = autores.get(b.Usuario ?? '') ?? null;
+    for (const [n, { dia, startsAt, endsAt }] of intervalos.entries()) {
+      const criadoEm = dataHoraCompleta(b.DHUp) ?? startsAt;
+      const id = ctx.novoId();
+      novos.push({
+        id,
+        ownerId: ctx.ownerId,
+        doctorId,
+        clinicId: null,
+        startsAt,
+        endsAt,
+        allDay,
+        reason: motivo,
+        createdById,
+        createdAt: criadoEm,
+        updatedAt: criadoEm,
+      });
+      // A chave do bloqueio de origem (o que a próxima rodada consulta para
+      // pular) aponta para o 1º; cada dia tem a sua, estável pela data.
+      if (n === 0) ctx.ledger.registrar(LEDGER_BLOQUEIO, idOrigem, id);
+      if (dia) ctx.ledger.registrar(LEDGER_BLOQUEIO, `${idOrigem}:${dia}`, id);
+      rel.aceitar('bloqueio');
+    }
   }
   if (deFeriado) {
     rel.avisar(
@@ -368,7 +489,9 @@ export function planejarBloqueios(
 
 /**
  * Feriados com data (MIG-05 §6). Sem data (Corpus Christi, "nacionais") não
- * há o que gravar. Feriado móvel nunca entra como recorrente.
+ * há o que gravar. Feriado móvel nunca entra como recorrente. Só os ativos
+ * (`sys_active = 1`): excluído (-1) some calado; inativo (0) — desligado
+ * pela clínica — fica de fora com aviso, porque na INEXCI todo feriado vale.
  */
 export function planejarFeriados(
   exp: ExportFeegow,
@@ -376,9 +499,14 @@ export function planejarFeriados(
 ): NovoFeriado[] {
   const rel = ctx.relatorio;
   const novos: NovoFeriado[] = [];
+  let inativos = 0;
   for (const f of exp.tabela('feriados')) {
     const idOrigem = f.id!;
     if (f.sys_active === '-1') continue;
+    if (f.sys_active !== '1') {
+      inativos++;
+      continue;
+    }
     if (ctx.ledger.resolver(LEDGER_FERIADO, idOrigem)) {
       rel.pular('feriado');
       continue;
@@ -417,5 +545,19 @@ export function planejarFeriados(
     ctx.ledger.registrar(LEDGER_FERIADO, idOrigem, id);
     rel.aceitar('feriado');
   }
+  if (inativos) {
+    rel.avisar(
+      'feriado',
+      '-',
+      `${inativos} feriados inativos no Feegow não importados`,
+    );
+  }
   return novos;
+}
+
+/** `AAAA-MM-DD` do dia seguinte (aritmética ao meio-dia UTC, sem fuso). */
+function diaSeguinte(data: string): string {
+  return new Date(Date.parse(`${data}T12:00:00Z`) + 86_400_000)
+    .toISOString()
+    .slice(0, 10);
 }

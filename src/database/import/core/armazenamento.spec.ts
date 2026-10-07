@@ -26,4 +26,29 @@ describe('emParalelo', () => {
       }),
     ).rejects.toThrow('falhou');
   });
+
+  it('na primeira falha não começa item novo e espera os que estavam em andamento', async () => {
+    const terminados: number[] = [];
+    const iniciados: number[] = [];
+    await expect(
+      emParalelo([1, 2, 3, 4, 5, 6], 3, async (n) => {
+        iniciados.push(n);
+        if (n === 1) throw new Error('falhou');
+        await new Promise((r) => setTimeout(r, 20));
+        terminados.push(n);
+      }),
+    ).rejects.toThrow('falhou');
+    // 2 e 3 já estavam em voo: terminaram antes da rejeição.
+    expect(terminados.sort()).toEqual([2, 3]);
+    expect(iniciados.sort()).toEqual([1, 2, 3]);
+  });
+
+  it('rejeita com o primeiro erro', async () => {
+    await expect(
+      emParalelo([1, 2], 2, async (n) => {
+        await new Promise((r) => setTimeout(r, n === 1 ? 1 : 10));
+        throw new Error(`erro ${n}`);
+      }),
+    ).rejects.toThrow('erro 1');
+  });
 });

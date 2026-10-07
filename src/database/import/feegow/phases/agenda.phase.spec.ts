@@ -244,6 +244,15 @@ describe('planejarAgenda (export sintético)', () => {
     ]);
   });
 
+  it('sobreposta (realizada inclusive) entra como encaixe: o banco recusa duas no horário', () => {
+    const { plano } = planejar([
+      ag('10', '1', '2024-01-10', '0', { id: 'r1', status_id: '3' }),
+      ag('11', '1', '2024-01-10', '0', { id: 'r2', status_id: '3' }),
+    ]);
+
+    expect(plano.consultas.map((c) => c.isWalkIn)).toEqual([false, true]);
+  });
+
   it('rodar de novo pula as consultas e salas já importadas', () => {
     const { ctx } = planejar([ag('10', '1', '2025-01-10', '0')]);
     const exp = exportSintetico({
@@ -287,10 +296,60 @@ describe('gravarAgenda', () => {
     };
     const manager = {
       createQueryBuilder: () => qb,
+      getRepository: () => ({ createQueryBuilder: () => consultaQb([]) }),
     } as unknown as EntityManager;
 
     await gravarAgenda(plano, manager);
 
     expect(ordem).toEqual([ClinicRoom, Appointment]);
   });
+
+  it('importada que cai em cima de consulta já cadastrada entra como encaixe', async () => {
+    const { plano } = planejar([
+      ag('10', '1', '2025-01-10', '0', { id: 'a1', status_id: '1' }),
+    ]);
+    const [importada] = plano.consultas;
+    const insert = {
+      insert: () => insert,
+      into: () => insert,
+      values: () => insert,
+      orIgnore: () => insert,
+      execute: async () => undefined,
+    };
+    const manager = {
+      createQueryBuilder: () => insert,
+      getRepository: () => ({
+        createQueryBuilder: () =>
+          consultaQb([
+            {
+              doctorId: importada.doctorId,
+              scheduledAt: new Date(
+                importada.scheduledAt.getTime() - 15 * 60_000,
+              ),
+              durationMinutes: 30,
+            },
+          ]),
+      }),
+    } as unknown as EntityManager;
+
+    await gravarAgenda(plano, manager);
+
+    expect(importada.isWalkIn).toBe(true);
+    expect(plano.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        idOrigem: 'a1',
+        aviso: expect.stringContaining('entrou como encaixe'),
+      }),
+    );
+  });
 });
+
+function consultaQb(linhas: unknown[]) {
+  const qb = {
+    select: () => qb,
+    where: () => qb,
+    andWhere: () => qb,
+    getMany: async () => linhas,
+  };
+  return qb;
+}

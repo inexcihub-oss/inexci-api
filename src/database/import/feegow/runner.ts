@@ -14,6 +14,7 @@ import {
   planejarProntuario,
 } from './phases/prontuario.phase';
 import {
+  descartadosDosAnexos,
   enviarAnexos,
   gravarAnexos,
   planejarAnexosDaFase,
@@ -35,6 +36,11 @@ export interface Fase<P = unknown> {
    * que criou, para o runner desfazer se a gravação falhar.
    */
   enviar?(plano: P, armazenamento: ArmazenamentoImportacao): Promise<string[]>;
+  /**
+   * Arquivos enviados que a gravação acabou não usando (ex.: paciente que já
+   * tinha foto). O runner apaga depois do COMMIT.
+   */
+  descartados?(plano: P): string[];
 }
 
 export const FASES: Fase<any>[] = [
@@ -55,6 +61,7 @@ export const FASES: Fase<any>[] = [
     planejar: planejarAnexosDaFase,
     enviar: enviarAnexos,
     gravar: gravarAnexos,
+    descartados: descartadosDosAnexos,
   },
   { nome: 'modelos', planejar: planejarModelos, gravar: gravarModelos },
   {
@@ -83,6 +90,11 @@ export interface OpcoesCli {
   verificar: boolean;
   hoje: string;
   confirmar: boolean;
+  /**
+   * Aceita um `ledger.json` do formato antigo (sem conta/banco gravados) como
+   * desta conta e deste banco. Ver `Ledger.vincular`.
+   */
+  adotarLedger: boolean;
 }
 
 const USO = `Uso:
@@ -93,11 +105,15 @@ const USO = `Uso:
     [--caixa-livre anamnesis|conduct] [--incluir-rascunhos] [--modelos-vazios] \\
     [--bloqueios-so-futuros] \\
   yarn import:feegow --dir <pasta> --owner-email <e-mail> --verificar [--out <pasta>]
-    [--hoje AAAA-MM-DD] [--sim]
+    [--hoje AAAA-MM-DD] [--sim] [--adotar-ledger]
 
   --dry-run      planeja e grava só o relatório (nada no banco, ledger intacto)
   --sem-banco    dry-run sem conexão (não confere e-mails/telefones já usados)
   --sim          não pede confirmação antes de gravar (use só em ambiente local)
+  --hoje         data de corte passadas/futuras (padrão: hoje em São Paulo)
+  --adotar-ledger  aceita um ledger.json antigo, sem conta/banco gravados, como
+                 desta conta e deste banco (confira antes: ledger de outra
+                 conta faz a carga apontar para pacientes alheios)
   --lembretes    deixa a INEXCI enviar lembrete das consultas futuras importadas
   --passadas-sem-atendimento  reclassifica consultas passadas que ficaram em
                  aberto sem atendimento (padrão: manter como no Feegow)
@@ -160,7 +176,7 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     );
   }
 
-  const hoje = valor('--hoje') ?? new Date().toISOString().slice(0, 10);
+  const hoje = valor('--hoje') ?? hojeEmSaoPaulo();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(hoje))
     throw new Error('--hoje deve ser AAAA-MM-DD');
 
@@ -182,7 +198,23 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     verificar,
     hoje,
     confirmar: !tem('--sim'),
+    adotarLedger: tem('--adotar-ledger'),
   };
+}
+
+/**
+ * Data de hoje (`YYYY-MM-DD`) no fuso da clínica. `toISOString()` daria a data
+ * UTC: entre 21h e meia-noite em São Paulo já é "amanhã", e as consultas da
+ * noite seriam classificadas como passadas.
+ */
+export function hojeEmSaoPaulo(agora: Date = new Date()): string {
+  // en-CA formata como AAAA-MM-DD.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(agora);
 }
 
 /**

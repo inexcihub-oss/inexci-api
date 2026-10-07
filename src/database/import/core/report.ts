@@ -31,6 +31,20 @@ export class Relatorio {
     this.aceitos[entidade] = (this.aceitos[entidade] ?? 0) + quantidade;
   }
 
+  /**
+   * O planejamento aceitou, mas o item não entrou (arquivo ilegível no
+   * upload etc.): tira da contagem e registra a rejeição.
+   */
+  rejeitarAceito(entidade: string, idOrigem: string, motivo: string): void {
+    if (this.aceitos[entidade]) this.aceitos[entidade]--;
+    this.rejeitar(entidade, idOrigem, motivo);
+  }
+
+  /** O planejamento aceitou, mas o item não entrou: só tira da contagem. */
+  desfazerAceite(entidade: string): void {
+    if (this.aceitos[entidade]) this.aceitos[entidade]--;
+  }
+
   /** Já importado numa execução anterior (está no ledger). */
   pular(entidade: string): void {
     this.pulados[entidade] = (this.pulados[entidade] ?? 0) + 1;

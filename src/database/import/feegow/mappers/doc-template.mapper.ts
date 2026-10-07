@@ -31,12 +31,29 @@ export interface NovoModeloDocumento {
   body: string;
 }
 
+const MARCADOR = /\[([A-Za-zÀ-ú.]+)\]/g;
+
 /** `[Paciente.Nome]` → `{{paciente.nome}}`; marcador desconhecido fica literal. */
 export function converterMarcadores(texto: string): string {
   return texto.replace(
-    /\[([A-Za-zÀ-ú.]+)\]/g,
+    MARCADOR,
     (inteiro, nome: string) => PLACEHOLDERS[nome.toLowerCase()] ?? inteiro,
   );
+}
+
+/**
+ * Marcadores do Feegow sem equivalente na INEXCI, sem repetir — ficam como
+ * texto literal no modelo e o cliente precisa saber disso. Conta só o que
+ * tem a forma de marcador do Feegow (`[Entidade.Campo]`): palavra solta entre
+ * colchetes (`[X]`, `[Obs]`) é texto do próprio modelo.
+ */
+export function marcadoresDesconhecidos(texto: string): string[] {
+  const desconhecidos = new Set<string>();
+  for (const [inteiro, nome] of texto.matchAll(MARCADOR)) {
+    if (!nome.includes('.') || PLACEHOLDERS[nome.toLowerCase()]) continue;
+    desconhecidos.add(inteiro);
+  }
+  return [...desconhecidos];
 }
 
 const FONTES = [
@@ -79,10 +96,20 @@ export function planejarModelosDeDocumento(
         rel.pular('modelo de documento');
         continue;
       }
-      let body = converterMarcadores(htmlParaTexto(m[fonte.texto]));
+      const original = htmlParaTexto(m[fonte.texto]);
+      let body = converterMarcadores(original);
       if (!body) {
         rel.rejeitar('modelo de documento', chave, 'modelo sem texto');
         continue;
+      }
+      const desconhecidos = marcadoresDesconhecidos(original);
+      if (desconhecidos.length) {
+        rel.avisar(
+          'modelo de documento',
+          chave,
+          'marcadores do Feegow sem equivalente ficaram como texto: revise o modelo',
+          desconhecidos.join(', '),
+        );
       }
       if (body.length > CORPO_MAX) {
         rel.avisar(

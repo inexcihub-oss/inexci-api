@@ -1,4 +1,10 @@
-import { csvParaObjetos, limparCampo, parseCsv } from './csv';
+import {
+  csvParaObjetos,
+  limparCampo,
+  parseCsv,
+  parseCsvComLinhas,
+  ProblemaCsv,
+} from './csv';
 
 describe('parseCsv', () => {
   it('separa campos e linhas', () => {
@@ -20,6 +26,12 @@ describe('parseCsv', () => {
       ['a', 'b'],
       ['1', '2'],
     ]);
+  });
+
+  it('aspas sem fechamento até o fim do arquivo é erro, com tabela e linha', () => {
+    expect(() => parseCsv('a,b\n1,2\n3,"sem fim\n4,5\n', 'pacientes')).toThrow(
+      /pacientes.*linha 3/,
+    );
   });
 
   it('ignora o BOM do UTF-8', () => {
@@ -50,7 +62,43 @@ describe('csvParaObjetos', () => {
     ]);
   });
 
-  it('linha com menos colunas completa com null', () => {
-    expect(csvParaObjetos('a,b\n1\n')).toEqual([{ a: '1', b: null }]);
+  it('linha com número de campos diferente fica de fora e é anotada', () => {
+    const problemas: ProblemaCsv[] = [];
+    expect(
+      csvParaObjetos('a,b\n1\n2,3\n"x\ny",4\n5,6,7\n', 'agenda', problemas),
+    ).toEqual([
+      { a: '2', b: '3' },
+      { a: 'x\ny', b: '4' },
+    ]);
+    expect(problemas).toEqual([
+      {
+        tabela: 'agenda',
+        linha: 2,
+        motivo: expect.stringContaining('1 campos'),
+      },
+      {
+        tabela: 'agenda',
+        linha: 6,
+        motivo: expect.stringContaining('3 campos'),
+      },
+    ]);
+  });
+
+  it('sem onde anotar, linha malformada é erro (nunca some calada)', () => {
+    expect(() => csvParaObjetos('a,b\n1\n', 'agenda')).toThrow(
+      /agenda, linha 2/,
+    );
+  });
+
+  it('linha em branco é ignorada sem problema', () => {
+    expect(csvParaObjetos('a,b\n1,2\n\n3,4\n')).toHaveLength(2);
+  });
+});
+
+describe('parseCsvComLinhas', () => {
+  it('conta a linha física de início, com CRLF e quebra entre aspas', () => {
+    expect(parseCsvComLinhas('a\r\n"x\r\ny"\r\nz').map((r) => r.linha)).toEqual(
+      [1, 2, 4],
+    );
   });
 });

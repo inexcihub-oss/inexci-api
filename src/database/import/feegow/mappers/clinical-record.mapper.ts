@@ -16,7 +16,8 @@ import { LEDGER_PROFISSIONAL, profissionaisDoFeegow } from './team.mapper';
 
 /**
  * Ledger das fichas. A chave diz a origem: `atd:<atendimento>`,
- * `form:<formulário solto>`, `ia:<resumo solto>`, `presc:<paciente>:<data>`.
+ * `form:<formulário solto>`, `ia:<resumo solto>`,
+ * `presc:<paciente>:<data>:<tipo>:<n>` (ver `chaveDoDocumentoEmitido`).
  */
 export const LEDGER_FICHA = 'clinical_record';
 export const LEDGER_MODELO_ANAMNESE = 'clinical_record_template';
@@ -55,7 +56,10 @@ interface FormularioLido extends FormularioFeegow {
  *
  * - Cada `atendimentos` vira uma ficha finalizada, com os formulários dele —
  *   mesmo sem formulário (o atendimento aconteceu). A 1ª ficha de um
- *   agendamento importado fica ligada à consulta; as demais, soltas.
+ *   agendamento importado fica ligada à consulta; as demais, soltas. Só liga
+ *   se a consulta for do mesmo paciente e do mesmo médico da ficha (a API
+ *   exige o mesmo em `assertAppointmentBelongs`); senão, ficha solta com
+ *   aviso.
  * - Formulário sem atendimento vira ficha solta.
  * - Resumo de IA só entra se o texto não estiver já num formulário (no
  *   export, todo resumo ligado a atendimento repete o formulário de IA).
@@ -174,6 +178,10 @@ export function planejarFichas(
       fim: dataHoraSaoPaulo(a.DATA, a.hora_fim),
     }))
     .sort((x, y) => (x.inicio?.getTime() ?? 0) - (y.inicio?.getTime() ?? 0));
+  // Agendamento de origem de cada consulta, para conferir paciente e médico.
+  const agendamentos = new Map(
+    exp.tabela('agendamentos').map((g) => [g.id, g]),
+  );
   let semFormulario = 0;
   for (const { a, inicio, fim } of atendimentos) {
     const chave = `atd:${a.id}`;
@@ -181,7 +189,33 @@ export function planejarFichas(
       rel.rejeitar('ficha', chave, 'data do atendimento inválida');
       continue;
     }
+    const doctorId =
+      ctx.ledger.resolver(LEDGER_PROFISSIONAL, a.profissional_id) ??
+      profissionais.get(a.sys_user ?? '') ??
+      ctx.ownerId;
     let appointmentId = ctx.ledger.resolver(LEDGER_CONSULTA, a.agendamento_id);
+    if (appointmentId && !ctx.ledger.resolver(LEDGER_FICHA, chave)) {
+      const g = agendamentos.get(a.agendamento_id);
+      const pacienteDaFicha = ctx.ledger.resolver(
+        LEDGER_PACIENTE,
+        a.paciente_id,
+      );
+      const mesmoPaciente =
+        !!g &&
+        ctx.ledger.resolver(LEDGER_PACIENTE, g.paciente_id) === pacienteDaFicha;
+      const mesmoMedico =
+        !!g &&
+        ctx.ledger.resolver(LEDGER_PROFISSIONAL, g.profissional_id) ===
+          doctorId;
+      if (pacienteDaFicha && (!mesmoPaciente || !mesmoMedico)) {
+        appointmentId = null;
+        rel.avisar(
+          'ficha',
+          chave,
+          `agendamento ${a.agendamento_id} é de outro ${mesmoPaciente ? 'profissional' : 'paciente'}: ficha sem consulta`,
+        );
+      }
+    }
     if (appointmentId && consultasUsadas.has(appointmentId)) {
       appointmentId = null;
       rel.avisar(
@@ -199,10 +233,7 @@ export function planejarFichas(
     nova({
       chave,
       pacienteOrigem: a.paciente_id,
-      doctorId:
-        ctx.ledger.resolver(LEDGER_PROFISSIONAL, a.profissional_id) ??
-        profissionais.get(a.sys_user ?? '') ??
-        ctx.ownerId,
+      doctorId,
       appointmentId,
       conteudo: conteudoDaFicha(
         [...doFormulario, ...resumos],
@@ -256,16 +287,26 @@ export function planejarFichas(
     });
   }
 
+  const vistosNoInstante = new Map<string, number>();
+  const legadasUsadas = new Set<string>();
   for (const p of exp.tabela(
     'prescricao_atestados_diagnosticos_pedidosexames',
   )) {
     const quando = dataHoraCompleta(p.datahora);
-    const chave = `presc:${p.PacienteId}:${p.datahora}`;
+    const tipo = (p.tipo ?? 'Documento').trim();
+    const chave = chaveDoDocumentoEmitido(p, tipo, vistosNoInstante);
     if (!quando || htmlSemTexto(p.conteudo)) {
       rel.rejeitar('ficha', chave, 'documento emitido sem data ou sem texto');
       continue;
     }
-    const tipo = (p.tipo ?? 'Documento').trim();
+    // Ledger de antes da chave com tipo (`presc:<paciente>:<data>`): só o 1º
+    // documento do instante entrava — é ele que a chave antiga aponta.
+    const legada = `presc:${p.PacienteId}:${p.datahora}`;
+    const jaImportado = ctx.ledger.resolver(LEDGER_FICHA, legada);
+    if (jaImportado && !legadasUsadas.has(legada)) {
+      legadasUsadas.add(legada);
+      ctx.ledger.registrar(LEDGER_FICHA, chave, jaImportado);
+    }
     nova({
       chave,
       pacienteOrigem: p.PacienteId,
@@ -392,6 +433,22 @@ function lerFormularios(
     );
   }
   return lidos;
+}
+
+/**
+ * Chave de um documento emitido. O export não tem id na tabela: paciente +
+ * data/hora + tipo + a posição entre os iguais (na ordem do export, estável
+ * entre rodadas). Dois documentos no mesmo instante não colidem mais.
+ */
+function chaveDoDocumentoEmitido(
+  p: LinhaCsv,
+  tipo: string,
+  vistos: Map<string, number>,
+): string {
+  const base = `presc:${p.PacienteId}:${p.datahora}:${chaveDeNome(tipo)}`;
+  const n = vistos.get(base) ?? 0;
+  vistos.set(base, n + 1);
+  return `${base}:${n}`;
 }
 
 function resumoComoFormulario(r: LinhaCsv, fallback: Date): FormularioFeegow {

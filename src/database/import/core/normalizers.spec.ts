@@ -22,9 +22,18 @@ describe('normalizadores', () => {
       expect(normalizarCpf('52998224725')).toBe('52998224725');
     });
 
-    it('recupera os zeros à esquerda comidos pela planilha', () => {
+    it('recupera o zero à esquerda só de número cru com 10 dígitos', () => {
       expect(cpfValido('01234567890')).toBe(true);
       expect(normalizarCpf('1234567890')).toBe('01234567890');
+      expect(normalizarCpf(' 1234567890 ')).toBe('01234567890');
+    });
+
+    it('não completa valor curto mascarado nem com 9 dígitos (RG no campo)', () => {
+      // 001.234.567-90 sem os dois zeros seria válido: não é chute que se faça.
+      expect(cpfValido('00123456790')).toBe(false);
+      expect(normalizarCpf('123456789')).toBeNull();
+      expect(normalizarCpf('12.345.678-90')).toBeNull();
+      expect(normalizarCpf('123.456.789-0')).toBeNull();
     });
 
     it('recusa dígito verificador errado, repetido e telefone no campo', () => {
@@ -116,6 +125,42 @@ describe('normalizadores', () => {
       expect(dataHoraSaoPaulo('2026-01-15')?.toISOString()).toBe(
         '2026-01-15T03:00:00.000Z',
       );
+      expect(dataHoraSaoPaulo('2026-01-15', '')?.toISOString()).toBe(
+        '2026-01-15T03:00:00.000Z',
+      );
+    });
+
+    it('aceita hora com 1 dígito', () => {
+      expect(dataHoraSaoPaulo('2026-01-15', '9:00')?.toISOString()).toBe(
+        '2026-01-15T12:00:00.000Z',
+      );
+      expect(dataHoraCompleta('2026-01-15 9:05:00')?.toISOString()).toBe(
+        '2026-01-15T12:05:00.000Z',
+      );
+    });
+
+    it('hora presente mas ilegível vira null, não meia-noite', () => {
+      expect(dataHoraSaoPaulo('2026-01-15', '9h')).toBeNull();
+      expect(dataHoraSaoPaulo('2026-01-15', '25:00')).toBeNull();
+      expect(dataHoraSaoPaulo('2026-01-15', '10:75')).toBeNull();
+      expect(dataHoraCompleta('2026-01-15 xx')).toBeNull();
+    });
+
+    it('usa o horário de verão de antes de 2019 (-02:00)', () => {
+      // Verão 2017/2018: 15/10/2017 a 18/02/2018.
+      expect(dataHoraSaoPaulo('2018-01-15', '10:00')?.toISOString()).toBe(
+        '2018-01-15T12:00:00.000Z',
+      );
+      expect(dataHoraSaoPaulo('2018-06-15', '10:00')?.toISOString()).toBe(
+        '2018-06-15T13:00:00.000Z',
+      );
+    });
+
+    it('meia-noite que não existiu (início do verão) cai em 01:00', () => {
+      // 04/11/2018: o relógio pulou de 00:00 para 01:00 (-02:00).
+      expect(dataHoraSaoPaulo('2018-11-04')?.toISOString()).toBe(
+        '2018-11-04T03:00:00.000Z',
+      );
     });
   });
 });
@@ -133,6 +178,13 @@ describe('decodificarEntidadesHtml', () => {
     expect(decodificarEntidadesHtml('a &amp; b&nbsp;&#231;&#xE3;')).toBe(
       'a & b çã',
     );
+  });
+
+  it('código numérico fora do Unicode ou inválido fica como está', () => {
+    expect(decodificarEntidadesHtml('a&#99999999;b &#x110000; &#0;')).toBe(
+      'a&#99999999;b &#x110000; &#0;',
+    );
+    expect(decodificarEntidadesHtml('&#xD800;')).toBe('&#xD800;');
   });
 
   it('entidade desconhecida fica como está', () => {

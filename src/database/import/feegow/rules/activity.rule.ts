@@ -35,8 +35,9 @@ const REMARCADO = /^(remarcado|altera[çc][ãa]o de hor[áa]rio)/i;
  * cronológica (MIG-04 §6).
  *
  * - `A` → `created` (o texto é a observação digitada ao agendar).
- * - "Remarcado…" / "Alteração de horário…" → `rescheduled`; o status 15
- *   ("Remarcado") não muda o status da linha do tempo.
+ * - "Remarcado…" / "Alteração de horário…" ou o status 15 ("Remarcado"),
+ *   com qualquer texto → `rescheduled`; o 15 nunca muda o status da linha
+ *   do tempo.
  * - "Atendimento iniciado…" → em atendimento; "Atendimento finalizado" →
  *   realizada.
  * - Demais `R`: `status_change` quando o status mudou; senão `updated`, ou
@@ -84,14 +85,18 @@ export function atividadesDoLog(eventos: EventoDoLog[]): AtividadeDoLog[] {
     } else if (obs && FINALIZADO.test(obs)) {
       novo = AppointmentStatus.COMPLETED;
       type = AppointmentActivityType.STATUS_CHANGE;
-    } else if (obs && REMARCADO.test(obs)) {
+    } else if (
+      e.statusId === STATUS_REMARCADO ||
+      (obs && REMARCADO.test(obs))
+    ) {
       type = AppointmentActivityType.RESCHEDULED;
       // O 15 ("Remarcado") é uma marca de passagem no Feegow: a mesma
       // consulta segue para confirmada/aguardando depois. Tratar como
-      // cancelamento criaria "Cancelada → Confirmada" falsos na linha do tempo.
+      // cancelamento criaria "Cancelada → Confirmada" falsos na linha do tempo
+      // — vale para qualquer texto (ou nenhum) que acompanhe o 15.
       if (e.statusId === STATUS_REMARCADO) novo = atual;
       // "Remarcado - " sem justificativa.
-      content = obs.replace(/\s*-\s*$/, '');
+      content = obs ? obs.replace(/\s*-\s*$/, '') : null;
     } else if (novo !== atual) {
       type = AppointmentActivityType.STATUS_CHANGE;
     } else {

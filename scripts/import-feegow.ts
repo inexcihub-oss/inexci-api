@@ -7,7 +7,7 @@ import { createR2Client } from '../src/config/r2.config';
 import { StorageService } from '../src/shared/storage/storage.service';
 import { ArmazenamentoImportacao } from '../src/database/import/core/armazenamento';
 import { dataSourceOptions } from '../src/database/typeorm/data-source';
-import { Ledger } from '../src/database/import/core/ledger';
+import { escreverAtomico, Ledger } from '../src/database/import/core/ledger';
 import { Relatorio } from '../src/database/import/core/report';
 import { ExportFeegow } from '../src/database/import/feegow/export';
 import {
@@ -30,7 +30,9 @@ import {
  * Ver `planos-implementacao/MIG-07-importador-feegow.md`.
  *
  * Cada fase roda numa transação: ou entra tudo, ou nada. O `ledger.json`
- * (id Feegow → uuid INEXCI) só é salvo depois do COMMIT.
+ * (id Feegow → uuid INEXCI) só é salvo depois do COMMIT, de forma atômica, e
+ * fica amarrado à conta e ao banco da carga: rodar o mesmo export para outra
+ * conta/banco com o mesmo `--out` aborta (ver `Ledger.vincular`).
  *
  * Saída: 0 ok · 1 erro de uso/configuração · 2 falha na gravação.
  */
@@ -63,6 +65,23 @@ async function main(): Promise<void> {
       throw new Error(
         `Banco sem as migrations da migração Feegow (falta: ${faltando.join(', ')}). Rode "yarn typeorm:migration:run" antes.`,
       );
+    }
+
+    // O ledger só vale para a conta e o banco em que foi gerado: antes de
+    // qualquer fase (inclusive dry-run e --verificar), confere o vínculo.
+    try {
+      const [dono] = await ds.query(
+        `SELECT id FROM users WHERE lower(email) = $1 AND deleted_at IS NULL`,
+        [opcoes.ownerEmail],
+      );
+      if (!dono) throw new Error(`Dono não encontrado: ${opcoes.ownerEmail}`);
+      ledger.vincular(
+        { ownerId: dono.id, banco },
+        { adotar: opcoes.adotarLedger },
+      );
+    } catch (erro) {
+      await ds.destroy();
+      throw erro;
     }
   }
 
@@ -102,6 +121,10 @@ async function main(): Promise<void> {
         : contextoSemBanco(base);
 
       const plano = fase.planejar(exp, ctx);
+      // Linhas malformadas das tabelas que esta fase leu.
+      for (const p of exp.drenarProblemas()) {
+        relatorio.rejeitar(`csv:${p.tabela}`, `linha ${p.linha}`, p.motivo);
+      }
       console.log(relatorio.resumo());
       console.log(`  relatório: ${salvarRelatorio(opcoes.out, relatorio)}`);
 
@@ -147,10 +170,30 @@ async function main(): Promise<void> {
         }
         throw erro;
       }
-      trabalho.salvar();
+      // Logo depois do COMMIT: se o ledger não for salvo, uma nova execução
+      // não sabe o que já entrou e duplicaria a fase.
+      salvarLedgerDepoisDoCommit(trabalho, fase.nome, opcoes.out);
       // As próximas fases resolvem referências pelo que acabou de entrar.
       absorver(ledger, trabalho);
       console.log(`  fase ${fase.nome} gravada; ledger atualizado.`);
+
+      const descartados = fase.descartados?.(plano) ?? [];
+      if (armazenamento && descartados.length) {
+        try {
+          await armazenamento.apagar(descartados);
+          console.log(`  ${descartados.length} arquivos não usados apagados.`);
+        } catch (erro) {
+          console.error(
+            `  aviso: não deu para apagar ${descartados.length} arquivos não usados (${(erro as Error).message}): ${descartados.join(', ')}`,
+          );
+        }
+      }
+      // O envio/gravação pode ter rejeitado ou ajustado itens (arquivo
+      // ilegível, consulta que virou encaixe por colidir com o banco…).
+      console.log(relatorio.resumo());
+      console.log(
+        `  relatório atualizado: ${salvarRelatorio(opcoes.out, relatorio)}`,
+      );
     }
   } finally {
     await ds?.destroy();
@@ -184,6 +227,45 @@ function criarArmazenamento(): ArmazenamentoImportacao {
       }
     },
   };
+}
+
+/**
+ * Salva o ledger da fase recém-comitada. Se falhar, o banco já tem os dados
+ * mas o ledger.json não: tenta deixar uma cópia ao lado e aborta com a
+ * instrução — rodar de novo sem o ledger duplicaria a fase.
+ */
+function salvarLedgerDepoisDoCommit(
+  trabalho: Ledger,
+  fase: string,
+  out: string,
+): void {
+  try {
+    trabalho.salvar();
+  } catch (erro) {
+    const copia = join(out, `ledger.pendente-${fase}-${Date.now()}.json`);
+    let onde = 'não deu para gravar a cópia';
+    try {
+      escreverAtomico(
+        copia,
+        JSON.stringify(
+          {
+            versao: 2,
+            vinculo: trabalho.vinculo,
+            registros: trabalho.paraObjeto(),
+          },
+          null,
+          2,
+        ),
+      );
+      onde = `cópia em ${copia}`;
+    } catch {
+      // segue com a mensagem acima
+    }
+    throw new Error(
+      `Fase "${fase}" GRAVADA no banco, mas o ledger.json não foi salvo (${(erro as Error).message}); ${onde}. ` +
+        'Restaure o ledger.json a partir da cópia antes de rodar qualquer fase de novo, senão os registros serão duplicados.',
+    );
+  }
 }
 
 /** Copia para `destino` tudo o que `origem` registrou. */

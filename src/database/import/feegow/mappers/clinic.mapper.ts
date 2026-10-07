@@ -1,6 +1,7 @@
 import { LinhaCsv } from '../../core/csv';
 import {
   normalizarCep,
+  normalizarData,
   normalizarEmail,
   normalizarTexto,
   normalizarUf,
@@ -92,7 +93,9 @@ const paraHora = (m: number) =>
 
 /**
  * União das grades semanais vigentes (`fim_vigencia` vazia ou >= hoje), por
- * dia. Feegow: `dia_semana` 1 = domingo … 7 = sábado. Blocos que se tocam ou
+ * dia. A data passa pelo `normalizarData`, como em `planejarGrades`: o
+ * Feegow grava `0000-00-00` como "sem fim" e às vezes DD/MM/AAAA — comparar
+ * o texto cru tratava essas grades como vencidas. Feegow: `dia_semana` 1 = domingo … 7 = sábado. Blocos que se tocam ou
  * se sobrepõem são fundidos; o máximo por dia é o da INEXCI.
  */
 export function horarioDaClinica(
@@ -103,7 +106,8 @@ export function horarioDaClinica(
   for (const g of grade) {
     const dia = Number(g.dia_semana) - 1;
     if (!(dia >= 0 && dia <= 6) || !g.hora_de || !g.hora_ate) continue;
-    if (g.fim_vigencia && g.fim_vigencia < hoje) continue;
+    const fimVigencia = normalizarData(g.fim_vigencia);
+    if (fimVigencia && fimVigencia < hoje) continue;
     const inicio = paraMinutos(g.hora_de);
     const fim = paraMinutos(g.hora_ate);
     if (!(fim > inicio)) continue;

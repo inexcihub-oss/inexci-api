@@ -93,9 +93,9 @@ export function planejarPacientes(
   );
   const profissionais = profissionaisPorPaciente(exp.tabela('agendamentos'));
   const convenioDaConsulta = convenioMaisRecente(exp.tabela('agendamentos'));
-  const comAtividade = ctx.opcoes.somenteComAtividade
-    ? pacientesComAtividade(exp)
-    : null;
+  const atividade = pacientesComAtividade(exp);
+  const comAtividade = ctx.opcoes.somenteComAtividade ? atividade : null;
+  const comAnexo = pacientesComAnexo(exp);
   const lookups = TABELAS_DEMOGRAFICAS.map(
     ([campo, tabela, coluna, rotulo]) =>
       [
@@ -105,7 +105,6 @@ export function planejarPacientes(
       ] as const,
   );
 
-  const atividade = pacientesComAtividade(exp);
   const novos: NovoPaciente[] = [];
   const cpfsVistos = new Map<string, string>();
   const nomesVistos = new Map<string, string>();
@@ -136,6 +135,33 @@ export function planejarPacientes(
     // O export do Feegow cortou alguns nomes numa entidade HTML (`JOS&EACUTE`)
     // e, nessas linhas, às vezes deslocou as colunas seguintes.
     const { nome, cortado } = repararNomeCortado(nomeBruto);
+    // Nome sem letras ("24 98841-4691", "."): sem nenhum outro dado, anexo
+    // nem atividade, não há paciente aqui — é lixo de cadastro. Vem antes de
+    // qualquer aviso ou registro de CPF/nome, para o descarte não deixar rastro.
+    if (!/\p{L}/u.test(nome)) {
+      if (
+        !temOutroDado(
+          p,
+          enderecoPorPaciente.get(idOrigem),
+          convenioPorPaciente.get(idOrigem),
+        ) &&
+        !atividade.has(idOrigem) &&
+        !comAnexo.has(idOrigem) &&
+        !p.foto
+      ) {
+        rel.rejeitar(
+          'paciente',
+          idOrigem,
+          'nome sem letras e nenhum outro dado',
+        );
+        continue;
+      }
+      rel.avisar(
+        'paciente',
+        idOrigem,
+        'nome sem letras: revise o nome no cadastro',
+      );
+    }
     if (cortado) {
       rel.avisar(
         'paciente',
@@ -188,31 +214,6 @@ export function planejarPacientes(
 
     const end = enderecoPorPaciente.get(idOrigem);
     const conv = convenioPorPaciente.get(idOrigem);
-
-    // Nome que é um telefone ("24 98841-4691"): sem nenhum outro dado nem
-    // atividade, não há paciente aqui — é lixo de cadastro.
-    if (!/\p{L}/u.test(nome)) {
-      const temOutroDado =
-        cpf ||
-        normalizarData(p.nascimento) ||
-        normalizarEmail(p.email) ||
-        telefones.length > 0 ||
-        normalizarCep(end?.cep) ||
-        normalizarTexto(end?.logradouro, 200);
-      if (!temOutroDado && !atividade.has(idOrigem)) {
-        rel.rejeitar(
-          'paciente',
-          idOrigem,
-          'nome sem letras (parece um telefone) e nenhum outro dado',
-        );
-        continue;
-      }
-      rel.avisar(
-        'paciente',
-        idOrigem,
-        'nome sem letras (parece um telefone): revise o nome no cadastro',
-      );
-    }
 
     const notas: string[] = [];
     const obs = (p.Observacoes ?? '').trim();
@@ -307,6 +308,67 @@ function primeiroConvenio(conv: LinhaCsv | undefined): string | null {
     if (v && v !== '0' && !CONVENIOS_QUE_SAO_TIPO_DE_CONSULTA.has(v)) return v;
   }
   return null;
+}
+
+/** Pacientes com anexo ativo — o que se perderia junto (mesmo critério de `planejarAnexos`). */
+function pacientesComAnexo(exp: ExportFeegow): Set<string> {
+  const ids = new Set<string>();
+  for (const a of exp.tabela('arquivos')) {
+    if (a.sysActive === '1' && a.PacienteID && a.PacienteID !== '0')
+      ids.add(a.PacienteID);
+  }
+  return ids;
+}
+
+/** Colunas de texto de `pacientes` que vão para as notas do paciente. */
+const COLUNAS_DE_TEXTO = [
+  'Observacoes',
+  'profissao',
+  'naturalidade',
+  'indicacao',
+  'Peso',
+  'Altura',
+];
+const COLUNAS_DO_ENDERECO = [
+  'logradouro',
+  'numero',
+  'complemento',
+  'bairro',
+  'cidade',
+];
+
+/**
+ * Valor que diz algo: tem letra ou dígito diferente de zero. Descarta os
+ * preenchimentos vazios do Feegow — `0`, `0.00`, `0000-00-00`, máscara de
+ * telefone sem número (`(  )     -    `).
+ */
+const temConteudo = (v: string | null | undefined) =>
+  /[\p{L}1-9]/u.test(v ?? '');
+
+/**
+ * Algum dado que a importação levaria para a INEXCI além do nome: cadastro,
+ * notas, endereço ou convênio. Até um CPF inválido conta — mostra que o
+ * registro é de alguém.
+ */
+function temOutroDado(
+  p: LinhaCsv,
+  end: LinhaCsv | undefined,
+  conv: LinhaCsv | undefined,
+): boolean {
+  return (
+    temConteudo(p.cpf) ||
+    !!normalizarData(p.nascimento) ||
+    !!normalizarEmail(p.email) ||
+    telefonesDistintos([p.celular, p.celular_2, p.fixo_1, p.fixo_2]).length >
+      0 ||
+    COLUNAS_DE_TEXTO.some((c) => temConteudo(p[c])) ||
+    TABELAS_DEMOGRAFICAS.some(([campo]) => temConteudo(p[campo])) ||
+    !!normalizarCep(end?.cep) ||
+    !!normalizarUf(end?.estado) ||
+    COLUNAS_DO_ENDERECO.some((c) => temConteudo(end?.[c])) ||
+    !!primeiroConvenio(conv) ||
+    temConteudo(conv?.matricula1)
+  );
 }
 
 function pacientesComAtividade(exp: ExportFeegow): Set<string> {

@@ -5,6 +5,8 @@ import { EntityManager } from 'typeorm';
 import { Document } from 'src/database/entities/document.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { ArmazenamentoImportacao } from '../../core/armazenamento';
+import { Ledger } from '../../core/ledger';
+import { Relatorio } from '../../core/report';
 import { sharp } from 'src/shared/storage/foto-paciente';
 import { LEDGER_FICHA } from '../mappers/clinical-record.mapper';
 import {
@@ -21,7 +23,12 @@ import {
   OWNER,
 } from '../testing/export-sintetico';
 import { planejarCadastro } from './cadastro.phase';
-import { enviarAnexos, gravarAnexos, PlanoAnexos } from './anexos.phase';
+import {
+  descartadosDosAnexos,
+  enviarAnexos,
+  gravarAnexos,
+  PlanoAnexos,
+} from './anexos.phase';
 
 const ARQUIVOS_NO_DISCO = new Set([
   'Arquivos/laudo.pdf',
@@ -149,6 +156,16 @@ describe('planejarAnexos', () => {
     );
   });
 
+  it('nome que sai da pasta do export é rejeitado com o motivo certo', () => {
+    const { ctx, documentos } = planejar({
+      arquivos: [arquivo('1', '10', '../../../etc/passwd.pdf')],
+    });
+    expect(documentos).toHaveLength(0);
+    expect(ctx.relatorio.rejeicoes[0].motivo).toBe(
+      'nome de arquivo inválido, fora da pasta do export (../../../etc/passwd.pdf)',
+    );
+  });
+
   it('foto referenciada vira photoPath; formato não aceito e órfã ficam de fora', () => {
     const { ctx, fotos } = planejar({
       pacientes: [
@@ -208,6 +225,14 @@ describe('enviarAnexos e gravarAnexos', () => {
 
   const plano = (): PlanoAnexos => ({
     ownerId: OWNER,
+    ledger: new Ledger(null, {
+      [LEDGER_DOCUMENTO]: { '1': 'doc-1' },
+      [LEDGER_FOTO]: { '10': 'p-1' },
+    }),
+    relatorio: Object.assign(new Relatorio('anexos'), {
+      aceitos: { anexo: 1, foto: 1 },
+    }),
+    descartados: [],
     documentos: [
       {
         id: 'doc-1',
@@ -282,7 +307,7 @@ describe('enviarAnexos e gravarAnexos', () => {
     const execute = jest.fn().mockResolvedValue(undefined);
     const values = jest.fn().mockReturnValue({ execute, orIgnore: jest.fn() });
     const into = jest.fn().mockReturnValue({ values });
-    const update = jest.fn().mockResolvedValue(undefined);
+    const update = jest.fn().mockResolvedValue({ affected: 1 });
     const manager = {
       createQueryBuilder: () => ({ insert: () => ({ into }) }),
       update,
@@ -301,6 +326,115 @@ describe('enviarAnexos e gravarAnexos', () => {
       expect.objectContaining({ id: 'p-1' }),
       { photoPath: 'patient-photos/x/b.png' },
     );
+  });
+
+  it('foto corrompida é rejeitada no relatório e a fase continua', async () => {
+    writeFileSync(join(pasta, 'quebrada.png'), 'não é png');
+    const armazenamento: ArmazenamentoImportacao = {
+      enviar: jest.fn(async (a) => `${a.pasta}/${a.tenantId}/${a.nome}`),
+      apagar: jest.fn(),
+    };
+    const p = plano();
+    p.fotos[0].arquivo = {
+      caminhoLocal: join(pasta, 'quebrada.png'),
+      nome: 'quebrada.png',
+      contentType: 'image/png',
+    };
+
+    const enviados = await enviarAnexos(p, armazenamento);
+
+    expect(enviados).toEqual([`documents/${OWNER}/a.pdf`]);
+    expect(p.fotos).toEqual([]);
+    expect(p.documentos).toHaveLength(1);
+    expect(p.ledger.resolver(LEDGER_FOTO, '10')).toBeNull();
+    expect(p.ledger.resolver(LEDGER_DOCUMENTO, '1')).toBe('doc-1');
+    expect(p.relatorio.aceitos.foto).toBe(0);
+    expect(p.relatorio.rejeicoes).toEqual([
+      expect.objectContaining({
+        entidade: 'foto',
+        idOrigem: '10',
+        motivo: expect.stringContaining('arquivo ilegível (quebrada.png)'),
+      }),
+    ]);
+    expect(armazenamento.apagar).not.toHaveBeenCalled();
+  });
+
+  it('documento que sumiu do disco é rejeitado sem derrubar as fotos', async () => {
+    const armazenamento: ArmazenamentoImportacao = {
+      enviar: jest.fn(async (a) => `${a.pasta}/${a.tenantId}/${a.nome}`),
+      apagar: jest.fn(),
+    };
+    const p = plano();
+    p.documentos[0].arquivo.caminhoLocal = join(pasta, 'nao-existe.pdf');
+
+    await enviarAnexos(p, armazenamento);
+
+    expect(p.documentos).toEqual([]);
+    expect(p.fotos[0].photoPath).toBe(`patient-photos/${OWNER}/b.webp`);
+    expect(p.ledger.resolver(LEDGER_DOCUMENTO, '1')).toBeNull();
+    expect(p.relatorio.rejeicoes[0]).toMatchObject({
+      entidade: 'anexo',
+      idOrigem: '1',
+    });
+  });
+
+  it('falha de upload espera os envios em andamento antes de apagar', async () => {
+    let terminarLento: () => void = () => undefined;
+    const armazenamento: ArmazenamentoImportacao = {
+      enviar: jest.fn((a) =>
+        a.nome === 'lento.pdf'
+          ? new Promise<string>((r) => {
+              terminarLento = () => r('documents/x/lento.pdf');
+            })
+          : Promise.reject(new Error('R2 fora')),
+      ),
+      apagar: jest.fn(),
+    };
+    const p = plano();
+    p.documentos = [
+      {
+        ...p.documentos[0],
+        id: 'doc-lento',
+        arquivo: { ...p.documentos[0].arquivo, nome: 'lento.pdf' },
+      },
+      { ...p.documentos[0], id: 'doc-falha' },
+    ];
+
+    const envio = enviarAnexos(p, armazenamento);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(armazenamento.apagar).not.toHaveBeenCalled();
+    terminarLento();
+
+    await expect(envio).rejects.toThrow('R2 fora');
+    expect(armazenamento.apagar).toHaveBeenCalledWith([
+      'documents/x/lento.pdf',
+    ]);
+  });
+
+  it('paciente que já tem foto: upload descartado, fora do ledger, com aviso', async () => {
+    const update = jest.fn().mockResolvedValue({ affected: 0 });
+    const manager = {
+      createQueryBuilder: () => ({
+        insert: () => ({
+          into: () => ({
+            values: () => ({ execute: jest.fn(), orIgnore: jest.fn() }),
+          }),
+        }),
+      }),
+      update,
+    } as unknown as EntityManager;
+    const p = plano();
+    p.documentos[0].uri = 'documents/x/a.pdf';
+    p.fotos[0].photoPath = 'patient-photos/x/b.webp';
+
+    await gravarAnexos(p, manager);
+
+    expect(descartadosDosAnexos(p)).toEqual(['patient-photos/x/b.webp']);
+    expect(p.ledger.resolver(LEDGER_FOTO, '10')).toBeNull();
+    expect(p.relatorio.aceitos.foto).toBe(0);
+    expect(p.relatorio.avisos).toEqual([
+      expect.objectContaining({ entidade: 'foto', idOrigem: '10' }),
+    ]);
   });
 
   it('gravar sem upload feito é erro (nunca grava documento sem arquivo)', async () => {

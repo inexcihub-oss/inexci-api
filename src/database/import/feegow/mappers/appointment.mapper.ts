@@ -2,6 +2,7 @@ import {
   AppointmentStatus,
   AppointmentType,
   isActiveAppointmentStatus,
+  OCCUPYING_APPOINTMENT_STATUSES,
 } from 'src/database/entities/appointment.entity';
 import {
   dataHoraCompleta,
@@ -110,7 +111,11 @@ export function planejarSalas(
 export function planejarConsultas(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
-): { consultas: NovaConsulta[]; colisoes: Colisao[] } {
+): {
+  consultas: NovaConsulta[];
+  colisoes: Colisao[];
+  origem: Map<string, { agendamento: string; profissional: string }>;
+} {
   const rel = ctx.relatorio;
   const clinicId = clinicaImportada(exp, ctx);
   const inicioDeHoje = dataHoraSaoPaulo(ctx.hoje)!;
@@ -219,6 +224,7 @@ export function planejarConsultas(
         primeiraVez: a.is_primeira_vez,
         procedimentoId: a.procedimento_id,
         profissionalId: a.profissional_id,
+        convenioId: a.convenio_id,
       }),
       status: status.status,
       scheduledAt: inicio,
@@ -237,7 +243,11 @@ export function planejarConsultas(
     if (futuraAtiva) rel.aceitar('consulta futura (ativa)');
   }
 
-  return { consultas, colisoes: colisoesEntre(consultas, origem) };
+  return {
+    consultas,
+    colisoes: encaixarSobrepostas(consultas, origem),
+    origem,
+  };
 }
 
 export function clinicaImportada(
@@ -248,41 +258,70 @@ export function clinicaImportada(
   return ctx.ledger.resolver(LEDGER_CLINICA, unidade?.id ?? '0');
 }
 
+/** Intervalo já ocupado na agenda de um profissional (consulta existente). */
+export interface HorarioOcupado {
+  doctorId: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+}
+
 /**
- * Sobreposições do mesmo profissional entre consultas que ocupam a agenda e
- * não são encaixe — o que a INEXCI recusaria ao agendar pela tela. Não
- * bloqueia a importação; vai para o relatório.
+ * Sobreposições do mesmo profissional entre consultas que ocupam a agenda
+ * (`OCCUPYING_APPOINTMENT_STATUSES`, realizada inclusive) e não são encaixe.
+ * A INEXCI recusa isso no banco (`EX_appointments_doctor_no_overlap`), mas o
+ * Feegow aceitava: a consulta que chega por último no horário entra como
+ * encaixe — ela de fato foi encaixada — e a colisão vai para o relatório.
+ * `ocupados` são consultas que já estão no banco e não podem ser mexidas.
  */
-function colisoesEntre(
+export function encaixarSobrepostas(
   consultas: NovaConsulta[],
   origem: Map<string, { agendamento: string; profissional: string }>,
+  ocupados: HorarioOcupado[] = [],
 ): Colisao[] {
-  const porMedico = new Map<string, NovaConsulta[]>();
+  type Item = { c: NovaConsulta | null; inicio: number; fim: number };
+  const porMedico = new Map<string, Item[]>();
+  const incluir = (doctorId: string, item: Item) =>
+    porMedico.set(doctorId, [...(porMedico.get(doctorId) ?? []), item]);
+  for (const o of ocupados) {
+    const inicio = o.scheduledAt.getTime();
+    incluir(o.doctorId, {
+      c: null,
+      inicio,
+      fim: inicio + o.durationMinutes * 60_000,
+    });
+  }
   for (const c of consultas) {
-    if (c.isWalkIn || !isActiveAppointmentStatus(c.status)) continue;
-    porMedico.set(c.doctorId, [...(porMedico.get(c.doctorId) ?? []), c]);
+    if (c.isWalkIn || !OCCUPYING_APPOINTMENT_STATUSES.includes(c.status))
+      continue;
+    const inicio = c.scheduledAt.getTime();
+    incluir(c.doctorId, {
+      c,
+      inicio,
+      fim: inicio + c.durationMinutes * 60_000,
+    });
   }
 
   const colisoes: Colisao[] = [];
   for (const [medico, lista] of porMedico) {
-    lista.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
+    // Existentes primeiro no mesmo instante: nunca viram encaixe.
+    lista.sort((a, b) => a.inicio - b.inicio || (a.c ? 1 : 0) - (b.c ? 1 : 0));
     let fimAnterior = 0;
-    let anterior: NovaConsulta | null = null;
-    for (const c of lista) {
-      const inicio = c.scheduledAt.getTime();
-      if (anterior && inicio < fimAnterior) {
+    let anterior: Item | null = null;
+    for (const item of lista) {
+      if (anterior && item.inicio < fimAnterior && item.c) {
+        item.c.isWalkIn = true;
         colisoes.push({
-          profissional: origem.get(c.id)?.profissional ?? medico,
-          inicio: c.scheduledAt.toISOString(),
-          agendamentos: [anterior.id, c.id].map(
-            (id) => origem.get(id)?.agendamento ?? id,
+          profissional: origem.get(item.c.id)?.profissional ?? medico,
+          inicio: item.c.scheduledAt.toISOString(),
+          agendamentos: [anterior.c?.id ?? null, item.c.id].map((id) =>
+            id ? (origem.get(id)?.agendamento ?? id) : 'já na INEXCI',
           ),
         });
+        continue; // encaixe não ocupa: não estende o horário ocupado
       }
-      const fim = inicio + c.durationMinutes * 60_000;
-      if (fim > fimAnterior) {
-        fimAnterior = fim;
-        anterior = c;
+      if (item.fim > fimAnterior) {
+        fimAnterior = item.fim;
+        anterior = item;
       }
     }
   }
