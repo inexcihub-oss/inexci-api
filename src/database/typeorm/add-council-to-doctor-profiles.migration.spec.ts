@@ -7,11 +7,18 @@ import { AddCouncilToDoctorProfiles1755800200000 } from './migrations/1755800200
  */
 describe('AddCouncilToDoctorProfiles1755800200000', () => {
   const SQL_SEM_REGISTRO = 'dp."crm" IS NULL OR dp."crm_state" IS NULL';
+  const SQL_OUTRO_CONSELHO = `dp."council" IS DISTINCT FROM 'CRM'`;
 
-  function criarQueryRunner(semRegistro: { council: string; ids: string }[]) {
-    const query = jest.fn((sql: string) =>
-      Promise.resolve(sql.includes(SQL_SEM_REGISTRO) ? semRegistro : undefined),
-    );
+  type Linha = { council: string; ids: string };
+
+  function criarQueryRunner(semRegistro: Linha[], outroConselho: Linha[] = []) {
+    const query = jest.fn((sql: string) => {
+      if (sql.includes(SQL_SEM_REGISTRO)) return Promise.resolve(semRegistro);
+      if (sql.includes(SQL_OUTRO_CONSELHO)) {
+        return Promise.resolve(outroConselho);
+      }
+      return Promise.resolve(undefined);
+    });
     return { queryRunner: { query } as unknown as QueryRunner, query };
   }
 
@@ -42,7 +49,37 @@ describe('AddCouncilToDoctorProfiles1755800200000', () => {
     );
   });
 
-  it('down reverte quando todo perfil tem número e UF', async () => {
+  it('down aborta quando há perfil de outro conselho, mesmo com número e UF', async () => {
+    // Sem `council`, todo perfil volta a ser médico: o psicólogo com CRP
+    // preenchido passaria a emitir receita.
+    const { queryRunner, query } = criarQueryRunner(
+      [],
+      [{ council: 'CRP', ids: 'user-psi' }],
+    );
+
+    await expect(
+      new AddCouncilToDoctorProfiles1755800200000().down(queryRunner),
+    ).rejects.toThrow(/CRP[\s\S]*user-psi/);
+    const sql = executadas(query);
+    expect(sql.some((s) => s.includes('SET NOT NULL'))).toBe(false);
+    expect(sql.some((s) => s.includes('DROP COLUMN'))).toBe(false);
+  });
+
+  it('down lista os dois tipos de conflito de uma vez', async () => {
+    const { queryRunner } = criarQueryRunner(
+      [{ council: 'CRN', ids: 'user-sem-numero' }],
+      [{ council: 'CRN', ids: 'user-nutri' }],
+    );
+
+    const erro = await new AddCouncilToDoctorProfiles1755800200000()
+      .down(queryRunner)
+      .catch((e: Error) => e);
+
+    expect(String(erro)).toMatch(/user-sem-numero/);
+    expect(String(erro)).toMatch(/user-nutri/);
+  });
+
+  it('down reverte quando todo perfil é CRM com número e UF', async () => {
     const { queryRunner, query } = criarQueryRunner([]);
 
     await new AddCouncilToDoctorProfiles1755800200000().down(queryRunner);

@@ -44,11 +44,20 @@ export class ClinicRoom {
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
 
+  // Nomes de constraint explícitos: são os que as migrations criaram
+  // (1755800300000 + renomeação em 1755800800000). Sem eles o TypeORM gera um
+  // nome por hash e o `migration:generate` sai derrubando e recriando as FKs.
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'owner_id' })
+  @JoinColumn({
+    name: 'owner_id',
+    foreignKeyConstraintName: 'FK_clinic_rooms_owner',
+  })
   owner: User;
 
   @ManyToOne(() => Clinic, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'clinic_id' })
+  @JoinColumn({
+    name: 'clinic_id',
+    foreignKeyConstraintName: 'FK_clinic_rooms_clinic',
+  })
   clinic: Clinic;
 }

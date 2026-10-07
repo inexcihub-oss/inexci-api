@@ -85,4 +85,31 @@ describe('FindAppointmentsDto', () => {
       );
     });
   });
+  describe('listas por parâmetro repetido (fail-closed)', () => {
+    const A = '11111111-1111-4111-8111-111111111111';
+    const B = '22222222-2222-4222-8222-222222222222';
+
+    it('aceita status repetido (`status=a&status=b`, que chega como array)', () => {
+      const dto = transform({ status: ['scheduled', 'confirmed'] });
+
+      expect(dto.status).toEqual([
+        AppointmentStatus.SCHEDULED,
+        AppointmentStatus.CONFIRMED,
+      ]);
+      expect(validateSync(dto)).toHaveLength(0);
+    });
+
+    it('aceita doctorIds repetido e misturado com vírgula', () => {
+      const dto = transform({ doctorIds: [A, ` ${B},`] });
+
+      expect(dto.doctorIds).toEqual([A, B]);
+      expect(validateSync(dto)).toHaveLength(0);
+    });
+
+    it('array com valor inválido é recusado, não ignorado', () => {
+      const dto = transform({ status: ['scheduled', 'inventado'] });
+
+      expect(validateSync(dto)).not.toHaveLength(0);
+    });
+  });
 });

@@ -6,7 +6,10 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { User } from './user.entity';
 
 /**
  * Feriado da conta (MIG-05). `recurring` repete todo ano no mesmo dia/mês;
@@ -42,4 +45,13 @@ export class Holiday {
 
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
+
+  // Nome explícito: o que as migrations criaram (1755800700000 + renomeação
+  // em 1755800800000), para o `migration:generate` não recriar a FK.
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({
+    name: 'owner_id',
+    foreignKeyConstraintName: 'FK_holidays_owner',
+  })
+  owner: User;
 }

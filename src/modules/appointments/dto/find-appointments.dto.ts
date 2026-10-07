@@ -18,6 +18,25 @@ import { AppointmentStatus } from 'src/database/entities/appointment.entity';
  */
 export const APPOINTMENTS_MAX_TAKE = 1000;
 
+/**
+ * Lista vinda da query string. Aceita os dois formatos que chegam do
+ * cliente: separado por vírgula (`status=a,b`) e parâmetro repetido
+ * (`status=a&status=b`, que o parser entrega como array) — ou os dois
+ * misturados. Devolver `undefined` para o array fazia o filtro ser ignorado
+ * em silêncio e a lista voltar inteira (fail-open). Valor que não é texto
+ * nem lista passa adiante para a validação recusar.
+ */
+export function listaDaQuery(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return undefined;
+  const partes = Array.isArray(value) ? value : [value];
+  if (!partes.every((parte) => typeof parte === 'string')) return value;
+  const itens = (partes as string[])
+    .flatMap((parte) => parte.split(','))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return itens.length > 0 ? itens : undefined;
+}
+
 /** Intervalo visível da agenda de consultas. */
 export class FindAppointmentsDto {
   /**
@@ -41,13 +60,11 @@ export class FindAppointmentsDto {
   @IsUUID()
   doctorId?: string;
 
-  /** Vários médicos, separados por vírgula: `doctorIds=a,b` (filtro do hub). */
+  /**
+   * Vários médicos: `doctorIds=a,b` ou `doctorIds=a&doctorIds=b` (filtro do hub).
+   */
   @IsOptional()
-  @Transform(({ value }) =>
-    typeof value === 'string' && value.length > 0
-      ? value.split(',').map((item) => item.trim())
-      : undefined,
-  )
+  @Transform(({ value }) => listaDaQuery(value))
   @IsUUID('all', { each: true })
   doctorIds?: string[];
 
@@ -72,13 +89,9 @@ export class FindAppointmentsDto {
   @IsBoolean()
   withDoctorCounts?: boolean;
 
-  /** Status aceitos, separados por vírgula: `status=scheduled,confirmed`. */
+  /** Status aceitos: `status=scheduled,confirmed` ou o parâmetro repetido. */
   @IsOptional()
-  @Transform(({ value }) =>
-    typeof value === 'string' && value.length > 0
-      ? value.split(',').map((item) => item.trim())
-      : undefined,
-  )
+  @Transform(({ value }) => listaDaQuery(value))
   @IsEnum(AppointmentStatus, { each: true })
   status?: AppointmentStatus[];
 

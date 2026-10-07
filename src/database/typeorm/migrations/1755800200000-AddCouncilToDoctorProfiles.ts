@@ -2,6 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // Import relativo de propósito: as migrations rodam pelo CLI do TypeORM,
 // carregadas por glob e fora do contexto do Nest.
 import {
+  PERFIL_DE_OUTRO_CONSELHO,
   PERFIL_SEM_REGISTRO,
   montarDiagnostico,
   verificar,
@@ -35,13 +36,22 @@ export class AddCouncilToDoctorProfiles1755800200000 implements MigrationInterfa
     );
   }
 
-  /** Reverter aperta o schema: aborta listando quem está sem número/UF. */
+  /**
+   * Reverter aperta o schema e apaga o conselho: aborta listando quem está
+   * sem número/UF e quem não é CRM (sem `council`, todo perfil vira médico).
+   */
   public async down(queryRunner: QueryRunner): Promise<void> {
-    const conflitos = await verificar(PERFIL_SEM_REGISTRO, (sql) =>
-      queryRunner.query(sql),
-    );
-    if (conflitos.length > 0) {
-      throw new Error(montarDiagnostico(PERFIL_SEM_REGISTRO, conflitos));
+    const diagnosticos: string[] = [];
+    for (const verificacao of [PERFIL_SEM_REGISTRO, PERFIL_DE_OUTRO_CONSELHO]) {
+      const conflitos = await verificar(verificacao, (sql) =>
+        queryRunner.query(sql),
+      );
+      if (conflitos.length > 0) {
+        diagnosticos.push(montarDiagnostico(verificacao, conflitos));
+      }
+    }
+    if (diagnosticos.length > 0) {
+      throw new Error(diagnosticos.join('\n\n'));
     }
 
     await queryRunner.query(

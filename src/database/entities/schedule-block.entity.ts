@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  Check,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Clinic } from './clinic.entity';
@@ -19,6 +20,9 @@ import { Clinic } from './clinic.entity';
  */
 @Entity('schedule_blocks')
 @Index('idx_schedule_blocks_doctor_range', ['doctorId', 'startsAt', 'endsAt'])
+@Index('idx_schedule_blocks_owner_range', ['ownerId', 'startsAt'])
+@Index('idx_schedule_blocks_created_by_id', ['createdById'])
+@Check('CHK_schedule_blocks_range', '"starts_at" < "ends_at"')
 export class ScheduleBlock {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -56,11 +60,34 @@ export class ScheduleBlock {
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 
+  // Nomes de constraint explícitos: são os que as migrations criaram
+  // (1755800700000 + renomeação em 1755800800000). Sem eles o TypeORM gera um
+  // nome por hash e o `migration:generate` sai derrubando e recriando as FKs.
+  @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
+  @JoinColumn({
+    name: 'owner_id',
+    foreignKeyConstraintName: 'FK_schedule_blocks_owner',
+  })
+  owner: User;
+
   @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'doctor_id' })
+  @JoinColumn({
+    name: 'doctor_id',
+    foreignKeyConstraintName: 'FK_schedule_blocks_doctor',
+  })
   doctor: User | null;
 
   @ManyToOne(() => Clinic, { nullable: true, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'clinic_id' })
+  @JoinColumn({
+    name: 'clinic_id',
+    foreignKeyConstraintName: 'FK_schedule_blocks_clinic',
+  })
   clinic: Clinic | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({
+    name: 'created_by_id',
+    foreignKeyConstraintName: 'FK_schedule_blocks_created_by',
+  })
+  createdBy: User | null;
 }

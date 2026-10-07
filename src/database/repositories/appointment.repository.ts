@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { Appointment, AppointmentStatus } from '../entities/appointment.entity';
+import {
+  Appointment,
+  AppointmentStatus,
+  OCCUPYING_APPOINTMENT_STATUSES,
+} from '../entities/appointment.entity';
 import { BaseRepository } from './base.repository';
 
 /** Recorte da agenda. Cada ponta da janela é opcional (lista aberta). */
@@ -304,10 +308,8 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
    * o horário cujo intervalo [scheduled_at, scheduled_at + duração) sobrepõe
    * [start, end). `excludeId` ignora a própria consulta ao reagendar.
    *
-   * Cancelada e falta não ocupam: se o paciente das 10h não veio, a recepção
-   * usa o horário sem precisar marcar encaixe. É o mesmo critério de
-   * `AppointmentsService.isActiveStatus`, que já não contava a falta ao
-   * reativar uma consulta. Realizada continua contando: o horário foi usado.
+   * O que ocupa é `OCCUPYING_APPOINTMENT_STATUSES` (em aberto + realizada) —
+   * não `isActiveAppointmentStatus`, que deixa a realizada de fora.
    */
   async hasOverlap(
     doctorId: string,
@@ -318,8 +320,8 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     const qb = this.repository
       .createQueryBuilder('appointment')
       .where('appointment.doctorId = :doctorId', { doctorId })
-      .andWhere('appointment.status NOT IN (:...livres)', {
-        livres: [AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW],
+      .andWhere('appointment.status IN (:...ocupam)', {
+        ocupam: OCCUPYING_APPOINTMENT_STATUSES,
       })
       .andWhere('appointment.scheduledAt < :end', { end })
       .andWhere(
@@ -349,8 +351,8 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
         'appointment.durationMinutes',
       ])
       .where('appointment.doctorId = :doctorId', { doctorId })
-      .andWhere('appointment.status NOT IN (:...livres)', {
-        livres: [AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW],
+      .andWhere('appointment.status IN (:...ocupam)', {
+        ocupam: OCCUPYING_APPOINTMENT_STATUSES,
       })
       .andWhere('appointment.scheduledAt < :to', { to })
       .andWhere(

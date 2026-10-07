@@ -268,6 +268,7 @@ describe('AppointmentsService', () => {
         id: 'appt-1',
         ownerId,
         doctorId,
+        status: AppointmentStatus.SCHEDULED,
         scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
         durationMinutes: 30,
       });
@@ -480,6 +481,7 @@ describe('AppointmentsService', () => {
       expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
         status: AppointmentStatus.SCHEDULED,
         cancellationReason: null,
+        reminderSentAt: null,
       });
     });
 
@@ -803,6 +805,27 @@ describe('AppointmentsService', () => {
       await expect(
         service.create({ ...baseCreate, clinicId: 'clinic-1' }, userId),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('no update, clínica de outra conta dá 404 antes da checagem de bloqueio', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'appt-1',
+        ownerId,
+        doctorId,
+        clinicId: null,
+        scheduledAt: new Date('2026-08-01T14:00:00.000Z'),
+        durationMinutes: 30,
+        status: AppointmentStatus.SCHEDULED,
+      });
+      mockClinicRepository.findOne.mockResolvedValue({
+        id: 'clinic-x',
+        ownerId: 'outro-owner',
+      });
+
+      await expect(
+        service.update('appt-1', { clinicId: 'clinic-x' }, userId),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(mockAvailabilityService.assertNaoBloqueado).not.toHaveBeenCalled();
     });
 
     it('desvincula quando o update manda clinicId null', async () => {
@@ -1600,6 +1623,54 @@ describe('AppointmentsService', () => {
       expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
     });
 
+    it('a grade é avaliada na clínica da consulta (null sem clínica)', async () => {
+      await service.create(
+        { ...baseCreate, clinicId: 'clinic-1' } as any,
+        userId,
+      );
+      expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
+        doctorId,
+        new Date('2026-08-01T14:00:00.000Z'),
+        new Date('2026-08-01T14:30:00.000Z'),
+        'clinic-1',
+      );
+
+      await service.create(baseCreate as any, userId);
+      expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
+        doctorId,
+        expect.any(Date),
+        expect.any(Date),
+        null,
+      );
+    });
+
+    it('remarcar avalia a grade na clínica atual; trocar de clínica, na nova', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
+      await service.update(
+        'appt-9',
+        { scheduledAt: '2026-08-02T14:00:00.000Z' } as any,
+        userId,
+      );
+      expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
+        doctorId,
+        new Date('2026-08-02T14:00:00.000Z'),
+        new Date('2026-08-02T14:30:00.000Z'),
+        'clinic-1',
+      );
+
+      mockClinicRepository.findOne.mockResolvedValue({
+        id: 'clinic-2',
+        ownerId,
+      });
+      await service.update('appt-9', { clinicId: 'clinic-2' } as any, userId);
+      expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
+        doctorId,
+        existente.scheduledAt,
+        expect.any(Date),
+        'clinic-2',
+      );
+    });
+
     it('editar só as observações não consulta bloqueio nem grade', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
       await service.update('appt-9', { notes: 'trazer exames' } as any, userId);
@@ -1626,6 +1697,340 @@ describe('AppointmentsService', () => {
         userId,
       );
       expect(mockAvailabilityService.assertNaoBloqueado).not.toHaveBeenCalled();
+    });
+  });
+  describe('revisão: ocupação, reativação e ficha finalizada', () => {
+    const futuro = new Date(Date.now() + 3 * 24 * 60 * 60_000);
+    const consulta = (extra: Record<string, unknown> = {}) => ({
+      id: 'appt-1',
+      ownerId,
+      doctorId,
+      patientId,
+      clinicId: null,
+      isWalkIn: false,
+      status: AppointmentStatus.SCHEDULED,
+      scheduledAt: futuro,
+      durationMinutes: 30,
+      reminderSentAt: null,
+      ...extra,
+    });
+
+    describe('updateStatus', () => {
+      // Realizada ocupa o horário (OCCUPYING_APPOINTMENT_STATUSES): voltar de
+      // cancelada direto para realizada também disputa o slot.
+      it('cancelada → realizada revalida conflito e bloqueio', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ status: AppointmentStatus.CANCELLED }),
+        );
+        mockAppointmentRepository.hasOverlap.mockResolvedValue(true);
+
+        await expect(
+          service.updateStatus(
+            'appt-1',
+            { status: AppointmentStatus.COMPLETED },
+            userId,
+          ),
+        ).rejects.toThrow(ConflictException);
+        expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('falta → realizada consulta o bloqueio do dia', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ status: AppointmentStatus.NO_SHOW }),
+        );
+
+        await service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.COMPLETED },
+          userId,
+        );
+
+        expect(mockAppointmentRepository.hasOverlap).toHaveBeenCalled();
+        expect(mockAvailabilityService.assertNaoBloqueado).toHaveBeenCalled();
+        // Realizada não é reativação para o paciente: sem aviso nem reset.
+        expect(
+          mockWhatsappService.sendAppointmentScheduled,
+        ).not.toHaveBeenCalled();
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.not.objectContaining({ reminderSentAt: null }),
+        );
+      });
+
+      it.each([
+        AppointmentStatus.CANCELLED,
+        AppointmentStatus.NO_SHOW,
+        AppointmentStatus.SCHEDULED,
+      ])(
+        'realizada com ficha finalizada não pode virar %s (409)',
+        async (para) => {
+          mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+            consulta({ status: AppointmentStatus.COMPLETED }),
+          );
+          mockClinicalRecordRepository.findOne.mockResolvedValue({
+            id: 'rec-1',
+            finalizedAt: new Date(),
+          });
+
+          await expect(
+            service.updateStatus('appt-1', { status: para }, userId),
+          ).rejects.toThrow(ConflictException);
+          expect(mockClinicalRecordRepository.findOne).toHaveBeenCalledWith({
+            appointmentId: 'appt-1',
+          });
+          expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+        },
+      );
+
+      it('realizada com ficha em rascunho pode voltar a ficar em aberto', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ status: AppointmentStatus.COMPLETED }),
+        );
+        mockClinicalRecordRepository.findOne.mockResolvedValue({
+          id: 'rec-1',
+          finalizedAt: null,
+        });
+
+        await service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.SCHEDULED },
+          userId,
+        );
+
+        expect(mockAppointmentRepository.update).toHaveBeenCalled();
+      });
+
+      it('marcar como realizada sem ficha continua permitido', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta(),
+        );
+
+        await service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.COMPLETED },
+          userId,
+        );
+
+        expect(mockClinicalRecordRepository.findOne).not.toHaveBeenCalled();
+        expect(mockAppointmentRepository.update).toHaveBeenCalled();
+      });
+
+      it('reativar (cancelada → confirmada) zera o lembrete e avisa o paciente', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({
+            status: AppointmentStatus.CANCELLED,
+            reminderSentAt: new Date(),
+          }),
+        );
+        mockPatientRepository.findOne.mockResolvedValue({
+          id: patientId,
+          ownerId,
+          name: 'Ana',
+          phone: '21999990000',
+        });
+
+        await service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.CONFIRMED },
+          userId,
+        );
+
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.objectContaining({ reminderSentAt: null }),
+        );
+        expect(
+          mockWhatsappService.sendAppointmentScheduled,
+        ).toHaveBeenCalledWith(
+          '21999990000',
+          expect.objectContaining({ patientName: 'Ana' }),
+        );
+      });
+
+      it('reativar consulta no passado não avisa o paciente', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({
+            status: AppointmentStatus.CANCELLED,
+            scheduledAt: new Date('2020-01-01T10:00:00.000Z'),
+          }),
+        );
+        mockPatientRepository.findOne.mockResolvedValue({
+          id: patientId,
+          ownerId,
+          name: 'Ana',
+          phone: '21999990000',
+        });
+
+        await service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.SCHEDULED },
+          userId,
+        );
+
+        expect(
+          mockWhatsappService.sendAppointmentScheduled,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('transição entre status em aberto não reavisa nem zera o lembrete', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ reminderSentAt: new Date() }),
+        );
+
+        await service.updateStatus(
+          'appt-1',
+          { status: AppointmentStatus.CONFIRMED },
+          userId,
+        );
+
+        expect(
+          mockWhatsappService.sendAppointmentScheduled,
+        ).not.toHaveBeenCalled();
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.not.objectContaining({ reminderSentAt: null }),
+        );
+      });
+
+      it('violação da exclusion constraint (23P01) vira a mesma 409', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ status: AppointmentStatus.CANCELLED }),
+        );
+        mockAppointmentRepository.update.mockRejectedValue(
+          Object.assign(new Error('conflicting key value'), {
+            driverError: { code: '23P01' },
+          }),
+        );
+
+        await expect(
+          service.updateStatus(
+            'appt-1',
+            { status: AppointmentStatus.SCHEDULED },
+            userId,
+          ),
+        ).rejects.toThrow(
+          new ConflictException(
+            'Já existe uma consulta para este médico neste horário.',
+          ),
+        );
+      });
+    });
+
+    describe('update', () => {
+      it.each([AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW])(
+        'remarcar consulta %s não checa conflito/bloqueio nem avisa o paciente',
+        async (status) => {
+          mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+            consulta({ status }),
+          );
+          mockPatientRepository.findOne.mockResolvedValue({
+            id: patientId,
+            ownerId,
+            name: 'Ana',
+            phone: '21999990000',
+          });
+
+          await service.update(
+            'appt-1',
+            {
+              scheduledAt: new Date(futuro.getTime() + 3_600_000).toISOString(),
+            },
+            userId,
+          );
+
+          expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
+          expect(
+            mockAvailabilityService.assertNaoBloqueado,
+          ).not.toHaveBeenCalled();
+          expect(
+            mockWhatsappService.sendAppointmentScheduled,
+          ).not.toHaveBeenCalled();
+        },
+      );
+
+      // Realizada continua ocupando o horário: mexer nela ainda disputa o slot
+      // (o banco recusaria pela constraint), mas não é aviso de agendamento.
+      it('remarcar consulta realizada checa conflito mas não avisa o paciente', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ status: AppointmentStatus.COMPLETED }),
+        );
+        mockPatientRepository.findOne.mockResolvedValue({
+          id: patientId,
+          ownerId,
+          name: 'Ana',
+          phone: '21999990000',
+        });
+
+        await service.update(
+          'appt-1',
+          { scheduledAt: new Date(futuro.getTime() + 3_600_000).toISOString() },
+          userId,
+        );
+
+        expect(mockAppointmentRepository.hasOverlap).toHaveBeenCalled();
+        expect(mockAvailabilityService.assertNaoBloqueado).toHaveBeenCalled();
+        expect(
+          mockWhatsappService.sendAppointmentScheduled,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('reenviar a mesma clínica sem sala não derruba a sala', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta({ clinicId: 'clinic-1', roomId: 'room-1' }),
+        );
+
+        await service.update('appt-1', { clinicId: 'clinic-1' }, userId);
+
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.not.objectContaining({ roomId: null }),
+        );
+      });
+
+      it('violação da exclusion constraint (23P01) no update vira 409', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta(),
+        );
+        mockAppointmentRepository.update.mockRejectedValue(
+          Object.assign(new Error('exclusion'), { code: '23P01' }),
+        );
+
+        await expect(
+          service.update('appt-1', { durationMinutes: 60 }, userId),
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('outros erros do banco passam adiante', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          consulta(),
+        );
+        mockAppointmentRepository.update.mockRejectedValue(
+          Object.assign(new Error('boom'), { code: '23505' }),
+        );
+
+        await expect(
+          service.update('appt-1', { durationMinutes: 60 }, userId),
+        ).rejects.toThrow('boom');
+      });
+    });
+
+    it('create: corrida perdida para a constraint (23P01) vira 409', async () => {
+      mockAppointmentRepository.create.mockRejectedValue(
+        Object.assign(new Error('exclusion'), {
+          driverError: { code: '23P01' },
+        }),
+      );
+
+      await expect(service.create(baseCreate, userId)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('comentário só com espaços → 400, sem gravar', async () => {
+      await expect(service.addComment('appt-1', '   ', userId)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockActivityRepository.create).not.toHaveBeenCalled();
     });
   });
 });

@@ -592,13 +592,15 @@ describe('AppointmentRepository.hasOverlap', () => {
 
   // MIG-03: falta não segura o horário — a recepção usa o horário vago sem
   // precisar marcar encaixe.
-  it('não conta cancelada nem falta como horário ocupado', async () => {
+  it('realizada ocupa o horário; cancelada e falta não', async () => {
     await repo.hasOverlap('d-1', new Date(), new Date());
 
-    expect(qb.andWhere).toHaveBeenCalledWith(
-      'appointment.status NOT IN (:...livres)',
-      { livres: ['cancelled', 'no_show'] },
+    const [, { ocupam }] = qb.andWhere.mock.calls.find(
+      ([sql]: [string]) => sql === 'appointment.status IN (:...ocupam)',
     );
+    expect(ocupam).toContain('completed');
+    expect(ocupam).not.toContain('cancelled');
+    expect(ocupam).not.toContain('no_show');
   });
 
   it('ignora a própria consulta ao reagendar', async () => {

@@ -63,12 +63,21 @@ export class ClinicalDocumentTemplate {
   deletedAt: Date | null;
 
   // ============ RELAÇÕES ============
+  // Nomes de constraint explícitos: são os que as migrations criaram
+  // (1755800600000 + renomeação em 1755800800000). Sem eles o TypeORM gera um
+  // nome por hash e o `migration:generate` sai derrubando e recriando as FKs.
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'owner_id' })
+  @JoinColumn({
+    name: 'owner_id',
+    foreignKeyConstraintName: 'FK_clinical_document_templates_owner',
+  })
   owner: User;
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'doctor_id' })
+  @JoinColumn({
+    name: 'doctor_id',
+    foreignKeyConstraintName: 'FK_clinical_document_templates_doctor',
+  })
   doctor: User;
 }
