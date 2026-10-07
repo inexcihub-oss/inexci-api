@@ -77,6 +77,7 @@ export class SurgicalIndicationService {
             createdById: record.doctorId,
             patientId: record.patientId,
             cidCode: record.cidCodes?.[0]?.code ?? null,
+            procedureId: record.procedureId ?? null,
           });
 
         // Escrita direta pelo manager, não via ClinicalRecordsService.update:

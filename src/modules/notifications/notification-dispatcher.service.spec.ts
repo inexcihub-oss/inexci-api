@@ -158,4 +158,55 @@ describe('NotificationDispatcherService', () => {
 
     expect(mockNotificationRepository.create).toHaveBeenCalledTimes(3);
   });
+  describe('menções', () => {
+    it('devolve a notificação criada para quem chamou', async () => {
+      mockNotificationRepository.create.mockResolvedValue({
+        id: 'notif-1',
+        createdAt: new Date(),
+      });
+
+      const result = await service.dispatch({
+        userId: 'user-1',
+        type: NotificationType.MENTION,
+        title: 'Dra. Ana mencionou você',
+        message: '"confere o laudo, por favor"',
+        link: '/solicitacao/sc-1?sidebar=atividades',
+      });
+
+      expect(result).toMatchObject({ id: 'notif-1' });
+    });
+
+    it('devolve null quando o push está desligado', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: false,
+      });
+
+      const result = await service.dispatch({
+        userId: 'user-1',
+        type: NotificationType.MENTION,
+        title: 'Dra. Ana mencionou você',
+        message: 'oi',
+      });
+
+      expect(result).toBeNull();
+      expect(mockNotificationRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('não deixa o toggle de e-mail de menções desligar a notificação in-app', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue({
+        pushNotifications: true,
+        mentionEmails: false,
+      });
+      mockNotificationRepository.create.mockResolvedValue({ id: 'notif-2' });
+
+      const result = await service.dispatch({
+        userId: 'user-1',
+        type: NotificationType.MENTION,
+        title: 'Dra. Ana mencionou você',
+        message: 'oi',
+      });
+
+      expect(result).toMatchObject({ id: 'notif-2' });
+    });
+  });
 });

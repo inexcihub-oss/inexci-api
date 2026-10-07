@@ -1,5 +1,8 @@
 import { SurgeryRequestRepository } from './surgery-request.repository';
-import { SurgeryRequest } from '../entities/surgery-request.entity';
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from '../entities/surgery-request.entity';
 import { OpmeItem } from '../entities/opme-item.entity';
 import { SurgeryRequestTussItem } from '../entities/surgery-request-tuss-item.entity';
 import { Document } from '../entities/document.entity';
@@ -150,6 +153,69 @@ describe('SurgeryRequestRepository.findOne', () => {
         Document.name,
         Contestation.name,
       ]),
+    );
+  });
+});
+
+/**
+ * `statusChangedAt` permite backdatar a transição (ex.: "Confirmar com
+ * documento de origem" perguntando a data real de envio). O valor precisa
+ * chegar tanto em `lastStatusChangedAt` (kanban/estagnação/resumo semanal)
+ * quanto no `createdAt` da atividade — senão a timeline de Atividades mostra
+ * "agora" enquanto o kanban já mostra dias parado.
+ */
+describe('SurgeryRequestRepository.recordStatusChange', () => {
+  function buildFakeManager() {
+    const surgeryRequestRepo = { update: jest.fn().mockResolvedValue({}) };
+    const activityRepo = { save: jest.fn().mockResolvedValue({}) };
+    const manager = {
+      getRepository: jest.fn((entity: { name: string }) => {
+        if (entity.name === 'SurgeryRequest') return surgeryRequestRepo;
+        if (entity.name === 'SurgeryRequestActivity') return activityRepo;
+        throw new Error(`Entidade inesperada: ${entity.name}`);
+      }),
+    };
+    return { manager, surgeryRequestRepo, activityRepo };
+  }
+
+  it('usa a data informada tanto para lastStatusChangedAt quanto para o createdAt da atividade', async () => {
+    const repository = new SurgeryRequestRepository({} as any, {} as any);
+    const { manager, surgeryRequestRepo, activityRepo } = buildFakeManager();
+    const changedAt = new Date('2026-01-10T12:00:00Z');
+
+    await repository.recordStatusChange(
+      manager as any,
+      'sr-1',
+      SurgeryRequestStatus.PENDING,
+      SurgeryRequestStatus.SENT,
+      'user-1',
+      changedAt,
+    );
+
+    expect(surgeryRequestRepo.update).toHaveBeenCalledWith('sr-1', {
+      lastStatusChangedAt: changedAt,
+    });
+    expect(activityRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ createdAt: changedAt }),
+    );
+  });
+
+  it('usa "agora" para os dois quando nenhuma data é informada (comportamento padrão)', async () => {
+    const repository = new SurgeryRequestRepository({} as any, {} as any);
+    const { manager, surgeryRequestRepo, activityRepo } = buildFakeManager();
+
+    await repository.recordStatusChange(
+      manager as any,
+      'sr-1',
+      SurgeryRequestStatus.PENDING,
+      SurgeryRequestStatus.SENT,
+      'user-1',
+    );
+
+    const [, updatePayload] = surgeryRequestRepo.update.mock.calls[0];
+    const [activitySavePayload] = activityRepo.save.mock.calls[0];
+    expect(activitySavePayload.createdAt).toEqual(
+      updatePayload.lastStatusChangedAt,
     );
   });
 });

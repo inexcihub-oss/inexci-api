@@ -353,12 +353,13 @@ export class MailService {
       preferencesUrl?: string;
     },
   ) {
-    return this.send(
-      'welcome-doctor',
-      to,
-      'Bem-vindo ao Inexci, Dr(a)!',
-      context,
-    );
+    return this.send('welcome-doctor', to, 'Bem-vindo ao Inexci, Dr(a)!', {
+      ...context,
+      // O hash `title` do `_layout` não interpola mustache entre aspas — o
+      // valor entre aspas é literal e `{{doctorName}}` chegava cru ao
+      // cabeçalho. Título dinâmico é montado aqui; o template só repassa.
+      title: `Bem-vindo ao Inexci, Dr(a). ${context.doctorName}!`,
+    });
   }
 
   /**
@@ -459,6 +460,8 @@ export class MailService {
       userName?: string;
       title?: string;
       message: string;
+      /** Linha de referência em destaque, antes da mensagem (ex.: qual SC). */
+      context?: string;
       link?: string;
       linkText?: string;
       preferencesUrl?: string;

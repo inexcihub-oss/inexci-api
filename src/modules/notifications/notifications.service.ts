@@ -50,6 +50,7 @@ export class NotificationsService {
         pendencies: true,
         expiringDocuments: true,
         weeklyReport: false,
+        mentionEmails: true,
       });
     }
 

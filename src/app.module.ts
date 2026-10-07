@@ -176,6 +176,10 @@ import { ObservabilityModule } from './shared/observability/observability.module
       name: 'document-extraction',
       adapter: BullAdapter,
     }),
+    BullBoardModule.forFeature({
+      name: 'mention-emails',
+      adapter: BullAdapter,
+    }),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     CronModule,

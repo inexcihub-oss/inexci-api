@@ -21,6 +21,7 @@ export interface CreatePendingFromIndicationParams {
   createdById: string;
   patientId: string;
   cidCode?: string | null;
+  procedureId?: string | null;
 }
 
 /**
@@ -49,6 +50,7 @@ export class SurgeryRequestFromIndicationService {
       isIndication: false,
       priority: SurgeryRequestPriority.MEDIUM,
       cidCode: params.cidCode?.slice(0, MAX_CID_CODE_LENGTH) || null,
+      procedureId: params.procedureId ?? null,
       lastStatusChangedAt: new Date(),
     });
 

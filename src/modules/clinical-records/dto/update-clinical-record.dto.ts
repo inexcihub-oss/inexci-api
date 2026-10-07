@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsOptional,
   IsString,
+  IsUUID,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -36,4 +37,12 @@ export class UpdateClinicalRecordDto {
   @IsOptional()
   @IsBoolean()
   surgicalIndication?: boolean;
+
+  /**
+   * Procedimento escolhido (ou criado) para a SC que nasce da indicação.
+   * `null` limpa a escolha.
+   */
+  @IsOptional()
+  @IsUUID()
+  procedureId?: string | null;
 }

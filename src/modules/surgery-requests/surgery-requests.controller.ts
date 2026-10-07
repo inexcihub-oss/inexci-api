@@ -114,13 +114,21 @@ export class SurgeryRequestsController {
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: AuthenticatedUser,
     @Body('notifyOnCompletion') notifyOnCompletion?: string,
+    @Body('surgeryRequestId') surgeryRequestId?: string,
   ): Promise<ExtractFromDocumentQueuedResponseDto> {
-    if (notifyOnCompletion === 'false') {
-      return this.documentExtractionJobsService.enqueue(file, user.userId, {
-        notifyOnCompletion: false,
-      });
+    const options: { notifyOnCompletion?: boolean; surgeryRequestId?: string } =
+      {};
+    if (notifyOnCompletion === 'false') options.notifyOnCompletion = false;
+    if (surgeryRequestId) options.surgeryRequestId = surgeryRequestId;
+
+    if (Object.keys(options).length === 0) {
+      return this.documentExtractionJobsService.enqueue(file, user.userId);
     }
-    return this.documentExtractionJobsService.enqueue(file, user.userId);
+    return this.documentExtractionJobsService.enqueue(
+      file,
+      user.userId,
+      options,
+    );
   }
 
   @Get('extract-from-document/:jobId')

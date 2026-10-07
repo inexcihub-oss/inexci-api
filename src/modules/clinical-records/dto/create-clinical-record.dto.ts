@@ -47,4 +47,9 @@ export class CreateClinicalRecordDto {
   @IsOptional()
   @IsBoolean()
   surgicalIndication?: boolean;
+
+  /** Procedimento escolhido (ou criado) para a SC que nasce da indicação. */
+  @IsOptional()
+  @IsUUID()
+  procedureId?: string;
 }

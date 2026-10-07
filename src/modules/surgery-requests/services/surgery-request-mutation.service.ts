@@ -251,6 +251,13 @@ export class SurgeryRequestMutationService {
       healthPlanId = healthPlan.id;
     }
 
+    if (data.procedureId) {
+      await this.assertProcedureBelongsToOwner(
+        data.procedureId,
+        surgeryRequest.ownerId,
+      );
+    }
+
     const { id, hospital: _h, healthPlan, cid, ...validData } = data;
     // cid.code persiste em cid_code — sem FK para tabela CID
     const cidData: { cidCode?: string | null } = {};

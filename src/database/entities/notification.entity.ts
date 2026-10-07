@@ -15,6 +15,7 @@ export enum NotificationType {
   PENDENCY = 'pendency',
   EXPIRING_DOCUMENT = 'expiring_document',
   ACTION_BY_USER = 'action_by_user',
+  MENTION = 'mention',
   SYSTEM = 'system',
   INFO = 'info',
 }

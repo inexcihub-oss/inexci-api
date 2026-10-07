@@ -153,6 +153,21 @@ describe('NotificationsService', () => {
   });
 
   // ─── Paginação ────────────────────────────────────────────────────────────
+  describe('getSettings', () => {
+    it('cria as preferências com o e-mail de menção ligado', async () => {
+      mockSettingsRepository.findByUserId.mockResolvedValue(null);
+      mockSettingsRepository.create.mockImplementation((data: unknown) =>
+        Promise.resolve(data),
+      );
+
+      await service.getSettings('user-1');
+
+      expect(mockSettingsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ mentionEmails: true }),
+      );
+    });
+  });
+
   describe('getNotifications', () => {
     it('devolve o total de notificações do usuário, não o tamanho da página', async () => {
       mockNotificationRepository.findByUserId.mockResolvedValue([

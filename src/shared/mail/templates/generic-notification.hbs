@@ -1,5 +1,12 @@
-{{#> _layout title="{{title}}" preferencesUrl=preferencesUrl}}
+{{#> _layout title=title preferencesUrl=preferencesUrl}}
   <p>Olá{{#if userName}}, <strong>{{userName}}</strong>{{/if}}!</p>
+
+  {{#if context}}
+    <div class='info-box'>
+      <p>{{context}}</p>
+    </div>
+  {{/if}}
+
   <p>{{message}}</p>
 
   {{#if link}}

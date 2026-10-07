@@ -6,6 +6,9 @@ import { ActivityType } from 'src/database/entities/surgery-request-activity.ent
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UserRole } from 'src/database/entities/user.entity';
 import { StorageService } from 'src/shared/storage/storage.service';
+import { SurgeryRequestActivityMentionRepository } from 'src/database/repositories/surgery-request-activity-mention.repository';
+import { AccessControlService } from 'src/shared/services/access-control.service';
+import { ActivityMentionsService } from './mentions/activity-mentions.service';
 
 @Injectable()
 export class ActivitiesService {
@@ -16,6 +19,9 @@ export class ActivitiesService {
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly userRepository: UserRepository,
     private readonly storageService: StorageService,
+    private readonly mentionRepository: SurgeryRequestActivityMentionRepository,
+    private readonly accessControlService: AccessControlService,
+    private readonly mentionsService: ActivityMentionsService,
   ) {}
 
   async findAll(surgeryRequestId: string, userId: string) {
@@ -24,6 +30,24 @@ export class ActivitiesService {
 
     const activities =
       await this.activityRepository.findBySurgeryRequest(surgeryRequestId);
+
+    // Uma consulta só para todas as atividades — uma por atividade seria
+    // N+1 numa aba que costuma ter dezenas de linhas.
+    const mentions = await this.mentionRepository.findByActivityIds(
+      activities.map((a) => a.id),
+    );
+    const mentionsPorAtividade = new Map<
+      string,
+      { id: string; name: string }[]
+    >();
+    for (const mention of mentions) {
+      const lista = mentionsPorAtividade.get(mention.activityId) ?? [];
+      lista.push({
+        id: mention.mentionedUserId,
+        name: mention.mentionedUser?.name ?? '',
+      });
+      mentionsPorAtividade.set(mention.activityId, lista);
+    }
 
     return Promise.all(
       activities.map(async (a) => {
@@ -50,6 +74,7 @@ export class ActivitiesService {
           type: a.type,
           content,
           pdfUrl,
+          mentions: mentionsPorAtividade.get(a.id) ?? [],
           createdAt: a.createdAt,
           user: a.user
             ? {
@@ -63,12 +88,35 @@ export class ActivitiesService {
     );
   }
 
+  /**
+   * Usuários que podem ser mencionados nos comentários desta SC.
+   *
+   * O autor sai da lista: mencionar a si mesmo só geraria uma notificação
+   * para quem acabou de escrever o comentário.
+   */
+  async findMentionableUsers(surgeryRequestId: string, userId: string) {
+    const request = await this.loadRequest(surgeryRequestId, userId);
+
+    const usuarios = await this.accessControlService.getUsersWithAccessToDoctor(
+      request.doctorId,
+      request.ownerId,
+    );
+
+    return usuarios
+      .filter((usuario) => usuario.id !== userId)
+      .map((usuario) => ({
+        id: usuario.id,
+        name: usuario.name,
+        avatarUrl: usuario.avatarUrl ?? null,
+      }));
+  }
+
   async create(
     surgeryRequestId: string,
     dto: CreateActivityDto,
     userId: string,
   ) {
-    await this.loadRequest(surgeryRequestId, userId);
+    const request = await this.loadRequest(surgeryRequestId, userId);
 
     const activity = await this.activityRepository.create({
       surgeryRequestId: surgeryRequestId,
@@ -79,10 +127,22 @@ export class ActivitiesService {
 
     const user = await this.userRepository.findOne({ id: userId });
 
+    const mentions = await this.mentionsService.register({
+      activityId: activity.id,
+      surgeryRequestId,
+      doctorUserId: request.doctorId,
+      ownerId: request.ownerId,
+      authorId: userId,
+      authorName: user?.name ?? 'Alguém',
+      content: dto.content,
+      mentionedUserIds: dto.mentionedUserIds ?? [],
+    });
+
     return {
       id: activity.id,
       type: activity.type,
       content: activity.content,
+      mentions,
       createdAt: activity.createdAt,
       user: user
         ? { id: user.id, name: user.name, avatarUrl: user.avatarUrl }

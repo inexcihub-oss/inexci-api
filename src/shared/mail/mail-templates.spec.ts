@@ -169,6 +169,20 @@ describe('Mail Templates — Renderização', () => {
       expect(encontrados.length).toBeGreaterThan(0);
     });
 
+    it('não passa expressão Handlebars entre aspas no hash do layout', () => {
+      const source = fs.readFileSync(templatePath, 'utf-8');
+      if (!usaLayout(source)) return;
+
+      const quebra = source.indexOf('\n');
+      const abertura = quebra >= 0 ? source.slice(0, quebra) : source;
+
+      // `title="{{title}}"` NÃO interpola: Handlebars trata o valor entre
+      // aspas como string literal, e o `{{title}}` cru chega ao cabeçalho do
+      // e-mail e ao <title> da página. Para passar o valor de uma variável o
+      // hash vai sem aspas — `title=title`, como o `preferencesUrl` ao lado.
+      expect(abertura).not.toMatch(/=\s*(?:"[^"]*\{\{|'[^']*\{\{)/);
+    });
+
     it('propaga o hash `title` para o cabeçalho do layout', () => {
       const source = fs.readFileSync(templatePath, 'utf-8');
       const literais = literaisDoTitulo(source);
@@ -179,6 +193,18 @@ describe('Mail Templates — Renderização', () => {
         expect(html).toContain(trecho);
       }
     });
+  });
+
+  it('generic-notification leva o `title` do contexto para o cabeçalho', () => {
+    const source = fs.readFileSync(
+      path.join(TEMPLATES_DIR, 'generic-notification.hbs'),
+      'utf-8',
+    );
+
+    const html = Handlebars.compile(source)(mockContext);
+
+    expect(html).toContain(mockContext.title);
+    expect(html).not.toContain('{{title}}');
   });
 
   it(`total de templates corresponde ao config (${MAIL_TEMPLATES.length})`, () => {

@@ -3,7 +3,7 @@
  *
  * As filas Bull não emitem eventos via `@nestjs/event-emitter` — cada fila tem
  * seu próprio EventEmitter (`queue.on('completed'|'failed', ...)`). Este
- * listener assina os 5 filas registradas em `QueuesModule` e converte
+ * listener assina as filas registradas em `QueuesModule` e converte
  * `job.finishedOn - job.processedOn` em `inexci.queue.job.duration`, sem
  * tocar nos processors de negócio.
  */
@@ -25,6 +25,8 @@ export class QueueMetricsListener implements OnModuleInit {
     private readonly documentExtractionQueue: Queue,
     @InjectQueue('indication-documents')
     private readonly indicationDocumentsQueue: Queue,
+    @InjectQueue('mention-emails')
+    private readonly mentionEmailsQueue: Queue,
   ) {}
 
   onModuleInit(): void {
@@ -35,6 +37,7 @@ export class QueueMetricsListener implements OnModuleInit {
       this.aiMessagesQueue,
       this.documentExtractionQueue,
       this.indicationDocumentsQueue,
+      this.mentionEmailsQueue,
     ].forEach((queue) => this.attachListeners(queue));
   }
 

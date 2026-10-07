@@ -9,6 +9,7 @@ import {
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
+import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
@@ -34,6 +35,7 @@ export class ClinicalRecordsService {
     private readonly accessControlService: AccessControlService,
     private readonly surgicalIndicationService: SurgicalIndicationService,
     private readonly appointmentActivityRepository: AppointmentActivityRepository,
+    private readonly procedureRepository: ProcedureRepository,
   ) {}
 
   /**
@@ -148,6 +150,10 @@ export class ClinicalRecordsService {
       }
     }
 
+    if (data.procedureId) {
+      await this.assertProcedureBelongsToOwner(data.procedureId, ownerId);
+    }
+
     const criada = await this.clinicalRecordRepository.create({
       ownerId,
       doctorId,
@@ -159,6 +165,7 @@ export class ClinicalRecordsService {
       cidCodes: data.cidCodes ?? null,
       conduct: data.conduct ?? null,
       surgicalIndication: data.surgicalIndication ?? false,
+      procedureId: data.procedureId ?? null,
     });
 
     if (data.appointmentId) {
@@ -221,6 +228,15 @@ export class ClinicalRecordsService {
       updateData.surgicalIndication = data.surgicalIndication;
     if (data.surgicalIndication) {
       await this.assertIndicacaoCirurgicaPermitida(record.doctorId);
+    }
+    if (data.procedureId !== undefined) {
+      if (data.procedureId) {
+        await this.assertProcedureBelongsToOwner(
+          data.procedureId,
+          record.ownerId,
+        );
+      }
+      updateData.procedureId = data.procedureId;
     }
 
     return (await this.clinicalRecordRepository.update(record.id, updateData))!;
@@ -388,6 +404,18 @@ export class ClinicalRecordsService {
       record.ownerId,
       record.doctorId,
     );
+  }
+
+  private async assertProcedureBelongsToOwner(
+    procedureId: string,
+    ownerId: string,
+  ): Promise<void> {
+    const procedure = await this.procedureRepository.findOne({
+      id: procedureId,
+    });
+    if (!procedure || procedure.ownerId !== ownerId) {
+      throw new NotFoundException('Procedimento não encontrado');
+    }
   }
 
   private async assertAppointmentBelongs(

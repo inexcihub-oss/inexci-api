@@ -52,6 +52,8 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
       'user-1',
       expect.objectContaining({ kind: 'medical_report' }),
       'doc.pdf',
+      undefined,
+      undefined,
     );
   });
 
@@ -106,6 +108,35 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
       expect.objectContaining({ kind: 'medical_report' }),
       'doc.pdf',
       false,
+      undefined,
+    );
+  });
+
+  it('propaga surgeryRequestId do job para markDone', async () => {
+    const job = {
+      id: 'job-5',
+      data: {
+        userId: 'user-1',
+        surgeryRequestId: 'sc-123',
+        file: {
+          originalname: 'doc.pdf',
+          mimetype: 'application/pdf',
+          size: 100,
+          bufferBase64: Buffer.from('abc').toString('base64'),
+        },
+      },
+      attemptsMade: 0,
+    } as Job<any>;
+
+    await processor.handleExtractFromDocument(job);
+
+    expect(jobsService.markDone).toHaveBeenCalledWith(
+      'job-5',
+      'user-1',
+      expect.objectContaining({ kind: 'medical_report' }),
+      'doc.pdf',
+      undefined,
+      'sc-123',
     );
   });
 
@@ -124,6 +155,28 @@ describe('SurgeryRequestDocumentExtractionProcessor', () => {
       'user-2',
       'Não foi possível processar o documento. Tente novamente.',
       undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it('propaga surgeryRequestId do job para markError no dead-letter', async () => {
+    const job = {
+      id: 'job-6',
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+      data: { userId: 'user-2', surgeryRequestId: 'sc-123' },
+    } as Job<any>;
+
+    await processor.handleFailed(job, new Error('timeout'));
+
+    expect(jobsService.markError).toHaveBeenCalledWith(
+      'job-6',
+      'user-2',
+      'Não foi possível processar o documento. Tente novamente.',
+      undefined,
+      undefined,
+      'sc-123',
     );
   });
 });

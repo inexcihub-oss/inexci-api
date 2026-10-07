@@ -48,6 +48,7 @@ import {
   SurgeryRequestActivity,
   ActivityType,
 } from './surgery-request-activity.entity';
+import { SurgeryRequestActivityMention } from './surgery-request-activity-mention.entity';
 import { Document } from './document.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
@@ -108,6 +109,7 @@ export { SurgeryRequestTemplate };
 export { Contestation, ContestationTypeEnum };
 export { SurgeryRequestTussItem };
 export { SurgeryRequestActivity, ActivityType };
+export { SurgeryRequestActivityMention };
 
 // DOCUMENTOS
 export { Document };
@@ -174,6 +176,7 @@ export const ENTITIES = [
   Contestation,
   SurgeryRequestTussItem,
   SurgeryRequestActivity,
+  SurgeryRequestActivityMention,
   Document,
   Notification,
   UserNotificationSettings,
