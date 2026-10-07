@@ -365,6 +365,56 @@ describe('AccessControlService', () => {
     });
   });
 
+  // ─── assertIsPhysicianWithRegistry ───
+
+  describe('assertIsPhysicianWithRegistry', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        name: 'Karina Clínica',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it('libera médico com o número do CRM', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '12345' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('médico sem número do CRM é recusado com orientação', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '  ' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(
+        'Preencha o número do CRM de Karina Clínica em Colaboradores antes de indicar cirurgia.',
+      );
+    });
+
+    it('quem não é médico continua recusado com a mensagem informada', async () => {
+      comPerfil({ id: 'p-1', council: 'COREN', crm: '999' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(new ForbiddenException('só médico'));
+    });
+  });
+
   // ─── assertIsPhysician (MIG-02) ───
 
   describe('assertIsPhysician', () => {

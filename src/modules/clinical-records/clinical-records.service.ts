@@ -273,9 +273,10 @@ export class ClinicalRecordsService {
   private async assertIndicacaoCirurgicaPermitida(
     doctorId: string,
   ): Promise<void> {
-    await this.accessControlService.assertIsPhysician(
+    await this.accessControlService.assertIsPhysicianWithRegistry(
       doctorId,
       'Indicação cirúrgica só pode ser feita por médico (CRM).',
+      'indicar cirurgia',
     );
   }
 

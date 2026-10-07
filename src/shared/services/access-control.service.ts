@@ -1,5 +1,6 @@
 import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -258,6 +259,28 @@ export class AccessControlService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!isPhysicianProfile(user?.doctorProfile)) {
       throw new ForbiddenException(mensagem);
+    }
+  }
+
+  /**
+   * Médico (CRM) **com o número do registro preenchido**. O importador do
+   * Feegow cria médico sem número quando a especialidade é médica mas o
+   * registro não veio no export; ato que sai em nome dele (indicação
+   * cirúrgica → solicitação cirúrgica) não pode sair com o CRM em branco.
+   */
+  async assertIsPhysicianWithRegistry(
+    userId: string,
+    mensagem: string,
+    acao: string,
+  ): Promise<void> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!isPhysicianProfile(user?.doctorProfile)) {
+      throw new ForbiddenException(mensagem);
+    }
+    if (!user?.doctorProfile?.crm?.trim()) {
+      throw new BadRequestException(
+        `Preencha o número do CRM de ${user?.name ?? 'quem assina'} em Colaboradores antes de ${acao}.`,
+      );
     }
   }
 
