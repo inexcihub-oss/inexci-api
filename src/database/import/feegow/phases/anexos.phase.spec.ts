@@ -5,6 +5,7 @@ import { EntityManager } from 'typeorm';
 import { Document } from 'src/database/entities/document.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { ArmazenamentoImportacao } from '../../core/armazenamento';
+import { sharp } from 'src/shared/storage/foto-paciente';
 import { LEDGER_FICHA } from '../mappers/clinical-record.mapper';
 import {
   Disco,
@@ -194,7 +195,16 @@ function pacienteBase(id: string) {
 describe('enviarAnexos e gravarAnexos', () => {
   const pasta = mkdtempSync(join(tmpdir(), 'anexos-'));
   writeFileSync(join(pasta, 'a.pdf'), 'pdf');
-  writeFileSync(join(pasta, 'b.png'), 'png');
+  beforeAll(async () => {
+    writeFileSync(
+      join(pasta, 'b.png'),
+      await sharp({
+        create: { width: 640, height: 480, channels: 3, background: '#808080' },
+      })
+        .png()
+        .toBuffer(),
+    );
+  });
 
   const plano = (): PlanoAnexos => ({
     ownerId: OWNER,
@@ -241,10 +251,13 @@ describe('enviarAnexos e gravarAnexos', () => {
 
     expect(enviados).toEqual([
       `documents/${OWNER}/a.pdf`,
-      `patient-photos/${OWNER}/b.png`,
+      `patient-photos/${OWNER}/b.webp`,
     ]);
     expect(p.documentos[0].uri).toBe(`documents/${OWNER}/a.pdf`);
-    expect(p.fotos[0].photoPath).toBe(`patient-photos/${OWNER}/b.png`);
+    expect(p.fotos[0].photoPath).toBe(`patient-photos/${OWNER}/b.webp`);
+    const foto = (armazenamento.enviar as jest.Mock).mock.calls[1][0];
+    expect(foto.contentType).toBe('image/webp');
+    expect((await sharp(foto.conteudo).metadata()).format).toBe('webp');
     expect(
       (armazenamento.enviar as jest.Mock).mock.calls[0][0].conteudo.toString(),
     ).toBe('pdf');

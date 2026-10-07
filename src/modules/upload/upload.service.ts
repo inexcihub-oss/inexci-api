@@ -9,6 +9,11 @@ import {
   STORAGE_FOLDER_SIZE_LIMITS,
 } from '../../config/storage.config';
 import { StorageService } from '../../shared/storage/storage.service';
+import {
+  FOTO_PACIENTE_CONTENT_TYPE,
+  nomeWebp,
+  otimizarFotoPaciente,
+} from '../../shared/storage/foto-paciente';
 import { DocumentRepository } from '../../database/repositories/document.repository';
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -113,7 +118,26 @@ export class UploadService {
       throw new BadRequestException('Tipo de arquivo inválido');
     }
 
-    const filePath = await this.storageService.create(file, folder, ownerId);
+    // Foto de paciente vira WebP de até 800 px: a mesma versão serve a
+    // miniatura e a foto ampliada, e um PNG de ~500 KB cai para ~15 KB.
+    let arquivo = file;
+    if (folder === STORAGE_FOLDERS.PATIENT_PHOTOS) {
+      let otimizada: Buffer;
+      try {
+        otimizada = await otimizarFotoPaciente(file.buffer);
+      } catch {
+        throw new BadRequestException('Não foi possível ler a imagem enviada.');
+      }
+      arquivo = {
+        ...file,
+        buffer: otimizada,
+        size: otimizada.length,
+        mimetype: FOTO_PACIENTE_CONTENT_TYPE,
+        originalname: nomeWebp(file.originalname),
+      };
+    }
+
+    const filePath = await this.storageService.create(arquivo, folder, ownerId);
     const url = await this.storageService.getSignedUrl(filePath);
 
     return { url, path: filePath };

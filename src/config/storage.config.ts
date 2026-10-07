@@ -96,6 +96,17 @@ export const STORAGE_FOLDER_TTL: Record<string, number> = {
   [STORAGE_FOLDERS.WHATSAPP_DOWNLOADS]: 10 * 60,
 };
 
+/**
+ * Pastas de imagem que a tela mostra muitas vezes (lista de pacientes,
+ * cabeçalhos). O link assinado delas é estável dentro de uma janela do
+ * tamanho do TTL e a resposta sai com `Cache-Control`: o navegador reaproveita
+ * a imagem em vez de baixá-la de novo a cada tela. Antes, cada leitura do
+ * paciente gerava uma assinatura nova — para o navegador, sempre outra URL.
+ */
+export const STORAGE_FOLDER_CACHE_CONTROL: Record<string, string> = {
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: 'private, max-age=3600',
+};
+
 // ── Limites de tamanho por pasta (bytes) ─────────────────────────────────────
 
 /**

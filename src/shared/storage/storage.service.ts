@@ -17,7 +17,10 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { R2_CLIENT } from '../../config/r2.config';
-import { STORAGE_FOLDER_TTL } from '../../config/storage.config';
+import {
+  STORAGE_FOLDER_CACHE_CONTROL,
+  STORAGE_FOLDER_TTL,
+} from '../../config/storage.config';
 
 @Injectable()
 export class StorageService {
@@ -50,6 +53,10 @@ export class StorageService {
     return STORAGE_FOLDER_TTL[folder] ?? 3600;
   }
 
+  private cacheControl(filePath: string): string | undefined {
+    return STORAGE_FOLDER_CACHE_CONTROL[filePath.split('/')[0]];
+  }
+
   async create(file: any, folder: string, tenantId?: string): Promise<string> {
     const sanitizedName = this.sanitizeFilename(file.originalname);
     const filename = `${uuid()}-${sanitizedName}`;
@@ -67,6 +74,7 @@ export class StorageService {
           Key: filePath,
           Body: file.buffer,
           ContentType: file.mimetype,
+          CacheControl: this.cacheControl(filePath),
         }),
       );
       return filePath;
@@ -81,11 +89,28 @@ export class StorageService {
   async getSignedUrl(filePath: string): Promise<string> {
     try {
       const ttl = this.getTtl(filePath);
+      const cacheControl = this.cacheControl(filePath);
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: filePath,
+        // Vale também para objetos enviados antes do `CacheControl` no upload.
+        ...(cacheControl ? { ResponseCacheControl: cacheControl } : {}),
       });
-      return await getSignedUrl(this.s3, command, { expiresIn: ttl });
+      if (!cacheControl) {
+        return await getSignedUrl(this.s3, command, { expiresIn: ttl });
+      }
+      // Link estável: assina com o início da janela atual (múltiplo do TTL),
+      // então todas as leituras dentro dela devolvem a MESMA URL e o
+      // navegador usa o cache. Validade de duas janelas garante que um link
+      // gerado no fim da janela ainda dure pelo menos um TTL inteiro.
+      const janelaMs = ttl * 1000;
+      const inicioDaJanela = new Date(
+        Math.floor(Date.now() / janelaMs) * janelaMs,
+      );
+      return await getSignedUrl(this.s3, command, {
+        expiresIn: ttl * 2,
+        signingDate: inicioDaJanela,
+      });
     } catch (error: any) {
       throw new BadRequestException(
         `Erro ao obter URL do arquivo: ${error.message}`,
@@ -112,6 +137,7 @@ export class StorageService {
           Key: filePath,
           Body: buffer,
           ContentType: contentType,
+          CacheControl: this.cacheControl(filePath),
         }),
       );
       return filePath;

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UploadService } from './upload.service';
 import { StorageService } from '../../shared/storage/storage.service';
 import { DocumentRepository } from '../../database/repositories/document.repository';
+import { sharp } from '../../shared/storage/foto-paciente';
 
 // `file-type` é ESM puro e o Jest (CommonJS) não o resolve; o que se testa aqui
 // é a regra de pasta/tenant, não a detecção de magic bytes.
@@ -115,10 +116,19 @@ describe('UploadService — IDOR (VULN-03)', () => {
     });
   });
   describe('fotos de paciente (patient-photos)', () => {
-    const PNG = Buffer.from(
-      '89504e470d0a1a0a0000000d4948445200000001000000010806000000',
-      'hex',
-    );
+    let PNG: Buffer;
+    beforeAll(async () => {
+      PNG = await sharp({
+        create: {
+          width: 1600,
+          height: 1200,
+          channels: 3,
+          background: '#a0a0a0',
+        },
+      })
+        .png()
+        .toBuffer();
+    });
     const arquivo = (mimetype: string, buffer: Buffer = PNG) =>
       ({
         originalname: 'foto.png',
@@ -158,6 +168,38 @@ describe('UploadService — IDOR (VULN-03)', () => {
         'owner-a',
       );
       expect(result.path).toBe('patient-photos/owner-a/uuid-foto.png');
+    });
+
+    it('converte a foto para WebP de até 800 px antes de gravar', async () => {
+      await service.uploadFile(
+        arquivo('image/png'),
+        'patient-photos',
+        'owner-a',
+      );
+
+      const gravado = (mockStorageService.create as jest.Mock).mock.calls[0][0];
+      expect(gravado).toMatchObject({
+        mimetype: 'image/webp',
+        originalname: 'foto.webp',
+      });
+      const meta = await sharp(gravado.buffer).metadata();
+      expect([meta.format, meta.width, meta.height]).toEqual([
+        'webp',
+        800,
+        600,
+      ]);
+      expect(gravado.size).toBe(gravado.buffer.length);
+    });
+
+    it('imagem corrompida é recusada sem gravar nada', async () => {
+      await expect(
+        service.uploadFile(
+          arquivo('image/png', Buffer.from('89504e470d0a1a0a', 'hex')),
+          'patient-photos',
+          'owner-a',
+        ),
+      ).rejects.toThrow('Não foi possível ler a imagem enviada.');
+      expect(mockStorageService.create).not.toHaveBeenCalled();
     });
 
     it('recusa PDF na pasta de foto de paciente', async () => {

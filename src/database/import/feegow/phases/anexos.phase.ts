@@ -1,6 +1,11 @@
 import { readFile } from 'fs/promises';
 import { EntityManager, IsNull } from 'typeorm';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
+import {
+  FOTO_PACIENTE_CONTENT_TYPE,
+  nomeWebp,
+  otimizarFotoPaciente,
+} from 'src/shared/storage/foto-paciente';
 import { Document } from 'src/database/entities/document.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import { ArmazenamentoImportacao, emParalelo } from '../../core/armazenamento';
@@ -47,11 +52,15 @@ export async function enviarAnexos(
     arquivo: NovoAnexo['arquivo'],
     pasta: string,
   ): Promise<string> => {
+    const original = await readFile(arquivo.caminhoLocal);
+    // Foto de paciente entra já otimizada, como no upload pela tela (WebP de
+    // até 800 px): as do Feegow são PNG de ~500 KB e caem para ~15 KB.
+    const foto = pasta === STORAGE_FOLDERS.PATIENT_PHOTOS;
     const caminho = await armazenamento.enviar({
-      conteudo: await readFile(arquivo.caminhoLocal),
+      conteudo: foto ? await otimizarFotoPaciente(original) : original,
       pasta,
-      nome: arquivo.nome,
-      contentType: arquivo.contentType,
+      nome: foto ? nomeWebp(arquivo.nome) : arquivo.nome,
+      contentType: foto ? FOTO_PACIENTE_CONTENT_TYPE : arquivo.contentType,
       tenantId: plano.ownerId,
     });
     enviados.push(caminho);
