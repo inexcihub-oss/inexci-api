@@ -11,23 +11,26 @@
     {{> clinical-patient}}
 
     <div class='section'>
-      <p class='statement'>
-        Atesto, para os devidos fins, que o(a) paciente
-        <strong>{{patientName}}</strong>{{#if patientCpf}}, inscrito(a) no CPF
-        {{patientCpf}},{{/if}}
-        esteve sob meus cuidados profissionais nesta data{{#if restDaysLabel}},
-        necessitando de
-        <strong>{{restDaysLabel}}</strong>
-        de afastamento de suas atividades{{#if startDate}}
-          a partir de
-          {{startDate}}{{/if}}{{/if}}.
-      </p>
+      {{#if text}}
+        {{! Texto do modelo/digitado: quebra de linha do médico vale. }}
+        <p class='statement body-text'>{{text}}</p>
+      {{else}}
+        <p class='statement'>
+          Atesto, para os devidos fins, que o(a) paciente
+          <strong>{{patientName}}</strong>{{#if patientCpf}}, inscrito(a) no CPF
+          {{patientCpf}},{{/if}}
+          esteve sob meus cuidados profissionais nesta data{{#if restDaysLabel}},
+          necessitando de
+          <strong>{{restDaysLabel}}</strong>
+          de afastamento de suas atividades{{#if startDate}}
+            a partir de
+            {{startDate}}{{/if}}{{/if}}.
+        </p>
+      {{/if}}
 
+      {{! Numa linha só: body-text usa pre-line e cada quebra daqui viraria linha no PDF. }}
       {{#if cid}}
-        <p class='body-text'>CID-10:
-          {{cid.code}}{{#if cid.description}}
-            —
-            {{cid.description}}{{/if}}</p>
+        <p class='body-text'>CID-10: {{cid.code}}{{#if cid.description}} — {{cid.description}}{{/if}}</p>
       {{/if}}
     </div>
 

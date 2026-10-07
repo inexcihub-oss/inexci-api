@@ -30,6 +30,7 @@ import {
   aplicarPlaceholders,
   PlaceholderValues,
 } from 'src/shared/pdf/placeholders.util';
+import { limparTextoDoModelo } from 'src/shared/pdf/texto-do-modelo.util';
 import { ClinicalDocumentTemplatesService } from '../document-templates/clinical-document-templates.service';
 import { ApplyClinicalDocumentTemplateDto } from '../document-templates/dto/apply-clinical-document-template.dto';
 import { CreatePrescriptionDto } from './dto/create-prescription.dto';
@@ -234,10 +235,7 @@ export class ClinicalDocumentGenerationService {
     return {
       id: template.id,
       kind: template.kind,
-      body: aplicarPlaceholders(
-        template.body,
-        this.placeholderValues(base, data.restDays),
-      ),
+      body: this.textoPronto(template.body, base, data.restDays),
     };
   }
 
@@ -256,9 +254,23 @@ export class ClinicalDocumentGenerationService {
       kind,
       userId,
     );
-    return aplicarPlaceholders(
-      template.body,
-      this.placeholderValues(base, restDays),
+    return this.textoPronto(template.body, base, restDays);
+  }
+
+  /**
+   * Placeholders preenchidos e sem o título/assinatura que o PDF já imprime —
+   * o modelo costuma ser escrito como o documento inteiro.
+   */
+  private textoPronto(
+    body: string,
+    base: Awaited<
+      ReturnType<ClinicalDocumentGenerationService['buildBaseContext']>
+    >['base'],
+    restDays: number | undefined,
+  ): string {
+    return limparTextoDoModelo(
+      aplicarPlaceholders(body, this.placeholderValues(base, restDays)),
+      { nome: base.doctorName, registro: base.doctorCrm },
     );
   }
 
@@ -322,8 +334,10 @@ export class ClinicalDocumentGenerationService {
       restDaysLabel: this.buildRestDaysLabel(data.restDays),
       startDate: data.startDate ? formatDateBR(data.startDate) : undefined,
       cid,
-      observations:
-        data.observations ??
+      // O modelo é o texto do atestado: substitui a declaração padrão. Antes
+      // ia para as observações e o atestado saía com o texto duas vezes.
+      text:
+        data.text ??
         (await this.textoDoModelo(
           data.templateId,
           ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
@@ -331,6 +345,7 @@ export class ClinicalDocumentGenerationService {
           data.restDays,
           userId,
         )),
+      observations: data.observations,
     };
 
     return { record, pdfData };
@@ -397,6 +412,15 @@ export class ClinicalDocumentGenerationService {
 
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.doctorPdfContextService.buildForDoctorId(doctorId);
+
+    // CRM sem número sai do importador (profissional sem conselho no Feegow
+    // e especialidade médica). Documento com o registro em branco não vale —
+    // recusa até alguém preencher o número na tela de colaboradores.
+    if (!profile?.crm?.trim()) {
+      throw new BadRequestException(
+        `Preencha o número do CRM de ${doctor?.name ?? 'quem assina'} em Colaboradores antes de emitir documentos.`,
+      );
+    }
 
     const base = {
       today: formatDateBR(new Date().toISOString()),

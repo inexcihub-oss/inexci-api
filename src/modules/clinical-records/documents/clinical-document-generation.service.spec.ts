@@ -88,7 +88,7 @@ describe('ClinicalDocumentGenerationService', () => {
     accessControlService.assertIsPhysician.mockResolvedValue(undefined);
     doctorPdfContextService.buildForDoctorId.mockResolvedValue({
       doctor: { name: 'Dra. Ana Souza' },
-      profile: { specialty: 'Ortopedia' },
+      profile: { specialty: 'Ortopedia', crm: '12345' },
       doctorCrm: 'CRM 12345/RJ',
       doctorSignatureUrl: 'https://r2/assinatura.png',
       customHeader: null,
@@ -808,6 +808,26 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(documentRepository.create).not.toHaveBeenCalled();
     });
 
+    it('médico com CRM sem número (veio do Feegow assim) não emite nem pré-visualiza', async () => {
+      clinicalRecordRepository.findOne.mockResolvedValue(record);
+      doctorPdfContextService.buildForDoctorId.mockResolvedValue({
+        doctor: { name: 'Karina Clínica' },
+        profile: { council: 'CRM', crm: null },
+        doctorCrm: undefined,
+        customHeader: null,
+      });
+
+      await expect(
+        service.previewPrescription(
+          { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+          'doctor-1',
+        ),
+      ).rejects.toThrow(
+        'Preencha o número do CRM de Karina Clínica em Colaboradores antes de emitir documentos.',
+      );
+      expect(pdfService.generatePrescriptionPdf).not.toHaveBeenCalled();
+    });
+
     it('não checa de novo quando quem emite é o próprio médico da ficha', async () => {
       clinicalRecordRepository.findOne.mockResolvedValue(record);
 
@@ -832,7 +852,7 @@ describe('ClinicalDocumentGenerationService', () => {
       documentTemplatesService.incrementUsage.mockResolvedValue(undefined);
     });
 
-    it('atestado com templateId e sem observações usa o texto do modelo preenchido', async () => {
+    it('atestado com templateId e sem texto usa o modelo como texto do atestado', async () => {
       await service.generateMedicalCertificate(
         'record-1',
         { clinicalRecordId: 'record-1', restDays: 3, templateId: 'tpl-1' },
@@ -845,9 +865,12 @@ describe('ClinicalDocumentGenerationService', () => {
         'doctor-1',
       );
       const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
-      expect(pdfData.observations).toBe(
+      // O modelo substitui a declaração padrão — não vai para observações,
+      // senão o atestado sai com o texto duas vezes.
+      expect(pdfData.text).toBe(
         'Atesto que Alessandro Filho (CPF 146.858.546-08) precisa de 3 dias. Dra. Ana Souza — CRM 12345/RJ {{desconhecido}}',
       );
+      expect(pdfData.observations).toBeUndefined();
       // Emitir com modelo não conta uso: quem conta é o "aplicar".
       expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
     });
@@ -858,15 +881,40 @@ describe('ClinicalDocumentGenerationService', () => {
         {
           clinicalRecordId: 'record-1',
           templateId: 'tpl-1',
-          observations: 'Texto editado pelo médico',
+          text: 'Texto editado pelo médico',
+          observations: 'Retornar em 7 dias',
         },
         'doctor-1',
       );
 
       expect(documentTemplatesService.getForUse).not.toHaveBeenCalled();
+      const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
+      expect(pdfData.text).toBe('Texto editado pelo médico');
+      expect(pdfData.observations).toBe('Retornar em 7 dias');
+    });
+
+    it('modelo escrito como o atestado inteiro perde o título e a assinatura que o PDF já imprime', async () => {
+      documentTemplatesService.getForUse.mockResolvedValue({
+        ...modeloAtestado,
+        body: 'ATESTADO MÉDICO\n\nAtesto que {{paciente.nome}} precisa de {{dias}} dias.\n\n---\n\nDr.(a) {{medico.nome}}\nCRM {{medico.registro}}',
+      });
+
+      const aplicado = await service.applyTemplate(
+        'tpl-1',
+        { patientId: 'patient-1', restDays: 2 },
+        'doctor-1',
+      );
+      await service.generateMedicalCertificate(
+        'record-1',
+        { clinicalRecordId: 'record-1', restDays: 2, templateId: 'tpl-1' },
+        'doctor-1',
+      );
+
+      const esperado = 'Atesto que Alessandro Filho precisa de 2 dias.';
+      expect(aplicado.body).toBe(esperado);
       expect(
-        pdfService.generateMedicalCertificatePdf.mock.calls[0][0].observations,
-      ).toBe('Texto editado pelo médico');
+        pdfService.generateMedicalCertificatePdf.mock.calls[0][0].text,
+      ).toBe(esperado);
     });
 
     it('pedido de exame com modelo preenche a indicação clínica e pede o tipo certo', async () => {
@@ -894,6 +942,28 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(
         pdfService.generateExamReferralPdf.mock.calls[0][0].clinicalIndication,
       ).toMatch(/^Investigação em Alessandro Filho, \d{2}\/\d{2}\/\d{4}$/);
+    });
+
+    it('pedido de exame: modelo escrito como documento inteiro entra na indicação clínica sem título nem assinatura', async () => {
+      documentTemplatesService.getForUse.mockResolvedValue({
+        id: 'tpl-2',
+        kind: ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+        body: 'SOLICITAÇÃO DE EXAMES\n\nInvestigação de dor lombar em {{paciente.nome}}.\n\n___\nDr.(a) {{medico.nome}}\n{{medico.registro}}',
+      });
+
+      await service.generateExamReferral(
+        'record-1',
+        {
+          clinicalRecordId: 'record-1',
+          exams: [{ name: 'RM coluna lombar' }],
+          templateId: 'tpl-2',
+        },
+        'doctor-1',
+      );
+
+      expect(
+        pdfService.generateExamReferralPdf.mock.calls[0][0].clinicalIndication,
+      ).toBe('Investigação de dor lombar em Alessandro Filho.');
     });
 
     it('modelo de outro tipo é recusado pela checagem do service de modelos', async () => {

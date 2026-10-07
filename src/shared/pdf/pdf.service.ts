@@ -280,6 +280,8 @@ export interface MedicalCertificatePdfData
   startDate?: string;
   /** Só é impresso quando o paciente autoriza expor o diagnóstico. */
   cid?: { code: string; description?: string } | null;
+  /** Texto do atestado (modelo ou digitado); substitui a declaração padrão. */
+  text?: string;
   observations?: string;
 }
 

@@ -50,14 +50,24 @@ export class CreateMedicalCertificateDto {
   @Type(() => CidCodeDto)
   cid?: CidCodeDto;
 
+  /**
+   * Texto do atestado. Substitui a declaração padrão ("Atesto, para os
+   * devidos fins…"); ausente = declaração padrão.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(4000)
+  text?: string;
+
   @IsString()
   @IsOptional()
   @MaxLength(2000)
   observations?: string;
 
   /**
-   * Modelo de texto (MIG-06) para a observações, com os placeholders preenchidos
-   * no servidor. Só vale quando o texto não veio: o texto enviado sempre vence.
+   * Modelo de texto (MIG-06) para o texto do atestado, com os placeholders
+   * preenchidos no servidor. Só vale quando `text` não veio: o texto enviado
+   * sempre vence.
    */
   @IsUUID()
   @IsOptional()
