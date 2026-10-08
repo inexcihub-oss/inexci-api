@@ -58,7 +58,11 @@ titulo() {
 importar() {
   # -T: sem TTY (a saída passa pelo tee). As credenciais vêm do env_file do
   # serviço api (/opt/inexci/.env); TZ=UTC já está no script import:feegow.
+  # Roda com o usuário de quem chamou (não o "node" da imagem): assim o export
+  # e a saída, que têm dado de paciente, ficam só com o dono (0700/0600), sem
+  # abrir permissão para outros usuários da VPS.
   docker compose -f "$COMPOSE_FILE" run --rm --no-deps -T \
+    --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -v "$BASE:/import" api \
     yarn -s import:feegow \
     --dir /import/cliente-dr-fabio \
@@ -67,8 +71,9 @@ importar() {
     "$@"
 }
 
+umask 077
 mkdir -p "$OUT_DIR"
-chmod a+rwx "$OUT_DIR"
+chmod 700 "$BASE" "$OUT_DIR"
 LOG="$OUT_DIR/execucao-$(date +%Y-%m-%d_%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
 
@@ -97,9 +102,15 @@ docker compose -f "$COMPOSE_FILE" run --rm --no-deps -T api \
   falhar "a imagem da API não tem o importador atualizado. O deploy da main com a migração Feegow concluiu?"
 echo "✓ imagem da API com o importador atualizado"
 
-# O container roda como o usuário "node": precisa ler o export e escrever a saída.
-chmod -R a+rX "$EXPORT_DIR"
-chmod -R a+rwX "$OUT_DIR"
+# Dado de paciente: só o dono lê. O container roda com o mesmo uid (ver
+# `importar`), então não precisa de permissão para outros.
+chmod -R u=rwX,go= "$EXPORT_DIR" "$OUT_DIR"
+importar_como_usuario_ok=$(docker compose -f "$COMPOSE_FILE" run --rm --no-deps -T \
+  --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$BASE:/import" api \
+  sh -c 'test -r "/import/cliente-dr-fabio/database/Dados do Cliente/profissionais.csv" && touch /import/carga-prod/.teste-escrita && rm /import/carga-prod/.teste-escrita && node -e "require(\"ts-node\")" && echo ok' 2>/dev/null || true)
+[ "$importar_como_usuario_ok" = "ok" ] ||
+  falhar "o container não conseguiu ler o export / escrever em $OUT_DIR / carregar o ts-node com o uid $(id -u)."
+echo "✓ container lê o export e grava a saída com o seu usuário (permissões 0700)"
 
 if [ -f "$OUT_DIR/ledger.json" ]; then
   echo "• ledger.json já existe: esta execução RETOMA a carga anterior (o que já entrou é pulado)."
