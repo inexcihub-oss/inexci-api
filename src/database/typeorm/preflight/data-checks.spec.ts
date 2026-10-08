@@ -1,4 +1,5 @@
 import {
+  CONSULTAS_SOBREPOSTAS,
   EXTENSAO_BTREE_GIST,
   OUTRO_NAO_UNIFICADO,
   SALAS_COM_NOME_REPETIDO,
@@ -224,5 +225,17 @@ describe('verificações pré-migration', () => {
       expect(texto).toContain(TELEFONE_DUPLICADO.comoResolver);
       expect(texto).toContain('FROM users WHERE id IN');
     });
+  });
+});
+
+describe('CONSULTAS_SOBREPOSTAS.sqlAntesDoSchema', () => {
+  it('é a mesma checagem sem o filtro de encaixe (coluna que ainda não existe)', () => {
+    const semEncaixe = (sql: string) =>
+      sql.replace(/\s*AND NOT [abn]\."is_walk_in"/g, '').replace(/\s+/g, ' ');
+
+    expect(CONSULTAS_SOBREPOSTAS.sqlAntesDoSchema!).not.toContain('is_walk_in');
+    expect(semEncaixe(CONSULTAS_SOBREPOSTAS.sqlAntesDoSchema!)).toBe(
+      semEncaixe(CONSULTAS_SOBREPOSTAS.sql),
+    );
   });
 });
