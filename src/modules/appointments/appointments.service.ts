@@ -33,6 +33,7 @@ import {
 } from 'src/database/entities/appointment-activity.entity';
 import { registrarNoHistorico } from './appointment-history';
 import { AvailabilityService } from '../availability/availability.service';
+import { PatientNotificationSettingsService } from '../notifications/patient-settings/patient-notification-settings.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { UpdateAppointmentDto } from './dto/update-appointment.dto';
 import { UpdateAppointmentStatusDto } from './dto/update-appointment-status.dto';
@@ -71,6 +72,7 @@ export class AppointmentsService {
     private readonly healthPlanRepository: HealthPlanRepository,
     private readonly activityRepository: AppointmentActivityRepository,
     private readonly availabilityService: AvailabilityService,
+    private readonly patientNotificationSettings: PatientNotificationSettingsService,
   ) {}
 
   private registrar(
@@ -373,7 +375,12 @@ export class AppointmentsService {
     });
 
     // `patient` já veio da validação de conta acima — sem query extra.
-    await this.avisarPacienteDoAgendamento(patient, data.doctorId, start);
+    await this.avisarPacienteDoAgendamento(
+      ownerId,
+      patient,
+      data.doctorId,
+      start,
+    );
 
     return this.comAvisos(
       criada,
@@ -513,6 +520,7 @@ export class AppointmentsService {
         id: appointment.patientId,
       });
       await this.avisarPacienteDoAgendamento(
+        appointment.ownerId,
         patient,
         appointment.doctorId,
         start,
@@ -658,6 +666,7 @@ export class AppointmentsService {
         id: appointment.patientId,
       });
       await this.avisarPacienteDoAgendamento(
+        appointment.ownerId,
         patient,
         appointment.doctorId,
         new Date(appointment.scheduledAt),
@@ -672,8 +681,10 @@ export class AppointmentsService {
    *
    * Best-effort: a consulta já está gravada, e uma falha de WhatsApp (ou um
    * paciente sem telefone) não pode desfazê-la nem devolver erro para a tela.
+   * A conta pode ter desligado o aviso (Configurações → Notificações).
    */
   private async avisarPacienteDoAgendamento(
+    ownerId: string,
     patient: { name: string; phone: string | null } | null,
     doctorId: string,
     scheduledAt: Date,
@@ -681,6 +692,15 @@ export class AppointmentsService {
     if (!patient?.phone) return;
 
     try {
+      if (
+        !(await this.patientNotificationSettings.isEnabled(
+          ownerId,
+          'appointmentScheduled',
+        ))
+      ) {
+        return;
+      }
+
       const doctor = await this.userRepository.findOne({ id: doctorId });
       await this.whatsappService.sendAppointmentScheduled(patient.phone, {
         patientName: patient.name,
@@ -700,11 +720,21 @@ export class AppointmentsService {
    * Best-effort de ponta a ponta: o cancelamento já está gravado, e uma falha
    * de WhatsApp (ou um paciente sem telefone) não pode desfazê-lo. O telefone
    * é buscado no cadastro porque a agenda só carrega id e nome do paciente.
+   * A conta pode ter desligado o aviso (Configurações → Notificações).
    */
   private async avisarPacienteDoCancelamento(
     appointment: Appointment,
   ): Promise<void> {
     try {
+      if (
+        !(await this.patientNotificationSettings.isEnabled(
+          appointment.ownerId,
+          'appointmentCancelled',
+        ))
+      ) {
+        return;
+      }
+
       const [patient, doctor] = await Promise.all([
         this.patientRepository.findOne({ id: appointment.patientId }),
         this.userRepository.findOne({ id: appointment.doctorId }),

@@ -17,6 +17,10 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import { PatientNotificationSettingsService } from './patient-settings/patient-notification-settings.service';
+import { UpdatePatientNotificationSettingsDto } from './patient-settings/update-patient-notification-settings.dto';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -27,7 +31,10 @@ import {
 @SkipThrottle()
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly patientNotificationSettingsService: PatientNotificationSettingsService,
+  ) {}
 
   // ============ Settings ============
 
@@ -44,6 +51,34 @@ export class NotificationsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.notificationsService.updateSettings(user.userId, data);
+  }
+
+  // ============ Avisos ao paciente (por conta) ============
+
+  // Configuração da conta, não do usuário: desligar um aviso vale para todos
+  // os pacientes da clínica — por isso só a administração mexe.
+  @Get('patient-settings')
+  @RequirePermission(Permission.ADMINISTRACAO)
+  @ApiOperation({ summary: 'Obter os avisos automáticos ao paciente da conta' })
+  async getPatientSettings(@CurrentUser() user: AuthenticatedUser) {
+    return await this.patientNotificationSettingsService.getForUser(
+      user.userId,
+    );
+  }
+
+  @Put('patient-settings')
+  @RequirePermission(Permission.ADMINISTRACAO)
+  @ApiOperation({
+    summary: 'Ligar/desligar os avisos automáticos ao paciente da conta',
+  })
+  async updatePatientSettings(
+    @Body() data: UpdatePatientNotificationSettingsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.patientNotificationSettingsService.updateForUser(
+      user.userId,
+      data,
+    );
   }
 
   // ============ Notifications ============

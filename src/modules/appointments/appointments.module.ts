@@ -7,6 +7,7 @@ import { AppointmentReminderService } from './appointment-reminder.service';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { AvailabilityModule } from '../availability/availability.module';
+import { PatientNotificationSettingsModule } from '../notifications/patient-settings/patient-notification-settings.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AvailabilityModule } from '../availability/availability.module';
     MailModule,
     WhatsappModule,
     AvailabilityModule,
+    PatientNotificationSettingsModule,
   ],
   controllers: [AppointmentsController],
   providers: [AppointmentsService, AppointmentReminderService],

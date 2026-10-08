@@ -61,6 +61,8 @@ describe('AppointmentsService', () => {
     sendAppointmentScheduled: jest.fn(),
   };
 
+  const mockPatientNotificationSettings = { isEnabled: jest.fn() };
+
   const mockAccessControlService = {
     getOwnerId: jest.fn(),
     getAccessibleDoctorIds: jest.fn(),
@@ -117,7 +119,9 @@ describe('AppointmentsService', () => {
       mockHealthPlanRepository as any,
       mockActivityRepository as any,
       mockAvailabilityService as any,
+      mockPatientNotificationSettings as any,
     );
+    mockPatientNotificationSettings.isEnabled.mockResolvedValue(true);
     mockAvailabilityService.assertNaoBloqueado.mockResolvedValue(undefined);
     mockAvailabilityService.foraDaGrade.mockResolvedValue(false);
     mockActivityRepository.create.mockImplementation((d) =>
@@ -964,6 +968,24 @@ describe('AppointmentsService', () => {
       );
     });
 
+    it('não avisa quando a conta desligou o aviso de cancelamento', async () => {
+      mockPatientNotificationSettings.isEnabled.mockResolvedValue(false);
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.CANCELLED },
+        userId,
+      );
+
+      expect(mockPatientNotificationSettings.isEnabled).toHaveBeenCalledWith(
+        ownerId,
+        'appointmentCancelled',
+      );
+      expect(
+        mockWhatsappService.sendAppointmentCancelled,
+      ).not.toHaveBeenCalled();
+    });
+
     it('não avisa em mudança de status que não é cancelamento', async () => {
       await service.updateStatus(
         'appt-1',
@@ -1062,6 +1084,32 @@ describe('AppointmentsService', () => {
           when: expect.stringContaining('01/08'),
         }),
       );
+    });
+
+    it('não avisa quando a conta desligou o aviso de agendamento', async () => {
+      mockPatientNotificationSettings.isEnabled.mockResolvedValue(false);
+
+      const criada = await service.create(baseCreate, userId);
+
+      expect(criada).toBeDefined();
+      expect(mockPatientNotificationSettings.isEnabled).toHaveBeenCalledWith(
+        ownerId,
+        'appointmentScheduled',
+      );
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('a falha ao ler a configuração não derruba o agendamento nem envia o aviso', async () => {
+      mockPatientNotificationSettings.isEnabled.mockRejectedValue(
+        new Error('db fora'),
+      );
+
+      await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
     });
 
     it('não avisa paciente sem telefone', async () => {
