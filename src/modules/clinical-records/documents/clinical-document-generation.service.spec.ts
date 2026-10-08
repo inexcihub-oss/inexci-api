@@ -203,6 +203,30 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(result.uri).toBe('https://r2/receita.pdf');
     });
 
+    it('data o documento pelo dia de São Paulo, não pelo de UTC', async () => {
+      // 22:30 de 07/10 em São Paulo já é 08/10 em UTC.
+      jest.useFakeTimers({
+        now: new Date('2026-10-08T01:30:00Z'),
+        doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
+      });
+      try {
+        await service.generatePrescription(
+          'record-1',
+          prescriptionDto as any,
+          'user-1',
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+
+      expect(pdfService.generatePrescriptionPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ today: '07/10/2026' }),
+      );
+      expect(documentRepository.create.mock.calls[0][0].name).toContain(
+        '07/10/2026',
+      );
+    });
+
     it('mantém o nome do documento dentro do limite da coluna (75)', async () => {
       patientRepository.findOne.mockResolvedValue({
         ...patient,

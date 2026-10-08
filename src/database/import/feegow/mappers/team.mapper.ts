@@ -9,7 +9,11 @@ import {
 import { ContextoImportacao, chaveDeNome } from '../context';
 import { ExportFeegow, excluido } from '../export';
 import { Permission } from 'src/shared/permissions/permission.enum';
-import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
+import {
+  ProfessionalCouncil,
+  hasCouncilRegistry,
+  isClinicalDocumentIssuerProfile,
+} from 'src/database/entities/doctor-profile.entity';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 
@@ -327,11 +331,22 @@ export function planejarEquipe(
           `sem conselho no Feegow — entra como ${p.perfil.council}, deduzido da especialidade "${p.perfil.specialty}"; confira na tela de colaboradores`,
         );
       }
-      if (p.perfil.council === ProfessionalCouncil.CRM && !p.perfil.crm) {
+      // Documento e indicação cirúrgica exigem número **e** UF
+      // (`hasCouncilRegistry`). O Feegow não guarda a UF: todo CRM/CRO entra
+      // bloqueado até alguém completar o registro — o relatório tem que dizer.
+      if (
+        isClinicalDocumentIssuerProfile(p.perfil) &&
+        !hasCouncilRegistry(p.perfil)
+      ) {
+        const falta = p.perfil.crm ? 'sem UF' : 'sem número e sem UF';
+        const atos =
+          p.perfil.council === ProfessionalCouncil.CRM
+            ? 'receita, atestado, pedido de exame nem indicação cirúrgica'
+            : 'receita, atestado nem pedido de exame';
         rel.avisar(
           rotulo,
           p.idOrigem,
-          'CRM sem número — preencha o número na tela de colaboradores; até lá não emite receita, atestado nem pedido de exame',
+          `${p.perfil.council} ${falta} (o Feegow não guarda a UF) — complete o registro na tela de colaboradores; até lá não emite ${atos}`,
         );
       }
     }

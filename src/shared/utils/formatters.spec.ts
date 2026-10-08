@@ -2,6 +2,7 @@ import {
   formatAppointmentWhen,
   formatClinicAddress,
   formatDoctorName,
+  todayBR,
 } from './formatters';
 
 /**
@@ -110,5 +111,17 @@ describe('formatClinicAddress', () => {
       }),
     ).toBe('');
     expect(formatClinicAddress(null)).toBe('');
+  });
+});
+
+describe('todayBR', () => {
+  it('usa o dia de São Paulo, não o de UTC', () => {
+    // 23:59 de 07/10 em São Paulo = 02:59 de 08/10 em UTC.
+    expect(todayBR(new Date('2026-10-08T02:59:00Z'))).toBe('07/10/2026');
+    expect(todayBR(new Date('2026-10-08T03:00:00Z'))).toBe('08/10/2026');
+  });
+
+  it('formata com zeros à esquerda', () => {
+    expect(todayBR(new Date('2026-01-05T15:00:00Z'))).toBe('05/01/2026');
   });
 });

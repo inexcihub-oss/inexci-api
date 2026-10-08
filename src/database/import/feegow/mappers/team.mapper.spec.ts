@@ -130,9 +130,20 @@ describe('planejarEquipe — profissional sem conselho no Feegow', () => {
     expect(ctx.relatorio.avisos).toContainEqual(
       expect.objectContaining({
         idOrigem: '6',
-        aviso: expect.stringContaining('CRM sem número'),
+        aviso: expect.stringContaining('CRM sem número e sem UF'),
       }),
     );
+  });
+
+  it('não médico (COREN) não ganha aviso de registro: não emite documento de todo jeito', () => {
+    const ctx = contextoDeTeste();
+    planejarEquipe(exportCom(), ctx);
+
+    expect(
+      ctx.relatorio.avisos.filter(
+        (a) => a.idOrigem === '7' && a.aviso.includes('sem UF'),
+      ),
+    ).toEqual([]);
   });
 
   it('conselho do Feegow que a INEXCI não tem fica OUTRO, sem deduzir', () => {
@@ -225,7 +236,53 @@ describe('planejarEquipe — profissional sem conselho no Feegow', () => {
       );
 
       expect(perfis[0].council).toBe(ProfessionalCouncil.CRM);
-      expect(ctx.relatorio.avisos).toEqual([]);
+      expect(ctx.relatorio.avisos).not.toContainEqual(
+        expect.objectContaining({
+          aviso: expect.stringContaining('não existe na INEXCI'),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    ['CRM', ProfessionalCouncil.CRM, 'indicação cirúrgica'],
+    ['CRO', ProfessionalCouncil.CRO, 'pedido de exame'],
+  ])(
+    '%s com número e sem UF (o Feegow não guarda) avisa que não emite até completar',
+    (codigo, conselho, ato) => {
+      const ctx = contextoDeTeste();
+      const { perfis } = planejarEquipe(
+        exportSintetico({
+          conselhos_profissionais: [{ id: '9', codigo }],
+          profissionais: [
+            {
+              id: '6',
+              nome_profissional: 'Otávio Ortopedista',
+              conselho_id: '9',
+              documento_conselho: '52934046',
+              email1: 'otavio@exemplo.com',
+              celular1: '24999990006',
+              ativo: 'on',
+              sys_active: '1',
+            },
+          ],
+        }),
+        ctx,
+      );
+
+      expect(perfis[0]).toMatchObject({
+        council: conselho,
+        crm: '52934046',
+        crmState: null,
+      });
+      expect(ctx.relatorio.avisos).toContainEqual(
+        expect.objectContaining({
+          idOrigem: '6',
+          aviso: expect.stringMatching(
+            new RegExp(`^${codigo} sem UF .*${ato}`),
+          ),
+        }),
+      );
     },
   );
 

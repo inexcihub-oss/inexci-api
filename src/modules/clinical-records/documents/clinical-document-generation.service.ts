@@ -23,7 +23,12 @@ import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
 import { Patient } from 'src/database/entities/patient.entity';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
-import { formatCpf, formatDateBR, formatPhone } from 'src/shared/utils';
+import {
+  formatCpf,
+  formatDateBR,
+  formatPhone,
+  todayBR,
+} from 'src/shared/utils';
 import { CidCodeDto } from '../dto/cid-code.dto';
 import { ClinicalDocumentTemplateKind } from 'src/database/entities/clinical-document-template.entity';
 import {
@@ -520,7 +525,7 @@ export class ClinicalDocumentGenerationService {
     }
 
     const base = {
-      today: formatDateBR(new Date().toISOString()),
+      today: todayBR(),
       ...(await this.buildPatientFields(patient)),
       doctorName: doctor?.name ?? 'Médico',
       doctorCrm,
@@ -662,7 +667,7 @@ export class ClinicalDocumentGenerationService {
     label: string,
     userId: string,
   ) {
-    const today = formatDateBR(new Date().toISOString());
+    const today = todayBR();
     const filename = `${type}-${record.id}-${Date.now()}.pdf`;
 
     const storagePath = await this.storageService.create(
