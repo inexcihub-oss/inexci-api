@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { Appointment, AppointmentStatus } from '../entities/appointment.entity';
+import {
+  Appointment,
+  AppointmentStatus,
+  OCCUPYING_APPOINTMENT_STATUSES,
+} from '../entities/appointment.entity';
 import { BaseRepository } from './base.repository';
 
 /** Recorte da agenda. Cada ponta da janela é opcional (lista aberta). */
@@ -10,6 +14,8 @@ export interface FindAgendaOptions {
   statuses?: AppointmentStatus[];
   order?: 'ASC' | 'DESC';
   take: number;
+  /** Quantas pular (paginação da lista do hub). */
+  skip?: number;
 }
 
 /**
@@ -28,6 +34,19 @@ const COLUNAS_PACIENTE_NO_CARD = ['patient.id', 'patient.name'];
  * inteira a quem só marca consulta.
  */
 const COLUNAS_CLINICA_NO_CARD = ['clinic.id', 'clinic.name'];
+
+/**
+ * Sala, convênio e quem agendou: só id e nome, pelo mesmo motivo — o card não
+ * precisa de mais, e `User` tem CPF, telefone e endereço.
+ */
+const COLUNAS_EXTRAS_NO_CARD = [
+  'room.id',
+  'room.name',
+  'healthPlan.id',
+  'healthPlan.name',
+  'createdBy.id',
+  'createdBy.name',
+];
 
 /**
  * O que a resposta ao lembrete de WhatsApp precisa da clínica: o endereço, para
@@ -81,6 +100,10 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
       .addSelect(COLUNAS_PACIENTE_NO_CARD)
       .leftJoin('appointment.clinic', 'clinic')
       .addSelect(COLUNAS_CLINICA_NO_CARD)
+      .leftJoin('appointment.room', 'room')
+      .leftJoin('appointment.healthPlan', 'healthPlan')
+      .leftJoin('appointment.createdBy', 'createdBy')
+      .addSelect(COLUNAS_EXTRAS_NO_CARD)
       .where('appointment.ownerId = :ownerId', { ownerId })
       .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
       // `withDeleted()` desliga o filtro de soft delete do root também, então
@@ -108,12 +131,50 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     // recorte inteiro. É o que permite ao consumidor saber que a lista veio
     // cortada pelo teto — antes o `total` era o tamanho da página, ou seja,
     // igual ao teto, e o corte passava despercebido.
+    // Desempate por id: com páginas, duas consultas no mesmo horário não
+    // podem trocar de lugar entre uma requisição e outra (sairiam repetidas
+    // ou sumiriam no "carregar mais").
     const [records, total] = await qb
       .orderBy('appointment.scheduledAt', options.order ?? 'ASC')
+      .addOrderBy('appointment.id', 'ASC')
+      .skip(options.skip ?? 0)
       .take(options.take)
       .getManyAndCount();
 
     return { records, total };
+  }
+
+  /**
+   * Quantas consultas cada médico tem no mesmo recorte da agenda (janela e
+   * status), sem paginação. Alimenta as contagens do filtro de profissionais,
+   * que precisam valer para a lista inteira, não só para a página carregada.
+   */
+  async countByDoctor(
+    ownerId: string,
+    doctorIds: string[],
+    options: Omit<FindAgendaOptions, 'take' | 'skip' | 'order'>,
+  ): Promise<Record<string, number>> {
+    const qb = this.repository
+      .createQueryBuilder('appointment')
+      .select('appointment.doctorId', 'doctorId')
+      .addSelect('COUNT(*)::int', 'total')
+      .where('appointment.ownerId = :ownerId', { ownerId })
+      .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds });
+    if (options.from) {
+      qb.andWhere('appointment.scheduledAt >= :from', { from: options.from });
+    }
+    if (options.to) {
+      qb.andWhere('appointment.scheduledAt < :to', { to: options.to });
+    }
+    if (options.statuses?.length) {
+      qb.andWhere('appointment.status IN (:...statuses)', {
+        statuses: options.statuses,
+      });
+    }
+    const linhas: { doctorId: string; total: number }[] = await qb
+      .groupBy('appointment.doctorId')
+      .getRawMany();
+    return Object.fromEntries(linhas.map((l) => [l.doctorId, Number(l.total)]));
   }
 
   /**
@@ -147,6 +208,10 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
         .addSelect(COLUNAS_PACIENTE_NO_CARD)
         .leftJoin('appointment.clinic', 'clinic')
         .addSelect(COLUNAS_CLINICA_NO_CARD)
+        .leftJoin('appointment.room', 'room')
+        .leftJoin('appointment.healthPlan', 'healthPlan')
+        .leftJoin('appointment.createdBy', 'createdBy')
+        .addSelect(COLUNAS_EXTRAS_NO_CARD)
         .where('appointment.ownerId = :ownerId', { ownerId })
         .andWhere('appointment.doctorId IN (:...doctorIds)', { doctorIds })
         .andWhere('appointment.patientId = :patientId', { patientId })
@@ -185,6 +250,10 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
         .addSelect(COLUNAS_PACIENTE_NO_CARD)
         .leftJoin('appointment.clinic', 'clinic')
         .addSelect(COLUNAS_CLINICA_NO_CARD)
+        .leftJoin('appointment.room', 'room')
+        .leftJoin('appointment.healthPlan', 'healthPlan')
+        .leftJoin('appointment.createdBy', 'createdBy')
+        .addSelect(COLUNAS_EXTRAS_NO_CARD)
         .where('appointment.id = :id', { id })
         .andWhere('appointment.deletedAt IS NULL')
         .getOne()
@@ -235,20 +304,34 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
   }
 
   /**
-   * Detecta conflito de horário para um médico: uma consulta ativa (não
-   * cancelada) cujo intervalo [scheduled_at, scheduled_at + duração) sobrepõe
+   * Detecta conflito de horário para um médico: uma consulta que ainda ocupa
+   * o horário cujo intervalo [scheduled_at, scheduled_at + duração) sobrepõe
    * [start, end). `excludeId` ignora a própria consulta ao reagendar.
+   *
+   * O que ocupa é `OCCUPYING_APPOINTMENT_STATUSES` (em aberto + realizada) —
+   * não `isActiveAppointmentStatus`, que deixa a realizada de fora.
+   *
+   * Por padrão um encaixe (`is_walk_in`) conta como ocupando o horário: é o
+   * que impede marcar uma consulta normal **nova** em cima de um encaixe. A
+   * exclusion constraint `EX_appointments_doctor_no_overlap`, porém, ignora
+   * encaixes dos dois lados — então, para uma consulta que **já existe**
+   * (editar, reativar), `ignorarEncaixes` aplica o mesmo critério do banco:
+   * um encaixe posto sobre ela não pode travar a própria consulta que ele
+   * encaixou.
    */
   async hasOverlap(
     doctorId: string,
     start: Date,
     end: Date,
     excludeId?: string,
+    opcoes: { ignorarEncaixes?: boolean } = {},
   ): Promise<boolean> {
     const qb = this.repository
       .createQueryBuilder('appointment')
       .where('appointment.doctorId = :doctorId', { doctorId })
-      .andWhere('appointment.status != :cancelled', { cancelled: 'cancelled' })
+      .andWhere('appointment.status IN (:...ocupam)', {
+        ocupam: OCCUPYING_APPOINTMENT_STATUSES,
+      })
       .andWhere('appointment.scheduledAt < :end', { end })
       .andWhere(
         `appointment.scheduledAt + (appointment.durationMinutes * interval '1 minute') > :start`,
@@ -258,9 +341,38 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
     if (excludeId) {
       qb.andWhere('appointment.id != :excludeId', { excludeId });
     }
+    if (opcoes.ignorarEncaixes) {
+      qb.andWhere('appointment.isWalkIn = false');
+    }
 
     const count = await qb.getCount();
     return count > 0;
+  }
+
+  /**
+   * Consultas que ocupam a agenda do profissional em `[from, to)` — mesmo
+   * critério de `hasOverlap` (cancelada e falta liberam o horário). Só os
+   * campos que a disponibilidade usa.
+   */
+  findOcupando(doctorId: string, from: Date, to: Date): Promise<Appointment[]> {
+    return this.repository
+      .createQueryBuilder('appointment')
+      .select([
+        'appointment.id',
+        'appointment.scheduledAt',
+        'appointment.durationMinutes',
+      ])
+      .where('appointment.doctorId = :doctorId', { doctorId })
+      .andWhere('appointment.status IN (:...ocupam)', {
+        ocupam: OCCUPYING_APPOINTMENT_STATUSES,
+      })
+      .andWhere('appointment.scheduledAt < :to', { to })
+      .andWhere(
+        `appointment.scheduledAt + (appointment.durationMinutes * interval '1 minute') > :from`,
+        { from },
+      )
+      .orderBy('appointment.scheduledAt', 'ASC')
+      .getMany();
   }
 
   /**

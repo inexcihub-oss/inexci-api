@@ -5,6 +5,7 @@ import { StaleNotificationService } from 'src/modules/notifications/stale-notifi
 import { WeeklySummaryService } from 'src/modules/notifications/weekly-summary.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
+import { FotosPacienteOrfasService } from './fotos-paciente-orfas.service';
 
 @Injectable()
 export class CronService {
@@ -15,6 +16,7 @@ export class CronService {
     private readonly weeklySummaryService: WeeklySummaryService,
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
+    private readonly fotosPacienteOrfasService: FotosPacienteOrfasService,
   ) {}
 
   @Cron('0 7 * * *', { timeZone: 'America/Sao_Paulo' })
@@ -86,6 +88,29 @@ export class CronService {
     } catch (err: any) {
       this.logger.warn(
         `[AI_DOC_TMP_CLEANUP] erro: ${err?.message ?? String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Remove de `patient-photos/` as fotos que nenhum paciente referencia e que
+   * foram enviadas há mais de 24 h (upload que deu certo seguido de PATCH ou
+   * cadastro que falhou). Diário, de madrugada: a listagem varre a pasta
+   * inteira do bucket.
+   */
+  @Cron('30 3 * * *', { timeZone: 'America/Sao_Paulo' })
+  async cleanupOrphanPatientPhotos() {
+    try {
+      const { removidas, falhas } =
+        await this.fotosPacienteOrfasService.limpar();
+      if (removidas || falhas) {
+        this.logger.log(
+          `[PATIENT_PHOTOS_CLEANUP] removed=${removidas} failed=${falhas}`,
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `[PATIENT_PHOTOS_CLEANUP] erro: ${err?.message ?? String(err)}`,
       );
     }
   }

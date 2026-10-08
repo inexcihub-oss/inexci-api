@@ -1,33 +1,44 @@
 <html lang='pt-BR'>
   <head>
     <meta charset='UTF-8' />
-    <title>Atestado Médico</title>
+    <title>{{#if certificateTitle}}{{certificateTitle}}{{else}}Atestado Médico{{/if}}</title>
     {{> clinical-styles}}
   </head>
   <body>
 
-    {{> clinical-header documentTitle='ATESTADO MÉDICO'}}
+    {{#if certificateTitle}}
+      {{> clinical-header documentTitle=certificateTitle}}
+    {{else}}
+      {{> clinical-header documentTitle='ATESTADO MÉDICO'}}
+    {{/if}}
 
     {{> clinical-patient}}
 
     <div class='section'>
-      <p class='statement'>
-        Atesto, para os devidos fins, que o(a) paciente
-        <strong>{{patientName}}</strong>{{#if patientCpf}}, inscrito(a) no CPF
-        {{patientCpf}},{{/if}}
-        esteve sob meus cuidados profissionais nesta data{{#if restDaysLabel}},
-        necessitando de
-        <strong>{{restDaysLabel}}</strong>
-        de afastamento de suas atividades{{#if startDate}}
-          a partir de
-          {{startDate}}{{/if}}{{/if}}.
-      </p>
+      {{#if text}}
+        {{! Texto do modelo/digitado: quebra de linha do médico vale. }}
+        <p class='statement body-text'>{{text}}</p>
+        {{! Dias/início do formulário que o texto não menciona — sem isto sumiam do PDF. }}
+        {{#if restPeriodNote}}
+          <p class='body-text'>{{restPeriodNote}}</p>
+        {{/if}}
+      {{else}}
+        <p class='statement'>
+          Atesto, para os devidos fins, que o(a) paciente
+          <strong>{{patientName}}</strong>{{#if patientCpf}}, inscrito(a) no CPF
+          {{patientCpf}},{{/if}}
+          esteve sob meus cuidados profissionais nesta data{{#if restDaysLabel}},
+          necessitando de
+          <strong>{{restDaysLabel}}</strong>
+          de afastamento de suas atividades{{#if startDate}}
+            a partir de
+            {{startDate}}{{/if}}{{/if}}.
+        </p>
+      {{/if}}
 
+      {{! Numa linha só: body-text usa pre-line e cada quebra daqui viraria linha no PDF. }}
       {{#if cid}}
-        <p class='body-text'>CID-10:
-          {{cid.code}}{{#if cid.description}}
-            —
-            {{cid.description}}{{/if}}</p>
+        <p class='body-text'>CID-10: {{cid.code}}{{#if cid.description}} — {{cid.description}}{{/if}}</p>
       {{/if}}
     </div>
 

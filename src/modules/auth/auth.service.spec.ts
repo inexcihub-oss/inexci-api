@@ -176,6 +176,32 @@ describe('AuthService', () => {
       expect(mockConsentService.getStatus).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ['CRM', true, true],
+      ['CRO', false, true],
+      ['CRN', false, false],
+    ])(
+      'conselho %s: isPhysician=%s, canIssueClinicalDocuments=%s',
+      async (council, isPhysician, emite) => {
+        mockUserRepository.findOneWithProfile.mockResolvedValue({
+          id: 'prof-1',
+          role: UserRole.COLLABORATOR,
+          name: 'Profissional',
+          phone: '11999999999',
+          email: 'prof@example.com',
+          ownerId: 'prof-1',
+          avatarUrl: null,
+          emailVerified: true,
+          doctorProfile: { id: 'dp-1', council, crm: '123', crmState: 'RJ' },
+        });
+
+        const result = await service.me('prof-1');
+
+        expect(result.isPhysician).toBe(isPhysician);
+        expect(result.canIssueClinicalDocuments).toBe(emite);
+      },
+    );
+
     it('inclui account (equipe) para colaborador vinculado a um dono médico', async () => {
       const collaborator = {
         id: 'collab-1',
@@ -191,7 +217,7 @@ describe('AuthService', () => {
       const owner = {
         id: 'owner-1',
         name: 'Dr. Diogo',
-        doctorProfile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
       };
       mockUserRepository.findOneWithProfile
         .mockResolvedValueOnce(collaborator) // lookup do próprio usuário
@@ -265,7 +291,7 @@ describe('AuthService', () => {
         .mockResolvedValueOnce({
           id: 'owner-1',
           name: 'Dr. Diogo',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
       const result = await service.me('collab-1');
@@ -315,7 +341,7 @@ describe('AuthService', () => {
           emailVerified: true,
           permissions: [],
           isPlatformAdmin: false,
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
         const result = await service.me('med-1');
@@ -359,7 +385,7 @@ describe('AuthService', () => {
           emailVerified: true,
           permissions: [],
           isPlatformAdmin: true,
-          doctorProfile: { id: 'dp-1' }, // efetiva soma 3 áreas — prova que não é a crua repassada
+          doctorProfile: { id: 'dp-1', council: 'CRM' }, // efetiva soma 3 áreas — prova que não é a crua repassada
         });
 
         const result = await service.me('colab-1');
@@ -972,7 +998,7 @@ describe('AuthService', () => {
           permissions: [],
           isPlatformAdmin: true,
           // efetiva soma 3 áreas — prova que não é a coluna crua repassada
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
         const result = await service.login({

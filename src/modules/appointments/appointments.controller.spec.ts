@@ -19,25 +19,30 @@ describe('AppointmentsController — permissões declaradas', () => {
   });
 
   /** O hub /atendimento lista as consultas do médico sem ele ter Agenda. */
-  it.each(['findAgenda', 'findByPatient', 'findOne'] as const)(
-    'aceita agenda ou atendimento na leitura: %s',
-    (metodo) => {
-      expect(exigidoEm(metodo)).toEqual([
-        Permission.AGENDA,
-        Permission.ATENDIMENTO,
-      ]);
-    },
-  );
+  it.each([
+    'findAgenda',
+    'findByPatient',
+    'findOne',
+    'findActivities',
+  ] as const)('aceita agenda ou atendimento na leitura: %s', (metodo) => {
+    expect(exigidoEm(metodo)).toEqual([
+      Permission.AGENDA,
+      Permission.ATENDIMENTO,
+    ]);
+  });
 
   /**
    * Escrever herda a exigência da classe (AGENDA) — a ausência de decorator
    * de método É a asserção, e por isso o teste checa `toBeUndefined` em vez
    * de aceitar um valor padrão.
    */
-  it.each(['create', 'update', 'updateStatus', 'delete'] as const)(
-    'deixa %s herdar agenda da classe',
-    (metodo) => {
-      expect(exigidoEm(metodo)).toBeUndefined();
-    },
-  );
+  it.each([
+    'create',
+    'update',
+    'updateStatus',
+    'delete',
+    'addComment',
+  ] as const)('deixa %s herdar agenda da classe', (metodo) => {
+    expect(exigidoEm(metodo)).toBeUndefined();
+  });
 });

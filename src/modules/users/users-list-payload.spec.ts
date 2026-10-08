@@ -130,7 +130,7 @@ describe('UsersService — listagens de equipe não devolvem dado pessoal', () =
 
     it('mantém o que a tela usa, incluindo a permissão efetiva', async () => {
       userRepository.findByOwnerId.mockResolvedValue([
-        linhaCompleta({ doctorProfile: { id: 'dp-1' } }),
+        linhaCompleta({ doctorProfile: { id: 'dp-1', council: 'CRM' } }),
       ]);
 
       const { records } = await service.findCollaborators('delegado-1');
@@ -153,7 +153,10 @@ describe('UsersService — listagens de equipe não devolvem dado pessoal', () =
   describe('GET /users/doctors', () => {
     it('não devolve CPF, endereço, gênero nem nascimento', async () => {
       userRepository.findDoctorsByOwnerId.mockResolvedValue([
-        linhaCompleta({ id: 'medico-1', doctorProfile: { id: 'dp-1' } }),
+        linhaCompleta({
+          id: 'medico-1',
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
+        }),
       ]);
 
       const { records } = await service.findDoctors('dono-1');
@@ -173,7 +176,7 @@ describe('UsersService — listagens de equipe não devolvem dado pessoal', () =
       userRepository.findDoctorsByOwnerId.mockResolvedValue([
         linhaCompleta({
           id: 'medico-1',
-          doctorProfile: { id: 'dp-1' },
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
           permissions: ['administracao'],
           isPlatformAdmin: true,
         }),

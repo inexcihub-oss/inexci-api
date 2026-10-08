@@ -1,3 +1,4 @@
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -346,10 +347,14 @@ export class AiOrchestratorService {
           // `updateCollaborator` (quando `permissions`/`isDoctor` mudam),
           // `deleteCollaborator`, `bulkDeleteCollaborators` e
           // `toggleCollaboratorStatus`.
+          // `user.doctorProfile` também veio do `findOneWithProfile` (relation
+          // completa, com `council`): é dele que sai se o perfil é de médico.
+          const isDoctor = accessibleDoctorIds.includes(userId);
           const permissions = resolveEffectivePermissions({
             role: user.role,
             permissions: user.permissions,
-            isDoctor: accessibleDoctorIds.includes(userId),
+            isDoctor,
+            isPhysician: isDoctor && isPhysicianProfile(user.doctorProfile),
           });
           const conversation =
             await this.conversationService.getOrCreateConversation(

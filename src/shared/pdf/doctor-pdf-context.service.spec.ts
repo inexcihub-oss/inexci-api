@@ -2,7 +2,10 @@ import { Test } from '@nestjs/testing';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { DoctorPdfContextService } from './doctor-pdf-context.service';
+import {
+  DoctorPdfContextService,
+  formatarRegistroProfissional,
+} from './doctor-pdf-context.service';
 
 describe('DoctorPdfContextService', () => {
   let service: DoctorPdfContextService;
@@ -71,6 +74,42 @@ describe('DoctorPdfContextService', () => {
     expect(context.doctorSignatureUrl).toBeUndefined();
   });
 
+  it('usa o conselho do perfil no registro (MIG-02)', async () => {
+    userRepository.findOneWithProfile.mockResolvedValue({
+      ...doctorWithProfile,
+      doctorProfile: {
+        id: 'profile-1',
+        council: 'COREN',
+        crm: '123',
+        crmState: 'RJ',
+        signatureUrl: null,
+      },
+    });
+    doctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
+
+    const context = await service.buildForDoctorId('doctor-1');
+
+    expect(context.doctorCrm).toBe('COREN 123/RJ');
+  });
+
+  it('não imprime registro de profissional sem número no conselho', async () => {
+    userRepository.findOneWithProfile.mockResolvedValue({
+      ...doctorWithProfile,
+      doctorProfile: {
+        id: 'profile-1',
+        council: 'CRP',
+        crm: null,
+        crmState: null,
+        signatureUrl: null,
+      },
+    });
+    doctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
+
+    const context = await service.buildForDoctorId('doctor-1');
+
+    expect(context.doctorCrm).toBeUndefined();
+  });
+
   it('não quebra o PDF quando a assinatura falha ao ser assinada', async () => {
     userRepository.findOneWithProfile.mockResolvedValue(doctorWithProfile);
     doctorHeaderRepository.findByDoctorProfileId.mockResolvedValue(null);
@@ -133,5 +172,17 @@ describe('DoctorPdfContextService', () => {
     await expect(service.buildForDoctorId('sumido')).rejects.toThrow(
       'Médico não encontrado para geração de PDF: sumido',
     );
+  });
+});
+
+describe('formatarRegistroProfissional', () => {
+  it('imprime o conselho do dentista: CRO nnn/UF', () => {
+    expect(
+      formatarRegistroProfissional({
+        council: 'CRO',
+        crm: '4321',
+        crmState: 'RJ',
+      }),
+    ).toBe('CRO 4321/RJ');
   });
 });

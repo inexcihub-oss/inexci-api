@@ -12,6 +12,7 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.ADMIN,
         permissions: [],
         isDoctor: false,
+        isPhysician: false,
       }),
     ).toEqual(ALL_PERMISSIONS);
   });
@@ -22,6 +23,7 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.COLLABORATOR,
         permissions: [Permission.AGENDA],
         isDoctor: false,
+        isPhysician: false,
       }),
     ).toEqual([Permission.AGENDA]);
   });
@@ -38,6 +40,7 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.COLLABORATOR,
         permissions: [],
         isDoctor: true,
+        isPhysician: true,
       }),
     ).toEqual([
       Permission.AGENDA,
@@ -52,6 +55,7 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.COLLABORATOR,
         permissions: [],
         isDoctor: true,
+        isPhysician: true,
       }),
     ).not.toContain(Permission.ADMINISTRACAO);
   });
@@ -62,12 +66,14 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.COLLABORATOR,
         permissions: null,
         isDoctor: false,
+        isPhysician: false,
       }),
     ).toEqual([]);
     expect(
       resolveEffectivePermissions({
         role: UserRole.COLLABORATOR,
         isDoctor: false,
+        isPhysician: false,
       }),
     ).toEqual([]);
   });
@@ -78,6 +84,7 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.COLLABORATOR,
         permissions: ['financeiro' as Permission, Permission.AGENDA],
         isDoctor: false,
+        isPhysician: false,
       }),
     ).toEqual([Permission.AGENDA]);
   });
@@ -88,6 +95,7 @@ describe('resolveEffectivePermissions', () => {
         role: UserRole.COLLABORATOR,
         permissions: [Permission.SOLICITACOES, Permission.AGENDA],
         isDoctor: false,
+        isPhysician: false,
       }),
     ).toEqual([Permission.AGENDA, Permission.SOLICITACOES]);
   });
@@ -97,8 +105,44 @@ describe('resolveEffectivePermissions', () => {
       role: UserRole.ADMIN,
       permissions: [],
       isDoctor: false,
+      isPhysician: false,
     });
     resultado.pop();
     expect(ALL_PERMISSIONS).toHaveLength(4);
+  });
+  describe('profissional de saúde que não é médico (MIG-02)', () => {
+    const naoMedico = {
+      role: UserRole.COLLABORATOR,
+      permissions: [] as Permission[],
+      isDoctor: true,
+      isPhysician: false,
+    };
+
+    it('recebe agenda e atendimento, sem solicitações', () => {
+      expect(resolveEffectivePermissions(naoMedico)).toEqual([
+        Permission.AGENDA,
+        Permission.ATENDIMENTO,
+      ]);
+    });
+
+    it('mantém solicitações quando a conta concede no array', () => {
+      expect(
+        resolveEffectivePermissions({
+          ...naoMedico,
+          permissions: [Permission.SOLICITACOES],
+        }),
+      ).toContain(Permission.SOLICITACOES);
+    });
+
+    it('isPhysician sem perfil não concede nada', () => {
+      expect(
+        resolveEffectivePermissions({
+          role: UserRole.COLLABORATOR,
+          permissions: [],
+          isDoctor: false,
+          isPhysician: true,
+        }),
+      ).toEqual([]);
+    });
   });
 });

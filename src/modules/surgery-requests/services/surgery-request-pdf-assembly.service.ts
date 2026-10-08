@@ -11,7 +11,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { DoctorPdfContextService } from 'src/shared/pdf/doctor-pdf-context.service';
 import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
-import { formatPhone } from 'src/shared/utils';
+import { formatPhone, todayBR } from 'src/shared/utils';
 import { buildLaudoPatientFields } from '../utils/laudo-patient-fields.util';
 import {
   DOCUMENT_KEYS,
@@ -208,7 +208,7 @@ export class SurgeryRequestPdfAssemblyService {
     );
 
     const laudoData: SurgeryRequestLaudoPdfData = {
-      today: new Date().toLocaleDateString('pt-BR'),
+      today: todayBR(),
       ...patientFields,
       sections: reportSections.length
         ? reportSections.map((s: any) => ({
@@ -316,7 +316,7 @@ export class SurgeryRequestPdfAssemblyService {
     );
 
     const medicalData: MedicalReportPdfData = {
-      today: new Date().toLocaleDateString('pt-BR'),
+      today: todayBR(),
       ...patientFields,
       sections: reportSections.length
         ? reportSections.map((s: any) => ({
@@ -463,7 +463,7 @@ export class SurgeryRequestPdfAssemblyService {
     const patientFields = buildLaudoPatientFields(request);
 
     const pdfData: ContestAuthorizationPdfData = {
-      today: new Date().toLocaleDateString('pt-BR'),
+      today: todayBR(),
       reason,
       message,
       ...patientFields,

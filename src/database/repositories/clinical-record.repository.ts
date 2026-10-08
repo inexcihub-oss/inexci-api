@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, In } from 'typeorm';
 import { ClinicalRecord } from '../entities/clinical-record.entity';
+import { ProfessionalCouncil } from '../entities/doctor-profile.entity';
 import { BaseRepository } from './base.repository';
+
+/** Situação da ficha vinculada a uma consulta. */
+export type ClinicalRecordStatus = 'draft' | 'finalized';
 
 @Injectable()
 export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
@@ -17,6 +21,31 @@ export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
     where: FindOptionsWhere<ClinicalRecord>,
   ): Promise<ClinicalRecord | null> {
     return this.repository.findOne({ where, relations: ['procedure'] });
+  }
+
+  /**
+   * Situação da ficha de cada consulta (`draft` = em aberto, `finalized` =
+   * finalizada). Consulta sem ficha viva fica fora do mapa.
+   *
+   * Seleção explícita de propósito: a agenda é liberada para quem só tem
+   * `Permission.AGENDA`, e o que ela precisa saber é se há atendimento em
+   * curso — nunca o conteúdo clínico. Ficha excluída (soft delete) não conta.
+   */
+  async findStatusByAppointmentIds(
+    appointmentIds: string[],
+  ): Promise<Map<string, ClinicalRecordStatus>> {
+    const mapa = new Map<string, ClinicalRecordStatus>();
+    if (!appointmentIds.length) return mapa;
+    const fichas = await this.repository.find({
+      select: { id: true, appointmentId: true, finalizedAt: true },
+      where: { appointmentId: In(appointmentIds) },
+    });
+    for (const f of fichas) {
+      if (f.appointmentId) {
+        mapa.set(f.appointmentId, f.finalizedAt ? 'finalized' : 'draft');
+      }
+    }
+    return mapa;
   }
 
   /**
@@ -44,14 +73,29 @@ export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
    * uma falha persistente não deixe a mesma ficha esperando indefinidamente.
    */
   findPendingSurgicalIndications(limit: number): Promise<ClinicalRecord[]> {
-    return this.repository
-      .createQueryBuilder('record')
-      .where('record.surgicalIndication = true')
-      .andWhere('record.surgeryRequestId IS NULL')
-      .andWhere('record.finalizedAt IS NOT NULL')
-      .orderBy('record.finalizedAt', 'ASC')
-      .take(limit)
-      .getMany();
+    return (
+      this.repository
+        .createQueryBuilder('record')
+        .where('record.surgicalIndication = true')
+        .andWhere('record.surgeryRequestId IS NULL')
+        .andWhere('record.finalizedAt IS NOT NULL')
+        // Só quem pode indicar cirurgia (CRM com número e UF — o mesmo critério
+        // de `assertIsPhysicianWithRegistry`). Ficha de quem não pode fica no
+        // outbox sem ocupar o lote: senão 50 fichas bloqueadas travariam as novas.
+        .andWhere(
+          `EXISTS (
+           SELECT 1 FROM doctor_profiles dp
+            WHERE dp.user_id = record.doctor_id
+              AND dp.council = :crm
+              AND NULLIF(TRIM(dp.crm), '') IS NOT NULL
+              AND NULLIF(TRIM(dp.crm_state), '') IS NOT NULL
+         )`,
+          { crm: ProfessionalCouncil.CRM },
+        )
+        .orderBy('record.finalizedAt', 'ASC')
+        .take(limit)
+        .getMany()
+    );
   }
 
   /**

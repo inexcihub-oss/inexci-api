@@ -9,6 +9,8 @@ import { ClinicalDocumentsService } from './documents/clinical-documents.service
 import { ClinicalDocumentGenerationService } from './documents/clinical-document-generation.service';
 import { ClinicalRecordTemplatesController } from './templates/clinical-record-templates.controller';
 import { ClinicalRecordTemplatesService } from './templates/clinical-record-templates.service';
+import { ClinicalDocumentTemplatesController } from './document-templates/clinical-document-templates.controller';
+import { ClinicalDocumentTemplatesService } from './document-templates/clinical-document-templates.service';
 import { PdfModule } from 'src/shared/pdf/pdf.module';
 import { SurgicalIndicationService } from './surgical-indication/surgical-indication.service';
 import { IndicationDocumentsService } from './surgical-indication/indication-documents.service';
@@ -26,13 +28,14 @@ import { SurgeryRequestRealtimeModule } from 'src/modules/surgery-requests/realt
     PdfModule,
     QueuesModule,
   ],
-  // Ordem importa: `clinical-records/documents` e `clinical-records/templates`
-  // são caminhos fixos que colidem com o `clinical-records/:id` do controller
+  // Ordem importa: `clinical-records/documents`, `.../templates` e
+  // `.../document-templates` são caminhos fixos que colidem com o `clinical-records/:id` do controller
   // de fichas. O Nest resolve as rotas na ordem de registro, então os
   // específicos vêm primeiro.
   controllers: [
     ClinicalDocumentsController,
     ClinicalRecordTemplatesController,
+    ClinicalDocumentTemplatesController,
     ClinicalRecordsController,
   ],
   providers: [
@@ -40,6 +43,7 @@ import { SurgeryRequestRealtimeModule } from 'src/modules/surgery-requests/realt
     ClinicalDocumentsService,
     ClinicalDocumentGenerationService,
     ClinicalRecordTemplatesService,
+    ClinicalDocumentTemplatesService,
     SurgicalIndicationService,
     IndicationDocumentsService,
     IndicationDocumentsJobsService,

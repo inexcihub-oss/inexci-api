@@ -32,6 +32,23 @@ export function formatDateBR(v: string): string {
 }
 
 /**
+ * Data de hoje (DD/MM/AAAA) no fuso da clínica. `toISOString()` é UTC e o
+ * servidor roda em UTC: a partir das 21h em São Paulo, o documento sairia
+ * datado do dia seguinte.
+ */
+export function todayBR(
+  now: Date = new Date(),
+  timeZone = 'America/Sao_Paulo',
+): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(now);
+}
+
+/**
  * Reconhece um nome que já vem com tratamento médico ("Dr. Carlos",
  * "Dra. Ana", "Dr(a). Paulo"). O ponto é opcional e o espaço é obrigatório —
  * sem ele, "Drauzio" seria confundido com "Dra".

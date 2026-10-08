@@ -176,7 +176,10 @@ describe('UsersService — credenciais nunca saem na resposta', () => {
 
   it('GET /users/doctors — findDoctors não devolve credenciais', async () => {
     userRepository.findDoctorsByOwnerId.mockResolvedValue([
-      comCredenciais({ id: 'medico-1', doctorProfile: { id: 'dp-1' } }),
+      comCredenciais({
+        id: 'medico-1',
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
+      }),
     ]);
 
     const { records } = await service.findDoctors('dono-1');

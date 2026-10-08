@@ -11,15 +11,17 @@
 -- o banco pela metade. Aqui você lê a conferência antes, roda com o deploy
 -- parado e vê o resultado.
 --
---   psql "$DATABASE_URL" -f scripts/sql/outro-generico-conferencia.sql   # leia
---   psql "$DATABASE_URL" -f scripts/sql/outro-generico-aplicar.sql       # rode
+-- Cole este arquivo inteiro no SQL Editor do Supabase (ou rode via psql) e
+-- clique em Run — nada aqui depende de comando de cliente, é SQL puro:
+--
+--   1) rode outro-generico-conferencia.sql e leia o resultado
+--   2) rode este arquivo
 --
 -- Reexecutável: rodar de novo não encontra mais nada para fundir e não muda
--- nada. Tudo numa transação — se abortar no meio, o banco fica como estava.
+-- nada. Tudo numa transação — se abortar no meio (por exemplo pela trava
+-- abaixo), o banco fica como estava; não precisa de `ROLLBACK` manual.
 --
 -- =============================================================================
-
-\set ON_ERROR_STOP on
 
 BEGIN;
 
@@ -191,6 +193,14 @@ SELECT 1755700200000, 'AddGenericSupplierAndManufacturer1755700200000'
 
 COMMIT;
 
-\echo ''
-\echo 'Pronto. Confira com: SELECT owner_id, id, name, is_generic FROM suppliers WHERE is_generic;'
-\echo ''
+-- ── Verificação ──────────────────────────────────────────────────────────────
+-- Último statement do arquivo de propósito: em editores que só mostram o
+-- resultado do último comando (caso do SQL Editor do Supabase), é isto que
+-- aparece na tela ao terminar — a prova visual de que a genérica existe, uma
+-- por conta, já com o nome canônico.
+SELECT 'supplier' AS tipo, owner_id, id, name, is_generic
+  FROM "suppliers" WHERE is_generic
+ UNION ALL
+SELECT 'manufacturer', owner_id, id, name, is_generic
+  FROM "manufacturers" WHERE is_generic
+ ORDER BY 1, 2;

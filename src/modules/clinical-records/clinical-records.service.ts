@@ -13,10 +13,26 @@ import { ProcedureRepository } from 'src/database/repositories/procedure.reposit
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
-import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import {
+  AppointmentStatus,
+  isActiveAppointmentStatus,
+} from 'src/database/entities/appointment.entity';
 import { CreateClinicalRecordDto } from './dto/create-clinical-record.dto';
 import { UpdateClinicalRecordDto } from './dto/update-clinical-record.dto';
 import { SurgicalIndicationService } from './surgical-indication/surgical-indication.service';
+import { AppointmentActivityRepository } from 'src/database/repositories/appointment-activity.repository';
+import { AppointmentActivityType } from 'src/database/entities/appointment-activity.entity';
+import { registrarNoHistorico } from 'src/modules/appointments/appointment-history';
+
+/** Texto do histórico gravado quando abrir a ficha põe a consulta em atendimento. */
+const ATENDIMENTO_INICIADO = 'Atendimento iniciado';
+
+/** Para onde a consulta pode voltar quando o rascunho da ficha é excluído. */
+const STATUS_ANTES_DO_ATENDIMENTO: readonly AppointmentStatus[] = [
+  AppointmentStatus.SCHEDULED,
+  AppointmentStatus.CONFIRMED,
+  AppointmentStatus.WAITING,
+];
 
 @Injectable()
 export class ClinicalRecordsService {
@@ -28,6 +44,7 @@ export class ClinicalRecordsService {
     private readonly appointmentRepository: AppointmentRepository,
     private readonly accessControlService: AccessControlService,
     private readonly surgicalIndicationService: SurgicalIndicationService,
+    private readonly appointmentActivityRepository: AppointmentActivityRepository,
     private readonly procedureRepository: ProcedureRepository,
   ) {}
 
@@ -117,6 +134,9 @@ export class ClinicalRecordsService {
     if (!canAccess) {
       throw new ForbiddenException('Médico não acessível para esta operação.');
     }
+    if (data.surgicalIndication) {
+      await this.assertIndicacaoCirurgicaPermitida(doctorId, userId);
+    }
 
     if (data.appointmentId) {
       await this.assertAppointmentBelongs(
@@ -144,7 +164,7 @@ export class ClinicalRecordsService {
       await this.assertProcedureBelongsToOwner(data.procedureId, ownerId);
     }
 
-    return this.clinicalRecordRepository.create({
+    const criada = await this.clinicalRecordRepository.create({
       ownerId,
       doctorId,
       patientId: data.patientId,
@@ -157,6 +177,47 @@ export class ClinicalRecordsService {
       surgicalIndication: data.surgicalIndication ?? false,
       procedureId: data.procedureId ?? null,
     });
+
+    if (data.appointmentId) {
+      await this.startLinkedAppointment(data.appointmentId, userId);
+    }
+    return criada;
+  }
+
+  /**
+   * Abrir a ficha da consulta é o atendimento começando: agendada, confirmada
+   * ou aguardando viram "em atendimento" (a recepção vê na agenda que o
+   * paciente entrou). Outros status ficam como estão.
+   */
+  private async startLinkedAppointment(
+    appointmentId: string,
+    userId: string,
+  ): Promise<void> {
+    const appointment = await this.appointmentRepository.findOne({
+      id: appointmentId,
+    });
+    if (
+      !appointment ||
+      appointment.status === AppointmentStatus.IN_PROGRESS ||
+      !isActiveAppointmentStatus(appointment.status)
+    ) {
+      return;
+    }
+    await this.appointmentRepository.update(appointmentId, {
+      status: AppointmentStatus.IN_PROGRESS,
+    });
+    await registrarNoHistorico(
+      this.appointmentActivityRepository,
+      this.logger,
+      {
+        appointmentId,
+        userId,
+        type: AppointmentActivityType.STATUS_CHANGE,
+        fromStatus: appointment.status,
+        toStatus: AppointmentStatus.IN_PROGRESS,
+        content: ATENDIMENTO_INICIADO,
+      },
+    );
   }
 
   async update(
@@ -175,6 +236,13 @@ export class ClinicalRecordsService {
     if (data.conduct !== undefined) updateData.conduct = data.conduct;
     if (data.surgicalIndication !== undefined)
       updateData.surgicalIndication = data.surgicalIndication;
+    // Só a marcação nova (false → true) é conferida aqui. Reenviar `true` numa
+    // ficha que já tinha a indicação não pode barrar o salvamento da anamnese
+    // (o frontend manda a ficha inteira); quem reconfere a indicação antes de
+    // ela virar SC é o `finalize`.
+    if (data.surgicalIndication === true && !record.surgicalIndication) {
+      await this.assertIndicacaoCirurgicaPermitida(record.doctorId, userId);
+    }
     if (data.procedureId !== undefined) {
       if (data.procedureId) {
         await this.assertProcedureBelongsToOwner(
@@ -196,12 +264,28 @@ export class ClinicalRecordsService {
   async finalize(id: string, userId: string): Promise<ClinicalRecord> {
     const record = await this.getEditable(id, userId);
 
+    // A marcação foi conferida ao gravar, mas o conselho ou o registro do
+    // profissional podem ter mudado desde então. Depois de finalizada a ficha
+    // é imutável — a hora de recusar é agora, com a indicação ainda editável.
+    if (record.surgicalIndication) {
+      await this.accessControlService.assertIsPhysicianWithRegistry(
+        record.doctorId,
+        'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
+        'finalizar um atendimento com indicação cirúrgica',
+      );
+      await this.assertQuemAgeEhMedico(
+        record.doctorId,
+        userId,
+        'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
+      );
+    }
+
     const finalized = (await this.clinicalRecordRepository.update(record.id, {
       finalizedAt: new Date(),
     }))!;
 
     if (record.appointmentId) {
-      await this.completeLinkedAppointment(record.appointmentId);
+      await this.completeLinkedAppointment(record.appointmentId, userId);
     }
 
     if (record.surgicalIndication) {
@@ -228,6 +312,45 @@ export class ClinicalRecordsService {
   }
 
   /**
+   * Indicação cirúrgica abre uma SC em nome do médico da ficha, e SC é de
+   * médico (CRM). Ficha de psicóloga, nutricionista ou enfermagem não indica
+   * cirurgia — o profissional encaminha ao médico.
+   *
+   * Vale para os dois lados: o médico da ficha (em nome de quem a SC sai) e
+   * quem marca. Um dentista ou nutricionista vinculado a um médico CRM não
+   * indica cirurgia na ficha dele — espelha a tela, que só mostra a marcação
+   * a médico atendendo consulta de médico.
+   */
+  private async assertIndicacaoCirurgicaPermitida(
+    doctorId: string,
+    userId: string,
+  ): Promise<void> {
+    await this.accessControlService.assertIsPhysicianWithRegistry(
+      doctorId,
+      'Indicação cirúrgica só pode ser feita por médico (CRM).',
+      'indicar cirurgia',
+    );
+    await this.assertQuemAgeEhMedico(
+      doctorId,
+      userId,
+      'Indicação cirúrgica só pode ser feita por médico (CRM).',
+    );
+  }
+
+  /**
+   * Quem age precisa ser médico (CRM). Quando é o próprio médico da ficha, a
+   * checagem do `doctorId` já cobriu — não repete a consulta.
+   */
+  private async assertQuemAgeEhMedico(
+    doctorId: string,
+    userId: string,
+    mensagem: string,
+  ): Promise<void> {
+    if (userId === doctorId) return;
+    await this.accessControlService.assertIsPhysician(userId, mensagem);
+  }
+
+  /**
    * Promove a consulta vinculada para "realizada" — mas só se ela ainda estava
    * na agenda (agendada/confirmada).
    *
@@ -237,15 +360,17 @@ export class ClinicalRecordsService {
    * depende disso e segue adiante — o registro clínico do médico vale mesmo
    * quando o status da agenda ficou para trás.
    */
-  private async completeLinkedAppointment(appointmentId: string) {
+  private async completeLinkedAppointment(
+    appointmentId: string,
+    userId: string,
+  ) {
     const appointment = await this.appointmentRepository.findOne({
       id: appointmentId,
     });
     if (!appointment) return;
 
-    const isActive =
-      appointment.status === AppointmentStatus.SCHEDULED ||
-      appointment.status === AppointmentStatus.CONFIRMED;
+    // Agendada, confirmada, aguardando ou em atendimento → realizada.
+    const isActive = isActiveAppointmentStatus(appointment.status);
 
     if (!isActive) {
       this.logger.warn(
@@ -257,6 +382,18 @@ export class ClinicalRecordsService {
     await this.appointmentRepository.update(appointmentId, {
       status: AppointmentStatus.COMPLETED,
     });
+    await registrarNoHistorico(
+      this.appointmentActivityRepository,
+      this.logger,
+      {
+        appointmentId,
+        userId,
+        type: AppointmentActivityType.STATUS_CHANGE,
+        fromStatus: appointment.status,
+        toStatus: AppointmentStatus.COMPLETED,
+        content: 'Atendimento finalizado',
+      },
+    );
   }
 
   async delete(id: string, userId: string): Promise<void> {
@@ -269,6 +406,62 @@ export class ClinicalRecordsService {
       );
     }
     await this.clinicalRecordRepository.delete(id);
+
+    if (record.appointmentId) {
+      await this.undoLinkedAppointmentStart(record.appointmentId, userId);
+    }
+  }
+
+  /**
+   * Excluir o rascunho desfaz o "Atendimento iniciado": a consulta volta ao
+   * status de antes de a ficha ser aberta (agendada, confirmada ou
+   * aguardando), e a agenda deixa de mostrá-la como "em atendimento" sem
+   * ficha nenhuma.
+   *
+   * Só quando a ficha é a causa: a última mudança de status precisa ser a que
+   * `startLinkedAppointment` registrou. Consulta posta em atendimento por
+   * outro caminho (importação, mudança manual) fica como está.
+   */
+  private async undoLinkedAppointmentStart(
+    appointmentId: string,
+    userId: string,
+  ): Promise<void> {
+    const appointment = await this.appointmentRepository.findOne({
+      id: appointmentId,
+    });
+    if (appointment?.status !== AppointmentStatus.IN_PROGRESS) return;
+
+    // `findByAppointment` vem da mais antiga para a mais recente.
+    const mudancas = (
+      await this.appointmentActivityRepository.findByAppointment(appointmentId)
+    ).filter((a) => a.type === AppointmentActivityType.STATUS_CHANGE);
+    const ultimaMudanca = mudancas[mudancas.length - 1];
+    const anterior = ultimaMudanca?.fromStatus as AppointmentStatus | undefined;
+    if (
+      !ultimaMudanca ||
+      ultimaMudanca.toStatus !== AppointmentStatus.IN_PROGRESS ||
+      ultimaMudanca.content !== ATENDIMENTO_INICIADO ||
+      !anterior ||
+      !STATUS_ANTES_DO_ATENDIMENTO.includes(anterior)
+    ) {
+      return;
+    }
+
+    await this.appointmentRepository.update(appointmentId, {
+      status: anterior,
+    });
+    await registrarNoHistorico(
+      this.appointmentActivityRepository,
+      this.logger,
+      {
+        appointmentId,
+        userId,
+        type: AppointmentActivityType.STATUS_CHANGE,
+        fromStatus: AppointmentStatus.IN_PROGRESS,
+        toStatus: anterior,
+        content: 'Atendimento desfeito (rascunho da ficha excluído)',
+      },
+    );
   }
 
   /** Retorna a ficha garantindo acesso e que ainda esteja editável. */

@@ -37,7 +37,7 @@ describe('JwtStrategy — permissões', () => {
       role: UserRole.COLLABORATOR,
       status: UserStatus.ACTIVE,
       permissions: [],
-      doctorProfile: { id: 'dp-1' },
+      doctorProfile: { id: 'dp-1', council: 'CRM' },
     });
 
     const resultado = await strategy.validate({ userId: 'u-2' } as never);

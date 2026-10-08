@@ -7,6 +7,7 @@ import { ClinicalRecordRepository } from 'src/database/repositories/clinical-rec
 import { SurgeryRequestFromIndicationService } from 'src/modules/surgery-requests/creation/surgery-request-from-indication.service';
 import { SurgeryRequestRealtimeService } from 'src/modules/surgery-requests/realtime/surgery-request-realtime.service';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 import { IndicationDocumentsJobsService } from './indication-documents-jobs.service';
 
 /** Teto por rodada — o cron roda de novo em 10 min se sobrar trabalho. */
@@ -30,11 +31,13 @@ export class SurgicalIndicationService {
     private readonly fromIndicationService: SurgeryRequestFromIndicationService,
     private readonly realtimeService: SurgeryRequestRealtimeService,
     private readonly indicationDocumentsJobsService: IndicationDocumentsJobsService,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
   /**
    * Cria a SC da ficha, se ainda não existir. Devolve `null` quando não havia
-   * nada a fazer (ficha inexistente, sem marcador, não finalizada, ou já com SC).
+   * nada a fazer (ficha inexistente, sem marcador, não finalizada, ou já com SC)
+   * ou quando o profissional da ficha não pode indicar cirurgia.
    *
    * Idempotente sob concorrência: a leitura com `FOR UPDATE` serializa esta
    * chamada com o sweeper e com outras instâncias da API. Quem chegar depois
@@ -66,6 +69,20 @@ export class SurgicalIndicationService {
           !record.finalizedAt ||
           record.surgeryRequestId
         ) {
+          return null;
+        }
+
+        // A SC sai em nome do profissional da ficha, e SC é de médico (CRM)
+        // com registro completo. O `finalize` já barra, mas o conselho ou o
+        // registro podem mudar entre a finalização e o cron — e ficha antiga
+        // pode ter sido marcada antes da regra. Fica pendente (não é apagada):
+        // completado o CRM em Colaboradores, a próxima varredura cria a SC.
+        if (
+          !(await this.accessControlService.canIndicateSurgery(record.doctorId))
+        ) {
+          this.logger.warn(
+            `Ficha ${record.id}: indicação cirúrgica ignorada — o profissional ${record.doctorId} não é médico (CRM) com número e UF.`,
+          );
           return null;
         }
 

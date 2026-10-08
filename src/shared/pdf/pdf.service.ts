@@ -275,11 +275,24 @@ export interface PrescriptionPdfData
 export interface MedicalCertificatePdfData
   extends ClinicalDocumentPatientFields, ClinicalDocumentDoctorFields {
   today: string;
+  /**
+   * Título impresso no cabeçalho: `ATESTADO MÉDICO` (CRM) ou `ATESTADO
+   * ODONTOLÓGICO` (CRO). Ausente = `ATESTADO MÉDICO`.
+   */
+  certificateTitle?: string;
   /** Texto já pluralizado do afastamento (ex.: `3 dias`). */
   restDaysLabel?: string;
   startDate?: string;
+  /**
+   * Linha com o afastamento quando há `text`: o texto substitui a declaração
+   * padrão, que é quem imprime dias e início. Só vem preenchida com o que o
+   * texto ainda não diz — ver `ClinicalDocumentGenerationService`.
+   */
+  restPeriodNote?: string;
   /** Só é impresso quando o paciente autoriza expor o diagnóstico. */
   cid?: { code: string; description?: string } | null;
+  /** Texto do atestado (modelo ou digitado); substitui a declaração padrão. */
+  text?: string;
   observations?: string;
 }
 

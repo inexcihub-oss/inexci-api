@@ -22,6 +22,13 @@ import { SurgeryRequest } from './surgery-request.entity';
 @Entity('patients')
 @Index('idx_patients_doctor_id', ['doctorId'])
 @Index('idx_patients_owner_id', ['ownerId'])
+// Uma foto (objeto no R2) pertence a um paciente só: trocar a foto de um apaga
+// o objeto antigo, e o outro ficaria apontando para o nada. Inclui excluídos
+// (soft delete), como o `PatientsService.fotoEmUso`.
+@Index('UQ_patients_photo_path', ['photoPath'], {
+  unique: true,
+  where: 'photo_path IS NOT NULL',
+})
 export class Patient {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -42,8 +49,28 @@ export class Patient {
   @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string | null;
 
-  @Column({ type: 'varchar', length: 14 })
-  cpf: string;
+  /** Telefone adicional (fixo, recado). O principal continua sendo `phone`. */
+  @Column({
+    name: 'secondary_phone',
+    type: 'varchar',
+    length: 15,
+    nullable: true,
+  })
+  secondaryPhone: string | null;
+
+  /**
+   * Opcional: pacientes migrados de outros sistemas, estrangeiros e menores
+   * podem não ter. A SC continua exigindo CPF para avançar.
+   */
+  @Column({ type: 'varchar', length: 14, nullable: true })
+  cpf: string | null;
+
+  /**
+   * Caminho interno da foto no R2 (`patient-photos/<ownerId>/...`), nunca URL.
+   * A URL assinada é gerada na leitura (`PatientsService`).
+   */
+  @Column({ name: 'photo_path', type: 'varchar', length: 255, nullable: true })
+  photoPath: string | null;
 
   @Column({ type: 'char', length: 1, nullable: true })
   gender: string | null;

@@ -1,5 +1,10 @@
 import { Reflector } from '@nestjs/core';
-import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
+import {
+  ALL_PERMISSIONS,
+  Permission,
+  resolveEffectivePermissions,
+} from 'src/shared/permissions';
+import { UserRole } from 'src/database/entities/user.entity';
 import { PERMISSIONS_KEY } from 'src/shared/decorators/require-permission.decorator';
 import { UsersController } from './users.controller';
 
@@ -20,12 +25,30 @@ describe('UsersController — permissões declaradas', () => {
    * Solicitações, não Administração) subir/remover só a assinatura. A
    * restrição fina (vínculo colaborador↔médico, campo permitido) continua em
    * UsersService.updateDoctorProfileById.
+   *
+   * Atendimento entra porque o próprio profissional salva os dados dele em
+   * Configurações por esta rota, e quem não é CRM (CRN/CRP/COREN/CRO/OUTRO)
+   * não recebe Solicitações — só Atendimento.
    */
-  it('exige Administração OU Solicitações em updateDoctorProfile', () => {
+  it('exige Administração, Solicitações OU Atendimento em updateDoctorProfile', () => {
     expect(exigidoEm('updateDoctorProfile')).toEqual([
       Permission.ADMINISTRACAO,
       Permission.SOLICITACOES,
+      Permission.ATENDIMENTO,
     ]);
+  });
+
+  it('libera updateDoctorProfile para profissional não-CRM pelo guard', () => {
+    const permissoesNutri = resolveEffectivePermissions({
+      role: UserRole.COLLABORATOR,
+      permissions: [],
+      isDoctor: true,
+      isPhysician: false,
+    });
+    expect(permissoesNutri).not.toContain(Permission.SOLICITACOES);
+    expect(
+      exigidoEm('updateDoctorProfile').some((p) => permissoesNutri.includes(p)),
+    ).toBe(true);
   });
 
   /**

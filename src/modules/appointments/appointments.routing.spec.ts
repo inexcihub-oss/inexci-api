@@ -17,7 +17,7 @@ describe('AppointmentsController — validação de UUID nos parâmetros', () =>
   const appointmentsService = {
     findAgenda: jest.fn().mockResolvedValue({ total: 0, records: [] }),
     findByPatient: jest.fn().mockResolvedValue({ total: 0, records: [] }),
-    findOne: jest.fn().mockResolvedValue({ id: 'ok' }),
+    findOneComFicha: jest.fn().mockResolvedValue({ id: 'ok' }),
     create: jest.fn().mockResolvedValue({ id: 'ok' }),
     update: jest.fn().mockResolvedValue({ id: 'ok' }),
     updateStatus: jest.fn().mockResolvedValue({ id: 'ok' }),
@@ -50,7 +50,7 @@ describe('AppointmentsController — validação de UUID nos parâmetros', () =>
   beforeEach(() => jest.clearAllMocks());
 
   it.each([
-    ['get', '/appointments/naoehuuid', 'findOne'],
+    ['get', '/appointments/naoehuuid', 'findOneComFicha'],
     ['get', '/appointments/patient/naoehuuid', 'findByPatient'],
     ['patch', '/appointments/naoehuuid', 'update'],
     ['patch', '/appointments/naoehuuid/status', 'updateStatus'],
@@ -71,7 +71,10 @@ describe('AppointmentsController — validação de UUID nos parâmetros', () =>
   it('continua atendendo um UUID válido', async () => {
     await request(app.getHttpServer()).get(`/appointments/${uuid}`).expect(200);
 
-    expect(appointmentsService.findOne).toHaveBeenCalledWith(uuid, 'user-1');
+    expect(appointmentsService.findOneComFicha).toHaveBeenCalledWith(
+      uuid,
+      'user-1',
+    );
   });
 
   it('continua atendendo o histórico de um paciente com UUID válido', async () => {

@@ -1,4 +1,10 @@
 import {
+  hasCouncilRegistry,
+  isClinicalDocumentIssuerProfile,
+  isPhysicianProfile,
+} from 'src/database/entities/doctor-profile.entity';
+import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -14,6 +20,18 @@ import {
 } from '../../database/entities/user.entity';
 import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
 import { Permission, resolveEffectivePermissions } from '../permissions';
+
+/**
+ * Conta (tenant) a que o usuário pertence: `ownerId`, com `adminId` de
+ * fallback para cadastros antigos e o próprio id para o dono. Única regra —
+ * quem resolve a conta de um usuário já carregado usa esta função, para não
+ * divergir de `getOwnerId`/`assertSameOwner`.
+ */
+export function resolverOwnerIdDoUsuario(
+  user: Pick<User, 'id' | 'ownerId' | 'adminId'>,
+): string {
+  return user.ownerId ?? user.adminId ?? user.id;
+}
 
 /**
  * AccessControlService — centraliza toda a lógica de tenant isolation e
@@ -180,7 +198,12 @@ export class AccessControlService {
       const permissoes = resolveEffectivePermissions({
         role: usuario.role,
         permissions: usuario.permissions,
-        isDoctor: Boolean(usuario.doctorProfile) || usuario.id === doctorUserId,
+        isDoctor: Boolean(usuario.doctorProfile),
+        // Só CRM ganha Solicitações pelo perfil — inclusive o médico da SC: o
+        // registro dele pode ter mudado (ou vindo do importador sem CRM) depois
+        // que a SC nasceu, e aí ele não abre mais a solicitação. Mesma regra
+        // de `getEffectivePermissions`, sem exceção pelo id.
+        isPhysician: isPhysicianProfile(usuario.doctorProfile),
       });
 
       return permissoes.includes(Permission.SOLICITACOES);
@@ -225,7 +248,7 @@ export class AccessControlService {
   async getOwnerId(userId: string): Promise<string> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    return user.ownerId ?? user.adminId ?? user.id;
+    return resolverOwnerIdDoUsuario(user);
   }
 
   /**
@@ -235,7 +258,7 @@ export class AccessControlService {
   async assertSameOwner(userId: string, ownerId: string): Promise<void> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    const effectiveOwnerId = user.ownerId ?? user.adminId ?? user.id;
+    const effectiveOwnerId = resolverOwnerIdDoUsuario(user);
     if (effectiveOwnerId !== ownerId) {
       throw new ForbiddenException(
         'Acesso negado: recurso pertence a outra clínica.',
@@ -267,10 +290,13 @@ export class AccessControlService {
   }
 
   /**
-   * Garante que o usuário é médico (tem `doctor_profile`).
+   * Garante que o usuário é profissional de saúde (tem `doctor_profile`), de
+   * qualquer conselho.
    *
-   * Vale para os atos privativos do médico — atender e emitir receita,
-   * atestado ou pedido de exame. Não substitui o recorte por clínica/médico:
+   * Vale para o ato de atender (registrar a ficha). Receita, atestado e pedido
+   * de exame exigem mais (`assertCanIssueClinicalDocuments`: CRM ou CRO), e a
+   * indicação cirúrgica mais ainda (`assertIsPhysicianWithRegistry`: só CRM).
+   * Não substitui o recorte por clínica/médico:
    * é uma condição a mais, aplicada junto com `assertCanAccessDoctorResource`.
    *
    * "Médico" não é um role: um admin sem `doctor_profile` administra a clínica,
@@ -283,6 +309,97 @@ export class AccessControlService {
         'Apenas médicos podem realizar esta operação.',
       );
     }
+  }
+
+  /**
+   * Garante que o usuário é **médico** (perfil com conselho CRM), não só
+   * profissional de saúde. Vale para os atos que só médico pratica, como
+   * indicar cirurgia (que abre a SC). Documentos clínicos aceitam também o
+   * CRO — ver `assertCanIssueClinicalDocuments`.
+   *
+   * Use junto com `assertIsDoctor`/`assertCanAccessDoctorResource`, não no
+   * lugar deles. Para o médico **em nome de quem** o ato sai (o `doctorId` da
+   * ficha), passe esse id — não basta checar quem clicou.
+   */
+  async assertIsPhysician(
+    userId: string,
+    mensagem = 'Apenas médicos (CRM) podem realizar esta operação.',
+  ): Promise<void> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!isPhysicianProfile(user?.doctorProfile)) {
+      throw new ForbiddenException(mensagem);
+    }
+  }
+
+  /**
+   * Médico (CRM) **com o registro completo** (número e UF). O importador do
+   * Feegow cria médico sem número quando a especialidade é médica mas o
+   * registro não veio no export; ato que sai em nome dele (indicação
+   * cirúrgica → solicitação cirúrgica) não pode sair com o CRM em branco.
+   */
+  async assertIsPhysicianWithRegistry(
+    userId: string,
+    mensagem: string,
+    acao: string,
+  ): Promise<void> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!isPhysicianProfile(user?.doctorProfile)) {
+      throw new ForbiddenException(mensagem);
+    }
+    this.assertRegistroCompleto(user, acao);
+  }
+
+  /**
+   * Indicação cirúrgica permitida para o profissional, sem lançar: médico
+   * (CRM) com número e UF. Para quem não pode responder com erro HTTP — o
+   * cron que retoma as SCs pendentes.
+   */
+  async canIndicateSurgery(userId: string): Promise<boolean> {
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    return (
+      isPhysicianProfile(user?.doctorProfile) &&
+      hasCouncilRegistry(user?.doctorProfile)
+    );
+  }
+
+  /**
+   * Profissional que emite receita, atestado e pedido de exame: médico (CRM)
+   * ou dentista (CRO). Não é `assertIsPhysician` porque aquele também decide
+   * Solicitações e indicação cirúrgica, que seguem só do CRM.
+   *
+   * O registro completo (número e UF) de quem **assina** é conferido por quem
+   * monta o documento (`ClinicalDocumentGenerationService`), sobre o perfil já
+   * carregado — aqui basta o conselho.
+   */
+  async assertCanIssueClinicalDocuments(
+    userId: string,
+    opcoes: { mensagem?: string } = {},
+  ): Promise<void> {
+    const {
+      mensagem = 'Apenas médicos (CRM) e dentistas (CRO) podem emitir receita, atestado e pedido de exame.',
+    } = opcoes;
+    const user = await this.userRepository.findOneWithProfile({ id: userId });
+    if (!isClinicalDocumentIssuerProfile(user?.doctorProfile)) {
+      throw new ForbiddenException(mensagem);
+    }
+  }
+
+  private assertRegistroCompleto(
+    user: {
+      name?: string | null;
+      doctorProfile?: {
+        council?: string | null;
+        crm?: string | null;
+        crmState?: string | null;
+      } | null;
+    } | null,
+    acao: string,
+  ): void {
+    if (hasCouncilRegistry(user?.doctorProfile)) return;
+    const conselho = user?.doctorProfile?.council || 'CRM';
+    throw new BadRequestException(
+      `Preencha o número e a UF do ${conselho} de ${user?.name ?? 'quem assina'} em Colaboradores antes de ${acao}.`,
+    );
   }
 
   /**
@@ -301,6 +418,7 @@ export class AccessControlService {
       role: user.role,
       permissions: user.permissions,
       isDoctor: !!user.doctorProfile,
+      isPhysician: isPhysicianProfile(user.doctorProfile),
     });
   }
 

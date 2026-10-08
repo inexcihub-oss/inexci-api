@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -8,6 +9,7 @@ import {
   IsUUID,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { AppointmentType } from 'src/database/entities/appointment.entity';
 
@@ -24,6 +26,23 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsUUID()
   clinicId?: string;
+
+  /** Sala da clínica (precisa ser da clínica da consulta). `null` tira a sala. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  roomId?: string | null;
+
+  /** Encaixe: não passa pela checagem de conflito de horário. */
+  @IsOptional()
+  @IsBoolean()
+  isWalkIn?: boolean;
+
+  /** Convênio da consulta. `null` = particular. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  healthPlanId?: string | null;
 
   @IsOptional()
   @IsEnum(AppointmentType)

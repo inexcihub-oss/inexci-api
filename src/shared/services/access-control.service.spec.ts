@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AccessControlService } from './access-control.service';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
@@ -265,7 +265,7 @@ describe('AccessControlService', () => {
       const linkedDoctor = {
         id: 'linked-doc-id',
         name: 'Linked Doctor',
-        doctorProfile: { id: 'dp-1' },
+        doctorProfile: { id: 'dp-1', council: 'CRM' },
       };
       userRepository.findOneWithProfile.mockResolvedValue(collaborator as any);
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
@@ -366,6 +366,201 @@ describe('AccessControlService', () => {
     });
   });
 
+  // ─── assertIsPhysicianWithRegistry ───
+
+  describe('assertIsPhysicianWithRegistry', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        name: 'Karina Clínica',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it('libera médico com o número e a UF do CRM', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '12345', crmState: 'RJ' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('médico sem número do CRM é recusado com orientação', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '  ', crmState: 'RJ' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(
+        'Preencha o número e a UF do CRM de Karina Clínica em Colaboradores antes de indicar cirurgia.',
+      );
+    });
+
+    it('médico com número mas sem UF também é recusado', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM', crm: '12345', crmState: null });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('dentista (CRO) não indica cirurgia, mesmo com registro', async () => {
+      comPerfil({ id: 'p-1', council: 'CRO', crm: '4321', crmState: 'RJ' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(new ForbiddenException('só médico'));
+    });
+
+    it('quem não é médico continua recusado com a mensagem informada', async () => {
+      comPerfil({ id: 'p-1', council: 'COREN', crm: '999' });
+
+      await expect(
+        service.assertIsPhysicianWithRegistry(
+          'u-1',
+          'só médico',
+          'indicar cirurgia',
+        ),
+      ).rejects.toThrow(new ForbiddenException('só médico'));
+    });
+  });
+
+  // ─── canIndicateSurgery ───
+
+  describe('canIndicateSurgery', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it.each([
+      [{ council: 'CRM', crm: '12345', crmState: 'RJ' }, true],
+      [{ council: 'CRM', crm: '12345', crmState: null }, false],
+      [{ council: 'CRM', crm: null, crmState: 'RJ' }, false],
+      [{ council: 'CRO', crm: '4321', crmState: 'RJ' }, false],
+      [null, false],
+    ])('%j → %s', async (perfil, esperado) => {
+      comPerfil(perfil);
+      await expect(service.canIndicateSurgery('u-1')).resolves.toBe(esperado);
+    });
+  });
+
+  // ─── assertCanIssueClinicalDocuments (CRM ou CRO) ───
+
+  describe('assertCanIssueClinicalDocuments', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        name: 'Bruno Dentista',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it.each(['CRM', 'CRO'])('libera %s', async (council) => {
+      comPerfil({ council, crm: '1', crmState: 'RJ' });
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1'),
+      ).resolves.toBeUndefined();
+    });
+
+    it.each(['CRN', 'CRP', 'COREN', 'OUTRO', undefined])(
+      'recusa conselho %s com mensagem sem "apenas médicos (CRM)"',
+      async (council) => {
+        comPerfil({ council, crm: '1', crmState: 'RJ' });
+        await expect(
+          service.assertCanIssueClinicalDocuments('u-1'),
+        ).rejects.toThrow(
+          'Apenas médicos (CRM) e dentistas (CRO) podem emitir receita, atestado e pedido de exame.',
+        );
+      },
+    );
+
+    it('recusa quem não tem perfil profissional', async () => {
+      comPerfil(null);
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('não confere o registro (só o conselho): quem assina é conferido na emissão', async () => {
+      comPerfil({ council: 'CRO', crm: null, crmState: null });
+
+      await expect(
+        service.assertCanIssueClinicalDocuments('u-1'),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── assertIsPhysician (MIG-02) ───
+
+  describe('assertIsPhysician', () => {
+    const comPerfil = (doctorProfile: object | null) =>
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'u-1',
+        role: UserRole.COLLABORATOR,
+        doctorProfile,
+      } as any);
+
+    it('libera perfil com conselho CRM', async () => {
+      comPerfil({ id: 'p-1', council: 'CRM' });
+
+      await expect(service.assertIsPhysician('u-1')).resolves.toBeUndefined();
+    });
+
+    it.each(['CRN', 'CRP', 'COREN', 'OUTRO'])(
+      'bloqueia perfil de outro conselho (%s)',
+      async (council) => {
+        comPerfil({ id: 'p-1', council });
+
+        await expect(service.assertIsPhysician('u-1')).rejects.toThrow(
+          ForbiddenException,
+        );
+      },
+    );
+
+    // Estrito: perfil carregado sem a coluna não vira médico por omissão.
+    it('bloqueia perfil sem council carregado', async () => {
+      comPerfil({ id: 'p-1' });
+
+      await expect(service.assertIsPhysician('u-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('bloqueia quem não tem perfil', async () => {
+      comPerfil(null);
+
+      await expect(service.assertIsPhysician('u-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('usa a mensagem informada', async () => {
+      comPerfil({ id: 'p-1', council: 'CRN' });
+
+      await expect(
+        service.assertIsPhysician('u-1', 'mensagem própria'),
+      ).rejects.toThrow('mensagem própria');
+    });
+  });
+
   // ─── assertIsDoctor ───
 
   describe('assertIsDoctor', () => {
@@ -450,8 +645,26 @@ describe('AccessControlService', () => {
       role: UserRole.COLLABORATOR,
       status: UserStatus.ACTIVE,
       permissions: [],
-      doctorProfile: { id: 'dp-1' },
+      doctorProfile: { id: 'dp-1', council: 'CRM' },
     };
+
+    it('não trata o profissional dono do recurso como CRM quando ele não é', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        {
+          ...medico,
+          id: 'dent-1',
+          doctorProfile: { id: 'dp-3', council: 'CRO' },
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([]);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'dent-1',
+        'owner-1',
+      );
+
+      expect(result).toEqual([]);
+    });
 
     it('inclui o médico, os colaboradores vinculados e os admins da conta', async () => {
       userRepository.findByOwnerId = jest.fn().mockResolvedValue([
@@ -498,6 +711,31 @@ describe('AccessControlService', () => {
         'col-1',
         'doc-1',
       ]);
+    });
+
+    it('profissional vinculado que não é CRM não ganha solicitações pelo perfil', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        medico,
+        {
+          id: 'nutri-1',
+          name: 'Nutricionista',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.ACTIVE,
+          permissions: [],
+          doctorProfile: { id: 'dp-2', council: 'CRN' },
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([
+        { userId: 'nutri-1', doctorUserId: 'doc-1' },
+      ] as any);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'doc-1',
+        'owner-1',
+      );
+
+      expect(result.map((u) => u.id)).toEqual(['doc-1']);
     });
 
     it('exclui quem não tem a permissão de solicitações', async () => {

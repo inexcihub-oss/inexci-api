@@ -14,6 +14,15 @@ import {
 } from 'class-validator';
 import { CidCodeDto } from '../../dto/cid-code.dto';
 
+/**
+ * Teto dos textos livres que podem vir de um modelo (texto do atestado,
+ * indicação clínica do pedido de exame). O dobro do corpo do modelo
+ * (`DOCUMENT_TEMPLATE_BODY_MAX`): os placeholders crescem ao serem
+ * preenchidos (nome, CPF, registro), e um modelo no limite não pode virar 400
+ * na emissão. Não há coluna por trás — o texto só vai para o PDF.
+ */
+export const CLINICAL_DOCUMENT_TEXT_MAX = 4000;
+
 export class CreateMedicalCertificateDto {
   /** Ficha de atendimento que origina o atestado. */
   @IsUUID()
@@ -50,8 +59,26 @@ export class CreateMedicalCertificateDto {
   @Type(() => CidCodeDto)
   cid?: CidCodeDto;
 
+  /**
+   * Texto do atestado. Substitui a declaração padrão ("Atesto, para os
+   * devidos fins…"); ausente = declaração padrão.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(CLINICAL_DOCUMENT_TEXT_MAX)
+  text?: string;
+
   @IsString()
   @IsOptional()
   @MaxLength(2000)
   observations?: string;
+
+  /**
+   * Modelo de texto (MIG-06) para o texto do atestado, com os placeholders
+   * preenchidos no servidor. Só vale quando `text` não veio: o texto enviado
+   * sempre vence.
+   */
+  @IsUUID()
+  @IsOptional()
+  templateId?: string;
 }

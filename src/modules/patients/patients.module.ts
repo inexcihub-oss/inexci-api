@@ -6,12 +6,14 @@ import { PatientsService } from './patients.service';
 import { PatientsController } from './patients.controller';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
 import { MailModule } from 'src/shared/mail/mail.module';
+import { StorageModule } from 'src/shared/storage/storage.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Patient, User]),
     WhatsappModule,
     MailModule,
+    StorageModule,
   ],
   controllers: [PatientsController],
   providers: [PatientsService],

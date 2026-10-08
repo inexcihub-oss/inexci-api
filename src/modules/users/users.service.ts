@@ -34,13 +34,26 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { BCRYPT_ROUNDS } from 'src/shared/constants/bcrypt';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { User, UserRole, UserStatus } from 'src/database/entities/user.entity';
-import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
+import {
+  DoctorProfile,
+  isPhysicianProfile,
+  ProfessionalCouncil,
+} from 'src/database/entities/doctor-profile.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.repository';
 import { RefreshTokenStore } from '../auth/refresh-token.store';
 
 import { generateValidationCode, omitUserSecrets } from 'src/shared/utils';
+import {
+  ehArquivoDaConta,
+  PASTAS_DE_ASSINATURA,
+  PASTAS_DE_AVATAR,
+} from './arquivo-da-conta';
+
+export const AVATAR_INVALIDO = 'Avatar inválido: envie a imagem novamente.';
+export const ASSINATURA_INVALIDA =
+  'Assinatura inválida: envie a imagem novamente.';
 
 @Injectable()
 export class UsersService {
@@ -99,6 +112,7 @@ export class UsersService {
       role: usuario.role,
       permissions: usuario.permissions,
       isDoctor: !!usuario.doctorProfile,
+      isPhysician: isPhysicianProfile(usuario.doctorProfile),
     });
 
     if (!permissoes.includes(Permission.ADMINISTRACAO)) {
@@ -153,12 +167,14 @@ export class UsersService {
     return {
       ...userWithoutPassword,
       isDoctor: !!userWithoutPassword.doctorProfile,
+      isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
       // A permissão EFETIVA, não a coluna crua: o frontend precisa saber o
       // que o usuário pode de fato, incluindo o que ganha por ser médico.
       permissions: resolveEffectivePermissions({
         role: userWithoutPassword.role,
         permissions,
         isDoctor: !!userWithoutPassword.doctorProfile,
+        isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
       }),
     };
   }
@@ -185,6 +201,33 @@ export class UsersService {
       if (cpfFound) throw new BadRequestException('CPF já está em uso');
     }
 
+    // Caminhos de arquivo vêm do cliente: valida ANTES de gravar qualquer
+    // coisa, para um caminho recusado não deixar o perfil meio salvo.
+    const novoAvatar =
+      data.avatarUrl !== undefined
+        ? this.validarCaminhoDeArquivo(
+            data.avatarUrl,
+            user.avatarUrl,
+            PASTAS_DE_AVATAR,
+            user.ownerId,
+            AVATAR_INVALIDO,
+          )
+        : undefined;
+    const docProfile =
+      data.signatureUrl !== undefined
+        ? await this.doctorProfileRepository.findByUserId(userId)
+        : null;
+    const novaAssinatura =
+      docProfile && data.signatureUrl !== undefined
+        ? this.validarCaminhoDeArquivo(
+            data.signatureUrl,
+            docProfile.signatureUrl,
+            PASTAS_DE_ASSINATURA,
+            user.ownerId,
+            ASSINATURA_INVALIDA,
+          )
+        : undefined;
+
     // Campos do usuário base
     const userUpdates: Partial<User> = {};
     if (data.name) userUpdates.name = data.name;
@@ -192,8 +235,7 @@ export class UsersService {
     if (data.cpf) userUpdates.cpf = data.cpf;
     if (data.birthDate) userUpdates.birthDate = new Date(data.birthDate);
     if (data.gender) userUpdates.gender = data.gender;
-    if (data.avatarUrl !== undefined)
-      userUpdates.avatarUrl = data.avatarUrl ?? null;
+    if (novoAvatar !== undefined) userUpdates.avatarUrl = novoAvatar;
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;
     if (data.addressNumber !== undefined)
@@ -203,49 +245,81 @@ export class UsersService {
     if (data.city !== undefined) userUpdates.city = data.city;
     if (data.state !== undefined) userUpdates.state = data.state;
 
-    // Deletar avatar antigo do Storage quando for removido ou substituído
-    if (data.avatarUrl !== undefined) {
-      const oldAvatar = user.avatarUrl;
+    await this.userRepository.update(userId, userUpdates);
+
+    // Avatar antigo sai do Storage quando é removido ou substituído — só se
+    // for um arquivo da pasta de avatares da conta e mais ninguém o usar.
+    if (novoAvatar !== undefined && user.avatarUrl !== novoAvatar) {
+      const antigo = user.avatarUrl;
       if (
-        oldAvatar &&
-        !oldAvatar.startsWith('http') &&
-        oldAvatar !== data.avatarUrl
+        ehArquivoDaConta(antigo, PASTAS_DE_AVATAR, user.ownerId) &&
+        !(await this.userRepository.findOne({
+          avatarUrl: antigo!,
+          id: Not(userId),
+        }))
       ) {
-        try {
-          await this.storageService.delete(oldAvatar);
-        } catch {
-          // não bloqueia a atualização se falhar
-        }
+        await this.apagarDoStorage(antigo!);
       }
     }
 
-    const updatedUser = await this.userRepository.update(userId, userUpdates);
-
-    // Se tiver signatureUrl, atualizar DoctorProfile e deletar antiga do Storage
-    if (data.signatureUrl !== undefined) {
-      const docProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      if (docProfile) {
-        // Deletar assinatura antiga do Storage
-        const oldSignature = docProfile.signatureUrl;
-        if (
-          oldSignature &&
-          !oldSignature.startsWith('http') &&
-          oldSignature !== data.signatureUrl
-        ) {
-          try {
-            await this.storageService.delete(oldSignature);
-          } catch {
-            // não bloqueia a atualização se falhar
-          }
-        }
-        await this.doctorProfileRepository.update(docProfile.id, {
-          signatureUrl: data.signatureUrl,
-        });
+    // Assinatura: grava no DoctorProfile e apaga a antiga, com a mesma regra.
+    if (docProfile && novaAssinatura !== undefined) {
+      await this.doctorProfileRepository.update(docProfile.id, {
+        signatureUrl: novaAssinatura,
+      });
+      const antiga = docProfile.signatureUrl;
+      if (
+        antiga !== novaAssinatura &&
+        ehArquivoDaConta(antiga, PASTAS_DE_ASSINATURA, user.ownerId) &&
+        !(await this.doctorProfileRepository.findOne({
+          signatureUrl: antiga!,
+          id: Not(docProfile.id),
+        }))
+      ) {
+        await this.apagarDoStorage(antiga!);
       }
     }
 
-    return updatedUser;
+    // Mesmo formato do GET /users/profile, relido DEPOIS de todas as
+    // gravações: o frontend cacheia esta resposta como o perfil. Devolver o
+    // retorno cru do `update` (sem isDoctor/isPhysician/permissions e com o
+    // doctorProfile montado antes de gravar a assinatura) fazia a tela de
+    // Configurações esconder Dados Profissionais/Assinatura/Cabeçalho até
+    // recarregar.
+    return this.getProfile(userId);
+  }
+
+  /**
+   * Caminho de arquivo (avatar, assinatura) mandado pelo cliente depois do
+   * upload. Vazio/null remove. Igual ao atual passa sem conferir (o cliente
+   * reenviando o que já está gravado, inclusive caminho legado sem a pasta da
+   * conta). Qualquer outro valor precisa ser um arquivo da pasta da conta —
+   * senão o perfil passaria a apontar (e, na troca seguinte, apagar) qualquer
+   * objeto do bucket, como a foto de um paciente.
+   */
+  private validarCaminhoDeArquivo(
+    valor: string | null | undefined,
+    atual: string | null | undefined,
+    pastas: readonly string[],
+    ownerId: string,
+    mensagem: string,
+  ): string | null {
+    const caminho = valor?.trim() || null;
+    if (!caminho) return null;
+    if (caminho === atual) return caminho;
+    if (!ehArquivoDaConta(caminho, pastas, ownerId)) {
+      throw new BadRequestException(mensagem);
+    }
+    return caminho;
+  }
+
+  /** Best-effort: o perfil já foi gravado; objeto órfão no R2 não é erro. */
+  private async apagarDoStorage(caminho: string): Promise<void> {
+    try {
+      await this.storageService.delete(caminho);
+    } catch {
+      this.logger.warn('Falha ao apagar arquivo antigo do perfil do storage');
+    }
   }
 
   async updateProfileById(
@@ -304,7 +378,14 @@ export class UsersService {
     // é ausência de valor, então grava `null`.
     if (data.gender !== undefined)
       userUpdates.gender = data.gender?.trim() ? data.gender.trim() : null;
-    if (data.avatarUrl !== undefined) userUpdates.avatarUrl = data.avatarUrl;
+    if (data.avatarUrl !== undefined)
+      userUpdates.avatarUrl = this.validarCaminhoDeArquivo(
+        data.avatarUrl,
+        target.avatarUrl,
+        PASTAS_DE_AVATAR,
+        target.ownerId,
+        AVATAR_INVALIDO,
+      );
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;
     if (data.addressNumber !== undefined)
@@ -466,6 +547,7 @@ export class UsersService {
       role: requesting.role,
       permissions: requesting.permissions,
       isDoctor: !!requesting.doctorProfile,
+      isPhysician: isPhysicianProfile(requesting.doctorProfile),
     });
     const isAdmin =
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
@@ -474,11 +556,16 @@ export class UsersService {
     // Colaborador vinculado ao médico pode atualizar APENAS a assinatura.
     // CRM/estado/especialidade continuam restritos ao próprio médico ou admin.
     const onlySignature =
+      data.council === undefined &&
       data.crm === undefined &&
       data.crmState === undefined &&
       data.specialty === undefined;
+    // O dono da conta só tem a assinatura trocada por ele mesmo ou pelo
+    // colaborador vinculado a ele — ter Administração não basta (ver abaixo).
+    // Por isso o vínculo é conferido também para o admin, quando o alvo é o dono.
+    const alvoEhDono = target.id === target.ownerId;
     let isLinkedCollaborator = false;
-    if (!isSelf && !isAdmin && onlySignature) {
+    if (!isSelf && onlySignature && (!isAdmin || alvoEhDono)) {
       const accesses =
         await this.userDoctorAccessRepository.findActiveByUserId(
           requestingUserId,
@@ -492,22 +579,81 @@ export class UsersService {
       );
     }
 
+    // O registro profissional do dono da conta (conselho, número, UF e
+    // especialidade) só é alterado por ele mesmo — mesma regra de
+    // `assertAlvoNaoEhDono` em `updateProfileById`/`updateCollaborator`. Um
+    // admin delegado que trocasse o conselho do dono mudaria o que ele pode
+    // fazer (receita, indicação cirúrgica, Solicitações). A assinatura segue
+    // liberada ao colaborador VINCULADO ao dono, porque o editor de laudo
+    // depende dela — mas não ao admin delegado só por ser admin: a assinatura
+    // sai impressa em receita e laudo em nome do dono.
+    if (!isSelf && !(onlySignature && isLinkedCollaborator)) {
+      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
+    }
+
     if (!target.doctorProfile) {
       throw new BadRequestException('Este usuário não é médico');
     }
 
+    // Trocar o conselho muda o que a pessoa pode fazer (só CRM emite receita,
+    // indica cirurgia e vê Solicitações). Por isso é ato de Administração —
+    // nem o próprio profissional nem o colaborador vinculado o fazem.
+    const mudaConselho =
+      data.council !== undefined &&
+      data.council !== target.doctorProfile.council;
+    // O admin delegado que também é profissional tem Administração, mas não
+    // troca o PRÓPRIO conselho — senão um nutricionista com Administração se
+    // promoveria a médico (CRM) sozinho. Quem troca é o dono ou outro admin.
+    // O dono da conta segue alterando o próprio: não há ninguém acima dele.
+    const ehDonoDaConta = target.id === target.ownerId;
+    if (mudaConselho && (!isAdmin || (isSelf && !ehDonoDaConta))) {
+      throw new ForbiddenException(
+        'Somente a administração da conta altera o conselho profissional.',
+      );
+    }
+
     // Atualiza no DoctorProfile
     const profileUpdates: Partial<DoctorProfile> = {};
-    if (data.crm !== undefined) profileUpdates.crm = data.crm;
-    if (data.crmState !== undefined) profileUpdates.crmState = data.crmState;
+    if (data.council !== undefined) profileUpdates.council = data.council;
+    if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
+    if (data.crmState !== undefined)
+      profileUpdates.crmState = data.crmState?.trim() || null;
     if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
+
+    // O banco não garante mais número/UF: valida o estado FINAL do perfil —
+    // mas só quando a requisição mexe no registro. Perfil antigo com `crm`
+    // vazio (o código anterior chegou a gravar '') continua podendo trocar só
+    // a assinatura ou a especialidade.
+    if (
+      data.council !== undefined ||
+      data.crm !== undefined ||
+      data.crmState !== undefined
+    )
+      UsersService.assertRegistroDoConselho(
+        profileUpdates.council ?? target.doctorProfile.council,
+        'crm' in profileUpdates ? profileUpdates.crm : target.doctorProfile.crm,
+        'crmState' in profileUpdates
+          ? profileUpdates.crmState
+          : target.doctorProfile.crmState,
+      );
     if (data.signatureImageUrl !== undefined)
-      profileUpdates.signatureUrl = data.signatureImageUrl ?? null;
+      profileUpdates.signatureUrl = this.validarCaminhoDeArquivo(
+        data.signatureImageUrl,
+        target.doctorProfile.signatureUrl,
+        PASTAS_DE_ASSINATURA,
+        target.ownerId,
+        ASSINATURA_INVALIDA,
+      );
 
     await this.doctorProfileRepository.update(
       target.doctorProfile.id,
       profileUpdates,
     );
+    if (mudaConselho) {
+      // Mesmo motivo do `updateCollaborator`: o assistente do WhatsApp guarda
+      // a permissão em cache.
+      this.emitAccessChanged(targetId, target.phone);
+    }
 
     const updated = await this.userRepository.findOneWithProfile({
       id: targetId,
@@ -576,6 +722,7 @@ export class UsersService {
           role: c.role,
           permissions: c.permissions,
           isDoctor: !!c.doctorProfile,
+          isPhysician: isPhysicianProfile(c.doctorProfile),
         }),
       })),
     );
@@ -609,8 +756,15 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
 
+    const council = data.council ?? ProfessionalCouncil.CRM;
     const hasDoctorCredentials = Boolean(data.crm && data.crmState);
+    // Compat: sem `isDoctor` explícito, CRM + UF informados continuam
+    // significando "é médico". Para os demais conselhos o número é opcional,
+    // então só `isDoctor: true` cria o perfil.
     const isDoctor = data.isDoctor ?? hasDoctorCredentials;
+    if (isDoctor) {
+      UsersService.assertRegistroDoConselho(council, data.crm, data.crmState);
+    }
 
     // Gera uma senha aleatória apenas para satisfazer o schema — o colaborador
     // nunca saberá esta senha; ela será substituída ao definir a senha pelo link.
@@ -644,12 +798,13 @@ export class UsersService {
       throw err;
     }
 
-    // Se é médico, criar doctorProfile
-    if (isDoctor && data.crm && data.crmState) {
+    // Profissional de saúde: cria o perfil (médico se o conselho for CRM).
+    if (isDoctor) {
       await this.doctorProfileRepository.create({
         userId: newUser.id,
-        crm: data.crm,
-        crmState: data.crmState,
+        council,
+        crm: data.crm?.trim() || null,
+        crmState: data.crmState?.trim() || null,
         specialty: data.specialty || null,
       });
     }
@@ -723,6 +878,7 @@ export class UsersService {
         role: newUser.role,
         permissions,
         isDoctor,
+        isPhysician: isDoctor && council === ProfessionalCouncil.CRM,
       }),
     };
   }
@@ -748,6 +904,29 @@ export class UsersService {
       id: collaborator.id,
       ownerId: collaborator.ownerId,
     });
+
+    // Mesma regra do `updateDoctorProfileById`: o admin delegado não mexe no
+    // próprio vínculo profissional por aqui — virar (ou deixar de ser)
+    // profissional e trocar o conselho mudam a permissão efetiva (só CRM
+    // ganha Solicitações, receita, indicação cirúrgica). Fica com o dono ou
+    // com outro admin. Número, UF e especialidade do próprio registro seguem
+    // editáveis pela rota de perfil profissional.
+    if (collaboratorId === adminId) {
+      const mudaVinculo =
+        data.isDoctor !== undefined &&
+        data.isDoctor !== !!collaborator.doctorProfile;
+      // Sem perfil, o conselho só vale junto com `isDoctor: true` — que já
+      // cai em `mudaVinculo`.
+      const mudaConselho =
+        data.council !== undefined &&
+        !!collaborator.doctorProfile &&
+        data.council !== collaborator.doctorProfile.council;
+      if (mudaVinculo || mudaConselho) {
+        throw new ForbiddenException(
+          'Somente o dono da conta ou outro administrador altera o seu próprio vínculo profissional.',
+        );
+      }
+    }
 
     // Verifica email duplicado
     if (data.email) {
@@ -790,55 +969,53 @@ export class UsersService {
       updates.permissions = data.permissions;
     }
 
-    // Gestão do doctorProfile
-    if (data.isDoctor !== undefined) {
-      if (data.isDoctor && !hasProfile) {
-        // Criar doctorProfile
-        await this.doctorProfileRepository.create({
-          userId: collaboratorId,
-          crm: data.crm || '',
-          crmState: data.crmState || '',
-          specialty: data.specialty || null,
-        });
-      } else if (!data.isDoctor && hasProfile) {
-        // Remover doctorProfile
-        await this.doctorProfileRepository.delete(
-          collaborator.doctorProfile!.id,
-        );
-      } else if (data.isDoctor && hasProfile) {
-        // Atualizar doctorProfile
-        const profileUpdates: Partial<DoctorProfile> = {};
-        if (data.crm !== undefined) profileUpdates.crm = data.crm;
-        if (data.crmState !== undefined)
-          profileUpdates.crmState = data.crmState;
-        if (data.specialty !== undefined)
-          profileUpdates.specialty = data.specialty;
-        if (Object.keys(profileUpdates).length > 0) {
-          await this.doctorProfileRepository.update(
-            collaborator.doctorProfile!.id,
-            profileUpdates,
-          );
-        }
-      }
-    } else {
-      // Atualizar campos médicos no doctorProfile se existem
-      if (
-        hasProfile &&
-        (data.crm !== undefined ||
-          data.crmState !== undefined ||
-          data.specialty !== undefined)
-      ) {
-        const profileUpdates: Partial<DoctorProfile> = {};
-        if (data.crm !== undefined) profileUpdates.crm = data.crm;
-        if (data.crmState !== undefined)
-          profileUpdates.crmState = data.crmState;
-        if (data.specialty !== undefined)
-          profileUpdates.specialty = data.specialty;
-        await this.doctorProfileRepository.update(
-          collaborator.doctorProfile!.id,
-          profileUpdates,
-        );
-      }
+    // Gestão do doctorProfile. O banco não garante mais número/UF (outros
+    // conselhos podem não ter), então o estado FINAL do perfil é validado aqui
+    // antes de gravar: CRM continua exigindo número e UF.
+    const perfilAtual = collaborator.doctorProfile ?? null;
+    const profileUpdates: Partial<DoctorProfile> = {};
+    if (data.council !== undefined) profileUpdates.council = data.council;
+    if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
+    if (data.crmState !== undefined)
+      profileUpdates.crmState = data.crmState?.trim() || null;
+    if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
+
+    const terPerfil = data.isDoctor !== undefined ? data.isDoctor : hasProfile;
+    const councilFinal =
+      profileUpdates.council ?? perfilAtual?.council ?? ProfessionalCouncil.CRM;
+
+    // Valida o registro quando o perfil nasce ou quando a requisição mexe nele
+    // (mesmo motivo do `updateDoctorProfileById`: perfil antigo com `crm`
+    // vazio não pode travar a edição de outros campos do colaborador).
+    const mexeNoRegistro =
+      data.council !== undefined ||
+      data.crm !== undefined ||
+      data.crmState !== undefined;
+    if (terPerfil && (!hasProfile || mexeNoRegistro)) {
+      const crmFinal =
+        'crm' in profileUpdates ? profileUpdates.crm : perfilAtual?.crm;
+      const ufFinal =
+        'crmState' in profileUpdates
+          ? profileUpdates.crmState
+          : perfilAtual?.crmState;
+      UsersService.assertRegistroDoConselho(councilFinal, crmFinal, ufFinal);
+    }
+
+    if (terPerfil && !hasProfile) {
+      await this.doctorProfileRepository.create({
+        userId: collaboratorId,
+        council: councilFinal,
+        crm: profileUpdates.crm ?? null,
+        crmState: profileUpdates.crmState ?? null,
+        specialty: profileUpdates.specialty ?? null,
+      });
+    } else if (!terPerfil && hasProfile) {
+      await this.doctorProfileRepository.delete(perfilAtual!.id);
+    } else if (terPerfil && Object.keys(profileUpdates).length > 0) {
+      await this.doctorProfileRepository.update(
+        perfilAtual!.id,
+        profileUpdates,
+      );
     }
 
     const updated = await this.userRepository.update(collaboratorId, updates);
@@ -851,8 +1028,9 @@ export class UsersService {
     // (antes) + a mesma lógica de branches acima já dizem se o
     // `doctor_profile` existe agora, e a permissão gravada é `data.permissions`
     // quando informada, ou a que já estava em `collaborator` quando omitida.
-    const isDoctorAfterUpdate =
-      data.isDoctor !== undefined ? data.isDoctor : hasProfile;
+    const isDoctorAfterUpdate = terPerfil;
+    const isPhysicianAfterUpdate =
+      terPerfil && councilFinal === ProfessionalCouncil.CRM;
 
     // O assistente do WhatsApp deriva `permissions` a partir de caches em
     // memória (identidade do usuário por telefone, ~10 min; médicos
@@ -862,7 +1040,12 @@ export class UsersService {
     // deixaria uma janela de até 10 min em que o WhatsApp ainda opera com a
     // permissão antiga. Emitido só quando o que afeta a permissão efetiva
     // (`data.permissions` ou `data.isDoctor`) de fato mudou.
-    if (data.permissions !== undefined || data.isDoctor !== undefined) {
+    // O conselho também muda a permissão efetiva (só CRM ganha Solicitações).
+    if (
+      data.permissions !== undefined ||
+      data.isDoctor !== undefined ||
+      data.council !== undefined
+    ) {
       this.emitAccessChanged(collaboratorId, collaborator.phone);
     }
 
@@ -881,6 +1064,7 @@ export class UsersService {
         role: collaborator.role,
         permissions: grantedPermissionsAfterUpdate,
         isDoctor: isDoctorAfterUpdate,
+        isPhysician: isPhysicianAfterUpdate,
       }),
       // Crua — para editar (o que a tela deve guardar como novo baseline).
       grantedPermissions: grantedPermissionsAfterUpdate,
@@ -1205,6 +1389,7 @@ export class UsersService {
         ? { ...userWithoutPassword.doctorProfile, signatureUrl }
         : userWithoutPassword.doctorProfile,
       isDoctor: !!collaborator.doctorProfile,
+      isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       doctorAccesses: accesses,
       // A permissão EFETIVA (com o bônus de médico já somado) — para EXIBIR
       // o que o colaborador pode fazer hoje. Nunca usar este campo para
@@ -1218,6 +1403,7 @@ export class UsersService {
         role: collaborator.role,
         permissions,
         isDoctor: !!collaborator.doctorProfile,
+        isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       }),
       // A coluna CRUA (o que foi de fato concedido) — para EDITAR. É este
       // campo que a tela de colaborador deve semear no formulário e
@@ -1281,6 +1467,7 @@ export class UsersService {
       role: requesting.role,
       permissions: requesting.permissions,
       isDoctor: !!requesting.doctorProfile,
+      isPhysician: isPhysicianProfile(requesting.doctorProfile),
     });
     const isAccountAdmin =
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
@@ -1397,6 +1584,27 @@ export class UsersService {
         'Apenas médicos podem atualizar a assinatura digital.',
       );
     await this.doctorProfileRepository.update(profile.id, { signatureUrl });
+  }
+
+  /**
+   * CRM exige número e UF: é o que sai impresso em receita, atestado e laudo.
+   * Os demais conselhos podem ficar sem número (profissional migrado de outro
+   * sistema sem o registro cadastrado). Era garantido pelo NOT NULL do banco
+   * até o `AddCouncilToDoctorProfiles`; agora é aqui.
+   */
+  private static assertRegistroDoConselho(
+    council: ProfessionalCouncil,
+    crm: string | null | undefined,
+    crmState: string | null | undefined,
+  ): void {
+    if (
+      council === ProfessionalCouncil.CRM &&
+      (!crm?.trim() || !crmState?.trim())
+    ) {
+      throw new BadRequestException(
+        'Número e UF do CRM são obrigatórios para médicos.',
+      );
+    }
   }
 
   private async resolveStorageUrl(

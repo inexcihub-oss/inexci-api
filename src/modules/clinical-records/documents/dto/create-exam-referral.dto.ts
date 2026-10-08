@@ -11,6 +11,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { CidCodeDto } from '../../dto/cid-code.dto';
+import { CLINICAL_DOCUMENT_TEXT_MAX } from './create-medical-certificate.dto';
 
 export class ExamReferralItemDto {
   /** Exame solicitado. */
@@ -45,11 +46,23 @@ export class CreateExamReferralDto {
   @Type(() => ExamReferralItemDto)
   exams: ExamReferralItemDto[];
 
-  /** Justificativa clínica do pedido (exigida pelos convênios). */
+  /**
+   * Justificativa clínica do pedido (exigida pelos convênios). Pode vir de um
+   * modelo já aplicado — por isso o teto é o dos textos de modelo, maior que
+   * o corpo do modelo (ver `CLINICAL_DOCUMENT_TEXT_MAX`).
+   */
   @IsString()
   @IsOptional()
-  @MaxLength(2000)
+  @MaxLength(CLINICAL_DOCUMENT_TEXT_MAX)
   clinicalIndication?: string;
+
+  /**
+   * Modelo de texto (MIG-06) para a indicação clínica, com os placeholders preenchidos
+   * no servidor. Só vale quando o texto não veio: o texto enviado sempre vence.
+   */
+  @IsUUID()
+  @IsOptional()
+  templateId?: string;
 
   /** Sobrescreve os CIDs da ficha, quando o pedido usa outra hipótese. */
   @IsArray()

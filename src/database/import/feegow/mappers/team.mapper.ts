@@ -1,0 +1,623 @@
+import {
+  normalizarCpf,
+  normalizarData,
+  EMAIL_MAX,
+  emailLongoDemais,
+  normalizarEmail,
+  normalizarSexo,
+  normalizarTexto,
+  telefonesDistintos,
+} from '../../core/normalizers';
+import { ContextoImportacao, chaveDeNome } from '../context';
+import { ExportFeegow, excluido } from '../export';
+import { Permission } from 'src/shared/permissions/permission.enum';
+import {
+  ProfessionalCouncil,
+  hasCouncilRegistry,
+  isClinicalDocumentIssuerProfile,
+} from 'src/database/entities/doctor-profile.entity';
+import { UserRole, UserStatus } from 'src/database/entities/user.entity';
+import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
+
+export const LEDGER_PROFISSIONAL = 'user:prof';
+export const LEDGER_FUNCIONARIO = 'user:func';
+
+export interface NovoUsuario {
+  id: string;
+  role: UserRole;
+  status: UserStatus;
+  email: string;
+  name: string;
+  phone: string;
+  cpf: string | null;
+  gender: string | null;
+  birthDate: Date | null;
+  password: null;
+  ownerId: string;
+  adminId: string;
+  permissions: Permission[];
+}
+
+export interface NovoPerfil {
+  id: string;
+  userId: string;
+  council: ProfessionalCouncil;
+  crm: string | null;
+  crmState: string | null;
+  specialty: string | null;
+}
+
+export interface NovoAcesso {
+  id: string;
+  userId: string;
+  doctorUserId: string;
+  status: UserDoctorAccessStatus;
+  createdById: string;
+}
+
+export interface PlanoEquipe {
+  usuarios: NovoUsuario[];
+  perfis: NovoPerfil[];
+  acessos: NovoAcesso[];
+}
+
+/** `conselhos_profissionais.codigo` do Feegow → conselho da INEXCI. */
+const CONSELHOS: Record<string, ProfessionalCouncil> = {
+  CRM: ProfessionalCouncil.CRM,
+  CRP: ProfessionalCouncil.CRP,
+  CRN: ProfessionalCouncil.CRN,
+  COREN: ProfessionalCouncil.COREN,
+  CREFITO: ProfessionalCouncil.CREFITO,
+  CRFA: ProfessionalCouncil.CRFA,
+  CRO: ProfessionalCouncil.CRO,
+  CRBM: ProfessionalCouncil.CRBM,
+  CREF: ProfessionalCouncil.CREF,
+};
+
+/**
+ * Ocupações que não são de médico mesmo citando uma área médica
+ * ("Instrumentação Cirúrgica", "Técnico em Radiologia") ou de outro conselho
+ * que a INEXCI não tem (CRMV, CRF, CRBio): nunca viram CRM. Checado depois
+ * das profissões, porque "Técnico de Enfermagem" é COREN.
+ */
+const NAO_DEDUZ =
+  /instrument|tecnic|tecnolog|auxiliar|assistente|veterin|farmac|biolog/;
+
+/**
+ * Especialidades que não são de médico → o conselho da profissão. Vem antes
+ * da lista médica porque "Enfermagem (Técnico)" ou "Nutrição clínica" não
+ * podem cair em CRM.
+ */
+const CONSELHO_DA_PROFISSAO: [RegExp, ProfessionalCouncil][] = [
+  [/enferm/, ProfessionalCouncil.COREN],
+  [/nutri/, ProfessionalCouncil.CRN],
+  [/psicolog|psicoterap|neuropsicolog/, ProfessionalCouncil.CRP],
+  [/fisioterap|terapia ocupacional/, ProfessionalCouncil.CREFITO],
+  [/fonoaudiolog/, ProfessionalCouncil.CRFA],
+  [
+    /odonto|dentist|bucomaxil|ortodont|endodont|periodont|implantodont/,
+    ProfessionalCouncil.CRO,
+  ],
+  [/biomedic/, ProfessionalCouncil.CRBM],
+  [/educacao fisica|personal/, ProfessionalCouncil.CREF],
+];
+
+/** Especialidades médicas reconhecidas (lista fechada: na dúvida, OUTRO). */
+const ESPECIALIDADE_MEDICA =
+  /medicina|clinica (geral|medica)|ortoped|traumato|cirurgi|cardiolog|dermatolog|endocrinolog|gastroenterolog|geriatr|ginecolog|obstetr|hematolog|infectolog|mastolog|nefrolog|neurolog|neurocirurg|oftalmolog|oncolog|otorrino|pediatr|pneumolog|psiquiatr|radiolog|reumatolog|urolog|anestesiolog|angiolog|coloproctolog|nutrolog|fisiatr|homeopat|acupuntura medica/;
+
+/** `null` = não reconhecida; `'veto'` = ocupação que impede deduzir CRM. */
+function conselhoDeUmaEspecialidade(
+  especialidade: string,
+): ProfessionalCouncil | 'veto' | null {
+  const e = chaveDeNome(especialidade);
+  for (const [padrao, conselho] of CONSELHO_DA_PROFISSAO) {
+    if (padrao.test(e)) return conselho;
+  }
+  if (NAO_DEDUZ.test(e)) return 'veto';
+  return ESPECIALIDADE_MEDICA.test(e) ? ProfessionalCouncil.CRM : null;
+}
+
+/**
+ * Conselho deduzido das especialidades, para profissional que veio do Feegow
+ * sem conselho nenhum. Profissão não médica reconhecida → o conselho dela;
+ * especialidade médica reconhecida → CRM; o resto → `null` (fica OUTRO).
+ * Lista fechada de propósito: CRM dá atos privativos (receita, atestado,
+ * indicação cirúrgica), então só entra quem a especialidade deixa claro.
+ * Com várias especialidades, as desconhecidas são ignoradas ("Ortopedia" +
+ * "Acupuntura" → CRM); conflito entre reconhecidas, ou uma ocupação de
+ * `NAO_DEDUZ` no meio, → OUTRO.
+ */
+export function conselhoPelaEspecialidade(
+  especialidades: string | null | undefined | (string | null | undefined)[],
+): ProfessionalCouncil | null {
+  const nomes = (
+    Array.isArray(especialidades) ? especialidades : [especialidades]
+  ).filter((e): e is string => !!e && !!e.trim());
+  const conselhos = new Set(nomes.map(conselhoDeUmaEspecialidade));
+  conselhos.delete(null);
+  if (conselhos.size !== 1 || conselhos.has('veto')) return null;
+  return [...conselhos][0] as ProfessionalCouncil;
+}
+
+/**
+ * Código do conselho no Feegow → chave de `CONSELHOS`. O cadastro às vezes
+ * traz a UF junto ("CRM-SP", "CRM/RJ", "CRM."): vale a sigla do começo.
+ */
+function siglaDoConselho(codigo: string | null | undefined): string {
+  return (codigo ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim()
+    .match(/^[A-Z]*/)![0];
+}
+
+/** Especialidades distintas, juntas até caber na coluna sem cortar nome. */
+function juntarEspecialidades(nomes: string[], max: number): string | null {
+  const unicos: string[] = [];
+  const chaves = new Set<string>();
+  for (const nome of nomes) {
+    const n = normalizarTexto(nome, max);
+    if (!n || chaves.has(chaveDeNome(n))) continue;
+    chaves.add(chaveDeNome(n));
+    unicos.push(n);
+  }
+  let texto = '';
+  for (const n of unicos) {
+    const proximo = texto ? `${texto}, ${n}` : n;
+    if (proximo.length > max) break;
+    texto = proximo;
+  }
+  return texto || null;
+}
+
+interface Pessoa {
+  tipo: 'prof' | 'func';
+  idOrigem: string;
+  nome: string | null;
+  email: string | null;
+  /** Havia e-mail válido, mas maior que `users.email` (descartado). */
+  emailLongo: boolean;
+  telefone: string | null;
+  cpf: string | null;
+  sexo: 'M' | 'F' | null;
+  nascimento: string | null;
+  ativo: boolean;
+  excluido: boolean;
+  perfil: Omit<NovoPerfil, 'id' | 'userId'> | null;
+  /** Conselho veio da especialidade, não do Feegow. */
+  conselhoDeduzido?: boolean;
+  /** Código de conselho do Feegow que a INEXCI não tem (CRMV, CRF…). */
+  conselhoDesconhecido?: string | null;
+  permissoes: Permission[];
+}
+
+/**
+ * Equipe: cada profissional e funcionário do Feegow vira (ou casa com) um
+ * usuário da INEXCI.
+ *
+ * - Casa com usuário existente **da mesma conta** pelo e-mail do export (ou
+ *   pelo `--mapear`). É assim que o dono entra: ele já fez o cadastro.
+ * - Senão, cria colaborador `pending` (sem senha — o admin reenvia o convite
+ *   pela tela) ou `inactive` se estava desativado no Feegow.
+ * - Profissional ganha `doctor_profile` com o conselho do Feegow; sem conselho
+ *   → `OUTRO`. Número sem UF (o Feegow não guarda a UF do registro).
+ * - Todo colaborador fica vinculado a todo profissional: o Feegow não tem esse
+ *   recorte, todo mundo via tudo.
+ */
+export function planejarEquipe(
+  exp: ExportFeegow,
+  ctx: ContextoImportacao,
+): PlanoEquipe {
+  const rel = ctx.relatorio;
+  const plano: PlanoEquipe = { usuarios: [], perfis: [], acessos: [] };
+  const telefonesReservados = new Set(ctx.telefonesEmUso);
+  // E-mail é único (`uq_users_email`). Os do banco já caem no casamento
+  // acima; os que este plano vai criar ficam reservados como os telefones,
+  // senão dois cadastros do export com o mesmo e-mail derrubariam o INSERT.
+  const emailsReservados = new Map<string, string>();
+
+  const pessoas = [...lerProfissionais(exp), ...lerFuncionarios(exp)];
+  const profissionaisDaConta: string[] = [];
+  const colaboradoresDaConta: string[] = [];
+
+  for (const p of pessoas) {
+    const entidade =
+      p.tipo === 'prof' ? LEDGER_PROFISSIONAL : LEDGER_FUNCIONARIO;
+    const rotulo = p.tipo === 'prof' ? 'profissional' : 'funcionário';
+
+    const jaImportado = ctx.ledger.resolver(entidade, p.idOrigem);
+    if (jaImportado) {
+      rel.pular(rotulo);
+      if (p.perfil) profissionaisDaConta.push(jaImportado);
+      if (jaImportado !== ctx.ownerId) colaboradoresDaConta.push(jaImportado);
+      continue;
+    }
+    if (p.excluido) {
+      rel.rejeitar(rotulo, p.idOrigem, 'excluído no Feegow');
+      continue;
+    }
+
+    if (p.emailLongo) {
+      rel.avisar(
+        rotulo,
+        p.idOrigem,
+        `e-mail com mais de ${EMAIL_MAX.usuario} caracteres descartado`,
+      );
+    }
+    const emailForcado = ctx.mapear.get(`${p.tipo}:${p.idOrigem}`);
+    const email = emailForcado ?? p.email;
+    const existente = email ? ctx.usuariosPorEmail.get(email) : undefined;
+
+    if (existente?.excluido) {
+      // Ex-colaborador excluído na INEXCI: casar ressuscitaria vínculo com um
+      // usuário morto, e criar outro esbarra em `uq_users_email`.
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        'e-mail pertence a usuário excluído na INEXCI — cadastre com outro e-mail e use --mapear',
+      );
+      continue;
+    }
+    if (existente) {
+      if (existente.ownerId !== ctx.ownerId) {
+        rel.rejeitar(
+          rotulo,
+          p.idOrigem,
+          'e-mail já usado em outra conta da INEXCI — cadastre com outro e-mail e use --mapear',
+        );
+        continue;
+      }
+      ctx.ledger.registrar(entidade, p.idOrigem, existente.id);
+      rel.aceitar(`${rotulo} (casado com usuário existente)`);
+      if (p.perfil) {
+        if (existente.temPerfil) profissionaisDaConta.push(existente.id);
+        else
+          rel.avisar(
+            rotulo,
+            p.idOrigem,
+            'usuário existente sem perfil profissional — consultas e fichas dele não terão dono; marque-o como profissional na tela antes da carga',
+          );
+      }
+      if (existente.id !== ctx.ownerId) colaboradoresDaConta.push(existente.id);
+      continue;
+    }
+
+    if (emailForcado) {
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        `--mapear aponta para ${emailForcado}, que não existe`,
+      );
+      continue;
+    }
+    if (!p.nome) {
+      rel.rejeitar(rotulo, p.idOrigem, 'sem nome');
+      continue;
+    }
+    if (!p.email) {
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        'sem e-mail válido (obrigatório para login)',
+      );
+      continue;
+    }
+    if (!p.telefone) {
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        'sem celular válido (obrigatório e único)',
+      );
+      continue;
+    }
+    const donoDoEmail = emailsReservados.get(p.email);
+    if (donoDoEmail) {
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        `e-mail já usado por outro cadastro do export (${donoDoEmail}) — cadastre com outro e-mail ou use --mapear`,
+      );
+      continue;
+    }
+    if (telefonesReservados.has(p.telefone)) {
+      rel.rejeitar(rotulo, p.idOrigem, 'celular já usado por outro usuário');
+      continue;
+    }
+    telefonesReservados.add(p.telefone);
+    emailsReservados.set(p.email, `${rotulo} ${p.idOrigem}`);
+
+    const id = ctx.novoId();
+    plano.usuarios.push({
+      id,
+      role: UserRole.COLLABORATOR,
+      status: p.ativo ? UserStatus.PENDING : UserStatus.INACTIVE,
+      email: p.email,
+      name: p.nome,
+      phone: p.telefone,
+      cpf: p.cpf,
+      gender: p.sexo,
+      birthDate: p.nascimento ? new Date(`${p.nascimento}T12:00:00Z`) : null,
+      password: null,
+      ownerId: ctx.ownerId,
+      adminId: ctx.ownerId,
+      permissions: p.permissoes,
+    });
+    if (p.perfil) {
+      plano.perfis.push({ id: ctx.novoId(), userId: id, ...p.perfil });
+      profissionaisDaConta.push(id);
+      if (p.conselhoDesconhecido) {
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          `conselho ${p.conselhoDesconhecido} do Feegow não existe na INEXCI — entra como OUTRO; ajuste o conselho na tela de colaboradores`,
+        );
+      } else if (p.perfil.council === ProfessionalCouncil.OUTRO) {
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          'sem conselho no Feegow — entra como OUTRO; ajuste o conselho na tela de colaboradores',
+        );
+      } else if (p.conselhoDeduzido) {
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          `sem conselho no Feegow — entra como ${p.perfil.council}, deduzido da especialidade "${p.perfil.specialty}"; confira na tela de colaboradores`,
+        );
+      }
+      // Documento e indicação cirúrgica exigem número **e** UF
+      // (`hasCouncilRegistry`). O Feegow não guarda a UF: todo CRM/CRO entra
+      // bloqueado até alguém completar o registro — o relatório tem que dizer.
+      if (
+        isClinicalDocumentIssuerProfile(p.perfil) &&
+        !hasCouncilRegistry(p.perfil)
+      ) {
+        const falta = p.perfil.crm ? 'sem UF' : 'sem número e sem UF';
+        const atos =
+          p.perfil.council === ProfessionalCouncil.CRM
+            ? 'receita, atestado, pedido de exame nem indicação cirúrgica'
+            : 'receita, atestado nem pedido de exame';
+        rel.avisar(
+          rotulo,
+          p.idOrigem,
+          `${p.perfil.council} ${falta} (o Feegow não guarda a UF) — complete o registro na tela de colaboradores; até lá não emite ${atos}`,
+        );
+      }
+    }
+    colaboradoresDaConta.push(id);
+    ctx.ledger.registrar(entidade, p.idOrigem, id);
+    rel.aceitar(rotulo);
+  }
+
+  for (const userId of new Set(colaboradoresDaConta)) {
+    for (const doctorUserId of new Set(profissionaisDaConta)) {
+      if (userId === doctorUserId) continue;
+      plano.acessos.push({
+        id: ctx.novoId(),
+        userId,
+        doctorUserId,
+        status: UserDoctorAccessStatus.ACTIVE,
+        createdById: ctx.ownerId,
+      });
+    }
+  }
+  rel.aceitar('vínculo colaborador-profissional', plano.acessos.length);
+
+  conferirDonoProfissional(pessoas, ctx);
+  return plano;
+}
+
+/**
+ * O dono da conta (o médico que assina a INEXCI) só casa com o profissional
+ * dele no Feegow se o e-mail for o mesmo ou houver `--mapear`. Sem isso, ele
+ * entraria como um colaborador novo (duplicado) e as consultas, fichas e
+ * pacientes dele ficariam em nome desse outro usuário. Aborta a fase,
+ * dizendo como corrigir; `--dono-nao-profissional` desliga para a conta cujo
+ * dono não atende.
+ *
+ * Sem banco (`--sem-banco`) o e-mail do dono é desconhecido: só avisa.
+ */
+function conferirDonoProfissional(
+  pessoas: Pessoa[],
+  ctx: ContextoImportacao,
+): void {
+  if (ctx.opcoes.donoNaoProfissional) return;
+  const casados = Object.values(
+    ctx.ledger.paraObjeto()[LEDGER_PROFISSIONAL] ?? {},
+  );
+  if (casados.includes(ctx.ownerId)) return;
+
+  const candidatos = pessoas
+    .filter((p) => p.tipo === 'prof' && !p.excluido)
+    .map((p) => `  prof:${p.idOrigem} — ${p.nome ?? '(sem nome)'}`);
+  const dono = [...ctx.usuariosPorEmail.values()].find(
+    (u) => u.id === ctx.ownerId,
+  );
+  if (!dono) {
+    ctx.relatorio.avisar(
+      'profissional',
+      '-',
+      'dono da conta não conferido (sem banco): na carga real ele precisa casar com um profissional do export (--mapear prof:<id>=<e-mail do dono>)' +
+        (candidatos.length
+          ? `. Profissionais do export:\n${candidatos.join('\n')}`
+          : ''),
+    );
+    return;
+  }
+  throw new Error(
+    `O dono da conta (${dono.email}) não casou com nenhum profissional do Feegow: ` +
+      'as consultas e fichas dele ficariam em nome de um colaborador duplicado. ' +
+      `Rode de novo com --mapear prof:<id>=${dono.email} apontando o profissional que é o dono` +
+      (candidatos.length
+        ? `. Profissionais do export:\n${candidatos.join('\n')}`
+        : ' (o export não tem profissionais)') +
+      '\nSe o dono da conta não atende (não é profissional), use --dono-nao-profissional.',
+  );
+}
+
+function lerProfissionais(exp: ExportFeegow): Pessoa[] {
+  const conselhoPorId = new Map(
+    exp.tabela('conselhos_profissionais').map((c) => [c.id, c.codigo]),
+  );
+  const nomeEspecialidade = new Map(
+    exp.tabela('especialidades').map((e) => [e.id, e.nome_especialidade]),
+  );
+  const especialidadesPorProf = new Map<string, string[]>();
+  for (const pe of exp.tabela('profissional_especialidades')) {
+    const nome = nomeEspecialidade.get(pe.especialidade_id ?? '');
+    if (!pe.profissional_id || !nome) continue;
+    const lista = especialidadesPorProf.get(pe.profissional_id) ?? [];
+    lista.push(nome);
+    especialidadesPorProf.set(pe.profissional_id, lista);
+  }
+
+  return exp.tabela('profissionais').map((p) => {
+    const codigo = siglaDoConselho(conselhoPorId.get(p.conselho_id ?? ''));
+    const especialidades = especialidadesPorProf.get(p.id ?? '') ?? [];
+    const doFeegow = CONSELHOS[codigo];
+    // Só deduz quem veio sem conselho: um conselho que a INEXCI não tem
+    // (CRMV, CRF…) fica OUTRO, nunca vira CRM pela especialidade.
+    const deduzido = codigo ? null : conselhoPelaEspecialidade(especialidades);
+    const council = doFeegow ?? deduzido ?? ProfessionalCouncil.OUTRO;
+    return {
+      tipo: 'prof' as const,
+      idOrigem: p.id!,
+      nome: normalizarTexto(p.nome_profissional, 100),
+      email:
+        normalizarEmail(p.email1, EMAIL_MAX.usuario) ??
+        normalizarEmail(p.email2, EMAIL_MAX.usuario),
+      emailLongo: [p.email1, p.email2].some((e) =>
+        emailLongoDemais(e, EMAIL_MAX.usuario),
+      ),
+      telefone:
+        telefonesDistintos([
+          p.celular1,
+          p.celular2,
+          p.telefone1,
+          p.telefone2,
+        ])[0] ?? null,
+      cpf: normalizarCpf(p.cpf),
+      sexo: normalizarSexo(p.sexo_id),
+      nascimento: normalizarData(p.nascimento),
+      ativo: p.ativo === 'on',
+      excluido: excluido(p),
+      perfil: {
+        council,
+        crm: normalizarTexto(p.documento_conselho, 20),
+        crmState: null,
+        specialty: juntarEspecialidades(especialidades, 100),
+      },
+      conselhoDeduzido: !!deduzido,
+      conselhoDesconhecido:
+        codigo && !doFeegow
+          ? (conselhoPorId.get(p.conselho_id ?? '') ?? codigo).trim()
+          : null,
+      // O perfil já dá as áreas (agenda + atendimento, e solicitações se CRM).
+      permissoes: [],
+    };
+  });
+}
+
+/**
+ * Chave do Feegow que permite alterar usuários. Quem a tem administra a equipe
+ * lá e ganha Administração aqui. Mais robusto que exigir o perfil "acesso
+ * master" inteiro: no export deste cliente, os funcionários administradores
+ * têm 677 das 678 chaves do perfil (falta só excluir usuário).
+ */
+export const CHAVE_GERIR_USUARIOS = 'usuariosA';
+
+function lerFuncionarios(exp: ExportFeegow): Pessoa[] {
+  const loginPorFuncionario = new Map(
+    exp
+      .tabela('usuarios')
+      .filter((u) => (u.tipo_usuario ?? '').toLowerCase() === 'funcionarios')
+      .map((u) => [u.id_relativo, u]),
+  );
+
+  return exp.tabela('funcionarios').map((f) => {
+    const login = loginPorFuncionario.get(f.id);
+    const permissoes = conjuntoDePermissoes(login?.permissoes);
+    // Recepção agenda; quem gere usuários no Feegow também administra aqui.
+    // Ajustável na tela depois da carga.
+    const administra = permissoes.has(CHAVE_GERIR_USUARIOS);
+    return {
+      tipo: 'func' as const,
+      idOrigem: f.id!,
+      nome: normalizarTexto(f.nome_funcionario, 100),
+      email: normalizarEmail(f.email, EMAIL_MAX.usuario),
+      emailLongo: emailLongoDemais(f.email, EMAIL_MAX.usuario),
+      telefone: telefonesDistintos([f.celular])[0] ?? null,
+      cpf: normalizarCpf(f.cpf),
+      sexo: normalizarSexo(f.sexo_id),
+      nascimento: normalizarData(f.nascimento),
+      ativo: f.ativo === 'on',
+      excluido: excluido(f),
+      perfil: null,
+      permissoes: administra
+        ? [Permission.AGENDA, Permission.ADMINISTRACAO]
+        : [Permission.AGENDA],
+    };
+  });
+}
+
+/** `|agendaV|, |agendaI|, ...` → conjunto de chaves. */
+export function conjuntoDePermissoes(
+  texto: string | null | undefined,
+): Set<string> {
+  return new Set(
+    (texto ?? '')
+      .split(',')
+      .map((p) =>
+        p
+          .trim()
+          .replace(/^\||\|$/g, '')
+          .trim(),
+      )
+      .filter(Boolean),
+  );
+}
+
+/**
+ * Usuário do Feegow (`usuarios.id`, o `usuario_id`/`usuario` dos agendamentos
+ * e do log) → uuid do usuário importado. Um usuário do Feegow é um
+ * profissional ou um funcionário (`tipo_usuario` + `id_relativo`). Fora do
+ * mapa (`0`, sistema, equipe não importada) = sem autor.
+ */
+export function autoresDoFeegow(
+  exp: ExportFeegow,
+  ctx: ContextoImportacao,
+): Map<string, string | null> {
+  return new Map(
+    exp.tabela('usuarios').map((u): [string, string | null] => {
+      const tipo = (u.tipo_usuario ?? '').toLowerCase();
+      const entidade =
+        tipo === 'profissionais'
+          ? LEDGER_PROFISSIONAL
+          : tipo === 'funcionarios'
+            ? LEDGER_FUNCIONARIO
+            : null;
+      return [
+        u.id ?? '',
+        entidade ? ctx.ledger.resolver(entidade, u.id_relativo) : null,
+      ];
+    }),
+  );
+}
+
+/**
+ * Como `autoresDoFeegow`, mas só para usuários que são **profissionais**:
+ * o médico de uma ficha não pode ser um funcionário da recepção.
+ */
+export function profissionaisDoFeegow(
+  exp: ExportFeegow,
+  ctx: ContextoImportacao,
+): Map<string, string> {
+  const mapa = new Map<string, string>();
+  for (const u of exp.tabela('usuarios')) {
+    if ((u.tipo_usuario ?? '').toLowerCase() !== 'profissionais') continue;
+    const uuid = ctx.ledger.resolver(LEDGER_PROFISSIONAL, u.id_relativo);
+    if (u.id && uuid) mapa.set(u.id, uuid);
+  }
+  return mapa;
+}

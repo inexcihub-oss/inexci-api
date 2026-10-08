@@ -22,8 +22,9 @@ interface DetailDoctorInput {
   phone?: string | null;
   signatureUrl?: string | null;
   doctorProfile?: {
-    crm?: string;
-    crmState?: string;
+    council?: string;
+    crm?: string | null;
+    crmState?: string | null;
     specialty?: string | null;
     signatureUrl?: string | null;
     header?: {
@@ -43,8 +44,9 @@ export interface DetailDoctorResponse {
   phone?: string | null;
   signatureUrl: string | null;
   doctorProfile: {
-    crm?: string;
-    crmState?: string;
+    council?: string;
+    crm?: string | null;
+    crmState?: string | null;
     specialty: string | null;
     signatureUrl: string | null;
     header: {
@@ -73,6 +75,7 @@ export function mapDetailDoctor(
     signatureUrl: doctor.signatureUrl ?? null,
     doctorProfile: profile
       ? {
+          council: profile.council,
           crm: profile.crm,
           crmState: profile.crmState,
           specialty: profile.specialty ?? null,

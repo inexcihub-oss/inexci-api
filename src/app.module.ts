@@ -29,6 +29,7 @@ import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { ManufacturersModule } from './modules/manufacturers/manufacturers.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { AvailabilityModule } from './modules/availability/availability.module';
 import { ClinicalRecordsModule } from './modules/clinical-records/clinical-records.module';
 import { HospitalsModule } from './modules/hospitals/hospitals.module';
 import { ClinicsModule } from './modules/clinics/clinics.module';
@@ -129,6 +130,7 @@ import { ObservabilityModule } from './shared/observability/observability.module
     ManufacturersModule,
     PatientsModule,
     AppointmentsModule,
+    AvailabilityModule,
     ClinicalRecordsModule,
     HospitalsModule,
     ClinicsModule,

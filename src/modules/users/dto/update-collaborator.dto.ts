@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 import { Permission } from 'src/shared/permissions';
+import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
 
 export class UpdateCollaboratorDto {
   @IsString()
@@ -29,12 +30,22 @@ export class UpdateCollaboratorDto {
   @IsOptional()
   isDoctor?: boolean;
 
+  @IsOptional()
+  @IsEnum(ProfessionalCouncil)
+  council?: ProfessionalCouncil;
+
+  /**
+   * Número/UF no conselho. Opcionais aqui: quem valida é o
+   * `UsersService.updateCollaborator`, sobre o estado FINAL do perfil (o que
+   * já está gravado + o que veio no corpo) — CRM exige os dois, os demais
+   * conselhos não.
+   */
+  @IsOptional()
   @IsString()
-  @ValidateIf((o) => o.isDoctor === true)
   crm?: string;
 
+  @IsOptional()
   @IsString()
-  @ValidateIf((o) => o.isDoctor === true)
   crmState?: string;
 
   @IsString()

@@ -7,6 +7,7 @@
  *  │   Todos os arquivos requerem autenticação (signed URL).        │
  *  │                                                                 │
  *  │   • avatars/        → fotos de perfil dos usuários             │
+ *  │   • patient-photos/ → fotos de paciente (escopadas por tenant) │
  *  │   • documents/      → documentos da solicitação cirúrgica      │
  *  │   • post-surgical/  → laudos e docs pós-cirúrgicos             │
  *  │   • report/         → imagens anexadas ao laudo PDF            │
@@ -35,6 +36,13 @@ export const STORAGE_BUCKET_TOKEN = 'STORAGE_BUCKET';
 export const STORAGE_FOLDERS = {
   /** Fotos de perfil dos usuários */
   AVATARS: 'avatars',
+
+  /**
+   * Fotos de paciente. Ao contrário de `avatars`, NÃO é pasta pública: o
+   * caminho embute o ownerId (`patient-photos/<ownerId>/...`) e o
+   * `UploadService.getSignedUrl` recusa caminho de outro tenant.
+   */
+  PATIENT_PHOTOS: 'patient-photos',
 
   /** Documentos vinculados à solicitação cirúrgica (pré-operatório) */
   DOCUMENTS: 'documents',
@@ -81,10 +89,26 @@ export const STORAGE_FOLDER_TTL: Record<string, number> = {
   [STORAGE_FOLDERS.STAMPS]: 60 * 60,
   [STORAGE_FOLDERS.REPORT]: 60 * 60,
   [STORAGE_FOLDERS.AVATARS]: 24 * 60 * 60,
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: 60 * 60,
   [STORAGE_FOLDERS.HEADERS]: 24 * 60 * 60,
   [STORAGE_FOLDERS.WHATSAPP_TMP]: 10 * 60,
   [STORAGE_FOLDERS.PDFS]: 60 * 60,
   [STORAGE_FOLDERS.WHATSAPP_DOWNLOADS]: 10 * 60,
+};
+
+/**
+ * Pastas de imagem que a tela mostra muitas vezes (lista de pacientes,
+ * cabeçalhos). O link assinado delas é estável dentro de uma janela de TTL/2
+ * (vale TTL a partir do início da janela — ver `StorageService.getSignedUrl`)
+ * e a resposta sai com `Cache-Control`: o navegador reaproveita a imagem em
+ * vez de baixá-la de novo a cada tela. Antes, cada leitura do paciente gerava
+ * uma assinatura nova — para o navegador, sempre outra URL.
+ *
+ * `max-age` precisa ser ≤ TTL/2 da pasta: é o mínimo de validade que sobra
+ * num link entregue, então a cópia em cache nunca sobrevive à URL assinada.
+ */
+export const STORAGE_FOLDER_CACHE_CONTROL: Record<string, string> = {
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: `private, max-age=${STORAGE_FOLDER_TTL[STORAGE_FOLDERS.PATIENT_PHOTOS] / 2}`,
 };
 
 // ── Limites de tamanho por pasta (bytes) ─────────────────────────────────────
@@ -100,6 +124,7 @@ export const STORAGE_FOLDER_SIZE_LIMITS: Record<string, number> = {
   [STORAGE_FOLDERS.REPORT]: 50 * 1024 * 1024,
   [STORAGE_FOLDERS.HEADERS]: 2 * 1024 * 1024,
   [STORAGE_FOLDERS.AVATARS]: 2 * 1024 * 1024,
+  [STORAGE_FOLDERS.PATIENT_PHOTOS]: 2 * 1024 * 1024,
   [STORAGE_FOLDERS.SIGNATURES]: 500 * 1024,
   [STORAGE_FOLDERS.STAMPS]: 500 * 1024,
   [STORAGE_FOLDERS.PDFS]: 10 * 1024 * 1024,

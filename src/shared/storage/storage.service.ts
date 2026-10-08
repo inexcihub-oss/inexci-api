@@ -12,12 +12,16 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuid } from 'uuid';
 import { R2_CLIENT } from '../../config/r2.config';
-import { STORAGE_FOLDER_TTL } from '../../config/storage.config';
+import {
+  STORAGE_FOLDER_CACHE_CONTROL,
+  STORAGE_FOLDER_TTL,
+} from '../../config/storage.config';
 
 @Injectable()
 export class StorageService {
@@ -50,6 +54,10 @@ export class StorageService {
     return STORAGE_FOLDER_TTL[folder] ?? 3600;
   }
 
+  private cacheControl(filePath: string): string | undefined {
+    return STORAGE_FOLDER_CACHE_CONTROL[filePath.split('/')[0]];
+  }
+
   async create(file: any, folder: string, tenantId?: string): Promise<string> {
     const sanitizedName = this.sanitizeFilename(file.originalname);
     const filename = `${uuid()}-${sanitizedName}`;
@@ -67,6 +75,7 @@ export class StorageService {
           Key: filePath,
           Body: file.buffer,
           ContentType: file.mimetype,
+          CacheControl: this.cacheControl(filePath),
         }),
       );
       return filePath;
@@ -81,11 +90,37 @@ export class StorageService {
   async getSignedUrl(filePath: string): Promise<string> {
     try {
       const ttl = this.getTtl(filePath);
+      const cacheControl = this.cacheControl(filePath);
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: filePath,
+        // Vale também para objetos enviados antes do `CacheControl` no upload.
+        ...(cacheControl ? { ResponseCacheControl: cacheControl } : {}),
       });
-      return await getSignedUrl(this.s3, command, { expiresIn: ttl });
+      if (!cacheControl) {
+        return await getSignedUrl(this.s3, command, { expiresIn: ttl });
+      }
+      // Link estável: assina com o início da janela atual (múltiplo de
+      // TTL/2), então todas as leituras dentro dela devolvem a MESMA URL e o
+      // navegador usa o cache. Validade = TTL: um link entregue no fim da
+      // janela ainda vale pelo menos TTL/2, e nenhum vale mais que TTL a
+      // partir da assinatura.
+      //
+      // Trade-off: quem pede no começo da janela recebe um link que vale
+      // quase TTL inteiro; quem pede no fim, só TTL/2. E todos os usuários da
+      // janela recebem a mesma URL (dado de paciente: a URL não deve ser
+      // repassada, mas se for, morre em no máximo TTL). Antes a validade era
+      // TTL×2 — uma foto de paciente aberta por até 2 h com um link só.
+      // O `max-age` da pasta (STORAGE_FOLDER_CACHE_CONTROL) fica em TTL/2,
+      // para a cópia no cache do navegador não sobreviver ao link.
+      const janelaMs = (ttl * 1000) / 2;
+      const inicioDaJanela = new Date(
+        Math.floor(Date.now() / janelaMs) * janelaMs,
+      );
+      return await getSignedUrl(this.s3, command, {
+        expiresIn: ttl,
+        signingDate: inicioDaJanela,
+      });
     } catch (error: any) {
       throw new BadRequestException(
         `Erro ao obter URL do arquivo: ${error.message}`,
@@ -112,6 +147,7 @@ export class StorageService {
           Key: filePath,
           Body: buffer,
           ContentType: contentType,
+          CacheControl: this.cacheControl(filePath),
         }),
       );
       return filePath;
@@ -203,6 +239,41 @@ export class StorageService {
     }
   }
 
+  /**
+   * Lista TODOS os objetos sob `folder/` (recursivo), paginando pelo
+   * `ContinuationToken` — o `listFolder` para nos primeiros 1000. Feito para
+   * varreduras (limpeza de órfãos), então, ao contrário do `listFolder`,
+   * **lança** se a listagem falhar: uma lista truncada em silêncio faria a
+   * varredura achar que terminou. `maxPaginas` é só um teto de segurança.
+   */
+  async listAll(
+    folder: string,
+    maxPaginas = 100,
+  ): Promise<Array<{ key: string; lastModified: Date | null }>> {
+    const objetos: Array<{ key: string; lastModified: Date | null }> = [];
+    let token: string | undefined;
+    for (let pagina = 0; pagina < maxPaginas; pagina++) {
+      const resposta = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: `${folder}/`,
+          ContinuationToken: token,
+        }),
+      );
+      for (const obj of resposta?.Contents ?? []) {
+        if (obj.Key) {
+          objetos.push({
+            key: obj.Key,
+            lastModified: obj.LastModified ?? null,
+          });
+        }
+      }
+      if (!resposta?.IsTruncated || !resposta.NextContinuationToken) break;
+      token = resposta.NextContinuationToken;
+    }
+    return objetos;
+  }
+
   async download(filePath: string): Promise<Buffer | null> {
     if (!filePath) return null;
     try {
@@ -231,20 +302,65 @@ export class StorageService {
     }
   }
 
-  async deleteMany(paths: string[]): Promise<void> {
-    if (!paths.length) return;
+  /**
+   * Apaga vários objetos numa chamada só (até 1000 por requisição, limite do
+   * S3). Não lança: devolve as chaves que NÃO foram apagadas — as que o R2
+   * recusou uma a uma (`Errors`) ou todas, se a requisição inteira falhou —
+   * para quem precisa saber (ex.: conversão de fotos) reportar o que sobrou.
+   */
+  async deleteMany(paths: string[]): Promise<string[]> {
+    if (!paths.length) return [];
     try {
-      await this.s3.send(
+      const resposta = await this.s3.send(
         new DeleteObjectsCommand({
           Bucket: this.bucket,
           Delete: {
             Objects: paths.map((Key) => ({ Key })),
+            // Com `Quiet`, o S3 ainda devolve `Errors`; só omite os sucessos.
             Quiet: true,
           },
         }),
       );
+      const falhas = (resposta?.Errors ?? [])
+        .map((e) => e.Key)
+        .filter((k): k is string => !!k);
+      if (falhas.length) {
+        this.logger.warn(
+          `R2 deleteMany: ${falhas.length} de ${paths.length} objetos não foram apagados`,
+        );
+      }
+      return falhas;
     } catch (err: any) {
       this.logger.warn(`R2 deleteMany error: ${err.message}`);
+      return [...paths];
+    }
+  }
+
+  /**
+   * O objeto existe no bucket? `HeadObject` — não baixa o conteúdo.
+   *
+   * Só "não existe" (404 / `NotFound` / `NoSuchKey`) vira `false`. Qualquer
+   * outra falha (rede, credencial, R2 fora) **lança**: quem pergunta costuma
+   * estar prestes a gravar uma referência ao objeto, e responder `true` ou
+   * `false` às cegas gravaria um caminho morto ou recusaria um válido.
+   */
+  async exists(filePath: string): Promise<boolean> {
+    try {
+      await this.s3.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: filePath }),
+      );
+      return true;
+    } catch (error: any) {
+      const status = error?.$metadata?.httpStatusCode;
+      if (
+        status === 404 ||
+        error?.name === 'NotFound' ||
+        error?.name === 'NoSuchKey'
+      ) {
+        return false;
+      }
+      this.logger.warn(`R2 head error: ${error?.message || 'erro'}`);
+      throw error;
     }
   }
 
