@@ -70,6 +70,31 @@ describe('ExportFeegow.arquivo', () => {
     });
   });
 
+  describe('com a própria pasta-base symlinkada', () => {
+    const raiz = realpathSync(mkdtempSync(join(tmpdir(), 'export-base-')));
+    const fora = join(raiz, 'fora');
+    mkdirSync(fora);
+    writeFileSync(join(fora, 'segredo.env'), 'JWT_SECRET=x');
+    const client = join(raiz, 'export', 'Client');
+    mkdirSync(client, { recursive: true });
+    mkdirSync(join(raiz, 'export', 'outra'));
+    writeFileSync(join(raiz, 'export', 'outra', 'laudo.pdf'), '%PDF');
+    // Client/Arquivos -> fora do export; Client/Perfil -> dentro do export.
+    symlinkSync(fora, join(client, 'Arquivos'));
+    symlinkSync(join(raiz, 'export', 'outra'), join(client, 'Perfil'));
+    const exp = new ExportFeegow(join(raiz, 'export'));
+
+    it('base que aponta para fora do export devolve null', () => {
+      expect(exp.arquivo('Arquivos', 'segredo.env')).toBeNull();
+    });
+
+    it('base que aponta para dentro do export resolve', () => {
+      expect(exp.arquivo('Perfil', 'laudo.pdf')).toBe(
+        join(raiz, 'export', 'outra', 'laudo.pdf'),
+      );
+    });
+  });
+
   it('sem pasta (fixture em memória) não há arquivo', () => {
     expect(new ExportFeegow(null).arquivo('Perfil', 'a.png')).toBeNull();
   });
@@ -101,5 +126,40 @@ describe('ExportFeegow.tabela', () => {
     expect(exp.tabela('../../fora')).toEqual([]);
     expect(exp.tabela('_/../../../fora')).toEqual([]);
     expect(exp.tabela('_..\\fora')).toEqual([]);
+  });
+
+  it('CSV symlinkado para fora do export não é lido', () => {
+    const raiz = realpathSync(mkdtempSync(join(tmpdir(), 'export-csv-')));
+    const dir = join(raiz, 'export');
+    mkdirSync(join(dir, PASTA_TABELAS), { recursive: true });
+    writeFileSync(join(raiz, 'segredo.csv'), 'id,nome\n1,Segredo\n');
+    writeFileSync(join(dir, 'interno.csv'), 'id,nome\n2,Bia\n');
+    symlinkSync(
+      join(raiz, 'segredo.csv'),
+      join(dir, PASTA_TABELAS, 'pacientes.csv'),
+    );
+    symlinkSync(
+      join(dir, 'interno.csv'),
+      join(dir, PASTA_TABELAS, 'convenios.csv'),
+    );
+    const exp = new ExportFeegow(dir);
+
+    expect(exp.tabela('pacientes')).toEqual([]);
+    expect(exp.drenarProblemas()).toEqual([
+      expect.objectContaining({ tabela: 'pacientes', linha: 0 }),
+    ]);
+    expect(exp.tabela('convenios')).toEqual([{ id: '2', nome: 'Bia' }]);
+  });
+
+  it('pasta de tabelas symlinkada para fora do export não é lida', () => {
+    const raiz = realpathSync(mkdtempSync(join(tmpdir(), 'export-csvdir-')));
+    const dir = join(raiz, 'export');
+    const fora = join(raiz, 'fora');
+    mkdirSync(fora);
+    writeFileSync(join(fora, 'pacientes.csv'), 'id,nome\n1,Segredo\n');
+    mkdirSync(join(dir, 'database'), { recursive: true });
+    symlinkSync(fora, join(dir, PASTA_TABELAS));
+
+    expect(new ExportFeegow(dir).tabela('pacientes')).toEqual([]);
   });
 });

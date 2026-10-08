@@ -22,6 +22,18 @@ import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
 import { Permission, resolveEffectivePermissions } from '../permissions';
 
 /**
+ * Conta (tenant) a que o usuário pertence: `ownerId`, com `adminId` de
+ * fallback para cadastros antigos e o próprio id para o dono. Única regra —
+ * quem resolve a conta de um usuário já carregado usa esta função, para não
+ * divergir de `getOwnerId`/`assertSameOwner`.
+ */
+export function resolverOwnerIdDoUsuario(
+  user: Pick<User, 'id' | 'ownerId' | 'adminId'>,
+): string {
+  return user.ownerId ?? user.adminId ?? user.id;
+}
+
+/**
  * AccessControlService — centraliza toda a lógica de tenant isolation e
  * controle de acesso baseado em médico.
  *
@@ -236,7 +248,7 @@ export class AccessControlService {
   async getOwnerId(userId: string): Promise<string> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    return user.ownerId ?? user.adminId ?? user.id;
+    return resolverOwnerIdDoUsuario(user);
   }
 
   /**
@@ -246,7 +258,7 @@ export class AccessControlService {
   async assertSameOwner(userId: string, ownerId: string): Promise<void> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
-    const effectiveOwnerId = user.ownerId ?? user.adminId ?? user.id;
+    const effectiveOwnerId = resolverOwnerIdDoUsuario(user);
     if (effectiveOwnerId !== ownerId) {
       throw new ForbiddenException(
         'Acesso negado: recurso pertence a outra clínica.',
@@ -355,24 +367,21 @@ export class AccessControlService {
    * ou dentista (CRO). Não é `assertIsPhysician` porque aquele também decide
    * Solicitações e indicação cirúrgica, que seguem só do CRM.
    *
-   * `exigirRegistro` vale para quem **assina** o documento (o `doctorId` da
-   * ficha): sem número e UF o documento sairia com o registro em branco. Para
-   * quem só clicou em nome de outro, basta o conselho.
+   * O registro completo (número e UF) de quem **assina** é conferido por quem
+   * monta o documento (`ClinicalDocumentGenerationService`), sobre o perfil já
+   * carregado — aqui basta o conselho.
    */
   async assertCanIssueClinicalDocuments(
     userId: string,
-    opcoes: { mensagem?: string; exigirRegistro?: boolean; acao?: string } = {},
+    opcoes: { mensagem?: string } = {},
   ): Promise<void> {
     const {
       mensagem = 'Apenas médicos (CRM) e dentistas (CRO) podem emitir receita, atestado e pedido de exame.',
-      exigirRegistro = false,
-      acao = 'emitir documentos',
     } = opcoes;
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!isClinicalDocumentIssuerProfile(user?.doctorProfile)) {
       throw new ForbiddenException(mensagem);
     }
-    if (exigirRegistro) this.assertRegistroCompleto(user, acao);
   }
 
   private assertRegistroCompleto(

@@ -476,9 +476,7 @@ describe('AccessControlService', () => {
     it.each(['CRM', 'CRO'])('libera %s', async (council) => {
       comPerfil({ council, crm: '1', crmState: 'RJ' });
       await expect(
-        service.assertCanIssueClinicalDocuments('u-1', {
-          exigirRegistro: true,
-        }),
+        service.assertCanIssueClinicalDocuments('u-1'),
       ).resolves.toBeUndefined();
     });
 
@@ -501,19 +499,12 @@ describe('AccessControlService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('registro só é exigido quando pedido, com o conselho na mensagem', async () => {
+    it('não confere o registro (só o conselho): quem assina é conferido na emissão', async () => {
       comPerfil({ council: 'CRO', crm: null, crmState: null });
 
       await expect(
         service.assertCanIssueClinicalDocuments('u-1'),
       ).resolves.toBeUndefined();
-      await expect(
-        service.assertCanIssueClinicalDocuments('u-1', {
-          exigirRegistro: true,
-        }),
-      ).rejects.toThrow(
-        'Preencha o número e a UF do CRO de Bruno Dentista em Colaboradores antes de emitir documentos.',
-      );
     });
   });
 

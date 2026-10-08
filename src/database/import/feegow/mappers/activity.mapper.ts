@@ -73,6 +73,11 @@ export function planejarHistorico(
     );
 
     const atividades = atividadesDoLog(eventos);
+    // Log sem nenhum evento aproveitável não grava linha em
+    // `appointment_activities`: registrar no ledger faria o `--verificar`
+    // acusar a consulta como "faltando". Fica fora do ledger — a próxima
+    // rodada só reprocessa e de novo não gera nada.
+    if (!atividades.length) continue;
     for (const a of atividades) {
       novas.push({ ...a, id: ctx.novoId(), appointmentId });
     }

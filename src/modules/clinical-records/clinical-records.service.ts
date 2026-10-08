@@ -125,7 +125,7 @@ export class ClinicalRecordsService {
       throw new ForbiddenException('Médico não acessível para esta operação.');
     }
     if (data.surgicalIndication) {
-      await this.assertIndicacaoCirurgicaPermitida(doctorId);
+      await this.assertIndicacaoCirurgicaPermitida(doctorId, userId);
     }
 
     if (data.appointmentId) {
@@ -227,7 +227,7 @@ export class ClinicalRecordsService {
     if (data.surgicalIndication !== undefined)
       updateData.surgicalIndication = data.surgicalIndication;
     if (data.surgicalIndication) {
-      await this.assertIndicacaoCirurgicaPermitida(record.doctorId);
+      await this.assertIndicacaoCirurgicaPermitida(record.doctorId, userId);
     }
     if (data.procedureId !== undefined) {
       if (data.procedureId) {
@@ -258,6 +258,11 @@ export class ClinicalRecordsService {
         record.doctorId,
         'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
         'finalizar um atendimento com indicação cirúrgica',
+      );
+      await this.assertQuemAgeEhMedico(
+        record.doctorId,
+        userId,
+        'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
       );
     }
 
@@ -296,15 +301,39 @@ export class ClinicalRecordsService {
    * Indicação cirúrgica abre uma SC em nome do médico da ficha, e SC é de
    * médico (CRM). Ficha de psicóloga, nutricionista ou enfermagem não indica
    * cirurgia — o profissional encaminha ao médico.
+   *
+   * Vale para os dois lados: o médico da ficha (em nome de quem a SC sai) e
+   * quem marca. Um dentista ou nutricionista vinculado a um médico CRM não
+   * indica cirurgia na ficha dele — espelha a tela, que só mostra a marcação
+   * a médico atendendo consulta de médico.
    */
   private async assertIndicacaoCirurgicaPermitida(
     doctorId: string,
+    userId: string,
   ): Promise<void> {
     await this.accessControlService.assertIsPhysicianWithRegistry(
       doctorId,
       'Indicação cirúrgica só pode ser feita por médico (CRM).',
       'indicar cirurgia',
     );
+    await this.assertQuemAgeEhMedico(
+      doctorId,
+      userId,
+      'Indicação cirúrgica só pode ser feita por médico (CRM).',
+    );
+  }
+
+  /**
+   * Quem age precisa ser médico (CRM). Quando é o próprio médico da ficha, a
+   * checagem do `doctorId` já cobriu — não repete a consulta.
+   */
+  private async assertQuemAgeEhMedico(
+    doctorId: string,
+    userId: string,
+    mensagem: string,
+  ): Promise<void> {
+    if (userId === doctorId) return;
+    await this.accessControlService.assertIsPhysician(userId, mensagem);
   }
 
   /**

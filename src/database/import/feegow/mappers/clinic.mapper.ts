@@ -1,5 +1,7 @@
 import { LinhaCsv } from '../../core/csv';
 import {
+  EMAIL_MAX,
+  emailLongoDemais,
   normalizarCep,
   normalizarData,
   normalizarEmail,
@@ -70,7 +72,7 @@ export function planejarClinica(
     ownerId: ctx.ownerId,
     name: nome,
     cnpj: cnpj.length === 14 ? cnpj : null,
-    email: normalizarEmail(unidade.email1) ?? normalizarEmail(unidade.email2),
+    email: emailDaClinica(unidade, idOrigem, ctx),
     phone:
       telefonesDistintos([unidade.tel1, unidade.cel1, unidade.tel2])[0] ?? null,
     zipCode: normalizarCep(unidade.cep),
@@ -82,6 +84,26 @@ export function planejarClinica(
     businessHours: horarioDaClinica(exp.tabela('grade_fixa'), ctx.hoje),
     active: true,
   };
+}
+
+/** 1º e-mail da unidade que cabe em `clinics.email`; o longo demais vira aviso. */
+function emailDaClinica(
+  unidade: LinhaCsv,
+  idOrigem: string,
+  ctx: ContextoImportacao,
+): string | null {
+  for (const bruto of [unidade.email1, unidade.email2]) {
+    if (emailLongoDemais(bruto, EMAIL_MAX.clinica))
+      ctx.relatorio.avisar(
+        'clínica',
+        idOrigem,
+        `e-mail com mais de ${EMAIL_MAX.clinica} caracteres descartado`,
+      );
+  }
+  return (
+    normalizarEmail(unidade.email1, EMAIL_MAX.clinica) ??
+    normalizarEmail(unidade.email2, EMAIL_MAX.clinica)
+  );
 }
 
 const paraMinutos = (h: string) => {

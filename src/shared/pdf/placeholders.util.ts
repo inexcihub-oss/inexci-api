@@ -27,7 +27,20 @@ const PADRAO = /\{\{\s*([a-zA-Z.]+)\s*\}\}/g;
  * vez ("pelo período de {{dias}} dias") e serve para qualquer afastamento —
  * com 1 dia, sairia "1 dias".
  */
-const DIAS_COM_PALAVRA = /\{\{\s*dias\s*\}\}(\s+)dia(?:s|\(s\))?(?!\p{L})/giu;
+const DIAS_COM_PALAVRA = /\{\{\s*dias\s*\}\}(\s+)(dia(?:s|\(s\))?)(?!\p{L})/giu;
+
+/**
+ * "dia"/"dias" na caixa que o modelo usou: "{{dias}} Dias" segue "Dias",
+ * "{{dias}} DIAS" segue "DIAS".
+ */
+function palavraDia(original: string, plural: boolean): string {
+  const palavra = plural ? 'dias' : 'dia';
+  if (original === original.toUpperCase()) return palavra.toUpperCase();
+  if (original[0] === original[0].toUpperCase()) {
+    return palavra[0].toUpperCase() + palavra.slice(1);
+  }
+  return palavra;
+}
 
 /**
  * Troca `{{chave}}` pelo valor. Chave conhecida sem valor vira texto vazio (o
@@ -58,8 +71,8 @@ export function aplicarPlaceholders(
       ? texto
       : texto.replace(
           DIAS_COM_PALAVRA,
-          (_inteiro, espaco: string) =>
-            `${dias}${espaco}${n === 1 ? 'dia' : 'dias'}`,
+          (_inteiro, espaco: string, palavra: string) =>
+            `${dias}${espaco}${palavraDia(palavra, n !== 1)}`,
         );
 
   return concordado.replace(PADRAO, (inteiro, chave: string) => {

@@ -293,11 +293,124 @@ export const CONSULTAS_SOBREPOSTAS: VerificacaoPreMigration = {
     })),
 };
 
+/**
+ * A mesma `AddAppointmentsNoOverlapConstraint` roda `CREATE EXTENSION IF NOT
+ * EXISTS btree_gist`. Não é dado, é ambiente — mas o efeito no deploy é o
+ * mesmo de um conflito de dado: banco sem o contrib, ou usuário da aplicação
+ * sem permissão para criar a extensão, derruba a migration com um erro cru
+ * (`could not open extension control file`, `permission denied to create
+ * extension`) e a API fica fora do ar. Esta verificação adianta o problema
+ * para o pré-flight e para o início da própria migration.
+ *
+ * Só reclama se a extensão ainda não existe no banco: já instalada, o `IF NOT
+ * EXISTS` não faz nada e qualquer usuário passa. Ausente, ela precisa estar
+ * disponível no servidor (`pg_available_extensions`) e o usuário precisa poder
+ * criá-la: superusuário, ou extensão "trusted" (PG 13+) com privilégio de
+ * criação no banco. Read-only — só consulta catálogo.
+ */
+export const EXTENSAO_BTREE_GIST: VerificacaoPreMigration = {
+  migration: 'AddAppointmentsNoOverlapConstraint1755800900000',
+  descricao:
+    'extensão btree_gist ausente e impossível de criar com o usuário atual',
+  sql: `SELECT x.motivo AS chave, 'btree_gist' AS ids
+          FROM (
+            SELECT CASE
+                     WHEN NOT EXISTS (
+                       SELECT 1 FROM pg_available_extensions e
+                        WHERE e.name = 'btree_gist'
+                     )
+                       THEN 'btree_gist não está disponível no servidor (pacote contrib ausente)'
+                     WHEN NOT (
+                       COALESCE((SELECT r.rolsuper FROM pg_roles r
+                                  WHERE r.rolname = current_user), false)
+                       OR (
+                         has_database_privilege(current_database(), 'create')
+                         AND EXISTS (
+                           SELECT 1 FROM pg_available_extension_versions v
+                            WHERE v.name = 'btree_gist'
+                              AND (v.trusted OR NOT v.superuser)
+                         )
+                       )
+                     )
+                       THEN 'o usuário ' || current_user || ' não tem permissão para criar a extensão btree_gist neste banco'
+                   END AS motivo
+             WHERE NOT EXISTS (
+               SELECT 1 FROM pg_extension x2 WHERE x2.extname = 'btree_gist'
+             )
+          ) x
+         WHERE x.motivo IS NOT NULL`,
+  comoResolver:
+    "Peça a um superusuário do Postgres para rodar `CREATE EXTENSION IF NOT EXISTS btree_gist;` neste banco (ou instale o pacote contrib, se ela não estiver disponível) antes de repetir o deploy. Conferir com: SELECT * FROM pg_extension WHERE extname = 'btree_gist';",
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: String(linha.chave ?? ''),
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
+/**
+ * `AddUniqueClinicRoomName` cria o índice único que fecha a corrida do
+ * `assertNomeLivre` (`ClinicRoomsService`): mesmo nome, ignorando caixa e
+ * espaços nas pontas, entre as salas não excluídas da mesma clínica. Sala
+ * repetida gravada antes (corrida ou importação) derrubaria o índice sem dizer
+ * qual. Mesmo predicado do índice.
+ */
+export const SALAS_COM_NOME_REPETIDO: VerificacaoPreMigration = {
+  migration: 'AddUniqueClinicRoomName1755801000000',
+  descricao:
+    'salas da mesma clínica com o mesmo nome (sem diferenciar maiúsculas) em "clinic_rooms"',
+  sql: `SELECT 'clínica ' || r."clinic_id"::text || ': ' || lower(btrim(r."name")) AS chave,
+               string_agg(r."id"::text, ', ' ORDER BY r."created_at") AS ids
+          FROM "clinic_rooms" r
+         WHERE r."deleted_at" IS NULL
+         GROUP BY r."clinic_id", lower(btrim(r."name"))
+        HAVING count(*) > 1
+         ORDER BY 1`,
+  comoResolver:
+    'Renomeie ou exclua as salas repetidas de cada clínica antes de repetir o deploy. Inspecione com: SELECT id, clinic_id, name, active FROM clinic_rooms WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: String(linha.chave ?? ''),
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
+/**
+ * `AddUniquePatientPhotoPath` cria um índice único parcial em
+ * `patients.photo_path`: um objeto de foto no R2 pertence a um paciente só
+ * (trocar a foto de um apaga o objeto, e o outro ficaria sem foto). Dado
+ * legado com o mesmo caminho em dois pacientes — gravado na corrida do
+ * `fotoEmUso`, que era check-then-write — derrubaria o `CREATE UNIQUE INDEX`.
+ * Conta também os excluídos (soft delete), como o índice.
+ */
+export const FOTO_DE_PACIENTE_REPETIDA: VerificacaoPreMigration = {
+  migration: 'AddUniquePatientPhotoPath1755801100000',
+  descricao: 'mesma foto (photo_path) em mais de um paciente em "patients"',
+  sql: `SELECT p."photo_path" AS photo_path,
+               string_agg(p."id"::text, ', ' ORDER BY p."created_at") AS ids
+          FROM "patients" p
+         WHERE p."photo_path" IS NOT NULL
+         GROUP BY p."photo_path"
+        HAVING count(*) > 1
+         ORDER BY p."photo_path"`,
+  comoResolver:
+    'Para cada caminho, mantenha a foto em um paciente e limpe o photo_path dos outros (UPDATE patients SET photo_path = NULL WHERE id IN (...)) antes de repetir o deploy. Inspecione com: SELECT id, owner_id, name, deleted_at FROM patients WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      // O caminho embute só ownerId + uuid + nome do arquivo: sem PII direta.
+      chave: String(linha.photo_path ?? ''),
+      ids: String(linha.ids ?? ''),
+    })),
+};
+
 export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   TELEFONE_DUPLICADO,
   ORFAOS_ANTES_DA_CASCATA,
   OUTRO_NAO_UNIFICADO,
   CONSULTAS_SOBREPOSTAS,
+  EXTENSAO_BTREE_GIST,
+  SALAS_COM_NOME_REPETIDO,
+  FOTO_DE_PACIENTE_REPETIDA,
 ];
 
 /** Mensagem única, usada tanto no erro da migration quanto no pré-flight. */

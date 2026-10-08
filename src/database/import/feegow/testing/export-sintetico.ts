@@ -148,6 +148,7 @@ export function contextoDeTeste(
     usuariosPorEmail: new Map(),
     telefonesEmUso: new Set(),
     conveniosExistentes: new Map(),
+    consultasComFicha: new Set(),
     mapear: new Map(),
     opcoes: {
       somenteComAtividade: false,

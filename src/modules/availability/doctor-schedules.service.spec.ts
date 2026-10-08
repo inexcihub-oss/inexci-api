@@ -106,6 +106,22 @@ describe('DoctorSchedulesService (MIG-05)', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
+  it('resolve a conta do profissional pela mesma regra do AccessControlService (ownerId ?? adminId ?? id)', async () => {
+    // Cadastro antigo: conta só no `adminId`. Antes, `ownerId ?? id` dava o
+    // próprio id e o admin da conta era barrado como "outra conta".
+    users.findOneWithProfile.mockResolvedValue({
+      id: 'doc-legado',
+      ownerId: null,
+      adminId: OWNER,
+      doctorProfile: { id: 'p' },
+    });
+    await expect(
+      service.create({ ...base, doctorId: 'doc-legado' }, 'admin', [
+        Permission.ADMINISTRACAO,
+      ]),
+    ).resolves.toMatchObject({ doctorId: 'doc-legado', ownerId: OWNER });
+  });
+
   it('valida horário, intervalo e vigência', async () => {
     await expect(
       service.create({ ...base, endTime: '08:00' }, 'doc-1', []),

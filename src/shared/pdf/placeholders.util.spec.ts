@@ -82,7 +82,12 @@ describe('aplicarPlaceholders — concordância de {{dias}}', () => {
     ['período de {{dias}} dias.', 3, 'período de 3 dias.'],
     ['período de {{dias}} dia.', 2, 'período de 2 dias.'],
     ['período de {{dias}} dia(s).', 1, 'período de 1 dia.'],
-    ['período de {{ dias }} DIAS', 1, 'período de 1 dia'],
+    // A caixa da palavra do modelo é preservada.
+    ['período de {{ dias }} DIAS', 1, 'período de 1 DIA'],
+    ['período de {{dias}} DIA', 3, 'período de 3 DIAS'],
+    ['{{dias}} Dias de repouso', 3, '3 Dias de repouso'],
+    ['{{dias}} Dias de repouso', 1, '1 Dia de repouso'],
+    ['{{dias}} Dia(s)', 2, '2 Dias'],
     ['afastamento de {{dias}} dias úteis', 1, 'afastamento de 1 dia úteis'],
   ])('%s com %d → %s', (modelo, dias, esperado) => {
     expect(aplicarPlaceholders(modelo, { dias })).toBe(esperado);

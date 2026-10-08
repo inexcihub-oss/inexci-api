@@ -17,6 +17,15 @@ import { MailService } from 'src/shared/mail/mail.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
+import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
+
+/**
+ * Índice único parcial em `patients.photo_path` (migration
+ * `AddUniquePatientPhotoPath1755801100000`). Fecha a corrida do `fotoEmUso`,
+ * que é check-then-write: duas gravações simultâneas com o mesmo caminho
+ * passariam as duas pela checagem.
+ */
+export const UQ_PATIENTS_PHOTO_PATH = 'UQ_patients_photo_path';
 
 /** Paciente como sai nas respostas HTTP: com a URL assinada da foto. */
 export type PatientWithPhoto = Patient & { photoUrl: string | null };
@@ -150,30 +159,32 @@ export class PatientsService {
     const doctorId = ownerId;
     const photoPath = await this.validarFoto(data.photoPath, ownerId);
 
-    const patient = await this.patientRepository.create({
-      doctorId,
-      ownerId,
-      name: data.name,
-      phone: data.phone?.trim() || null,
-      secondaryPhone: textoOuNulo(data.secondaryPhone),
-      cpf: textoOuNulo(data.cpf),
-      photoPath,
-      gender: data.gender,
-      birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
-      healthPlanId: data.healthPlanId,
-      healthPlanNumber: data.healthPlanNumber,
-      healthPlanType: data.healthPlanType,
-      email: data.email?.trim() || null,
-      zipCode: data.zipCode,
-      address: data.address,
-      addressNumber: data.addressNumber,
-      addressComplement: data.addressComplement,
-      neighborhood: data.neighborhood,
-      city: data.city,
-      state: data.state,
-      medicalNotes: data.medicalNotes,
-      active: true,
-    });
+    const patient = await this.traduzirFotoDuplicada(() =>
+      this.patientRepository.create({
+        doctorId,
+        ownerId,
+        name: data.name,
+        phone: data.phone?.trim() || null,
+        secondaryPhone: textoOuNulo(data.secondaryPhone),
+        cpf: textoOuNulo(data.cpf),
+        photoPath,
+        gender: data.gender,
+        birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
+        healthPlanId: data.healthPlanId,
+        healthPlanNumber: data.healthPlanNumber,
+        healthPlanType: data.healthPlanType,
+        email: data.email?.trim() || null,
+        zipCode: data.zipCode,
+        address: data.address,
+        addressNumber: data.addressNumber,
+        addressComplement: data.addressComplement,
+        neighborhood: data.neighborhood,
+        city: data.city,
+        state: data.state,
+        medicalNotes: data.medicalNotes,
+        active: true,
+      }),
+    );
 
     if (patient.phone) {
       void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
@@ -241,7 +252,9 @@ export class PatientsService {
     // Troca de foto: a antiga a apagar é a que o UPDATE de fato substituiu,
     // não a lida lá em cima (o script de conversão pode tê-la trocado no
     // meio — apagar a lida deixaria a WebP dele órfã no bucket).
-    const substituida = await this.gravarTrocandoFoto(id, updateData);
+    const substituida = await this.traduzirFotoDuplicada(() =>
+      this.gravarTrocandoFoto(id, updateData),
+    );
     if (substituida) await this.apagarFotoAntiga(substituida);
 
     return (await this.patientRepository.findOne({ id }))!;
@@ -306,6 +319,15 @@ export class PatientsService {
     const caminho = textoOuNulo(photoPath);
     if (!caminho) return null;
 
+    this.assertFotoDaConta(caminho, ownerId);
+    if (await this.fotoEmUso(caminho, patientId)) {
+      throw new BadRequestException('Foto do paciente inválida.');
+    }
+    return caminho;
+  }
+
+  /** Caminho direto em `patient-photos/<ownerId>/`, sem subpasta nem `..`. */
+  private assertFotoDaConta(caminho: string, ownerId: string): void {
     const prefixo = `${STORAGE_FOLDERS.PATIENT_PHOTOS}/${ownerId}/`;
     const nome = caminho.slice(prefixo.length);
     if (
@@ -316,10 +338,50 @@ export class PatientsService {
     ) {
       throw new BadRequestException('Foto do paciente inválida.');
     }
-    if (await this.fotoEmUso(caminho, patientId)) {
-      throw new BadRequestException('Foto do paciente inválida.');
+  }
+
+  /**
+   * Descarta uma foto que o front enviou mas não chegou a usar: o `PATCH` da
+   * troca falhou, ou o cadastro do paciente falhou e o modal foi fechado. Sem
+   * isso, o objeto (dado de saúde) ficava no bucket até a varredura diária
+   * (`FotosPacienteOrfasService`).
+   *
+   * Não é um "apagar arquivo" genérico: só aceita caminho na pasta de fotos
+   * DA CONTA de quem chama, e não faz nada se algum paciente (inclusive
+   * excluído) referencia o caminho — então não serve para apagar a foto de um
+   * paciente existente, nem a de outro tenant. Idempotente e silencioso: o
+   * front chama em best-effort e não tem o que fazer com um erro.
+   */
+  async descartarFotoNaoUsada(
+    photoPath: string,
+    userId: string,
+  ): Promise<void> {
+    const caminho = textoOuNulo(photoPath);
+    if (!caminho) throw new BadRequestException('Foto do paciente inválida.');
+    const ownerId = await this.accessControlService.getOwnerId(userId);
+    this.assertFotoDaConta(caminho, ownerId);
+    if (await this.fotoEmUso(caminho)) return;
+    try {
+      await this.storageService.delete(caminho);
+    } catch {
+      this.logger.warn('Falha ao descartar foto de paciente não usada');
     }
-    return caminho;
+  }
+
+  /**
+   * O índice único de `photo_path` recusou a gravação: outra requisição
+   * gravou o mesmo caminho entre o `fotoEmUso` e o INSERT/UPDATE. Mesma
+   * resposta do `validarFoto` — para o cliente é o mesmo caso.
+   */
+  private async traduzirFotoDuplicada<T>(gravar: () => Promise<T>): Promise<T> {
+    try {
+      return await gravar();
+    } catch (erro) {
+      if (violacaoDeUnicidade(erro)?.constraint === UQ_PATIENTS_PHOTO_PATH) {
+        throw new BadRequestException('Foto do paciente inválida.');
+      }
+      throw erro;
+    }
   }
 
   /**

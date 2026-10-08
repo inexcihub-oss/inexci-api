@@ -135,6 +135,14 @@ describe('planejarHistorico (export sintético)', () => {
     expect(ctx.relatorio.rejeicoes.some((r) => r.idOrigem === '2')).toBe(true);
   });
 
+  it('log sem evento aproveitável não entra no ledger (o --verificar não acusa falta)', () => {
+    const { ctx, plano } = planejar([
+      log('1', 'a1', 'X', '1', '2025-01-03 08:15:00', '. Agendamento excluído'),
+    ]);
+    expect(plano.atividades).toHaveLength(0);
+    expect(ctx.ledger.resolver(LEDGER_HISTORICO, 'a1')).toBeNull();
+  });
+
   it('segunda rodada no mesmo ledger não duplica', () => {
     const logs = [log('1', 'a1', 'A', '1', '2025-01-02 08:15:00')];
     const primeira = planejar(logs);

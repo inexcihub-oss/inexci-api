@@ -238,6 +238,41 @@ export class StorageService {
     }
   }
 
+  /**
+   * Lista TODOS os objetos sob `folder/` (recursivo), paginando pelo
+   * `ContinuationToken` — o `listFolder` para nos primeiros 1000. Feito para
+   * varreduras (limpeza de órfãos), então, ao contrário do `listFolder`,
+   * **lança** se a listagem falhar: uma lista truncada em silêncio faria a
+   * varredura achar que terminou. `maxPaginas` é só um teto de segurança.
+   */
+  async listAll(
+    folder: string,
+    maxPaginas = 100,
+  ): Promise<Array<{ key: string; lastModified: Date | null }>> {
+    const objetos: Array<{ key: string; lastModified: Date | null }> = [];
+    let token: string | undefined;
+    for (let pagina = 0; pagina < maxPaginas; pagina++) {
+      const resposta = await this.s3.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: `${folder}/`,
+          ContinuationToken: token,
+        }),
+      );
+      for (const obj of resposta?.Contents ?? []) {
+        if (obj.Key) {
+          objetos.push({
+            key: obj.Key,
+            lastModified: obj.LastModified ?? null,
+          });
+        }
+      }
+      if (!resposta?.IsTruncated || !resposta.NextContinuationToken) break;
+      token = resposta.NextContinuationToken;
+    }
+    return objetos;
+  }
+
   async download(filePath: string): Promise<Buffer | null> {
     if (!filePath) return null;
     try {

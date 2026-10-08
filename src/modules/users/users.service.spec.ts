@@ -2965,6 +2965,133 @@ describe('UsersService — Colaboradores e Permissões', () => {
         expect(mockEventEmitter.emit).toHaveBeenCalled();
       });
 
+      describe('admin delegado que também é profissional', () => {
+        const delegadoNutri = {
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          ownerId: 'dono-1',
+          phone: '11999990001',
+          permissions: [Permission.ADMINISTRACAO],
+          doctorProfile: {
+            id: 'dp-d',
+            council: ProfessionalCouncil.CRN,
+            crm: '55',
+            crmState: 'RJ',
+          },
+        };
+
+        it('não se promove a médico (CRM) pela rota de perfil profissional', async () => {
+          mockUserRepository.findOneWithProfile
+            .mockResolvedValueOnce(delegadoNutri)
+            .mockResolvedValueOnce(delegadoNutri);
+
+          await expect(
+            service.updateDoctorProfileById(
+              'delegado-1',
+              { council: ProfessionalCouncil.CRM, crm: '999', crmState: 'RJ' },
+              'delegado-1',
+            ),
+          ).rejects.toThrow(ForbiddenException);
+          expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+        });
+
+        it('ainda edita o próprio número, UF e especialidade', async () => {
+          mockUserRepository.findOneWithProfile
+            .mockResolvedValueOnce(delegadoNutri)
+            .mockResolvedValueOnce(delegadoNutri)
+            .mockResolvedValueOnce(delegadoNutri);
+
+          await service.updateDoctorProfileById(
+            'delegado-1',
+            {
+              council: ProfessionalCouncil.CRN,
+              crm: '77',
+              crmState: 'SP',
+              specialty: 'Nutrição clínica',
+            },
+            'delegado-1',
+          );
+
+          expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+            'dp-d',
+            expect.objectContaining({ crm: '77', crmState: 'SP' }),
+          );
+        });
+
+        it('outro admin (o dono) troca o conselho dele', async () => {
+          mockUserRepository.findOneWithProfile
+            .mockResolvedValueOnce(adminUser)
+            .mockResolvedValueOnce(delegadoNutri)
+            .mockResolvedValueOnce(delegadoNutri);
+
+          await service.updateDoctorProfileById(
+            'delegado-1',
+            { council: ProfessionalCouncil.CRM, crm: '999', crmState: 'RJ' },
+            'dono-1',
+          );
+
+          expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+            'dp-d',
+            expect.objectContaining({ council: ProfessionalCouncil.CRM }),
+          );
+        });
+
+        it.each([
+          ['trocar o próprio conselho', { council: ProfessionalCouncil.CRM }],
+          ['deixar de ser profissional', { isDoctor: false }],
+        ])(
+          'não consegue %s por PATCH /users/collaborators/<id dele>',
+          async (_caso, dto) => {
+            mockUserRepository.findOneWithProfile
+              .mockResolvedValueOnce(delegadoNutri)
+              .mockResolvedValueOnce(delegadoNutri);
+
+            await expect(
+              service.updateCollaborator('delegado-1', dto, 'delegado-1'),
+            ).rejects.toThrow(ForbiddenException);
+            expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+            expect(mockDoctorProfileRepository.delete).not.toHaveBeenCalled();
+          },
+        );
+
+        it('admin delegado sem perfil não vira médico pelo PATCH /users/collaborators/<id dele>', async () => {
+          const delegado = { ...delegadoNutri, doctorProfile: null };
+          mockUserRepository.findOneWithProfile
+            .mockResolvedValueOnce(delegado)
+            .mockResolvedValueOnce(delegado);
+
+          await expect(
+            service.updateCollaborator(
+              'delegado-1',
+              {
+                isDoctor: true,
+                council: ProfessionalCouncil.CRM,
+                crm: '999',
+                crmState: 'RJ',
+              },
+              'delegado-1',
+            ),
+          ).rejects.toThrow(ForbiddenException);
+          expect(mockDoctorProfileRepository.create).not.toHaveBeenCalled();
+        });
+
+        it('ainda edita outros dados próprios pelo PATCH /users/collaborators/<id dele>', async () => {
+          mockUserRepository.findOneWithProfile
+            .mockResolvedValueOnce(delegadoNutri)
+            .mockResolvedValueOnce(delegadoNutri);
+          mockUserRepository.findOne.mockResolvedValue(null);
+          mockUserRepository.update.mockResolvedValue({ id: 'delegado-1' });
+
+          await service.updateCollaborator(
+            'delegado-1',
+            { name: 'Novo nome', isDoctor: true },
+            'delegado-1',
+          );
+
+          expect(mockUserRepository.update).toHaveBeenCalled();
+        });
+      });
+
       it('médico antigo com número vazio ainda troca só a especialidade', async () => {
         const legado = {
           id: 'dr-1',

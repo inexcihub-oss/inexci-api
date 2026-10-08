@@ -86,6 +86,15 @@ const mencionaDias = (texto: string, dias: number): boolean =>
   );
 
 /**
+ * Atestado de comparecimento: declara a presença, não afastamento. O
+ * formulário começa com 1 dia de afastamento e, sem esta exceção, o
+ * comparecimento saía com "Afastamento de 1 dia." embaixo. Se o próprio
+ * texto fala em afastamento, vale a regra de sempre.
+ */
+const ehComparecimentoSemAfastamento = (texto: string): boolean =>
+  /comparec/i.test(texto) && !/afast/i.test(texto);
+
+/**
  * Linha de afastamento para o atestado com texto livre/modelo. A declaração
  * padrão imprime dias e início; o texto a substitui e, sem esta linha, o que o
  * médico preencheu no formulário sumia do PDF. Só entra o que o texto ainda
@@ -98,6 +107,7 @@ export function montarNotaDeAfastamento(
   startDate: string | undefined,
 ): string | undefined {
   if (!restDays || !restDaysLabel) return undefined;
+  if (ehComparecimentoSemAfastamento(texto)) return undefined;
   const faltaDias = !mencionaDias(texto, restDays);
   const faltaInicio = !!startDate && !texto.includes(startDate);
 
@@ -297,19 +307,17 @@ export class ClinicalDocumentGenerationService {
       doctorId,
     );
     if (!data.refresh) await this.documentTemplatesService.incrementUsage(id);
-    // `{{dias}}`/`{{inicio}}` ainda sem valor ficam literais: o médico pode
-    // aplicar o modelo antes de escolher o afastamento, e a emissão os preenche
-    // com o valor final (ver `buildMedicalCertificate`).
+    // `{{dias}}`/`{{inicio}}` ficam sempre literais no texto aplicado: quem os
+    // preenche é a prévia/emissão, com o afastamento escolhido naquela hora.
+    // Antes o apply gravava "1 dia" no texto; o médico editava o texto, mudava
+    // os dias para 3 e o PDF saía com "1 dia" no texto e "3 dias" na nota.
+    // `restDays`/`startDate` do DTO são ignorados (ver o DTO).
     return {
       id: template.id,
       kind: template.kind,
       body: this.textoPronto(
         template.body,
-        this.placeholderValues(
-          base,
-          data.restDays,
-          data.startDate ? formatDateBR(data.startDate) : undefined,
-        ),
+        this.placeholderValues(base),
         base,
         PREENCHIDOS_NA_EMISSAO,
       ),

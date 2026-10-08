@@ -117,7 +117,7 @@ export function planejarModelosDeDocumento(
           chave,
           `texto cortado em ${CORPO_MAX} caracteres`,
         );
-        body = body.slice(0, CORPO_MAX);
+        body = cortarSemPartirMarcador(body, CORPO_MAX);
       }
       const id = ctx.novoId();
       novos.push({
@@ -133,4 +133,18 @@ export function planejarModelosDeDocumento(
     }
   }
   return novos;
+}
+
+/**
+ * Corta `texto` em `max` caracteres sem partir um marcador: se o corte cair
+ * dentro de um `{{...}}`, recua até antes do `{{` aberto — senão o modelo
+ * guardaria `{{paciente.no`, que nem é substituído nem some do documento.
+ */
+export function cortarSemPartirMarcador(texto: string, max: number): string {
+  const cortado = texto.slice(0, max);
+  const aberto = cortado.lastIndexOf('{{');
+  if (aberto >= 0 && cortado.indexOf('}}', aberto) < 0) {
+    return cortado.slice(0, aberto);
+  }
+  return cortado;
 }

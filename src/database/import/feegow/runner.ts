@@ -242,7 +242,11 @@ export async function contextoDoBanco(
   ownerEmail: string,
   base: Omit<
     ContextoImportacao,
-    'ownerId' | 'usuariosPorEmail' | 'telefonesEmUso' | 'conveniosExistentes'
+    | 'ownerId'
+    | 'usuariosPorEmail'
+    | 'telefonesEmUso'
+    | 'conveniosExistentes'
+    | 'consultasComFicha'
   >,
 ): Promise<ContextoImportacao> {
   const [dono] = await ds.query(
@@ -260,9 +264,13 @@ export async function contextoDoBanco(
     email: string;
     owner_id: string;
     tem_perfil: boolean;
+    excluido: boolean;
   }[] = await ds.query(
+    // Excluídos também vêm (marcados): o e-mail deles pode ainda ocupar
+    // `uq_users_email`, e a equipe precisa saber para não casar nem recriar.
     `SELECT u.id, lower(u.email) AS email, u.owner_id,
-              (dp.id IS NOT NULL) AS tem_perfil
+              (dp.id IS NOT NULL) AS tem_perfil,
+              (u.deleted_at IS NOT NULL) AS excluido
          FROM users u
          LEFT JOIN doctor_profiles dp ON dp.user_id = u.id`,
   );
@@ -271,6 +279,11 @@ export async function contextoDoBanco(
   );
   const convenios: { id: string; name: string }[] = await ds.query(
     `SELECT id, name FROM health_plans WHERE owner_id = $1 AND deleted_at IS NULL`,
+    [dono.id],
+  );
+  const fichas: { appointment_id: string }[] = await ds.query(
+    `SELECT appointment_id FROM clinical_records
+      WHERE owner_id = $1 AND appointment_id IS NOT NULL AND deleted_at IS NULL`,
     [dono.id],
   );
 
@@ -285,6 +298,7 @@ export async function contextoDoBanco(
           email: u.email,
           ownerId: u.owner_id,
           temPerfil: u.tem_perfil,
+          excluido: u.excluido,
         },
       ]),
     ),
@@ -292,6 +306,7 @@ export async function contextoDoBanco(
     conveniosExistentes: new Map(
       convenios.map((c) => [chaveDeNome(c.name), c.id]),
     ),
+    consultasComFicha: new Set(fichas.map((f) => f.appointment_id)),
   };
 }
 
@@ -299,7 +314,11 @@ export async function contextoDoBanco(
 export function contextoSemBanco(
   base: Omit<
     ContextoImportacao,
-    'ownerId' | 'usuariosPorEmail' | 'telefonesEmUso' | 'conveniosExistentes'
+    | 'ownerId'
+    | 'usuariosPorEmail'
+    | 'telefonesEmUso'
+    | 'conveniosExistentes'
+    | 'consultasComFicha'
   >,
 ): ContextoImportacao {
   return {
@@ -308,6 +327,7 @@ export function contextoSemBanco(
     usuariosPorEmail: new Map(),
     telefonesEmUso: new Set(),
     conveniosExistentes: new Map(),
+    consultasComFicha: new Set(),
   };
 }
 

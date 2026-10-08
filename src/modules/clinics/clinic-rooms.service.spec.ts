@@ -6,6 +6,7 @@ import { UpdateClinicRoomDto } from './dto/clinic-room.dto';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { UQ_CLINIC_ROOMS_CLINIC_NAME } from 'src/database/typeorm/migrations/1755801000000-AddUniqueClinicRoomName';
 
 describe('ClinicRoomsService', () => {
   const clinicRepository = { findOne: jest.fn() };
@@ -74,6 +75,38 @@ describe('ClinicRoomsService', () => {
     await expect(
       service.create('c1', { name: 'consultório 01' }, 'u'),
     ).rejects.toThrow(ConflictException);
+  });
+
+  /**
+   * Corrida: os dois cadastros passam pelo pré-check e o índice barra o
+   * segundo. Tem que sair 409 amigável, não 500.
+   */
+  it('traduz a violação do índice único (23505) em 409', async () => {
+    const violacao = Object.assign(new Error('duplicate key'), {
+      driverError: { code: '23505', constraint: UQ_CLINIC_ROOMS_CLINIC_NAME },
+    });
+    roomRepository.create.mockRejectedValueOnce(violacao);
+    await expect(
+      service.create('c1', { name: 'Consultório 09' }, 'u'),
+    ).rejects.toThrow(
+      new ConflictException('Já existe uma sala chamada "Consultório 09".'),
+    );
+
+    roomRepository.update.mockRejectedValueOnce(violacao);
+    await expect(
+      service.update('c1', 'r1', { name: 'Consultório 09' }, 'u'),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('outra violação de unicidade não vira 409 de nome', async () => {
+    const outra = Object.assign(new Error('duplicate key'), {
+      code: '23505',
+      constraint: 'PK_clinic_rooms',
+    });
+    roomRepository.create.mockRejectedValueOnce(outra);
+    await expect(
+      service.create('c1', { name: 'Consultório 09' }, 'u'),
+    ).rejects.toBe(outra);
   });
 
   it('renomear para o próprio nome não conflita', async () => {

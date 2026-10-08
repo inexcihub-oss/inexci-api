@@ -77,6 +77,45 @@ describe('planejarAgenda (export sintético)', () => {
     expect(ctx.ledger.resolver(LEDGER_CONSULTA, 'a1')).toBe(c.id);
   });
 
+  it('guarda nas notas o procedimento marcado no Feegow', () => {
+    const { plano } = planejar(
+      [
+        ag('10', '4', '2025-01-10', '0', {
+          id: 'a1',
+          procedimento_id: '13',
+          canal_id: '-1',
+          Notas: 'trazer exames',
+        }),
+        ag('10', '4', '2025-01-11', '0', { id: 'a2', procedimento_id: '21' }),
+        ag('10', '4', '2025-01-12', '0', { id: 'a3', procedimento_id: '31' }),
+      ],
+      {
+        procedimentos: [
+          { id: '13', nome_procedimento: 'Consulta - Dor' },
+          { id: '21', nome_procedimento: "' 2 SERVIÇOS AGENDADOS '" },
+          { id: '31', nome_procedimento: 'S' },
+        ],
+      },
+    );
+
+    expect(plano.consultas.map((c) => c.notes)).toEqual([
+      '[Doctoralia] trazer exames\nProcedimento no Feegow: Consulta - Dor',
+      'Procedimento no Feegow: 2 SERVIÇOS AGENDADOS',
+      null,
+    ]);
+  });
+
+  it('paciente excluído no Feegow com consulta entra inativo e leva a consulta', () => {
+    const { ctx, plano } = planejar([
+      ag('12', '4', '2025-01-10', '0', { id: 'a1' }),
+    ]);
+
+    expect(plano.consultas).toHaveLength(1);
+    expect(ctx.ledger.resolver(LEDGER_CONSULTA, 'a1')).toBe(
+      plano.consultas[0].id,
+    );
+  });
+
   it('convênio que é tipo de consulta vira particular', () => {
     const { plano } = planejar([ag('11', '9', '2025-01-10', '5')]);
 
@@ -203,10 +242,10 @@ describe('planejarAgenda (export sintético)', () => {
     ]);
   });
 
-  it('rejeita reserva sem paciente, paciente excluído e status desconhecido', () => {
+  it('rejeita reserva sem paciente, paciente fora do export e status desconhecido', () => {
     const { ctx, plano } = planejar([
       ag(null, '1', '2025-01-10', '0'),
-      ag('12', '1', '2025-01-11', '0'),
+      ag('98', '1', '2025-01-11', '0'),
       ag('10', '1', '2025-01-12', '0', { status_id: '999' }),
       ag('10', '1', '2025-01-13', '0', { sys_active: '-1' }),
     ]);
@@ -341,6 +380,81 @@ describe('gravarAgenda', () => {
         aviso: expect.stringContaining('entrou como encaixe'),
       }),
     );
+  });
+
+  it('importada que começa antes e invade consulta já cadastrada também entra como encaixe', async () => {
+    const { plano } = planejar([
+      ag('10', '1', '2025-01-10', '0', { id: 'a1', status_id: '1' }),
+    ]);
+    const [importada] = plano.consultas;
+    const insert = {
+      insert: () => insert,
+      into: () => insert,
+      values: () => insert,
+      orIgnore: () => insert,
+      execute: async () => undefined,
+    };
+    const manager = {
+      createQueryBuilder: () => insert,
+      getRepository: () => ({
+        createQueryBuilder: () =>
+          consultaQb([
+            {
+              doctorId: importada.doctorId,
+              // A existente começa DEPOIS da importada, mas dentro dela.
+              scheduledAt: new Date(
+                importada.scheduledAt.getTime() +
+                  (importada.durationMinutes - 5) * 60_000,
+              ),
+              durationMinutes: 30,
+            },
+          ]),
+      }),
+    } as unknown as EntityManager;
+
+    await gravarAgenda(plano, manager);
+
+    expect(importada.isWalkIn).toBe(true);
+    expect(plano.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        idOrigem: 'a1',
+        aviso: expect.stringContaining('entrou como encaixe'),
+      }),
+    );
+  });
+
+  it('importada que só encosta na existente (termina quando ela começa) não vira encaixe', async () => {
+    const { plano } = planejar([
+      ag('10', '1', '2025-01-10', '0', { id: 'a1', status_id: '1' }),
+    ]);
+    const [importada] = plano.consultas;
+    const insert = {
+      insert: () => insert,
+      into: () => insert,
+      values: () => insert,
+      orIgnore: () => insert,
+      execute: async () => undefined,
+    };
+    const manager = {
+      createQueryBuilder: () => insert,
+      getRepository: () => ({
+        createQueryBuilder: () =>
+          consultaQb([
+            {
+              doctorId: importada.doctorId,
+              scheduledAt: new Date(
+                importada.scheduledAt.getTime() +
+                  importada.durationMinutes * 60_000,
+              ),
+              durationMinutes: 30,
+            },
+          ]),
+      }),
+    } as unknown as EntityManager;
+
+    await gravarAgenda(plano, manager);
+
+    expect(importada.isWalkIn).toBe(false);
   });
 });
 

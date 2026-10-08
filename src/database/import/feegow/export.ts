@@ -36,10 +36,16 @@ export class ExportFeegow {
     // Parte do nome vem do CSV (`_<modelo_id>` dos formulários): nada de
     // separador nem `..`, senão um modelo_id forjado lê CSV de fora do export.
     if (/[\\/\0]/.test(nome) || nome.includes('..')) return [];
-    const caminho = join(this.dir, PASTA_TABELAS, `${nome}.csv`);
-    const linhas = existsSync(caminho)
-      ? lerCsv(caminho, nome, this.problemas)
-      : [];
+    const bruto = join(this.dir, PASTA_TABELAS, `${nome}.csv`);
+    const caminho = this.dentroDoExport(bruto);
+    if (!caminho && existsSync(bruto)) {
+      this.problemas.push({
+        tabela: nome,
+        linha: 0,
+        motivo: 'CSV ignorado: aponta para fora do export ou não é arquivo',
+      });
+    }
+    const linhas = caminho ? lerCsv(caminho, nome, this.problemas) : [];
     this.cache.set(nome, linhas);
     return linhas;
   }
@@ -77,13 +83,59 @@ export class ExportFeegow {
     } catch (erro) {
       return (erro as NodeJS.ErrnoException).code === 'ENOENT' ? alvo : null;
     }
-    const baseReal = realpathSync(base);
-    if (!real.startsWith(baseReal + sep) || !statSync(real).isFile()) {
+    // A própria `Client/<pasta>` pode ser um symlink para fora do export:
+    // comparar só com o realpath dela aceitaria qualquer arquivo do destino.
+    // O realpath da base e o do arquivo precisam cair dentro do export real.
+    const raiz = this.raizReal();
+    let baseReal: string;
+    try {
+      baseReal = realpathSync(base);
+    } catch {
+      return null;
+    }
+    if (
+      !raiz ||
+      !dentro(baseReal, raiz) ||
+      !real.startsWith(baseReal + sep) ||
+      !statSync(real).isFile()
+    ) {
       return null;
     }
     return real;
   }
+
+  /** Realpath do diretório do export (`null` se não existir). */
+  private raizReal(): string | null {
+    if (!this.dir) return null;
+    try {
+      return realpathSync(this.dir);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Caminho real de um CSV do export, ou `null` se não existir, não for
+   * arquivo comum ou (symlink) apontar para fora do export — senão um
+   * `pacientes.csv -> /etc/...` importaria qualquer arquivo da máquina.
+   */
+  private dentroDoExport(caminho: string): string | null {
+    if (!existsSync(caminho)) return null;
+    const raiz = this.raizReal();
+    if (!raiz) return null;
+    let real: string;
+    try {
+      real = realpathSync(caminho);
+    } catch {
+      return null;
+    }
+    return dentro(real, raiz) && statSync(real).isFile() ? real : null;
+  }
 }
+
+/** `caminho` (já real) está estritamente dentro de `raiz` (já real). */
+const dentro = (caminho: string, raiz: string) =>
+  caminho.startsWith(raiz + sep);
 
 /** `sys_active` do Feegow: `1` ativo, `0` inativo/rascunho, `-1` excluído. */
 export const ativo = (l: LinhaCsv) => l.sys_active === '1';

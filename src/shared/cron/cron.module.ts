@@ -14,6 +14,8 @@ import { NotificationSendLog } from 'src/database/entities/notification-send-log
 import { AiTokenUsageLog } from 'src/database/entities/ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.entity';
 import { User } from 'src/database/entities/user.entity';
+import { Patient } from 'src/database/entities/patient.entity';
+import { FotosPacienteOrfasService } from './fotos-paciente-orfas.service';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { User } from 'src/database/entities/user.entity';
       AiTokenUsageLog,
       AiPiiRedactionLog,
       User,
+      Patient,
     ]),
     MailModule,
     WhatsappModule,
@@ -35,6 +38,7 @@ import { User } from 'src/database/entities/user.entity';
     LogRetentionService,
     StaleNotificationService,
     StaleNotificationLogRepository,
+    FotosPacienteOrfasService,
   ],
   exports: [CronService, LogRetentionService, StaleNotificationService],
 })

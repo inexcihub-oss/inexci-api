@@ -127,6 +127,11 @@ export function planejarConsultas(
   const nomeDoCanal = new Map(
     exp.tabela('agendamento_canais').map((c) => [c.id, c.nome_canal]),
   );
+  const nomeDoProcedimento = new Map(
+    exp
+      .tabela('procedimentos')
+      .map((pr) => [pr.id, nomeDeProcedimento(pr.nome_procedimento)]),
+  );
   const comAtendimento = new Set(
     exp
       .tabela('atendimentos')
@@ -203,9 +208,17 @@ export function planejarConsultas(
     }
 
     const canal = nomeDoCanal.get(a.canal_id ?? '');
-    const notas = [canal ? `[${canal}]` : null, (a.Notas ?? '').trim() || null]
+    const procedimento = nomeDoProcedimento.get(a.procedimento_id ?? '');
+    const notas = [
+      [canal ? `[${canal}]` : null, (a.Notas ?? '').trim() || null]
+        .filter(Boolean)
+        .join(' '),
+      // O tipo da consulta na INEXCI não diz qual serviço foi marcado
+      // ("Consulta - Dor", "CONSULTA PRE CIRURGICA"…): o nome vai nas notas.
+      procedimento ? `Procedimento no Feegow: ${procedimento}` : null,
+    ]
       .filter(Boolean)
-      .join(' ');
+      .join('\n');
 
     const criadoEm = dataHoraCompleta(a.sys_date) ?? inicio;
     const futuraAtiva = !passada && isActiveAppointmentStatus(status.status);
@@ -250,6 +263,20 @@ export function planejarConsultas(
   };
 }
 
+/**
+ * Nome do procedimento do Feegow, sem as aspas e espaços que o cadastro às
+ * vezes traz. Sem ao menos duas letras seguidas ("S", "N", vazio) não diz
+ * nada: `null`.
+ */
+export function nomeDeProcedimento(
+  nome: string | null | undefined,
+): string | null {
+  const limpo = (nome ?? '')
+    .replace(/^['"\s]+|['"\s]+$/g, '')
+    .replace(/\s+/g, ' ');
+  return /\p{L}{2}/u.test(limpo) ? limpo : null;
+}
+
 export function clinicaImportada(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -271,7 +298,9 @@ export interface HorarioOcupado {
  * A INEXCI recusa isso no banco (`EX_appointments_doctor_no_overlap`), mas o
  * Feegow aceitava: a consulta que chega por último no horário entra como
  * encaixe — ela de fato foi encaixada — e a colisão vai para o relatório.
- * `ocupados` são consultas que já estão no banco e não podem ser mexidas.
+ * `ocupados` são consultas que já estão no banco e não podem ser mexidas:
+ * nunca viram encaixe, então qualquer importada que as sobreponha (antes ou
+ * depois delas) é que entra como encaixe.
  */
 export function encaixarSobrepostas(
   consultas: NovaConsulta[],
@@ -303,20 +332,42 @@ export function encaixarSobrepostas(
 
   const colisoes: Colisao[] = [];
   for (const [medico, lista] of porMedico) {
-    // Existentes primeiro no mesmo instante: nunca viram encaixe.
-    lista.sort((a, b) => a.inicio - b.inicio || (a.c ? 1 : 0) - (b.c ? 1 : 0));
+    const existentes = lista.filter((i) => !i.c);
+    const importadas = lista
+      .filter((i) => i.c)
+      .sort((a, b) => a.inicio - b.inicio);
+    const encaixar = (item: Item, anterior: Item | null) => {
+      const c = item.c as NovaConsulta;
+      c.isWalkIn = true;
+      colisoes.push({
+        profissional: origem.get(c.id)?.profissional ?? medico,
+        inicio: c.scheduledAt.toISOString(),
+        agendamentos: [anterior?.c?.id ?? null, c.id].map((id) =>
+          id ? (origem.get(id)?.agendamento ?? id) : 'já na INEXCI',
+        ),
+      });
+    };
+
+    // 1) Contra as que já estão no banco, nos dois sentidos: a existente
+    // nunca vira encaixe, então a importada sobreposta vira — comece ela
+    // antes ou depois. Só olhar "quem vem depois" deixava passar a importada
+    // que começa antes e invade a existente, e o INSERT violava
+    // `EX_appointments_doctor_no_overlap` abortando a fase inteira.
+    const restantes: Item[] = [];
+    for (const item of importadas) {
+      const existente = existentes.find(
+        (e) => item.inicio < e.fim && e.inicio < item.fim,
+      );
+      if (existente) encaixar(item, existente);
+      else restantes.push(item);
+    }
+
+    // 2) Entre as importadas: a que chega por último no horário é o encaixe.
     let fimAnterior = 0;
     let anterior: Item | null = null;
-    for (const item of lista) {
-      if (anterior && item.inicio < fimAnterior && item.c) {
-        item.c.isWalkIn = true;
-        colisoes.push({
-          profissional: origem.get(item.c.id)?.profissional ?? medico,
-          inicio: item.c.scheduledAt.toISOString(),
-          agendamentos: [anterior.c?.id ?? null, item.c.id].map((id) =>
-            id ? (origem.get(id)?.agendamento ?? id) : 'já na INEXCI',
-          ),
-        });
+    for (const item of restantes) {
+      if (anterior && item.inicio < fimAnterior) {
+        encaixar(item, anterior);
         continue; // encaixe não ocupa: não estende o horário ocupado
       }
       if (item.fim > fimAnterior) {

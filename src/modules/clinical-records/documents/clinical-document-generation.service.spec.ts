@@ -413,6 +413,24 @@ describe('ClinicalDocumentGenerationService', () => {
         expect(nota()).toBe('Afastamento de 3 dias.');
       });
 
+      // O formulário começa com 1 dia: o comparecimento saía com
+      // "Afastamento de 1 dia." embaixo.
+      it('atestado de comparecimento não ganha linha de afastamento', async () => {
+        await emitir({
+          text: 'Declaro que o paciente compareceu a esta consulta das 14h às 15h.',
+          restDays: 1,
+        });
+        expect(nota()).toBeUndefined();
+      });
+
+      it('comparecimento que também fala em afastamento segue a regra de sempre', async () => {
+        await emitir({
+          text: 'Compareceu à consulta e deve permanecer afastado.',
+          restDays: 2,
+        });
+        expect(nota()).toBe('Afastamento de 2 dias.');
+      });
+
       it('sem afastamento no formulário não há linha', async () => {
         await emitir({ text: 'Compareceu à consulta.' });
         expect(nota()).toBeUndefined();
@@ -1045,11 +1063,13 @@ describe('ClinicalDocumentGenerationService', () => {
         'doctor-1',
       );
 
-      const esperado = 'Atesto que Alessandro Filho precisa de 2 dias.';
-      expect(aplicado.body).toBe(esperado);
+      // Na tela, `{{dias}}` segue literal; a emissão o preenche.
+      expect(aplicado.body).toBe(
+        'Atesto que Alessandro Filho precisa de {{dias}} dias.',
+      );
       expect(
         pdfService.generateMedicalCertificatePdf.mock.calls[0][0].text,
-      ).toBe(esperado);
+      ).toBe('Atesto que Alessandro Filho precisa de 2 dias.');
     });
 
     it('pedido de exame com modelo preenche a indicação clínica e pede o tipo certo', async () => {
@@ -1133,7 +1153,7 @@ describe('ClinicalDocumentGenerationService', () => {
         kind: ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
         body: expect.stringContaining('Atesto que Alessandro Filho'),
       });
-      expect(resultado.body).toContain('precisa de 2 dias');
+      expect(resultado.body).toContain('precisa de {{dias}} dias');
       expect(documentTemplatesService.incrementUsage).toHaveBeenCalledWith(
         'tpl-1',
       );
@@ -1149,7 +1169,7 @@ describe('ClinicalDocumentGenerationService', () => {
         'doctor-1',
       );
 
-      expect(resultado.body).toContain('precisa de 5 dias');
+      expect(resultado.body).toContain('precisa de {{dias}} dias');
       expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
     });
 
@@ -1232,19 +1252,54 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(pdfData.restPeriodNote).toBeUndefined();
     });
 
-    it('aplicar com o início informado preenche {{inicio}}', async () => {
+    // Regressão: o apply gravava "1 dia" no texto; o médico editava o texto,
+    // mudava os dias para 3 e o PDF saía com "1 dia" no texto e "Afastamento
+    // de 3 dias" logo abaixo.
+    it('aplicar ignora dias/início da tela: o texto editado sai com o afastamento final', async () => {
       documentTemplatesService.getForUse.mockResolvedValue({
         ...modeloAtestado,
-        body: '{{dias}} dias a partir de {{inicio}}',
+        body: 'Atesto que {{paciente.nome}} precisa de {{dias}} dias a partir de {{inicio}}.',
       });
 
       const aplicado = await service.applyTemplate(
         'tpl-1',
-        { patientId: 'patient-1', restDays: 2, startDate: '2026-07-30' },
+        { patientId: 'patient-1', restDays: 1, startDate: '2026-07-30' },
         'doctor-1',
       );
+      expect(aplicado.body).toBe(
+        'Atesto que Alessandro Filho precisa de {{dias}} dias a partir de {{inicio}}.',
+      );
 
-      expect(aplicado.body).toBe('2 dias a partir de 30/07/2026');
+      await service.generateMedicalCertificate(
+        'record-1',
+        {
+          clinicalRecordId: 'record-1',
+          restDays: 3,
+          startDate: '2026-07-30',
+          text: `${aplicado.body} Retorno em consulta.`,
+        },
+        'doctor-1',
+      );
+      const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
+      expect(pdfData.text).toBe(
+        'Atesto que Alessandro Filho precisa de 3 dias a partir de 30/07/2026. Retorno em consulta.',
+      );
+      expect(pdfData.restPeriodNote).toBeUndefined();
+    });
+
+    it('sem início escolhido, a emissão preenche {{inicio}} com a data de emissão', async () => {
+      await service.generateMedicalCertificate(
+        'record-1',
+        {
+          clinicalRecordId: 'record-1',
+          restDays: 2,
+          text: 'Afastado por {{dias}} dias a partir de {{inicio}}.',
+        },
+        'doctor-1',
+      );
+      expect(
+        pdfService.generateMedicalCertificatePdf.mock.calls[0][0].text,
+      ).toMatch(/^Afastado por 2 dias a partir de \d{2}\/\d{2}\/\d{4}\.$/);
     });
   });
 });

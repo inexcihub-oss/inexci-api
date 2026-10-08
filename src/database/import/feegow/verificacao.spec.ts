@@ -61,6 +61,20 @@ describe('verificarCarga', () => {
     }
   });
 
+  it('usuário excluído (deleted_at) não conta como encontrado', async () => {
+    const ledger = new Ledger(null);
+    ledger.registrar('user:prof', '8', 'u1');
+    ledger.registrar('user:func', '2', 'u2');
+    const consultar = jest.fn().mockResolvedValue([{ n: 1 }]);
+
+    await verificarCarga(consultar, ledger, 'owner-1');
+
+    const sqls = consultar.mock.calls.map(([sql]) => sql as string);
+    const deUsuarios = sqls.filter((s) => s.includes('FROM users'));
+    expect(deUsuarios).toHaveLength(2);
+    for (const sql of deUsuarios) expect(sql).toContain('deleted_at IS NULL');
+  });
+
   it('formatar marca o que não bateu', () => {
     const texto = formatarConferencia([
       { rotulo: 'paciente', previstos: 2, encontrados: 1 },

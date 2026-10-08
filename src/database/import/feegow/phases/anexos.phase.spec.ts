@@ -140,7 +140,7 @@ describe('planejarAnexos', () => {
       arquivos: [
         arquivo('1', '0', 'laudo.pdf'),
         arquivo('2', '10', 'laudo.pdf', { sysActive: '-1' }),
-        arquivo('3', '12', 'laudo.pdf'),
+        arquivo('3', '98', 'laudo.pdf'),
       ],
     });
     expect(documentos).toHaveLength(0);

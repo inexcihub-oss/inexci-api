@@ -8,6 +8,7 @@ import {
 } from '../entities/appointment.entity';
 import {
   CONSULTAS_SOBREPOSTAS,
+  EXTENSAO_BTREE_GIST,
   STATUS_QUE_OCUPAM_A_AGENDA_SQL,
   VERIFICACOES_PRE_MIGRATION,
 } from './preflight/data-checks';
@@ -23,9 +24,11 @@ describe('AddAppointmentsNoOverlapConstraint1755800900000', () => {
   function criarQueryRunner(
     conflitos: Record<string, unknown>[] = [],
     nomesAtuais: Record<string, string | null> = {},
+    semExtensao: Record<string, unknown>[] = [],
   ) {
     const query = jest.fn((sql: string, params?: unknown[]) => {
       if (sql === CONSULTAS_SOBREPOSTAS.sql) return Promise.resolve(conflitos);
+      if (sql === EXTENSAO_BTREE_GIST.sql) return Promise.resolve(semExtensao);
       if (sql.includes('pg_constraint')) {
         const coluna = String(params?.[0]);
         const nome =
@@ -60,6 +63,7 @@ describe('AddAppointmentsNoOverlapConstraint1755800900000', () => {
 
     expect(executadas(query)).toEqual([
       CONSULTAS_SOBREPOSTAS.sql,
+      EXTENSAO_BTREE_GIST.sql,
       'ALTER TABLE "appointments" RENAME CONSTRAINT "appointments_clinic_id_fkey" TO "FK_appointments_clinic"',
       'ALTER TABLE "appointments" RENAME CONSTRAINT "appointments_room_id_fkey" TO "FK_appointments_room"',
       'ALTER TABLE "appointments" RENAME CONSTRAINT "appointments_health_plan_id_fkey" TO "FK_appointments_health_plan"',
@@ -117,6 +121,24 @@ describe('AddAppointmentsNoOverlapConstraint1755800900000', () => {
       new AddAppointmentsNoOverlapConstraint1755800900000().up(queryRunner),
     ).rejects.toThrow(/ap-1, ap-2/);
     expect(executadas(query)).toEqual([CONSULTAS_SOBREPOSTAS.sql]);
+  });
+
+  it('aborta com diagnóstico, antes de qualquer DDL, quando btree_gist não pode ser criada', async () => {
+    const { queryRunner, query } = criarQueryRunner([], {}, [
+      {
+        chave:
+          'o usuário inexci não tem permissão para criar a extensão btree_gist neste banco',
+        ids: 'btree_gist',
+      },
+    ]);
+
+    await expect(
+      new AddAppointmentsNoOverlapConstraint1755800900000().up(queryRunner),
+    ).rejects.toThrow(/CREATE EXTENSION IF NOT EXISTS btree_gist/);
+    expect(executadas(query)).toEqual([
+      CONSULTAS_SOBREPOSTAS.sql,
+      EXTENSAO_BTREE_GIST.sql,
+    ]);
   });
 
   it('o SQL da migration é exatamente o @Exclusion da entidade', async () => {

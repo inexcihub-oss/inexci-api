@@ -27,8 +27,11 @@ export class ApplyClinicalDocumentTemplateDto {
   doctorId?: string;
 
   /**
-   * Preenche `{{dias}}` no atestado. Ausente, o placeholder fica literal no
-   * texto e a emissão o preenche com os dias do próprio atestado.
+   * **Ignorado.** O texto aplicado sempre mantém `{{dias}}`/`{{inicio}}`
+   * literais e a prévia/emissão os preenche com o afastamento final — senão o
+   * texto editado congelava os dias antigos. Segue aceito porque a validação
+   * global recusa campo desconhecido (`forbidNonWhitelisted`) e um bundle em
+   * cache ainda o envia.
    */
   @Type(() => Number)
   @IsInt()
@@ -37,19 +40,14 @@ export class ApplyClinicalDocumentTemplateDto {
   @IsOptional()
   restDays?: number;
 
-  /**
-   * Início do afastamento (ISO), para `{{inicio}}`. Mesma regra de `restDays`:
-   * ausente, fica literal para a emissão preencher.
-   */
+  /** **Ignorado** — mesma razão de `restDays`. */
   @IsDateString()
   @IsOptional()
   startDate?: string;
 
   /**
-   * Reaplicação do mesmo modelo só para atualizar o texto na tela (ex.: os
-   * dias de afastamento mudaram). Não conta outro uso — quem conta é a
-   * escolha do modelo. A emissão não depende disto: ela manda o `templateId`
-   * e o servidor preenche `{{dias}}` com os dias do próprio atestado.
+   * Reaplicação do mesmo modelo sem nova escolha: não conta outro uso — quem
+   * conta é a escolha do modelo.
    */
   @IsBoolean()
   @IsOptional()

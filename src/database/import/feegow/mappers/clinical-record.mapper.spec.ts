@@ -88,6 +88,42 @@ describe('planejarFichas — vínculo com a consulta', () => {
     );
     expect(f.appointmentId).toBeNull();
   });
+
+  it('consulta que já tem ficha no banco (tela ou rodada anterior): ficha solta, com aviso', () => {
+    const ctx = contexto();
+    ctx.consultasComFicha = new Set(['consulta-1']);
+    const [f] = planejarFichas(exportCom({ atendimentos: [atd()] }), ctx);
+    expect(f).toMatchObject({ patientId: 'pac-10', appointmentId: null });
+    expect(ctx.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        idOrigem: 'atd:a1',
+        aviso: 'consulta já tem ficha na INEXCI: ficha sem consulta',
+      }),
+    );
+  });
+
+  it('ficha já importada (no ledger) cuja consulta tem ficha: só pula, sem aviso', () => {
+    const ctx = contexto();
+    ctx.ledger.registrar(LEDGER_FICHA, 'atd:a1', 'ficha-antiga');
+    ctx.consultasComFicha = new Set(['consulta-1']);
+    const fichas = planejarFichas(exportCom({ atendimentos: [atd()] }), ctx);
+    expect(fichas).toHaveLength(0);
+    expect(ctx.relatorio.avisos.map((a) => a.idOrigem)).not.toContain('atd:a1');
+  });
+
+  it('segunda ficha nova do mesmo agendamento continua solta', () => {
+    const ctx = contexto();
+    const fichas = planejarFichas(
+      exportCom({
+        atendimentos: [
+          atd(),
+          atd({ id: 'a2', hora_inicio: '10:00:00', hora_fim: '10:20:00' }),
+        ],
+      }),
+      ctx,
+    );
+    expect(fichas.map((f) => f.appointmentId)).toEqual(['consulta-1', null]);
+  });
 });
 
 describe('planejarFichas — documentos emitidos no Feegow', () => {

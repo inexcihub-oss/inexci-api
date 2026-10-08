@@ -521,7 +521,12 @@ export class UsersService {
     const mudaConselho =
       data.council !== undefined &&
       data.council !== target.doctorProfile.council;
-    if (mudaConselho && !isAdmin) {
+    // O admin delegado que também é profissional tem Administração, mas não
+    // troca o PRÓPRIO conselho — senão um nutricionista com Administração se
+    // promoveria a médico (CRM) sozinho. Quem troca é o dono ou outro admin.
+    // O dono da conta segue alterando o próprio: não há ninguém acima dele.
+    const ehDonoDaConta = target.id === target.ownerId;
+    if (mudaConselho && (!isAdmin || (isSelf && !ehDonoDaConta))) {
       throw new ForbiddenException(
         'Somente a administração da conta altera o conselho profissional.',
       );
@@ -813,6 +818,29 @@ export class UsersService {
       id: collaborator.id,
       ownerId: collaborator.ownerId,
     });
+
+    // Mesma regra do `updateDoctorProfileById`: o admin delegado não mexe no
+    // próprio vínculo profissional por aqui — virar (ou deixar de ser)
+    // profissional e trocar o conselho mudam a permissão efetiva (só CRM
+    // ganha Solicitações, receita, indicação cirúrgica). Fica com o dono ou
+    // com outro admin. Número, UF e especialidade do próprio registro seguem
+    // editáveis pela rota de perfil profissional.
+    if (collaboratorId === adminId) {
+      const mudaVinculo =
+        data.isDoctor !== undefined &&
+        data.isDoctor !== !!collaborator.doctorProfile;
+      // Sem perfil, o conselho só vale junto com `isDoctor: true` — que já
+      // cai em `mudaVinculo`.
+      const mudaConselho =
+        data.council !== undefined &&
+        !!collaborator.doctorProfile &&
+        data.council !== collaborator.doctorProfile.council;
+      if (mudaVinculo || mudaConselho) {
+        throw new ForbiddenException(
+          'Somente o dono da conta ou outro administrador altera o seu próprio vínculo profissional.',
+        );
+      }
+    }
 
     // Verifica email duplicado
     if (data.email) {

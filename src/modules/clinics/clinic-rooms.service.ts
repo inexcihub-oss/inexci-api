@@ -6,11 +6,18 @@ import {
 import { ClinicRoom } from 'src/database/entities/clinic-room.entity';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
+import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import {
   CreateClinicRoomDto,
   UpdateClinicRoomDto,
 } from './dto/clinic-room.dto';
+
+/**
+ * Índice único de nome por clínica (`AddUniqueClinicRoomName1755801000000`).
+ * Literal aqui de propósito: o service não importa de `migrations/`.
+ */
+const UQ_NOME_DA_SALA = 'uq_clinic_rooms_clinic_name_active';
 
 /**
  * Salas (consultórios) de uma clínica. Isolamento pela conta (`ownerId`), como
@@ -64,6 +71,23 @@ export class ClinicRoomsService {
     }
   }
 
+  /**
+   * O `assertNomeLivre` é check-then-insert: dois cadastros simultâneos passam
+   * pela checagem antes de qualquer um gravar, e o índice único barra o
+   * segundo. Traduz essa violação na mesma 409 amigável, em vez de um 500.
+   */
+  private async gravandoNome<T>(name: string, gravar: () => Promise<T>) {
+    try {
+      return await gravar();
+    } catch (erro) {
+      const violacao = violacaoDeUnicidade(erro);
+      if (violacao && violacao.constraint === UQ_NOME_DA_SALA) {
+        throw new ConflictException(`Já existe uma sala chamada "${name}".`);
+      }
+      throw erro;
+    }
+  }
+
   async list(clinicId: string, userId: string): Promise<ClinicRoom[]> {
     const { ownerId } = await this.clinicaDaConta(clinicId, userId);
     return this.roomRepository.findByClinic(ownerId, clinicId);
@@ -77,12 +101,14 @@ export class ClinicRoomsService {
     const { ownerId } = await this.clinicaDaConta(clinicId, userId);
     const name = data.name.trim();
     await this.assertNomeLivre(ownerId, clinicId, name);
-    return this.roomRepository.create({
-      ownerId,
-      clinicId,
-      name,
-      active: true,
-    });
+    return this.gravandoNome(name, () =>
+      this.roomRepository.create({
+        ownerId,
+        clinicId,
+        name,
+        active: true,
+      }),
+    );
   }
 
   async update(
@@ -100,7 +126,9 @@ export class ClinicRoomsService {
       await this.assertNomeLivre(ownerId, clinicId, updateData.name, roomId);
     }
     if (data.active !== undefined) updateData.active = data.active;
-    return (await this.roomRepository.update(roomId, updateData))!;
+    return (await this.gravandoNome(updateData.name ?? '', () =>
+      this.roomRepository.update(roomId, updateData),
+    ))!;
   }
 
   /** Soft delete: consultas antigas continuam apontando para a sala. */

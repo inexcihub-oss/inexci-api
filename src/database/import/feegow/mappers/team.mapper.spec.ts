@@ -1,6 +1,14 @@
 import { ProfessionalCouncil } from 'src/database/entities/doctor-profile.entity';
-import { contextoDeTeste, exportSintetico } from '../testing/export-sintetico';
-import { conselhoPelaEspecialidade, planejarEquipe } from './team.mapper';
+import {
+  contextoDeTeste,
+  exportSintetico,
+  OWNER,
+} from '../testing/export-sintetico';
+import {
+  conselhoPelaEspecialidade,
+  LEDGER_PROFISSIONAL,
+  planejarEquipe,
+} from './team.mapper';
 
 describe('conselhoPelaEspecialidade', () => {
   it.each([
@@ -311,5 +319,83 @@ describe('planejarEquipe — profissional sem conselho no Feegow', () => {
     );
 
     expect(perfis[0].specialty).toBe('Ortopedia');
+  });
+});
+
+describe('planejarEquipe — e-mail de usuário excluído na INEXCI', () => {
+  const exp = () =>
+    exportSintetico({
+      profissionais: [
+        {
+          id: '6',
+          nome_profissional: 'Karina Clínica',
+          conselho_id: '1',
+          documento_conselho: '123',
+          email1: 'karina@exemplo.com',
+          celular1: '24999990006',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+    });
+
+  it('não casa com o ex-colaborador excluído nem tenta recriar o e-mail', () => {
+    const ctx = contextoDeTeste({
+      usuariosPorEmail: new Map([
+        [
+          'karina@exemplo.com',
+          {
+            id: 'ex-karina',
+            ownerId: OWNER,
+            email: 'karina@exemplo.com',
+            temPerfil: true,
+            excluido: true,
+          },
+        ],
+      ]),
+    });
+    const plano = planejarEquipe(exp(), ctx);
+
+    expect(plano.usuarios.map((u) => u.email)).not.toContain(
+      'karina@exemplo.com',
+    );
+    expect(ctx.ledger.resolver(LEDGER_PROFISSIONAL, '6')).toBeNull();
+    expect(ctx.relatorio.rejeicoes).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '6',
+        motivo: expect.stringContaining('usuário excluído'),
+      }),
+    );
+  });
+});
+
+describe('planejarEquipe — e-mail maior que users.email', () => {
+  it('descarta com aviso (e rejeita por falta de e-mail válido)', () => {
+    const ctx = contextoDeTeste();
+    const exp = exportSintetico({
+      profissionais: [
+        {
+          id: '6',
+          nome_profissional: 'Karina Clínica',
+          conselho_id: '1',
+          documento_conselho: '123',
+          email1: `${'a'.repeat(150)}@clinica.com`,
+          celular1: '24999990006',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+    });
+    const plano = planejarEquipe(exp, ctx);
+    expect(plano.usuarios.map((u) => u.name)).not.toContain('Karina Clínica');
+    expect(ctx.relatorio.rejeicoes).toContainEqual(
+      expect.objectContaining({ idOrigem: '6' }),
+    );
+    expect(ctx.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '6',
+        aviso: expect.stringContaining('mais de 160 caracteres'),
+      }),
+    );
   });
 });

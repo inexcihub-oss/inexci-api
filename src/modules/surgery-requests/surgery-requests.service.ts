@@ -1,4 +1,7 @@
-import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
+import {
+  isClinicalDocumentIssuerProfile,
+  isPhysicianProfile,
+} from 'src/database/entities/doctor-profile.entity';
 import { Between, FindOptionsWhere, In } from 'typeorm';
 import {
   ForbiddenException,
@@ -511,6 +514,11 @@ export class SurgeryRequestsService {
       // A Agenda lista todos os profissionais; o wizard de SC só os médicos.
       council: d.doctorProfile?.council,
       isPhysician: isPhysicianProfile(d.doctorProfile),
+      // Receita/atestado/pedido de exame: CRM ou CRO. A tela de atendimento
+      // decide os botões por aqui — `isPhysician` deixaria o dentista de fora.
+      canIssueClinicalDocuments: isClinicalDocumentIssuerProfile(
+        d.doctorProfile,
+      ),
     }));
   }
 

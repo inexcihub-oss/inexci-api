@@ -1,5 +1,7 @@
 import { LinhaCsv } from '../../core/csv';
-import { horarioDaClinica } from './clinic.mapper';
+import { ExportFeegow } from '../export';
+import { contextoDeTeste } from '../testing/export-sintetico';
+import { horarioDaClinica, planejarClinica } from './clinic.mapper';
 
 const grade = (dia: string, fim: string | null) =>
   ({
@@ -27,5 +29,29 @@ describe('horarioDaClinica — fim de vigência', () => {
     expect(horario.wed).toEqual([]);
     expect(horario.thu).toEqual([]);
     expect(horario.fri).toEqual(manha);
+  });
+});
+
+describe('planejarClinica — e-mail maior que clinics.email', () => {
+  it('descarta com aviso e usa o segundo e-mail se couber', () => {
+    const ctx = contextoDeTeste();
+    const exp = new ExportFeegow(null, {
+      unidades: [
+        {
+          id: '0',
+          nome_fantasia: 'Clínica',
+          email1: `${'a'.repeat(95)}@clinica.com`,
+          email2: 'contato@clinica.com',
+        },
+      ],
+    } as unknown as Record<string, LinhaCsv[]>);
+    const clinica = planejarClinica(exp, ctx);
+    expect(clinica?.email).toBe('contato@clinica.com');
+    expect(ctx.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        entidade: 'clínica',
+        aviso: expect.stringContaining('mais de 100 caracteres'),
+      }),
+    );
   });
 });

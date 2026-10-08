@@ -291,7 +291,7 @@ describe('planejarProntuario (export sintético)', () => {
 
   it('paciente não importado rejeita a ficha', () => {
     const { ctx, plano } = planejar({
-      atendimentos: [atd('a1', { paciente_id: '12' })],
+      atendimentos: [atd('a1', { paciente_id: '98' })],
     });
     expect(plano.fichas).toHaveLength(0);
     expect(

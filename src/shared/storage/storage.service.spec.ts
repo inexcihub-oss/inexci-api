@@ -1,6 +1,7 @@
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 
@@ -110,6 +111,41 @@ describe('StorageService — cache das fotos de paciente', () => {
     it('lista vazia não chama o R2', async () => {
       await expect(service.deleteMany([])).resolves.toEqual([]);
       expect(s3.send).not.toHaveBeenCalled();
+    });
+  });
+  describe('listAll', () => {
+    it('pagina pelo ContinuationToken até o fim (passa dos 1000 do listFolder)', async () => {
+      const data = new Date('2026-10-01T00:00:00.000Z');
+      s3.send
+        .mockResolvedValueOnce({
+          Contents: [{ Key: 'patient-photos/o/a.webp', LastModified: data }],
+          IsTruncated: true,
+          NextContinuationToken: 'tok-2',
+        })
+        .mockResolvedValueOnce({
+          Contents: [{ Key: 'patient-photos/o/b.webp' }],
+          IsTruncated: false,
+        });
+
+      const objetos = await service.listAll('patient-photos');
+
+      expect(objetos).toEqual([
+        { key: 'patient-photos/o/a.webp', lastModified: data },
+        { key: 'patient-photos/o/b.webp', lastModified: null },
+      ]);
+      const [primeira, segunda] = s3.send.mock.calls.map(
+        (c) => (c[0] as ListObjectsV2Command).input,
+      );
+      expect(primeira.Prefix).toBe('patient-photos/');
+      expect(primeira.ContinuationToken).toBeUndefined();
+      expect(segunda.ContinuationToken).toBe('tok-2');
+    });
+
+    it('falha na listagem lança (lista truncada em silêncio enganaria a varredura)', async () => {
+      s3.send.mockRejectedValueOnce(new Error('R2 fora'));
+      await expect(service.listAll('patient-photos')).rejects.toThrow(
+        'R2 fora',
+      );
     });
   });
 });

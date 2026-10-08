@@ -4,6 +4,8 @@ import {
   decodificarEntidadesHtml,
   repararNomeCortado,
   dataHoraSaoPaulo,
+  EMAIL_MAX,
+  emailLongoDemais,
   normalizarCep,
   normalizarCpf,
   normalizarData,
@@ -93,6 +95,16 @@ describe('normalizadores', () => {
   it('e-mail', () => {
     expect(normalizarEmail(' Ana@Clinica.com ')).toBe('ana@clinica.com');
     expect(normalizarEmail('ana@')).toBeNull();
+  });
+
+  it('e-mail acima do limite da coluna é descartado (emailLongoDemais avisa)', () => {
+    const longo = `${'a'.repeat(95)}@clinica.com`; // 107 caracteres
+    expect(normalizarEmail(longo)).toBe(longo);
+    expect(normalizarEmail(longo, EMAIL_MAX.paciente)).toBeNull();
+    expect(normalizarEmail(longo, EMAIL_MAX.usuario)).toBe(longo);
+    expect(emailLongoDemais(longo, EMAIL_MAX.paciente)).toBe(true);
+    expect(emailLongoDemais('ana@clinica.com', EMAIL_MAX.paciente)).toBe(false);
+    expect(emailLongoDemais('lixo'.repeat(40), EMAIL_MAX.paciente)).toBe(false);
   });
 
   it('texto', () => {
@@ -223,6 +235,24 @@ describe('repararNomeCortado', () => {
     });
     expect(repararNomeCortado('ANA &XYZ')).toEqual({
       nome: 'ANA &XYZ',
+      cortado: true,
+    });
+  });
+
+  it('entidade completa, com ";", só decodifica: não marca corte', () => {
+    expect(repararNomeCortado('JOS&EACUTE; SILVA')).toEqual({
+      nome: 'JOSÉ SILVA',
+      cortado: false,
+    });
+    expect(repararNomeCortado('RICARDO Q&PERIOD; LIMA')).toEqual({
+      nome: 'RICARDO Q. LIMA',
+      cortado: false,
+    });
+  });
+
+  it('completa no meio e cortada no fim: marca corte', () => {
+    expect(repararNomeCortado('JOS&EACUTE; GON&CCEDIL')).toEqual({
+      nome: 'JOSÉ GONÇ',
       cortado: true,
     });
   });

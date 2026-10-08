@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -23,6 +24,7 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { BulkDeletePatientsDto } from './dto/bulk-delete-patients.dto';
+import { DiscardPatientPhotoDto } from './dto/discard-patient-photo.dto';
 
 @ApiTags('Pacientes')
 @ApiBearerAuth()
@@ -50,6 +52,21 @@ export class PatientsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.patientsService.findAll(query, user.userId);
+  }
+
+  /**
+   * Descarta uma foto enviada que não chegou a ser usada (troca/cadastro que
+   * falhou). Só aceita caminho da própria conta e não referenciado por nenhum
+   * paciente — ver `PatientsService.descartarFotoNaoUsada`.
+   */
+  @Post('photos/discard')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Descartar foto de paciente enviada e não usada' })
+  discardPhoto(
+    @Body() data: DiscardPatientPhotoDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.patientsService.descartarFotoNaoUsada(data.path, user.userId);
   }
 
   @Get(':id')

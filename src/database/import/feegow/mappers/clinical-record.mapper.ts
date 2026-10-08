@@ -127,7 +127,10 @@ export function planejarFichas(
   }
 
   const fichas: NovaFicha[] = [];
-  const consultasUsadas = new Set<string>();
+  // Começa com as consultas que já têm ficha no banco (rodada anterior ou
+  // aberta pela tela): uma segunda ficha na mesma consulta violaria
+  // `idx_clinical_records_appointment_unique` e abortaria a fase.
+  const consultasUsadas = new Set<string>(ctx.consultasComFicha);
   let paraODono = 0;
   const nova = (dados: {
     chave: string;
@@ -216,13 +219,19 @@ export function planejarFichas(
         );
       }
     }
-    if (appointmentId && consultasUsadas.has(appointmentId)) {
-      appointmentId = null;
+    if (
+      appointmentId &&
+      consultasUsadas.has(appointmentId) &&
+      !ctx.ledger.resolver(LEDGER_FICHA, chave)
+    ) {
       rel.avisar(
         'ficha',
         chave,
-        'segundo atendimento do mesmo agendamento: ficha sem consulta',
+        ctx.consultasComFicha.has(appointmentId)
+          ? 'consulta já tem ficha na INEXCI: ficha sem consulta'
+          : 'segundo atendimento do mesmo agendamento: ficha sem consulta',
       );
+      appointmentId = null;
     }
     const doFormulario = porAtendimento.get(a.id!) ?? [];
     const resumos = (resumosPorAtendimento.get(a.id!) ?? []).map((r) =>

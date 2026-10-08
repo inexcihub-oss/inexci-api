@@ -7,6 +7,12 @@ export interface UsuarioExistente {
   ownerId: string;
   email: string;
   temPerfil: boolean;
+  /**
+   * Excluído na INEXCI (`deleted_at`). Continua no mapa porque o e-mail pode
+   * ainda ocupar `uq_users_email` (exclusões antigas não renomeavam o
+   * e-mail): a equipe não casa com ele nem tenta criar outro com o mesmo.
+   */
+  excluido?: boolean;
 }
 
 /**
@@ -27,6 +33,12 @@ export interface ContextoImportacao {
   usuariosPorEmail: Map<string, UsuarioExistente>;
   /** Telefones de usuários vivos (`IDX_users_phone_unique`). */
   telefonesEmUso: Set<string>;
+  /**
+   * Consultas (`appointments.id`) que já têm ficha viva no banco — de uma
+   * rodada anterior ou abertas pela tela. `idx_clinical_records_appointment_unique`
+   * só aceita uma ficha por consulta, então a importação não liga outra.
+   */
+  consultasComFicha: Set<string>;
   /** Convênios já cadastrados na conta, por nome normalizado. */
   conveniosExistentes: Map<string, string>;
   /** `--mapear prof:8=email` / `func:2=email`: força o casamento com um usuário existente. */

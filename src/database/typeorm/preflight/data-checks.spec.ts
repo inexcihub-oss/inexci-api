@@ -1,5 +1,7 @@
 import {
+  EXTENSAO_BTREE_GIST,
   OUTRO_NAO_UNIFICADO,
+  SALAS_COM_NOME_REPETIDO,
   TELEFONE_DUPLICADO,
   VERIFICACOES_PRE_MIGRATION,
   montarDiagnostico,
@@ -90,12 +92,67 @@ describe('verificações pré-migration', () => {
     });
   });
 
-  describe('registro', () => {
-    it('aponta cada verificação para uma migration distinta', () => {
-      const migrations = VERIFICACOES_PRE_MIGRATION.map((v) => v.migration);
+  describe('EXTENSAO_BTREE_GIST', () => {
+    it('é da migration que roda CREATE EXTENSION btree_gist', () => {
+      expect(EXTENSAO_BTREE_GIST.migration).toBe(
+        'AddAppointmentsNoOverlapConstraint1755800900000',
+      );
+    });
 
-      expect(migrations.length).toBeGreaterThan(0);
-      expect(new Set(migrations).size).toBe(migrations.length);
+    it('é read-only (só consulta catálogo)', () => {
+      expect(EXTENSAO_BTREE_GIST.sql).toMatch(/^\s*SELECT/i);
+      expect(EXTENSAO_BTREE_GIST.sql).not.toMatch(
+        /\b(INSERT|UPDATE|DELETE|DROP|ALTER)\b|CREATE\s+EXTENSION/i,
+      );
+    });
+
+    it('só reclama se a extensão ainda não existe, e confere disponibilidade e permissão', () => {
+      expect(EXTENSAO_BTREE_GIST.sql).toContain('pg_extension');
+      expect(EXTENSAO_BTREE_GIST.sql).toContain('pg_available_extensions');
+      expect(EXTENSAO_BTREE_GIST.sql).toContain('rolsuper');
+      expect(EXTENSAO_BTREE_GIST.sql).toContain('trusted');
+      expect(EXTENSAO_BTREE_GIST.sql).toContain('has_database_privilege');
+    });
+
+    it('diz como destravar', () => {
+      expect(EXTENSAO_BTREE_GIST.comoResolver).toContain(
+        'CREATE EXTENSION IF NOT EXISTS btree_gist',
+      );
+    });
+  });
+
+  describe('SALAS_COM_NOME_REPETIDO', () => {
+    it('usa o mesmo predicado do índice (clínica + nome sem caixa, vivas)', () => {
+      expect(SALAS_COM_NOME_REPETIDO.sql).toContain('lower(btrim(r."name"))');
+      expect(SALAS_COM_NOME_REPETIDO.sql).toContain('deleted_at" IS NULL');
+      expect(SALAS_COM_NOME_REPETIDO.sql).toContain('HAVING count(*) > 1');
+    });
+
+    it('é read-only', () => {
+      expect(SALAS_COM_NOME_REPETIDO.sql).toMatch(/^\s*SELECT/i);
+      expect(SALAS_COM_NOME_REPETIDO.sql).not.toMatch(
+        /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i,
+      );
+    });
+  });
+
+  describe('registro', () => {
+    /**
+     * Uma migration pode ter mais de uma verificação (a do no-overlap confere
+     * o dado e a extensão `btree_gist`), mas nunca a mesma duas vezes.
+     */
+    it('não repete verificação (migration + descrição)', () => {
+      const chaves = VERIFICACOES_PRE_MIGRATION.map(
+        (v) => `${v.migration} :: ${v.descricao}`,
+      );
+
+      expect(chaves.length).toBeGreaterThan(0);
+      expect(new Set(chaves).size).toBe(chaves.length);
+    });
+
+    it('inclui a extensão btree_gist e as salas repetidas', () => {
+      expect(VERIFICACOES_PRE_MIGRATION).toContain(EXTENSAO_BTREE_GIST);
+      expect(VERIFICACOES_PRE_MIGRATION).toContain(SALAS_COM_NOME_REPETIDO);
     });
 
     it('inclui a verificação de telefone duplicado', () => {

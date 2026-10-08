@@ -123,12 +123,32 @@ export function normalizarSexo(
   return null;
 }
 
+/**
+ * E-mail válido em minúsculas, ou `null`. Com `max` (tamanho da coluna de
+ * destino), o que passar dele também vira `null`: cortar mudaria o endereço e
+ * gravar inteiro estoura o varchar e derruba a fase. Quem chama confere com
+ * `emailLongoDemais` para avisar no relatório.
+ */
 export function normalizarEmail(
   valor: string | null | undefined,
+  max = Infinity,
 ): string | null {
   const e = (valor ?? '').trim().toLowerCase();
+  if (e.length > max) return null;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
+
+/** E-mail válido que só foi descartado por passar de `max` caracteres. */
+export function emailLongoDemais(
+  valor: string | null | undefined,
+  max: number,
+): boolean {
+  const e = normalizarEmail(valor);
+  return !!e && e.length > max;
+}
+
+/** Tamanho de `email` nas colunas de destino (varchar). */
+export const EMAIL_MAX = { paciente: 100, usuario: 160, clinica: 100 } as const;
 
 /** Texto livre: colapsa espaços e corta no tamanho da coluna. */
 export function normalizarTexto(
@@ -326,11 +346,13 @@ export function repararNomeCortado(nome: string): {
 } {
   let cortado = false;
   const reparado = nome.replace(/&([A-Z]{2,8});?/g, (inteiro, ent: string) => {
-    cortado = true;
-    if (ENTIDADES_EM_MAIUSCULAS[ent]) return ENTIDADES_EM_MAIUSCULAS[ent];
-    const letra = decodificarEntidadesHtml(
-      `&${ent[0]}${ent.slice(1).toLowerCase()};`,
-    );
+    // Com o `;` a entidade veio completa (`JOS&EACUTE; SILVA`): só decodifica.
+    // Cortado é a que perdeu o `;` — o export parou ali, às vezes no meio do
+    // nome da entidade (`&EAC`, que nem se decodifica).
+    if (!inteiro.endsWith(';')) cortado = true;
+    const letra =
+      ENTIDADES_EM_MAIUSCULAS[ent] ??
+      decodificarEntidadesHtml(`&${ent[0]}${ent.slice(1).toLowerCase()};`);
     return letra.startsWith('&') ? inteiro : letra;
   });
   return { nome: reparado.trim(), cortado };

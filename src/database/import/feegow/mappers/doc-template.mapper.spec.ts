@@ -1,6 +1,7 @@
 import { LEDGER_PROFISSIONAL } from './team.mapper';
 import { contextoDeTeste, exportSintetico } from '../testing/export-sintetico';
 import {
+  cortarSemPartirMarcador,
   marcadoresDesconhecidos,
   planejarModelosDeDocumento,
 } from './doc-template.mapper';
@@ -48,5 +49,45 @@ describe('planejarModelosDeDocumento — marcadores desconhecidos', () => {
         detalhe: '[Paciente.Endereco], [Convenio.Nome]',
       },
     ]);
+  });
+});
+
+describe('cortarSemPartirMarcador', () => {
+  it('corte no meio de um marcador recua até antes do {{', () => {
+    expect(
+      cortarSemPartirMarcador('Atesto que {{paciente.nome}} veio', 24),
+    ).toBe('Atesto que ');
+  });
+
+  it('corte fora de marcador fica como está', () => {
+    expect(cortarSemPartirMarcador('{{paciente.nome}} veio hoje', 22)).toBe(
+      '{{paciente.nome}} veio',
+    );
+    expect(cortarSemPartirMarcador('texto curto', 100)).toBe('texto curto');
+  });
+
+  it('corte logo depois do }} mantém o marcador inteiro', () => {
+    expect(cortarSemPartirMarcador('a {{data}} b', 10)).toBe('a {{data}}');
+  });
+});
+
+describe('planejarModelosDeDocumento — corpo longo', () => {
+  it('corta em 2000 sem deixar marcador partido', () => {
+    const ctx = contextoDeTeste();
+    const texto = `${'x'.repeat(1990)} [Paciente.Nome] fim`;
+    const exp = exportSintetico({
+      modelos_atestados: [
+        {
+          id: '1',
+          nome_modelo_atestado: 'Longo',
+          texto_modelo_atestado: texto,
+          is_active: '1',
+        },
+      ],
+    });
+    const [modelo] = planejarModelosDeDocumento(exp, ctx);
+    expect(modelo.body.length).toBeLessThanOrEqual(2000);
+    expect(modelo.body).not.toContain('{{');
+    expect(modelo.body.trimEnd()).toBe('x'.repeat(1990));
   });
 });

@@ -14,7 +14,10 @@ import {
 } from 'src/database/repositories/doctor-schedule.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { Permission } from 'src/shared/permissions';
-import { AccessControlService } from 'src/shared/services/access-control.service';
+import {
+  AccessControlService,
+  resolverOwnerIdDoUsuario,
+} from 'src/shared/services/access-control.service';
 import { horaParaMinutos } from './agenda-time';
 import {
   CreateDoctorScheduleDto,
@@ -165,7 +168,9 @@ export class DoctorSchedulesService {
     const medico = await this.userRepository.findOneWithProfile({
       id: doctorId,
     });
-    return !!medico?.doctorProfile && (medico.ownerId ?? medico.id) === ownerId;
+    return (
+      !!medico?.doctorProfile && resolverOwnerIdDoUsuario(medico) === ownerId
+    );
   }
 
   /** Devolve o `ownerId` da conta. */
@@ -187,7 +192,7 @@ export class DoctorSchedulesService {
     if (!medico?.doctorProfile) {
       throw new BadRequestException('A grade é de um profissional de saúde.');
     }
-    if ((medico.ownerId ?? medico.id) !== ownerId) {
+    if (resolverOwnerIdDoUsuario(medico) !== ownerId) {
       throw new ForbiddenException('Profissional de outra conta.');
     }
     return ownerId;

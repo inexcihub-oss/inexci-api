@@ -368,4 +368,81 @@ describe('PatientsService', () => {
       ]);
     });
   });
+  describe('corrida na foto (índice único UQ_patients_photo_path)', () => {
+    const violacao = Object.assign(new Error('duplicate key'), {
+      code: '23505',
+      constraint: 'UQ_patients_photo_path',
+    });
+
+    it('create: 23505 do índice da foto vira 400, como a checagem', async () => {
+      patientRepository.create.mockRejectedValueOnce(violacao);
+
+      await expect(
+        service.create({ name: 'Maria', photoPath: FOTO }, 'user-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('update: 23505 do índice da foto vira 400 e não apaga nada', async () => {
+      patientRepository.update.mockRejectedValueOnce(violacao);
+      patientRepository.findOne.mockResolvedValue(
+        paciente({ photoPath: `patient-photos/${OWNER}/antiga.webp` }),
+      );
+
+      await expect(
+        service.update('pac-1', { photoPath: FOTO }, 'user-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('outro erro de banco passa adiante sem virar 400', async () => {
+      patientRepository.create.mockRejectedValueOnce(
+        Object.assign(new Error('x'), { code: '23505', constraint: 'outro' }),
+      );
+
+      await expect(
+        service.create({ name: 'Maria', photoPath: FOTO }, 'user-1'),
+      ).rejects.not.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('descartarFotoNaoUsada', () => {
+    it('apaga a foto da conta que nenhum paciente referencia', async () => {
+      await service.descartarFotoNaoUsada(FOTO, 'user-1');
+
+      expect(contagemDeUso.mock.calls[0][0]).toMatchObject({
+        where: { photoPath: FOTO },
+        withDeleted: true,
+      });
+      expect(storageService.delete).toHaveBeenCalledWith(FOTO);
+    });
+
+    it('não apaga foto que algum paciente (inclusive excluído) referencia', async () => {
+      contagemDeUso.mockResolvedValue(1);
+
+      await service.descartarFotoNaoUsada(FOTO, 'user-1');
+
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['de outra conta', 'patient-photos/owner-b/uuid-foto.png'],
+      ['de outra pasta', `documents/${OWNER}/laudo.pdf`],
+      ['com subpasta', `patient-photos/${OWNER}/x/foto.png`],
+      ['com ..', `patient-photos/${OWNER}/..foto.png`],
+      ['vazio', '   '],
+    ])('recusa caminho %s sem tocar no storage', async (_, caminho) => {
+      await expect(
+        service.descartarFotoNaoUsada(caminho, 'user-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(storageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('falha do storage não vira erro (best-effort)', async () => {
+      storageService.delete.mockRejectedValueOnce(new Error('R2 fora'));
+
+      await expect(
+        service.descartarFotoNaoUsada(FOTO, 'user-1'),
+      ).resolves.toBeUndefined();
+    });
+  });
 });

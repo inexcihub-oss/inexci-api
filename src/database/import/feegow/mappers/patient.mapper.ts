@@ -4,8 +4,11 @@ import {
   normalizarCep,
   normalizarCpf,
   normalizarData,
+  EMAIL_MAX,
+  emailLongoDemais,
   normalizarEmail,
   normalizarSexo,
+  normalizarTelefone,
   normalizarTexto,
   normalizarUf,
   repararNomeCortado,
@@ -64,8 +67,10 @@ const TABELAS_DEMOGRAFICAS: [
 /**
  * Pacientes: `pacientes` + `paciente_endereco` + `paciente_convenio` (1:1).
  *
- * - `sys_active` 1 → ativo, 0 → inativo, -1 (excluído) → fora.
- * - CPF inválido é descartado (fica `null`) com aviso — a SC cobra depois.
+ * - `sys_active` 1 → ativo, 0 → inativo, -1 (excluído) → fora, salvo se
+ *   tiver consulta, atendimento, formulário ou anexo: aí entra inativo.
+ * - CPF inválido fica `null` (a SC cobra depois) e o valor original vai para
+ *   as observações, como todo contato sem formato válido (`contatosDoPaciente`).
  * - Telefone: celular > celular_2 > fixo_1 > fixo_2; o segundo válido vai
  *   para `secondary_phone`, os demais para as observações.
  * - Médico responsável: `primary-doctor.rule`, pulando profissional que não
@@ -115,9 +120,22 @@ export function planejarPacientes(
       rel.pular('paciente');
       continue;
     }
-    if (p.sys_active === '-1') {
+    // Excluído no Feegow: em geral um cadastro duplicado, mas o Feegow não
+    // move consulta nem formulário para o cadastro que ficou. Com qualquer um
+    // deles (ou anexo), entra inativo — descartar levaria o prontuário junto.
+    const excluidoComRegistro =
+      p.sys_active === '-1' &&
+      (atividade.has(idOrigem) || comAnexo.has(idOrigem));
+    if (p.sys_active === '-1' && !excluidoComRegistro) {
       rel.rejeitar('paciente', idOrigem, 'excluído no Feegow');
       continue;
+    }
+    if (excluidoComRegistro) {
+      rel.avisar(
+        'paciente',
+        idOrigem,
+        'excluído no Feegow, mas com consulta, prontuário ou anexo: entra inativo para não perder o registro',
+      );
     }
     if (comAtividade && !comAtividade.has(idOrigem)) {
       rel.rejeitar(
@@ -170,17 +188,26 @@ export function planejarPacientes(
         nome,
       );
     }
-    if (/[@(]/.test(p.cpf ?? '')) {
+    const contatos = contatosDoPaciente(p);
+    if (contatos.emailLongo) {
       rel.avisar(
         'paciente',
         idOrigem,
-        'colunas deslocadas no export do Feegow (telefone/e-mail fora do lugar): revise o cadastro',
+        `e-mail com mais de ${EMAIL_MAX.paciente} caracteres descartado: fica só nas observações`,
+      );
+    }
+    if (contatos.deslocados.length) {
+      rel.avisar(
+        'paciente',
+        idOrigem,
+        'colunas deslocadas no export do Feegow: dados recuperados de outra coluna, revise o cadastro',
+        contatos.deslocados.join(', '),
       );
     }
 
-    const cpf = normalizarCpf(p.cpf);
-    if (p.cpf && !cpf)
-      rel.avisar('paciente', idOrigem, 'CPF inválido descartado');
+    const cpf = contatos.cpf;
+    if (contatos.cpfInvalido)
+      rel.avisar('paciente', idOrigem, 'CPF inválido: fica só nas observações');
     if (cpf) {
       const outro = cpfsVistos.get(cpf);
       if (outro)
@@ -203,12 +230,7 @@ export function planejarPacientes(
       );
     else nomesVistos.set(chaveNome, idOrigem);
 
-    const telefones = telefonesDistintos([
-      p.celular,
-      p.celular_2,
-      p.fixo_1,
-      p.fixo_2,
-    ]);
+    const telefones = contatos.telefones;
     if (telefones.length === 0)
       rel.avisar('paciente', idOrigem, 'sem telefone');
 
@@ -218,6 +240,11 @@ export function planejarPacientes(
     const notas: string[] = [];
     const obs = (p.Observacoes ?? '').trim();
     if (obs) notas.push(obs);
+    if (excluidoComRegistro)
+      notas.push(
+        'Cadastro excluído no Feegow (provável duplicado); mantido inativo por ter consulta, prontuário ou anexo.',
+      );
+    notas.push(...contatos.naoReconhecidos);
     if (telefones.length > 2)
       notas.push(`Outros telefones: ${telefones.slice(2).join(', ')}`);
     for (const [campo, rotulo, mapa] of lookups) {
@@ -254,11 +281,11 @@ export function planejarPacientes(
       doctorId,
       name: nome,
       cpf,
-      email: normalizarEmail(p.email),
+      email: contatos.email,
       phone: telefones[0] ?? null,
       secondaryPhone: telefones[1] ?? null,
       gender: normalizarSexo(p.sexo),
-      birthDate: normalizarData(p.nascimento),
+      birthDate: contatos.nascimento,
       healthPlanId,
       healthPlanNumber: healthPlanId
         ? normalizarTexto(conv?.matricula1, 50)
@@ -280,6 +307,120 @@ export function planejarPacientes(
   }
 
   return novos;
+}
+
+const COLUNAS_DE_TELEFONE = ['celular', 'celular_2', 'fixo_1', 'fixo_2'];
+const PARECE_DATA = /^(\d{2}\/\d{2}\/\d{4}|\d{4}-\d{2}-\d{2})/;
+
+interface ContatosDoPaciente {
+  cpf: string | null;
+  cpfInvalido: boolean;
+  email: string | null;
+  /** Havia e-mail válido, mas maior que `patients.email` (fica nas observações). */
+  emailLongo: boolean;
+  nascimento: string | null;
+  telefones: string[];
+  /** O que foi recuperado de outra coluna (`e-mail`, `nascimento`, `telefone`). */
+  deslocados: string[];
+  /** Valores sem formato válido: vão para as observações, não se perdem. */
+  naoReconhecidos: string[];
+}
+
+/**
+ * CPF, telefones, e-mail e nascimento de uma linha de `pacientes`.
+ *
+ * Em algumas linhas o export do Feegow deslocou as colunas (o nome cortado
+ * numa entidade HTML empurra o resto): o telefone cai no CPF, o e-mail num
+ * telefone, o nascimento no e-mail. Cada valor é reconhecido pelo formato e
+ * vai para o campo certo quando o próprio está vazio. Valor que não se
+ * reconhece (CPF com dígito errado, telefone incompleto, data impossível) fica
+ * nas observações — descartá-lo apagaria o único registro dele.
+ */
+export function contatosDoPaciente(p: LinhaCsv): ContatosDoPaciente {
+  const r: ContatosDoPaciente = {
+    cpf: null,
+    cpfInvalido: false,
+    email: null,
+    emailLongo: false,
+    nascimento: null,
+    telefones: [],
+    deslocados: [],
+    naoReconhecidos: [],
+  };
+  const emailsDeslocados: string[] = [];
+  const datasDeslocadas: string[] = [];
+  const telefonesDeslocados: string[] = [];
+  const valor = (coluna: string) => {
+    const v = (p[coluna] ?? '').trim();
+    return temConteudo(v) ? v : null;
+  };
+  const deslocado = (v: string): boolean => {
+    if (normalizarEmail(v)) emailsDeslocados.push(v);
+    else if (PARECE_DATA.test(v)) datasDeslocadas.push(v);
+    else if (/\(/.test(v) && normalizarTelefone(v)) telefonesDeslocados.push(v);
+    else return false;
+    return true;
+  };
+
+  const cpf = valor('cpf');
+  if (cpf) {
+    r.cpf = normalizarCpf(cpf);
+    if (!r.cpf && !deslocado(cpf)) {
+      r.cpfInvalido = true;
+      r.naoReconhecidos.push(`CPF no Feegow (inválido): ${cpf}`);
+    }
+  }
+  const telefones: string[] = [];
+  for (const coluna of COLUNAS_DE_TELEFONE) {
+    const v = valor(coluna);
+    if (!v) continue;
+    if (normalizarTelefone(v)) telefones.push(v);
+    else if (!deslocado(v))
+      r.naoReconhecidos.push(`Telefone no Feegow (incompleto): ${v}`);
+  }
+  const email = valor('email');
+  if (email) {
+    r.email = normalizarEmail(email, EMAIL_MAX.paciente);
+    if (!r.email && emailLongoDemais(email, EMAIL_MAX.paciente)) {
+      r.emailLongo = true;
+      r.naoReconhecidos.push(
+        `E-mail no Feegow (mais de ${EMAIL_MAX.paciente} caracteres): ${email}`,
+      );
+    } else if (!r.email && !deslocado(email))
+      r.naoReconhecidos.push(`E-mail no Feegow (inválido): ${email}`);
+  }
+  const nascimento = valor('nascimento');
+  if (nascimento) {
+    r.nascimento = normalizarData(nascimento);
+    if (!r.nascimento)
+      r.naoReconhecidos.push(`Nascimento no Feegow (inválido): ${nascimento}`);
+  }
+
+  if (!r.email && emailsDeslocados.length) {
+    // O 1º que cabe na coluna; o longo demais fica nas observações.
+    const i = emailsDeslocados.findIndex((e) =>
+      normalizarEmail(e, EMAIL_MAX.paciente),
+    );
+    if (i >= 0) {
+      r.email = normalizarEmail(
+        emailsDeslocados.splice(i, 1)[0],
+        EMAIL_MAX.paciente,
+      );
+      r.deslocados.push('e-mail');
+    } else r.emailLongo = true;
+  }
+  for (const e of emailsDeslocados)
+    r.naoReconhecidos.push(`Outro e-mail no Feegow: ${e}`);
+  for (const d of datasDeslocadas) {
+    const data = normalizarData(d);
+    if (!r.nascimento && data) {
+      r.nascimento = data;
+      r.deslocados.push('nascimento');
+    } else r.naoReconhecidos.push(`Data fora do lugar no Feegow: ${d}`);
+  }
+  if (telefonesDeslocados.length) r.deslocados.push('telefone');
+  r.telefones = telefonesDistintos([...telefones, ...telefonesDeslocados]);
+  return r;
 }
 
 function indexar(linhas: LinhaCsv[], chave: string): Map<string, LinhaCsv> {

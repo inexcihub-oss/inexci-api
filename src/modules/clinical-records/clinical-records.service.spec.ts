@@ -28,6 +28,7 @@ describe('ClinicalRecordsService', () => {
     resolveDefaultDoctorId: jest.fn(),
     assertIsDoctor: jest.fn(),
     assertIsPhysicianWithRegistry: jest.fn(),
+    assertIsPhysician: jest.fn(),
   };
   const mockSurgicalIndication = { createForRecord: jest.fn() };
   const mockActivityRepo = { create: jest.fn().mockResolvedValue({}) };
@@ -48,6 +49,7 @@ describe('ClinicalRecordsService', () => {
     mockAccess.resolveDefaultDoctorId.mockResolvedValue(doctorId);
     mockAccess.assertIsDoctor.mockResolvedValue(undefined);
     mockAccess.assertIsPhysicianWithRegistry.mockResolvedValue(undefined);
+    mockAccess.assertIsPhysician.mockResolvedValue(undefined);
     mockPatientRepo.findOne.mockResolvedValue({ id: patientId, ownerId });
     mockClinicalRepo.create.mockImplementation((d) =>
       Promise.resolve({ id: 'cr-1', ...d }),
@@ -203,6 +205,34 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.create).not.toHaveBeenCalled();
     });
 
+    // Quem marca também precisa ser médico: um dentista vinculado a um médico
+    // CRM não indica cirurgia na ficha dele (a tela nem mostra a marcação).
+    it('recusa indicação cirúrgica marcada por quem não é médico, mesmo em ficha de médico', async () => {
+      mockAccess.assertIsPhysician.mockRejectedValue(new ForbiddenException());
+
+      await expect(
+        service.create({ patientId, surgicalIndication: true }, userId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockAccess.assertIsPhysician).toHaveBeenCalledWith(
+        userId,
+        expect.any(String),
+      );
+      expect(mockClinicalRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('o próprio médico da ficha não é conferido duas vezes', async () => {
+      mockAccess.resolveDefaultDoctorId.mockResolvedValue(userId);
+
+      await service.create({ patientId, surgicalIndication: true }, userId);
+
+      expect(mockAccess.assertIsPhysicianWithRegistry).toHaveBeenCalledWith(
+        userId,
+        expect.any(String),
+        'indicar cirurgia',
+      );
+      expect(mockAccess.assertIsPhysician).not.toHaveBeenCalled();
+    });
+
     it('profissional que não é médico registra ficha sem indicação', async () => {
       mockAccess.assertIsPhysicianWithRegistry.mockRejectedValue(
         new ForbiddenException(),
@@ -296,6 +326,25 @@ describe('ClinicalRecordsService', () => {
         'nutricionista-1',
         expect.any(String),
         'indicar cirurgia',
+      );
+      expect(mockClinicalRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('recusa marcar indicação quando quem age não é médico (dentista vinculado)', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        doctorId,
+        finalizedAt: null,
+      });
+      mockAccess.assertIsPhysician.mockRejectedValue(new ForbiddenException());
+
+      await expect(
+        service.update('cr-1', { surgicalIndication: true }, userId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockAccess.assertIsPhysician).toHaveBeenCalledWith(
+        userId,
+        expect.any(String),
       );
       expect(mockClinicalRepo.update).not.toHaveBeenCalled();
     });
@@ -518,6 +567,28 @@ describe('ClinicalRecordsService', () => {
       // Nada muda: a ficha segue editável para desmarcar a indicação.
       expect(mockClinicalRepo.update).not.toHaveBeenCalled();
       expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
+    });
+
+    it('recusa finalizar ficha com indicação quando quem finaliza não é médico', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        doctorId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+        surgicalIndication: true,
+      });
+      mockAccess.assertIsPhysician.mockRejectedValue(new ForbiddenException());
+
+      await expect(service.finalize('cr-1', userId)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(mockAccess.assertIsPhysician).toHaveBeenCalledWith(
+        userId,
+        expect.stringContaining('Desmarque a indicação cirúrgica'),
+      );
+      expect(mockClinicalRepo.update).not.toHaveBeenCalled();
       expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
     });
 

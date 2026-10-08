@@ -22,6 +22,13 @@ import { SurgeryRequest } from './surgery-request.entity';
 @Entity('patients')
 @Index('idx_patients_doctor_id', ['doctorId'])
 @Index('idx_patients_owner_id', ['ownerId'])
+// Uma foto (objeto no R2) pertence a um paciente só: trocar a foto de um apaga
+// o objeto antigo, e o outro ficaria apontando para o nada. Inclui excluídos
+// (soft delete), como o `PatientsService.fotoEmUso`.
+@Index('UQ_patients_photo_path', ['photoPath'], {
+  unique: true,
+  where: 'photo_path IS NOT NULL',
+})
 export class Patient {
   @PrimaryGeneratedColumn('uuid')
   id: string;

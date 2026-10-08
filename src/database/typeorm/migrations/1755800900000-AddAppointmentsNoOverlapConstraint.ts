@@ -3,6 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // carregadas por glob e fora do contexto do Nest.
 import {
   CONSULTAS_SOBREPOSTAS,
+  EXTENSAO_BTREE_GIST,
   montarDiagnostico,
   verificar,
 } from '../preflight/data-checks';
@@ -21,6 +22,8 @@ import {
  *
  * - `btree_gist` dá ao GiST o operador `=` para `uuid` (`doctor_id WITH =`).
  *   É extensão "trusted" desde o PG 13 e vem no contrib da imagem oficial.
+ *   Mesmo assim `EXTENSAO_BTREE_GIST` confere antes (aqui e no pré-flight):
+ *   servidor sem contrib ou usuário sem permissão abortam com diagnóstico.
  * - `timezone('UTC', …)` converte `timestamptz` em `timestamp`: `timestamptz +
  *   interval` é só STABLE, e constraint exige expressão IMMUTABLE.
  * - A lista de status TEM que bater com `OCCUPYING_APPOINTMENT_STATUSES`; o
@@ -87,6 +90,15 @@ export class AddAppointmentsNoOverlapConstraint1755800900000 implements Migratio
     );
     if (conflitos.length > 0) {
       throw new Error(montarDiagnostico(CONSULTAS_SOBREPOSTAS, conflitos));
+    }
+
+    // Antes de qualquer DDL: sem o contrib ou sem permissão para criar a
+    // extensão, o `CREATE EXTENSION` falharia com o erro cru do Postgres.
+    const semExtensao = await verificar(EXTENSAO_BTREE_GIST, (sql) =>
+      queryRunner.query(sql),
+    );
+    if (semExtensao.length > 0) {
+      throw new Error(montarDiagnostico(EXTENSAO_BTREE_GIST, semExtensao));
     }
 
     for (const { coluna, nome } of FKS_A_RENOMEAR) {

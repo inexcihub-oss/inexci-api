@@ -1,6 +1,8 @@
 import {
   normalizarCpf,
   normalizarData,
+  EMAIL_MAX,
+  emailLongoDemais,
   normalizarEmail,
   normalizarSexo,
   normalizarTexto,
@@ -175,6 +177,8 @@ interface Pessoa {
   idOrigem: string;
   nome: string | null;
   email: string | null;
+  /** Havia e-mail válido, mas maior que `users.email` (descartado). */
+  emailLongo: boolean;
   telefone: string | null;
   cpf: string | null;
   sexo: 'M' | 'F' | null;
@@ -231,10 +235,27 @@ export function planejarEquipe(
       continue;
     }
 
+    if (p.emailLongo) {
+      rel.avisar(
+        rotulo,
+        p.idOrigem,
+        `e-mail com mais de ${EMAIL_MAX.usuario} caracteres descartado`,
+      );
+    }
     const emailForcado = ctx.mapear.get(`${p.tipo}:${p.idOrigem}`);
     const email = emailForcado ?? p.email;
     const existente = email ? ctx.usuariosPorEmail.get(email) : undefined;
 
+    if (existente?.excluido) {
+      // Ex-colaborador excluído na INEXCI: casar ressuscitaria vínculo com um
+      // usuário morto, e criar outro esbarra em `uq_users_email`.
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        'e-mail pertence a usuário excluído na INEXCI — cadastre com outro e-mail e use --mapear',
+      );
+      continue;
+    }
     if (existente) {
       if (existente.ownerId !== ctx.ownerId) {
         rel.rejeitar(
@@ -400,7 +421,12 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
       tipo: 'prof' as const,
       idOrigem: p.id!,
       nome: normalizarTexto(p.nome_profissional, 100),
-      email: normalizarEmail(p.email1) ?? normalizarEmail(p.email2),
+      email:
+        normalizarEmail(p.email1, EMAIL_MAX.usuario) ??
+        normalizarEmail(p.email2, EMAIL_MAX.usuario),
+      emailLongo: [p.email1, p.email2].some((e) =>
+        emailLongoDemais(e, EMAIL_MAX.usuario),
+      ),
       telefone:
         telefonesDistintos([
           p.celular1,
@@ -456,7 +482,8 @@ function lerFuncionarios(exp: ExportFeegow): Pessoa[] {
       tipo: 'func' as const,
       idOrigem: f.id!,
       nome: normalizarTexto(f.nome_funcionario, 100),
-      email: normalizarEmail(f.email),
+      email: normalizarEmail(f.email, EMAIL_MAX.usuario),
+      emailLongo: emailLongoDemais(f.email, EMAIL_MAX.usuario),
       telefone: telefonesDistintos([f.celular])[0] ?? null,
       cpf: normalizarCpf(f.cpf),
       sexo: normalizarSexo(f.sexo_id),

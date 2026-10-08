@@ -73,12 +73,12 @@ const CONFERENCIA: {
   {
     entidade: LEDGER_PROFISSIONAL,
     rotulo: 'profissional',
-    sql: 'SELECT count(*)::int AS n FROM users WHERE id = ANY($1) AND owner_id = $2',
+    sql: 'SELECT count(*)::int AS n FROM users WHERE id = ANY($1) AND owner_id = $2 AND deleted_at IS NULL',
   },
   {
     entidade: LEDGER_FUNCIONARIO,
     rotulo: 'funcionário',
-    sql: 'SELECT count(*)::int AS n FROM users WHERE id = ANY($1) AND owner_id = $2',
+    sql: 'SELECT count(*)::int AS n FROM users WHERE id = ANY($1) AND owner_id = $2 AND deleted_at IS NULL',
   },
   {
     entidade: LEDGER_CONVENIO,

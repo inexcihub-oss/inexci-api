@@ -5,10 +5,22 @@ import { horarioDaClinica } from '../mappers/clinic.mapper';
 import { LEDGER_PACIENTE } from '../mappers/patient.mapper';
 import { LEDGER_PROFISSIONAL } from '../mappers/team.mapper';
 import {
+  ag,
   contextoDeTeste,
   exportSintetico,
   OWNER,
 } from '../testing/export-sintetico';
+
+const pac = (id: string, nome: string, ativo: string) => ({
+  id,
+  nome_paciente: nome,
+  cpf: null,
+  celular: '24999991234',
+  sexo: '2',
+  nascimento: '1990-05-02',
+  sys_active: ativo,
+  sys_date: '2023-01-12 00:00:00',
+});
 import { planejarCadastro } from './cadastro.phase';
 
 describe('planejarCadastro (export sintético)', () => {
@@ -273,16 +285,75 @@ describe('planejarCadastro (export sintético)', () => {
       expect(p.pacientes[2].healthPlanId).toBeNull();
     });
 
-    it('CPF inválido vira null com aviso', () => {
+    it('CPF inválido vira null, com aviso e o valor original nas observações', () => {
       const { ctx, plano: p } = plano();
 
       expect(p.pacientes[0].cpf).toBe('52998224725');
       expect(p.pacientes[1].cpf).toBeNull();
+      expect(p.pacientes[1].medicalNotes).toContain(
+        'CPF no Feegow (inválido): 11111111111',
+      );
       expect(ctx.relatorio.avisos).toContainEqual(
         expect.objectContaining({
           idOrigem: '11',
-          aviso: 'CPF inválido descartado',
+          aviso: 'CPF inválido: fica só nas observações',
         }),
+      );
+    });
+
+    it('excluído com consulta, prontuário ou anexo entra inativo; sem nada, fica fora', () => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const exp = exportSintetico({
+        pacientes: [
+          pac('20', 'Ana Duplicada', '-1'),
+          pac('21', 'Bruno Duplicado', '-1'),
+          pac('22', 'Clara Duplicada', '-1'),
+          pac('23', 'Davi Sem Nada', '-1'),
+        ],
+        agendamentos: [ag('20', '4', '2025-01-10', '0')],
+        formularios_preenchidos: [
+          { id: 'f1', paciente_id: '21', modelo_id: '3', sys_active: '1' },
+        ],
+        arquivos: [
+          { id: 'a1', PacienteID: '22', NomeArquivo: 'x.pdf', sysActive: '1' },
+        ],
+      });
+
+      const { pacientes } = planejarCadastro(exp, ctx);
+
+      expect(pacientes.map((x) => [x.name, x.active])).toEqual([
+        ['Ana Duplicada', false],
+        ['Bruno Duplicado', false],
+        ['Clara Duplicada', false],
+      ]);
+      expect(pacientes[0].medicalNotes).toContain('excluído no Feegow');
+      expect(ctx.ledger.resolver(LEDGER_PACIENTE, '23')).toBeNull();
+      expect(ctx.relatorio.avisos).toContainEqual(
+        expect.objectContaining({
+          idOrigem: '20',
+          aviso: expect.stringContaining('entra inativo'),
+        }),
+      );
+    });
+
+    it('telefone incompleto e nascimento impossível vão para as observações', () => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const exp = exportSintetico({
+        pacientes: [
+          {
+            ...pac('24', 'Eva Lima', '1'),
+            fixo_2: '(24) 9817-340',
+            nascimento: '1853-08-24',
+          },
+        ],
+      });
+
+      const [eva] = planejarCadastro(exp, ctx).pacientes;
+
+      expect(eva.birthDate).toBeNull();
+      expect(eva.phone).toBe('24999991234');
+      expect(eva.medicalNotes).toBe(
+        'Telefone no Feegow (incompleto): (24) 9817-340\nNascimento no Feegow (inválido): 1853-08-24',
       );
     });
 
@@ -359,6 +430,56 @@ describe('planejarCadastro (export sintético)', () => {
         'nome incompleto no export do Feegow: revise o nome no cadastro',
       );
       expect(avisos.some((a) => a.startsWith('colunas deslocadas'))).toBe(true);
+      expect(avisos).not.toContain('CPF inválido: fica só nas observações');
+    });
+
+    it('recupera telefone, e-mail e nascimento das colunas deslocadas', () => {
+      const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
+      const exp = exportSintetico({
+        pacientes: [
+          // telefone no CPF, e-mail no celular, nascimento no fixo
+          {
+            id: '50',
+            nome_paciente: 'F&AACUTE',
+            cpf: '(24) 988067366',
+            celular: 'ALGUEM@EXEMPLO.COM',
+            fixo_1: '03/01/1972 00:00:00',
+            sys_active: '1',
+          },
+          // telefone no lugar, e-mail no fixo, nascimento no e-mail
+          {
+            id: '51',
+            nome_paciente: 'JOS&EACUTE',
+            celular: '(24) 2017-4722',
+            fixo_1: 'outro@exemplo.com',
+            email: '08/10/1940 00:00:00',
+            sys_active: '1',
+          },
+        ],
+      });
+
+      const plano = planejarCadastro(exp, ctx);
+
+      expect(plano.pacientes[0]).toMatchObject({
+        cpf: null,
+        phone: '24988067366',
+        email: 'alguem@exemplo.com',
+        birthDate: '1972-01-03',
+        medicalNotes: null,
+      });
+      expect(plano.pacientes[1]).toMatchObject({
+        phone: '2420174722',
+        email: 'outro@exemplo.com',
+        birthDate: '1940-10-08',
+        medicalNotes: null,
+      });
+      expect(ctx.relatorio.avisos).toContainEqual(
+        expect.objectContaining({
+          idOrigem: '50',
+          aviso: expect.stringContaining('colunas deslocadas'),
+          detalhe: 'e-mail, nascimento, telefone',
+        }),
+      );
     });
   });
 
