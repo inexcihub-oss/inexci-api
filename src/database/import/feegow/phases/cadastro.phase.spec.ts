@@ -285,6 +285,33 @@ describe('planejarCadastro (export sintético)', () => {
       expect(p.pacientes[2].healthPlanId).toBeNull();
     });
 
+    it('carteirinha é a matrícula do convênio escolhido, não a primeira', () => {
+      const ctx = contextoDeTeste();
+      const p = planejarCadastro(
+        exportSintetico({
+          paciente_convenio: [
+            {
+              paciente_id: '10',
+              convenio_id1: '8',
+              matricula1: 'GOLD-1',
+              convenio_id2: '15',
+              matricula2: 'UNI-2',
+            },
+            // O 11 tem só GOLDEN CROSS no cadastro, mas a consulta escolhe
+            // UNIMED: sem matrícula correspondente, fica sem número.
+            { paciente_id: '11', convenio_id1: '8', matricula1: 'GOLD-11' },
+          ],
+        }),
+        ctx,
+      );
+
+      expect(p.pacientes[0].healthPlanNumber).toBe('UNI-2');
+      expect(p.pacientes[1].healthPlanId).toBe(
+        ctx.ledger.resolver('health_plan', '14'),
+      );
+      expect(p.pacientes[1].healthPlanNumber).toBeNull();
+    });
+
     it('CPF inválido vira null, com aviso e o valor original nas observações', () => {
       const { ctx, plano: p } = plano();
 
@@ -391,7 +418,8 @@ describe('planejarCadastro (export sintético)', () => {
         opcoes: {
           ...contextoDeTeste().opcoes,
           somenteComAtividade: true,
-          lembretes: false,
+          semLembretes: false,
+          donoNaoProfissional: false,
           passadasSemAtendimento: 'manter',
         },
       });

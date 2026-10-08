@@ -64,7 +64,7 @@ export class AppointmentsController {
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.appointmentsService.findOne(id, user.userId);
+    return this.appointmentsService.findOneComFicha(id, user.userId);
   }
 
   @Get(':id/activities')

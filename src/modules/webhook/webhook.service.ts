@@ -10,6 +10,9 @@ import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.const
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 import { Clinic } from 'src/database/entities/clinic.entity';
+import { AppointmentActivityType } from 'src/database/entities/appointment-activity.entity';
+import { AppointmentActivityRepository } from 'src/database/repositories/appointment-activity.repository';
+import { registrarNoHistorico } from 'src/modules/appointments/appointment-history';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { formatAppointmentWhen, formatClinicAddress } from 'src/shared/utils';
 
@@ -44,6 +47,8 @@ export class WebhookService {
    * antes, e a resposta pode chegar com a consulta recém-passada — daí a folga
    * para trás.
    */
+  private static readonly MOTIVO_CANCELAMENTO_PELO_PACIENTE =
+    'Cancelada pelo paciente pelo WhatsApp';
   private static readonly APPOINTMENT_LOOKBACK_MS = 6 * 60 * 60 * 1000;
   private static readonly APPOINTMENT_LOOKAHEAD_MS = 26 * 60 * 60 * 1000;
 
@@ -57,6 +62,7 @@ export class WebhookService {
     private readonly whatsappService: WhatsappService,
     private readonly appointmentRepository: AppointmentRepository,
     private readonly notificationsService: NotificationsService,
+    private readonly appointmentActivityRepository: AppointmentActivityRepository,
   ) {}
 
   /**
@@ -135,15 +141,41 @@ export class WebhookService {
     const patientName = appointment.patient?.name ?? 'Paciente';
     const when = formatAppointmentWhen(appointment.scheduledAt);
 
+    const novoStatus =
+      answer === 'confirmed'
+        ? AppointmentStatus.CONFIRMED
+        : AppointmentStatus.CANCELLED;
     if (answer === 'confirmed') {
       await this.appointmentRepository.update(appointment.id, {
-        status: AppointmentStatus.CONFIRMED,
+        status: novoStatus,
       });
     } else {
       await this.appointmentRepository.update(appointment.id, {
-        status: AppointmentStatus.CANCELLED,
-        cancellationReason: 'Cancelada pelo paciente pelo WhatsApp',
+        status: novoStatus,
+        cancellationReason: WebhookService.MOTIVO_CANCELAMENTO_PELO_PACIENTE,
       });
+    }
+
+    // MIG-04: a mudança feita pelo paciente entra no histórico da consulta
+    // como qualquer outra. Sem usuário (`userId: null`) — quem agiu foi o
+    // paciente, e o conteúdo diz a origem. Best-effort (ver
+    // `registrarNoHistorico`): o status já foi gravado.
+    if (appointment.status !== novoStatus) {
+      await registrarNoHistorico(
+        this.appointmentActivityRepository,
+        this.logger,
+        {
+          appointmentId: appointment.id,
+          userId: null,
+          type: AppointmentActivityType.STATUS_CHANGE,
+          fromStatus: appointment.status,
+          toStatus: novoStatus,
+          content:
+            answer === 'confirmed'
+              ? 'Confirmada pelo paciente pelo WhatsApp'
+              : WebhookService.MOTIVO_CANCELAMENTO_PELO_PACIENTE,
+        },
+      );
     }
 
     await this.notificationsService.notifyAppointmentPatientResponse({

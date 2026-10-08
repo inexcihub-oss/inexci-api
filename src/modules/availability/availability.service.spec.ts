@@ -84,6 +84,18 @@ describe('AvailabilityService (MIG-05)', () => {
       expect(terca.slots).toEqual([]);
     });
 
+    it('cada horário traz a clínica/sala do período da grade que o gerou', async () => {
+      schedules.findActiveByDoctor.mockResolvedValue([
+        grade({ endTime: '08:30:00', clinicId: 'cli-1', roomId: 'sala-1' }),
+        grade({ id: 'g2', startTime: '14:00:00', endTime: '14:30:00' }),
+      ]);
+      const [dia] = await slots();
+      expect(dia.slots.map((s) => [s.clinicId, s.roomId])).toEqual([
+        ['cli-1', 'sala-1'],
+        [null, null],
+      ]);
+    });
+
     it('último horário que não cabe inteiro fica de fora', async () => {
       schedules.findActiveByDoctor.mockResolvedValue([
         grade({ endTime: '09:45:00', slotMinutes: 30 }),

@@ -645,8 +645,26 @@ describe('AccessControlService', () => {
       role: UserRole.COLLABORATOR,
       status: UserStatus.ACTIVE,
       permissions: [],
-      doctorProfile: { id: 'dp-1' },
+      doctorProfile: { id: 'dp-1', council: 'CRM' },
     };
+
+    it('não trata o profissional dono do recurso como CRM quando ele não é', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        {
+          ...medico,
+          id: 'dent-1',
+          doctorProfile: { id: 'dp-3', council: 'CRO' },
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([]);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'dent-1',
+        'owner-1',
+      );
+
+      expect(result).toEqual([]);
+    });
 
     it('inclui o médico, os colaboradores vinculados e os admins da conta', async () => {
       userRepository.findByOwnerId = jest.fn().mockResolvedValue([

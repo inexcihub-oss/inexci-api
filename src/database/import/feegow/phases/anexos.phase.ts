@@ -8,7 +8,11 @@ import {
 } from 'src/shared/storage/foto-paciente';
 import { Document } from 'src/database/entities/document.entity';
 import { Patient } from 'src/database/entities/patient.entity';
-import { ArmazenamentoImportacao, emParalelo } from '../../core/armazenamento';
+import {
+  ArmazenamentoImportacao,
+  emParalelo,
+  limparEPropagar,
+} from '../../core/armazenamento';
 import { Ledger } from '../../core/ledger';
 import { Relatorio } from '../../core/report';
 import { ContextoImportacao } from '../context';
@@ -127,8 +131,8 @@ export async function enviarAnexos(
       }
     });
   } catch (erro) {
-    await armazenamento.apagar(enviados);
-    throw erro;
+    // Falha na limpeza (rede, credencial) não pode esconder o erro do envio.
+    return limparEPropagar(erro, () => armazenamento.apagar(enviados));
   }
   plano.documentos = plano.documentos.filter((d) => !docsRejeitados.has(d));
   plano.fotos = plano.fotos.filter((f) => !fotosRejeitadas.has(f));

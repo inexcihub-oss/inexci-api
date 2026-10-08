@@ -3,12 +3,15 @@ import {
   Appointment,
   OCCUPYING_APPOINTMENT_STATUSES,
 } from 'src/database/entities/appointment.entity';
+import { Ledger } from '../../core/ledger';
 import { Relatorio } from '../../core/report';
 import { ClinicRoom } from 'src/database/entities/clinic-room.entity';
 import { ContextoImportacao } from '../context';
 import { ExportFeegow } from '../export';
 import {
+  chaveDeSala,
   encaixarSobrepostas,
+  LEDGER_SALA,
   NovaConsulta,
   NovaSala,
   planejarConsultas,
@@ -22,6 +25,8 @@ export interface PlanoAgenda {
   /** Origem no Feegow de cada consulta planejada (para o relatório). */
   origem: Map<string, { agendamento: string; profissional: string }>;
   relatorio: Relatorio;
+  /** Ledger da fase: a gravação repõe nele a sala reaproveitada do banco. */
+  ledger: Ledger;
 }
 
 /**
@@ -44,13 +49,20 @@ export function planejarAgenda(
       `${colisoes.length} sobreposições de horário do mesmo profissional (lista em "colisoes")`,
     );
   }
-  return { salas, consultas, origem, relatorio: ctx.relatorio };
+  return {
+    salas,
+    consultas,
+    origem,
+    relatorio: ctx.relatorio,
+    ledger: ctx.ledger,
+  };
 }
 
 export async function gravarAgenda(
   plano: PlanoAgenda,
   manager: EntityManager,
 ): Promise<void> {
+  await reaproveitarSalasDoBanco(plano, manager);
   await inserirEmLotes(manager, ClinicRoom, plano.salas);
   await encaixarSobreConsultasDoBanco(plano, manager);
   await inserirEmLotes(manager, Appointment, plano.consultas);
@@ -72,6 +84,58 @@ function bloqueiosFuturos(exp: ExportFeegow, hoje: string) {
       ate: `${b.DataA ?? ''} ${b.HoraA ?? ''}`.trim(),
       motivo: [b.Titulo, b.Descricao].filter(Boolean).join(' — ') || null,
     }));
+}
+
+/**
+ * Sala planejada com o nome de uma que a clínica já tem (criada pela tela
+ * depois do cadastro, ou numa carga anterior por outro local) não é criada:
+ * `uq_clinic_rooms_clinic_name_active` recusaria o INSERT e derrubaria a fase.
+ * As consultas e o ledger passam a apontar para a sala existente. Roda dentro
+ * da transação, logo antes do insert.
+ */
+async function reaproveitarSalasDoBanco(
+  plano: PlanoAgenda,
+  manager: EntityManager,
+): Promise<void> {
+  if (!plano.salas.length) return;
+  const clinicas = [...new Set(plano.salas.map((s) => s.clinicId))];
+  const existentes = await manager
+    .getRepository(ClinicRoom)
+    .createQueryBuilder('r')
+    .select(['r.id', 'r.clinicId', 'r.name'])
+    .where('r.clinicId IN (:...clinicas)', { clinicas })
+    .andWhere('r.deletedAt IS NULL')
+    .getMany();
+  const porNome = new Map<string, string>();
+  for (const r of existentes) {
+    if (typeof r.name !== 'string') continue;
+    porNome.set(`${r.clinicId}|${chaveDeSala(r.name)}`, r.id);
+  }
+  if (!porNome.size) return;
+
+  const trocar = new Map<string, string>();
+  plano.salas = plano.salas.filter((sala) => {
+    const existente = porNome.get(`${sala.clinicId}|${chaveDeSala(sala.name)}`);
+    if (!existente) return true;
+    trocar.set(sala.id, existente);
+    for (
+      let idOrigem = plano.ledger.removerPorUuid(LEDGER_SALA, sala.id);
+      idOrigem !== null;
+      idOrigem = plano.ledger.removerPorUuid(LEDGER_SALA, sala.id)
+    ) {
+      plano.ledger.registrar(LEDGER_SALA, idOrigem, existente);
+      plano.relatorio.avisar(
+        'sala',
+        idOrigem,
+        `a clínica já tem a sala "${sala.name}": reaproveitada`,
+      );
+    }
+    plano.relatorio.desfazerAceite('sala');
+    return false;
+  });
+  for (const c of plano.consultas) {
+    if (c.roomId && trocar.has(c.roomId)) c.roomId = trocar.get(c.roomId)!;
+  }
 }
 
 /**

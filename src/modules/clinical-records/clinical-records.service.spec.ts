@@ -31,7 +31,10 @@ describe('ClinicalRecordsService', () => {
     assertIsPhysician: jest.fn(),
   };
   const mockSurgicalIndication = { createForRecord: jest.fn() };
-  const mockActivityRepo = { create: jest.fn().mockResolvedValue({}) };
+  const mockActivityRepo = {
+    create: jest.fn().mockResolvedValue({}),
+    findByAppointment: jest.fn().mockResolvedValue([]),
+  };
   const mockProcedureRepo = { findOne: jest.fn() };
 
   const ownerId = 'owner-1';
@@ -349,6 +352,34 @@ describe('ClinicalRecordsService', () => {
       expect(mockClinicalRepo.update).not.toHaveBeenCalled();
     });
 
+    it('reenviar a indicação já marcada não reconfere o CRM (salvar a anamnese)', async () => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        doctorId: 'dentista-1',
+        surgicalIndication: true,
+        finalizedAt: null,
+      });
+      mockAccess.assertIsPhysicianWithRegistry.mockRejectedValue(
+        new ForbiddenException(),
+      );
+      mockAccess.assertIsPhysician.mockRejectedValue(new ForbiddenException());
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+
+      await service.update(
+        'cr-1',
+        { anamnesis: '<p>dor</p>', surgicalIndication: true },
+        userId,
+      );
+
+      expect(mockAccess.assertIsPhysicianWithRegistry).not.toHaveBeenCalled();
+      expect(mockAccess.assertIsPhysician).not.toHaveBeenCalled();
+      expect(mockClinicalRepo.update).toHaveBeenCalledWith('cr-1', {
+        anamnesis: '<p>dor</p>',
+        surgicalIndication: true,
+      });
+    });
+
     it('desmarcar a indicação não exige médico', async () => {
       mockClinicalRepo.findOne.mockResolvedValue({
         id: 'cr-1',
@@ -660,6 +691,109 @@ describe('ClinicalRecordsService', () => {
       await expect(service.delete('cr-1', userId)).rejects.toThrow(
         BadRequestException,
       );
+      expect(mockClinicalRepo.delete).not.toHaveBeenCalled();
+    });
+
+    describe('rascunho de consulta posta em atendimento pela ficha', () => {
+      const iniciou = (
+        fromStatus: string,
+        content = 'Atendimento iniciado',
+      ) => ({
+        type: 'status_change',
+        fromStatus,
+        toStatus: AppointmentStatus.IN_PROGRESS,
+        content,
+      });
+
+      beforeEach(() => {
+        mockClinicalRepo.findOne.mockResolvedValue({
+          id: 'cr-1',
+          ownerId,
+          doctorId,
+          appointmentId: 'a1',
+          finalizedAt: null,
+        });
+        mockAppointmentRepo.findOne.mockResolvedValue({
+          id: 'a1',
+          status: AppointmentStatus.IN_PROGRESS,
+        });
+      });
+
+      it('exclui e devolve a consulta ao status de antes do atendimento, registrando no histórico', async () => {
+        mockActivityRepo.findByAppointment.mockResolvedValue([
+          { type: 'created' },
+          {
+            type: 'status_change',
+            fromStatus: AppointmentStatus.CONFIRMED,
+            toStatus: AppointmentStatus.WAITING,
+          },
+          iniciou(AppointmentStatus.WAITING),
+        ]);
+
+        await service.delete('cr-1', userId);
+
+        expect(mockClinicalRepo.delete).toHaveBeenCalledWith('cr-1');
+        expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
+          status: AppointmentStatus.WAITING,
+        });
+        expect(mockActivityRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            appointmentId: 'a1',
+            userId,
+            type: 'status_change',
+            fromStatus: AppointmentStatus.IN_PROGRESS,
+            toStatus: AppointmentStatus.WAITING,
+          }),
+        );
+      });
+
+      it('não mexe na consulta quando a última mudança de status não foi a abertura da ficha', async () => {
+        mockActivityRepo.findByAppointment.mockResolvedValue([
+          iniciou(AppointmentStatus.SCHEDULED),
+          {
+            type: 'status_change',
+            fromStatus: AppointmentStatus.COMPLETED,
+            toStatus: AppointmentStatus.IN_PROGRESS,
+            content: null,
+          },
+        ]);
+
+        await service.delete('cr-1', userId);
+
+        expect(mockClinicalRepo.delete).toHaveBeenCalledWith('cr-1');
+        expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('não mexe na consulta posta em atendimento sem histórico (ex.: importação)', async () => {
+        mockActivityRepo.findByAppointment.mockResolvedValue([]);
+
+        await service.delete('cr-1', userId);
+
+        expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+        expect(mockActivityRepo.create).not.toHaveBeenCalled();
+      });
+
+      it('não mexe na consulta que já saiu de "em atendimento"', async () => {
+        mockAppointmentRepo.findOne.mockResolvedValue({
+          id: 'a1',
+          status: AppointmentStatus.CONFIRMED,
+        });
+
+        await service.delete('cr-1', userId);
+
+        expect(mockActivityRepo.findByAppointment).not.toHaveBeenCalled();
+        expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('não-médico não exclui o rascunho', async () => {
+        mockAccess.assertIsDoctor.mockRejectedValue(new ForbiddenException());
+
+        await expect(service.delete('cr-1', userId)).rejects.toThrow(
+          ForbiddenException,
+        );
+        expect(mockClinicalRepo.delete).not.toHaveBeenCalled();
+        expect(mockAppointmentRepo.update).not.toHaveBeenCalled();
+      });
     });
   });
 

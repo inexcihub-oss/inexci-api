@@ -80,7 +80,8 @@ export interface OpcoesCli {
   out: string;
   mapear: Map<string, string>;
   somenteComAtividade: boolean;
-  lembretes: boolean;
+  semLembretes: boolean;
+  donoNaoProfissional: boolean;
   passadasSemAtendimento: 'manter' | 'completed' | 'no_show';
   caixaLivre: 'anamnesis' | 'conduct';
   incluirRascunhos: boolean;
@@ -101,9 +102,9 @@ const USO = `Uso:
   yarn import:feegow --dir <pasta do export> --owner-email <e-mail do dono> \\
     --fase ${FASES.map((f) => f.nome).join('|')}|tudo [--dry-run] [--sem-banco] [--out <pasta>] \\
     [--mapear prof:8=email@x.com] [--mapear func:2=email@x.com] \\
-    [--somente-com-atividade] [--lembretes] [--passadas-sem-atendimento completed|no_show] \\
+    [--somente-com-atividade] [--sem-lembretes] [--passadas-sem-atendimento completed|no_show] \\
     [--caixa-livre anamnesis|conduct] [--incluir-rascunhos] [--modelos-vazios] \\
-    [--bloqueios-so-futuros] \\
+    [--bloqueios-so-futuros] [--dono-nao-profissional] \\
   yarn import:feegow --dir <pasta> --owner-email <e-mail> --verificar [--out <pasta>]
     [--hoje AAAA-MM-DD] [--sim] [--adotar-ledger]
 
@@ -114,7 +115,11 @@ const USO = `Uso:
   --adotar-ledger  aceita um ledger.json antigo, sem conta/banco gravados, como
                  desta conta e deste banco (confira antes: ledger de outra
                  conta faz a carga apontar para pacientes alheios)
-  --lembretes    deixa a INEXCI enviar lembrete das consultas futuras importadas
+  --sem-lembretes  marca as consultas futuras importadas como já lembradas
+                 (padrão: a INEXCI envia o lembrete de 24 h delas)
+  --dono-nao-profissional  aceita que o dono da conta não case com nenhum
+                 profissional do export (conta cujo dono não atende); sem
+                 ela, a fase cadastro aborta e pede o --mapear do dono
   --passadas-sem-atendimento  reclassifica consultas passadas que ficaram em
                  aberto sem atendimento (padrão: manter como no Feegow)
   --caixa-livre  campo da ficha que recebe os formulários de texto livre
@@ -189,7 +194,8 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
     out: valor('--out') ?? dir,
     mapear,
     somenteComAtividade: tem('--somente-com-atividade'),
-    lembretes: tem('--lembretes'),
+    semLembretes: tem('--sem-lembretes'),
+    donoNaoProfissional: tem('--dono-nao-profissional'),
     passadasSemAtendimento: passadas as OpcoesCli['passadasSemAtendimento'],
     caixaLivre: caixaLivre as OpcoesCli['caixaLivre'],
     incluirRascunhos: tem('--incluir-rascunhos'),
@@ -344,7 +350,8 @@ export function baseDoContexto(
     mapear: opcoes.mapear,
     opcoes: {
       somenteComAtividade: opcoes.somenteComAtividade,
-      lembretes: opcoes.lembretes,
+      semLembretes: opcoes.semLembretes,
+      donoNaoProfissional: opcoes.donoNaoProfissional,
       passadasSemAtendimento: opcoes.passadasSemAtendimento,
       caixaLivre: opcoes.caixaLivre,
       incluirRascunhos: opcoes.incluirRascunhos,

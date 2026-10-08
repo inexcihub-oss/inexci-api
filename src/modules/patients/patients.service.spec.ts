@@ -1,5 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
-import { PatientsService } from './patients.service';
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { FOTO_EXPIRADA, PatientsService } from './patients.service';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -43,7 +46,11 @@ describe('PatientsService', () => {
   /** Linha lida com FOR UPDATE dentro da transação da troca de foto. */
   let lidoNaTransacao: jest.Mock;
   let transaction: jest.Mock;
-  let storageService: { getSignedUrl: jest.Mock; delete: jest.Mock };
+  let storageService: {
+    getSignedUrl: jest.Mock;
+    delete: jest.Mock;
+    exists: jest.Mock;
+  };
 
   beforeEach(() => {
     patientRepository = {
@@ -74,6 +81,7 @@ describe('PatientsService', () => {
     storageService = {
       getSignedUrl: jest.fn((p: string) => Promise.resolve(`https://r2/${p}`)),
       delete: jest.fn().mockResolvedValue(undefined),
+      exists: jest.fn().mockResolvedValue(true),
     };
     const userRepository = {
       findOne: jest.fn().mockResolvedValue({ id: 'user-1', ownerId: OWNER }),
@@ -165,6 +173,70 @@ describe('PatientsService', () => {
         service.create({ name: 'Maria', photoPath: caminho }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
       expect(patientRepository.create).not.toHaveBeenCalled();
+    });
+
+    describe('foto que sumiu do bucket', () => {
+      it('cadastro: recusa com 400 "expirou" e não grava', async () => {
+        storageService.exists.mockResolvedValue(false);
+
+        const erro = service.create(
+          { name: 'Maria', photoPath: FOTO },
+          'user-1',
+        );
+
+        await expect(erro).rejects.toThrow(BadRequestException);
+        await expect(erro).rejects.toThrow(FOTO_EXPIRADA);
+        expect(storageService.exists).toHaveBeenCalledWith(FOTO);
+        expect(patientRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('troca: recusa e não apaga a foto atual', async () => {
+        patientRepository.findOne.mockResolvedValue(
+          paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
+        );
+        storageService.exists.mockResolvedValue(false);
+
+        await expect(
+          service.update('pac-1', { photoPath: FOTO }, 'user-1'),
+        ).rejects.toThrow(FOTO_EXPIRADA);
+        expect(patientRepository.update).not.toHaveBeenCalled();
+        expect(storageService.delete).not.toHaveBeenCalled();
+      });
+
+      it('PATCH que reenvia a foto que o paciente já tem não confere o bucket', async () => {
+        patientRepository.findOne.mockResolvedValue(
+          paciente({ photoPath: FOTO }),
+        );
+        storageService.exists.mockResolvedValue(false);
+
+        await service.update(
+          'pac-1',
+          { photoPath: FOTO, name: 'Maria S.' },
+          'user-1',
+        );
+
+        expect(storageService.exists).not.toHaveBeenCalled();
+        expect(gravadoNoUpdate().name).toBe('Maria S.');
+      });
+
+      it('R2 fora: 503, sem gravar caminho que não deu para confirmar', async () => {
+        storageService.exists.mockRejectedValue(new Error('R2 fora'));
+
+        await expect(
+          service.create({ name: 'Maria', photoPath: FOTO }, 'user-1'),
+        ).rejects.toThrow(ServiceUnavailableException);
+        expect(patientRepository.create).not.toHaveBeenCalled();
+      });
+
+      it('remover a foto (null) não consulta o bucket', async () => {
+        patientRepository.findOne.mockResolvedValue(
+          paciente({ photoPath: FOTO }),
+        );
+
+        await service.update('pac-1', { photoPath: null }, 'user-1');
+
+        expect(storageService.exists).not.toHaveBeenCalled();
+      });
     });
 
     it('trocar a foto apaga a antiga do storage', async () => {

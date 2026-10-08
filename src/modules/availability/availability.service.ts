@@ -33,6 +33,12 @@ export interface Slot {
   end: string;
   free: boolean;
   reason?: MotivoOcupado;
+  /**
+   * Local do período da grade que gerou o horário — deixa o agendamento
+   * preencher clínica/sala ao escolher o horário (null = grade sem local).
+   */
+  clinicId: string | null;
+  roomId: string | null;
 }
 
 export interface DiaDisponivel {
@@ -201,6 +207,8 @@ export class AvailabilityService {
           end: fimSlot.toISOString(),
           free: !reason,
           ...(reason ? { reason } : {}),
+          clinicId: g.clinicId ?? null,
+          roomId: g.roomId ?? null,
         });
       }
     }

@@ -28,6 +28,7 @@ describe('AppointmentsService', () => {
 
   const mockClinicalRecordRepository = {
     findOne: jest.fn(),
+    findStatusByAppointmentIds: jest.fn(),
   };
 
   const mockClinicRepository = {
@@ -83,6 +84,9 @@ describe('AppointmentsService', () => {
     );
     mockPatientRepository.findOne.mockResolvedValue({ id: patientId, ownerId });
     mockClinicalRecordRepository.findOne.mockResolvedValue(null);
+    mockClinicalRecordRepository.findStatusByAppointmentIds.mockResolvedValue(
+      new Map(),
+    );
     mockClinicRepository.findOne.mockResolvedValue({
       id: 'clinic-1',
       ownerId,
@@ -153,7 +157,59 @@ describe('AppointmentsService', () => {
         [doctorId],
         patientId,
       );
-      expect(result).toEqual({ total: 1, records: [{ id: 'a-1' }] });
+      expect(result).toEqual({
+        total: 1,
+        records: [{ id: 'a-1', clinicalRecordStatus: null }],
+      });
+    });
+  });
+
+  // "Iniciar" × "Continuar" × "Ver atendimento" sai da ficha, não do status
+  // da agenda (que pode ser mexido à mão sem acompanhar a ficha).
+  describe('situação da ficha na leitura', () => {
+    beforeEach(() => {
+      mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
+        doctorId,
+      ]);
+      mockClinicalRecordRepository.findStatusByAppointmentIds.mockResolvedValue(
+        new Map([
+          ['a-1', 'draft'],
+          ['a-2', 'finalized'],
+        ]),
+      );
+    });
+
+    it('findAgenda anota rascunho, finalizada e sem ficha numa query só', async () => {
+      mockAppointmentRepository.findAgenda.mockResolvedValue({
+        records: [{ id: 'a-1' }, { id: 'a-2' }, { id: 'a-3' }],
+        total: 3,
+      });
+
+      const { records } = await service.findAgenda({} as any, userId);
+
+      expect(records.map((r) => r.clinicalRecordStatus)).toEqual([
+        'draft',
+        'finalized',
+        null,
+      ]);
+      expect(
+        mockClinicalRecordRepository.findStatusByAppointmentIds,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        mockClinicalRecordRepository.findStatusByAppointmentIds,
+      ).toHaveBeenCalledWith(['a-1', 'a-2', 'a-3']);
+    });
+
+    it('findOneComFicha traz a situação da ficha da consulta', async () => {
+      mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
+        id: 'a-1',
+        ownerId,
+        doctorId,
+      });
+
+      const consulta = await service.findOneComFicha('a-1', userId);
+
+      expect(consulta.clinicalRecordStatus).toBe('draft');
     });
   });
 
@@ -224,6 +280,7 @@ describe('AppointmentsService', () => {
         new Date('2026-08-01T14:00:00.000Z'),
         new Date('2026-08-01T14:30:00.000Z'),
         undefined,
+        {},
       );
       expect(result).toMatchObject({
         ownerId,
@@ -285,6 +342,7 @@ describe('AppointmentsService', () => {
         new Date('2026-08-01T15:00:00.000Z'),
         new Date('2026-08-01T15:30:00.000Z'),
         'appt-1',
+        { ignorarEncaixes: true },
       );
     });
 
@@ -449,6 +507,7 @@ describe('AppointmentsService', () => {
           new Date('2026-08-01T14:30:00.000Z'),
           new Date('2026-08-01T15:00:00.000Z'),
           'appt-1',
+          { ignorarEncaixes: true },
         );
         expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
       },
@@ -1276,6 +1335,37 @@ describe('AppointmentsService', () => {
         ).rejects.toThrow(ConflictException);
       });
 
+      it('notes null apaga a observação (sem 500)', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          existente({ notes: 'antiga' }),
+        );
+
+        await service.update('appt-1', { notes: null }, userId);
+
+        expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+          'appt-1',
+          expect.objectContaining({ notes: null }),
+        );
+      });
+
+      // A exclusion constraint ignora encaixes dos dois lados: um encaixe
+      // posto sobre a consulta não pode impedir de remarcá-la.
+      it('remarcar consulta normal ignora encaixes na checagem de conflito', async () => {
+        mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+          existente(),
+        );
+
+        await service.update('appt-1', { durationMinutes: 45 }, userId);
+
+        expect(mockAppointmentRepository.hasOverlap).toHaveBeenCalledWith(
+          doctorId,
+          expect.any(Date),
+          expect.any(Date),
+          'appt-1',
+          { ignorarEncaixes: true },
+        );
+      });
+
       it('troca o convênio e volta para particular', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           existente(),
@@ -1814,6 +1904,61 @@ describe('AppointmentsService', () => {
         expect(mockClinicalRecordRepository.findOne).not.toHaveBeenCalled();
         expect(mockAppointmentRepository.update).toHaveBeenCalled();
       });
+
+      // Ficha vinculada (rascunho ou finalizada) atesta o atendimento: a
+      // consulta não pode virar cancelada nem falta.
+      it.each([
+        [AppointmentStatus.IN_PROGRESS, AppointmentStatus.CANCELLED, null],
+        [AppointmentStatus.IN_PROGRESS, AppointmentStatus.NO_SHOW, null],
+        [AppointmentStatus.SCHEDULED, AppointmentStatus.CANCELLED, null],
+        [AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW, null],
+        [
+          AppointmentStatus.IN_PROGRESS,
+          AppointmentStatus.CANCELLED,
+          new Date(),
+        ],
+      ])(
+        '%s com ficha (finalizedAt=%#) não pode virar %s (409)',
+        async (de, para, finalizedAt) => {
+          mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+            consulta({ status: de }),
+          );
+          mockClinicalRecordRepository.findOne.mockResolvedValue({
+            id: 'rec-1',
+            finalizedAt,
+          });
+
+          await expect(
+            service.updateStatus('appt-1', { status: para }, userId),
+          ).rejects.toThrow(
+            new ConflictException(
+              para === AppointmentStatus.CANCELLED
+                ? 'Esta consulta já tem uma ficha de atendimento e não pode ser cancelada.'
+                : 'Esta consulta já tem uma ficha de atendimento e não pode ser marcada como falta.',
+            ),
+          );
+          expect(mockClinicalRecordRepository.findOne).toHaveBeenCalledWith({
+            appointmentId: 'appt-1',
+          });
+          expect(mockAppointmentRepository.update).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each([AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW])(
+        'sem ficha vinculada, %s continua permitido',
+        async (para) => {
+          mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
+            consulta(),
+          );
+
+          await service.updateStatus('appt-1', { status: para }, userId);
+
+          expect(mockAppointmentRepository.update).toHaveBeenCalledWith(
+            'appt-1',
+            expect.objectContaining({ status: para }),
+          );
+        },
+      );
 
       it('reativar (cancelada → confirmada) zera o lembrete e avisa o paciente', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(

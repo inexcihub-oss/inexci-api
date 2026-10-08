@@ -310,12 +310,21 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
    *
    * O que ocupa é `OCCUPYING_APPOINTMENT_STATUSES` (em aberto + realizada) —
    * não `isActiveAppointmentStatus`, que deixa a realizada de fora.
+   *
+   * Por padrão um encaixe (`is_walk_in`) conta como ocupando o horário: é o
+   * que impede marcar uma consulta normal **nova** em cima de um encaixe. A
+   * exclusion constraint `EX_appointments_doctor_no_overlap`, porém, ignora
+   * encaixes dos dois lados — então, para uma consulta que **já existe**
+   * (editar, reativar), `ignorarEncaixes` aplica o mesmo critério do banco:
+   * um encaixe posto sobre ela não pode travar a própria consulta que ele
+   * encaixou.
    */
   async hasOverlap(
     doctorId: string,
     start: Date,
     end: Date,
     excludeId?: string,
+    opcoes: { ignorarEncaixes?: boolean } = {},
   ): Promise<boolean> {
     const qb = this.repository
       .createQueryBuilder('appointment')
@@ -331,6 +340,9 @@ export class AppointmentRepository extends BaseRepository<Appointment> {
 
     if (excludeId) {
       qb.andWhere('appointment.id != :excludeId', { excludeId });
+    }
+    if (opcoes.ignorarEncaixes) {
+      qb.andWhere('appointment.isWalkIn = false');
     }
 
     const count = await qb.getCount();

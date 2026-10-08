@@ -399,3 +399,115 @@ describe('planejarEquipe — e-mail maior que users.email', () => {
     );
   });
 });
+
+describe('planejarEquipe — dono da conta precisa casar com um profissional', () => {
+  const donoCom = (email: string) =>
+    new Map([[email, { id: OWNER, ownerId: OWNER, email, temPerfil: true }]]);
+
+  it('casa pelo e-mail igual ao do export', () => {
+    const ctx = contextoDeTeste({
+      usuariosPorEmail: donoCom('dono@exemplo.com'),
+    });
+    planejarEquipe(exportSintetico(), ctx);
+    expect(ctx.ledger.resolver(LEDGER_PROFISSIONAL, '1')).toBe(OWNER);
+  });
+
+  it('e-mail diferente e sem --mapear: aborta pedindo o --mapear e listando os candidatos', () => {
+    const ctx = contextoDeTeste({
+      usuariosPorEmail: donoCom('fabio@clinica.com'),
+    });
+    let erro: Error | null = null;
+    try {
+      planejarEquipe(exportSintetico(), ctx);
+    } catch (e) {
+      erro = e as Error;
+    }
+    expect(erro?.message).toContain('--mapear prof:<id>=fabio@clinica.com');
+    expect(erro?.message).toContain('prof:1 — Dono Médico');
+    expect(erro?.message).toContain('prof:4 — Ana Nutri');
+    expect(erro?.message).toContain('--dono-nao-profissional');
+  });
+
+  it('com --mapear prof:1=<e-mail do dono> passa', () => {
+    const ctx = contextoDeTeste({
+      usuariosPorEmail: donoCom('fabio@clinica.com'),
+      mapear: new Map([['prof:1', 'fabio@clinica.com']]),
+    });
+    planejarEquipe(exportSintetico(), ctx);
+    expect(ctx.ledger.resolver(LEDGER_PROFISSIONAL, '1')).toBe(OWNER);
+  });
+
+  it('--dono-nao-profissional desliga a exigência', () => {
+    const ctx = contextoDeTeste({
+      usuariosPorEmail: donoCom('fabio@clinica.com'),
+      opcoes: { ...contextoDeTeste().opcoes, donoNaoProfissional: true },
+    });
+    expect(() => planejarEquipe(exportSintetico(), ctx)).not.toThrow();
+  });
+
+  it('rodada seguinte com o dono já no ledger não aborta', () => {
+    const ctx = contextoDeTeste({
+      usuariosPorEmail: donoCom('fabio@clinica.com'),
+    });
+    ctx.ledger.registrar(LEDGER_PROFISSIONAL, '1', OWNER);
+    expect(() => planejarEquipe(exportSintetico(), ctx)).not.toThrow();
+  });
+
+  it('sem banco (dono desconhecido) só avisa', () => {
+    const ctx = contextoDeTeste();
+    expect(() => planejarEquipe(exportSintetico(), ctx)).not.toThrow();
+    expect(ctx.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        aviso: expect.stringContaining('dono da conta não conferido'),
+      }),
+    );
+    // Lista os candidatos já no ensaio, para o operador montar o --mapear.
+    const aviso = ctx.relatorio.avisos.find((a) =>
+      a.aviso.includes('dono da conta não conferido'),
+    );
+    expect(aviso?.aviso).toMatch(/Profissionais do export:\n {2}prof:\S+ — /);
+  });
+});
+
+describe('planejarEquipe — e-mail repetido dentro do export', () => {
+  it('o segundo cadastro com o mesmo e-mail é rejeitado, como o celular', () => {
+    const ctx = contextoDeTeste();
+    const exp = exportSintetico({
+      profissionais: [
+        {
+          id: '6',
+          nome_profissional: 'Karina Clínica',
+          conselho_id: '1',
+          email1: 'karina@exemplo.com',
+          celular1: '24999990006',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+      funcionarios: [
+        {
+          id: '3',
+          nome_funcionario: 'Karina Recepção',
+          email: 'KARINA@exemplo.com',
+          celular: '24999990007',
+          ativo: 'on',
+          sys_active: '1',
+        },
+      ],
+    });
+
+    const plano = planejarEquipe(exp, ctx);
+
+    expect(
+      plano.usuarios.filter((u) => u.email === 'karina@exemplo.com'),
+    ).toHaveLength(1);
+    expect(ctx.relatorio.rejeicoes).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '3',
+        motivo: expect.stringContaining('profissional 6'),
+      }),
+    );
+    // O celular do rejeitado não fica reservado à toa.
+    expect(plano.usuarios.map((u) => u.phone)).not.toContain('24999990007');
+  });
+});

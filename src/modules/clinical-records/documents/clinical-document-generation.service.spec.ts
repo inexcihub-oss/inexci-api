@@ -142,11 +142,11 @@ describe('ClinicalDocumentGenerationService', () => {
   });
 
   describe('receita', () => {
-    it('usa o médico da ficha, não o usuário logado', async () => {
+    it('assina com o médico da ficha, que é quem emite', async () => {
       await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'outro-medico-id',
+        'doctor-1',
       );
 
       expect(doctorPdfContextService.buildForDoctorId).toHaveBeenCalledWith(
@@ -167,7 +167,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generatePrescriptionPdf).toHaveBeenCalledWith(
@@ -182,7 +182,7 @@ describe('ClinicalDocumentGenerationService', () => {
       const result = await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(storageService.create).toHaveBeenCalledWith(
@@ -194,7 +194,7 @@ describe('ClinicalDocumentGenerationService', () => {
         expect.objectContaining({
           patientId: 'patient-1',
           clinicalRecordId: 'record-1',
-          createdById: 'user-1',
+          createdById: 'doctor-1',
           type: DOCUMENT_TYPES.prescription,
           key: DOCUMENT_TYPES.prescription,
           uri: 'documents/receita.pdf',
@@ -213,7 +213,7 @@ describe('ClinicalDocumentGenerationService', () => {
         await service.generatePrescription(
           'record-1',
           prescriptionDto as any,
-          'user-1',
+          'doctor-1',
         );
       } finally {
         jest.useRealTimers();
@@ -236,7 +236,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       const created = documentRepository.create.mock.calls[0][0];
@@ -332,7 +332,7 @@ describe('ClinicalDocumentGenerationService', () => {
         service.generatePrescription(
           'sumida',
           prescriptionDto as any,
-          'user-1',
+          'doctor-1',
         ),
       ).rejects.toThrow(NotFoundException);
     });
@@ -396,44 +396,92 @@ describe('ClinicalDocumentGenerationService', () => {
         expect(nota()).toBe('Afastamento de 3 dias, a partir de 30/07/2026.');
       });
 
-      it('texto que já diz os dias ganha só o início', async () => {
+      it('texto com {{dias}} (já impresso no lugar) ganha só o início', async () => {
         await emitir({
-          text: 'Necessita de 3 (três) dias de repouso.',
+          text: 'Necessita de {{dias}} dias de repouso.',
           restDays: 3,
           startDate: '2026-07-30',
         });
         expect(nota()).toBe('Início do afastamento: 30/07/2026.');
       });
 
-      it('número solto (CID, idade) não conta como os dias', async () => {
+      it('texto com {{dias}} e {{inicio}} não ganha linha', async () => {
         await emitir({
-          text: 'Paciente de 3 anos, CID M54.3.',
+          text: 'Repouso de {{DIAS}} a partir de {{inicio}}.',
+          restDays: 3,
+          startDate: '2026-07-30',
+        });
+        expect(nota()).toBeUndefined();
+        expect(
+          pdfService.generateMedicalCertificatePdf.mock.calls[0][0].text,
+        ).toBe('Repouso de 3 a partir de 30/07/2026.');
+      });
+
+      // A decisão é estrutural ({{dias}} substituído), não pelo conteúdo: "3
+      // dias" escrito à mão pode ser outra coisa ("retorno em 3 dias").
+      it('"N dias" escrito no texto não esconde o afastamento', async () => {
+        await emitir({
+          text: 'Retorno em 3 dias para reavaliação.',
           restDays: 3,
         });
         expect(nota()).toBe('Afastamento de 3 dias.');
       });
 
-      // O formulário começa com 1 dia: o comparecimento saía com
-      // "Afastamento de 1 dia." embaixo.
-      it('atestado de comparecimento não ganha linha de afastamento', async () => {
+      it('falar em comparecimento não decide nada: com dias, a linha entra', async () => {
         await emitir({
           text: 'Declaro que o paciente compareceu a esta consulta das 14h às 15h.',
           restDays: 1,
         });
-        expect(nota()).toBeUndefined();
+        expect(nota()).toBe('Afastamento de 1 dia.');
       });
 
-      it('comparecimento que também fala em afastamento segue a regra de sempre', async () => {
+      // Comparecimento = atestado sem `restDays`.
+      it('atestado de comparecimento (sem dias) não ganha linha', async () => {
         await emitir({
-          text: 'Compareceu à consulta e deve permanecer afastado.',
-          restDays: 2,
+          text: 'Declaro que o paciente compareceu e deve permanecer afastado.',
         });
-        expect(nota()).toBe('Afastamento de 2 dias.');
+        expect(nota()).toBeUndefined();
       });
 
-      it('sem afastamento no formulário não há linha', async () => {
-        await emitir({ text: 'Compareceu à consulta.' });
-        expect(nota()).toBeUndefined();
+      it('texto com {{dias}} sem dias informados é 400, não "por  dias"', async () => {
+        await expect(
+          emitir({ text: 'Afastado por {{dias}} dias.' }),
+        ).rejects.toThrow(
+          'O texto do atestado usa {{dias}}, mas os dias de afastamento não foram informados.',
+        );
+        expect(pdfService.generateMedicalCertificatePdf).not.toHaveBeenCalled();
+      });
+
+      it('texto com {{inicio}} sem afastamento também é 400', async () => {
+        await expect(
+          emitir({ text: 'A partir de {{ Inicio }}.' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('a prévia devolve o mesmo 400', async () => {
+        await expect(
+          service.previewMedicalCertificate(
+            {
+              clinicalRecordId: 'record-1',
+              text: 'Afastado por {{dias}} dias a partir de {{inicio}}.',
+            } as any,
+            'doctor-1',
+          ),
+        ).rejects.toThrow(
+          'O texto do atestado usa {{dias}} e {{inicio}}, mas os dias de afastamento não foram informados. Informe os dias de afastamento ou remova {{dias}} e {{inicio}} do texto.',
+        );
+        expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
+      });
+
+      it('modelo com {{dias}} sem dias informados é 400', async () => {
+        documentTemplatesService.getForUse.mockResolvedValue({
+          id: 'tpl-1',
+          kind: ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+          body: 'Afastado por {{dias}} dias.',
+        });
+        await expect(emitir({ templateId: 'tpl-1' })).rejects.toThrow(
+          BadRequestException,
+        );
       });
     });
 
@@ -441,7 +489,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateMedicalCertificate(
         'record-1',
         { restDays: 3, startDate: '2026-07-30' } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateMedicalCertificatePdf).toHaveBeenCalledWith(
@@ -456,7 +504,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateMedicalCertificate(
         'record-1',
         { restDays: 1 } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateMedicalCertificatePdf).toHaveBeenCalledWith(
@@ -472,7 +520,7 @@ describe('ClinicalDocumentGenerationService', () => {
           includeCid: true,
           cid: { code: 'M54.5', description: 'Dor lombar baixa' },
         } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateMedicalCertificatePdf).toHaveBeenCalledWith(
@@ -489,7 +537,7 @@ describe('ClinicalDocumentGenerationService', () => {
           restDays: 2,
           cid: { code: 'J06.9', description: 'Infecção aguda' },
         } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateMedicalCertificatePdf).toHaveBeenCalledWith(
@@ -503,7 +551,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateMedicalCertificate(
         'record-1',
         { restDays: 2 } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateMedicalCertificatePdf).toHaveBeenCalledWith(
@@ -513,7 +561,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateMedicalCertificate(
         'record-1',
         { restDays: 2, includeCid: true } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateMedicalCertificatePdf).toHaveBeenLastCalledWith(
@@ -527,7 +575,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateMedicalCertificate(
         'record-1',
         { restDays: 1 } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(documentRepository.create).toHaveBeenCalledWith(
@@ -540,7 +588,7 @@ describe('ClinicalDocumentGenerationService', () => {
     it('devolve o HTML do documento sem gravar nada', async () => {
       const html = await service.previewPrescription(
         { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(html).toBe('<html>previa</html>');
@@ -554,7 +602,7 @@ describe('ClinicalDocumentGenerationService', () => {
     it('não invoca o Puppeteer para pré-visualizar', async () => {
       await service.previewPrescription(
         { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generatePrescriptionPdf).not.toHaveBeenCalled();
@@ -563,7 +611,7 @@ describe('ClinicalDocumentGenerationService', () => {
     it('pré-visualiza a partir do mesmo template e dos mesmos dados da emissão', async () => {
       await service.previewPrescription(
         { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
-        'user-1',
+        'doctor-1',
       );
       const [template, previewData] =
         pdfService.renderClinicalDocumentHtml.mock.calls[0];
@@ -571,7 +619,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(template).toBe('prescription');
@@ -583,7 +631,7 @@ describe('ClinicalDocumentGenerationService', () => {
     it('pré-visualiza atestado e encaminhamento pelos templates certos', async () => {
       await service.previewMedicalCertificate(
         { clinicalRecordId: 'record-1', restDays: 1 } as any,
-        'user-1',
+        'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
         'medical-certificate',
@@ -592,7 +640,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
       await service.previewExamReferral(
         { clinicalRecordId: 'record-1', exams: [{ name: 'Hemograma' }] } as any,
-        'user-1',
+        'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
         'exam-referral',
@@ -653,19 +701,39 @@ describe('ClinicalDocumentGenerationService', () => {
       );
     });
 
-    it('confere clínica e vínculo com o médico que assina', async () => {
-      await service.previewPrescription(
-        {
-          patientId: 'patient-1',
-          doctorId: 'doctor-2',
-          ...prescriptionDto,
-        } as any,
-        'user-1',
+    it('confere clínica e vínculo e recusa pré-visualizar em nome de outro profissional', async () => {
+      await expect(
+        service.previewPrescription(
+          {
+            patientId: 'patient-1',
+            doctorId: 'doctor-2',
+            ...prescriptionDto,
+          } as any,
+          'doctor-1',
+        ),
+      ).rejects.toThrow(
+        new ForbiddenException(
+          'Só o profissional da consulta pode emitir este documento.',
+        ),
       );
 
       expect(
         accessControlService.assertCanAccessDoctorResource,
-      ).toHaveBeenCalledWith('user-1', 'owner-1', 'doctor-2');
+      ).toHaveBeenCalledWith('doctor-1', 'owner-1', 'doctor-2');
+      expect(doctorPdfContextService.buildForDoctorId).not.toHaveBeenCalled();
+      expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
+    });
+
+    it('doctorId igual ao próprio usuário pré-visualiza normalmente', async () => {
+      await service.previewPrescription(
+        {
+          patientId: 'patient-1',
+          doctorId: 'doctor-1',
+          ...prescriptionDto,
+        } as any,
+        'doctor-1',
+      );
+      expect(pdfService.renderClinicalDocumentHtml).toHaveBeenCalled();
     });
 
     it('recusa pré-visualizar em nome de médico fora do acesso do usuário', async () => {
@@ -751,7 +819,7 @@ describe('ClinicalDocumentGenerationService', () => {
           doctorId: 'doctor-1',
           ...prescriptionDto,
         } as any,
-        'user-1',
+        'doctor-1',
       );
       const [, previewData] =
         pdfService.renderClinicalDocumentHtml.mock.calls[0];
@@ -759,7 +827,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generatePrescription(
         'record-1',
         prescriptionDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generatePrescriptionPdf).toHaveBeenCalledWith(
@@ -781,7 +849,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateExamReferral(
         'record-1',
         referralDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(pdfService.generateExamReferralPdf).toHaveBeenCalledWith(
@@ -804,7 +872,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateExamReferral(
         'record-1',
         referralDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(healthPlanRepository.findOne).not.toHaveBeenCalled();
@@ -817,7 +885,7 @@ describe('ClinicalDocumentGenerationService', () => {
       await service.generateExamReferral(
         'record-1',
         referralDto as any,
-        'user-1',
+        'doctor-1',
       );
 
       expect(documentRepository.create).toHaveBeenCalledWith(
@@ -905,38 +973,92 @@ describe('ClinicalDocumentGenerationService', () => {
     });
   });
   /**
-   * MIG-02: o documento sai em nome do médico da ficha, que pode não ser quem
-   * clicou. Um médico (CRM) não emite receita em nome de uma nutricionista.
+   * Decisão de produto: só o profissional que assina emite. O documento sai
+   * com nome, registro e assinatura do profissional da ficha — nem um colega
+   * CRM/CRO com vínculo emite (ou pré-visualiza) em nome dele.
    */
-  describe('documento em nome de profissional que não é médico', () => {
+  describe('documento em nome de outro profissional', () => {
     beforeEach(() => {
-      accessControlService.assertCanIssueClinicalDocuments.mockImplementation(
-        (id: string) =>
-          id === 'nutricionista-1'
-            ? Promise.reject(new ForbiddenException())
-            : Promise.resolve(undefined),
-      );
       clinicalRecordRepository.findOne.mockResolvedValue({
         ...record,
-        doctorId: 'nutricionista-1',
+        doctorId: 'doctor-2',
       });
     });
 
-    it('recusa a receita mesmo emitida por médico', async () => {
-      await expect(
-        service.generatePrescription(
-          'record-1',
-          prescriptionDto as any,
-          'doctor-1',
+    it.each([
+      [
+        'receita',
+        () =>
+          service.generatePrescription(
+            'record-1',
+            prescriptionDto as any,
+            'doctor-1',
+          ),
+      ],
+      [
+        'atestado',
+        () =>
+          service.generateMedicalCertificate(
+            'record-1',
+            { restDays: 2 } as any,
+            'doctor-1',
+          ),
+      ],
+      [
+        'encaminhamento',
+        () =>
+          service.generateExamReferral(
+            'record-1',
+            { exams: [{ name: 'Hemograma' }] } as any,
+            'doctor-1',
+          ),
+      ],
+      [
+        'prévia da receita',
+        () =>
+          service.previewPrescription(
+            { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+            'doctor-1',
+          ),
+      ],
+      [
+        'prévia do atestado',
+        () =>
+          service.previewMedicalCertificate(
+            { clinicalRecordId: 'record-1', restDays: 2 } as any,
+            'doctor-1',
+          ),
+      ],
+      [
+        'prévia do encaminhamento',
+        () =>
+          service.previewExamReferral(
+            {
+              clinicalRecordId: 'record-1',
+              exams: [{ name: 'Hemograma' }],
+            } as any,
+            'doctor-1',
+          ),
+      ],
+      [
+        'aplicar modelo',
+        () =>
+          service.applyTemplate(
+            'tpl-1',
+            { clinicalRecordId: 'record-1' } as any,
+            'doctor-1',
+          ),
+      ],
+    ])('recusa %s com 403 e mensagem clara', async (_label, action) => {
+      await expect(action()).rejects.toThrow(
+        new ForbiddenException(
+          'Só o profissional da consulta pode emitir este documento.',
         ),
-      ).rejects.toThrow(ForbiddenException);
-
-      expect(
-        accessControlService.assertCanIssueClinicalDocuments,
-      ).toHaveBeenCalledWith('nutricionista-1', {
-        mensagem: expect.stringContaining('dentista (CRO)'),
-      });
+      );
+      expect(doctorPdfContextService.buildForDoctorId).not.toHaveBeenCalled();
+      expect(documentTemplatesService.getForUse).not.toHaveBeenCalled();
       expect(documentRepository.create).not.toHaveBeenCalled();
+      expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
     });
 
     it('médico com CRM sem número (veio do Feegow assim) não emite nem pré-visualiza', async () => {
@@ -1186,19 +1308,14 @@ describe('ClinicalDocumentGenerationService', () => {
     });
 
     it('o modelo tem que ser de quem assina: o service de modelos recebe o médico da ficha', async () => {
-      clinicalRecordRepository.findOne.mockResolvedValue({
-        ...record,
-        doctorId: 'doctor-2',
-      });
-
       await service.generateMedicalCertificate(
         'record-1',
-        { clinicalRecordId: 'record-1', templateId: 'tpl-1' },
+        { clinicalRecordId: 'record-1', restDays: 2, templateId: 'tpl-1' },
         'doctor-1',
       );
       await service.applyTemplate(
         'tpl-1',
-        { patientId: 'patient-1', doctorId: 'doctor-2' },
+        { patientId: 'patient-1', doctorId: 'doctor-1' },
         'doctor-1',
       );
 
@@ -1207,15 +1324,52 @@ describe('ClinicalDocumentGenerationService', () => {
         'tpl-1',
         ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
         'doctor-1',
-        'doctor-2',
+        'doctor-1',
       );
       expect(documentTemplatesService.getForUse).toHaveBeenNthCalledWith(
         2,
         'tpl-1',
         null,
         'doctor-1',
-        'doctor-2',
+        'doctor-1',
       );
+    });
+
+    it('pedido de exame com {{dias}}/{{inicio}} é 400 (emitir e prévia)', async () => {
+      const dto = {
+        clinicalRecordId: 'record-1',
+        exams: [{ name: 'RX' }],
+        clinicalIndication: 'Dor há {{dias}} dias',
+      };
+      const mensagem =
+        'O pedido de exame não tem afastamento: remova {{dias}} do texto da indicação clínica.';
+
+      await expect(
+        service.generateExamReferral('record-1', dto as any, 'doctor-1'),
+      ).rejects.toThrow(mensagem);
+      await expect(
+        service.previewExamReferral(dto as any, 'doctor-1'),
+      ).rejects.toThrow(mensagem);
+      expect(pdfService.generateExamReferralPdf).not.toHaveBeenCalled();
+    });
+
+    it('modelo de pedido de exame com {{inicio}} também é 400', async () => {
+      documentTemplatesService.getForUse.mockResolvedValue({
+        id: 'tpl-2',
+        kind: ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+        body: 'Desde {{INICIO}}',
+      });
+      await expect(
+        service.generateExamReferral(
+          'record-1',
+          {
+            clinicalRecordId: 'record-1',
+            exams: [{ name: 'RX' }],
+            templateId: 'tpl-2',
+          },
+          'doctor-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('aplicar antes de escolher o afastamento deixa {{dias}} e {{inicio}} para a emissão', async () => {

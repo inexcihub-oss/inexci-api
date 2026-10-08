@@ -41,13 +41,37 @@ describe('UpdateDoctorProfileDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('deve aceitar somente signatureImageUrl', async () => {
+  it('deve aceitar somente signatureImageUrl (caminho do bucket)', async () => {
     const dto = plainToInstance(UpdateDoctorProfileDto, {
-      signatureImageUrl: 'https://storage.example.com/signatures/abc.png',
+      signatureImageUrl: 'signatures/dono-1/uuid-abc.png',
     });
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+
+  it('aceita signatureImageUrl null (remover a assinatura)', async () => {
+    const dto = plainToInstance(UpdateDoctorProfileDto, {
+      signatureImageUrl: null,
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it.each([
+    ['URL externa', 'https://storage.example.com/signatures/abc.png'],
+    ['foto de paciente', 'patient-photos/dono-1/uuid-foto.webp'],
+    ['avatar', 'avatars/dono-1/uuid-foto.png'],
+    ['travessia', 'signatures/../patient-photos/dono-1/f.webp'],
+    ['subpasta', 'signatures/dono-1/x/f.png'],
+    ['sem a pasta da conta', 'signatures/f.png'],
+  ])('recusa signatureImageUrl %s', async (_rotulo, caminho) => {
+    const dto = plainToInstance(UpdateDoctorProfileDto, {
+      signatureImageUrl: caminho,
+    });
+
+    const errors = await validate(dto);
+    expect(errors.map((e) => e.property)).toEqual(['signatureImageUrl']);
   });
 
   it('deve aceitar todos os campos juntos', async () => {
@@ -55,7 +79,7 @@ describe('UpdateDoctorProfileDto', () => {
       crm: '654321',
       crmState: 'RJ',
       specialty: 'Cardiologia',
-      signatureImageUrl: 'https://storage.example.com/sig.png',
+      signatureImageUrl: 'stamps/dono-1/uuid-sig.png',
     });
 
     const errors = await validate(dto);

@@ -198,12 +198,12 @@ export class AccessControlService {
       const permissoes = resolveEffectivePermissions({
         role: usuario.role,
         permissions: usuario.permissions,
-        isDoctor: Boolean(usuario.doctorProfile) || usuario.id === doctorUserId,
-        // Só CRM ganha Solicitações pelo perfil; o médico da SC é médico por
-        // definição (a SC só nasce de CRM).
-        isPhysician:
-          isPhysicianProfile(usuario.doctorProfile) ||
-          usuario.id === doctorUserId,
+        isDoctor: Boolean(usuario.doctorProfile),
+        // Só CRM ganha Solicitações pelo perfil — inclusive o médico da SC: o
+        // registro dele pode ter mudado (ou vindo do importador sem CRM) depois
+        // que a SC nasceu, e aí ele não abre mais a solicitação. Mesma regra
+        // de `getEffectivePermissions`, sem exceção pelo id.
+        isPhysician: isPhysicianProfile(usuario.doctorProfile),
       });
 
       return permissoes.includes(Permission.SOLICITACOES);

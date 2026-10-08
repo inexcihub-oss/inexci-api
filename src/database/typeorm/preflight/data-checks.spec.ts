@@ -118,6 +118,51 @@ describe('verificações pré-migration', () => {
       expect(EXTENSAO_BTREE_GIST.comoResolver).toContain(
         'CREATE EXTENSION IF NOT EXISTS btree_gist',
       );
+      expect(EXTENSAO_BTREE_GIST.comoResolver).toContain(
+        'GRANT CREATE ON DATABASE',
+      );
+    });
+
+    it('confere o privilégio CREATE no banco atual, do usuário atual', () => {
+      expect(EXTENSAO_BTREE_GIST.sql).toContain(
+        "has_database_privilege(current_user, current_database(), 'CREATE')",
+      );
+    });
+
+    it('superusuário passa sem olhar trusted nem privilégio', () => {
+      const sql = EXTENSAO_BTREE_GIST.sql;
+      expect(sql.indexOf('rolsuper')).toBeLessThan(sql.indexOf('trusted'));
+      expect(sql.indexOf('rolsuper')).toBeLessThan(
+        sql.indexOf('has_database_privilege'),
+      );
+    });
+
+    it('confere o trusted da versão que o CREATE EXTENSION instala', () => {
+      expect(EXTENSAO_BTREE_GIST.sql).toContain(
+        'v.version = e.default_version',
+      );
+    });
+
+    it('cada motivo vira um diagnóstico distinto, com usuário e banco', () => {
+      const sql = EXTENSAO_BTREE_GIST.sql;
+      expect(sql).toContain('pacote contrib ausente');
+      expect(sql).toContain('não é trusted neste servidor');
+      expect(sql).toContain('não tem privilégio CREATE no banco');
+      expect(sql).toContain('current_database()');
+    });
+
+    it('diagnóstico sugere a consulta de privilégios, não a de users', () => {
+      const texto = montarDiagnostico(EXTENSAO_BTREE_GIST, [
+        {
+          chave:
+            'o usuário inexci não tem privilégio CREATE no banco inexci (exigido para criar extensão trusted no PG 13+)',
+          ids: 'btree_gist',
+        },
+      ]);
+
+      expect(texto).toContain('não tem privilégio CREATE no banco inexci');
+      expect(texto).toContain('has_database_privilege');
+      expect(texto).not.toContain('FROM users WHERE id IN');
     });
   });
 
@@ -177,6 +222,7 @@ describe('verificações pré-migration', () => {
       expect(texto).toContain('id-a, id-b');
       expect(texto).toContain('id-c, id-d');
       expect(texto).toContain(TELEFONE_DUPLICADO.comoResolver);
+      expect(texto).toContain('FROM users WHERE id IN');
     });
   });
 });

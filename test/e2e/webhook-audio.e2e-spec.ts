@@ -7,6 +7,9 @@ import { WebhookService } from '../../src/modules/webhook/webhook.service';
 import { AiOrchestratorService } from '../../src/shared/ai/services/ai-orchestrator.service';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
+import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
+import { AppointmentActivityRepository } from 'src/database/repositories/appointment-activity.repository';
+import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 
 describe('Webhook Áudio (e2e)', () => {
@@ -41,6 +44,14 @@ describe('Webhook Áudio (e2e)', () => {
           provide: SurgeryRequestActivityRepository,
           useValue: {},
         },
+        // Confirmação/cancelamento de consulta pelos botões do WhatsApp — o
+        // contrato testado aqui não exercita esse caminho.
+        { provide: AppointmentRepository, useValue: {} },
+        {
+          provide: AppointmentActivityRepository,
+          useValue: { create: jest.fn() },
+        },
+        { provide: NotificationsService, useValue: {} },
         {
           provide: WhatsappService,
           useValue: { sendMessage: jest.fn(), sendTemplate: jest.fn() },

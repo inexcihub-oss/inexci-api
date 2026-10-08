@@ -31,6 +31,11 @@ export interface VerificacaoPreMigration {
   sql: string;
   /** O que o operador precisa fazer para destravar. */
   comoResolver: string;
+  /**
+   * Consulta para o operador inspecionar o caso. Sem ela, o diagnóstico sugere
+   * a de `users` (a maioria das verificações aponta ids de usuário).
+   */
+  inspecionar?: string;
   mapear(linhas: Record<string, unknown>[]): ConflitoDeDado[];
 }
 
@@ -312,35 +317,42 @@ export const EXTENSAO_BTREE_GIST: VerificacaoPreMigration = {
   migration: 'AddAppointmentsNoOverlapConstraint1755800900000',
   descricao:
     'extensão btree_gist ausente e impossível de criar com o usuário atual',
+  // Diagnóstico por motivo, do mais básico ao mais fino. `CREATE EXTENSION`
+  // por não-superusuário (PG 13+) exige as DUAS coisas: a extensão marcada
+  // como `trusted` (btree_gist é, no contrib padrão — mas o pacote pode ter
+  // sido alterado) e privilégio CREATE no banco atual (dono do banco tem por
+  // padrão; um usuário de aplicação criado à parte, em geral, não). A versão
+  // conferida é a `default_version`, que é a que o `CREATE EXTENSION` instala.
   sql: `SELECT x.motivo AS chave, 'btree_gist' AS ids
           FROM (
             SELECT CASE
-                     WHEN NOT EXISTS (
-                       SELECT 1 FROM pg_available_extensions e
-                        WHERE e.name = 'btree_gist'
-                     )
+                     WHEN e.name IS NULL
                        THEN 'btree_gist não está disponível no servidor (pacote contrib ausente)'
-                     WHEN NOT (
-                       COALESCE((SELECT r.rolsuper FROM pg_roles r
-                                  WHERE r.rolname = current_user), false)
-                       OR (
-                         has_database_privilege(current_database(), 'create')
-                         AND EXISTS (
-                           SELECT 1 FROM pg_available_extension_versions v
-                            WHERE v.name = 'btree_gist'
-                              AND (v.trusted OR NOT v.superuser)
-                         )
-                       )
-                     )
-                       THEN 'o usuário ' || current_user || ' não tem permissão para criar a extensão btree_gist neste banco'
+                     WHEN COALESCE((SELECT r.rolsuper FROM pg_roles r
+                                     WHERE r.rolname = current_user), false)
+                       THEN NULL
+                     WHEN NOT COALESCE(v.trusted, false) AND COALESCE(v.superuser, true)
+                       THEN 'btree_gist ' || COALESCE(e.default_version, '?')
+                            || ' não é trusted neste servidor: só superusuário cria, e o usuário '
+                            || current_user || ' não é superusuário'
+                     WHEN NOT has_database_privilege(current_user, current_database(), 'CREATE')
+                       THEN 'o usuário ' || current_user
+                            || ' não tem privilégio CREATE no banco ' || current_database()
+                            || ' (exigido para criar extensão trusted no PG 13+)'
                    END AS motivo
+              FROM (SELECT 1) um
+              LEFT JOIN pg_available_extensions e ON e.name = 'btree_gist'
+              LEFT JOIN pg_available_extension_versions v
+                     ON v.name = e.name AND v.version = e.default_version
              WHERE NOT EXISTS (
                SELECT 1 FROM pg_extension x2 WHERE x2.extname = 'btree_gist'
              )
           ) x
          WHERE x.motivo IS NOT NULL`,
   comoResolver:
-    "Peça a um superusuário do Postgres para rodar `CREATE EXTENSION IF NOT EXISTS btree_gist;` neste banco (ou instale o pacote contrib, se ela não estiver disponível) antes de repetir o deploy. Conferir com: SELECT * FROM pg_extension WHERE extname = 'btree_gist';",
+    "Peça a um superusuário do Postgres para rodar `CREATE EXTENSION IF NOT EXISTS btree_gist;` neste banco (ou instale o pacote contrib, se ela não estiver disponível). Alternativa, quando o motivo for o privilégio: `GRANT CREATE ON DATABASE <banco> TO <usuário>;` (a extensão é trusted). Depois repita o deploy. Conferir com: SELECT * FROM pg_extension WHERE extname = 'btree_gist';",
+  inspecionar:
+    "SELECT current_user, current_database(), has_database_privilege(current_user, current_database(), 'CREATE') AS pode_criar, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS superusuario, (SELECT trusted FROM pg_available_extension_versions v JOIN pg_available_extensions e USING (name) WHERE name = 'btree_gist' AND v.version = e.default_version) AS trusted;",
   mapear: (linhas) =>
     linhas.map((linha) => ({
       chave: String(linha.chave ?? ''),
@@ -423,7 +435,10 @@ export function montarDiagnostico(
     verificacao.comoResolver,
     'Conflitos (chave mascarada -> ids):',
     ...conflitos.map(({ chave, ids }) => `  ${chave} -> ${ids}`),
-    'Para inspecionar: SELECT id, email, role, status, created_at FROM users WHERE id IN (...);',
+    `Para inspecionar: ${
+      verificacao.inspecionar ??
+      'SELECT id, email, role, status, created_at FROM users WHERE id IN (...);'
+    }`,
   ].join('\n');
 }
 

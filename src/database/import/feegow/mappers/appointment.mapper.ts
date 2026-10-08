@@ -60,8 +60,20 @@ export interface Colisao {
 }
 
 /**
+ * Chave do nome de sala igual à de `uq_clinic_rooms_clinic_name_active`
+ * (`lower(btrim(name))`, por clínica, entre as não excluídas).
+ */
+export function chaveDeSala(nome: string): string {
+  return nome.trim().toLowerCase();
+}
+
+/**
  * Salas: os `locais` ativos do Feegow viram salas da clínica importada.
- * Exigem a clínica no ledger (fase `cadastro`).
+ * Exigem a clínica no ledger (fase `cadastro`). Dois locais com o mesmo nome
+ * (sem diferenciar maiúsculas/espaços nas pontas) viram **uma** sala — o
+ * índice único recusaria a segunda e derrubaria a fase; o segundo local
+ * aponta para a mesma sala no ledger. Sala de mesmo nome que já esteja no
+ * banco é tratada na gravação (`gravarAgenda`).
  */
 export function planejarSalas(
   exp: ExportFeegow,
@@ -77,6 +89,7 @@ export function planejarSalas(
     return [];
   }
   const novas: NovaSala[] = [];
+  const porNome = new Map<string, { id: string; local: string }>();
   for (const local of exp.tabela('locais')) {
     const idOrigem = local.id!;
     if (local.sys_active !== '1') continue;
@@ -89,7 +102,18 @@ export function planejarSalas(
       ctx.relatorio.rejeitar('sala', idOrigem, 'sem nome');
       continue;
     }
+    const mesmaSala = porNome.get(chaveDeSala(nome));
+    if (mesmaSala) {
+      ctx.ledger.registrar(LEDGER_SALA, idOrigem, mesmaSala.id);
+      ctx.relatorio.avisar(
+        'sala',
+        idOrigem,
+        `mesmo nome do local ${mesmaSala.local} ("${nome}"): as consultas dos dois usam a mesma sala`,
+      );
+      continue;
+    }
     const id = ctx.novoId();
+    porNome.set(chaveDeSala(nome), { id, local: idOrigem });
     novas.push({
       id,
       ownerId: ctx.ownerId,
@@ -244,9 +268,12 @@ export function planejarConsultas(
       durationMinutes: duracao,
       notes: notas || null,
       cancellationReason: status.cancellationReason,
-      // Consulta futura: o lembrete é do Feegow, não da INEXCI (salvo
-      // `--lembretes`). Passada: irrelevante, o cron só olha as próximas 24h.
-      reminderSentAt: futuraAtiva && !ctx.opcoes.lembretes ? agora : null,
+      // Futura: a INEXCI lembra (nulo), salvo `--sem-lembretes`. Passada
+      // (antes de `--hoje`) sai marcada: o cron pega o que começa nas
+      // próximas 24 h, e um `--hoje` adiantado deixaria consulta "passada"
+      // dentro dessa janela. Reagendar/reativar pela tela zera a marca.
+      reminderSentAt:
+        passada || (futuraAtiva && ctx.opcoes.semLembretes) ? agora : null,
       createdAt: criadoEm,
       updatedAt: criadoEm,
     });

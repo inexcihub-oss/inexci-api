@@ -46,10 +46,16 @@ export interface ContextoImportacao {
   opcoes: {
     somenteComAtividade: boolean;
     /**
-     * Consulta futura importada já sai como "lembrete enviado" (o Feegow já
-     * lembrou ou vai lembrar); `--lembretes` deixa a INEXCI disparar o dela.
+     * Por padrão a INEXCI lembra as consultas futuras importadas
+     * (`reminder_sent_at` nulo). `--sem-lembretes` marca as futuras como já
+     * lembradas, para quem ainda deixa o Feegow lembrar.
      */
-    lembretes: boolean;
+    semLembretes: boolean;
+    /**
+     * Pula a exigência de que o dono da conta case com um profissional do
+     * export (conta cujo dono não atende). Ver `planejarEquipe`.
+     */
+    donoNaoProfissional: boolean;
     /**
      * Consulta passada que ficou em agendada/confirmada/aguardando/em
      * atendimento sem atendimento registrado: `manter` (default, igual ao

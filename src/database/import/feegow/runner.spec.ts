@@ -70,6 +70,21 @@ describe('interpretarArgumentos', () => {
     ]);
   });
 
+  it('lembretes: padrão é a INEXCI lembrar; --sem-lembretes desliga', () => {
+    expect(interpretarArgumentos(base).semLembretes).toBe(false);
+    expect(
+      interpretarArgumentos([...base, '--sem-lembretes']).semLembretes,
+    ).toBe(true);
+  });
+
+  it('--dono-nao-profissional é opt-in', () => {
+    expect(interpretarArgumentos(base).donoNaoProfissional).toBe(false);
+    expect(
+      interpretarArgumentos([...base, '--dono-nao-profissional'])
+        .donoNaoProfissional,
+    ).toBe(true);
+  });
+
   it('--adotar-ledger é opt-in', () => {
     expect(interpretarArgumentos(base).adotarLedger).toBe(false);
     expect(

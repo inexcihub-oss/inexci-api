@@ -21,6 +21,7 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
     resolveDefaultDoctorId: jest.fn(),
     canAccessDoctor: jest.fn(),
     assertCanAccessDoctorResource: jest.fn(),
+    getAccessibleDoctorIds: jest.fn(),
   };
   const service = new ClinicalDocumentTemplatesService(
     repository as never,
@@ -42,6 +43,7 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
     access.resolveDefaultDoctorId.mockResolvedValue('doc-1');
     access.canAccessDoctor.mockResolvedValue(true);
     access.assertCanAccessDoctorResource.mockResolvedValue(undefined);
+    access.getAccessibleDoctorIds.mockResolvedValue(['doc-1']);
     repository.findOne.mockResolvedValue(modelo);
     repository.create.mockImplementation((d: object) =>
       Promise.resolve({ id: 'novo', ...d }),
@@ -58,6 +60,43 @@ describe('ClinicalDocumentTemplatesService (MIG-06)', () => {
     });
     expect(repository.findByOwner).toHaveBeenCalledWith('owner-1', {
       kind: ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
+    });
+  });
+
+  it('lista só os modelos dos profissionais acessíveis ao usuário', async () => {
+    access.getAccessibleDoctorIds.mockResolvedValue(['doc-1', 'doc-2']);
+    repository.findByOwner.mockResolvedValue([
+      modelo,
+      { ...modelo, id: 'tpl-2', doctorId: 'doc-2' },
+      { ...modelo, id: 'tpl-3', doctorId: 'doc-sem-vinculo' },
+    ]);
+
+    const lista = await service.findMany('col-1');
+
+    expect(lista.map((m) => m.id)).toEqual(['tpl-1', 'tpl-2']);
+  });
+
+  it('sem nenhum profissional acessível não lista nada', async () => {
+    access.getAccessibleDoctorIds.mockResolvedValue([]);
+    repository.findByOwner.mockResolvedValue([modelo]);
+
+    await expect(service.findMany('col-1')).resolves.toEqual([]);
+  });
+
+  it('filtrar por profissional fora do acesso é 403', async () => {
+    await expect(
+      service.findMany('doc-1', { doctorId: 'doc-sem-vinculo' }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(repository.findByOwner).not.toHaveBeenCalled();
+  });
+
+  it('filtra por profissional acessível', async () => {
+    repository.findByOwner.mockResolvedValue([modelo]);
+    await expect(
+      service.findMany('doc-1', { doctorId: 'doc-1' }),
+    ).resolves.toEqual([modelo]);
+    expect(repository.findByOwner).toHaveBeenCalledWith('owner-1', {
+      doctorId: 'doc-1',
     });
   });
 

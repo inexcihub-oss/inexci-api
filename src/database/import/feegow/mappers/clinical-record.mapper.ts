@@ -359,12 +359,17 @@ export function planejarModelosVazios(
   for (const f of exp.tabela('formularios')) {
     const nome = (f.Nome ?? '').trim().slice(0, 100);
     if (Number(f.id) <= 0 || f.sysActive !== '1' || !nome) continue;
+    // O nome entra em `vistos` antes de pular o já importado: senão, na
+    // rodada seguinte, outro formulário com o mesmo nome criaria o modelo de
+    // novo (o pulado não reservava o nome).
+    const chave = chaveDeNome(nome);
+    const repetido = vistos.has(chave);
+    vistos.add(chave);
     if (ctx.ledger.resolver(LEDGER_MODELO_ANAMNESE, f.id)) {
       ctx.relatorio.pular('modelo de anamnese');
       continue;
     }
-    if (vistos.has(chaveDeNome(nome))) continue;
-    vistos.add(chaveDeNome(nome));
+    if (repetido) continue;
     const id = ctx.novoId();
     novos.push({ id, ownerId: ctx.ownerId, doctorId: ctx.ownerId, name: nome });
     ctx.ledger.registrar(LEDGER_MODELO_ANAMNESE, f.id!, id);

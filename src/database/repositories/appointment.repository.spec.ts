@@ -611,6 +611,22 @@ describe('AppointmentRepository.hasOverlap', () => {
     });
   });
 
+  it('por padrão conta encaixes (bloqueia consulta normal nova sobre encaixe)', async () => {
+    await repo.hasOverlap('d-1', new Date(), new Date());
+
+    expect(qb.andWhere).not.toHaveBeenCalledWith(
+      'appointment.isWalkIn = false',
+    );
+  });
+
+  it('ignorarEncaixes segue a exclusion constraint e deixa encaixes de fora', async () => {
+    await repo.hasOverlap('d-1', new Date(), new Date(), 'a-1', {
+      ignorarEncaixes: true,
+    });
+
+    expect(qb.andWhere).toHaveBeenCalledWith('appointment.isWalkIn = false');
+  });
+
   it('há conflito quando alguma consulta ocupa o intervalo', async () => {
     qb.getCount.mockResolvedValue(1);
 

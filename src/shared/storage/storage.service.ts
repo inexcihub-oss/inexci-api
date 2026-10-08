@@ -12,6 +12,7 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -332,6 +333,34 @@ export class StorageService {
     } catch (err: any) {
       this.logger.warn(`R2 deleteMany error: ${err.message}`);
       return [...paths];
+    }
+  }
+
+  /**
+   * O objeto existe no bucket? `HeadObject` — não baixa o conteúdo.
+   *
+   * Só "não existe" (404 / `NotFound` / `NoSuchKey`) vira `false`. Qualquer
+   * outra falha (rede, credencial, R2 fora) **lança**: quem pergunta costuma
+   * estar prestes a gravar uma referência ao objeto, e responder `true` ou
+   * `false` às cegas gravaria um caminho morto ou recusaria um válido.
+   */
+  async exists(filePath: string): Promise<boolean> {
+    try {
+      await this.s3.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: filePath }),
+      );
+      return true;
+    } catch (error: any) {
+      const status = error?.$metadata?.httpStatusCode;
+      if (
+        status === 404 ||
+        error?.name === 'NotFound' ||
+        error?.name === 'NoSuchKey'
+      ) {
+        return false;
+      }
+      this.logger.warn(`R2 head error: ${error?.message || 'erro'}`);
+      throw error;
     }
   }
 

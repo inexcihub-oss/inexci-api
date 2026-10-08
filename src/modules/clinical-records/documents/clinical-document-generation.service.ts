@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -36,7 +37,9 @@ import {
   ProfessionalCouncil,
 } from 'src/database/entities/doctor-profile.entity';
 import {
-  aplicarPlaceholders,
+  aplicarPlaceholdersDetalhado,
+  DocumentPlaceholder,
+  PlaceholdersAplicados,
   PlaceholderValues,
 } from 'src/shared/pdf/placeholders.util';
 import { limparTextoDoModelo } from 'src/shared/pdf/texto-do-modelo.util';
@@ -75,48 +78,73 @@ const tituloDoAtestado = (council?: string | null): string =>
     : 'ATESTADO MÉDICO';
 
 /**
- * O texto já diz os dias de afastamento? Exige o número seguido de "dia(s)",
- * com um extenso opcional entre parênteses ("5 (cinco) dias") — um número
- * solto (CID, idade) não conta. Errar para o lado de repetir a informação é
- * melhor do que sumir com ela do atestado.
+ * Recusa de quem não é o profissional que assina. Receita, atestado e pedido
+ * de exame saem com nome, registro e assinatura de quem assina — ninguém emite
+ * (nem pré-visualiza) em nome de outro, nem um colega CRM/CRO com vínculo.
  */
-const mencionaDias = (texto: string, dias: number): boolean =>
-  new RegExp(`(^|\\D)${dias}\\s*(\\([^)]{0,30}\\)\\s*)?dias?\\b`, 'i').test(
-    texto,
-  );
-
-/**
- * Atestado de comparecimento: declara a presença, não afastamento. O
- * formulário começa com 1 dia de afastamento e, sem esta exceção, o
- * comparecimento saía com "Afastamento de 1 dia." embaixo. Se o próprio
- * texto fala em afastamento, vale a regra de sempre.
- */
-const ehComparecimentoSemAfastamento = (texto: string): boolean =>
-  /comparec/i.test(texto) && !/afast/i.test(texto);
+export const MENSAGEM_SO_O_PROFISSIONAL_EMITE =
+  'Só o profissional da consulta pode emitir este documento.';
 
 /**
  * Linha de afastamento para o atestado com texto livre/modelo. A declaração
  * padrão imprime dias e início; o texto a substitui e, sem esta linha, o que o
- * médico preencheu no formulário sumia do PDF. Só entra o que o texto ainda
- * não menciona. Início sem dias é ignorado, como na declaração padrão.
+ * médico preencheu no formulário sumia do PDF.
+ *
+ * A regra é estrutural, não pelo conteúdo do texto: a linha entra quando há
+ * dias de afastamento e o texto **não** trazia `{{dias}}` (se trazia, os dias
+ * já foram impressos no lugar do placeholder). Atestado de comparecimento é o
+ * atestado sem `restDays`. O início explícito que o texto não traz (nem por
+ * `{{inicio}}`, nem literal) também entra, para não sumir do documento.
  */
-export function montarNotaDeAfastamento(
-  texto: string,
-  restDays: number | undefined,
-  restDaysLabel: string | undefined,
-  startDate: string | undefined,
-): string | undefined {
-  if (!restDays || !restDaysLabel) return undefined;
-  if (ehComparecimentoSemAfastamento(texto)) return undefined;
-  const faltaDias = !mencionaDias(texto, restDays);
-  const faltaInicio = !!startDate && !texto.includes(startDate);
+export function montarNotaDeAfastamento(opcoes: {
+  texto: string;
+  textoTinhaDias: boolean;
+  textoTinhaInicio: boolean;
+  restDays: number | undefined;
+  restDaysLabel: string | undefined;
+  startDate: string | undefined;
+}): string | undefined {
+  const { texto, textoTinhaDias, textoTinhaInicio, restDays, restDaysLabel } =
+    opcoes;
+  if (!restDays || restDays < 1 || !restDaysLabel) return undefined;
+  const startDate = opcoes.startDate;
+  const faltaInicio =
+    !!startDate && !textoTinhaInicio && !texto.includes(startDate);
 
-  if (faltaDias) {
+  if (!textoTinhaDias) {
     return faltaInicio
       ? `Afastamento de ${restDaysLabel}, a partir de ${startDate}.`
       : `Afastamento de ${restDaysLabel}.`;
   }
   return faltaInicio ? `Início do afastamento: ${startDate}.` : undefined;
+}
+
+/** Placeholders de afastamento — só o atestado tem valor para eles. */
+const PLACEHOLDERS_DE_AFASTAMENTO: readonly DocumentPlaceholder[] = [
+  'dias',
+  'inicio',
+];
+
+/**
+ * Texto que ainda depende de `{{dias}}`/`{{inicio}}` sem valor sairia "por
+ * dias" no PDF: recusa com 400 dizendo o que falta. Vale para emitir e para a
+ * prévia (a montagem é a mesma).
+ */
+export function assertSemAfastamentoPendente(
+  preenchido: PlaceholdersAplicados | undefined,
+  documento: 'atestado' | 'pedido de exame',
+): void {
+  if (!preenchido) return;
+  const pendentes = PLACEHOLDERS_DE_AFASTAMENTO.filter((chave) =>
+    preenchido.semValor.has(chave),
+  );
+  if (!pendentes.length) return;
+  const marcadores = pendentes.map((chave) => `{{${chave}}}`).join(' e ');
+  throw new BadRequestException(
+    documento === 'atestado'
+      ? `O texto do atestado usa ${marcadores}, mas os dias de afastamento não foram informados. Informe os dias de afastamento ou remova ${marcadores} do texto.`
+      : `O pedido de exame não tem afastamento: remova ${marcadores} do texto da indicação clínica.`,
+  );
 }
 
 /**
@@ -288,8 +316,9 @@ export class ClinicalDocumentGenerationService {
    * assina — o mesmo contexto que vai para o PDF, para o texto aplicado e o
    * documento emitido não divergirem. Aplicar é o que conta o uso.
    *
-   * Exige o mesmo que emitir (médico ou dentista, com acesso ao paciente e a
-   * quem assina): o texto devolvido já traz nome e CPF do paciente.
+   * Exige o mesmo que emitir (médico ou dentista, com acesso ao paciente, e
+   * ser o próprio profissional que assina): o texto devolvido já traz nome e
+   * CPF do paciente.
    */
   async applyTemplate(
     id: string,
@@ -315,12 +344,12 @@ export class ClinicalDocumentGenerationService {
     return {
       id: template.id,
       kind: template.kind,
-      body: this.textoPronto(
+      body: this.preencherModelo(
         template.body,
         this.placeholderValues(base),
         base,
         PREENCHIDOS_NA_EMISSAO,
-      ),
+      ).texto,
     };
   }
 
@@ -331,7 +360,7 @@ export class ClinicalDocumentGenerationService {
     valores: PlaceholderValues,
     signingDoctorId: string,
     userId: string,
-  ): Promise<string | undefined> {
+  ): Promise<PlaceholdersAplicados | undefined> {
     if (!templateId) return undefined;
     const template = await this.documentTemplatesService.getForUse(
       templateId,
@@ -339,23 +368,29 @@ export class ClinicalDocumentGenerationService {
       userId,
       signingDoctorId,
     );
-    return this.textoPronto(template.body, valores, base);
+    return this.preencherModelo(template.body, valores, base);
   }
 
   /**
    * Placeholders preenchidos e sem o título/assinatura que o PDF já imprime —
    * o modelo costuma ser escrito como o documento inteiro.
    */
-  private textoPronto(
+  private preencherModelo(
     body: string,
     valores: PlaceholderValues,
     base: BaseContext,
-    manterSemValor?: readonly (keyof PlaceholderValues)[],
-  ): string {
-    return limparTextoDoModelo(
-      aplicarPlaceholders(body, valores, { manterSemValor }),
-      { nome: base.doctorName, registro: base.doctorCrm },
-    );
+    manterSemValor?: readonly DocumentPlaceholder[],
+  ): PlaceholdersAplicados {
+    const preenchido = aplicarPlaceholdersDetalhado(body, valores, {
+      manterSemValor,
+    });
+    return {
+      ...preenchido,
+      texto: limparTextoDoModelo(preenchido.texto, {
+        nome: base.doctorName,
+        registro: base.doctorCrm,
+      }),
+    };
   }
 
   private placeholderValues(
@@ -426,9 +461,9 @@ export class ClinicalDocumentGenerationService {
     // ia para as observações e o atestado saía com o texto duas vezes. O
     // texto que já vem pronto (modelo aplicado na tela) ainda pode trazer
     // `{{dias}}`/`{{inicio}}` literais — preenchidos aqui com o valor final.
-    const text =
+    const preenchido =
       data.text !== undefined
-        ? aplicarPlaceholders(data.text, valores)
+        ? aplicarPlaceholdersDetalhado(data.text, valores)
         : await this.textoDoModelo(
             data.templateId,
             ClinicalDocumentTemplateKind.MEDICAL_CERTIFICATE,
@@ -437,15 +472,25 @@ export class ClinicalDocumentGenerationService {
             doctorId,
             userId,
           );
+    assertSemAfastamentoPendente(preenchido, 'atestado');
+    const text = preenchido?.texto;
 
     const pdfData: MedicalCertificatePdfData = {
       ...base,
       certificateTitle: tituloDoAtestado(council),
       restDaysLabel,
       startDate,
-      restPeriodNote: text
-        ? montarNotaDeAfastamento(text, data.restDays, restDaysLabel, startDate)
-        : undefined,
+      restPeriodNote:
+        text && preenchido
+          ? montarNotaDeAfastamento({
+              texto: text,
+              textoTinhaDias: preenchido.presentes.has('dias'),
+              textoTinhaInicio: preenchido.presentes.has('inicio'),
+              restDays: data.restDays,
+              restDaysLabel,
+              startDate,
+            })
+          : undefined,
       cid,
       text,
       observations: data.observations,
@@ -465,20 +510,23 @@ export class ClinicalDocumentGenerationService {
     );
     const valores = this.placeholderValues(base);
 
+    const indicacao =
+      data.clinicalIndication !== undefined
+        ? aplicarPlaceholdersDetalhado(data.clinicalIndication, valores)
+        : await this.textoDoModelo(
+            data.templateId,
+            ClinicalDocumentTemplateKind.EXAM_REFERRAL,
+            base,
+            valores,
+            doctorId,
+            userId,
+          );
+    assertSemAfastamentoPendente(indicacao, 'pedido de exame');
+
     const pdfData: ExamReferralPdfData = {
       ...base,
       exams: data.exams,
-      clinicalIndication:
-        data.clinicalIndication !== undefined
-          ? aplicarPlaceholders(data.clinicalIndication, valores)
-          : await this.textoDoModelo(
-              data.templateId,
-              ClinicalDocumentTemplateKind.EXAM_REFERRAL,
-              base,
-              valores,
-              doctorId,
-              userId,
-            ),
+      clinicalIndication: indicacao?.texto,
       // Por padrão o pedido carrega a hipótese diagnóstica já registrada na
       // ficha — é o que o convênio exige para autorizar o exame.
       cidCodes: data.cidCodes ?? cidCodes ?? undefined,
@@ -492,18 +540,17 @@ export class ClinicalDocumentGenerationService {
    * três PDFs.
    *
    * São três verificações, e nenhuma cobre a outra: quem emite precisa ser
-   * médico ou dentista (ato privativo), pertencer à clínica e ter vínculo com
-   * o profissional do documento. O documento sai assinado com o nome, o
-   * registro (CRM/CRO) e a imagem de assinatura desse profissional — sem isso,
-   * um assistente emitiria receita em nome dele.
+   * médico ou dentista (ato privativo), pertencer à clínica e **ser o próprio
+   * profissional do documento**. O documento sai assinado com o nome, o
+   * registro (CRM/CRO) e a imagem de assinatura desse profissional — ninguém
+   * emite em nome de outro, nem um colega com vínculo (decisão de produto).
    *
    * Vale também para a prévia: é o mesmo documento, só que na tela.
    */
   private async buildBaseContext(source: DocumentSource, userId: string) {
     // Receita, atestado e pedido de exame são atos de médico (CRM) ou de
-    // dentista (CRO): quem emite tem que ser um deles, e o documento também
-    // tem que sair em nome de um — o `doctorId` da ficha pode ser outro
-    // profissional da conta.
+    // dentista (CRO), e só quem assina emite: o `doctorId` da ficha (ou o
+    // informado na prévia sem ficha) tem que ser o próprio usuário.
     await this.accessControlService.assertCanIssueClinicalDocuments(userId);
 
     const { record, patient, doctorId, cidCodes } = await this.resolveSubject(
@@ -511,13 +558,7 @@ export class ClinicalDocumentGenerationService {
       userId,
     );
     if (doctorId !== userId) {
-      await this.accessControlService.assertCanIssueClinicalDocuments(
-        doctorId,
-        {
-          mensagem:
-            'Este documento só pode ser emitido em nome de um médico (CRM) ou dentista (CRO).',
-        },
-      );
+      throw new ForbiddenException(MENSAGEM_SO_O_PROFISSIONAL_EMITE);
     }
 
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
@@ -601,8 +642,9 @@ export class ClinicalDocumentGenerationService {
     });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
 
-    // Sem ficha não há médico gravado: assina quem está pré-visualizando, a
-    // menos que o payload aponte outro — e aí o vínculo é conferido igual.
+    // Sem ficha não há médico gravado: assina quem está pré-visualizando. Um
+    // `doctorId` de outro profissional passa pelo recorte de acesso e é
+    // recusado em `buildBaseContext` (só quem assina emite).
     const doctorId = source.doctorId ?? userId;
     await this.accessControlService.assertCanAccessDoctorResource(
       userId,

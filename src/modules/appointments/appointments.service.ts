@@ -8,7 +8,10 @@ import {
 } from '@nestjs/common';
 import { AppointmentRepository } from 'src/database/repositories/appointment.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
+import {
+  ClinicalRecordRepository,
+  ClinicalRecordStatus,
+} from 'src/database/repositories/clinical-record.repository';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -37,6 +40,16 @@ import {
   APPOINTMENTS_MAX_TAKE,
   FindAppointmentsDto,
 } from './dto/find-appointments.dto';
+
+/**
+ * Consulta como a tela a recebe: com a situação da ficha vinculada
+ * (`null` = sem ficha). É o que decide "Iniciar" × "Continuar" × "Ver
+ * atendimento" — o status da agenda sozinho não basta, porque pode ser mexido
+ * à mão (e a ficha pode ser excluída) sem que um acompanhe o outro.
+ */
+export type AppointmentComFicha = Appointment & {
+  clinicalRecordStatus: ClinicalRecordStatus | null;
+};
 
 /** Mesma mensagem do pré-check e da exclusion constraint do banco. */
 const MENSAGEM_CONFLITO_DE_HORARIO =
@@ -213,7 +226,11 @@ export class AppointmentsService {
       pagina,
     ]);
 
-    return { total, records, ...(countByDoctorId ? { countByDoctorId } : {}) };
+    return {
+      total,
+      records: await this.comSituacaoDaFicha(records),
+      ...(countByDoctorId ? { countByDoctorId } : {}),
+    };
   }
 
   /** Histórico completo de consultas de um paciente (aba Consultas / timeline). */
@@ -224,12 +241,38 @@ export class AppointmentsService {
     ]);
     if (doctorIds.length === 0) return { total: 0, records: [] };
 
-    const records = await this.appointmentRepository.findByPatient(
-      ownerId,
-      doctorIds,
-      patientId,
+    const records = await this.comSituacaoDaFicha(
+      await this.appointmentRepository.findByPatient(
+        ownerId,
+        doctorIds,
+        patientId,
+      ),
     );
     return { total: records.length, records };
+  }
+
+  /** Consulta por id para a tela (`GET /appointments/:id`), com a ficha. */
+  async findOneComFicha(
+    id: string,
+    userId: string,
+  ): Promise<AppointmentComFicha> {
+    const [consulta] = await this.comSituacaoDaFicha([
+      await this.findOne(id, userId),
+    ]);
+    return consulta;
+  }
+
+  /** Anota em cada consulta a situação da ficha vinculada (uma query só). */
+  private async comSituacaoDaFicha(
+    consultas: Appointment[],
+  ): Promise<AppointmentComFicha[]> {
+    const situacao =
+      await this.clinicalRecordRepository.findStatusByAppointmentIds(
+        consultas.map((c) => c.id),
+      );
+    return consultas.map((c) =>
+      Object.assign(c, { clinicalRecordStatus: situacao.get(c.id) ?? null }),
+    );
   }
 
   /**
@@ -289,7 +332,11 @@ export class AppointmentsService {
     const end = this.endOf(start, durationMinutes);
     const isWalkIn = data.isWalkIn ?? false;
 
-    // Encaixe é marcado de propósito em cima de outro horário.
+    // Encaixe é marcado de propósito em cima de outro horário. Já a consulta
+    // normal nova não entra em cima de um encaixe existente (aqui o encaixe
+    // conta como ocupando, de propósito — mais estrito que a constraint do
+    // banco, que ignora encaixes): a recepção marca outro encaixe ou escolhe
+    // outro horário.
     if (!isWalkIn) {
       await this.assertNoOverlap(data.doctorId, start, end);
     }
@@ -359,6 +406,8 @@ export class AppointmentsService {
 
     // Só revalida conflito se o horário/duração mudou — ou se deixou de ser
     // encaixe, porque aí passa a disputar o horário como consulta normal.
+    // Consulta já existente usa o critério do banco (encaixes não disputam):
+    // um encaixe posto sobre ela não pode impedir editá-la.
     const deixouDeSerEncaixe = appointment.isWalkIn && data.isWalkIn === false;
     if (
       ocupa &&
@@ -372,6 +421,7 @@ export class AppointmentsService {
         start,
         this.endOf(start, durationMinutes),
         id,
+        { ignorarEncaixes: true },
       );
     }
 
@@ -400,7 +450,7 @@ export class AppointmentsService {
     if (data.scheduledAt !== undefined) updateData.scheduledAt = start;
     if (data.durationMinutes !== undefined)
       updateData.durationMinutes = durationMinutes;
-    if (data.notes !== undefined) updateData.notes = data.notes.trim() || null;
+    if (data.notes !== undefined) updateData.notes = data.notes?.trim() || null;
     if (data.isWalkIn !== undefined) updateData.isWalkIn = data.isWalkIn;
     if (data.clinicId !== undefined)
       updateData.clinicId = data.clinicId ?? null;
@@ -494,16 +544,32 @@ export class AppointmentsService {
     // depois disso — virar cancelada/falta/agendada contradiria o prontuário.
     // Marcar como realizada sem ficha continua permitido (a recepção fecha a
     // consulta pela agenda; a ficha é que a completa sozinha ao finalizar).
-    if (
+    //
+    // Além disso, consulta com ficha vinculada (rascunho ou finalizada) não
+    // vira cancelada nem falta: a ficha registra que o paciente foi atendido,
+    // e marcar a consulta como "não aconteceu" deixaria um prontuário
+    // pendurado numa consulta que, para a agenda, não existiu.
+    const saiDeRealizada =
       appointment.status === AppointmentStatus.COMPLETED &&
-      data.status !== AppointmentStatus.COMPLETED
-    ) {
+      data.status !== AppointmentStatus.COMPLETED;
+    const viraNaoAtendida =
+      appointment.status !== data.status &&
+      (data.status === AppointmentStatus.CANCELLED ||
+        data.status === AppointmentStatus.NO_SHOW);
+    if (saiDeRealizada || viraNaoAtendida) {
       const record = await this.clinicalRecordRepository.findOne({
         appointmentId: id,
       });
-      if (record?.finalizedAt) {
+      if (saiDeRealizada && record?.finalizedAt) {
         throw new ConflictException(
           'Esta consulta tem uma ficha de atendimento finalizada e não pode deixar de ser realizada.',
+        );
+      }
+      if (viraNaoAtendida && record) {
+        throw new ConflictException(
+          data.status === AppointmentStatus.CANCELLED
+            ? 'Esta consulta já tem uma ficha de atendimento e não pode ser cancelada.'
+            : 'Esta consulta já tem uma ficha de atendimento e não pode ser marcada como falta.',
         );
       }
     }
@@ -518,12 +584,16 @@ export class AppointmentsService {
       !AppointmentsService.ocupaAgenda(appointment.status) &&
       AppointmentsService.ocupaAgenda(data.status);
 
+    // Encaixes alheios não disputam (mesmo critério da exclusion constraint):
+    // um encaixe marcado sobre a consulta enquanto ela estava cancelada não
+    // pode impedir reativá-la.
     if (voltaAOcupar && !appointment.isWalkIn) {
       await this.assertNoOverlap(
         appointment.doctorId,
         appointment.scheduledAt,
         this.endOf(appointment.scheduledAt, appointment.durationMinutes),
         id,
+        { ignorarEncaixes: true },
       );
     }
 
@@ -789,12 +859,14 @@ export class AppointmentsService {
     start: Date,
     end: Date,
     excludeId?: string,
+    opcoes: { ignorarEncaixes?: boolean } = {},
   ): Promise<void> {
     const overlap = await this.appointmentRepository.hasOverlap(
       doctorId,
       start,
       end,
       excludeId,
+      opcoes,
     );
     if (overlap) {
       throw new ConflictException(MENSAGEM_CONFLITO_DE_HORARIO);

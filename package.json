@@ -35,7 +35,7 @@
     "check:pgvector": "ts-node -r tsconfig-paths/register scripts/check-pgvector.ts",
     "predeploy": "yarn check:pgvector",
     "migration:preflight": "ts-node -r tsconfig-paths/register scripts/migration-preflight.ts",
-    "import:feegow": "ts-node -r tsconfig-paths/register scripts/import-feegow.ts"
+    "import:feegow": "TZ=UTC ts-node -r tsconfig-paths/register scripts/import-feegow.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

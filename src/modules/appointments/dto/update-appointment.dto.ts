@@ -12,9 +12,17 @@ import {
 } from 'class-validator';
 import { AppointmentType } from 'src/database/entities/appointment.entity';
 
+/**
+ * Campo opcional que **não aceita `null`**: ausente passa, `null` cai nos
+ * validadores do campo (e é recusado), em vez de virar `NULL` numa coluna
+ * obrigatória. `@IsOptional` deixaria o `null` passar. Mesmo padrão dos DTOs
+ * de disponibilidade.
+ */
+const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
+
 /** Atualiza dados/horário da consulta (reagendamento). Não muda status. */
 export class UpdateAppointmentDto {
-  @IsOptional()
+  @SeInformado()
   @IsEnum(AppointmentType)
   type?: AppointmentType;
 
@@ -31,7 +39,7 @@ export class UpdateAppointmentDto {
   roomId?: string | null;
 
   /** Encaixe: não passa pela checagem de conflito de horário. */
-  @IsOptional()
+  @SeInformado()
   @IsBoolean()
   isWalkIn?: boolean;
 
@@ -41,17 +49,18 @@ export class UpdateAppointmentDto {
   @IsUUID()
   healthPlanId?: string | null;
 
-  @IsOptional()
+  @SeInformado()
   @IsDateString()
   scheduledAt?: string;
 
-  @IsOptional()
+  @SeInformado()
   @IsInt()
   @Min(5)
   @Max(480)
   durationMinutes?: number;
 
+  /** `null` (ou texto em branco) apaga a observação. */
   @IsOptional()
   @IsString()
-  notes?: string;
+  notes?: string | null;
 }

@@ -344,6 +344,24 @@ function resolverSobreposicoes(
   }
 }
 
+const NOMES_DIA_FEEGOW: Record<string, string> = {
+  '1': 'domingo',
+  '2': 'segunda',
+  '3': 'terça',
+  '4': 'quarta',
+  '5': 'quinta',
+  '6': 'sexta',
+  '7': 'sábado',
+};
+
+/** `DiasSemana` do Feegow ("2", "1 2 3", "|2|,|4|"; 1 = domingo) → nomes. */
+export function diasDaSemanaDoBloqueio(
+  texto: string | null | undefined,
+): string[] {
+  const dias = new Set((texto ?? '').match(/[1-7]/g) ?? []);
+  return [...dias].sort().map((d) => NOMES_DIA_FEEGOW[d]);
+}
+
 /**
  * Bloqueios (MIG-05 §6). Os gerados por feriado (`FeriadoID ≠ 0`) ficam de
  * fora: o feriado já bloqueia. Bloqueio de duração zero não tinha efeito no
@@ -372,7 +390,20 @@ export function planejarBloqueios(
     const dataDe = normalizarData(b.DataDe);
     const dataAte = normalizarData(b.DataA) ?? dataDe;
     if (!dataDe || !dataAte) {
-      rel.rejeitar('bloqueio', idOrigem, 'data inválida');
+      // Sem data mas com dias da semana: no Feegow é um bloqueio semanal
+      // recorrente ("toda segunda à tarde"). `schedule_blocks` só guarda
+      // intervalos com início e fim, sem recorrência.
+      const dias = diasDaSemanaDoBloqueio(b.DiasSemana);
+      const recorrente = !b.DataDe?.trim() && !b.DataA?.trim() && dias.length;
+      const de = hora(b.HoraDe)?.slice(0, 5);
+      const ate = hora(b.HoraA)?.slice(0, 5);
+      const quando = [dias.join(', '), de && ate ? `${de}–${ate}` : null]
+        .filter(Boolean)
+        .join(', ');
+      const motivo = recorrente
+        ? `bloqueio recorrente sem data (${quando}) — a INEXCI não tem bloqueio recorrente: recriar manualmente`
+        : 'data inválida';
+      rel.rejeitar('bloqueio', idOrigem, motivo);
       continue;
     }
     if (ctx.opcoes.bloqueiosSoFuturos && dataAte < ctx.hoje) {

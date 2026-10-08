@@ -3,7 +3,11 @@ import { ContextoImportacao } from '../context';
 import { ExportFeegow } from '../export';
 import { contextoDeTeste, OWNER } from '../testing/export-sintetico';
 import { LEDGER_CONSULTA } from './appointment.mapper';
-import { LEDGER_FICHA, planejarFichas } from './clinical-record.mapper';
+import {
+  LEDGER_FICHA,
+  planejarFichas,
+  planejarModelosVazios,
+} from './clinical-record.mapper';
 import { LEDGER_PACIENTE } from './patient.mapper';
 import { LEDGER_PROFISSIONAL } from './team.mapper';
 
@@ -193,5 +197,39 @@ describe('planejarFichas — documentos emitidos no Feegow', () => {
         'presc:10:2025-08-04 13:29:39:atestado:0',
       ),
     ).toBe('ficha-antiga');
+  });
+});
+
+describe('planejarModelosVazios', () => {
+  const comModelosVazios = () => {
+    const ctx = contexto();
+    ctx.opcoes = { ...ctx.opcoes, modelosVazios: true };
+    return ctx;
+  };
+  const formularios = exportCom({
+    formularios: [
+      { id: '3', Nome: 'Anamnese Ortopedia', sysActive: '1' },
+      { id: '8', Nome: 'anamnese  ortopedia', sysActive: '1' },
+      { id: '9', Nome: 'Retorno', sysActive: '1' },
+    ],
+  });
+
+  it('nome repetido entra uma vez', () => {
+    const ctx = comModelosVazios();
+    const modelos = planejarModelosVazios(formularios, ctx);
+    expect(modelos.map((m) => m.name)).toEqual([
+      'Anamnese Ortopedia',
+      'Retorno',
+    ]);
+  });
+
+  it('segunda rodada não recria o modelo de nome repetido', () => {
+    const ctx = comModelosVazios();
+    planejarModelosVazios(formularios, ctx);
+    // Mesmo ledger, nova rodada: o 3 já foi importado; o 8 (mesmo nome)
+    // não pode virar outro modelo.
+    const segunda = comModelosVazios();
+    segunda.ledger = ctx.ledger;
+    expect(planejarModelosVazios(formularios, segunda)).toEqual([]);
   });
 });

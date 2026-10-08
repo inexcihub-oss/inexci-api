@@ -16,6 +16,7 @@ describe('WebhookService — confirmação de consulta', () => {
     update: jest.fn(),
   };
   const activityRepository = { create: jest.fn() };
+  const appointmentActivityRepository = { create: jest.fn() };
   let whatsappService: { sendMessage: jest.Mock; sendTemplate: jest.Mock };
   let appointmentRepository: {
     findAtivaPorTelefone: jest.Mock;
@@ -61,7 +62,62 @@ describe('WebhookService — confirmação de consulta', () => {
       whatsappService as any,
       appointmentRepository as any,
       notificationsService as any,
+      appointmentActivityRepository as any,
     );
+  });
+
+  // ─── MIG-04: histórico da consulta ───────────────────────────────────────
+
+  it('registra a confirmação pelo paciente no histórico da consulta', async () => {
+    await service.tryHandleAppointmentConfirmation(
+      evento('consulta_confirmar'),
+    );
+
+    expect(appointmentActivityRepository.create).toHaveBeenCalledWith({
+      appointmentId: 'appt-1',
+      userId: null,
+      type: 'status_change',
+      fromStatus: AppointmentStatus.SCHEDULED,
+      toStatus: AppointmentStatus.CONFIRMED,
+      content: expect.stringContaining('paciente pelo WhatsApp'),
+    });
+  });
+
+  it('registra o cancelamento pelo paciente no histórico da consulta', async () => {
+    await service.tryHandleAppointmentConfirmation(evento('consulta_cancelar'));
+
+    expect(appointmentActivityRepository.create).toHaveBeenCalledWith({
+      appointmentId: 'appt-1',
+      userId: null,
+      type: 'status_change',
+      fromStatus: AppointmentStatus.SCHEDULED,
+      toStatus: AppointmentStatus.CANCELLED,
+      content: expect.stringContaining('paciente pelo WhatsApp'),
+    });
+  });
+
+  it('não registra nada quando o status não muda (já confirmada)', async () => {
+    appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
+      ...consulta,
+      status: AppointmentStatus.CONFIRMED,
+    });
+
+    await service.tryHandleAppointmentConfirmation(
+      evento('consulta_confirmar'),
+    );
+
+    expect(appointmentActivityRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('falha ao gravar o histórico não derruba a resposta ao paciente', async () => {
+    appointmentActivityRepository.create.mockRejectedValueOnce(
+      new Error('db fora'),
+    );
+
+    await expect(
+      service.tryHandleAppointmentConfirmation(evento('consulta_cancelar')),
+    ).resolves.toBe(true);
+    expect(whatsappService.sendMessage).toHaveBeenCalled();
   });
 
   it('confirma a consulta quando o paciente aperta Confirmo', async () => {

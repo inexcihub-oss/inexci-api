@@ -288,7 +288,11 @@ export function planejarPacientes(
       birthDate: contatos.nascimento,
       healthPlanId,
       healthPlanNumber: healthPlanId
-        ? normalizarTexto(conv?.matricula1, 50)
+        ? matriculaDoConvenio(
+            conv,
+            convenioOrigem,
+            (id) => ctx.ledger.resolver(LEDGER_CONVENIO, id) === healthPlanId,
+          )
         : null,
       zipCode: normalizarCep(end?.cep),
       address: normalizarTexto(end?.logradouro, 200),
@@ -441,6 +445,29 @@ function convenioMaisRecente(agendamentos: LinhaCsv[]): Map<string, string> {
       melhor.set(a.paciente_id, { quando, convenio: conv });
   }
   return new Map([...melhor].map(([p, v]) => [p, v.convenio]));
+}
+
+/**
+ * Número da carteirinha do convênio escolhido: `matriculaN` do mesmo slot
+ * `convenio_idN`. Vale o id igual; senão, um slot cujo convênio virou o mesmo
+ * na INEXCI (`mesmoConvenio` — "UNIMED" e "unimed" fundidos). Convênio que
+ * não está no cadastro do paciente (veio só da consulta) não tem matrícula
+ * correspondente → `null`, nunca a de outro convênio.
+ */
+export function matriculaDoConvenio(
+  conv: LinhaCsv | undefined,
+  convenioId: string | null,
+  mesmoConvenio: (convenioIdDoSlot: string) => boolean = () => false,
+): string | null {
+  if (!conv || !convenioId) return null;
+  const slots = ['1', '2', '3'].filter((n) => {
+    const id = conv[`convenio_id${n}`];
+    return !!id && id !== '0';
+  });
+  const slot =
+    slots.find((n) => conv[`convenio_id${n}`] === convenioId) ??
+    slots.find((n) => mesmoConvenio(conv[`convenio_id${n}`]!));
+  return slot ? normalizarTexto(conv[`matricula${slot}`], 50) : null;
 }
 
 function primeiroConvenio(conv: LinhaCsv | undefined): string | null {

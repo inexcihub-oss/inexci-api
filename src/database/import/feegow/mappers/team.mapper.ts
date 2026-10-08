@@ -213,6 +213,10 @@ export function planejarEquipe(
   const rel = ctx.relatorio;
   const plano: PlanoEquipe = { usuarios: [], perfis: [], acessos: [] };
   const telefonesReservados = new Set(ctx.telefonesEmUso);
+  // E-mail é único (`uq_users_email`). Os do banco já caem no casamento
+  // acima; os que este plano vai criar ficam reservados como os telefones,
+  // senão dois cadastros do export com o mesmo e-mail derrubariam o INSERT.
+  const emailsReservados = new Map<string, string>();
 
   const pessoas = [...lerProfissionais(exp), ...lerFuncionarios(exp)];
   const profissionaisDaConta: string[] = [];
@@ -308,11 +312,21 @@ export function planejarEquipe(
       );
       continue;
     }
+    const donoDoEmail = emailsReservados.get(p.email);
+    if (donoDoEmail) {
+      rel.rejeitar(
+        rotulo,
+        p.idOrigem,
+        `e-mail já usado por outro cadastro do export (${donoDoEmail}) — cadastre com outro e-mail ou use --mapear`,
+      );
+      continue;
+    }
     if (telefonesReservados.has(p.telefone)) {
       rel.rejeitar(rotulo, p.idOrigem, 'celular já usado por outro usuário');
       continue;
     }
     telefonesReservados.add(p.telefone);
+    emailsReservados.set(p.email, `${rotulo} ${p.idOrigem}`);
 
     const id = ctx.novoId();
     plano.usuarios.push({
@@ -390,7 +404,56 @@ export function planejarEquipe(
   }
   rel.aceitar('vínculo colaborador-profissional', plano.acessos.length);
 
+  conferirDonoProfissional(pessoas, ctx);
   return plano;
+}
+
+/**
+ * O dono da conta (o médico que assina a INEXCI) só casa com o profissional
+ * dele no Feegow se o e-mail for o mesmo ou houver `--mapear`. Sem isso, ele
+ * entraria como um colaborador novo (duplicado) e as consultas, fichas e
+ * pacientes dele ficariam em nome desse outro usuário. Aborta a fase,
+ * dizendo como corrigir; `--dono-nao-profissional` desliga para a conta cujo
+ * dono não atende.
+ *
+ * Sem banco (`--sem-banco`) o e-mail do dono é desconhecido: só avisa.
+ */
+function conferirDonoProfissional(
+  pessoas: Pessoa[],
+  ctx: ContextoImportacao,
+): void {
+  if (ctx.opcoes.donoNaoProfissional) return;
+  const casados = Object.values(
+    ctx.ledger.paraObjeto()[LEDGER_PROFISSIONAL] ?? {},
+  );
+  if (casados.includes(ctx.ownerId)) return;
+
+  const candidatos = pessoas
+    .filter((p) => p.tipo === 'prof' && !p.excluido)
+    .map((p) => `  prof:${p.idOrigem} — ${p.nome ?? '(sem nome)'}`);
+  const dono = [...ctx.usuariosPorEmail.values()].find(
+    (u) => u.id === ctx.ownerId,
+  );
+  if (!dono) {
+    ctx.relatorio.avisar(
+      'profissional',
+      '-',
+      'dono da conta não conferido (sem banco): na carga real ele precisa casar com um profissional do export (--mapear prof:<id>=<e-mail do dono>)' +
+        (candidatos.length
+          ? `. Profissionais do export:\n${candidatos.join('\n')}`
+          : ''),
+    );
+    return;
+  }
+  throw new Error(
+    `O dono da conta (${dono.email}) não casou com nenhum profissional do Feegow: ` +
+      'as consultas e fichas dele ficariam em nome de um colaborador duplicado. ' +
+      `Rode de novo com --mapear prof:<id>=${dono.email} apontando o profissional que é o dono` +
+      (candidatos.length
+        ? `. Profissionais do export:\n${candidatos.join('\n')}`
+        : ' (o export não tem profissionais)') +
+      '\nSe o dono da conta não atende (não é profissional), use --dono-nao-profissional.',
+  );
 }
 
 function lerProfissionais(exp: ExportFeegow): Pessoa[] {

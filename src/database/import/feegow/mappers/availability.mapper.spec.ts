@@ -7,6 +7,7 @@ import {
   planejarBloqueios,
   planejarFeriados,
   planejarGrades,
+  diasDaSemanaDoBloqueio,
 } from './availability.mapper';
 import { LEDGER_PROFISSIONAL } from './team.mapper';
 
@@ -350,5 +351,47 @@ describe('planejarFeriados — ativos', () => {
         aviso: '1 feriados inativos no Feegow não importados',
       }),
     );
+  });
+});
+
+describe('planejarBloqueios — recorrente sem data', () => {
+  it('sem DataDe/DataA e com DiasSemana: rejeita dizendo que é recorrente e precisa ser recriado', () => {
+    const ctx = contexto();
+    const blocos = planejarBloqueios(
+      exportCom({
+        agenda_bloqueios: [
+          bloq('7', { DataDe: null, DataA: null, DiasSemana: '2' }),
+        ],
+      }),
+      ctx,
+    );
+    expect(blocos).toHaveLength(0);
+    expect(ctx.relatorio.rejeicoes).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '7',
+        motivo: expect.stringMatching(
+          /^bloqueio recorrente sem data \(segunda, 14:00–18:00\).*recriar manualmente$/,
+        ),
+      }),
+    );
+  });
+
+  it('data lixo continua "data inválida"', () => {
+    const ctx = contexto();
+    planejarBloqueios(
+      exportCom({
+        agenda_bloqueios: [bloq('8', { DataDe: '31/02', DiasSemana: '2' })],
+      }),
+      ctx,
+    );
+    expect(ctx.relatorio.rejeicoes).toContainEqual(
+      expect.objectContaining({ idOrigem: '8', motivo: 'data inválida' }),
+    );
+  });
+
+  it('diasDaSemanaDoBloqueio lê os formatos do Feegow (1 = domingo)', () => {
+    expect(diasDaSemanaDoBloqueio('1 2 3 4 5 6 7')).toHaveLength(7);
+    expect(diasDaSemanaDoBloqueio('|4|,|2|')).toEqual(['segunda', 'quarta']);
+    expect(diasDaSemanaDoBloqueio(null)).toEqual([]);
   });
 });

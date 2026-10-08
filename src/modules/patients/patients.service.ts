@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
@@ -26,6 +27,9 @@ import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.
  * passariam as duas pela checagem.
  */
 export const UQ_PATIENTS_PHOTO_PATH = 'UQ_patients_photo_path';
+
+/** A foto enviada sumiu do bucket antes de o cadastro/PATCH referenciá-la. */
+export const FOTO_EXPIRADA = 'A foto enviada expirou; envie novamente.';
 
 /** Paciente como sai nas respostas HTTP: com a URL assinada da foto. */
 export type PatientWithPhoto = Patient & { photoUrl: string | null };
@@ -222,6 +226,7 @@ export class PatientsService {
         data.photoPath,
         patient.ownerId,
         id,
+        patient.photoPath,
       );
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.birthDate !== undefined)
@@ -310,11 +315,20 @@ export class PatientsService {
    *
    * Também recusa a foto que já é de OUTRO paciente: trocar a foto de um apaga
    * o objeto antigo do bucket, e o outro ficaria apontando para o nada.
+   *
+   * E recusa a foto que não existe mais no bucket: o modal guarda o caminho do
+   * upload para a próxima tentativa, e entre um e outro o objeto pode ter sido
+   * descartado (`POST /patients/photos/discard`) ou levado pela varredura de
+   * órfãs (`FotosPacienteOrfasService`, 24 h). Gravar o caminho morto deixava
+   * o paciente com uma foto quebrada para sempre. A foto que o paciente JÁ tem
+   * (`fotoAtual`, reenviada pelo PATCH sem mudança) não é conferida: não é
+   * upload novo, e recusá-la impediria salvar os outros campos da ficha.
    */
   private async validarFoto(
     photoPath: string | null | undefined,
     ownerId: string,
     patientId?: string,
+    fotoAtual?: string | null,
   ): Promise<string | null> {
     const caminho = textoOuNulo(photoPath);
     if (!caminho) return null;
@@ -323,7 +337,25 @@ export class PatientsService {
     if (await this.fotoEmUso(caminho, patientId)) {
       throw new BadRequestException('Foto do paciente inválida.');
     }
+    if (caminho !== fotoAtual && !(await this.fotoNoBucket(caminho))) {
+      throw new BadRequestException(FOTO_EXPIRADA);
+    }
     return caminho;
+  }
+
+  /**
+   * `HEAD` no R2. Falha que não seja "não existe" (R2 fora, rede) é 503, e não
+   * "existe": gravar sem confirmar é justamente o caminho morto que a checagem
+   * evita.
+   */
+  private async fotoNoBucket(caminho: string): Promise<boolean> {
+    try {
+      return await this.storageService.exists(caminho);
+    } catch {
+      throw new ServiceUnavailableException(
+        'Não foi possível confirmar a foto enviada. Tente novamente.',
+      );
+    }
   }
 
   /** Caminho direto em `patient-photos/<ownerId>/`, sem subpasta nem `..`. */

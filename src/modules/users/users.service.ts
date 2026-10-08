@@ -45,6 +45,15 @@ import { RecoveryCodeRepository } from 'src/database/repositories/recovery-code.
 import { RefreshTokenStore } from '../auth/refresh-token.store';
 
 import { generateValidationCode, omitUserSecrets } from 'src/shared/utils';
+import {
+  ehArquivoDaConta,
+  PASTAS_DE_ASSINATURA,
+  PASTAS_DE_AVATAR,
+} from './arquivo-da-conta';
+
+export const AVATAR_INVALIDO = 'Avatar inválido: envie a imagem novamente.';
+export const ASSINATURA_INVALIDA =
+  'Assinatura inválida: envie a imagem novamente.';
 
 @Injectable()
 export class UsersService {
@@ -192,6 +201,33 @@ export class UsersService {
       if (cpfFound) throw new BadRequestException('CPF já está em uso');
     }
 
+    // Caminhos de arquivo vêm do cliente: valida ANTES de gravar qualquer
+    // coisa, para um caminho recusado não deixar o perfil meio salvo.
+    const novoAvatar =
+      data.avatarUrl !== undefined
+        ? this.validarCaminhoDeArquivo(
+            data.avatarUrl,
+            user.avatarUrl,
+            PASTAS_DE_AVATAR,
+            user.ownerId,
+            AVATAR_INVALIDO,
+          )
+        : undefined;
+    const docProfile =
+      data.signatureUrl !== undefined
+        ? await this.doctorProfileRepository.findByUserId(userId)
+        : null;
+    const novaAssinatura =
+      docProfile && data.signatureUrl !== undefined
+        ? this.validarCaminhoDeArquivo(
+            data.signatureUrl,
+            docProfile.signatureUrl,
+            PASTAS_DE_ASSINATURA,
+            user.ownerId,
+            ASSINATURA_INVALIDA,
+          )
+        : undefined;
+
     // Campos do usuário base
     const userUpdates: Partial<User> = {};
     if (data.name) userUpdates.name = data.name;
@@ -199,8 +235,7 @@ export class UsersService {
     if (data.cpf) userUpdates.cpf = data.cpf;
     if (data.birthDate) userUpdates.birthDate = new Date(data.birthDate);
     if (data.gender) userUpdates.gender = data.gender;
-    if (data.avatarUrl !== undefined)
-      userUpdates.avatarUrl = data.avatarUrl ?? null;
+    if (novoAvatar !== undefined) userUpdates.avatarUrl = novoAvatar;
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;
     if (data.addressNumber !== undefined)
@@ -210,49 +245,81 @@ export class UsersService {
     if (data.city !== undefined) userUpdates.city = data.city;
     if (data.state !== undefined) userUpdates.state = data.state;
 
-    // Deletar avatar antigo do Storage quando for removido ou substituído
-    if (data.avatarUrl !== undefined) {
-      const oldAvatar = user.avatarUrl;
+    await this.userRepository.update(userId, userUpdates);
+
+    // Avatar antigo sai do Storage quando é removido ou substituído — só se
+    // for um arquivo da pasta de avatares da conta e mais ninguém o usar.
+    if (novoAvatar !== undefined && user.avatarUrl !== novoAvatar) {
+      const antigo = user.avatarUrl;
       if (
-        oldAvatar &&
-        !oldAvatar.startsWith('http') &&
-        oldAvatar !== data.avatarUrl
+        ehArquivoDaConta(antigo, PASTAS_DE_AVATAR, user.ownerId) &&
+        !(await this.userRepository.findOne({
+          avatarUrl: antigo!,
+          id: Not(userId),
+        }))
       ) {
-        try {
-          await this.storageService.delete(oldAvatar);
-        } catch {
-          // não bloqueia a atualização se falhar
-        }
+        await this.apagarDoStorage(antigo!);
       }
     }
 
-    const updatedUser = await this.userRepository.update(userId, userUpdates);
-
-    // Se tiver signatureUrl, atualizar DoctorProfile e deletar antiga do Storage
-    if (data.signatureUrl !== undefined) {
-      const docProfile =
-        await this.doctorProfileRepository.findByUserId(userId);
-      if (docProfile) {
-        // Deletar assinatura antiga do Storage
-        const oldSignature = docProfile.signatureUrl;
-        if (
-          oldSignature &&
-          !oldSignature.startsWith('http') &&
-          oldSignature !== data.signatureUrl
-        ) {
-          try {
-            await this.storageService.delete(oldSignature);
-          } catch {
-            // não bloqueia a atualização se falhar
-          }
-        }
-        await this.doctorProfileRepository.update(docProfile.id, {
-          signatureUrl: data.signatureUrl,
-        });
+    // Assinatura: grava no DoctorProfile e apaga a antiga, com a mesma regra.
+    if (docProfile && novaAssinatura !== undefined) {
+      await this.doctorProfileRepository.update(docProfile.id, {
+        signatureUrl: novaAssinatura,
+      });
+      const antiga = docProfile.signatureUrl;
+      if (
+        antiga !== novaAssinatura &&
+        ehArquivoDaConta(antiga, PASTAS_DE_ASSINATURA, user.ownerId) &&
+        !(await this.doctorProfileRepository.findOne({
+          signatureUrl: antiga!,
+          id: Not(docProfile.id),
+        }))
+      ) {
+        await this.apagarDoStorage(antiga!);
       }
     }
 
-    return updatedUser;
+    // Mesmo formato do GET /users/profile, relido DEPOIS de todas as
+    // gravações: o frontend cacheia esta resposta como o perfil. Devolver o
+    // retorno cru do `update` (sem isDoctor/isPhysician/permissions e com o
+    // doctorProfile montado antes de gravar a assinatura) fazia a tela de
+    // Configurações esconder Dados Profissionais/Assinatura/Cabeçalho até
+    // recarregar.
+    return this.getProfile(userId);
+  }
+
+  /**
+   * Caminho de arquivo (avatar, assinatura) mandado pelo cliente depois do
+   * upload. Vazio/null remove. Igual ao atual passa sem conferir (o cliente
+   * reenviando o que já está gravado, inclusive caminho legado sem a pasta da
+   * conta). Qualquer outro valor precisa ser um arquivo da pasta da conta —
+   * senão o perfil passaria a apontar (e, na troca seguinte, apagar) qualquer
+   * objeto do bucket, como a foto de um paciente.
+   */
+  private validarCaminhoDeArquivo(
+    valor: string | null | undefined,
+    atual: string | null | undefined,
+    pastas: readonly string[],
+    ownerId: string,
+    mensagem: string,
+  ): string | null {
+    const caminho = valor?.trim() || null;
+    if (!caminho) return null;
+    if (caminho === atual) return caminho;
+    if (!ehArquivoDaConta(caminho, pastas, ownerId)) {
+      throw new BadRequestException(mensagem);
+    }
+    return caminho;
+  }
+
+  /** Best-effort: o perfil já foi gravado; objeto órfão no R2 não é erro. */
+  private async apagarDoStorage(caminho: string): Promise<void> {
+    try {
+      await this.storageService.delete(caminho);
+    } catch {
+      this.logger.warn('Falha ao apagar arquivo antigo do perfil do storage');
+    }
   }
 
   async updateProfileById(
@@ -311,7 +378,14 @@ export class UsersService {
     // é ausência de valor, então grava `null`.
     if (data.gender !== undefined)
       userUpdates.gender = data.gender?.trim() ? data.gender.trim() : null;
-    if (data.avatarUrl !== undefined) userUpdates.avatarUrl = data.avatarUrl;
+    if (data.avatarUrl !== undefined)
+      userUpdates.avatarUrl = this.validarCaminhoDeArquivo(
+        data.avatarUrl,
+        target.avatarUrl,
+        PASTAS_DE_AVATAR,
+        target.ownerId,
+        AVATAR_INVALIDO,
+      );
     if (data.cep !== undefined) userUpdates.cep = data.cep;
     if (data.address !== undefined) userUpdates.address = data.address;
     if (data.addressNumber !== undefined)
@@ -486,8 +560,12 @@ export class UsersService {
       data.crm === undefined &&
       data.crmState === undefined &&
       data.specialty === undefined;
+    // O dono da conta só tem a assinatura trocada por ele mesmo ou pelo
+    // colaborador vinculado a ele — ter Administração não basta (ver abaixo).
+    // Por isso o vínculo é conferido também para o admin, quando o alvo é o dono.
+    const alvoEhDono = target.id === target.ownerId;
     let isLinkedCollaborator = false;
-    if (!isSelf && !isAdmin && onlySignature) {
+    if (!isSelf && onlySignature && (!isAdmin || alvoEhDono)) {
       const accesses =
         await this.userDoctorAccessRepository.findActiveByUserId(
           requestingUserId,
@@ -506,8 +584,10 @@ export class UsersService {
     // `assertAlvoNaoEhDono` em `updateProfileById`/`updateCollaborator`. Um
     // admin delegado que trocasse o conselho do dono mudaria o que ele pode
     // fazer (receita, indicação cirúrgica, Solicitações). A assinatura segue
-    // liberada ao colaborador vinculado, porque o editor de laudo depende dela.
-    if (!isSelf && !onlySignature) {
+    // liberada ao colaborador VINCULADO ao dono, porque o editor de laudo
+    // depende dela — mas não ao admin delegado só por ser admin: a assinatura
+    // sai impressa em receita e laudo em nome do dono.
+    if (!isSelf && !(onlySignature && isLinkedCollaborator)) {
       this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
     }
 
@@ -557,7 +637,13 @@ export class UsersService {
           : target.doctorProfile.crmState,
       );
     if (data.signatureImageUrl !== undefined)
-      profileUpdates.signatureUrl = data.signatureImageUrl ?? null;
+      profileUpdates.signatureUrl = this.validarCaminhoDeArquivo(
+        data.signatureImageUrl,
+        target.doctorProfile.signatureUrl,
+        PASTAS_DE_ASSINATURA,
+        target.ownerId,
+        ASSINATURA_INVALIDA,
+      );
 
     await this.doctorProfileRepository.update(
       target.doctorProfile.id,

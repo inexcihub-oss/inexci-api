@@ -303,6 +303,25 @@ describe('enviarAnexos e gravarAnexos', () => {
     expect(armazenamento.apagar).toHaveBeenCalledWith(['documents/x/a.pdf']);
   });
 
+  it('se a limpeza do rollback também falhar, o erro original do envio prevalece', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const armazenamento: ArmazenamentoImportacao = {
+      enviar: jest
+        .fn()
+        .mockResolvedValueOnce('documents/x/a.pdf')
+        .mockRejectedValueOnce(new Error('R2 fora')),
+      apagar: jest.fn().mockRejectedValue(new Error('credencial expirada')),
+    };
+
+    await expect(enviarAnexos(plano(), armazenamento)).rejects.toThrow(
+      'R2 fora',
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('credencial expirada'),
+    );
+    log.mockRestore();
+  });
+
   it('gravar insere os documentos sem o arquivo local e só põe foto onde não há', async () => {
     const execute = jest.fn().mockResolvedValue(undefined);
     const values = jest.fn().mockReturnValue({ execute, orIgnore: jest.fn() });

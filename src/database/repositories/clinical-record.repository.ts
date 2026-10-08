@@ -4,6 +4,9 @@ import { ClinicalRecord } from '../entities/clinical-record.entity';
 import { ProfessionalCouncil } from '../entities/doctor-profile.entity';
 import { BaseRepository } from './base.repository';
 
+/** Situação da ficha vinculada a uma consulta. */
+export type ClinicalRecordStatus = 'draft' | 'finalized';
+
 @Injectable()
 export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
   constructor(private readonly dataSource: DataSource) {
@@ -18,6 +21,31 @@ export class ClinicalRecordRepository extends BaseRepository<ClinicalRecord> {
     where: FindOptionsWhere<ClinicalRecord>,
   ): Promise<ClinicalRecord | null> {
     return this.repository.findOne({ where, relations: ['procedure'] });
+  }
+
+  /**
+   * Situação da ficha de cada consulta (`draft` = em aberto, `finalized` =
+   * finalizada). Consulta sem ficha viva fica fora do mapa.
+   *
+   * Seleção explícita de propósito: a agenda é liberada para quem só tem
+   * `Permission.AGENDA`, e o que ela precisa saber é se há atendimento em
+   * curso — nunca o conteúdo clínico. Ficha excluída (soft delete) não conta.
+   */
+  async findStatusByAppointmentIds(
+    appointmentIds: string[],
+  ): Promise<Map<string, ClinicalRecordStatus>> {
+    const mapa = new Map<string, ClinicalRecordStatus>();
+    if (!appointmentIds.length) return mapa;
+    const fichas = await this.repository.find({
+      select: { id: true, appointmentId: true, finalizedAt: true },
+      where: { appointmentId: In(appointmentIds) },
+    });
+    for (const f of fichas) {
+      if (f.appointmentId) {
+        mapa.set(f.appointmentId, f.finalizedAt ? 'finalized' : 'draft');
+      }
+    }
+    return mapa;
   }
 
   /**

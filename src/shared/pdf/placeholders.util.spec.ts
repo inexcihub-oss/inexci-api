@@ -1,5 +1,6 @@
 import {
   aplicarPlaceholders,
+  aplicarPlaceholdersDetalhado,
   DOCUMENT_PLACEHOLDERS,
 } from './placeholders.util';
 
@@ -112,5 +113,67 @@ describe('aplicarPlaceholders — concordância de {{dias}}', () => {
         { manterSemValor: ['dias'] },
       ),
     ).toBe('período de {{dias}} dias');
+  });
+});
+
+describe('aplicarPlaceholders — caixa da chave', () => {
+  it('{{DIAS}} sozinho também é substituído', () => {
+    expect(aplicarPlaceholders('Repouso: {{DIAS}}.', { dias: 3 })).toBe(
+      'Repouso: 3.',
+    );
+  });
+
+  it('chave em qualquer caixa vale para todos os placeholders', () => {
+    expect(
+      aplicarPlaceholders('{{Paciente.Nome}} em {{ DATA }}', {
+        'paciente.nome': 'Maria',
+        data: '01/10/2026',
+      }),
+    ).toBe('Maria em 01/10/2026');
+  });
+
+  it('a caixa da chave não muda a regra da palavra "dias"', () => {
+    expect(aplicarPlaceholders('{{DIAS}} dias', { dias: 1 })).toBe('1 dia');
+    expect(aplicarPlaceholders('{{Dias}} DIAS', { dias: 2 })).toBe('2 DIAS');
+  });
+
+  it('manterSemValor também ignora a caixa', () => {
+    expect(
+      aplicarPlaceholders('{{DIAS}} dias', {}, { manterSemValor: ['dias'] }),
+    ).toBe('{{DIAS}} dias');
+  });
+
+  it('chave do protótipo não é placeholder', () => {
+    expect(aplicarPlaceholders('{{constructor}}', { dias: 1 })).toBe(
+      '{{constructor}}',
+    );
+  });
+});
+
+describe('aplicarPlaceholdersDetalhado', () => {
+  it('informa os placeholders do texto original e os que ficaram sem valor', () => {
+    const r = aplicarPlaceholdersDetalhado(
+      '{{paciente.nome}}: {{DIAS}} dias desde {{inicio}} {{x}}',
+      { 'paciente.nome': 'Maria', dias: 2 },
+    );
+    expect(r.texto).toBe('Maria: 2 dias desde  {{x}}');
+    expect([...r.presentes].sort()).toEqual([
+      'dias',
+      'inicio',
+      'paciente.nome',
+    ]);
+    expect([...r.semValor]).toEqual(['inicio']);
+  });
+
+  it('valor em branco conta como sem valor', () => {
+    const r = aplicarPlaceholdersDetalhado('{{dias}}', { dias: '  ' });
+    expect(r.semValor.has('dias')).toBe(true);
+    expect(r.texto).toBe('');
+  });
+
+  it('texto sem placeholder não informa nada', () => {
+    const r = aplicarPlaceholdersDetalhado('Retorno em 3 dias', { dias: 3 });
+    expect(r.presentes.size).toBe(0);
+    expect(r.texto).toBe('Retorno em 3 dias');
   });
 });

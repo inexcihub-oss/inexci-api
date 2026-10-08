@@ -152,7 +152,8 @@ export function contextoDeTeste(
     mapear: new Map(),
     opcoes: {
       somenteComAtividade: false,
-      lembretes: false,
+      semLembretes: false,
+      donoNaoProfissional: false,
       passadasSemAtendimento: 'manter',
       caixaLivre: 'anamnesis',
       incluirRascunhos: false,

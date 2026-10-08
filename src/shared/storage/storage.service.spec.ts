@@ -1,6 +1,7 @@
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -113,6 +114,44 @@ describe('StorageService — cache das fotos de paciente', () => {
       expect(s3.send).not.toHaveBeenCalled();
     });
   });
+  describe('exists', () => {
+    it('HEAD respondeu: existe', async () => {
+      s3.send.mockResolvedValueOnce({});
+      await expect(service.exists('patient-photos/o/a.webp')).resolves.toBe(
+        true,
+      );
+      const comando = s3.send.mock.calls[0][0] as HeadObjectCommand;
+      expect(comando).toBeInstanceOf(HeadObjectCommand);
+      expect(comando.input).toEqual({
+        Bucket: 'bucket-teste',
+        Key: 'patient-photos/o/a.webp',
+      });
+    });
+
+    it.each([
+      { name: 'NotFound', $metadata: { httpStatusCode: 404 } },
+      { name: 'NoSuchKey' },
+      { name: 'Unknown', $metadata: { httpStatusCode: 404 } },
+    ])('404 (%o): não existe', async (erro) => {
+      s3.send.mockRejectedValueOnce(Object.assign(new Error('x'), erro));
+      await expect(service.exists('patient-photos/o/a.webp')).resolves.toBe(
+        false,
+      );
+    });
+
+    it('outra falha (rede, credencial) lança em vez de chutar', async () => {
+      s3.send.mockRejectedValueOnce(
+        Object.assign(new Error('R2 fora'), {
+          name: 'TimeoutError',
+          $metadata: { httpStatusCode: 503 },
+        }),
+      );
+      await expect(service.exists('patient-photos/o/a.webp')).rejects.toThrow(
+        'R2 fora',
+      );
+    });
+  });
+
   describe('listAll', () => {
     it('pagina pelo ContinuationToken até o fim (passa dos 1000 do listFolder)', async () => {
       const data = new Date('2026-10-01T00:00:00.000Z');

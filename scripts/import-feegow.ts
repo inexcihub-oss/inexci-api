@@ -5,7 +5,13 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { createR2Client } from '../src/config/r2.config';
 import { StorageService } from '../src/shared/storage/storage.service';
-import { ArmazenamentoImportacao } from '../src/database/import/core/armazenamento';
+import {
+  apagarEmLotes,
+  ArmazenamentoImportacao,
+  comRegistroDeOrfaos,
+  limparEPropagar,
+} from '../src/database/import/core/armazenamento';
+import { assertProcessoEmUtc } from '../src/database/import/core/fuso';
 import { dataSourceOptions } from '../src/database/typeorm/data-source';
 import { escreverAtomico, Ledger } from '../src/database/import/core/ledger';
 import { Relatorio } from '../src/database/import/core/report';
@@ -24,6 +30,15 @@ import {
   verificarCarga,
   verificarSchema,
 } from '../src/database/import/feegow/verificacao';
+
+// Antes de qualquer conexão: fora de UTC, os created_at/updated_at históricos
+// (colunas timestamp sem fuso) seriam gravados deslocados. Ver `fuso.ts`.
+try {
+  assertProcessoEmUtc();
+} catch (erro) {
+  console.error(`[import-feegow] ${(erro as Error).message}`);
+  process.exit(1);
+}
 
 /**
  * Importa o backup estruturado do Feegow para a conta de um cliente.
@@ -154,7 +169,9 @@ async function main(): Promise<void> {
 
       // Arquivos sobem antes da transação (não dá para fazer rollback de
       // upload); se a gravação falhar, o que subiu é apagado.
-      const armazenamento = fase.enviar ? criarArmazenamento() : null;
+      const armazenamento = fase.enviar
+        ? criarArmazenamento(opcoes.out, fase.nome)
+        : null;
       const enviados =
         fase.enviar && armazenamento
           ? await fase.enviar(plano, armazenamento)
@@ -166,7 +183,14 @@ async function main(): Promise<void> {
       } catch (erro) {
         if (armazenamento && enviados.length) {
           console.log('  gravação falhou: apagando os arquivos enviados...');
-          await armazenamento.apagar(enviados);
+          // Se a limpeza falhar, o erro dela vai para o log e o da gravação
+          // (a causa real) é que sobe.
+          await limparEPropagar(erro, async () => {
+            const falhas = await armazenamento.apagar(enviados);
+            console.log(
+              `  ${enviados.length - falhas.length} de ${enviados.length} arquivos apagados.`,
+            );
+          });
         }
         throw erro;
       }
@@ -179,14 +203,12 @@ async function main(): Promise<void> {
 
       const descartados = fase.descartados?.(plano) ?? [];
       if (armazenamento && descartados.length) {
-        try {
-          await armazenamento.apagar(descartados);
-          console.log(`  ${descartados.length} arquivos não usados apagados.`);
-        } catch (erro) {
-          console.error(
-            `  aviso: não deu para apagar ${descartados.length} arquivos não usados (${(erro as Error).message}): ${descartados.join(', ')}`,
-          );
-        }
+        // `apagar` não lança: o que ficou no bucket vai para o log e para
+        // `orfaos-<fase>.json` (ver `comRegistroDeOrfaos`).
+        const falhas = await armazenamento.apagar(descartados);
+        console.log(
+          `  ${descartados.length - falhas.length} de ${descartados.length} arquivos não usados apagados.`,
+        );
       }
       // O envio/gravação pode ter rejeitado ou ajustado itens (arquivo
       // ilegível, consulta que virou encaixe por colidir com o banco…).
@@ -202,31 +224,35 @@ async function main(): Promise<void> {
 
 /**
  * R2 montado fora do Nest, com as mesmas variáveis da API (`R2_ACCOUNT_ID`,
- * `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`).
+ * `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`). Chaves que não
+ * puderem ser apagadas vão para `<out>/orfaos-<fase>.json`.
  */
-function criarArmazenamento(): ArmazenamentoImportacao {
+function criarArmazenamento(
+  out: string,
+  fase: string,
+): ArmazenamentoImportacao {
   const env = {
     get: (chave: string, padrao?: string) => process.env[chave] ?? padrao,
   } as unknown as ConfigService;
   const storage = new StorageService(createR2Client(env), {
     get: () => process.env.R2_BUCKET,
   } as unknown as ConfigService);
-  return {
-    enviar: (a) =>
-      storage.uploadBuffer(
-        a.conteudo,
-        a.pasta,
-        a.nome,
-        a.contentType,
-        a.tenantId,
-      ),
-    apagar: async (caminhos) => {
-      // DeleteObjects aceita até 1000 chaves por chamada.
-      for (let i = 0; i < caminhos.length; i += 1000) {
-        await storage.deleteMany(caminhos.slice(i, i + 1000));
-      }
+  return comRegistroDeOrfaos(
+    {
+      enviar: (a) =>
+        storage.uploadBuffer(
+          a.conteudo,
+          a.pasta,
+          a.nome,
+          a.contentType,
+          a.tenantId,
+        ),
+      // `deleteMany` nunca lança: devolve as chaves que falharam.
+      apagar: (caminhos) =>
+        apagarEmLotes(caminhos, (lote) => storage.deleteMany(lote)),
     },
-  };
+    { out, fase },
+  );
 }
 
 /**

@@ -57,6 +57,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
     deactivate: jest.fn(),
   };
   const mockDoctorProfileRepository = {
+    findOne: jest.fn(),
     findByUserId: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -773,6 +774,257 @@ describe('UsersService — Colaboradores e Permissões', () => {
   });
 
   // ─── C2: updateProfileById — dono intocável + isolamento de tenant ───
+  describe('updateProfile — avatar e assinatura (caminho do bucket)', () => {
+    const FOTO_PACIENTE = 'patient-photos/dono-1/uuid-foto.webp';
+    const usuario = (parcial: Record<string, unknown> = {}) => ({
+      id: 'user-1',
+      ownerId: 'dono-1',
+      avatarUrl: 'avatars/dono-1/antigo.png',
+      ...parcial,
+    });
+
+    beforeEach(() => {
+      mockUserRepository.update.mockResolvedValue({ id: 'user-1' });
+      mockStorageService.delete.mockResolvedValue(undefined);
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'user-1',
+        ownerId: 'dono-1',
+        role: UserRole.ADMIN,
+        permissions: [],
+        doctorProfile: null,
+      });
+    });
+
+    it('devolve o mesmo formato do GET /users/profile, relido depois das gravações', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce(usuario());
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'dp-1',
+        signatureUrl: null,
+      });
+      mockDoctorProfileRepository.findOne.mockResolvedValue(null);
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'user-1',
+        ownerId: 'dono-1',
+        role: UserRole.ADMIN,
+        permissions: [],
+        password: 'hash',
+        doctorProfile: {
+          id: 'dp-1',
+          council: ProfessionalCouncil.CRM,
+          signatureUrl: 'https://assinada/nova.png',
+        },
+      });
+
+      const resposta = await service.updateProfile(
+        { name: 'Novo', signatureUrl: 'signatures/dono-1/nova.png' },
+        'user-1',
+      );
+
+      // Relido só depois de gravar o perfil médico.
+      const ordemGravacao =
+        mockDoctorProfileRepository.update.mock.invocationCallOrder[0];
+      const ordemLeitura =
+        mockUserRepository.findOneWithProfile.mock.invocationCallOrder.at(-1)!;
+      expect(ordemLeitura).toBeGreaterThan(ordemGravacao);
+
+      expect(resposta).toEqual(await service.getProfile('user-1'));
+      expect(resposta).toMatchObject({
+        isDoctor: true,
+        isPhysician: true,
+        doctorProfile: { signatureUrl: 'https://assinada/nova.png' },
+      });
+      expect(resposta.permissions).toEqual(
+        expect.arrayContaining([
+          Permission.AGENDA,
+          Permission.ATENDIMENTO,
+          Permission.SOLICITACOES,
+          Permission.ADMINISTRACAO,
+        ]),
+      );
+      expect(resposta).not.toHaveProperty('password');
+    });
+
+    it('avatar da pasta da conta: grava e apaga o antigo', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(usuario()) // o próprio usuário
+        .mockResolvedValueOnce(null); // ninguém mais usa o antigo
+
+      await service.updateProfile(
+        { avatarUrl: 'avatars/dono-1/novo.png' },
+        'user-1',
+      );
+
+      expect(mockUserRepository.update).toHaveBeenCalledWith('user-1', {
+        avatarUrl: 'avatars/dono-1/novo.png',
+      });
+      expect(mockStorageService.delete).toHaveBeenCalledWith(
+        'avatars/dono-1/antigo.png',
+      );
+    });
+
+    it.each([
+      ['foto de paciente', FOTO_PACIENTE],
+      ['avatar de outra conta', 'avatars/outro-dono/a.png'],
+      ['documento', 'documents/dono-1/laudo.pdf'],
+      ['travessia', `avatars/dono-1/../../${FOTO_PACIENTE}`],
+    ])(
+      'recusa avatar apontando para %s, sem gravar nem apagar',
+      async (_rotulo, avatarUrl) => {
+        mockUserRepository.findOne.mockResolvedValueOnce(usuario());
+
+        await expect(
+          service.updateProfile({ avatarUrl }, 'user-1'),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockUserRepository.update).not.toHaveBeenCalled();
+        expect(mockStorageService.delete).not.toHaveBeenCalled();
+      },
+    );
+
+    it('avatar antigo fora da pasta de avatares da conta não é apagado', async () => {
+      // Gravado antes da validação: um caminho de foto de paciente. Trocar
+      // o avatar não pode levar a foto do paciente junto.
+      mockUserRepository.findOne.mockResolvedValueOnce(
+        usuario({ avatarUrl: FOTO_PACIENTE }),
+      );
+
+      await service.updateProfile({ avatarUrl: null }, 'user-1');
+
+      expect(mockUserRepository.update).toHaveBeenCalledWith('user-1', {
+        avatarUrl: null,
+      });
+      expect(mockStorageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('avatar antigo usado por outro usuário da conta não é apagado', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce(usuario())
+        .mockResolvedValueOnce({ id: 'colega-1' });
+
+      await service.updateProfile(
+        { avatarUrl: 'avatars/dono-1/novo.png' },
+        'user-1',
+      );
+
+      expect(mockStorageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('reenviar o avatar atual (mesmo legado, fora da pasta da conta) não apaga nem recusa', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce(
+        usuario({ avatarUrl: 'avatars/legado.png' }),
+      );
+
+      await service.updateProfile(
+        { avatarUrl: 'avatars/legado.png' },
+        'user-1',
+      );
+
+      expect(mockUserRepository.update).toHaveBeenCalledWith('user-1', {
+        avatarUrl: 'avatars/legado.png',
+      });
+      expect(mockStorageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('assinatura: recusa caminho de outra conta antes de gravar o perfil', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce(usuario());
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'dp-1',
+        signatureUrl: 'signatures/dono-1/antiga.png',
+      });
+
+      await expect(
+        service.updateProfile(
+          { name: 'X', signatureUrl: 'signatures/outro-dono/a.png' },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockUserRepository.update).not.toHaveBeenCalled();
+      expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+      expect(mockStorageService.delete).not.toHaveBeenCalled();
+    });
+
+    it('assinatura da conta: grava e apaga a antiga da pasta da conta', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce(usuario());
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'dp-1',
+        signatureUrl: 'signatures/dono-1/antiga.png',
+      });
+      mockDoctorProfileRepository.findOne.mockResolvedValue(null);
+
+      await service.updateProfile(
+        { signatureUrl: 'signatures/dono-1/nova.png' },
+        'user-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith('dp-1', {
+        signatureUrl: 'signatures/dono-1/nova.png',
+      });
+      expect(mockStorageService.delete).toHaveBeenCalledWith(
+        'signatures/dono-1/antiga.png',
+      );
+    });
+
+    it('assinatura antiga fora da pasta da conta não é apagada', async () => {
+      mockUserRepository.findOne.mockResolvedValueOnce(usuario());
+      mockDoctorProfileRepository.findByUserId.mockResolvedValue({
+        id: 'dp-1',
+        signatureUrl: FOTO_PACIENTE,
+      });
+      mockDoctorProfileRepository.findOne.mockResolvedValue(null);
+
+      await service.updateProfile({ signatureUrl: null }, 'user-1');
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith('dp-1', {
+        signatureUrl: null,
+      });
+      expect(mockStorageService.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateProfileById — avatar', () => {
+    it('admin delegado não grava como avatar do colaborador a foto de um paciente', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'delegado-1', ownerId: 'dono-1' })
+        .mockResolvedValueOnce({
+          id: 'collab-1',
+          ownerId: 'dono-1',
+          avatarUrl: null,
+        });
+      mockUserRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+
+      await expect(
+        service.updateProfileById(
+          'collab-1',
+          { avatarUrl: 'patient-photos/dono-1/uuid-foto.webp' },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockUserRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('aceita avatar da pasta da conta do alvo', async () => {
+      mockUserRepository.findOne
+        .mockResolvedValueOnce({ id: 'user-1', ownerId: 'dono-1' })
+        .mockResolvedValueOnce({ id: 'user-1', ownerId: 'dono-1' });
+      mockUserRepository.update.mockResolvedValue({ id: 'user-1' });
+
+      await service.updateProfileById(
+        'user-1',
+        { avatarUrl: 'avatars/dono-1/novo.png' },
+        'user-1',
+      );
+
+      expect(mockUserRepository.update).toHaveBeenCalledWith('user-1', {
+        avatarUrl: 'avatars/dono-1/novo.png',
+      });
+    });
+  });
+
   describe('updateProfileById', () => {
     it('permite que o usuário edite o próprio perfil sem checar Administração', async () => {
       mockUserRepository.findOne
@@ -2255,12 +2507,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
+          ownerId: 'real-admin',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
           adminId: 'real-admin',
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/x.png' },
+          doctorProfile: {
+            id: 'dp-1',
+            signatureUrl: 'signatures/real-admin/x.png',
+          },
           // Permissão efetiva do médico-alvo: um colaborador com acesso
           // restrito à assinatura não deve recebê-la na resposta.
           permissions: [Permission.SOLICITACOES],
@@ -2273,13 +2529,15 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       const result = await service.updateDoctorProfileById(
         'doctor-1',
-        { signatureImageUrl: 'signatures/x.png' },
+        { signatureImageUrl: 'signatures/real-admin/x.png' },
         'collab-1',
       );
 
       expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
         'dp-1',
-        expect.objectContaining({ signatureUrl: 'signatures/x.png' }),
+        expect.objectContaining({
+          signatureUrl: 'signatures/real-admin/x.png',
+        }),
       );
       // Vazamento corrigido pós-revisão: colaborador só-assinatura não pode
       // ver permissions/isPlatformAdmin do médico-alvo na resposta.
@@ -2305,12 +2563,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
+          ownerId: 'real-admin',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
           adminId: 'real-admin',
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
-          doctorProfile: { id: 'dp-1', signatureUrl: 'signatures/x.png' },
+          doctorProfile: {
+            id: 'dp-1',
+            signatureUrl: 'signatures/real-admin/x.png',
+          },
           permissions: [Permission.SOLICITACOES],
           isPlatformAdmin: false,
           onboardingState: null,
@@ -2321,7 +2583,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       const result = await service.updateDoctorProfileById(
         'doctor-1',
-        { signatureImageUrl: 'signatures/x.png' },
+        { signatureImageUrl: 'signatures/real-admin/x.png' },
         'collab-1',
       );
 
@@ -2495,14 +2757,141 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await service.updateDoctorProfileById(
         'dono-1',
-        { signatureImageUrl: 'signatures/dono.png' },
+        { signatureImageUrl: 'signatures/dono-1/dono.png' },
         'collab-1',
       );
 
       expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
         'dp-dono',
-        { signatureUrl: 'signatures/dono.png' },
+        { signatureUrl: 'signatures/dono-1/dono.png' },
       );
+    });
+
+    it('admin delegado NÃO troca a assinatura do dono (só por ser admin)', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(delegado)
+        .mockResolvedValueOnce(dono);
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
+
+      await expect(
+        service.updateDoctorProfileById(
+          'dono-1',
+          { signatureImageUrl: 'signatures/dono-1/outra.png' },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('nem remove a assinatura do dono (null)', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(delegado)
+        .mockResolvedValueOnce(dono);
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
+
+      await expect(
+        service.updateDoctorProfileById(
+          'dono-1',
+          { signatureImageUrl: null },
+          'delegado-1',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('admin delegado que também é vinculado ao dono troca a assinatura dele', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(delegado)
+        .mockResolvedValueOnce(dono)
+        .mockResolvedValueOnce(dono);
+      mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'dono-1' },
+      ]);
+
+      await service.updateDoctorProfileById(
+        'dono-1',
+        { signatureImageUrl: 'signatures/dono-1/nova.png' },
+        'delegado-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith(
+        'dp-dono',
+        { signatureUrl: 'signatures/dono-1/nova.png' },
+      );
+    });
+
+    it('admin delegado segue trocando a assinatura de outro profissional da conta', async () => {
+      const profissional = {
+        id: 'doctor-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'dono-1',
+        doctorProfile: { id: 'dp-1', council: ProfessionalCouncil.CRM },
+      };
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(delegado)
+        .mockResolvedValueOnce(profissional)
+        .mockResolvedValueOnce(profissional);
+
+      await service.updateDoctorProfileById(
+        'doctor-1',
+        { signatureImageUrl: 'signatures/dono-1/nova.png' },
+        'delegado-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith('dp-1', {
+        signatureUrl: 'signatures/dono-1/nova.png',
+      });
+      expect(
+        mockUserDoctorAccessRepository.findActiveByUserId,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateDoctorProfileById — caminho da assinatura', () => {
+    const profissional = {
+      id: 'doctor-1',
+      role: UserRole.COLLABORATOR,
+      ownerId: 'dono-1',
+      doctorProfile: {
+        id: 'dp-1',
+        council: ProfessionalCouncil.CRM,
+        signatureUrl: 'signatures/legado.png',
+      },
+    };
+
+    it.each([
+      ['foto de paciente', 'patient-photos/dono-1/uuid-foto.webp'],
+      ['assinatura de outra conta', 'signatures/outro-dono/a.png'],
+      ['travessia', 'signatures/dono-1/../../patient-photos/dono-1/f.webp'],
+    ])('recusa %s (400) e não grava', async (_rotulo, caminho) => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(profissional)
+        .mockResolvedValueOnce(profissional);
+
+      await expect(
+        service.updateDoctorProfileById(
+          'doctor-1',
+          { signatureImageUrl: caminho },
+          'doctor-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockDoctorProfileRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('reenviar o caminho atual (mesmo legado) passa', async () => {
+      mockUserRepository.findOneWithProfile
+        .mockResolvedValueOnce(profissional)
+        .mockResolvedValueOnce(profissional)
+        .mockResolvedValueOnce(profissional);
+
+      await service.updateDoctorProfileById(
+        'doctor-1',
+        { signatureImageUrl: 'signatures/legado.png' },
+        'doctor-1',
+      );
+
+      expect(mockDoctorProfileRepository.update).toHaveBeenCalledWith('dp-1', {
+        signatureUrl: 'signatures/legado.png',
+      });
     });
   });
 

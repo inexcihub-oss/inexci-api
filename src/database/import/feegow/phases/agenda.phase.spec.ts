@@ -42,6 +42,31 @@ function planejar(
 }
 
 describe('planejarAgenda (export sintético)', () => {
+  it('locais com o mesmo nome (maiúsculas/espaços) viram uma sala só', () => {
+    const { ctx, plano } = planejar(
+      [
+        ag('10', '1', '2025-01-10', '0', { local_id: '1' }),
+        ag('10', '1', '2025-02-10', '0', { local_id: '7' }),
+      ],
+      {
+        locais: [
+          { id: '1', NomeLocal: 'Consultório 01', sys_active: '1' },
+          { id: '7', NomeLocal: ' CONSULTÓRIO 01 ', sys_active: '1' },
+        ],
+      },
+    );
+
+    expect(plano.salas).toHaveLength(1);
+    expect(ctx.ledger.resolver(LEDGER_SALA, '7')).toBe(plano.salas[0].id);
+    expect(plano.consultas.map((c) => c.roomId)).toEqual([
+      plano.salas[0].id,
+      plano.salas[0].id,
+    ]);
+    expect(ctx.relatorio.avisos).toContainEqual(
+      expect.objectContaining({ entidade: 'sala', idOrigem: '7' }),
+    );
+  });
+
   it('cria as salas ativas da clínica importada', () => {
     const { ctx, plano } = planejar([ag('10', '1', '2025-01-10', '0')]);
 
@@ -172,7 +197,7 @@ describe('planejarAgenda (export sintético)', () => {
           opcoes: {
             ...contextoDeTeste().opcoes,
             somenteComAtividade: false,
-            lembretes: false,
+            semLembretes: false,
             passadasSemAtendimento: 'no_show',
           },
         },
@@ -196,32 +221,38 @@ describe('planejarAgenda (export sintético)', () => {
   describe('lembrete das consultas futuras', () => {
     const futura = () => ag('10', '1', '2026-10-05', '0', { status_id: '1' });
 
-    it('por padrão marca como já lembrada (o Feegow cuidou)', () => {
+    it('por padrão deixa a INEXCI lembrar (reminder_sent_at nulo)', () => {
       const { plano } = planejar([futura()]);
 
-      expect(plano.consultas[0].reminderSentAt).toBeInstanceOf(Date);
+      expect(plano.consultas[0].reminderSentAt).toBeNull();
     });
 
-    it('--lembretes deixa a INEXCI lembrar', () => {
+    it('--sem-lembretes marca a futura como já lembrada', () => {
       const { plano } = planejar(
         [futura()],
         {},
         {
           opcoes: {
             ...contextoDeTeste().opcoes,
-            somenteComAtividade: false,
-            lembretes: true,
-            passadasSemAtendimento: 'manter',
+            semLembretes: true,
           },
         },
       );
 
-      expect(plano.consultas[0].reminderSentAt).toBeNull();
+      expect(plano.consultas[0].reminderSentAt).toBeInstanceOf(Date);
     });
 
-    it('consulta passada não ganha marca de lembrete', () => {
+    it('consulta passada sai marcada (cron nunca lembra consulta passada)', () => {
       const { plano } = planejar([
         ag('10', '1', '2025-01-10', '0', { status_id: '1' }),
+      ]);
+
+      expect(plano.consultas[0].reminderSentAt).toBeInstanceOf(Date);
+    });
+
+    it('futura cancelada não ganha marca (o cron filtra pelo status)', () => {
+      const { plano } = planejar([
+        ag('10', '1', '2026-10-05', '0', { status_id: '11' }),
       ]);
 
       expect(plano.consultas[0].reminderSentAt).toBeNull();
@@ -323,6 +354,50 @@ describe('planejarAgenda (export sintético)', () => {
 });
 
 describe('gravarAgenda', () => {
+  it('sala com nome de uma que a clínica já tem é reaproveitada (consultas e ledger apontam para ela)', async () => {
+    const { ctx, plano } = planejar([
+      ag('10', '1', '2025-01-10', '0', { local_id: '1' }),
+    ]);
+    const planejada = plano.salas.find((s) => s.name === 'Consultório 01')!;
+    const inseridas: unknown[] = [];
+    const insert = {
+      insert: () => insert,
+      into: () => insert,
+      values: (v: unknown) => (inseridas.push(v), insert),
+      orIgnore: () => insert,
+      execute: async () => undefined,
+    };
+    const manager = {
+      createQueryBuilder: () => insert,
+      getRepository: (e: unknown) => ({
+        createQueryBuilder: () =>
+          consultaQb(
+            e === ClinicRoom
+              ? [
+                  {
+                    id: 'sala-da-tela',
+                    clinicId: planejada.clinicId,
+                    name: '  consultório 01 ',
+                  },
+                ]
+              : [],
+          ),
+      }),
+    } as unknown as EntityManager;
+
+    await gravarAgenda(plano, manager);
+
+    expect(plano.salas.map((s) => s.name)).toEqual(['Consultório 02']);
+    expect(plano.consultas[0].roomId).toBe('sala-da-tela');
+    expect(ctx.ledger.resolver(LEDGER_SALA, '1')).toBe('sala-da-tela');
+    expect(plano.relatorio.avisos).toContainEqual(
+      expect.objectContaining({
+        idOrigem: '1',
+        aviso: expect.stringContaining('reaproveitada'),
+      }),
+    );
+  });
+
   it('grava salas antes das consultas (a consulta aponta para a sala)', async () => {
     const { plano } = planejar([ag('10', '1', '2025-01-10', '0')]);
     const ordem: unknown[] = [];
