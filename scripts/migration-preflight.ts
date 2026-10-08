@@ -49,6 +49,10 @@ async function main(): Promise<void> {
       console.log(`[preflight] ${nome}: já aplicada, verificação dispensada.`);
     }
 
+    for (const adiada of resultado.adiadas) {
+      console.log(`[preflight] adiada para a migration: ${adiada}`);
+    }
+
     if (resultado.aprovado) {
       console.log(
         `[preflight] OK: ${resultado.verificadas.length} verificação(ões) pendente(s) sem conflito.`,

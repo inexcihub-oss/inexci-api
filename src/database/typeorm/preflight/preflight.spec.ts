@@ -79,4 +79,98 @@ describe('rodarPreflight', () => {
     expect(resultado.aprovado).toBe(false);
     expect(resultado.diagnosticos.join('\n')).toContain('conexão recusada');
   });
+
+  describe('schema criado por migration pendente do mesmo deploy', () => {
+    const erroPg = (code: string, message: string) =>
+      Object.assign(new Error(message), { code });
+
+    it('tabela ainda inexistente (42P01) adia a checagem, sem reprovar', async () => {
+      const resultado = await rodarPreflight({
+        aplicadas: async () => [],
+        consultar: async () => {
+          throw erroPg('42P01', 'relation "clinic_rooms" does not exist');
+        },
+        verificacoes: [VERIFICACAO],
+      });
+
+      expect(resultado.aprovado).toBe(true);
+      expect(resultado.diagnosticos).toEqual([]);
+      expect(resultado.adiadas.join('\n')).toContain('clinic_rooms');
+    });
+
+    it('coluna ainda inexistente (42703) também adia, inclusive vinda do TypeORM', async () => {
+      const resultado = await rodarPreflight({
+        aplicadas: async () => [],
+        consultar: async () => {
+          throw Object.assign(new Error('QueryFailedError'), {
+            driverError: { code: '42703' },
+          });
+        },
+        verificacoes: [VERIFICACAO],
+      });
+
+      expect(resultado.aprovado).toBe(true);
+      expect(resultado.adiadas).toHaveLength(1);
+    });
+
+    it('com sqlAntesDoSchema, confere o dado legado na hora e reprova se houver conflito', async () => {
+      const consultar = jest.fn(async (sql: string) => {
+        if (sql === 'SELECT 1')
+          throw erroPg('42703', 'column a.is_walk_in does not exist');
+        return [{ chave: 'médico x', ids: 'id-a, id-b' }];
+      });
+
+      const resultado = await rodarPreflight({
+        aplicadas: async () => [],
+        consultar,
+        verificacoes: [{ ...VERIFICACAO, sqlAntesDoSchema: 'SELECT 2' }],
+      });
+
+      expect(consultar).toHaveBeenCalledWith('SELECT 2');
+      expect(resultado.aprovado).toBe(false);
+      expect(resultado.diagnosticos[0]).toContain('id-a, id-b');
+      expect(resultado.adiadas).toEqual([]);
+    });
+
+    it('com sqlAntesDoSchema e sem conflito, aprova sem adiar', async () => {
+      const resultado = await rodarPreflight({
+        aplicadas: async () => [],
+        consultar: async (sql: string) => {
+          if (sql === 'SELECT 1') throw erroPg('42703', 'sem coluna');
+          return [];
+        },
+        verificacoes: [{ ...VERIFICACAO, sqlAntesDoSchema: 'SELECT 2' }],
+      });
+
+      expect(resultado.aprovado).toBe(true);
+      expect(resultado.adiadas).toEqual([]);
+    });
+
+    it('falha da versão alternativa continua reprovando', async () => {
+      const resultado = await rodarPreflight({
+        aplicadas: async () => [],
+        consultar: async (sql: string) => {
+          if (sql === 'SELECT 1') throw erroPg('42703', 'sem coluna');
+          throw new Error('conexão recusada');
+        },
+        verificacoes: [{ ...VERIFICACAO, sqlAntesDoSchema: 'SELECT 2' }],
+      });
+
+      expect(resultado.aprovado).toBe(false);
+      expect(resultado.diagnosticos.join('\n')).toContain('conexão recusada');
+    });
+
+    it('outros erros de banco (ex.: permissão) continuam reprovando', async () => {
+      const resultado = await rodarPreflight({
+        aplicadas: async () => [],
+        consultar: async () => {
+          throw erroPg('42501', 'permission denied for table users');
+        },
+        verificacoes: [VERIFICACAO],
+      });
+
+      expect(resultado.aprovado).toBe(false);
+      expect(resultado.adiadas).toEqual([]);
+    });
+  });
 });

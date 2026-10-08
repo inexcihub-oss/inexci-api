@@ -36,6 +36,13 @@ export interface VerificacaoPreMigration {
    * a de `users` (a maioria das verificações aponta ids de usuário).
    */
   inspecionar?: string;
+  /**
+   * Versão da checagem para quando o schema que `sql` lê ainda vai ser criado
+   * por uma migration pendente do mesmo deploy (só o pré-flight usa; a
+   * migration, quando roda, já encontra o schema). Sem ela, o pré-flight adia
+   * a checagem para a própria migration.
+   */
+  sqlAntesDoSchema?: string;
   mapear(linhas: Record<string, unknown>[]): ConflitoDeDado[];
 }
 
@@ -288,6 +295,30 @@ export const CONSULTAS_SOBREPOSTAS: VerificacaoPreMigration = {
          WHERE n."duration_minutes" < 0
            AND n."status" IN (${STATUS_QUE_OCUPAM_A_AGENDA_SQL})
            AND NOT n."is_walk_in" AND n."deleted_at" IS NULL
+        HAVING count(*) > 0`,
+  // Antes de `AddRoomWalkInPlanCreatorToAppointments` não existe
+  // `is_walk_in`: a coluna nasce `false` para todas, então a checagem é a
+  // mesma sem o filtro de encaixe.
+  sqlAntesDoSchema: `SELECT 'médico ' || a."doctor_id"::text || ' em ' || a."scheduled_at"::text AS chave,
+               a."id"::text || ', ' || b."id"::text AS ids
+          FROM "appointments" a
+          JOIN "appointments" b
+            ON b."doctor_id" = a."doctor_id" AND b."id" > a."id"
+         WHERE a."status" IN (${STATUS_QUE_OCUPAM_A_AGENDA_SQL})
+           AND a."deleted_at" IS NULL
+           AND b."status" IN (${STATUS_QUE_OCUPAM_A_AGENDA_SQL})
+           AND b."deleted_at" IS NULL
+           AND tsrange(timezone('UTC', a."scheduled_at"),
+                       timezone('UTC', a."scheduled_at") + GREATEST(a."duration_minutes", 0) * interval '1 minute', '[)')
+            && tsrange(timezone('UTC', b."scheduled_at"),
+                       timezone('UTC', b."scheduled_at") + GREATEST(b."duration_minutes", 0) * interval '1 minute', '[)')
+         UNION ALL
+        SELECT 'duração negativa' AS chave,
+               string_agg(n."id"::text, ', ') AS ids
+          FROM "appointments" n
+         WHERE n."duration_minutes" < 0
+           AND n."status" IN (${STATUS_QUE_OCUPAM_A_AGENDA_SQL})
+           AND n."deleted_at" IS NULL
         HAVING count(*) > 0`,
   comoResolver:
     'Para cada par, remarque, cancele ou marque como encaixe uma das consultas (ou corrija a duração negativa) antes de repetir o deploy. Inspecione com: SELECT id, doctor_id, patient_id, status, scheduled_at, duration_minutes FROM appointments WHERE id IN (...);',
