@@ -13,6 +13,7 @@ import { UserNotificationSettings } from 'src/database/entities/user-notificatio
 import { User } from 'src/database/entities/user.entity';
 import { MailModule } from 'src/shared/mail/mail.module';
 import { WhatsappModule } from 'src/shared/whatsapp/whatsapp.module';
+import { PatientNotificationSettingsModule } from './patient-settings/patient-notification-settings.module';
 import { PendenciesModule } from 'src/modules/surgery-requests/pendencies/pendencies.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { PendenciesModule } from 'src/modules/surgery-requests/pendencies/penden
     }),
     MailModule,
     WhatsappModule,
+    PatientNotificationSettingsModule,
     forwardRef(() => PendenciesModule),
   ],
   controllers: [NotificationsController],

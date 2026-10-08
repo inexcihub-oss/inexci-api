@@ -10,6 +10,7 @@ import {
   AppointmentType,
 } from 'src/database/entities/appointment.entity';
 import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
+import { PatientNotificationSettingsService } from '../notifications/patient-settings/patient-notification-settings.service';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -42,6 +43,7 @@ export class AppointmentReminderService {
     private readonly userRepository: UserRepository,
     private readonly mailService: MailService,
     private readonly whatsappService: WhatsappService,
+    private readonly patientNotificationSettings: PatientNotificationSettingsService,
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -61,9 +63,27 @@ export class AppointmentReminderService {
     const until = new Date(now.getTime() + REMINDER_WINDOW_MS);
     const due = await this.appointmentRepository.findDueForReminder(now, until);
 
+    // Uma leitura da configuração por conta nesta rodada, não uma por consulta.
+    const lembreteLigado = new Map<string, Promise<boolean>>();
+
     let sent = 0;
     for (const appt of due) {
       try {
+        if (!lembreteLigado.has(appt.ownerId)) {
+          lembreteLigado.set(
+            appt.ownerId,
+            this.patientNotificationSettings.isEnabled(
+              appt.ownerId,
+              'appointmentReminder',
+            ),
+          );
+        }
+        // Conta com o lembrete desligado: não envia e NÃO marca
+        // `reminderSentAt` — o webhook usa esse campo para saber a qual
+        // consulta o paciente respondeu, e marcar sem enviar o enganaria. Se a
+        // conta religar, a consulta ainda na janela é lembrada na hora seguinte.
+        if (!(await lembreteLigado.get(appt.ownerId))) continue;
+
         const outcome = await this.notify(appt);
 
         // Havia canal e nenhum entregou (Redis fora, SMTP recusando): não

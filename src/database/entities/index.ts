@@ -52,6 +52,7 @@ import { SurgeryRequestActivityMention } from './surgery-request-activity-mentio
 import { Document } from './document.entity';
 import { Notification, NotificationType } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
+import { PatientNotificationSettings } from './patient-notification-settings.entity';
 import { RecoveryCode } from './recovery-code.entity';
 import { SubscriptionPlan, BillingPeriod } from './subscription-plan.entity';
 import { Subscription, SubscriptionStatus } from './subscription.entity';
@@ -117,6 +118,7 @@ export { Document };
 // COMUNICAÇÃO
 export { Notification, NotificationType };
 export { UserNotificationSettings };
+export { PatientNotificationSettings };
 export { ReportSection };
 
 // PLANOS DE ASSINATURA / BILLING
@@ -180,6 +182,7 @@ export const ENTITIES = [
   Document,
   Notification,
   UserNotificationSettings,
+  PatientNotificationSettings,
   RecoveryCode,
   SubscriptionPlan,
   Subscription,
