@@ -75,3 +75,37 @@ describe('aplicarPlaceholders (MIG-06)', () => {
     ).toBe('5 dias');
   });
 });
+
+describe('aplicarPlaceholders — concordância de {{dias}}', () => {
+  it.each([
+    ['período de {{dias}} dias.', 1, 'período de 1 dia.'],
+    ['período de {{dias}} dias.', 3, 'período de 3 dias.'],
+    ['período de {{dias}} dia.', 2, 'período de 2 dias.'],
+    ['período de {{dias}} dia(s).', 1, 'período de 1 dia.'],
+    ['período de {{ dias }} DIAS', 1, 'período de 1 dia'],
+    ['afastamento de {{dias}} dias úteis', 1, 'afastamento de 1 dia úteis'],
+  ])('%s com %d → %s', (modelo, dias, esperado) => {
+    expect(aplicarPlaceholders(modelo, { dias })).toBe(esperado);
+  });
+
+  it('não mexe em "dia" que não vem logo depois de {{dias}}', () => {
+    expect(
+      aplicarPlaceholders('Atendido(a) neste dia. Repouso de {{dias}} dias.', {
+        dias: 1,
+      }),
+    ).toBe('Atendido(a) neste dia. Repouso de 1 dia.');
+    expect(aplicarPlaceholders('{{dias}} diaristas', { dias: 1 })).toBe(
+      '1 diaristas',
+    );
+  });
+
+  it('sem valor de dias, o placeholder segue as regras de sempre', () => {
+    expect(
+      aplicarPlaceholders(
+        'período de {{dias}} dias',
+        {},
+        { manterSemValor: ['dias'] },
+      ),
+    ).toBe('período de {{dias}} dias');
+  });
+});
