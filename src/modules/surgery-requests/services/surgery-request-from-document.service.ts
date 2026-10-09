@@ -31,8 +31,6 @@ import * as path from 'path';
 
 const TEMP_FOLDER = 'sc-from-document-tmp';
 const MAX_PROCEDURE_NAME_LENGTH = 255;
-// documents.name é varchar(75); nome de arquivo maior estoura o insert e
-// derruba silenciosamente o anexo do documento de origem.
 const MAX_DOCUMENT_NAME_LENGTH = 75;
 
 @Injectable()
@@ -52,10 +50,6 @@ export class SurgeryRequestFromDocumentService {
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
   ) {}
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // EXTRAÇÃO (Tarefa 5 — POST /surgery-requests/extract-from-document)
-  // ──────────────────────────────────────────────────────────────────────────
 
   async extractFromDocument(
     file: Express.Multer.File,
@@ -157,10 +151,6 @@ export class SurgeryRequestFromDocumentService {
       tempStoragePath,
     };
   }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // CRIAÇÃO (Tarefa 6 — POST /surgery-requests/from-document)
-  // ──────────────────────────────────────────────────────────────────────────
 
   async createFromDocument(
     dto: CreateFromDocumentDto,
@@ -273,7 +263,6 @@ export class SurgeryRequestFromDocumentService {
     return { id: sc.id, protocol: sc.protocol ?? sc.id, warnings };
   }
 
-  /** Aplica os grupos confirmados, sem substituir dados já preenchidos. */
   async applyDocumentExtraction(
     requestId: string,
     dto: ApplyDocumentExtractionDto,
@@ -422,11 +411,6 @@ export class SurgeryRequestFromDocumentService {
     return parts.length ? parts : undefined;
   }
 
-  /**
-   * O caminho de upload temporário vem do cliente, portanto não pode ser
-   * tratado como uma capacidade de acesso ao storage. Só aceitamos arquivos
-   * gerados pela extração deste tenant e diretamente dentro do seu prefixo.
-   */
   private assertOwnedTemporaryStoragePath(
     storagePath: string,
     ownerId: string,
@@ -566,7 +550,6 @@ export class SurgeryRequestFromDocumentService {
     return map[ext] ?? 'application/octet-stream';
   }
 
-  /** Trunca o nome para caber em documents.name (varchar 75), preservando a extensão. */
   private capDocumentName(name: string): string {
     if (name.length <= MAX_DOCUMENT_NAME_LENGTH) return name;
     const ext = path.extname(name);

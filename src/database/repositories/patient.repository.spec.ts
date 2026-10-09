@@ -1,12 +1,5 @@
 import { PatientRepository } from './patient.repository';
 
-/**
- * A listagem de pacientes alimenta a tela `/pacientes` (nome, CPF, e-mail,
- * telefone, nascimento) e os seletores do wizard/agenda (nome e CPF). Nenhum
- * deles lê endereço, convênio ou `medicalNotes` — e `Patient` não tem
- * `@Exclude` em campo nenhum, então sem `select` a entidade inteira vai para o
- * navegador. `medicalNotes` é dado clínico: não sai numa listagem.
- */
 describe('PatientRepository.findAndCountWithSearch', () => {
   function buildRepo() {
     const qb = {
@@ -26,7 +19,6 @@ describe('PatientRepository.findAndCountWithSearch', () => {
     return { repo: new PatientRepository(dataSource as never), qb };
   }
 
-  /** Colunas efetivamente pedidas ao Postgres. */
   const colunas = (qb: { select: jest.Mock }) =>
     (qb.select.mock.calls[0]?.[0] as string[]) ?? [];
 

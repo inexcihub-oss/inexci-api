@@ -16,12 +16,8 @@ import {
 
 let cachedTruncateTableNames: string | null = null;
 
-// Carrega o .env para reaproveitar credenciais/host, mas o banco é sempre
-// redirecionado para o de teste logo abaixo — o .env aponta para o de dev, e
-// `cleanDatabase` trunca tudo.
 config({ path: resolve(__dirname, '../../.env') });
 
-// Definir valores padrão para testes caso não existam
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = 'test-jwt-secret-key-for-e2e-tests-123456789';
 }
@@ -31,7 +27,6 @@ process.env.DATABASE_URL = comBancoDeTeste(
 );
 
 export async function createTestApp(): Promise<INestApplication> {
-  // NODE_ENV=test desabilita rate limiting via CustomThrottlerGuard
   process.env.NODE_ENV = 'test';
 
   const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -40,8 +35,6 @@ export async function createTestApp(): Promise<INestApplication> {
 
   const app = moduleFixture.createNestApplication();
 
-  // Mesmo pipe/filtro/interceptor globais do `main.ts` — via ponto único, para
-  // os testes não exercitarem um app diferente do que roda em produção (D-13).
   applyGlobalAppConfig(app);
 
   await app.init();
@@ -50,14 +43,12 @@ export async function createTestApp(): Promise<INestApplication> {
 
 export async function cleanDatabase(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
-  // Fail-closed: nunca truncar um banco que não seja o de teste.
   await assertBancoDeTeste({
     query: (sql: string) =>
       dataSource.query(sql) as Promise<{ current_database: string }[]>,
   });
 
   if (!cachedTruncateTableNames) {
-    // Resolve uma vez por processo de teste para evitar custo repetido no beforeEach.
     const tables = await dataSource.query(sqlTabelasParaTruncar());
     cachedTruncateTableNames = tables
       .map((table: { tablename: string }) => `"${table.tablename}"`)
@@ -71,12 +62,9 @@ export async function cleanDatabase(app: INestApplication): Promise<void> {
   }
 }
 
-// Criar dados de seed para testes (procedimentos e dados essenciais)
 export async function seedTestData(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
 
-  // O catálogo agora é por tenant (`procedures.owner_id`).
-  // Em cenários sem usuário criado, não há owner para seed.
   const owners = await dataSource.query(`
     SELECT id FROM users ORDER BY created_at ASC LIMIT 1
   `);
@@ -102,19 +90,6 @@ export async function seedTestData(app: INestApplication): Promise<void> {
   }
 }
 
-/**
- * Cria um usuário diretamente no banco de dados com role e status específicos
- * Útil para testar rotas que requerem permissões específicas
- */
-/**
- * Marca o e-mail de um usuário como verificado — o equivalente a clicar no
- * link enviado por e-mail.
- *
- * `POST /auth/login` passou a recusar quem não confirmou o e-mail
- * (`auth.service.ts`), mas os e2e nasceram antes dessa regra e ainda fazem
- * "registra → loga em seguida". Sem este passo intermediário o login devolve
- * 403 e o teste falha por um motivo que não é o que ele quer verificar.
- */
 export async function verifyUserEmail(
   app: INestApplication,
   email: string,
@@ -126,15 +101,6 @@ export async function verifyUserEmail(
   );
 }
 
-/**
- * Aceita Política de Privacidade e Termos de Uso — o que o usuário faz no
- * onboarding (`ConsentGate`).
- *
- * O `ConsentsGuard` é global e responde 403 em qualquer rota autenticada
- * enquanto os dois aceites faltarem. `/auth/register` não os grava, então um
- * usuário criado pela API e usado direto num teste esbarra no guard e o teste
- * falha por um motivo que não é o que ele quer verificar.
- */
 export async function acceptUserConsents(
   app: INestApplication,
   email: string,
@@ -149,7 +115,6 @@ export async function acceptUserConsents(
   );
 }
 
-/** Atalho: confirma o e-mail e aceita os consentimentos de uma vez. */
 export async function prepararUsuarioParaLogin(
   app: INestApplication,
   email: string,
@@ -158,14 +123,6 @@ export async function prepararUsuarioParaLogin(
   await acceptUserConsents(app, email);
 }
 
-/**
- * `IDX_users_phone_unique` é UNIQUE (parcial, para telefone preenchido e não
- * apagado). Este helper gravava telefone fixo, então o SEGUNDO usuário criado
- * no mesmo teste estourava `duplicate key` — o que inviabilizava justamente os
- * testes que precisam de dois usuários (isolamento entre contas). Cada chamada
- * recebe um número próprio; passe `phone` explicitamente quando o número
- * importar para o caso de teste.
- */
 let sequenciaTelefoneDeTeste = 0;
 function gerarTelefoneUnico(): string {
   sequenciaTelefoneDeTeste += 1;
@@ -182,7 +139,7 @@ export async function createUserWithRole(
     role?: 'admin' | 'collaborator';
     status?: 'pending' | 'active' | 'inactive';
     password?: string;
-    account_id?: string; // UUID do admin da conta (para collaborators)
+    account_id?: string;
     phone?: string;
   },
 ): Promise<{
@@ -201,7 +158,6 @@ export async function createUserWithRole(
   const status = options.status || 'active';
 
   if (role === 'admin' && !options.account_id) {
-    // Admin: owner_id = self.id
     const generatedId = randomUUID();
     const result = await dataSource.query(
       `
@@ -235,7 +191,6 @@ export async function createUserWithRole(
     );
     return result[0];
   } else {
-    // Collaborator: precisa de owner/admin
     const ownerId = options.account_id;
     if (!ownerId) {
       throw new Error('account_id (owner_id) é obrigatório para collaborator');
@@ -273,14 +228,11 @@ export async function createUserWithRole(
   }
 }
 
-// Alias para compatibilidade com código existente
 export const createUserWithProfile = createUserWithRole;
 export const createUserWithPv = createUserWithRole;
 
 export async function closeTestApp(app: INestApplication): Promise<void> {
   if (app) {
-    // Fechar filas Bull antes de fechar o app para evitar
-    // unhandled rejections do ioredis durante o teardown
     const queueNames = [
       'mail',
       'pdf-generation',
@@ -296,14 +248,10 @@ export async function closeTestApp(app: INestApplication): Promise<void> {
         if (queue) {
           await queue.close();
         }
-      } catch {
-        // Queue pode não existir neste módulo
-      }
+      } catch {}
     }
     try {
       await app.close();
-    } catch {
-      // Ignorar erros de teardown
-    }
+    } catch {}
   }
 }

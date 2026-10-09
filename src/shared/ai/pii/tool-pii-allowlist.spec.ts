@@ -18,7 +18,6 @@ describe('tool-pii-allowlist', () => {
       expect(TOOL_PII_ALLOWLIST.query_surgery_requests).toContain('protocol');
     });
 
-    // Regressão Sub-fase 3.8: tools legacy de update removidas — nenhuma allowlist.
     it('update_request_clinical_data, update_request_admin_data, update_patient_data e update_surgery_request_data não têm entrada na allowlist', () => {
       expect(
         TOOL_PII_ALLOWLIST['update_request_clinical_data'],

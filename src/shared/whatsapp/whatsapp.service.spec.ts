@@ -30,7 +30,6 @@ describe('WhatsappService', () => {
     expect(service).toBeDefined();
   });
 
-  // ─── PRD: Comunicação WhatsApp — US-001 ──────────────────────────────────
   describe('sendMessage', () => {
     it('deve enfileirar mensagem na queue com configuração correta', async () => {
       await service.sendMessage('+5511999999999', 'Olá!');
@@ -79,7 +78,6 @@ describe('WhatsappService', () => {
     });
   });
 
-  // ─── PRD: Comunicação WhatsApp — INC-04 (templates pré-aprovados) ────────
   describe('sendTemplate', () => {
     it('deve enfileirar job com contentSid e variables', async () => {
       await service.sendTemplate('+5511999999999', 'HXabc123', {
@@ -121,7 +119,6 @@ describe('WhatsappService', () => {
     });
   });
 
-  // ─── PRD: Comunicação WhatsApp — US-003 ──────────────────────────────────
   describe('sendPatientWelcome', () => {
     it('deve enfileirar template de boas-vindas ao paciente com nome correto', async () => {
       await service.sendPatientWelcome('+5511988887777', 'João Silva');
@@ -141,7 +138,6 @@ describe('WhatsappService', () => {
     });
   });
 
-  // ─── PRD: Comunicação WhatsApp — US-004 ──────────────────────────────────
   describe('sendUserWelcome', () => {
     it('deve enfileirar template de boas-vindas ao usuário com nome correto', async () => {
       await service.sendUserWelcome('+5511977776666', 'Dr. Carlos');
@@ -160,12 +156,6 @@ describe('WhatsappService', () => {
       expect(jobData.body).toBeUndefined();
     });
   });
-  /**
-   * A ordem das variáveis difere entre os dois templates de consulta
-   * (confirmação: paciente/médico/quando; cancelamento: paciente/quando/médico).
-   * Trocá-las manda o paciente para o horário errado, então cada mapeamento é
-   * fixado aqui.
-   */
   describe('sendAppointmentConfirmation', () => {
     it('mapeia paciente, médico e horário nas variáveis 1, 2 e 3', async () => {
       await service.sendAppointmentConfirmation('+5511988887777', {
@@ -208,7 +198,6 @@ describe('WhatsappService', () => {
   });
   describe('sendAppointmentScheduled', () => {
     it('mapeia paciente, médico e horário nas variáveis 1, 2 e 3', async () => {
-      // Mesma ordem do template de confirmação, de propósito.
       await service.sendAppointmentScheduled('+5511988887777', {
         patientName: 'Ana Souza',
         doctorName: 'Dr(a). House',

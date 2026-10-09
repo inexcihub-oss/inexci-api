@@ -13,10 +13,5 @@ export interface FlowDraftTransitionDeps {
   activityRepo: SurgeryRequestActivityRepository;
   documentRepo: DocumentRepository;
   pendencyValidator: PendencyValidatorService;
-  /**
-   * Opcional. Necessário apenas para `send_sc_draft_commit` quando
-   * `method=download`: faz upload temporário do PDF gerado no R2 e
-   * devolve uma signed URL para o usuário baixar via WhatsApp.
-   */
   storageService?: StorageService;
 }

@@ -41,14 +41,6 @@ export interface SurgeryRequestChangedPayload {
   occurredAt: string;
 }
 
-/**
- * Eventos emitidos para o cliente:
- *  - `notification:new` — nova notificação criada (payload completo).
- *  - `notification:unread-count` — contagem atual de não lidas. Emitido na
- *    conexão e sempre que muda no servidor (mark as read, delete, etc.).
- *  - `surgery-request:changed` — sinaliza criação/atualização de SC para
- *    sincronização de telas (kanban/lista) em tempo real.
- */
 @WebSocketGateway({ namespace: '/notifications', cors: { origin: '*' } })
 export class NotificationsGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -75,8 +67,6 @@ export class NotificationsGateway
     }
 
     try {
-      // Valida issuer/audience como a JwtStrategy HTTP faz — um token emitido
-      // para outro serviço/plateia não deve abrir o socket.
       const payload = this.jwtService.verify(token, {
         issuer: this.configService?.get<string>(
           'JWT_ISSUER',
@@ -89,9 +79,6 @@ export class NotificationsGateway
       });
       const userId: string = payload.userId;
 
-      // Revalida o usuário: um token continua válido por até 15 min após a
-      // conta ser desativada; sem esta checagem, um usuário desativado
-      // manteria o socket vivo recebendo notificações até o token expirar.
       if (this.userRepository) {
         const user = await this.userRepository.findOne({ id: userId });
         if (!user || user.status !== UserStatus.ACTIVE) {
@@ -104,8 +91,6 @@ export class NotificationsGateway
       client.join(`user:${userId}`);
       this.logger.debug(`Client connected: user:${userId}`);
 
-      // Envia o estado inicial via WebSocket — elimina a necessidade de o
-      // frontend bater em /notifications/unread-count após o login.
       if (this.notificationRepository) {
         try {
           const count = await this.notificationRepository.countUnread(userId);
@@ -131,10 +116,6 @@ export class NotificationsGateway
     this.server.to(`user:${userId}`).emit('notification:new', payload);
   }
 
-  /**
-   * Emite a contagem de notificações não lidas para todos os clientes
-   * conectados de um usuário. Usado após mudanças que alteram esse total.
-   */
   emitUnreadCount(userId: string, count: number) {
     this.server.to(`user:${userId}`).emit('notification:unread-count', {
       count,

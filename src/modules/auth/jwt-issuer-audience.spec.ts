@@ -4,11 +4,6 @@ import {
   JWT_DEFAULT_ISSUER,
 } from './jwt-payload.interface';
 
-/**
- * Contrato de issuer/audience: o access token é assinado com `iss`/`aud`
- * (signOptions do JwtModule) e a verificação (espelhando o `JwtStrategy`)
- * rejeita tokens emitidos por outra origem.
- */
 describe('JWT issuer/audience', () => {
   const secret = 'test-secret';
 

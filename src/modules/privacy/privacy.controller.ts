@@ -19,8 +19,6 @@ export class PrivacyController {
     private readonly legalDocsService: LegalDocumentsService,
   ) {}
 
-  // ============ ENDPOINTS PÚBLICOS ============
-
   @Public()
   @Get('policy/:slug')
   @ApiOperation({
@@ -30,8 +28,6 @@ export class PrivacyController {
   async getCurrentDocument(@Param('slug') slug: string) {
     return this.legalDocsService.getCurrent(slug);
   }
-
-  // ============ ENDPOINTS AUTENTICADOS ============
 
   @Get('consent/status')
   @ApiBearerAuth()

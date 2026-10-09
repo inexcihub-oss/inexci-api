@@ -13,11 +13,6 @@ import {
 import { User } from './user.entity';
 import { Clinic } from './clinic.entity';
 
-/**
- * Bloqueio pontual da agenda (MIG-05): férias, congresso, reunião. Impede
- * agendar no intervalo, inclusive encaixe. `doctorId` nulo = toda a clínica
- * (de `clinicId`, ou da conta inteira se também for nulo).
- */
 @Entity('schedule_blocks')
 @Index('idx_schedule_blocks_doctor_range', ['doctorId', 'startsAt', 'endsAt'])
 @Index('idx_schedule_blocks_owner_range', ['ownerId', 'startsAt'])
@@ -60,9 +55,6 @@ export class ScheduleBlock {
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 
-  // Nomes de constraint explícitos: são os que as migrations criaram
-  // (1755800700000 + renomeação em 1755800800000). Sem eles o TypeORM gera um
-  // nome por hash e o `migration:generate` sai derrubando e recriando as FKs.
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'owner_id',

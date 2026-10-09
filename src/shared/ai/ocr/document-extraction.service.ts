@@ -13,18 +13,9 @@ export interface ExtractFromBufferInput {
   buffer: Buffer;
   mimeType: string;
   filename?: string;
-  /** Identificador de correlação para logs (conversationId, sessionId, etc.). */
   sessionId: string;
   intent?: DocumentClassificationIntent;
-  /**
-   * Limite de páginas no OCR de PDFs escaneados. Omitido = `AI_DOC_MAX_PAGES`.
-   */
   maxOcrPages?: number;
-  /**
-   * Quando `true`, aplica de-tokenização PII nos campos de `extracted` antes
-   * de retornar — necessário no fluxo HTTP para que o frontend receba valores
-   * reais em vez de placeholders `{{cpf_1}}`.
-   */
   detokenizeExtracted?: boolean;
 }
 
@@ -57,9 +48,7 @@ export interface ExtractFromBufferOutput {
   classification: DocumentClassification | null;
   usedVisionFallback: boolean;
   usageSnapshots: ClassifierUsageSnapshot[];
-  /** Texto OCR já tokenizado pelo PII Vault (quando disponível). */
   ocrTokenizedText: string;
-  /** Origem do texto: pdf-native, pdf-rasterized, image, etc. */
   ocrSource?: string;
   timing: ExtractFromBufferTiming;
   errorReason?: string;
@@ -68,12 +57,6 @@ export interface ExtractFromBufferOutput {
 const VISION_TRIGGER_OCR_MIN_CHARS = 30;
 const VISION_TRIGGER_MIN_CONFIDENCE = 0.75;
 
-/**
- * Pipeline puro de extração de documento a partir de um buffer.
- * Orquestra: OCR → tokenização PII → classificação (AI_DOC_CLASSIFIER_MODEL) → Vision
- * fallback (gpt-4o quando necessário). Não acessa storage, filas nem banco —
- * é chamado tanto pelo fluxo WhatsApp quanto pelo endpoint HTTP.
- */
 @Injectable()
 export class DocumentExtractionService {
   private readonly logger = new Logger(DocumentExtractionService.name);
@@ -352,11 +335,6 @@ export class DocumentExtractionService {
     return !hasPatient && !hasContext;
   }
 
-  /**
-   * Quando o classificador omite CPF/telefone que o OCR já tokenizou,
-   * reaproveita os placeholders `{{cpf_N}}` / `{{phone_N}}` do texto OCR
-   * (ou os bindings do PII Vault) para que o detokenize devolva o valor real.
-   */
   private enrichExtractedFromOcrPii(
     sessionId: string,
     extracted: DocumentClassificationExtracted,

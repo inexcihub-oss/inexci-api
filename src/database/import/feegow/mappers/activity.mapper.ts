@@ -6,10 +6,6 @@ import { AtividadeDoLog, atividadesDoLog } from '../rules/activity.rule';
 import { LEDGER_CONSULTA } from './appointment.mapper';
 import { autoresDoFeegow } from './team.mapper';
 
-/**
- * Ledger da fase: agendamento do Feegow → consulta cujo histórico já foi
- * gravado. O histórico entra inteiro ou não entra, por consulta.
- */
 export const LEDGER_HISTORICO = 'appointment-history';
 
 export interface NovaAtividade extends AtividadeDoLog {
@@ -17,12 +13,6 @@ export interface NovaAtividade extends AtividadeDoLog {
   appointmentId: string;
 }
 
-/**
- * Histórico das consultas importadas a partir de `log_marcacoes`, em ordem de
- * `data_hora` (o momento do evento; `data`/`hora` são o horário da consulta).
- * Eventos de consultas fora do ledger (excluídas ou rejeitadas na fase
- * `agenda`) ficam de fora, contados num aviso.
- */
 export function planejarHistorico(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -73,10 +63,6 @@ export function planejarHistorico(
     );
 
     const atividades = atividadesDoLog(eventos);
-    // Log sem nenhum evento aproveitável não grava linha em
-    // `appointment_activities`: registrar no ledger faria o `--verificar`
-    // acusar a consulta como "faltando". Fica fora do ledger — a próxima
-    // rodada só reprocessa e de novo não gera nada.
     if (!atividades.length) continue;
     for (const a of atividades) {
       novas.push({ ...a, id: ctx.novoId(), appointmentId });

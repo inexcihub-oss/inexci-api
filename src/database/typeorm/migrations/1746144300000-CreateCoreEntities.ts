@@ -1,13 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Cadastros básicos do domínio (entidades de negócio):
- * procedures, hospitals, health_plans, suppliers, manufacturers e patients.
- *
- * Cadastros (hospitals/health_plans/suppliers/manufacturers) usam `owner_id`
- * para tenant isolation; `patients` ganha `owner_id` denormalizado para
- * acelerar filtros por clínica. CPF é obrigatório; telefone e e-mail opcionais.
- */
 export class CreateCoreEntities1746144300000 implements MigrationInterface {
   name = 'CreateCoreEntities1746144300000';
 

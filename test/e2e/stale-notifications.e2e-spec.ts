@@ -1,10 +1,3 @@
-/**
- * TESTE E2E - Stale Notifications (10.2.2)
- *
- * Testa o serviço de notificações de solicitações paradas (stale).
- * Cria dados via API e manipula datas no banco para simular cenários stale.
- */
-
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { DataSource } from 'typeorm';
@@ -19,7 +12,6 @@ import { StaleNotificationService } from 'src/modules/notifications/stale-notifi
 const DOCTOR = {
   name: 'Dr. Stale E2E',
   email: `dr.stale.${Date.now()}@inexci.test`,
-  // `phone` passou a ser obrigatorio no RegisterDto.
   phone: '11977770002',
   password: 'Senha@12345',
   isDoctor: true,
@@ -46,15 +38,12 @@ beforeAll(async () => {
 
   await cleanDatabase(app);
 
-  // 1. Registrar médico
   const registerRes = await request(app.getHttpServer())
     .post('/auth/register')
     .send(DOCTOR)
     .expect(201);
   userId = registerRes.body.user.id;
 
-  // `/auth/register` não devolve mais `access_token`; o login exige
-  // e-mail confirmado e o `ConsentsGuard` exige os aceites.
   await prepararUsuarioParaLogin(app, DOCTOR.email);
   const loginRes = await request(app.getHttpServer())
     .post('/auth/login')
@@ -62,14 +51,12 @@ beforeAll(async () => {
     .expect(201);
   token = loginRes.body.access_token;
 
-  // 2. Criar procedimento
   const procRes = await request(app.getHttpServer())
     .post('/procedures')
     .set(authHeader())
     .send({ name: 'Artroscopia Joelho' })
     .expect(201);
 
-  // 3. Criar plano de saúde
   const planRes = await request(app.getHttpServer())
     .post('/health_plans')
     .set(authHeader())
@@ -80,14 +67,12 @@ beforeAll(async () => {
     })
     .expect(201);
 
-  // 4. Criar hospital
   const hospRes = await request(app.getHttpServer())
     .post('/hospitals')
     .set(authHeader())
     .send({ name: 'Hospital Stale', city: 'Rio de Janeiro', state: 'RJ' })
     .expect(201);
 
-  // 5. Criar paciente
   const patRes = await request(app.getHttpServer())
     .post('/patients')
     .set(authHeader())
@@ -104,14 +89,12 @@ beforeAll(async () => {
     })
     .expect(201);
 
-  // 6. Criar solicitação cirúrgica
   const srRes = await request(app.getHttpServer())
     .post('/surgery-requests')
     .set(authHeader())
     .send({
       procedureId: procRes.body.id,
       patientId: patRes.body.id,
-      // `manager_id` virou `doctorId` no DTO da SC.
       doctorId: userId,
       healthPlanId: planRes.body.id,
       hospitalId: hospRes.body.id,
@@ -132,7 +115,6 @@ describe('Stale Notifications E2E', () => {
   });
 
   it('deve gerar notificação stale quando solicitação está parada há 4 dias', async () => {
-    // Simular atualização há 4 dias atrás
     const fourDaysAgo = new Date();
     fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
 
@@ -141,14 +123,12 @@ describe('Stale Notifications E2E', () => {
       [fourDaysAgo.toISOString(), surgeryRequestId],
     );
 
-    // Verify the data was set correctly
     const [sr] = await dataSource.query(
       `SELECT id, status, last_status_changed_at, created_by_id FROM surgery_requests WHERE id = $1`,
       [surgeryRequestId],
     );
     expect(sr.last_status_changed_at).toBeDefined();
 
-    // O tenant do usuário é `owner_id` (a coluna `account_id` nunca existiu)
     const [user] = await dataSource.query(
       `SELECT id, owner_id, role FROM users WHERE id = $1`,
       [sr.created_by_id],
@@ -160,14 +140,11 @@ describe('Stale Notifications E2E', () => {
   });
 
   it('não deve duplicar notificação stale para o mesmo tier', async () => {
-    // Rodar novamente — já foi notificado para tier de 3 dias
     const count = await staleService.checkAndNotifyStaleRequests();
-    // Deve ser 0 pois já notificou neste tier
     expect(count).toBe(0);
   });
 
   it('deve gerar nova notificação para tier superior (7 dias)', async () => {
-    // Simular atualização há 8 dias atrás
     const eightDaysAgo = new Date();
     eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
 
@@ -185,6 +162,6 @@ describe('Stale Notifications E2E', () => {
       `SELECT * FROM stale_notification_logs WHERE surgery_request_id = $1`,
       [surgeryRequestId],
     );
-    expect(logs.length).toBeGreaterThanOrEqual(1); // at least one tier logged
+    expect(logs.length).toBeGreaterThanOrEqual(1);
   });
 });

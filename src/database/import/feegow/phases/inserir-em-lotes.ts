@@ -1,6 +1,5 @@
 import { EntityManager, EntityTarget, ObjectLiteral } from 'typeorm';
 
-/** Tamanho do lote por INSERT: longe do limite de parâmetros do Postgres. */
 const LOTE = 200;
 
 export async function inserirEmLotes<T extends ObjectLiteral>(

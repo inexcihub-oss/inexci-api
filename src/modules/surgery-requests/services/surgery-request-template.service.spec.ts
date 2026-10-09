@@ -37,12 +37,6 @@ function criarService() {
 
 describe('SurgeryRequestTemplateService', () => {
   describe('getTemplates', () => {
-    /**
-     * A listagem alimenta duas telas que só pintam texto (o seletor do wizard e
-     * a tabela de Procedimentos). Devolver o `templateData` inteiro e o objeto
-     * `User` do médico — 24 campos, incluindo cpf, telefone e endereço — era
-     * tráfego e dado pessoal sem uso nenhum.
-     */
     it('devolve o resumo, sem templateData e sem o objeto do médico', async () => {
       const { service, repo } = criarService();
       repo.find.mockResolvedValue([templateCompleto]);

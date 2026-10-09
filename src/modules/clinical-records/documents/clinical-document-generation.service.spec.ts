@@ -204,7 +204,6 @@ describe('ClinicalDocumentGenerationService', () => {
     });
 
     it('data o documento pelo dia de São Paulo, não pelo de UTC', async () => {
-      // 22:30 de 07/10 em São Paulo já é 08/10 em UTC.
       jest.useFakeTimers({
         now: new Date('2026-10-08T01:30:00Z'),
         doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
@@ -259,11 +258,6 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(pdfService.generatePrescriptionPdf).not.toHaveBeenCalled();
     });
 
-    /**
-     * O documento sai com o CRM e a imagem de assinatura do médico da ficha, e
-     * o atestado tem valor legal. Pertencer à clínica não basta: quem não tem
-     * vínculo com aquele médico não emite nem pré-visualiza em nome dele.
-     */
     it('exige acesso ao médico da ficha, não só à clínica', async () => {
       accessControlService.assertCanAccessDoctorResource.mockRejectedValue(
         new ForbiddenException(),
@@ -352,7 +346,6 @@ describe('ClinicalDocumentGenerationService', () => {
       ).toBe('ATESTADO MÉDICO');
     });
 
-    // Decisão de produto: dentista emite receita, atestado e pedido de exame.
     it('dentista (CRO) emite ATESTADO ODONTOLÓGICO com o registro CRO', async () => {
       doctorPdfContextService.buildForDoctorId.mockResolvedValue({
         doctor: { name: 'Dr. Bruno Dentista' },
@@ -417,8 +410,6 @@ describe('ClinicalDocumentGenerationService', () => {
         ).toBe('Repouso de 3 a partir de 30/07/2026.');
       });
 
-      // A decisão é estrutural ({{dias}} substituído), não pelo conteúdo: "3
-      // dias" escrito à mão pode ser outra coisa ("retorno em 3 dias").
       it('"N dias" escrito no texto não esconde o afastamento', async () => {
         await emitir({
           text: 'Retorno em 3 dias para reavaliação.',
@@ -435,7 +426,6 @@ describe('ClinicalDocumentGenerationService', () => {
         expect(nota()).toBe('Afastamento de 1 dia.');
       });
 
-      // Comparecimento = atestado sem `restDays`.
       it('atestado de comparecimento (sem dias) não ganha linha', async () => {
         await emitir({
           text: 'Declaro que o paciente compareceu e deve permanecer afastado.',
@@ -592,13 +582,10 @@ describe('ClinicalDocumentGenerationService', () => {
       );
 
       expect(html).toBe('<html>previa</html>');
-      // Conferir não pode registrar nada no prontuário.
       expect(storageService.create).not.toHaveBeenCalled();
       expect(documentRepository.create).not.toHaveBeenCalled();
     });
 
-    // Gerar PDF sobe um Chromium; para conferir na tela isso custa segundos e
-    // não acrescenta nada — o HTML é o mesmo que vira PDF na emissão.
     it('não invoca o Puppeteer para pré-visualizar', async () => {
       await service.previewPrescription(
         { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
@@ -663,13 +650,6 @@ describe('ClinicalDocumentGenerationService', () => {
     });
   });
 
-  /**
-   * D-11: o médico abria um atendimento novo, clicava em "Visualizar" e a
-   * prévia criava uma ficha vazia no prontuário — dado clínico sensível, com
-   * auditoria LGPD, gravado por uma ação de só olhar (e que ainda travava a
-   * exclusão da consulta). Conferir não escreve nada: sem ficha, o documento é
-   * montado a partir do paciente e dos campos que estão na tela.
-   */
   describe('pré-visualização sem ficha gravada', () => {
     it('monta a receita a partir do paciente, sem tocar na ficha', async () => {
       const html = await service.previewPrescription(
@@ -808,10 +788,6 @@ describe('ClinicalDocumentGenerationService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    /**
-     * DO-18: prévia e documento final não podem divergir. A montagem é a mesma
-     * função nos dois caminhos; o que muda é só de onde vêm paciente e médico.
-     */
     it('produz os mesmos dados que a emissão a partir da ficha equivalente', async () => {
       await service.previewPrescription(
         {
@@ -894,12 +870,6 @@ describe('ClinicalDocumentGenerationService', () => {
     });
   });
 
-  /**
-   * Receita, atestado e pedido de exame saem com o CRM e a assinatura do médico
-   * da ficha. Emiti-los é ato médico (CRM): quem não é médico — inclusive
-   * profissional de outro conselho, com `doctor_profile` — não passa daqui,
-   * nem na prévia, que é o mesmo documento renderizado na tela.
-   */
   describe('somente médico emite', () => {
     beforeEach(() => {
       accessControlService.assertCanIssueClinicalDocuments.mockRejectedValue(
@@ -972,11 +942,6 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(pdfService.renderClinicalDocumentHtml).not.toHaveBeenCalled();
     });
   });
-  /**
-   * Decisão de produto: só o profissional que assina emite. O documento sai
-   * com nome, registro e assinatura do profissional da ficha — nem um colega
-   * CRM/CRO com vínculo emite (ou pré-visualiza) em nome dele.
-   */
   describe('documento em nome de outro profissional', () => {
     beforeEach(() => {
       clinicalRecordRepository.findOne.mockResolvedValue({
@@ -1140,13 +1105,10 @@ describe('ClinicalDocumentGenerationService', () => {
         'doctor-1',
       );
       const pdfData = pdfService.generateMedicalCertificatePdf.mock.calls[0][0];
-      // O modelo substitui a declaração padrão — não vai para observações,
-      // senão o atestado sai com o texto duas vezes.
       expect(pdfData.text).toBe(
         'Atesto que Alessandro Filho (CPF 146.858.546-08) precisa de 3 dias. Dra. Ana Souza — CRM 12345/RJ {{desconhecido}}',
       );
       expect(pdfData.observations).toBeUndefined();
-      // Emitir com modelo não conta uso: quem conta é o "aplicar".
       expect(documentTemplatesService.incrementUsage).not.toHaveBeenCalled();
     });
 
@@ -1185,7 +1147,6 @@ describe('ClinicalDocumentGenerationService', () => {
         'doctor-1',
       );
 
-      // Na tela, `{{dias}}` segue literal; a emissão o preenche.
       expect(aplicado.body).toBe(
         'Atesto que Alessandro Filho precisa de {{dias}} dias.',
       );
@@ -1279,11 +1240,9 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(documentTemplatesService.incrementUsage).toHaveBeenCalledWith(
         'tpl-1',
       );
-      // Sem ficha gravada, nada é lido nem criado no prontuário.
       expect(clinicalRecordRepository.findOne).not.toHaveBeenCalled();
     });
 
-    // Os dias mudaram e a tela refaz o texto: é o mesmo uso, não outro.
     it('reaplicar só para atualizar a tela (refresh) não conta outro uso', async () => {
       const resultado = await service.applyTemplate(
         'tpl-1',
@@ -1387,7 +1346,6 @@ describe('ClinicalDocumentGenerationService', () => {
         'Atesto que Alessandro Filho precisa de {{dias}} dias a partir de {{inicio}}.',
       );
 
-      // A tela manda o texto aplicado; a emissão preenche com o valor final.
       await service.generateMedicalCertificate(
         'record-1',
         {
@@ -1402,13 +1360,9 @@ describe('ClinicalDocumentGenerationService', () => {
       expect(pdfData.text).toBe(
         'Atesto que Alessandro Filho precisa de 4 dias a partir de 30/07/2026.',
       );
-      // O texto já diz dias e início: nada de linha repetida.
       expect(pdfData.restPeriodNote).toBeUndefined();
     });
 
-    // Regressão: o apply gravava "1 dia" no texto; o médico editava o texto,
-    // mudava os dias para 3 e o PDF saía com "1 dia" no texto e "Afastamento
-    // de 3 dias" logo abaixo.
     it('aplicar ignora dias/início da tela: o texto editado sai com o afastamento final', async () => {
       documentTemplatesService.getForUse.mockResolvedValue({
         ...modeloAtestado,

@@ -44,12 +44,6 @@ describe('SuppliersService', () => {
     );
   });
 
-  /**
-   * "Outro" é o fornecedor genérico da conta — a resposta para "nenhum dos
-   * cadastrados", não um cadastro. Ele aparece nos itens OPME, mas não é do
-   * usuário: deixá-lo no catálogo o convida a editar ou excluir uma linha que
-   * a plataforma usa como conceito.
-   */
   describe('opção genérica "Outro"', () => {
     it('fica fora da listagem do catálogo', async () => {
       mockSupplierRepository.total.mockResolvedValue(0);

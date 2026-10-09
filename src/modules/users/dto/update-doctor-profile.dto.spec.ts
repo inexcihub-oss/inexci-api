@@ -2,10 +2,6 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { UpdateDoctorProfileDto } from './update-doctor-profile.dto';
 
-/**
- * PRD: Reformulação Usuários/Permissões — US-007
- * Testa validação do DTO de atualização do perfil médico.
- */
 describe('UpdateDoctorProfileDto', () => {
   it('deve validar sem campos (todos opcionais)', async () => {
     const dto = plainToInstance(UpdateDoctorProfileDto, {});

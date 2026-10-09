@@ -31,12 +31,6 @@ export class CronService {
     }
   }
 
-  /**
-   * Resumo semanal — todo domingo às 08:00 (BRT).
-   * Cobre a semana ISO anterior (segunda 00:00 → segunda 00:00) e envia para
-   * cada usuário ativo com `weeklyReport` habilitado e SCs com movimentação
-   * ou pendências bloqueantes.
-   */
   @Cron('0 8 * * 0', { timeZone: 'America/Sao_Paulo' })
   async handleWeeklySummary() {
     this.logger.log('Iniciando geração de resumo semanal...');
@@ -51,12 +45,6 @@ export class CronService {
     }
   }
 
-  /**
-   * Limpa documentos inbound do WhatsApp que ficaram "orfãos" na pasta
-   * temporária. Roda de hora em hora; remove arquivos mais antigos que
-   * `AI_DOC_TMP_RETENTION_HOURS` (default 1h). Garante que documentos
-   * descartados pelo usuário (sem intent) não fiquem armazenados.
-   */
   @Cron(CronExpression.EVERY_HOUR)
   async cleanupExpiredWhatsappTmpDocuments() {
     const folder = this.configService.get<string>(
@@ -92,12 +80,6 @@ export class CronService {
     }
   }
 
-  /**
-   * Remove de `patient-photos/` as fotos que nenhum paciente referencia e que
-   * foram enviadas há mais de 24 h (upload que deu certo seguido de PATCH ou
-   * cadastro que falhou). Diário, de madrugada: a listagem varre a pasta
-   * inteira do bucket.
-   */
   @Cron('30 3 * * *', { timeZone: 'America/Sao_Paulo' })
   async cleanupOrphanPatientPhotos() {
     try {

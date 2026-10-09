@@ -23,7 +23,6 @@ export interface DownloadedWhatsappDocument {
   mimeType: string;
   sizeBytes: number;
   fileName: string;
-  /** `image` ou `pdf` — definido pelo MIME aceito. */
   kind: 'image' | 'pdf';
 }
 
@@ -73,9 +72,6 @@ export class WhatsappMediaService {
     );
   }
 
-  /**
-   * Backwards-compatible wrapper para o pipeline de áudio existente.
-   */
   async downloadInboundAudio(
     media: InboundWhatsappMedia,
   ): Promise<DownloadedWhatsappAudio> {
@@ -100,10 +96,6 @@ export class WhatsappMediaService {
     };
   }
 
-  /**
-   * Baixa imagem ou PDF inbound vindo do WhatsApp via Twilio.
-   * Aplica whitelist de MIME e limite de bytes específico para documentos.
-   */
   async downloadInboundDocument(
     media: InboundWhatsappMedia,
   ): Promise<DownloadedWhatsappDocument> {
@@ -134,11 +126,6 @@ export class WhatsappMediaService {
     };
   }
 
-  /**
-   * Núcleo do download (auth Twilio, validação de host/mime, leitura com
-   * limite). Mantemos privado para que `audio`/`image`/`pdf` reaproveitem o
-   * mesmo caminho de erro/observabilidade.
-   */
   private async downloadInboundMedia(
     media: InboundWhatsappMedia,
     kind: MediaKind,
@@ -486,9 +473,7 @@ export class WhatsappMediaService {
           if (stat.isFile() && stat.mtimeMs < threshold) {
             await fs.unlink(absolute);
           }
-        } catch {
-          // ignora erros de limpeza de debug
-        }
+        } catch {}
       }),
     );
   }

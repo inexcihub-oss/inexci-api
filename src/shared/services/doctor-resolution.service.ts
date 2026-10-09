@@ -3,14 +3,6 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 
-/**
- * Service responsável por resolver o doctorId de uma **solicitação cirúrgica**
- * nova (único consumidor: `SurgeryRequestMutationService`).
- *
- * SC é de médico (CRM): o médico resolvido aqui tem que ser médico, não só
- * profissional de saúde. Psicóloga, nutricionista ou enfermagem têm agenda e
- * prontuário, mas não abrem SC — nem em nome próprio, nem por um colaborador.
- */
 @Injectable()
 export class DoctorResolutionService {
   private readonly logger = new Logger(DoctorResolutionService.name);
@@ -20,12 +12,6 @@ export class DoctorResolutionService {
     private readonly userRepository: UserRepository,
   ) {}
 
-  /**
-   * Resolve o doctorId para criar uma SC.
-   * - `doctorIdFromPayload` informado: valida acesso e que é médico (CRM).
-   * - Usuário é médico (CRM): retorna o próprio id.
-   * - Caso contrário: o primeiro médico (CRM) acessível.
-   */
   async resolveDoctorId(
     userId: string,
     doctorIdFromPayload?: string,
@@ -48,8 +34,6 @@ export class DoctorResolutionService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (isPhysicianProfile(user?.doctorProfile)) return user!.id;
 
-    // Mantém a ordem de `getAccessibleDoctorIds` (o primeiro acessível
-    // continua sendo o escolhido), pulando quem não é médico.
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
     const perfis =

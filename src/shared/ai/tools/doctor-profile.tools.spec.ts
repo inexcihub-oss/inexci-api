@@ -69,14 +69,6 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(parsed!.errors?.[0]?.code).toBe('USER_NOT_FOUND');
   });
 
-  // Regressão 2026-05-14: a tool decidia "é colaborador?" lendo
-  // `(user as any).doctorProfile` retornado por `userRepo.findOne`. Mas o
-  // repo usa `select` (whitelist) sem `doctorProfile: true`, então no
-  // TypeORM 0.3 a relação volta `null` mesmo para médicos. Resultado:
-  // o Dr. Carlos Mendonça (médico) ouvia "Como você é colaborador,
-  // peça ao médico…". Fix: consultar `doctorProfileRepo.findByUserId`
-  // direto. Este teste garante que o fix resiste a `userRepo.findOne`
-  // devolver `doctorProfile: null` enquanto o profile existe no banco.
   it('médico ainda é detectado quando userRepo.findOne devolve doctorProfile null (bug do select whitelist)', async () => {
     mockDoctorProfileRepo.findByUserId.mockResolvedValue({
       id: 'dp-1',
@@ -101,8 +93,6 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(parsed!.display_text).toMatch(/Confirme com "sim"/i);
   });
 
-  // Cenário Gap 1: COLABORADOR (sem doctor_profile) tenta subir assinatura.
-  // Não pode tentar upload — devolve envelope blocked com orientação.
   it('colaborador (sem doctor_profile) NÃO sobe assinatura — envelope blocked com orientação', async () => {
     mockDoctorProfileRepo.findByUserId.mockResolvedValue(null);
     mockUserRepo.findOne.mockResolvedValue({
@@ -271,8 +261,6 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     fetchMock.mockRestore();
   });
 
-  // Garante que se a assinatura anterior for uma URL externa (http), a tool
-  // NÃO tenta deletar do storage interno.
   it('não tenta deletar a assinatura antiga quando ela é uma URL externa', async () => {
     mockDoctorProfileRepo.findByUserId.mockResolvedValue({
       id: 'dp-1',
@@ -302,11 +290,6 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     fetchMock.mockRestore();
   });
 
-  // Regressão 2026-05-14: usuário envia a foto da assinatura, sistema
-  // armazena no staging via DocumentDispatcher. No turno seguinte, o
-  // usuário diz "configurar minha assinatura" — `context.inboundMedia`
-  // está vazio (a foto foi numa msg anterior), mas o staging tem ela.
-  // A tool agora deve usar o staging em vez de pedir a foto novamente.
   it('usa imagem do staging quando inboundMedia está vazio (preview)', async () => {
     mockDoctorProfileRepo.findByUserId.mockResolvedValue({
       id: 'dp-1',
@@ -331,7 +314,6 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(parsed!.display_text).toMatch(/que você acabou de enviar/i);
     expect(parsed!.display_text).toMatch(/Confirme com "sim"/i);
     expect(parsed!.pending_confirmation?.tool).toBe('upload_doctor_signature');
-    // mediaIndex NÃO deve ir nos args do pending quando vier do staging
     expect(parsed!.pending_confirmation?.args).not.toHaveProperty('mediaIndex');
   });
 
@@ -366,7 +348,6 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(mockDocumentDispatcher.clearPending).toHaveBeenCalledWith(
       baseContext.phone,
     );
-    // O fluxo de staging NÃO deve baixar do Twilio (sem fetch)
     expect(mockStorageService.create).not.toHaveBeenCalled();
 
     const parsed = parseToolResult(raw);

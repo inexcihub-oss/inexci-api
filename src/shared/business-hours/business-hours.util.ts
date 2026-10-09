@@ -9,7 +9,6 @@ import {
 
 export * from './business-hours.types';
 
-/** Grade com os sete dias fechados. */
 export function emptyBusinessHours(): BusinessHours {
   return WEEKDAY_KEYS.reduce((grade, dia) => {
     grade[dia] = [];
@@ -17,7 +16,6 @@ export function emptyBusinessHours(): BusinessHours {
   }, {} as BusinessHours);
 }
 
-/** "HH:mm" → minutos desde a meia-noite. */
 export function toMinutes(time: string): number {
   const [hh, mm] = time.split(':').map(Number);
   return hh * 60 + mm;
@@ -27,11 +25,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * Completa os dias ausentes com lista vazia e descarta chave desconhecida.
- * Consumidor nenhum precisa checar `hours.mon ?? []` — sem isso, uma clínica
- * gravada antes de a grade existir estouraria na leitura.
- */
 export function normalizeBusinessHours(raw: unknown): BusinessHours {
   const grade = emptyBusinessHours();
   if (!isRecord(raw)) return grade;
@@ -52,11 +45,6 @@ export function normalizeBusinessHours(raw: unknown): BusinessHours {
   return grade;
 }
 
-/**
- * Valida a grade inteira e devolve a primeira mensagem de erro em português,
- * ou `null` se estiver tudo certo. Fica fora do decorator do class-validator
- * de propósito: assim a regra é testável sem instanciar DTO.
- */
 export function validateBusinessHours(raw: unknown): string | null {
   if (!isRecord(raw)) return 'Grade de horários inválida.';
 
@@ -88,8 +76,6 @@ export function validateBusinessHours(raw: unknown): string | null {
       }
     }
 
-    // Ordena por início antes de comparar: sem isso, blocos fora de ordem
-    // ("tarde" antes de "manhã") escapariam da checagem de sobreposição.
     const ordenados = [...(blocos as TimeBlock[])].sort(
       (a, b) => toMinutes(a.start) - toMinutes(b.start),
     );

@@ -10,22 +10,8 @@ import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 import { getRequestContext, setRequestContext } from './request-context';
 
-/** Acima deste limite, além do `http_request`, emite um `event=slow_request` dedicado. */
 const DEFAULT_SLOW_REQUEST_THRESHOLD_MS = 1500;
 
-/**
- * Interceptor global que loga uma linha estruturada por request HTTP
- * (`event=http_request`) com método, URL sanitizada, status, duração,
- * handler (`Class.method`), userId quando disponível e IP. Também espelha o
- * `userId`/`tenantId` do `request.user` (populado pelo `JwtAuthGuard`) no
- * `AsyncLocalStorage`, permitindo que logs subsequentes herdem esses campos.
- * Requests mais lentas que `SLOW_REQUEST_THRESHOLD_MS` (default 1500ms)
- * também emitem um `event=slow_request` — facilita alerta/consulta no Loki
- * sem precisar filtrar por `durationMs > N` em toda query.
- *
- * Saída intencionalmente compacta — campos detalhados (headers, body) NUNCA
- * são logados aqui para não vazar PII.
- */
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger('Http');
@@ -42,9 +28,6 @@ export class LoggingInterceptor implements NestInterceptor {
     const res = http.getResponse<Response>();
     const startedAt = Date.now();
 
-    // O payload do JwtStrategy.validate() expõe `userId` (não `id`).
-    // Mantemos `id` como fallback para qualquer outra estratégia de auth
-    // que populasse `req.user.id` diretamente.
     if (req.user) {
       setRequestContext({
         userId: req.user?.userId ?? req.user?.id ?? null,
@@ -90,8 +73,6 @@ export class LoggingInterceptor implements NestInterceptor {
     const method = req.method;
     const statusCode = this.resolveStatusCode(err, res.statusCode);
 
-    // Objeto estruturado (não pré-serializado) — o InexciLogger achata estes
-    // campos no nível raiz do JSON em vez de aninhá-los dentro de "message".
     const payload = {
       event: 'http_request',
       method,
@@ -153,10 +134,6 @@ export class LoggingInterceptor implements NestInterceptor {
   }
 }
 
-/**
- * Remove valores potencialmente sensíveis da query string (token, code,
- * password) antes de gravar a URL no log.
- */
 const SENSITIVE_QS_KEYS = new Set([
   'token',
   'access_token',

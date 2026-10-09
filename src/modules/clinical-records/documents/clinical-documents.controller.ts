@@ -63,10 +63,6 @@ export class ClinicalDocumentsController {
     return this.clinicalDocumentsService.create(data, user.userId, file);
   }
 
-  // ── Documentos emitidos a partir da ficha (PDF gerado pelo sistema) ───────
-  // Caminhos fixos abaixo de `clinical-records/documents`, para não disputar
-  // rota com o `clinical-records/:id` do controller de fichas.
-
   @Post('prescription')
   @ApiOperation({ summary: 'Emitir receita do atendimento' })
   createPrescription(
@@ -107,15 +103,6 @@ export class ClinicalDocumentsController {
       user.userId,
     );
   }
-
-  // ── Pré-visualização ──────────────────────────────────────────────────────
-  // Devolve o HTML do documento (mesmo template da emissão) para o médico
-  // conferir na tela. Nada é gravado, e nenhum PDF é gerado: subir o Chromium
-  // a cada clique em "Visualizar" custa segundos e o arquivo seria descartado.
-  //
-  // A ficha é opcional aqui (e só aqui): conferir um documento não pode criar
-  // prontuário. Sem `clinicalRecordId`, o HTML é montado a partir do paciente e
-  // dos campos que estão na tela — ver `PreviewTargetDto`.
 
   @Post('prescription/preview')
   @HttpCode(HttpStatus.OK)

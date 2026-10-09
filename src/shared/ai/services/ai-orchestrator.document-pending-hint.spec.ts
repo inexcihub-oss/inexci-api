@@ -1,17 +1,6 @@
 import { DocumentIntakeService } from './orchestrator/document-intake.service';
 import { PhoneNormalizerService } from './orchestrator/phone-normalizer.service';
 
-/**
- * Cobertura do `buildDocumentPendingHint`: o hint determinístico que
- * injetamos no system prompt quando há um documento pendente já
- * classificado pelo pipeline OCR + LLM. Sem esse hint o LLM "esquecia" o
- * documento entre turnos e respondia "não ficou claro qual ação você
- * quer confirmar" em loop, mesmo após o usuário dizer "sim".
- *
- * Migrado de `ai-orchestrator.document-pending-hint.spec.ts` para testar
- * diretamente `DocumentIntakeService` após a extração na Fase 5 do
- * PLANO-CORRECOES-CODE-REVIEW-2026-05-13.
- */
 describe('DocumentIntakeService — buildDocumentPendingHint', () => {
   let service: DocumentIntakeService;
   const documentDispatcherMock = {
@@ -225,10 +214,6 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
 
     const hint = await service.buildDocumentPendingHint('+5511999999999');
 
-    // A instrução que mandava o modelo pular a confirmação humana
-    // ("MODO AUTO-CRIAR ATIVADO... NÃO pergunte 'posso seguir?'") foi
-    // removida — mesmo com dados ricos, o modelo deve resumir e perguntar
-    // antes de criar a SC.
     expect(hint).not.toContain('MODO AUTO-CRIAR ATIVADO');
     expect(hint).toContain('MOSTRE um resumo ao usuário e pergunte');
     expect(hint).toContain(
@@ -241,9 +226,6 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
     expect(hint).toContain('CAGES STAND ALONE');
     expect(hint).toContain('SINTEX');
     expect(hint).toContain('Fornecedores sugeridos: SINTEX, VITALITY, GUSMED');
-    // O laudo (texto livre extraído do documento) não entra mais solto no
-    // meio do hint: vai dentro do bloco delimitado e marcado como DADO,
-    // não instrução.
     expect(hint).toContain('<DADOS_EXTRAIDOS_DE_DOCUMENTO>');
     expect(hint).toContain('</DADOS_EXTRAIDOS_DE_DOCUMENTO>');
     expect(hint).toContain(
@@ -254,9 +236,6 @@ describe('DocumentIntakeService — buildDocumentPendingHint', () => {
     expect(hint).toContain('"procedureId"');
     expect(hint).toContain('"notes"');
     expect(hint).not.toContain('draft_update({ fields:');
-    // A tool correta é `query_patients` (a antiga `find_patient_by_name` não
-    // existe — referenciá-la fazia o LLM tentar uma tool inexistente, que
-    // virava "Estou enfrentando um problema técnico para buscar o paciente").
     expect(hint).toContain('query_patients');
     expect(hint).not.toContain('find_patient_by_name');
     expect(hint).toContain('NUNCA fragmente');

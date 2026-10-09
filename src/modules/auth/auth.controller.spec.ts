@@ -55,7 +55,6 @@ describe('AuthController', () => {
         res,
       );
 
-      // Cookie should be set with httpOnly
       expect(res.cookie).toHaveBeenCalledWith(
         'refresh_token',
         'rt-123',
@@ -66,7 +65,6 @@ describe('AuthController', () => {
         }),
       );
 
-      // Response body should NOT contain refresh_token
       expect(result).not.toHaveProperty('refresh_token');
       expect(result).toHaveProperty('access_token', 'jwt-token');
       expect(result).toHaveProperty('user');
@@ -75,8 +73,6 @@ describe('AuthController', () => {
 
   describe('register', () => {
     it('should NOT start a session and exclude refresh_token/access_token from body', async () => {
-      // O fluxo de registro exige confirmação por e-mail antes do login: o service
-      // não emite mais tokens e o controller não define cookie de sessão.
       const registerResult = {
         user: { id: 'user-2', name: 'New User' },
       };
@@ -106,17 +102,14 @@ describe('AuthController', () => {
       const res = mockResponse() as Response;
       const result = await controller.refresh(req, res);
 
-      // Should have called service with token from cookie
       expect(mockAuthService.refreshAccessToken).toHaveBeenCalledWith('old-rt');
 
-      // Should set new cookie
       expect(res.cookie).toHaveBeenCalledWith(
         'refresh_token',
         'new-rt',
         expect.objectContaining({ httpOnly: true }),
       );
 
-      // Should not include refresh_token in body
       expect(result).not.toHaveProperty('refresh_token');
       expect(result).toHaveProperty('access_token', 'new-jwt');
     });

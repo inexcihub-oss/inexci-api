@@ -3,29 +3,13 @@ import { DataSource, FindOptionsWhere } from 'typeorm';
 import { Patient } from '../entities/patient.entity';
 import { BaseRepository } from './base.repository';
 
-/**
- * O que a listagem de pacientes precisa: as cinco colunas da tela `/pacientes`
- * mais os timestamps (o "há X dias" da tela de colaborador). Os seletores do
- * wizard e da agenda usam um subconjunto disto (nome e CPF).
- *
- * `Patient` não tem `@Exclude` em campo nenhum, então sem `select` a entidade
- * sai inteira — inclusive `medicalNotes`, que é dado clínico e não tem por que
- * trafegar numa listagem. Quem precisa do cadastro completo usa
- * `GET /patients/:id`, que passa pelo `auditProntuarioAccess`.
- */
 const COLUNAS_DA_LISTAGEM = [
   'p.id',
   'p.name',
   'p.cpf',
   'p.email',
   'p.phone',
-  // Caminho da foto (não a URL): o service assina e devolve `photoUrl` para o
-  // avatar da lista. O caminho em si não abre nada sem passar pelo
-  // `UploadService.getSignedUrl`, que confere o tenant.
   'p.photoPath',
-  // Só a referência ao convênio (não o número da carteirinha): o modal de
-  // agendamento usa para sugerir o convênio da consulta sem abrir o cadastro
-  // completo, que passa pelo audit de prontuário.
   'p.healthPlanId',
   'p.birthDate',
   'p.createdAt',
@@ -51,9 +35,6 @@ export class PatientRepository extends BaseRepository<Patient> {
     });
   }
 
-  /**
-   * Lista pacientes de um médico específico (paciente é do médico).
-   */
   findByDoctorId(doctorId: string): Promise<Patient[]> {
     return this.repository.find({
       where: { doctorId },
@@ -61,9 +42,6 @@ export class PatientRepository extends BaseRepository<Patient> {
     });
   }
 
-  /**
-   * Lista todos os pacientes da clínica (ownerId) — útil para visões de admin.
-   */
   findByOwnerId(ownerId: string): Promise<Patient[]> {
     return this.repository.find({
       where: { ownerId },
@@ -71,17 +49,6 @@ export class PatientRepository extends BaseRepository<Patient> {
     });
   }
 
-  /**
-   * Busca pacientes por nome usando ILIKE server-side (sem carregar todos em
-   * memória). Usa `unaccent` do Postgres para correspondência insensível a
-   * acentos — requer a extensão `unaccent` (habilitada por padrão na imagem
-   * custom `docker/postgres/Dockerfile`).
-   *
-   * @param ownerId   Tenant da clínica.
-   * @param search    Termo de busca (já normalizado ou raw).
-   * @param mode      `contains` → `%name%`, `prefix` → `name%`, `exact` → `=`.
-   * @param limit     Máximo de resultados retornados.
-   */
   async findByNameIlike(
     ownerId: string,
     search: string,
@@ -112,12 +79,6 @@ export class PatientRepository extends BaseRepository<Patient> {
     return qb.getMany();
   }
 
-  /**
-   * Listagem paginada da tela de pacientes com busca server-side opcional por
-   * nome (acento-insensível via `unaccent`), e-mail ou CPF. Retorna
-   * `[registros, total]` num único round-trip (`getManyAndCount`), evitando o
-   * carregamento da tabela inteira no navegador (P6/P7).
-   */
   findAndCountWithSearch(
     ownerId: string,
     search: string | null | undefined,

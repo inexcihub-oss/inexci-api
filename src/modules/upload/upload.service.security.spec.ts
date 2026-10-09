@@ -4,9 +4,6 @@ import { StorageService } from '../../shared/storage/storage.service';
 import { DocumentRepository } from '../../database/repositories/document.repository';
 import { sharp } from '../../shared/storage/foto-paciente';
 
-// `file-type` é ESM puro e o Jest (CommonJS) não o resolve. O dublê reconhece
-// as mesmas assinaturas que importam aqui (PNG, JPEG, WebP, GIF, PDF) e, como
-// o real, não detecta texto — SVG incluído.
 const detectarTipo = async (buf: Buffer) => {
   const hex = buf.subarray(0, 12).toString('hex');
   if (hex.startsWith('89504e470d0a1a0a'))

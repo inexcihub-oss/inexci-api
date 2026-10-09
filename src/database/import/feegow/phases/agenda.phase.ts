@@ -22,18 +22,11 @@ import { inserirEmLotes } from './inserir-em-lotes';
 export interface PlanoAgenda {
   salas: NovaSala[];
   consultas: NovaConsulta[];
-  /** Origem no Feegow de cada consulta planejada (para o relatório). */
   origem: Map<string, { agendamento: string; profissional: string }>;
   relatorio: Relatorio;
-  /** Ledger da fase: a gravação repõe nele a sala reaproveitada do banco. */
   ledger: Ledger;
 }
 
-/**
- * Fase `agenda`: salas (dos `locais`) e consultas (dos `agendamentos`).
- * Depende da fase `cadastro` no ledger: clínica, equipe, convênios, pacientes.
- * Colisões de horário e bloqueios futuros vão para o relatório.
- */
 export function planejarAgenda(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -68,11 +61,6 @@ export async function gravarAgenda(
   await inserirEmLotes(manager, Appointment, plano.consultas);
 }
 
-/**
- * Bloqueios de agenda de hoje em diante, para a secretária recriar à mão até
- * a INEXCI ter bloqueios (MIG-05). Sem nome de paciente — só profissional,
- * período e motivo.
- */
 function bloqueiosFuturos(exp: ExportFeegow, hoje: string) {
   return exp
     .tabela('agenda_bloqueios')
@@ -86,13 +74,6 @@ function bloqueiosFuturos(exp: ExportFeegow, hoje: string) {
     }));
 }
 
-/**
- * Sala planejada com o nome de uma que a clínica já tem (criada pela tela
- * depois do cadastro, ou numa carga anterior por outro local) não é criada:
- * `uq_clinic_rooms_clinic_name_active` recusaria o INSERT e derrubaria a fase.
- * As consultas e o ledger passam a apontar para a sala existente. Roda dentro
- * da transação, logo antes do insert.
- */
 async function reaproveitarSalasDoBanco(
   plano: PlanoAgenda,
   manager: EntityManager,
@@ -138,12 +119,6 @@ async function reaproveitarSalasDoBanco(
   }
 }
 
-/**
- * Consultas que a conta já tem na INEXCI (marcadas pela tela antes da carga)
- * também ocupam a agenda. Uma importada que cai em cima de uma delas entra
- * como encaixe — sem isso a `EX_appointments_doctor_no_overlap` derrubaria a
- * transação inteira. Roda dentro da transação da fase, logo antes do insert.
- */
 async function encaixarSobreConsultasDoBanco(
   plano: PlanoAgenda,
   manager: EntityManager,
@@ -153,8 +128,6 @@ async function encaixarSobreConsultasDoBanco(
   );
   if (!ocupam.length) return;
   const medicos = [...new Set(ocupam.map((c) => c.doctorId))];
-  // Janela da carga; o início recua a duração máxima de uma consulta (480 min)
-  // para pegar a existente que começou antes e ainda ocupa o horário.
   const inicios = ocupam.map((c) => c.scheduledAt.getTime());
   const de = new Date(Math.min(...inicios) - 480 * 60_000);
   const ate = new Date(

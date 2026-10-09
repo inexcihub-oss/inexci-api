@@ -84,17 +84,17 @@ describe('WeeklySummaryService', () => {
 
   describe('getLastWeekRange', () => {
     it('retorna janela [segunda anterior 00:00 UTC, segunda atual 00:00 UTC) quando rodado num domingo', () => {
-      const sunday = new Date('2026-05-10T11:00:00.000Z'); // domingo
+      const sunday = new Date('2026-05-10T11:00:00.000Z');
       const { start, end } = service.getLastWeekRange(sunday);
 
       expect(start.getUTCFullYear()).toBe(2026);
-      expect(start.getUTCMonth()).toBe(3); // abril (0-indexed)
+      expect(start.getUTCMonth()).toBe(3);
       expect(start.getUTCDate()).toBe(27);
       expect(start.getUTCHours()).toBe(0);
       expect(start.getUTCMinutes()).toBe(0);
 
       expect(end.getUTCFullYear()).toBe(2026);
-      expect(end.getUTCMonth()).toBe(4); // maio
+      expect(end.getUTCMonth()).toBe(4);
       expect(end.getUTCDate()).toBe(4);
       expect(end.getUTCHours()).toBe(0);
     });
@@ -132,8 +132,6 @@ describe('WeeklySummaryService', () => {
         new Date(),
       );
 
-      // O cron usa a janela "semana anterior" — para garantir movimentação,
-      // forçamos que a SC esteja dentro dessa janela através da mock.
       expect(mockMailService.sendWeeklySummary).toHaveBeenCalledTimes(
         dispatched,
       );

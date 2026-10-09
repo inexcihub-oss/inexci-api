@@ -110,11 +110,6 @@ describe('UserDoctorAccessService', () => {
       );
     });
 
-    /**
-     * Admin delegado: role='collaborator' com permissão Administração. O
-     * módulo inteiro de user-doctor-access é gestão de equipe — precisa
-     * funcionar para quem tem a permissão, não só para quem tem o role.
-     */
     it('allows a delegated admin (role=collaborator + Administração) to manage access', async () => {
       const delegatedAdmin = makeAdmin({
         role: UserRole.COLLABORATOR,
@@ -223,7 +218,6 @@ describe('UserDoctorAccessService', () => {
         createdById: ADMIN_ID,
       });
       expect(result).toEqual({ records: updatedAccesses });
-      // O cache de acesso do colaborador deve ser invalidado após a mudança.
       expect(
         accessControlService.invalidateAccessibleDoctors,
       ).toHaveBeenCalledWith(USER_ID);

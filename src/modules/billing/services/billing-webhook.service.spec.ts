@@ -76,8 +76,6 @@ describe('BillingWebhookService', () => {
     );
   });
 
-  // ─── Idempotência e fluxo base ───
-
   describe('idempotência e fluxo base', () => {
     it('ignora evento de tipo desconhecido sem chamar dispatch', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
@@ -173,8 +171,6 @@ describe('BillingWebhookService', () => {
     });
   });
 
-  // ─── checkout.completed ───
-
   describe('checkout.completed', () => {
     const checkoutEvent = () =>
       makeEvent({
@@ -256,8 +252,6 @@ describe('BillingWebhookService', () => {
     });
   });
 
-  // ─── subscription.created / subscription.updated ───
-
   describe('subscription.created e subscription.updated', () => {
     it.each(['subscription.created', 'subscription.updated'] as const)(
       '%s busca do gateway e chama syncFromGatewaySubscription',
@@ -307,8 +301,6 @@ describe('BillingWebhookService', () => {
     });
   });
 
-  // ─── subscription.canceled ───
-
   describe('subscription.canceled', () => {
     it('localiza subscription local e chama cancelImmediately', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
@@ -347,8 +339,6 @@ describe('BillingWebhookService', () => {
     });
   });
 
-  // ─── invoice.paid ───
-
   describe('invoice.paid', () => {
     it('localiza subscription local e chama markActive', async () => {
       gateway.parseWebhookEvent.mockReturnValue(
@@ -386,8 +376,6 @@ describe('BillingWebhookService', () => {
       expect(subscriptionService.markActive).not.toHaveBeenCalled();
     });
   });
-
-  // ─── invoice.failed / invoice.overdue ───
 
   describe('invoice.failed e invoice.overdue', () => {
     it.each(['invoice.failed', 'invoice.overdue'] as const)(

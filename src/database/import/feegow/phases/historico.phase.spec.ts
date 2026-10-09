@@ -43,7 +43,6 @@ const AGENDAMENTOS = [
   ag('10', '4', '2025-02-10', '0', { id: 'a2', sys_active: '-1' }),
 ];
 
-/** Cadastro → agenda → histórico no mesmo ledger, como o runner faz. */
 function planejar(
   logs: ReturnType<typeof log>[],
   ledger?: ContextoImportacao['ledger'],
@@ -103,11 +102,9 @@ describe('planejarHistorico (export sintético)', () => {
       content: 'protocolo',
       userId: ctx.ledger.resolver(LEDGER_FUNCIONARIO, '2'),
     });
-    // 08:15 em São Paulo = 11:15Z
     expect(plano.atividades[0].createdAt.toISOString()).toBe(
       '2025-01-02T11:15:00.000Z',
     );
-    // usuário 0 = sistema
     expect(plano.atividades[1].userId).toBeNull();
     expect(ctx.ledger.resolver(LEDGER_HISTORICO, 'a1')).toBe(consulta);
     expect(ctx.relatorio.paraJson()).toBeDefined();

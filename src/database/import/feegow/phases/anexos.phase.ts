@@ -30,27 +30,13 @@ export interface PlanoAnexos {
   ownerId: string;
   documentos: NovoAnexo[];
   fotos: NovaFoto[];
-  /**
-   * Ledger de trabalho e relatório da fase: o item que não entrar (arquivo
-   * ilegível no upload, paciente que já tinha foto) sai dos dois.
-   */
   ledger: Ledger;
   relatorio: Relatorio;
-  /**
-   * Arquivos que subiram mas a gravação não usou — o runner apaga depois do
-   * COMMIT (`descartadosDosAnexos`).
-   */
   descartados: string[];
 }
 
-/** Uploads simultâneos: as fotos somam centenas de MB. */
 const UPLOADS_EM_PARALELO = 5;
 
-/**
- * Fase `anexos`: PDFs do paciente e fotos de perfil. A única que sai do
- * banco: os arquivos sobem antes da transação (`enviarAnexos`) e, se a
- * gravação falhar, o runner apaga o que subiu.
- */
 export function planejarAnexosDaFase(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -64,15 +50,8 @@ export function planejarAnexosDaFase(
   };
 }
 
-/** Arquivo do export que não deu para ler/converter: rejeita só ele. */
 class ArquivoIlegivel extends Error {}
 
-/**
- * Sobe os arquivos e preenche `uri`/`photoPath` no plano. Devolve tudo o que
- * subiu. Arquivo local ilegível (foto corrompida, formato que o `sharp` não
- * abre) é rejeitado no relatório e sai do plano e do ledger, sem derrubar a
- * fase; falha de upload derruba, e o que já tinha subido é apagado.
- */
 export async function enviarAnexos(
   plano: PlanoAnexos,
   armazenamento: ArmazenamentoImportacao,
@@ -82,8 +61,6 @@ export async function enviarAnexos(
     arquivo: NovoAnexo['arquivo'],
     pasta: string,
   ): Promise<string> => {
-    // Foto de paciente entra já otimizada, como no upload pela tela (WebP de
-    // até 800 px): as do Feegow são PNG de ~500 KB e caem para ~15 KB.
     const foto = pasta === STORAGE_FOLDERS.PATIENT_PHOTOS;
     let conteudo: Buffer;
     try {
@@ -131,7 +108,6 @@ export async function enviarAnexos(
       }
     });
   } catch (erro) {
-    // Falha na limpeza (rede, credencial) não pode esconder o erro do envio.
     return limparEPropagar(erro, () => armazenamento.apagar(enviados));
   }
   plano.documentos = plano.documentos.filter((d) => !docsRejeitados.has(d));
@@ -155,15 +131,12 @@ export async function gravarAnexos(
     plano.documentos.map(({ arquivo: _arquivo, ...doc }) => doc),
   );
   for (const f of plano.fotos) {
-    // Não sobrescreve foto que alguém já pôs pela tela.
     const resultado = await manager.update(
       Patient,
       { id: f.patientId, photoPath: IsNull() },
       { photoPath: f.photoPath },
     );
     if (!resultado?.affected) {
-      // A foto subiu mas não foi usada: sai do ledger (não conta como
-      // importada) e o arquivo é apagado pelo runner depois do COMMIT.
       plano.descartados.push(f.photoPath!);
       const idOrigem =
         plano.ledger.removerPorUuid(LEDGER_FOTO, f.patientId) ?? f.patientId;
@@ -177,7 +150,6 @@ export async function gravarAnexos(
   }
 }
 
-/** Uploads que a gravação descartou; o runner apaga depois do COMMIT. */
 export function descartadosDosAnexos(plano: PlanoAnexos): string[] {
   return plano.descartados;
 }

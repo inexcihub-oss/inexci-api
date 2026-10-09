@@ -20,10 +20,6 @@ export interface PlanoDisponibilidade {
   feriados: NovoFeriado[];
 }
 
-/**
- * Fase `disponibilidade` (MIG-05 §6): grade por profissional, bloqueios e
- * feriados. Depende de `cadastro` (equipe, clínica) e `agenda` (salas).
- */
 export function planejarDisponibilidade(
   exp: ExportFeegow,
   ctx: ContextoImportacao,

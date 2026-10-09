@@ -15,28 +15,19 @@ import { Appointment } from './appointment.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 import { Procedure } from './procedure.entity';
 
-/** Código CID-10 associado a um atendimento. */
 export interface ClinicalCidCode {
   code: string;
   description: string;
 }
 
-/**
- * ClinicalRecord — Ficha de atendimento / episódio clínico (prontuário).
- * Anamnese e evolução em HTML (RichTextEditor). Um registro finalizado
- * (`finalizedAt` != null) é imutável — correções viram um novo registro.
- */
 @Entity('clinical_records')
 @Index('idx_clinical_records_owner_id', ['ownerId'])
 @Index('idx_clinical_records_patient_id', ['patientId'])
 @Index('idx_clinical_records_appointment_id', ['appointmentId'])
-// Uma consulta tem no máximo uma ficha viva; registro avulso (appointment_id
-// nulo) e soft delete ficam de fora do índice.
 @Index('idx_clinical_records_appointment_unique', ['appointmentId'], {
   unique: true,
   where: 'appointment_id IS NOT NULL AND deleted_at IS NULL',
 })
-// Outbox do marcador cirúrgico: fichas finalizadas com indicação e sem SC.
 @Index('idx_clinical_records_indication_pending', ['finalizedAt'], {
   where:
     'surgical_indication = true AND surgery_request_id IS NULL AND finalized_at IS NOT NULL AND deleted_at IS NULL',
@@ -48,14 +39,12 @@ export class ClinicalRecord {
   @Column({ name: 'doctor_id', type: 'uuid' })
   doctorId: string;
 
-  /** ID do admin dono da clínica (denormalizado para tenant isolation). */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
   @Column({ name: 'patient_id', type: 'uuid' })
   patientId: string;
 
-  /** Consulta que originou o atendimento (opcional — permite registro avulso). */
   @Column({ name: 'appointment_id', type: 'uuid', nullable: true })
   appointmentId: string | null;
 
@@ -74,27 +63,15 @@ export class ClinicalRecord {
   @Column({ type: 'text', nullable: true })
   conduct: string | null;
 
-  /** Médico marcou o paciente como cirúrgico durante o atendimento. */
   @Column({ name: 'surgical_indication', type: 'boolean', default: false })
   surgicalIndication: boolean;
 
-  /**
-   * Procedimento escolhido (ou criado) ao marcar "paciente cirúrgico".
-   * Opcional — sem ele, a SC nasce sem procedimento e pode ser completada
-   * depois direto na solicitação.
-   */
   @Column({ name: 'procedure_id', type: 'uuid', nullable: true })
   procedureId: string | null;
 
-  /**
-   * SC gerada ao finalizar o atendimento. Enquanto a ficha estiver finalizada
-   * com `surgicalIndication` e este campo nulo, a criação está pendente e o
-   * sweeper do `SurgicalIndicationService` vai retomá-la.
-   */
   @Column({ name: 'surgery_request_id', type: 'uuid', nullable: true })
   surgeryRequestId: string | null;
 
-  /** Quando preenchido, o registro está fechado e não pode mais ser editado. */
   @Column({ name: 'finalized_at', type: 'timestamptz', nullable: true })
   finalizedAt: Date | null;
 
@@ -106,8 +83,6 @@ export class ClinicalRecord {
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })

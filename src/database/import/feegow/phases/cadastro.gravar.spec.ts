@@ -8,7 +8,6 @@ import { UserDoctorAccess } from 'src/database/entities/user-doctor-access.entit
 import { contextoDeTeste, exportSintetico } from '../testing/export-sintetico';
 import { gravarCadastro, planejarCadastro } from './cadastro.phase';
 
-/** EntityManager falso que registra cada INSERT (entidade, linhas, orIgnore). */
 function managerQueRegistra() {
   const inserts: { entidade: unknown; linhas: unknown[]; orIgnore: boolean }[] =
     [];

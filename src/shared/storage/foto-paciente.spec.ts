@@ -34,8 +34,6 @@ describe('otimizarFotoPaciente', () => {
   });
 
   it('fica bem menor que o PNG original', async () => {
-    // Degradê com textura leve: mais parecido com uma foto que uma cor lisa
-    // (que qualquer formato comprime) ou ruído puro (que nenhum comprime).
     const raw = Buffer.alloc(640 * 480 * 3);
     for (let y = 0; y < 480; y++) {
       for (let x = 0; x < 640; x++) {
@@ -61,8 +59,6 @@ describe('otimizarFotoPaciente', () => {
   });
 
   it('recusa imagem acima do teto de pixels (bomba de descompressão)', async () => {
-    // 6500×6500 = 42,25 Mpx: um PNG liso de poucos KB que, decodificado,
-    // ocuparia ~127 MB. O sharp recusa pelo cabeçalho, antes do decode.
     expect(6500 * 6500).toBeGreaterThan(FOTO_PACIENTE_MAX_PIXELS);
     const enorme = await imagem(6500, 6500, 'png');
     await expect(otimizarFotoPaciente(enorme)).rejects.toThrow(/pixel limit/i);

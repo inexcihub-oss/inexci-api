@@ -2,17 +2,10 @@ import { ServiceUnavailableException } from '@nestjs/common';
 
 import { hashRefreshToken } from 'src/shared/crypto/refresh-token-hash.util';
 
-/**
- * Fake mínimo de IORedis: emula os comandos usados pelo RefreshTokenStore
- * (multi/exec encadeado, eval com a semântica do CONSUME_LUA, smembers) sobre
- * Maps em memória. O `status` é controlável para testar o comportamento
- * fail-closed.
- */
 class FakeRedis {
   status: 'ready' | 'connecting' | 'end' = 'ready';
   store = new Map<string, string>();
   sets = new Map<string, Set<string>>();
-  /** Relógio (segundos) controlável para testar a janela de graça. */
   clockSeconds = Math.floor(Date.now() / 1000);
 
   connect = jest.fn().mockResolvedValue(undefined);
@@ -56,9 +49,6 @@ class FakeRedis {
     return Array.from(this.sets.get(key) ?? []);
   }
 
-  // Emula o CONSUME_LUA (incluindo a janela de graça): lê tok key, distingue
-  // not_found / grace / reused / valid e marca revoked+revokedAt no caminho
-  // válido.
   async eval(
     _script: string,
     _numKeys: number,
@@ -94,7 +84,6 @@ jest.mock('ioredis', () => {
   };
 });
 
-// Import após o mock para que o construtor use o FakeRedis.
 import { RefreshTokenStore } from './refresh-token.store';
 
 describe('RefreshTokenStore', () => {
@@ -111,12 +100,10 @@ describe('RefreshTokenStore', () => {
 
     const hash = hashRefreshToken(raw);
     expect(fakeRedis.store.has(`refresh:tok:${hash}`)).toBe(true);
-    // O valor cru nunca aparece em nenhuma chave/valor.
     expect(fakeRedis.store.has(`refresh:tok:${raw}`)).toBe(false);
     for (const value of fakeRedis.store.values()) {
       expect(value).not.toContain(raw);
     }
-    // O hash entra no set do usuário.
     expect(await fakeRedis.smembers('refresh:user:user-1')).toContain(hash);
   });
 
@@ -129,18 +116,16 @@ describe('RefreshTokenStore', () => {
 
   it('replay dentro da janela de graça é corrida legítima (valid, não reused)', async () => {
     const raw = await store.issue('user-1');
-    await store.consume(raw); // rotação inicial
+    await store.consume(raw);
 
-    // Replay imediato (mesmo "agora") → dentro da janela → valid.
     const replay = await store.consume(raw);
     expect(replay).toEqual({ status: 'valid', userId: 'user-1' });
   });
 
   it('replay fora da janela de graça é reuso (reused)', async () => {
     const raw = await store.issue('user-1');
-    await store.consume(raw); // rotação inicial
+    await store.consume(raw);
 
-    // Avança o relógio além da janela de graça (30s).
     fakeRedis.clockSeconds += 31;
 
     const replay = await store.consume(raw);

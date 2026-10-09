@@ -15,20 +15,11 @@ import {
   UpdateScheduleBlockDto,
 } from './dto/schedule-block.dto';
 
-/** Janela máxima da listagem de bloqueios. */
 const BLOQUEIOS_MAX_DIAS = 93;
 
 const MSG_CLINICA_TODA =
   'Apenas administradores da conta podem criar, editar ou remover bloqueios de toda a clínica.';
 
-/**
- * Bloqueios de agenda (MIG-05). Quem tem Agenda cria e altera; bloqueio de
- * um profissional exige acesso a ele. Bloqueio da clínica toda
- * (`doctorId` nulo) afeta a agenda de todos os médicos da conta, então
- * criar, editar, remover ou converter um bloqueio nele exige
- * `Permission.ADMINISTRACAO` — um colaborador vinculado a um único médico
- * não pode travar a agenda dos outros.
- */
 @Injectable()
 export class ScheduleBlocksService {
   constructor(

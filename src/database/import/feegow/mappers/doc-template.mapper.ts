@@ -7,10 +7,8 @@ import { profissionaisDoFeegow } from './team.mapper';
 
 export const LEDGER_MODELO_DOCUMENTO = 'doc_template';
 
-/** Mesmo limite do corpo do modelo na API (`DOCUMENT_TEMPLATE_BODY_MAX`). */
 const CORPO_MAX = 2000;
 
-/** Marcadores do Feegow → placeholders da INEXCI (MIG-06 §6). */
 const PLACEHOLDERS: Record<string, string> = {
   'paciente.nome': '{{paciente.nome}}',
   'paciente.cpf': '{{paciente.cpf}}',
@@ -33,7 +31,6 @@ export interface NovoModeloDocumento {
 
 const MARCADOR = /\[([A-Za-zÀ-ú.]+)\]/g;
 
-/** `[Paciente.Nome]` → `{{paciente.nome}}`; marcador desconhecido fica literal. */
 export function converterMarcadores(texto: string): string {
   return texto.replace(
     MARCADOR,
@@ -41,12 +38,6 @@ export function converterMarcadores(texto: string): string {
   );
 }
 
-/**
- * Marcadores do Feegow sem equivalente na INEXCI, sem repetir — ficam como
- * texto literal no modelo e o cliente precisa saber disso. Conta só o que
- * tem a forma de marcador do Feegow (`[Entidade.Campo]`): palavra solta entre
- * colchetes (`[X]`, `[Obs]`) é texto do próprio modelo.
- */
 export function marcadoresDesconhecidos(texto: string): string[] {
   const desconhecidos = new Set<string>();
   for (const [inteiro, nome] of texto.matchAll(MARCADOR)) {
@@ -75,11 +66,6 @@ const FONTES = [
   },
 ] as const;
 
-/**
- * Modelos de atestado e pedido de exame. O HTML do Feegow vira texto puro (o
- * modelo da INEXCI é texto, MIG-06 §8) com os marcadores convertidos. Dono do
- * modelo: o profissional que o criou, senão o dono da conta.
- */
 export function planejarModelosDeDocumento(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -135,11 +121,6 @@ export function planejarModelosDeDocumento(
   return novos;
 }
 
-/**
- * Corta `texto` em `max` caracteres sem partir um marcador: se o corte cair
- * dentro de um `{{...}}`, recua até antes do `{{` aberto — senão o modelo
- * guardaria `{{paciente.no`, que nem é substituído nem some do documento.
- */
 export function cortarSemPartirMarcador(texto: string, max: number): string {
   const cortado = texto.slice(0, max);
   const aberto = cortado.lastIndexOf('{{');

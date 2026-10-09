@@ -87,8 +87,6 @@ describe('IndicationDocumentsService', () => {
   it('duplica o arquivo em vez de reaproveitar o mesmo caminho', async () => {
     await copy();
 
-    // Excluir um documento da SC apaga o arquivo do storage: se as duas linhas
-    // apontassem para o mesmo objeto, o documento do prontuário sumiria junto.
     const created = documentRepository.create.mock.calls[0][0];
     expect(created.uri).not.toBe('documents/owner-1/rm-joelho.pdf');
   });
@@ -110,8 +108,6 @@ describe('IndicationDocumentsService', () => {
     expect(keys).toEqual([DOCUMENT_TYPES.examReferral, 'exam_report']);
   });
 
-  // A fila reprocessa o job quando sobra trabalho; sem isso, cada tentativa
-  // anexaria de novo o que já tinha sido copiado.
   it('pula o que a solicitação já recebeu numa tentativa anterior', async () => {
     documentRepository.findByPatientId.mockResolvedValue([
       patientDocument({ id: 'd1', name: 'RM joelho direito' }),
@@ -157,7 +153,6 @@ describe('IndicationDocumentsService', () => {
 
     const copied = await copy();
 
-    // `failed` é o que sobrou para uma nova tentativa da fila.
     expect(copied).toEqual({ copied: 1, failed: 1 });
     expect(documentRepository.create).toHaveBeenCalledTimes(1);
     expect(documentRepository.create).toHaveBeenCalledWith(
@@ -168,7 +163,6 @@ describe('IndicationDocumentsService', () => {
   it('não propaga erro quando a listagem falha — a SC já existe', async () => {
     documentRepository.findByPatientId.mockRejectedValue(new Error('db caiu'));
 
-    // Nada copiado e trabalho pendente: a fila tenta de novo.
     await expect(copy()).resolves.toEqual({ copied: 0, failed: 1 });
   });
 });

@@ -33,12 +33,6 @@ const NEXT_STATUS: Record<number, number> = {
   7: 8,
 };
 
-/**
- * Re-exporta o helper compartilhado para manter compatibilidade com imports
- * existentes. A implementação real vive em `_helpers/resolve-surgery-request`
- * para ser reutilizada por helpers de transição que também precisam aceitar
- * tanto UUID quanto protocolo (SC-XXXX).
- */
 export const resolveAuthorizedRequest = resolveAuthorizedRequestImpl;
 
 export function buildActionTools(
@@ -48,15 +42,6 @@ export function buildActionTools(
   pendencyValidator: PendencyValidatorService,
   activityRepo: SurgeryRequestActivityRepository,
 ): AiTool[] {
-  /**
-   * Mapa de transições que exigem fluxo guiado com draft. Quando o usuário
-   * pede "avançar" via `advance_surgery_request` para um desses status, a
-   * tool bloqueia e direciona para a intent correta do `plan_actions`.
-   *
-   * Reflete os modais do frontend: cada transição abaixo abre um modal com
-   * campos obrigatórios que NÃO podem ser silenciosamente preenchidos com
-   * valores vazios.
-   */
   const TRANSITIONS_REQUIRING_DRAFT: Record<
     number,
     { intent: string; label: string; what: string }

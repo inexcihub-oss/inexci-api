@@ -14,7 +14,7 @@ export interface StaleTier {
   days: number;
   severity: string;
   notifyWhatsApp: boolean;
-  notifyAll: boolean; // true = all stakeholders; false = just responsible + admin
+  notifyAll: boolean;
 }
 
 export const STALE_TIERS: StaleTier[] = [
@@ -39,7 +39,6 @@ export class StaleNotificationService {
   async checkAndNotifyStaleRequests(): Promise<number> {
     let notifiedCount = 0;
 
-    // Check from the smallest tier (3 days) to cover all stale requests
     const minDays = Math.min(...STALE_TIERS.map((t) => t.days));
     const staleRequests =
       await this.surgeryRequestRepository.findStaleRequests(minDays);
@@ -81,7 +80,6 @@ export class StaleNotificationService {
   }
 
   getMatchingTier(staleDays: number): StaleTier | null {
-    // Return the highest tier the request qualifies for
     for (const tier of STALE_TIERS) {
       if (staleDays >= tier.days) return tier;
     }
@@ -105,7 +103,6 @@ export class StaleNotificationService {
         : 'Solicitação Parada';
     const message = `A solicitação do paciente ${patientName} está há ${staleDays} dias no status "${statusLabel}"`;
 
-    // Push (in-app + WS) — respeita pushNotifications
     await this.notificationsService.createNotificationForUsers(recipientIds, {
       type: NotificationType.SYSTEM,
       title,
@@ -119,8 +116,6 @@ export class StaleNotificationService {
       },
     });
 
-    // WhatsApp — quando o tier exige (15+ dias). E-mail não é mais enviado
-    // para usuários do sistema; o único e-mail é o resumo semanal.
     if (tier.notifyWhatsApp) {
       await this.sendStaleWhatsApp(recipientIds, {
         requestProtocol: request.protocol ?? request.id,

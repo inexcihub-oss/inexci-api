@@ -13,11 +13,6 @@ import {
 import { User } from './user.entity';
 import { OpmeItem } from './opme-item.entity';
 
-/**
- * Fabricante de OPME — Entidade de negócio (não faz login).
- * Cadastro pertence à clínica/conta (ownerId): médicos e colaboradores
- * da mesma clínica compartilham os fabricantes cadastrados.
- */
 @Entity('manufacturers')
 @Index('idx_manufacturers_owner_id', ['ownerId'])
 export class Manufacturer {
@@ -80,12 +75,6 @@ export class Manufacturer {
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
-  /**
-   * Marca o fabricante genérico "Outro" da conta — o que significa "nenhum dos
-   * cadastrados". Uma linha por conta, escondida do catálogo e criada sob
-   * demanda. É flag e não nome para que relatório possa contá-lo ou excluí-lo
-   * sem comparar texto.
-   */
   @Column({ name: 'is_generic', type: 'boolean', default: false })
   isGeneric: boolean;
 

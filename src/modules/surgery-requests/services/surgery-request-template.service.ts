@@ -14,17 +14,9 @@ export interface TemplateUsageIncrementResponse {
   usageCount: number;
 }
 
-/**
- * O que a listagem devolve. As duas telas que a consomem — o seletor de modelo
- * do wizard e a tabela de Procedimentos — só pintam texto; os itens TUSS, OPME
- * e documentos aparecem no detalhe (`getTemplate`), quando o modelo é aberto ou
- * usado. Antes ia o `templateData` inteiro por linha mais o `User` do médico,
- * com cpf, telefone e endereço junto.
- */
 export interface SurgeryRequestTemplateSummary {
   id: string;
   name: string;
-  /** Os ids acompanham os nomes porque o formulário de nova SC preenche com eles. */
   procedureId: string | null;
   procedureName: string | null;
   hospitalId: string | null;
@@ -68,8 +60,6 @@ export class SurgeryRequestTemplateService {
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const templates = await templateRepo.find({
       where: { doctorId: userId, ownerId: tenantOwnerId },
-      // `templateData` entra porque o resumo é derivado dele, mas não sai na
-      // resposta; do médico vem só o nome, exibido na coluna "Criado por".
       select: {
         id: true,
         name: true,

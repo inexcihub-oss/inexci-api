@@ -16,7 +16,6 @@ export function getStatusLabel(status: number): string {
   return STATUS_LABELS[status as SurgeryRequestStatus] ?? String(status);
 }
 
-/** Descrição amigável do status para notificar o paciente via WhatsApp ({{3}} do template status_message_patient). */
 export function getStatusDescriptionForPatient(
   status: SurgeryRequestStatus,
   details?: {
@@ -78,7 +77,6 @@ export function getStatusDescriptionForPatient(
   }
 }
 
-/** Mensagem de ação pendente por status para notificar gestor via WhatsApp ({{5}} do template status_message). */
 export function getStalePendencyMessage(status: SurgeryRequestStatus): string {
   switch (status) {
     case SurgeryRequestStatus.PENDING:

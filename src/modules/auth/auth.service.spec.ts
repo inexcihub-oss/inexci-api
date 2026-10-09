@@ -23,7 +23,6 @@ import { SubscriptionService } from '../billing/services/subscription.service';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 
-// Mock bcryptjs before it's imported by the service
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
   hash: jest.fn(),
@@ -143,8 +142,6 @@ describe('AuthService', () => {
     jest.clearAllMocks();
   });
 
-  // ─── me ─────────────────────────────────────────────────────────
-
   describe('me', () => {
     it('inclui consents embutidos sem query adicional ao ConsentService', async () => {
       const user = {
@@ -220,8 +217,8 @@ describe('AuthService', () => {
         doctorProfile: { id: 'dp-1', council: 'CRM' },
       };
       mockUserRepository.findOneWithProfile
-        .mockResolvedValueOnce(collaborator) // lookup do próprio usuário
-        .mockResolvedValueOnce(owner); // lookup do dono em buildAccountInfo
+        .mockResolvedValueOnce(collaborator)
+        .mockResolvedValueOnce(owner);
 
       const result = await service.me('collab-1');
 
@@ -250,12 +247,6 @@ describe('AuthService', () => {
       expect(result.account).toBeNull();
     });
 
-    // ─── `accountId` é o nome do campo no contrato do frontend ────
-    // `AuthContext.tsx` deriva `isAccountOwner` de
-    // `user.role === 'admin' && user.id === user.accountId`. Enquanto
-    // esta rota devolvia só `ownerId`, `accountId` chegava `undefined` e
-    // `isAccountOwner` era `false` para TODO MUNDO — inclusive o dono —,
-    // escondendo a aba "Plano e Faturamento" e todo o billing.
     it('devolve accountId (além de ownerId) para o dono da conta', async () => {
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         id: 'dono-1',
@@ -299,10 +290,6 @@ describe('AuthService', () => {
       expect(result.accountId).toBe('owner-1');
     });
 
-    // ─── Achado Critical: /auth/me nunca devolvia `permissions` ────
-    // (`AuthContext.tsx` do frontend lê `user.permissions` para montar
-    // `can()`; sem o campo, `can()` é sempre `false` para TODO MUNDO,
-    // inclusive o dono da conta.)
     describe('permissions (achado Critical)', () => {
       it('devolve as quatro permissões para o dono da conta (admin)', async () => {
         mockUserRepository.findOneWithProfile.mockResolvedValue({
@@ -385,7 +372,7 @@ describe('AuthService', () => {
           emailVerified: true,
           permissions: [],
           isPlatformAdmin: true,
-          doctorProfile: { id: 'dp-1', council: 'CRM' }, // efetiva soma 3 áreas — prova que não é a crua repassada
+          doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
         const result = await service.me('colab-1');
@@ -399,7 +386,6 @@ describe('AuthService', () => {
       });
     });
 
-    // ─── onboardingState embutido no payload (mesmo motivo de `consents`) ──
     describe('onboardingState', () => {
       it('devolve o estado de onboarding vazio para quem nunca começou', async () => {
         mockUserRepository.findOneWithProfile.mockResolvedValue({
@@ -453,8 +439,6 @@ describe('AuthService', () => {
       });
     });
   });
-
-  // ─── validateUser ───────────────────────────────────────────────
 
   describe('validateUser', () => {
     const mockUser = {
@@ -530,8 +514,6 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── changePasswordAuthenticated ────────────────────────────────
-
   describe('changePasswordAuthenticated', () => {
     it('should throw UnauthorizedException when user has no password defined', async () => {
       mockUserRepository.findOne.mockResolvedValue({
@@ -563,8 +545,6 @@ describe('AuthService', () => {
       });
     });
   });
-
-  // ─── register ───────────────────────────────────────────────────
 
   describe('checkEmailAvailability', () => {
     it('deve retornar available quando o e-mail não existe', async () => {
@@ -618,9 +598,6 @@ describe('AuthService', () => {
       ).resolves.toEqual({ status: 'registered' });
     });
 
-    // O usuário digita o telefone mascarado. Sem normalizar, a etapa 1 diria
-    // "disponível" para um número que o submit recusaria — a checagem
-    // antecipada tem de consultar exatamente o que o `register` grava.
     it('deve normalizar a máscara antes de consultar', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
 
@@ -669,11 +646,6 @@ describe('AuthService', () => {
       );
     });
 
-    // Antes desta checagem o cadastro só olhava o e-mail: um telefone repetido
-    // passava direto e só estourava no INSERT, contra o índice parcial
-    // `IDX_users_phone_unique`. O QueryFailedError subia sem tratamento e o
-    // usuário recebia 500 — visto em produção em 16/08/2026, requestId
-    // 1efdb601-5217-4c09-8ec3-f7a5540ebad2.
     it('should throw a friendly error when the phone already belongs to another account', async () => {
       mockUserRepository.findOne.mockImplementation((where: any) =>
         Promise.resolve(
@@ -698,9 +670,6 @@ describe('AuthService', () => {
       expect(mockUserRepository.create).not.toHaveBeenCalled();
     });
 
-    // A checagem acima é TOCTOU: entre o SELECT e o INSERT outro cadastro pode
-    // gravar o mesmo número. O índice único é quem de fato garante a regra, e
-    // a violação dele precisa virar a mesma mensagem — não um 500.
     it('should convert the unique phone violation into the same friendly error', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
@@ -781,8 +750,6 @@ describe('AuthService', () => {
         signatureUrl: null,
         clinicName: null,
       });
-      // O cadastro não inicia sessão: nenhum token é emitido e nenhum refresh
-      // token órfão é persistido (o usuário deve confirmar o e-mail antes de logar).
       expect((result as Record<string, unknown>).access_token).toBeUndefined();
       expect((result as Record<string, unknown>).refresh_token).toBeUndefined();
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
@@ -822,9 +789,6 @@ describe('AuthService', () => {
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
 
-    // ─── Achado Critical: /auth/register também ficou sem `permissions` ────
-    // (varredura pedida pela revisão — não alimenta o AuthContext hoje, mas
-    // é o mesmo padrão de resposta manual sem `permissions`.)
     it('devolve as quatro permissões (register só cria o dono/ADMIN da conta)', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
       (bcryptjs.hash as jest.Mock).mockResolvedValue('hashed-password');
@@ -863,15 +827,7 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── login ──────────────────────────────────────────────────────
-
   describe('login', () => {
-    /**
-     * `validateUser` resolve via `userRepository.findOne` (com
-     * `selectPassword: true`); o restante do perfil (ownerId,
-     * `doctorProfile`, `emailVerified` e a coluna crua de `permissions`)
-     * vem de uma única `findOneWithProfile` dentro de `login()`.
-     */
     const mockAuthenticatedUser = (
       overrides: Record<string, unknown> = {},
     ) => ({
@@ -893,7 +849,7 @@ describe('AuthService', () => {
     it('should return user data and access_token', async () => {
       (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
       const authenticatedUser = mockAuthenticatedUser();
-      mockUserRepository.findOne.mockResolvedValue(authenticatedUser); // validateUser
+      mockUserRepository.findOne.mockResolvedValue(authenticatedUser);
       mockUserRepository.findOneWithProfile.mockResolvedValue({
         ...authenticatedUser,
         permissions: [],
@@ -912,8 +868,6 @@ describe('AuthService', () => {
       expect(result!.user.isDoctor).toBe(false);
     });
 
-    // Mesmo contrato de `/auth/me`: o frontend guarda o payload do login no
-    // localStorage e usa `accountId` para derivar `isAccountOwner`.
     it('devolve accountId (além de ownerId) no payload do login', async () => {
       (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
       const authenticatedUser = mockAuthenticatedUser();
@@ -934,7 +888,6 @@ describe('AuthService', () => {
       expect(result!.user.ownerId).toBe('user-1');
     });
 
-    // ─── Achado Critical: /auth/login nunca devolvia `permissions` ────
     describe('permissions (achado Critical)', () => {
       it('devolve as quatro permissões para o dono da conta (admin)', async () => {
         (bcryptjs.compare as jest.Mock).mockResolvedValue(true);
@@ -997,7 +950,6 @@ describe('AuthService', () => {
           ...authenticatedUser,
           permissions: [],
           isPlatformAdmin: true,
-          // efetiva soma 3 áreas — prova que não é a coluna crua repassada
           doctorProfile: { id: 'dp-1', council: 'CRM' },
         });
 
@@ -1016,8 +968,6 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── refreshAccessToken ─────────────────────────────────────────
-
   describe('refreshAccessToken', () => {
     it('rotaciona o token para um usuário ativo e verificado', async () => {
       mockRefreshTokenStore.consume.mockResolvedValue({
@@ -1034,7 +984,6 @@ describe('AuthService', () => {
 
       expect(result.access_token).toBe('mock-jwt-token');
       expect(result.refresh_token).toBe('new-refresh-token');
-      // O consume revoga o token usado atomicamente; um novo é emitido.
       expect(mockRefreshTokenStore.consume).toHaveBeenCalledWith('rt-token');
       expect(mockRefreshTokenStore.issue).toHaveBeenCalledWith('user-1');
     });
@@ -1053,11 +1002,9 @@ describe('AuthService', () => {
       await expect(service.refreshAccessToken('rt-token')).rejects.toThrow(
         UnauthorizedException,
       );
-      // Revoga todos os refresh tokens do usuário para encerrar a sessão.
       expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
         'user-1',
       );
-      // Não emite novo token.
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
 
@@ -1095,16 +1042,12 @@ describe('AuthService', () => {
       await expect(service.refreshAccessToken('replayed')).rejects.toThrow(
         UnauthorizedException,
       );
-      // Revoga TODOS os refresh tokens do usuário (revogação de família).
       expect(mockRefreshTokenStore.revokeAllForUser).toHaveBeenCalledWith(
         'user-1',
       );
-      // Não emite novo token.
       expect(mockRefreshTokenStore.issue).not.toHaveBeenCalled();
     });
   });
-
-  // ─── sendRecoveryPasswordEmail ──────────────────────────────────
 
   const GENERIC_RECOVERY_MESSAGE =
     'Se o e-mail existir, enviaremos um código de recuperação.';
@@ -1147,7 +1090,6 @@ describe('AuthService', () => {
       expect(createCall.userId).toBe('user-1');
       expect(createCall.used).toBe(false);
       expect(createCall.code).toBe('123456');
-      // Verify expiry is ~15 minutes from now
       const expiresAt = createCall.expiresAt.getTime();
       expect(expiresAt).toBeGreaterThanOrEqual(
         beforeCall + 15 * 60 * 1000 - 100,
@@ -1160,8 +1102,6 @@ describe('AuthService', () => {
       );
     });
   });
-
-  // ─── validateRecoveryPasswordCode ───────────────────────────────
 
   describe('validateRecoveryPasswordCode', () => {
     it('should throw NotFoundException when code is invalid', async () => {
@@ -1179,8 +1119,6 @@ describe('AuthService', () => {
       ).rejects.toThrow('Código inválido');
     });
 
-    // Mesmo contrato anti-enumeração do `changePassword`: e-mail inexistente
-    // não pode responder diferente de código inválido numa conta existente.
     it('escopa por usuário sem revelar a existência da conta', async () => {
       const capture = async () => {
         try {
@@ -1221,11 +1159,9 @@ describe('AuthService', () => {
         id: 'code-1',
         code: '123456',
         used: false,
-        expiresAt: new Date(Date.now() - 60 * 1000), // expired 1 minute ago
+        expiresAt: new Date(Date.now() - 60 * 1000),
       });
 
-      // Mensagem generica de proposito (anti-enumeration): nao revela se o
-      // codigo esta expirado, ja usado ou simplesmente nao existe.
       await expect(
         service.validateRecoveryPasswordCode({
           code: '123456',
@@ -1243,7 +1179,7 @@ describe('AuthService', () => {
         id: 'code-1',
         code: '123456',
         used: false,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // expires in 10 min
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
       mockRecoveryCodeRepository.updateByWhere.mockResolvedValue({});
 
@@ -1252,7 +1188,6 @@ describe('AuthService', () => {
         email: 'test@example.com',
       });
 
-      // uuid mockado → 'mock-uuid-1234'
       expect(result).toEqual({
         message: 'Código validado com sucesso',
         resetToken: 'mock-uuid-1234',
@@ -1268,12 +1203,7 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── changePassword ─────────────────────────────────────────────
-
   describe('changePassword', () => {
-    // Anti-enumeração: o par (status, mensagem) tem que ser idêntico para
-    // "e-mail não cadastrado" e "e-mail cadastrado + token inventado". Qualquer
-    // diferença transforma a rota num oráculo de existência de conta.
     it('e-mail inexistente é indistinguível de reset token inválido', async () => {
       const capture = async () => {
         try {
@@ -1333,7 +1263,7 @@ describe('AuthService', () => {
         userId: 'user-1',
         used: true,
         resetToken: 'reset-tok',
-        resetTokenExpiresAt: new Date(Date.now() - 60 * 1000), // expirado
+        resetTokenExpiresAt: new Date(Date.now() - 60 * 1000),
       });
 
       await expect(
@@ -1371,25 +1301,17 @@ describe('AuthService', () => {
 
       expect(result).toEqual({ message: 'Senha alterada com sucesso' });
 
-      // Verify bcryptjs.hash was called with the plain password
       expect(bcryptjs.hash).toHaveBeenCalledWith('new-password-123', 12);
 
-      // Verify the hashed password was stored
       const updateCall = mockUserRepository.update.mock.calls[0];
       expect(updateCall[0]).toBe('user-1');
       expect(updateCall[1].password).toBe('hashed-new-password');
 
-      // Verify recovery codes were cleaned up
       expect(mockRecoveryCodeRepository.deleteMany).toHaveBeenCalledWith({
         userId: 'user-1',
       });
     });
   });
-
-  // ─── verifyEmail ─────────────────────────────────────────────────
-  // O token de verificação é armazenado inline em `user`
-  // (colunas `emailVerificationToken` / `emailVerificationExpiresAt`),
-  // logo o spec usa `mockUserRepository` em vez de um repositório dedicado.
 
   describe('verifyEmail', () => {
     it('should throw BadRequestException when token is empty', async () => {
@@ -1464,8 +1386,6 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── resendEmailVerification ──────────────────────────────────────
-
   describe('resendEmailVerification', () => {
     it('should throw NotFoundException when user does not exist', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
@@ -1513,8 +1433,6 @@ describe('AuthService', () => {
     });
   });
 
-  // ─── register — dispatchEmailVerification ────────────────────────
-
   describe('register — dispatchEmailVerification', () => {
     it('should call dispatchEmailVerification after successful registration', async () => {
       const mockPlan = { id: 'plan-1', name: 'Básico', isActive: true };
@@ -1545,7 +1463,6 @@ describe('AuthService', () => {
         isDoctor: false,
       } as any);
 
-      // dispatchEmailVerification é chamado via `void` — aguarda um tick
       await new Promise((r) => setImmediate(r));
 
       expect(mockMailService.sendEmailVerification).toHaveBeenCalledWith(
@@ -1554,8 +1471,6 @@ describe('AuthService', () => {
       );
     });
   });
-
-  // ─── register — WhatsApp welcome ─────────────────────────────────
 
   describe('register — WhatsApp welcome', () => {
     it('envia WhatsApp de boas-vindas quando o usuário tem telefone', async () => {

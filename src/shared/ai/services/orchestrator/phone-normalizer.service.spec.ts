@@ -45,10 +45,7 @@ describe('PhoneNormalizerService', () => {
     it('inclui variante sem o nono dígito (11 → 10 dígitos)', () => {
       const result = service.normalizeInboundPhone('whatsapp:+5531998908579');
       expect(result.lookupCandidates).toEqual(
-        expect.arrayContaining([
-          '3198908579', // sem nono dígito
-          '(31) 9890-8579',
-        ]),
+        expect.arrayContaining(['3198908579', '(31) 9890-8579']),
       );
     });
 
@@ -56,8 +53,8 @@ describe('PhoneNormalizerService', () => {
       const result = service.normalizeInboundPhone('whatsapp:+553189085791');
       expect(result.lookupCandidates).toEqual(
         expect.arrayContaining([
-          '+553189085791', // canonical
-          '31989085791', // com nono dígito
+          '+553189085791',
+          '31989085791',
           '(31) 98908-5791',
         ]),
       );

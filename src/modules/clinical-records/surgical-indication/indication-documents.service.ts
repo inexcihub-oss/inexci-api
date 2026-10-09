@@ -4,11 +4,6 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
 
-/**
- * Documentos emitidos no atendimento que não servem à autorização — receita e
- * atestado tratam do pós-consulta, não do procedimento. O pedido de exames
- * continua indo, porque é o que embasa a indicação.
- */
 const SKIPPED_KEYS: readonly string[] = [
   DOCUMENT_TYPES.prescription,
   DOCUMENT_TYPES.medicalCertificate,
@@ -23,23 +18,9 @@ export interface CopyPatientDocumentsParams {
 
 export interface CopyPatientDocumentsResult {
   copied: number;
-  /** Quanto ficou por copiar. Acima de zero, vale uma nova tentativa. */
   failed: number;
 }
 
-/**
- * Leva o acervo de documentos do paciente para a SC nascida de uma indicação
- * cirúrgica — quem for tocar a solicitação já encontra os exames anexados.
- *
- * Cada documento vira um **arquivo novo** no storage, não uma segunda linha
- * apontando para o mesmo objeto: excluir um documento da SC apaga o arquivo,
- * e caminhos compartilhados fariam essa exclusão apagar o documento do
- * prontuário junto.
- *
- * Tudo aqui é best-effort. A SC já está criada e commitada quando este serviço
- * roda; falhar em copiar um anexo não pode derrubar a criação da solicitação
- * nem o atendimento que a originou.
- */
 @Injectable()
 export class IndicationDocumentsService {
   private readonly logger = new Logger(IndicationDocumentsService.name);
@@ -49,10 +30,6 @@ export class IndicationDocumentsService {
     private readonly storageService: StorageService,
   ) {}
 
-  /**
-   * Nunca lança: quem chama decide o que fazer com o que sobrou (a fila tenta
-   * de novo; a chamada inline apenas registra).
-   */
   async copyPatientDocuments(
     params: CopyPatientDocumentsParams,
   ): Promise<CopyPatientDocumentsResult> {
@@ -69,11 +46,9 @@ export class IndicationDocumentsService {
       this.logger.error(
         `[SC_DOCS] Falha ao listar documentos do paciente ${params.patientId}: ${err?.message}`,
       );
-      // Não dá para saber quanto faltou: sinaliza trabalho pendente.
       return { copied: 0, failed: 1 };
     }
 
-    // Uma tentativa anterior pode ter copiado parte dos anexos antes de falhar.
     const present = new Set(
       alreadyCopied.map((document) => `${document.key}::${document.name}`),
     );
@@ -96,8 +71,6 @@ export class IndicationDocumentsService {
           params.ownerId,
         );
 
-        // Sem `patientId`/`clinicalRecordId`: a cópia pertence à solicitação.
-        // Repeti-los faria o mesmo anexo aparecer duas vezes no prontuário.
         await this.documentRepository.create({
           surgeryRequestId: params.surgeryRequestId,
           createdById: params.createdById,

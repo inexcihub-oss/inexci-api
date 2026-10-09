@@ -2,16 +2,6 @@ import { UsersService } from './users.service';
 import { UserRole, UserStatus } from 'src/database/entities/user.entity';
 import { omitUserSecrets } from 'src/shared/utils';
 
-/**
- * D-14 — `POST /users/collaborators` devolvia o hash bcrypt da senha (e o
- * `emailVerificationToken`) no corpo do 201.
- *
- * Causa: o `ClassSerializerInterceptor` global só honra o `@Exclude()` da
- * entidade quando a resposta É uma instância de `User`. Todo service que faz
- * `{ ...user, campoExtra }` devolve um objeto literal — o interceptor passa
- * batido e a credencial vaza. Estes testes prendem o comportamento em cada
- * rota do `UsersController` que devolve dados de usuário.
- */
 describe('UsersService — credenciais nunca saem na resposta', () => {
   let service: UsersService;
 
@@ -52,7 +42,6 @@ describe('UsersService — credenciais nunca saem na resposta', () => {
     ownerId: 'dono-1',
   };
 
-  /** Usuário como o TypeORM devolve de `save()`: com o hash recém-gravado. */
   const comCredenciais = (extra: Record<string, unknown> = {}) => ({
     id: 'novo-1',
     name: 'Novo',
@@ -72,8 +61,6 @@ describe('UsersService — credenciais nunca saem na resposta', () => {
     expect(payload).not.toHaveProperty('password');
     expect(payload).not.toHaveProperty('emailVerificationToken');
     expect(payload).not.toHaveProperty('emailVerificationExpiresAt');
-    // Rede de segurança contra renomeação de campo: o hash não pode aparecer
-    // em canto nenhum do corpo, sob qualquer nome.
     expect(JSON.stringify(payload)).not.toContain(HASH);
   };
 
@@ -111,7 +98,6 @@ describe('UsersService — credenciais nunca saem na resposta', () => {
     );
 
     semCredencial(resultado);
-    // O resto da resposta continua intacto.
     expect(resultado).toMatchObject({ id: 'novo-1', email: 'novo@email.com' });
   });
 

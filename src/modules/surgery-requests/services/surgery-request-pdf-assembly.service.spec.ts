@@ -118,8 +118,6 @@ describe('SurgeryRequestPdfAssemblyService', () => {
           provide: DoctorHeaderRepository,
           useValue: mockDoctorHeaderRepository,
         },
-        // Serviço real sobre os mesmos mocks: o contexto do médico saiu daqui
-        // para `shared/pdf`, mas o comportamento coberto abaixo é o mesmo.
         DoctorPdfContextService,
       ],
     }).compile();

@@ -12,7 +12,6 @@ export interface PlanoModelos {
   modelos: NovoModeloDocumento[];
 }
 
-/** Fase `modelos`: modelos de atestado e pedido de exame (MIG-06). */
 export function planejarModelos(
   exp: ExportFeegow,
   ctx: ContextoImportacao,

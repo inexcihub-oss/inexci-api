@@ -11,19 +11,6 @@ import {
   converterFotosExistentes,
 } from '../src/shared/storage/converter-fotos-existentes';
 
-/**
- * Converte as fotos de paciente já gravadas para WebP de até 800 px.
- *
- *   yarn ts-node -r tsconfig-paths/register scripts/otimizar-fotos-pacientes.ts \
- *     --owner-email <dono da conta> [--aplicar]
- *
- * Por padrão só SIMULA: baixa e mede, sem subir, trocar ou apagar nada. Para
- * gravar de verdade (sobe as WebP, troca o caminho no paciente e APAGA as
- * originais do bucket) é preciso passar `--aplicar` explicitamente.
- *
- * Fotos novas já entram otimizadas (upload e importador); isto é para as que
- * existiam antes. Idempotente: foto já em WebP é pulada.
- */
 async function main() {
   const argv = process.argv.slice(2);
   const valor = (n: string) => {
@@ -31,7 +18,6 @@ async function main() {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const email = valor('--owner-email')?.toLowerCase();
-  // Destrutivo só com opt-in explícito (`--aplicar`).
   const simular = conversaoSimulada(argv);
   if (!email) {
     throw new Error(

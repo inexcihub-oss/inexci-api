@@ -421,12 +421,6 @@ export class DocumentClassifierService {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Roda o classificador sobre o texto **JÁ TOKENIZADO** pelo PII Vault.
-   * Devolve a estrutura `DocumentClassification` validada pelo `json_schema`
-   * strict da OpenAI. Erros de parsing são propagados ao chamador (que pode
-   * decidir cair no fallback Vision do Sprint 4).
-   */
   async classify(opts: {
     text: string;
     intent?: DocumentClassificationIntent;
@@ -436,12 +430,6 @@ export class DocumentClassifierService {
     return result.classification;
   }
 
-  /**
-   * Variante que devolve também o `usage` da chamada OpenAI (prompt/completion
-   * tokens, modelo, latência) para o chamador persistir em
-   * `ai_token_usage_log` com stage `doc_classifier`. Não tem efeito colateral
-   * adicional vs `classify()`.
-   */
   async classifyWithUsage(opts: {
     text: string;
     intent?: DocumentClassificationIntent;
@@ -476,11 +464,6 @@ export class DocumentClassifierService {
     const classifierText = this.truncateForClassifier(trimmed);
     const userPrompt = this.buildUserPrompt(classifierText, opts.intent);
 
-    // Salvaguarda contra regressão do `payload_blob`: se o texto tokenizado
-    // veio reduzido a um único placeholder gigante (bug onde
-    // `preprocessUserInput` engolia laudos > 1500 chars), o classifier não
-    // tem como inferir nada — devolve cedo com aviso explícito em vez de
-    // queimar tokens da OpenAI.
     if (this.isBlobPlaceholderOnly(trimmed)) {
       this.logger.warn(
         `[AI_DOC_CLASSIFY] sid=${opts.messageSid ?? '-'} model=${model} blob_only_input=true input_len=${trimmed.length}`,
@@ -503,7 +486,6 @@ export class DocumentClassifierService {
     const response = await this.openai.chatCompletion({
       model,
       temperature: 0,
-      // Mantemos configurável via env para ajuste fino sem deploy.
       maxTokens,
       timeoutMs: this.getTimeoutMs(),
       messages: [
@@ -580,13 +562,6 @@ export class DocumentClassifierService {
     return (raw && raw.trim()) || 'gpt-5.4-nano';
   }
 
-  /**
-   * Default subiu de 2500 para 4000 no Bloco 3 do
-   * PLANO-CORRECAO-PERFORMANCE-DOC-EXTRACTION.md: o `gpt-5.4-nano` (novo
-   * default) precisa de mais tokens de saída que o `gpt-4o-mini` para o
-   * mesmo schema — com 2500 o JSON truncava de forma determinística
-   * (`Unterminated string`) em todos os testes do spike.
-   */
   private getMaxTokens(): number {
     const raw = this.configService.get<string>(
       'AI_DOC_CLASSIFIER_MAX_TOKENS',
@@ -607,12 +582,6 @@ export class DocumentClassifierService {
     return Math.max(5000, Math.min(120000, Math.floor(parsed)));
   }
 
-  /**
-   * Reduz o texto enviado ao LLM em documentos muito longos. Quando o OCR
-   * marcou páginas (`[PÁGINA N]`), prioriza a 1ª, as 3 últimas (TUSS/OPME)
-   * e preenche o orçamento com páginas intermediárias. Sem marcadores, usa
-   * head+tail clássico.
-   */
   private truncateForClassifier(text: string): string {
     const maxChars = this.getMaxInputChars();
     if (text.length <= maxChars) return text;
@@ -670,7 +639,6 @@ export class DocumentClassifierService {
     let consolidated = selected.join('\n\n');
     if (consolidated.length <= maxChars) return consolidated;
 
-    // Último recurso: mantém 1ª + últimas dentro do orçamento.
     const compactTail = tailPages.join('\n\n');
     const compactHeadBudget = Math.max(
       2000,
@@ -691,13 +659,6 @@ export class DocumentClassifierService {
     return Math.max(4000, Math.min(50000, Math.floor(parsed)));
   }
 
-  /**
-   * Retorna `true` quando o texto enviado consiste essencialmente em UM
-   * placeholder de `{{payload_blob_n}}` — sintoma do bug do PII Vault em
-   * que o blobThreshold engolia laudos inteiros. Mantemos a heurística
-   * permissiva (umas 60 chars de "ruído" toleradas) porque o tokenizador
-   * pode adicionar quebras/espaços ao redor.
-   */
   private isBlobPlaceholderOnly(text: string): boolean {
     const blobMatches = text.match(/\{\{payload_blob_\d+\}\}/g) ?? [];
     if (blobMatches.length !== 1) return false;
@@ -720,14 +681,6 @@ export class DocumentClassifierService {
     };
   }
 
-  /**
-   * Normaliza a saída do LLM:
-   * - garante que `kind` é um dos suportados (default `unknown`),
-   * - clampa `confidence` em [0, 1],
-   * - converte `null` → `undefined` nos campos opcionais (mais idiomático
-   *   no consumidor TS),
-   * - remove arrays vazios e objetos vazios para encolher logs/payloads.
-   */
   private normalize(
     raw: any,
     durationMs: number,

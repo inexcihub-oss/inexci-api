@@ -18,7 +18,6 @@ describe('AppointmentsController — permissões declaradas', () => {
     ]);
   });
 
-  /** O hub /atendimento lista as consultas do médico sem ele ter Agenda. */
   it.each([
     'findAgenda',
     'findByPatient',
@@ -31,11 +30,6 @@ describe('AppointmentsController — permissões declaradas', () => {
     ]);
   });
 
-  /**
-   * Escrever herda a exigência da classe (AGENDA) — a ausência de decorator
-   * de método É a asserção, e por isso o teste checa `toBeUndefined` em vez
-   * de aceitar um valor padrão.
-   */
   it.each([
     'create',
     'update',

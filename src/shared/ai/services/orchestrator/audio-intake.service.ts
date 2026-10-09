@@ -29,13 +29,6 @@ export interface AudioProcessingResult {
     | null;
 }
 
-/**
- * Gerencia o pipeline de processamento de áudio inbound do WhatsApp:
- * download, transcrição e mapeamento de erros para mensagens amigáveis.
- *
- * Extraído de `AiOrchestratorService` na Fase 5 do
- * `PLANO-CORRECOES-CODE-REVIEW-2026-05-13.md`.
- */
 @Injectable()
 export class AudioIntakeService {
   private readonly logger = new Logger(AudioIntakeService.name);
@@ -147,10 +140,6 @@ export class AudioIntakeService {
     }
   }
 
-  /**
-   * Mapeia o motivo da falha do STT para uma resposta amigável e
-   * acionável ao usuário, em vez do genérico "não consegui transcrever".
-   */
   buildAudioFailureUserMessage(reason: string | undefined): string {
     switch (reason) {
       case 'AUDIO_NOT_ALLOWED':
@@ -188,10 +177,6 @@ export class AudioIntakeService {
     return '';
   }
 
-  /**
-   * Resolve a fonte da entrada do usuário com base na presença de texto
-   * digitado e/ou transcrição de áudio.
-   */
   resolveInboundSource(
     textInput: string,
     transcriptionContext: { text: string } | null,

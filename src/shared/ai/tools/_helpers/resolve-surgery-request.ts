@@ -3,22 +3,11 @@ import { detokenizeArg } from '../../pii/tool-pii-helpers';
 import { ToolContext } from '../tool.interface';
 import { buildProtocolCandidates } from '../protocol.helpers';
 
-/**
- * Limpa um identificador (UUID ou protocolo SC-XXXX) vindo de tool args.
- */
 function sanitizeIdentifier(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
 }
 
-/**
- * Resolve uma SC a partir de um identificador que pode ser tanto UUID quanto
- * protocolo (`SC-468131`, `468131`, etc.). Não faz checagem de permissão.
- *
- * Usar em pontos onde a permissão já foi validada antes (ex.: dentro de um
- * draft que já carrega `surgeryRequestId` resolvido pelo `draft_update`) ou
- * em contextos administrativos.
- */
 export async function resolveSurgeryRequest(
   surgeryRequestRepo: SurgeryRequestRepository,
   identifierRaw: unknown,
@@ -41,15 +30,6 @@ export async function resolveSurgeryRequest(
   return request;
 }
 
-/**
- * Resolve uma SC e valida permissão do usuário (via `accessibleDoctorIds`).
- *
- * Aceita UUID ou protocolo. Detokeniza o argumento (caso venha mascarado pelo
- * cofre de PII) antes de buscar.
- *
- * @returns `{ request, error }` — `request` preenchido se ok; `error` com
- *  mensagem amigável quando não encontrou ou usuário sem acesso.
- */
 export async function resolveAuthorizedRequest(
   surgeryRequestRepo: SurgeryRequestRepository,
   identifierRaw: unknown,

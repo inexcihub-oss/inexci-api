@@ -39,16 +39,10 @@ export class SurgeryRequestPdfAssemblyService {
     private readonly doctorPdfContextService: DoctorPdfContextService,
   ) {}
 
-  /**
-   * Resolve a URL da assinatura do médico (signed URL se for path do storage).
-   */
   async resolveDoctorSignatureUrl(profile: any): Promise<string | undefined> {
     return this.doctorPdfContextService.resolveSignatureUrl(profile);
   }
 
-  /**
-   * Resolve o ID do médico responsável pela solicitação (não o usuário logado).
-   */
   resolveAssignedDoctorId(request: {
     doctorId?: string;
     doctor?: { id?: string };
@@ -56,9 +50,6 @@ export class SurgeryRequestPdfAssemblyService {
     return request.doctorId ?? request.doctor?.id;
   }
 
-  /**
-   * Carrega dados do médico (profile, CRM, assinatura, cabeçalho) necessários para PDFs.
-   */
   async loadDoctorData(userId: string) {
     const doctor = await this.userRepository.findOneWithProfile({ id: userId });
     return this.buildDoctorPdfContext(doctor);
@@ -68,9 +59,6 @@ export class SurgeryRequestPdfAssemblyService {
     return this.doctorPdfContextService.buildForDoctor(doctor);
   }
 
-  /**
-   * Carrega dados do médico atribuído à solicitação cirúrgica.
-   */
   async loadAssignedDoctorData(request: {
     doctorId?: string;
     doctor?: {
@@ -96,12 +84,6 @@ export class SurgeryRequestPdfAssemblyService {
     return this.buildDoctorPdfContext(doctor);
   }
 
-  /**
-   * Gera o PDF do laudo (resumo da solicitação).
-   *
-   * Por padrão, mescla também os documentos da aba "Informações Gerais"
-   * (pasta `documents/`) ao final do PDF.
-   */
   async generateLaudoPdf(
     request: any,
     _userId: string,
@@ -116,7 +98,6 @@ export class SurgeryRequestPdfAssemblyService {
 
     const patientFields = buildLaudoPatientFields(request);
 
-    // ── Imagens dos exames ─────────────────────────────────────────────────
     const allDocs = request.documents ?? [];
     const examDocs = allDocs.filter(
       (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
@@ -136,7 +117,6 @@ export class SurgeryRequestPdfAssemblyService {
       )
     ).filter((u): u is string => !!u);
 
-    // ── Procedimentos (TUSS) ─────────────────────────────────────────────
     const tussItems = request.tussItems ?? [];
     const procedures = tussItems.map((item: any) => ({
       name: item.name,
@@ -144,7 +124,6 @@ export class SurgeryRequestPdfAssemblyService {
       quantity: item.quantity ?? 1,
     }));
 
-    // ── Materiais (OPME) ─────────────────────────────────────────────────
     const opmeItemsRaw = request.opmeItems ?? [];
 
     const extractNames = (value: unknown): string[] => {
@@ -178,7 +157,6 @@ export class SurgeryRequestPdfAssemblyService {
       ).join(', '),
     }));
 
-    // ── Fabricantes e Fornecedores ───────────────────────────────────────
     const fabricantes = uniqueNormalized(
       opmeItemsRaw.flatMap((i: any) => extractManufacturerNames(i)),
     );
@@ -196,13 +174,11 @@ export class SurgeryRequestPdfAssemblyService {
       fornecedores.length > 0 ? fornecedores.join(', ') : '';
     const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
 
-    // ── Hospital (local) ────────────────────────────────────────────────
     const hospital = request.hospital;
     const localText = [hospital?.name, hospital?.address]
       .filter(Boolean)
       .join(' – ');
 
-    // ── Seções dinâmicas do laudo ─────────────────────────────────────────
     const reportSections = ((request.reportSections ?? []) as any[]).sort(
       (a, b) => (a.order ?? 0) - (b.order ?? 0),
     );
@@ -239,10 +215,8 @@ export class SurgeryRequestPdfAssemblyService {
 
     const includeInfoDocuments = options?.includeInfoDocuments ?? true;
 
-    // ── Mesclar resumo + documentos em um único PDF (opcional) ──────────
     let finalBuffer = summaryBuffer;
     if (includeInfoDocuments) {
-      // ── Buscar documentos da aba Informações Gerais (pasta documents/) ─
       const infoDocs = allDocs.filter(
         (d: any) =>
           d.uri &&
@@ -277,10 +251,6 @@ export class SurgeryRequestPdfAssemblyService {
     return { pdf: finalBuffer.toString('base64'), method: SendMethod.DOWNLOAD };
   }
 
-  /**
-   * Gera o PDF do laudo médico (template `medical-report`) exatamente como
-   * a pré-visualização do Laudo Médico, sem blocos de solicitação cirúrgica.
-   */
   async generateMedicalReportPdf(
     request: any,
     _userId: string,
@@ -290,7 +260,6 @@ export class SurgeryRequestPdfAssemblyService {
 
     const patientFields = buildLaudoPatientFields(request);
 
-    // ── Imagens dos exames ─────────────────────────────────────────────────
     const allDocs = request.documents ?? [];
     const examDocs = allDocs.filter(
       (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
@@ -310,7 +279,6 @@ export class SurgeryRequestPdfAssemblyService {
       )
     ).filter((u): u is string => !!u);
 
-    // ── Seções dinâmicas do laudo ─────────────────────────────────────────
     const reportSections = ((request.reportSections ?? []) as any[]).sort(
       (a, b) => (a.order ?? 0) - (b.order ?? 0),
     );
@@ -336,9 +304,6 @@ export class SurgeryRequestPdfAssemblyService {
     return this.pdfService.generateMedicalReportPdf(medicalData);
   }
 
-  /**
-   * Gera o PDF de contestação de autorização.
-   */
   async generateContestAuthorizationPdf(
     request: any,
     id: string,

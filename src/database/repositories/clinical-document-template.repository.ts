@@ -12,7 +12,6 @@ export class ClinicalDocumentTemplateRepository extends BaseRepository<ClinicalD
     super(dataSource.getRepository(ClinicalDocumentTemplate));
   }
 
-  /** Modelos da clínica, filtráveis por tipo e médico; os mais usados primeiro. */
   findByOwner(
     ownerId: string,
     filtro: { kind?: ClinicalDocumentTemplateKind; doctorId?: string } = {},
@@ -26,7 +25,6 @@ export class ClinicalDocumentTemplateRepository extends BaseRepository<ClinicalD
     });
   }
 
-  /** Conta mais um uso sem reler o registro. */
   async incrementUsage(id: string): Promise<void> {
     await this.repository.increment({ id }, 'usageCount', 1);
   }

@@ -8,9 +8,7 @@ export interface ConsentStatus {
   privacyPolicyAcceptedAt: Date | null;
   termsOfUseAcceptedAt: Date | null;
   aiConsentAcceptedAt: Date | null;
-  /** True quando Política e Termos estão aceitos (pré-requisito de uso). */
   requiredConsentsAccepted: boolean;
-  /** Quais consentimentos obrigatórios ainda faltam. */
   pendingRequired: ConsentType[];
 }
 
@@ -28,7 +26,6 @@ export class ConsentService {
     return this.buildStatusFromUser(user);
   }
 
-  /** Aceita Política de Privacidade e Termos de Uso de uma só vez. */
   async acceptTerms(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
     const now = new Date();
@@ -59,10 +56,6 @@ export class ConsentService {
     return this.buildStatusFromUser({ ...user, aiConsentAcceptedAt: null });
   }
 
-  /**
-   * Helper consumido pelo orchestrator de IA: o usuário pode usar a IA
-   * pelo WhatsApp se houver timestamp de aceite.
-   */
   hasValidAiConsent(user: Pick<User, 'aiConsentAcceptedAt'>): boolean {
     return Boolean(user?.aiConsentAcceptedAt);
   }
@@ -73,10 +66,6 @@ export class ConsentService {
     return user;
   }
 
-  /**
-   * Monta o status de consentimento a partir de um User já carregado
-   * (ex.: timestamps LGPD vindos de `findOneWithProfile` no `/auth/me`).
-   */
   buildStatusFromUser(
     user: Pick<
       User,

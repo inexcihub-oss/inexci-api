@@ -8,7 +8,6 @@ import {
   violacaoDeUnicidade,
 } from './unique-violation.util';
 
-/** Índice que arbitra a corrida: uma linha genérica por conta. */
 const INDICE_DO_GENERICO = 'uq_manufacturers_owner_generic';
 
 @Injectable()
@@ -37,15 +36,6 @@ export class ManufacturerRepository extends BaseRepository<Manufacturer> {
     });
   }
 
-  /**
-   * O fabricante genérico "Outro" da conta, criando-o se ainda não existir.
-   *
-   * Preguiçoso de propósito: conta nova não nasce com a linha, ela aparece na
-   * primeira solicitação que precisar de um slot vazio. Duas requisições
-   * simultâneas podem chegar aqui juntas — o índice único
-   * `(owner_id) WHERE is_generic` derruba a segunda, que relê em vez de
-   * insistir. Sem isso, a conta ficaria com dois "Outro".
-   */
   async ensureGeneric(ownerId: string): Promise<Manufacturer> {
     const existente = await this.repository.findOne({
       where: { ownerId, isGeneric: true },
@@ -64,9 +54,6 @@ export class ManufacturerRepository extends BaseRepository<Manufacturer> {
       const violacao = violacaoDeUnicidade(erro);
       if (!violacao) throw erro;
 
-      // Violação de outro índice não é a corrida: a genérica não existe e não
-      // vai aparecer numa releitura. Relançar o erro cru daqui esconderia o que
-      // está acontecendo de verdade.
       if (violacao.constraint && violacao.constraint !== INDICE_DO_GENERICO) {
         throw new Error(
           mensagemDeGenericoBloqueado(

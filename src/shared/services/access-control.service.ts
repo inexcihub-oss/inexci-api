@@ -21,38 +21,12 @@ import {
 import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
 import { Permission, resolveEffectivePermissions } from '../permissions';
 
-/**
- * Conta (tenant) a que o usuário pertence: `ownerId`, com `adminId` de
- * fallback para cadastros antigos e o próprio id para o dono. Única regra —
- * quem resolve a conta de um usuário já carregado usa esta função, para não
- * divergir de `getOwnerId`/`assertSameOwner`.
- */
 export function resolverOwnerIdDoUsuario(
   user: Pick<User, 'id' | 'ownerId' | 'adminId'>,
 ): string {
   return user.ownerId ?? user.adminId ?? user.id;
 }
 
-/**
- * AccessControlService — centraliza toda a lógica de tenant isolation e
- * controle de acesso baseado em médico.
- *
- * Regras gerais:
- * - Toda informação no sistema é particionada por `ownerId` (clínica/conta).
- * - Admin enxerga apenas dados do próprio `ownerId`.
- * - Médico enxerga as próprias solicitações + as dos médicos vinculados via
- *   `user_doctor_access`.
- * - Colaborador (sem doctorProfile) só enxerga dados dos médicos vinculados.
- *
- * Todo service que filtra por `doctorId`/`ownerId` deve usar este service.
- */
-/**
- * TTL do cache de acesso: janela de staleness aceitável (segurança).
- * `invalidateAccessibleDoctors` já é chamado nas mutações de vínculo
- * (`user_doctor_access`), então esse TTL só cobre o intervalo entre a
- * mutação e a invalidação explícita — 90s reduz round-trips repetidos
- * (chamado 3-5x por request) sem abrir uma janela de staleness relevante.
- */
 const ACCESSIBLE_DOCTORS_CACHE_TTL_MS = 90_000;
 
 @Injectable()
@@ -63,33 +37,15 @@ export class AccessControlService {
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
   ) {}
 
-  /**
-   * Cache em memória de `getAccessibleDoctorIds`. Chamado 3–5× por requisição
-   * (SurgeryRequests, Patients, Reports, Documents) com o mesmo userId. TTL
-   * (90s) limita a janela de staleness; mutações de vínculo chamam `invalidate`.
-   */
   private readonly accessibleDoctorsCache = new Map<
     string,
     { ids: string[]; expiresAt: number }
   >();
 
-  /**
-   * Invalida o cache de acesso de um usuário. Deve ser chamado sempre que um
-   * vínculo `user_doctor_access` do usuário for criado/reativado/desativado.
-   */
   invalidateAccessibleDoctors(userId: string): void {
     this.accessibleDoctorsCache.delete(userId);
   }
 
-  /**
-   * Retorna os IDs de médicos cujos dados o usuário pode ver.
-   *
-   * - Admin: todos os médicos da própria clínica (mesmo ownerId)
-   * - Médico: ele mesmo + médicos vinculados via user_doctor_access
-   * - Colaborador: apenas médicos vinculados via user_doctor_access
-   *
-   * Usado por: SurgeryRequests, Patients, Reports, Documents.
-   */
   async getAccessibleDoctorIds(userId: string): Promise<string[]> {
     const cached = this.accessibleDoctorsCache.get(userId);
     if (cached && cached.expiresAt > Date.now()) {
@@ -128,12 +84,6 @@ export class AccessControlService {
     return [...new Set(ids)];
   }
 
-  /**
-   * Retorna os médicos disponíveis para criação de solicitação.
-   *
-   * - Admin: todos os médicos da clínica (com dados completos)
-   * - Outros: mesmo que getAccessibleDoctorIds, mas retorna User[] com doctorProfile
-   */
   async getAvailableDoctorsForCreation(userId: string): Promise<User[]> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
@@ -151,7 +101,6 @@ export class AccessControlService {
     const accesses =
       await this.userDoctorAccessRepository.findActiveByUserId(userId);
     const doctorIds = accesses.map((a) => a.doctorUserId);
-    // Carga única em vez de um findOneWithProfile por vínculo (N+1).
     const doctorUsers =
       await this.userRepository.findManyWithProfileByIds(doctorIds);
     doctors.push(...doctorUsers);
@@ -164,17 +113,6 @@ export class AccessControlService {
     });
   }
 
-  /**
-   * Usuários da conta que enxergam os dados de um médico — o inverso de
-   * `getAccessibleDoctorIds`, usado para saber quem pode ser mencionado num
-   * comentário da solicitação.
-   *
-   * O filtro por `Permission.SOLICITACOES` **efetiva** (e não pelo array
-   * gravado) é o que evita mencionar alguém que recebe a notificação e toma
-   * 403 ao abrir o link: quem só tem Agenda ou Atendimento não entra na
-   * lista, e o médico entra mesmo com o array vazio, porque a permissão dele
-   * é derivada do `doctor_profile`.
-   */
   async getUsersWithAccessToDoctor(
     doctorUserId: string,
     ownerId: string,
@@ -199,10 +137,6 @@ export class AccessControlService {
         role: usuario.role,
         permissions: usuario.permissions,
         isDoctor: Boolean(usuario.doctorProfile),
-        // Só CRM ganha Solicitações pelo perfil — inclusive o médico da SC: o
-        // registro dele pode ter mudado (ou vindo do importador sem CRM) depois
-        // que a SC nasceu, e aí ele não abre mais a solicitação. Mesma regra
-        // de `getEffectivePermissions`, sem exceção pelo id.
         isPhysician: isPhysicianProfile(usuario.doctorProfile),
       });
 
@@ -210,14 +144,6 @@ export class AccessControlService {
     });
   }
 
-  /**
-   * Monta um WHERE **fail-closed** escopado por tenant para `SurgeryRequest`.
-   *
-   * SEMPRE inclui `ownerId` (clínica do usuário) e, quando há médicos
-   * acessíveis, restringe também por `doctorId`. Nunca cai em um WHERE sem
-   * escopo de tenant — evita o IDOR cross-tenant (V1) que existia quando
-   * `doctorIds` vinha vazio e o filtro era simplesmente removido.
-   */
   async buildSurgeryAccessWhere(
     base: FindOptionsWhere<SurgeryRequest>,
     userId: string,
@@ -231,30 +157,17 @@ export class AccessControlService {
       : { ...base, ownerId };
   }
 
-  /**
-   * Verifica se o userId pode acessar uma entidade com o doctorId fornecido.
-   * Usado para validação pontual (ex: findOne de uma solicitação específica).
-   */
   async canAccessDoctor(userId: string, doctorId: string): Promise<boolean> {
     const accessibleIds = await this.getAccessibleDoctorIds(userId);
     return accessibleIds.includes(doctorId);
   }
 
-  /**
-   * Retorna o ownerId da clínica do usuário (raiz do tenant).
-   * Para Admins, ownerId === self.id.
-   * Para colaboradores e médicos, ownerId é o id do Admin que criou a conta.
-   */
   async getOwnerId(userId: string): Promise<string> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
     return resolverOwnerIdDoUsuario(user);
   }
 
-  /**
-   * Garante que o usuário pertence à clínica do `ownerId` informado.
-   * Lança ForbiddenException caso contrário.
-   */
   async assertSameOwner(userId: string, ownerId: string): Promise<void> {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(`Usuário ${userId} não encontrado`);
@@ -266,16 +179,6 @@ export class AccessControlService {
     }
   }
 
-  /**
-   * Garante tenant **e** fronteira de acesso por médico sobre um recurso já
-   * carregado (ficha, consulta, documento emitido).
-   *
-   * `assertSameOwner` sozinho só separa clínicas: qualquer usuário da mesma
-   * conta passa, inclusive um colaborador cujo `user_doctor_access` não inclui
-   * o médico dono do recurso. É o mesmo recorte que `buildSurgeryAccessWhere`
-   * aplica nas listagens (`ownerId` E `doctorId IN (acessíveis)`), aqui na
-   * forma pontual usada pelos caminhos por id.
-   */
   async assertCanAccessDoctorResource(
     userId: string,
     ownerId: string,
@@ -289,19 +192,6 @@ export class AccessControlService {
     }
   }
 
-  /**
-   * Garante que o usuário é profissional de saúde (tem `doctor_profile`), de
-   * qualquer conselho.
-   *
-   * Vale para o ato de atender (registrar a ficha). Receita, atestado e pedido
-   * de exame exigem mais (`assertCanIssueClinicalDocuments`: CRM ou CRO), e a
-   * indicação cirúrgica mais ainda (`assertIsPhysicianWithRegistry`: só CRM).
-   * Não substitui o recorte por clínica/médico:
-   * é uma condição a mais, aplicada junto com `assertCanAccessDoctorResource`.
-   *
-   * "Médico" não é um role: um admin sem `doctor_profile` administra a clínica,
-   * mas não assina prontuário.
-   */
   async assertIsDoctor(userId: string): Promise<void> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user?.doctorProfile) {
@@ -311,16 +201,6 @@ export class AccessControlService {
     }
   }
 
-  /**
-   * Garante que o usuário é **médico** (perfil com conselho CRM), não só
-   * profissional de saúde. Vale para os atos que só médico pratica, como
-   * indicar cirurgia (que abre a SC). Documentos clínicos aceitam também o
-   * CRO — ver `assertCanIssueClinicalDocuments`.
-   *
-   * Use junto com `assertIsDoctor`/`assertCanAccessDoctorResource`, não no
-   * lugar deles. Para o médico **em nome de quem** o ato sai (o `doctorId` da
-   * ficha), passe esse id — não basta checar quem clicou.
-   */
   async assertIsPhysician(
     userId: string,
     mensagem = 'Apenas médicos (CRM) podem realizar esta operação.',
@@ -331,12 +211,6 @@ export class AccessControlService {
     }
   }
 
-  /**
-   * Médico (CRM) **com o registro completo** (número e UF). O importador do
-   * Feegow cria médico sem número quando a especialidade é médica mas o
-   * registro não veio no export; ato que sai em nome dele (indicação
-   * cirúrgica → solicitação cirúrgica) não pode sair com o CRM em branco.
-   */
   async assertIsPhysicianWithRegistry(
     userId: string,
     mensagem: string,
@@ -349,11 +223,6 @@ export class AccessControlService {
     this.assertRegistroCompleto(user, acao);
   }
 
-  /**
-   * Indicação cirúrgica permitida para o profissional, sem lançar: médico
-   * (CRM) com número e UF. Para quem não pode responder com erro HTTP — o
-   * cron que retoma as SCs pendentes.
-   */
   async canIndicateSurgery(userId: string): Promise<boolean> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     return (
@@ -362,15 +231,6 @@ export class AccessControlService {
     );
   }
 
-  /**
-   * Profissional que emite receita, atestado e pedido de exame: médico (CRM)
-   * ou dentista (CRO). Não é `assertIsPhysician` porque aquele também decide
-   * Solicitações e indicação cirúrgica, que seguem só do CRM.
-   *
-   * O registro completo (número e UF) de quem **assina** é conferido por quem
-   * monta o documento (`ClinicalDocumentGenerationService`), sobre o perfil já
-   * carregado — aqui basta o conselho.
-   */
   async assertCanIssueClinicalDocuments(
     userId: string,
     opcoes: { mensagem?: string } = {},
@@ -402,14 +262,6 @@ export class AccessControlService {
     );
   }
 
-  /**
-   * Permissão efetiva do usuário, para os caminhos que não passam pelo guard
-   * HTTP — hoje, o assistente do WhatsApp. O orquestrador de IA prefere
-   * derivar isso localmente (ver `AiOrchestratorService`) reaproveitando o
-   * `user` do preflight e o `accessibleDoctorIds` já resolvido, para não
-   * pagar mais uma consulta por mensagem; este método fica disponível para
-   * quem não tem esses dados em mãos.
-   */
   async getEffectivePermissions(userId: string): Promise<Permission[]> {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
@@ -422,14 +274,6 @@ export class AccessControlService {
     });
   }
 
-  /**
-   * Resolve o médico padrão para uma operação de criação que exige doctorId
-   * (ex: criar paciente, template, default document).
-   *
-   * - Se o usuário é médico, retorna o próprio id.
-   * - Caso contrário, retorna o primeiro médico acessível.
-   * - Lança ForbiddenException se não houver nenhum.
-   */
   async resolveDefaultDoctorId(userId: string): Promise<string> {
     const accessibleIds = await this.getAccessibleDoctorIds(userId);
     if (accessibleIds.includes(userId)) return userId;
@@ -441,9 +285,6 @@ export class AccessControlService {
     return accessibleIds[0];
   }
 
-  /**
-   * @deprecated use `getOwnerId` em vez de `getAccountId`.
-   */
   async getAccountId(userId: string): Promise<string> {
     return this.getOwnerId(userId);
   }

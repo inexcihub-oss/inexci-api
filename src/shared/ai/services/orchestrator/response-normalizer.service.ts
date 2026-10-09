@@ -5,26 +5,11 @@ import {
 } from '../../constants/ai.constants';
 import { collapseDuplicatedScPrefixes } from '../../tools/protocol.helpers';
 
-// Re-exports mantidos para compatibilidade com imports existentes (Fase 9).
 export const MAX_RESPONSE_LENGTH = _MAX_RESPONSE_LENGTH;
 export const WHATSAPP_TARGET_LENGTH = _WHATSAPP_TARGET_LENGTH;
 
-/**
- * Limite "macio" de emojis por resposta para manter o tom amigável sem
- * transformar a mensagem em uma parede de figuras. Excedentes são removidos
- * silenciosamente preservando o texto.
- *
- * Hoje a política é "ZERO emojis", então a função efetivamente remove
- * qualquer emoji que o LLM produza. Mantemos a constante para preservar
- * a possibilidade de reativar um teto pequeno no futuro sem mudar a API.
- */
 export const MAX_EMOJIS_PER_RESPONSE = 0;
 
-/**
- * Termos genéricos por categoria de placeholder PII usados como fallback
- * quando o vault não tem o binding correspondente (alucinação da IA ou
- * binding perdido entre turnos).
- */
 const RESIDUAL_PLACEHOLDER_FALLBACKS: Record<string, string> = {
   protocol: 'essa solicitação',
   patient_name: 'o paciente',
@@ -46,31 +31,10 @@ const RESIDUAL_PLACEHOLDER_FALLBACKS: Record<string, string> = {
 
 const PLACEHOLDER_REGEX = /\{\{([a-z_]+)_(\d+)\}\}/gi;
 
-/**
- * Sanitiza o texto livre devolvido pelo LLM antes de despachar para o
- * WhatsApp. Duas responsabilidades:
- *
- * 1. **Normalização de Markdown** (`normalizeWhatsappText`) — strip de blocos
- *    de código, JSON-like, headers, links, tabelas, sublinhados, negrito;
- *    converte listas em opções numeradas; trunca em `WHATSAPP_TARGET_LENGTH`.
- * 2. **Remoção de placeholders residuais** (`scrubResidualPlaceholders`) —
- *    troca `{{categoria_n}}` que escaparam ao detokenize por termos neutros.
- *
- * Extraído do `AiOrchestratorService` na Fase 1 do
- * `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`. Cada método é puro (depende apenas
- * dos argumentos, não de DI), o que torna o serviço trivialmente testável.
- */
 @Injectable()
 export class ResponseNormalizerService {
   private readonly logger = new Logger(ResponseNormalizerService.name);
 
-  /**
-   * Aplica todas as regras de saneamento do texto destinado ao WhatsApp:
-   * remove blocos de código, JSON inline, headers, tabelas, formatação
-   * Markdown, emojis (≤ `MAX_EMOJIS_PER_RESPONSE`), colapsa linhas vazias
-   * duplicadas, converte listas em opções numeradas e trunca em
-   * `WHATSAPP_TARGET_LENGTH` quando excedido.
-   */
   normalizeWhatsappText(text: string): string {
     let raw = text || '';
 
@@ -130,13 +94,6 @@ export class ResponseNormalizerService {
     return output;
   }
 
-  /**
-   * Remove placeholders `{{categoria_n}}` que escaparam ao detokenize.
-   * Substitui por termos neutros baseados na categoria e loga a ocorrência
-   * para investigação posterior. Sintoma típico: `{{protocol_1}}` chegando
-   * cru no WhatsApp porque a IA alucinou um placeholder ou o vault perdeu
-   * o binding entre turnos.
-   */
   scrubResidualPlaceholders(
     text: string,
     sessionId: string,
@@ -169,12 +126,6 @@ export class ResponseNormalizerService {
     return cleaned;
   }
 
-  /**
-   * Limita o número de emojis no texto a `max` ocorrências. Combina o
-   * caractere pictográfico Unicode com o seletor de variação `\uFE0F`
-   * (presente em emojis monocromáticos como "ℹ️") para garantir que
-   * ambos sumam juntos.
-   */
   limitEmojis(text: string, max: number): string {
     if (!text) return text;
     const emojiRegex = /[\p{Extended_Pictographic}](\uFE0F)?/gu;
@@ -185,12 +136,6 @@ export class ResponseNormalizerService {
     });
   }
 
-  /**
-   * Limpa artefatos deixados pela remoção de emojis: espaços duplicados,
-   * espaços antes de pontuação e indentação inicial. Sem isso, frases
-   * como "Pronto ✅ tudo certo." viravam "Pronto  tudo certo." após
-   * `limitEmojis(0)`, o que parecia um erro de formatação.
-   */
   cleanEmojiArtifacts(text: string): string {
     if (!text) return text;
     return text
@@ -199,11 +144,6 @@ export class ResponseNormalizerService {
       .replace(/(^|\n)[ \t]+/g, '$1');
   }
 
-  /**
-   * Detecta blocos consecutivos de linhas-lista (bullet ou numerada) e
-   * converte em opções numeradas no padrão "1 - texto". Útil para o LLM
-   * que adora produzir listas Markdown com `•` ou `-`.
-   */
   convertListLinesToOptions(lines: string[]): string[] {
     const result: string[] = [];
     let index = 0;
@@ -242,11 +182,6 @@ export class ResponseNormalizerService {
       .trim();
   }
 
-  /**
-   * Colapsa prefixos `SC-SC-XXX` duplicados (≥ 2 repetições) em `SC-XXX`,
-   * logando aviso quando detecta a duplicação. Aplicado tanto no envio ao
-   * WhatsApp quanto no histórico para evitar que o erro se propague.
-   */
   collapseSCPrefixes(
     text: string,
     conversationId: string,
@@ -262,11 +197,6 @@ export class ResponseNormalizerService {
     return collapsed;
   }
 
-  /**
-   * Retorna `true` quando o texto contém uma frase determinística de pedido
-   * de confirmação (usada para decidir se deve enviar o template interativo
-   * de "Sim / Não" no WhatsApp).
-   */
   isConfirmationPrompt(text: string): boolean {
     if (!text) return false;
     const normalized = (text || '')

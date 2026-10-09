@@ -28,9 +28,6 @@ export class WhatsappProcessor {
   private readonly twilioClient: ReturnType<typeof Twilio> | null;
   private readonly twilioWhatsappFrom: string;
 
-  /**
-   * Normaliza um número de telefone para o formato E.164 exigido pelo Twilio.
-   */
   private normalizeToE164(phone: string): string {
     const clean = phone.replace(/^whatsapp:/i, '');
     const digits = clean.replace(/\D/g, '');

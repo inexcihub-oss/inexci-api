@@ -10,8 +10,6 @@ function makeCtx(req: any): any {
   };
 }
 
-// O id da SC é `uuid` no banco: qualquer literal fora desse formato faz o
-// Postgres abortar a query, então os cenários precisam de UUIDs de verdade.
 const SC_A = '11111111-1111-4111-8111-111111111111';
 const SC_B = '22222222-2222-4222-8222-222222222222';
 const SC_INEXISTENTE = '33333333-3333-4333-8333-333333333333';
@@ -78,9 +76,6 @@ describe('SurgeryRequestOwnerGuard', () => {
     );
   });
 
-  // O id chega do cliente (params/query/body) e vai direto para um WHERE sobre
-  // uma coluna `uuid`. Sem esta checagem, `id=1` derruba a query no Postgres
-  // ("invalid input syntax for type uuid") e o usuário recebe 500 em vez de 404.
   it.each([
     ['string sem formato de uuid', { params: { id: 'invalid' } }],
     ['id numérico no corpo', { body: { id: 999999 } }],
@@ -135,8 +130,6 @@ describe('SurgeryRequestOwnerGuard', () => {
     expect(repo.findOneSimple).not.toHaveBeenCalled();
   });
 
-  // Recorte por médico (user_doctor_access) — dentro da mesma clínica, o
-  // usuário só alcança as SCs dos médicos aos quais está vinculado.
   describe('recorte por médico', () => {
     const scDoMedicoB = {
       id: SC_A,

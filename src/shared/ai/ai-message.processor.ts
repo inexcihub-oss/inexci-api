@@ -10,7 +10,6 @@ interface InboundMessageJob {
   body: string;
   messageSid: string;
   mediaUrl: string | null;
-  /** Carrier W3C do OTel para propagação de trace context via Bull (tarefa 8.6). */
   _otelCarrier?: Record<string, string>;
   media?: Array<{
     url: string;
@@ -29,16 +28,12 @@ export class AiMessageProcessor {
 
   @Process('process-message')
   async handle(job: Job<InboundMessageJob>): Promise<void> {
-    // Restaura o trace context propagado pelo webhook via `_otelCarrier`.
     const parentCtx = propagation.extract(
       context.active(),
       job.data._otelCarrier ?? {},
     );
     const { _otelCarrier, ...messageData } = job.data;
-    void _otelCarrier; // já consumido por propagation.extract acima
-    // requestId de correlação de log = messageSid (userId é injetado depois
-    // no contexto pelo orchestrator, assim que o usuário é identificado —
-    // ver AiOrchestratorService.processMessage).
+    void _otelCarrier;
     return context.with(parentCtx, () =>
       requestContextStorage.run({ requestId: job.data.messageSid }, () =>
         this.orchestrator.processMessage(messageData),

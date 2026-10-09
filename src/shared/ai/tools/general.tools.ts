@@ -10,14 +10,6 @@ export function buildGeneralTools(
 ): AiTool[] {
   const entityResolver = resolver ?? new EntityResolverService();
 
-  /**
-   * `query_patients` substitui as antigas `get_patient_info` + `list_patients`
-   * (removidas em Mai/2026 — Fase 4.1 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
-   *
-   * - Quando `patient_name_or_id` é um UUID → detalhe completo do paciente.
-   * - Quando fornecido como texto → busca por nome com o `match_mode` escolhido.
-   * - Sem parâmetros → lista todos os pacientes da clínica.
-   */
   const queryPatients: AiTool = {
     name: 'query_patients',
     definition: {
@@ -77,7 +69,6 @@ export function buildGeneralTools(
           ? (matchModeRaw as 'fuzzy' | 'contains' | 'prefix' | 'exact')
           : 'fuzzy';
 
-      // ── Lookup por UUID → detalhe completo ─────────────────────────────────
       if (rawInput.match(/^[0-9a-f-]{36}$/i)) {
         let patient: any;
         try {
@@ -114,9 +105,6 @@ export function buildGeneralTools(
         return lines.join('\n');
       }
 
-      // ── Busca por nome ──────────────────────────────────────────────────────
-      // Para fuzzy: PatientsService já limita ao banco via ILIKE (candidateLimit
-      // = limit * 4). Não precisamos mais puxar 500 entidades em memória.
       const patients = await patientsService.findManyWithSearch(
         rawInput || null,
         matchMode,
@@ -131,7 +119,6 @@ export function buildGeneralTools(
         return 'Nenhum paciente cadastrado nesta clínica ainda.';
       }
 
-      // Para fuzzy: aplica EntityResolverService
       let filtered: any[];
       if (rawInput && matchMode === 'fuzzy') {
         const resolverResult = entityResolver.resolve<any>({
@@ -143,7 +130,6 @@ export function buildGeneralTools(
           maxCandidates: limit,
         });
         if (resolverResult.status === 'resolved' && resolverResult.resolved) {
-          // Um único match claro → detalhe completo
           const p = resolverResult.resolved.data;
           const cpfToken = p.cpf
             ? tokenizePii(context, TOOL, 'cpf', p.cpf)
@@ -202,12 +188,6 @@ export function buildGeneralTools(
       return [header, ...lines].join('\n');
     },
   };
-
-  // Tools legacy removidas:
-  //  - `create_patient` (2026-05-12): migrada para `patient_draft_*`.
-  //  - `get_patient_info` + `list_patients` (2026-05-12, Fase 4.1 do
-  //    PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST): unificadas em
-  //    `query_patients` que delega a `PatientsService.findManyWithSearch()`.
 
   return [queryPatients];
 }

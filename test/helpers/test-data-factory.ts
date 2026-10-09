@@ -1,13 +1,10 @@
 import { faker } from '@faker-js/faker';
 
-// Constantes de UserRole (espelhando src/database/entities/user.entity.ts)
-// PRD v3: Apenas admin e collaborator. "Médico" = quem tem doctor_profile.
 const UserRole = {
   admin: 'admin',
   collaborator: 'collaborator',
 };
 
-// Constantes de UserStatuses (PRD v3: enum strings)
 const UserStatuses = {
   pending: 'pending',
   active: 'active',
@@ -15,7 +12,6 @@ const UserStatuses = {
 };
 
 export class TestDataFactory {
-  // Dados para registro (compatível com RegisterDto)
   static generateRegisterData() {
     return {
       name: faker.person.fullName(),
@@ -25,22 +21,15 @@ export class TestDataFactory {
     };
   }
 
-  // Dados para criar usuário via API (compatível com CreateUserDto)
   static generateCreateUserData() {
     return {
       name: faker.person.fullName(),
       email: faker.internet.email().toLowerCase(),
       phone: this.generatePhone(),
-      // NUNCA sortear o role aqui: `CreateUserDto` aceita só `collaborator`
-      // (`@IsIn`), de propósito — `POST /users` é liberado por
-      // Permission.ADMINISTRACAO, que o admin delegado também tem, e aceitar
-      // `admin` deixaria ele cunhar um segundo dono da conta. Sorteando entre
-      // os dois, este payload derrubava o teste com 400 em ~metade das rodadas.
       role: UserRole.collaborator,
     };
   }
 
-  // Dados completos de usuário (para uso interno/legado)
   static generateUser() {
     return {
       name: faker.person.fullName(),
@@ -128,7 +117,6 @@ export class TestDataFactory {
     };
   }
 
-  // Gera dados mínimos para criar solicitação de cirurgia (para testes)
   static generateSurgeryRequestData() {
     return {
       isIndication: false,
@@ -169,18 +157,15 @@ export class TestDataFactory {
   }
 
   private static generateCPF(): string {
-    // Gera CPF válido
     const randomDigits = () => Math.floor(Math.random() * 9);
     const cpf = Array.from({ length: 9 }, randomDigits);
 
-    // Calcula primeiro dígito verificador
     let sum = 0;
     for (let i = 0; i < 9; i++) {
       sum += cpf[i] * (10 - i);
     }
     cpf.push(((sum * 10) % 11) % 10);
 
-    // Calcula segundo dígito verificador
     sum = 0;
     for (let i = 0; i < 10; i++) {
       sum += cpf[i] * (11 - i);
@@ -191,11 +176,9 @@ export class TestDataFactory {
   }
 
   private static generateCNPJ(): string {
-    // Gera CNPJ válido
     const randomDigits = () => Math.floor(Math.random() * 9);
     const cnpj = Array.from({ length: 12 }, randomDigits);
 
-    // Calcula primeiro dígito verificador
     const weights1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
     let sum = 0;
     for (let i = 0; i < 12; i++) {
@@ -203,7 +186,6 @@ export class TestDataFactory {
     }
     cnpj.push(sum % 11 < 2 ? 0 : 11 - (sum % 11));
 
-    // Calcula segundo dígito verificador
     const weights2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
     sum = 0;
     for (let i = 0; i < 13; i++) {

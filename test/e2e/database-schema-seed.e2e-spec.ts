@@ -9,23 +9,12 @@ import {
 
 config({ path: resolve(__dirname, '../../.env') });
 
-/**
- * Verifica que a migration consolidada e o seed criaram
- * a estrutura e os dados esperados conforme o PRD v3.
- *
- * Nota: Roda o seed no beforeAll para garantir dados independente da
- * ordem de execução dos test suites (outros suites fazem cleanDatabase).
- */
 describe('Database — Schema & Seed', () => {
   let dataSource: DataSource;
 
   beforeAll(async () => {
-    // Conecta ao banco para limpar dados residuais de outros test suites
     dataSource = new DataSource({
       type: 'postgres',
-      // Este spec abre a própria conexão e trunca por fora do
-      // `cleanDatabase` — sem passar pelo redirecionador, o fallback
-      // apontava para o banco de desenvolvimento.
       url: comBancoDeTeste(
         process.env.DATABASE_URL ??
           'postgresql://inexci:inexci123@localhost:5432/inexci',
@@ -35,7 +24,6 @@ describe('Database — Schema & Seed', () => {
     });
     await dataSource.initialize();
 
-    // Limpa todas as tabelas antes de re-semear
     await assertBancoDeTeste(dataSource);
     const tables = await dataSource.query(
       `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'migrations'`,
@@ -49,7 +37,6 @@ describe('Database — Schema & Seed', () => {
 
     await dataSource.destroy();
 
-    // Re-executa o seed para garantir dados limpos
     execSync('npm run seed', {
       cwd: resolve(__dirname, '../..'),
       stdio: 'pipe',
@@ -57,12 +44,8 @@ describe('Database — Schema & Seed', () => {
       timeout: 60000,
     });
 
-    // Reconecta para os testes
     dataSource = new DataSource({
       type: 'postgres',
-      // Este spec abre a própria conexão e trunca por fora do
-      // `cleanDatabase` — sem passar pelo redirecionador, o fallback
-      // apontava para o banco de desenvolvimento.
       url: comBancoDeTeste(
         process.env.DATABASE_URL ??
           'postgresql://inexci:inexci123@localhost:5432/inexci',
@@ -79,16 +62,7 @@ describe('Database — Schema & Seed', () => {
     }
   });
 
-  // ─── Schema Validation ─────────────────────────────────────────────
-
   describe('Schema — Tabelas existentes', () => {
-    /**
-     * Nomes reais das tabelas. A lista anterior estava toda no singular
-     * (`user`, `hospital`, `surgery_request`…) e ainda cobrava tabelas que
-     * não existem mais — `status_update`, `chat`, `chat_message`,
-     * `default_document_clinic` e `whatsapp_message_log`. Nenhuma asserção
-     * passava; o teste virou ruído em vez de rede de proteção.
-     */
     const expectedTables = [
       'appointments',
       'clinical_record_templates',
@@ -308,9 +282,6 @@ describe('Database — Schema & Seed', () => {
   });
 
   describe('Schema — FKs de doctor_id apontam para users.id', () => {
-    // Só estas duas ainda têm `doctor_id`: hospitais, convênios e
-    // fornecedores viraram cadastros do tenant (`owner_id`), e
-    // `default_document_clinic` não existe mais.
     const tablesWithDoctorFK = ['surgery_requests', 'patients'];
 
     it.each(tablesWithDoctorFK)(
@@ -335,8 +306,6 @@ describe('Database — Schema & Seed', () => {
   });
 
   describe('Schema — Índices', () => {
-    // Nomes reais no banco. A lista anterior usava o padrão singular e
-    // índices por `doctor_id` em cadastros que hoje são por `owner_id`.
     const expectedIndexes = [
       'idx_users_owner_id',
       'idx_users_admin_id',
@@ -364,15 +333,6 @@ describe('Database — Schema & Seed', () => {
     });
   });
 
-  // ─── Seed Validation ───────────────────────────────────────────────
-
-  /**
-   * O seed atual cria UMA conta (`medico@inexci.com`, admin + médico) com o
-   * catálogo e a carteira cirúrgica dela. O bloco anterior cobrava um seed
-   * com 4 usuários e as contas `admin@`, `medica@`, `assistente1@` e
-   * `assistente2@inexci.com`, que não existem mais — nenhuma asserção
-   * passava. Os números abaixo saem do próprio `seed.ts`.
-   */
   describe('Seed — Dados criados', () => {
     const contar = async (tabela: string) => {
       const r = await dataSource.query(
@@ -476,9 +436,6 @@ describe('Database — Schema & Seed', () => {
         LEFT JOIN doctor_profiles dp ON sr.doctor_id = dp.id
         WHERE dp.id IS NOT NULL
       `);
-      // Nenhuma surgery_request.doctor_id deve casar com doctor_profile.id
-      // (a menos que por coincidência de UUID, o que não deve acontecer)
-      // Verificamos que todos os doctor_id casam com user.id
       const userCheck = await dataSource.query(`
         SELECT sr.id
         FROM surgery_requests sr

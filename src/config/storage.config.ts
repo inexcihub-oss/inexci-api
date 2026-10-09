@@ -1,87 +1,35 @@
-/**
- * Mapeamento centralizado do bucket e pastas do Cloudflare R2 Storage.
- *
- * ARQUITETURA: 1 bucket privado, acesso exclusivamente via signed URL.
- *
- *  ┌─ R2_BUCKET (bucket PRIVADO) ───────────────────────────────────┐
- *  │   Todos os arquivos requerem autenticação (signed URL).        │
- *  │                                                                 │
- *  │   • avatars/        → fotos de perfil dos usuários             │
- *  │   • patient-photos/ → fotos de paciente (escopadas por tenant) │
- *  │   • documents/      → documentos da solicitação cirúrgica      │
- *  │   • post-surgical/  → laudos e docs pós-cirúrgicos             │
- *  │   • report/         → imagens anexadas ao laudo PDF            │
- *  │   • signatures/     → assinatura digital do médico             │
- *  │   • stamps/         → carimbo do médico                        │
- *  │   • headers/        → logo do cabeçalho customizado do médico  │
- *  └────────────────────────────────────────────────────────────────┘
- *
- * Regra: use STORAGE_BUCKET para o nome do bucket e STORAGE_FOLDERS
- * para a pasta dentro dele. Nunca escreva strings literais no código.
- */
-
 import { registerAs } from '@nestjs/config';
-
-// ── Config registrada via ConfigService ──────────────────────────────────────
 
 export const storageConfig = registerAs('storage', () => ({
   bucket: process.env.R2_BUCKET,
 }));
 
-/** Token para acesso direto ao nome do bucket (retrocompatibilidade) */
 export const STORAGE_BUCKET_TOKEN = 'STORAGE_BUCKET';
 
-// ── Pastas ────────────────────────────────────────────────────────────────────
-
 export const STORAGE_FOLDERS = {
-  /** Fotos de perfil dos usuários */
   AVATARS: 'avatars',
 
-  /**
-   * Fotos de paciente. Ao contrário de `avatars`, NÃO é pasta pública: o
-   * caminho embute o ownerId (`patient-photos/<ownerId>/...`) e o
-   * `UploadService.getSignedUrl` recusa caminho de outro tenant.
-   */
   PATIENT_PHOTOS: 'patient-photos',
 
-  /** Documentos vinculados à solicitação cirúrgica (pré-operatório) */
   DOCUMENTS: 'documents',
 
-  /** Laudos e documentos enviados após a cirurgia */
   POST_SURGICAL: 'post-surgical',
 
-  /** Imagens anexadas ao laudo PDF */
   REPORT: 'report',
 
-  /** Assinatura digital do médico (usada no PDF) */
   SIGNATURES: 'signatures',
 
-  /** Carimbo do médico (usado no PDF) */
   STAMPS: 'stamps',
 
-  /** Logo do cabeçalho customizado do médico */
   HEADERS: 'headers',
 
-  /**
-   * Pasta temporária para mídias inbound do WhatsApp (imagens/PDFs) enquanto
-   * o assistente IA aguarda o usuário escolher o que fazer com o arquivo.
-   * Limpada periodicamente via cron (ver `AI_DOC_TMP_RETENTION_HOURS`).
-   */
   WHATSAPP_TMP: 'whatsapp-tmp',
 
-  /** PDFs gerados automaticamente pelo sistema (laudo, contestação). */
   PDFS: 'pdfs',
 
-  /** PDFs temporários gerados para download imediato via WhatsApp IA. */
   WHATSAPP_DOWNLOADS: 'whatsapp-downloads',
 } as const;
 
-// ── TTL das signed URLs por pasta (segundos) ─────────────────────────────────
-
-/**
- * Tempo de expiração das signed URLs diferenciado por sensibilidade dos dados.
- * Dados médicos têm TTL mais curto; imagens não-sensíveis podem ser mais longas.
- */
 export const STORAGE_FOLDER_TTL: Record<string, number> = {
   [STORAGE_FOLDERS.DOCUMENTS]: 15 * 60,
   [STORAGE_FOLDERS.POST_SURGICAL]: 15 * 60,
@@ -96,27 +44,10 @@ export const STORAGE_FOLDER_TTL: Record<string, number> = {
   [STORAGE_FOLDERS.WHATSAPP_DOWNLOADS]: 10 * 60,
 };
 
-/**
- * Pastas de imagem que a tela mostra muitas vezes (lista de pacientes,
- * cabeçalhos). O link assinado delas é estável dentro de uma janela de TTL/2
- * (vale TTL a partir do início da janela — ver `StorageService.getSignedUrl`)
- * e a resposta sai com `Cache-Control`: o navegador reaproveita a imagem em
- * vez de baixá-la de novo a cada tela. Antes, cada leitura do paciente gerava
- * uma assinatura nova — para o navegador, sempre outra URL.
- *
- * `max-age` precisa ser ≤ TTL/2 da pasta: é o mínimo de validade que sobra
- * num link entregue, então a cópia em cache nunca sobrevive à URL assinada.
- */
 export const STORAGE_FOLDER_CACHE_CONTROL: Record<string, string> = {
   [STORAGE_FOLDERS.PATIENT_PHOTOS]: `private, max-age=${STORAGE_FOLDER_TTL[STORAGE_FOLDERS.PATIENT_PHOTOS] / 2}`,
 };
 
-// ── Limites de tamanho por pasta (bytes) ─────────────────────────────────────
-
-/**
- * Limite máximo de tamanho de arquivo por pasta.
- * Aplicado no UploadService antes de enviar ao storage.
- */
 export const STORAGE_FOLDER_SIZE_LIMITS: Record<string, number> = {
   [STORAGE_FOLDERS.DOCUMENTS]: 50 * 1024 * 1024,
   [STORAGE_FOLDERS.POST_SURGICAL]: 50 * 1024 * 1024,
@@ -131,12 +62,6 @@ export const STORAGE_FOLDER_SIZE_LIMITS: Record<string, number> = {
   [STORAGE_FOLDERS.WHATSAPP_DOWNLOADS]: 10 * 1024 * 1024,
 };
 
-/**
- * Maior limite configurado. Serve de corte grosso para os `FileInterceptor`
- * (que não conhecem a pasta escolhida, porque rodam antes do corpo ser lido):
- * acima disso nenhum upload é válido para pasta nenhuma. O limite fino, por
- * pasta, é aplicado no service com `STORAGE_FOLDER_SIZE_LIMITS`.
- */
 export const MAX_STORAGE_FILE_SIZE = Math.max(
   ...Object.values(STORAGE_FOLDER_SIZE_LIMITS),
 );

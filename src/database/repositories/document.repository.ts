@@ -37,7 +37,6 @@ export class DocumentRepository extends BaseRepository<Document> {
     return await this.repository.findOne({ where });
   }
 
-  /** Documentos anexados a uma solicitação cirúrgica. */
   async findBySurgeryRequestId(surgeryRequestId: string): Promise<Document[]> {
     return await this.repository.find({
       where: { surgeryRequestId },
@@ -45,7 +44,6 @@ export class DocumentRepository extends BaseRepository<Document> {
     });
   }
 
-  /** Documentos de um paciente (exames/anexos do prontuário), mais recentes primeiro. */
   async findByPatientId(patientId: string): Promise<Document[]> {
     return await this.repository.find({
       where: { patientId },
@@ -53,11 +51,6 @@ export class DocumentRepository extends BaseRepository<Document> {
     });
   }
 
-  /**
-   * Valida posse de um documento pelo tenant. O vínculo pode ser via
-   * solicitação cirúrgica, paciente ou ficha de atendimento — qualquer um
-   * cujo ownerId case libera a signed URL.
-   */
   async existsByUriAndOwner(uri: string, ownerId: string): Promise<boolean> {
     const count = await this.repository
       .createQueryBuilder('doc')

@@ -46,7 +46,6 @@ export class PdfGenerationProcessor {
     );
 
     try {
-      // ── Carregar solicitação com todas as relações necessárias ─────────────
       const request =
         await this.surgeryRequestRepository.findOneWithAllRelations({
           id: surgeryRequestId,
@@ -59,7 +58,6 @@ export class PdfGenerationProcessor {
         return;
       }
 
-      // ── Gerar PDF (mesclado com documentos anexos) via serviço compartilhado
       const { pdf } = await this.pdfAssemblyService.generateLaudoPdf(
         request,
         userId,
@@ -79,7 +77,6 @@ export class PdfGenerationProcessor {
         request.ownerId,
       );
 
-      // ── Registrar atividade PDF_GENERATED ─────────────────────────────────
       await this.activityRepo.save({
         surgeryRequestId: surgeryRequestId,
         userId: null,

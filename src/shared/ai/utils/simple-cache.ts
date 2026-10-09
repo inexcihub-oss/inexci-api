@@ -3,10 +3,6 @@ export interface CacheEntry<T> {
   expiresAt: number;
 }
 
-/**
- * Cache em memória simples com TTL por entrada. Não é um serviço NestJS —
- * importe diretamente onde for necessário. Expira entradas lazily no `get`.
- */
 export class SimpleCache<T> {
   private readonly store = new Map<string, CacheEntry<T>>();
 

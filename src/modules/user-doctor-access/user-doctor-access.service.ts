@@ -30,14 +30,6 @@ export class UserDoctorAccessService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  /**
-   * Valida que quem chama tem Administração (dono da conta ou admin
-   * delegado) e que userId/doctorUserId pertencem à mesma conta. O controller
-   * já é gateado por `@RequirePermission(Permission.ADMINISTRACAO)`, mas essa
-   * checagem também precisa valer aqui: o admin delegado tem
-   * `role = 'collaborator'`, então o antigo `role !== UserRole.ADMIN` sempre
-   * o bloquearia mesmo depois de passar pelo guard.
-   */
   private async validateAdmin(adminId: string) {
     const admin = await this.userRepository.findOneWithProfile({
       id: adminId,
@@ -81,10 +73,6 @@ export class UserDoctorAccessService {
     return doctorUser;
   }
 
-  /**
-   * GET /user-doctor-access?userId=
-   * Retorna vínculos de um collaborator.
-   */
   async getAccessForUser(userId: string, adminId: string) {
     const admin = await this.validateAdmin(adminId);
     await this.validateUserInAccount(userId, admin.ownerId);
@@ -94,15 +82,10 @@ export class UserDoctorAccessService {
     return { records: accesses };
   }
 
-  /**
-   * PUT /user-doctor-access/:userId
-   * Redefine a lista completa de vínculos (transação atômica).
-   */
   async setAccess(userId: string, doctorUserIds: string[], adminId: string) {
     const admin = await this.validateAdmin(adminId);
     await this.validateUserInAccount(userId, admin.ownerId);
 
-    // Validar todos os doctorUserIds
     for (const doctorId of doctorUserIds) {
       await this.validateDoctorUser(doctorId, admin.ownerId);
     }
@@ -110,11 +93,9 @@ export class UserDoctorAccessService {
     return executeInTransaction(
       this.dataSource,
       async (_manager) => {
-        // Buscar vínculos existentes
         const existing =
           await this.userDoctorAccessRepository.findAllByUserId(userId);
 
-        // Desativar vínculos que não estão na nova lista
         for (const access of existing) {
           if (!doctorUserIds.includes(access.doctorUserId)) {
             await this.userDoctorAccessRepository.deactivate(
@@ -124,7 +105,6 @@ export class UserDoctorAccessService {
           }
         }
 
-        // Criar/ativar vínculos novos
         for (const doctorId of doctorUserIds) {
           await this.userDoctorAccessRepository.upsert({
             userId: userId,
@@ -134,14 +114,12 @@ export class UserDoctorAccessService {
           });
         }
 
-        // Retornar estado final
         const updated =
           await this.userDoctorAccessRepository.findAllByUserId(userId);
         return { records: updated };
       },
       { logger: this.logger, operationName: 'setAccess' },
     ).then((result) => {
-      // Invalida o cache de acesso do colaborador — os vínculos mudaram.
       this.accessControlService.invalidateAccessibleDoctors(userId);
       return result;
     });

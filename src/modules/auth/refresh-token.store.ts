@@ -10,39 +10,18 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { hashRefreshToken } from 'src/shared/crypto/refresh-token-hash.util';
 
-/** Resultado de uma tentativa de consumir (rotacionar) um refresh token. */
 export type ConsumeResult =
   | { status: 'valid'; userId: string }
-  /** Hash existe mas já foi rotacionado/revogado → possível reuso (Fase 3). */
   | { status: 'reused'; userId: string }
-  /** Hash não existe (expirado por TTL, nunca emitido, ou já apagado). */
   | { status: 'not_found' };
 
 const TOKEN_KEY_PREFIX = 'refresh:tok:';
 const USER_KEY_PREFIX = 'refresh:user:';
 
-/** 7 dias em segundos (TTL = expiração do refresh token). */
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-/**
- * Janela de graça (segundos) após a rotação. Um token já rotacionado, porém
- * reapresentado dentro desta janela, é tratado como **corrida legítima** (duas
- * abas/requests renovando quase ao mesmo tempo) e não como reuso malicioso.
- * Sem isso, a detecção de reuso (Fase 3) geraria falsos positivos e derrubaria
- * sessões válidas.
- */
 const ROTATION_GRACE_SECONDS = 30;
 
-/**
- * Lua atômico de consumo. Lê o registro do token e decide:
- *  - inexistente → `not_found`;
- *  - já revogado dentro da janela de graça → `grace` (corrida legítima);
- *  - já revogado fora da janela → `reused` (possível roubo);
- *  - válido → marca `revoked`+`revokedAt` (preservando o TTL) e retorna `valid`.
- *
- * A atomicidade garante que, sob corrida, apenas um consumo "ganha" (valid) e os
- * demais caem em `grace` (dentro da janela).
- */
 const CONSUME_LUA = `
 local raw = redis.call('GET', KEYS[1])
 if not raw then
@@ -75,18 +54,6 @@ interface RefreshTokenRecord {
   revokedAt?: number;
 }
 
-/**
- * Store de refresh tokens sobre Redis.
- *
- * Persiste apenas o **hash SHA-256** do token (nunca o valor cru). Modelo:
- *  - `refresh:tok:{hash}` → JSON `{ userId, createdAt, revoked? }`, EX 7d.
- *  - `refresh:user:{userId}` → SET dos hashes ativos (revogação em massa).
- *
- * **Fail-closed:** ao contrário do `AiRedisService`, este store NÃO faz fallback
- * in-memory. Se o Redis estiver indisponível, as operações lançam — o refresh
- * falha e o usuário precisa relogar (em múltiplas instâncias um fallback
- * in-memory furaria a revogação).
- */
 @Injectable()
 export class RefreshTokenStore implements OnModuleDestroy {
   private readonly logger = new Logger(RefreshTokenStore.name);
@@ -121,10 +88,6 @@ export class RefreshTokenStore implements OnModuleDestroy {
     this.redis?.disconnect();
   }
 
-  /**
-   * Retorna o client pronto ou lança (fail-closed). Concentra o guard num
-   * único ponto.
-   */
   private requireClient(): IORedis {
     if (this.redis?.status !== 'ready') {
       throw new ServiceUnavailableException(
@@ -142,10 +105,6 @@ export class RefreshTokenStore implements OnModuleDestroy {
     return `${USER_KEY_PREFIX}${userId}`;
   }
 
-  /**
-   * Emite um novo refresh token: gera uuid cru, persiste o hash com TTL de 7d e
-   * registra o hash no set do usuário. Retorna o token **cru** (vai ao cookie).
-   */
   async issue(userId: string): Promise<string> {
     const client = this.requireClient();
     const rawToken = uuidv4();
@@ -167,13 +126,6 @@ export class RefreshTokenStore implements OnModuleDestroy {
     return rawToken;
   }
 
-  /**
-   * Consome (rotaciona) um refresh token de forma atômica. Marca o token atual
-   * como revogado e devolve o resultado para o chamador decidir a reação:
-   *  - `valid`: rotacionar (emitir novo via `issue`).
-   *  - `reused`: token conhecido porém já revogado → tratar como possível roubo.
-   *  - `not_found`: inválido/expirado.
-   */
   async consume(rawToken: string): Promise<ConsumeResult> {
     const client = this.requireClient();
     const hash = hashRefreshToken(rawToken);
@@ -192,15 +144,9 @@ export class RefreshTokenStore implements OnModuleDestroy {
     if (status === 'reused') {
       return { status: 'reused', userId };
     }
-    // `valid` e `grace` (reuso dentro da janela = corrida legítima) seguem o
-    // mesmo caminho: emitir um novo token sem disparar revogação de família.
     return { status: 'valid', userId };
   }
 
-  /**
-   * Revoga todos os refresh tokens de um usuário (logout, troca de senha ou
-   * detecção de reuso). Apaga cada hash e o próprio set.
-   */
   async revokeAllForUser(userId: string): Promise<void> {
     const client = this.requireClient();
     const userKey = this.userKey(userId);

@@ -77,10 +77,6 @@ describe('ClinicRoomsService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  /**
-   * Corrida: os dois cadastros passam pelo pré-check e o índice barra o
-   * segundo. Tem que sair 409 amigável, não 500.
-   */
   it('traduz a violação do índice único (23505) em 409', async () => {
     const violacao = Object.assign(new Error('duplicate key'), {
       driverError: { code: '23505', constraint: UQ_CLINIC_ROOMS_CLINIC_NAME },

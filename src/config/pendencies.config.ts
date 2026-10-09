@@ -3,11 +3,8 @@ import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.enti
 export type PendencyResponsibleRole = 'collaborator' | 'patient' | 'doctor';
 
 export interface PendencyConfig {
-  /** Chave única da pendência */
   key: string;
-  /** Label exibido ao usuário */
   label: string;
-  /** Se true, bloqueia a transição de status. Se false, é apenas um aviso. */
   blocking: boolean;
   responsibleRole: PendencyResponsibleRole;
 }
@@ -18,10 +15,6 @@ export interface StatusPendenciesConfig {
   pendencies: PendencyConfig[];
 }
 
-/**
- * Configuração central de pendências por status.
- * Fonte de verdade para o PendencyValidatorService.
- */
 export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
   {
     status: SurgeryRequestStatus.PENDING,
@@ -82,16 +75,12 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
       {
         key: 'confirm_date',
         label: 'Paciente confirmar data',
-        // Não bloqueante: a própria ação de confirmDate resolve esta pendência;
-        // validar antes do commit causaria false-block.
         blocking: false,
         responsibleRole: 'patient',
       },
       {
         key: 'consent_term',
         label: 'Anexar termo de consentimento assinado',
-        // Opcional: apenas lembra o usuário de anexar o termo antes de agendar.
-        // Resolvida se o termo já foi anexado em qualquer fase (key 'consent_term').
         blocking: false,
         responsibleRole: 'collaborator',
       },
@@ -104,7 +93,7 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
       {
         key: 'surgery_expired',
         label: 'Data da cirurgia já passou',
-        blocking: false, // apenas aviso
+        blocking: false,
         responsibleRole: 'collaborator',
       },
     ],
@@ -121,8 +110,6 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
       {
         key: 'confirm_receipt',
         label: 'Confirmar recebimento',
-        // Não bloqueante: a própria ação de confirmReceipt fornece os dados via DTO;
-        // validar antes causaria false-block já que receivedValue/receivedAt ainda não existem.
         blocking: false,
         responsibleRole: 'collaborator',
       },
@@ -140,9 +127,6 @@ export const PENDENCIES_CONFIG: StatusPendenciesConfig[] = [
   },
 ];
 
-/**
- * Obtém a configuração de pendências para um status específico.
- */
 export function getPendenciesForStatus(
   status: SurgeryRequestStatus,
 ): StatusPendenciesConfig | null {

@@ -21,21 +21,11 @@ import { Document } from './document.entity';
 import { Notification } from './notification.entity';
 import { UserNotificationSettings } from './user-notification-settings.entity';
 
-/**
- * Roles de usuário no sistema
- * - ADMIN: Administrador da conta/clínica (gerencia usuários e plano)
- * - COLLABORATOR: Colaborador criado por um admin
- *
- * "Médico" não é um role — é definido pela existência de um doctorProfile.
- */
 export enum UserRole {
   ADMIN = 'admin',
   COLLABORATOR = 'collaborator',
 }
 
-/**
- * Status do usuário
- */
 export enum UserStatus {
   PENDING = 'pending',
   ACTIVE = 'active',
@@ -139,31 +129,15 @@ export class User {
   })
   emailVerificationExpiresAt: Date | null;
 
-  /**
-   * ownerId: FK auto-referenciante para o usuário Admin dono da conta/clínica.
-   * Garante isolamento de tenant — todos os usuários da mesma conta
-   * compartilham o mesmo ownerId. Para Admins, ownerId = self.id.
-   */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
   @Column({ name: 'admin_id', type: 'uuid', nullable: true })
   adminId: string | null;
 
-  /**
-   * Administrador da PLATAFORMA (INEXCI), distinto do "admin" que é dono do
-   * tenant (todo `register` cria role=ADMIN). Habilita `/admin/*` (V2). Nunca
-   * é setável via cadastro/DTO — apenas por seed/migration/operação manual.
-   */
   @Column({ name: 'is_platform_admin', type: 'boolean', default: false })
   isPlatformAdmin: boolean;
 
-  /**
-   * Áreas concedidas a este usuário. **Não** é a permissão efetiva: o dono da
-   * conta recebe tudo e o médico recebe Atendimento e Solicitações por cima
-   * deste array. Use `resolveEffectivePermissions` — nunca leia esta coluna
-   * direto para decidir acesso.
-   */
   @Column({
     name: 'permissions',
     type: 'text',
@@ -172,10 +146,6 @@ export class User {
   })
   permissions: Permission[];
 
-  // ============ CONSENTIMENTOS LGPD ============
-  // Aceitação simples: timestamp do aceite ou NULL se ainda não aceitou.
-  // Política e Termos são obrigatórios para usar a plataforma.
-  // IA é opcional — sem ela o usuário não usa o assistente do WhatsApp.
   @Column({
     name: 'privacy_policy_accepted_at',
     type: 'timestamptz',
@@ -197,14 +167,6 @@ export class User {
   })
   aiConsentAcceptedAt: Date | null;
 
-  /**
-   * Progresso do onboarding in-app. `null` = nunca começou.
-   *
-   * Registra que o usuário PASSOU pelo tour, não que o dado existe no
-   * domínio: "cadastrar paciente" marcado aqui não significa que há paciente
-   * cadastrado. Se um dia o checklist quiser refletir o dado real, isso é uma
-   * consulta ao domínio na montagem — nunca uma escrita cruzada nesta coluna.
-   */
   @Column({ name: 'onboarding_state', type: 'jsonb', nullable: true })
   onboardingState: OnboardingState | null;
 
@@ -217,59 +179,38 @@ export class User {
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
 
-  // ============ RELAÇÕES ============
-
-  // Conta/clínica raiz (particionamento por tenant) — self-referencing
-  // nullable: true é necessário no TypeORM para evitar CircularRelationsError
-  // na prática o DB garante NOT NULL via migration
   @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'owner_id' })
   owner: User;
 
-  // Admin que criou este usuário (self-referencing, para colaboradores)
   @ManyToOne(() => User, (user) => user.managedUsers, { nullable: true })
   @JoinColumn({ name: 'admin_id' })
   admin: User | null;
 
-  // Usuários gerenciados por este Admin
   @OneToMany(() => User, (user) => user.admin)
   managedUsers: User[];
 
-  // Perfil de médico (1:1) — existe se o usuário é médico
   @OneToOne(() => DoctorProfile, (profile) => profile.user, { cascade: true })
   doctorProfile: DoctorProfile | null;
 
-  // Médicos que este usuário acessa (vínculos ativos em user_doctor_access)
   @OneToMany(() => UserDoctorAccess, (uda) => uda.user)
   doctorAccesses: UserDoctorAccess[];
 
-  // Quem acessa este usuário como médico (inverso do vínculo)
   @OneToMany(() => UserDoctorAccess, (uda) => uda.doctor)
   accessibleBy: UserDoctorAccess[];
 
-  // Códigos de recuperação de senha
   @OneToMany(() => RecoveryCode, (code) => code.user)
   recoveryCodes: RecoveryCode[];
 
-  // Documentos inseridos
   @OneToMany(() => Document, (document) => document.creator)
   insertedDocuments: Document[];
 
-  // Notificações
   @OneToMany(() => Notification, (notification) => notification.user)
   notifications: Notification[];
 
-  // Configurações de notificação
   @OneToOne(() => UserNotificationSettings, (settings) => settings.user)
   notificationSettings: UserNotificationSettings;
 
-  // ============ PROPRIEDADE VIRTUAL ============
-
-  /**
-   * Indica se o usuário é médico.
-   * Baseado na existência de doctorProfile (precisa ser carregado via relation).
-   * Usado apenas para serialização no response, NÃO para lógica interna.
-   */
   get isDoctor(): boolean {
     return !!this.doctorProfile;
   }

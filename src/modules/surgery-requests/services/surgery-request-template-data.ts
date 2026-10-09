@@ -8,11 +8,6 @@ import {
 } from 'src/database/entities/surgery-request-template.entity';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
 
-/**
- * Tipos de documento que o sistema gera sozinho e que não são "documento
- * exigido" de modelo nenhum. `sc_creation_source` vinha junto e virava uma
- * pendência com nome de arquivo em uuid na SC criada pelo modelo.
- */
 const TIPOS_DE_DOCUMENTO_INTERNOS = new Set<string>([
   DOCUMENT_TYPES.scCreationSource,
 ]);
@@ -32,7 +27,6 @@ const texto = (value: unknown): string =>
 const arrayDe = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : [];
 
-/** Reduz `{ id, name, ...resto }` a `{ id, name }`; ignora o que não tiver os dois. */
 function refDeEntidade(value: unknown): TemplateEntityRef | undefined {
   if (!isRecord(value)) return undefined;
   const id = texto(value.id);
@@ -40,7 +34,6 @@ function refDeEntidade(value: unknown): TemplateEntityRef | undefined {
   return id && name ? { id, name } : undefined;
 }
 
-/** Aceita `"Sintex"` ou `{ id, name }` — no modelo só o nome importa. */
 function nomesDeLista(value: unknown): string[] {
   return arrayDe(value)
     .map((item) => (isRecord(item) ? texto(item.name) : texto(item)))
@@ -65,7 +58,6 @@ function itensOpme(value: unknown): TemplateOpmeItem[] {
       name: texto(item.name),
       quantity: Number(item.quantity) || 1,
       manufacturers: nomesDeLista(item.manufacturers),
-      // `distributor`/`supplier` no singular existem em modelos antigos.
       suppliers: nomesDeLista(
         Array.isArray(item.suppliers)
           ? item.suppliers
@@ -88,11 +80,6 @@ function documentosExigidos(value: unknown): TemplateRequiredDocument[] {
     );
 }
 
-/**
- * Normaliza o corpo recebido do cliente para o formato do modelo, descartando
- * tudo que não pertence a ele. Fail-open de propósito: um campo malformado
- * some em vez de derrubar o salvamento do modelo inteiro.
- */
 export function sanitizeTemplateData(
   input: unknown,
 ): SurgeryRequestTemplateData {
@@ -117,7 +104,6 @@ export function sanitizeTemplateData(
     data.priority = priority as SurgeryRequestPriority;
   }
 
-  // `procedures` é o nome antigo da lista de TUSS.
   const tussItems = itensTuss(input.tussItems ?? input.procedures);
   if (tussItems.length > 0) data.tussItems = tussItems;
 

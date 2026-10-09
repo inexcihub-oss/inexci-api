@@ -24,7 +24,6 @@ export interface PatientNotificationContext {
   oldStatus: SurgeryRequestStatus;
   newStatus: SurgeryRequestStatus;
   notifyPatient?: boolean;
-  /** Canais selecionados pelo usuário. Se ausente, envia para todos os disponíveis. */
   channels?: { email?: boolean; whatsapp?: boolean };
 }
 
@@ -134,12 +133,9 @@ export class PatientNotificationService {
       minute: '2-digit',
     });
 
-    // Determina se cada canal deve ser enviado:
-    // se channels foi informado, respeita a seleção; caso contrário envia para todos disponíveis
     const sendEmail = ctx.channels ? (ctx.channels.email ?? false) : true;
     const sendWhatsapp = ctx.channels ? (ctx.channels.whatsapp ?? false) : true;
 
-    // Send email if patient has email and channel selected
     if (sendEmail) {
       if (patientEmail) {
         try {
@@ -162,7 +158,6 @@ export class PatientNotificationService {
       }
     }
 
-    // Send WhatsApp if patient has phone and channel selected
     if (sendWhatsapp) {
       if (patientPhone) {
         try {

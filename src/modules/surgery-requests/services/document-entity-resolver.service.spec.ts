@@ -92,9 +92,7 @@ describe('DocumentEntityResolverService', () => {
   });
 
   it('resolve hospital, convênio e procedimento em paralelo', async () => {
-    // Patient query: CPF match
     const patientQb = makeQb([{ id: 'p-1', name: 'Joao', cpf: '12345678901' }]);
-    // Hospital, healthPlan, procedure queries
     const hospitalQb = makeQb([{ id: 'h-1', name: 'Hospital X' }]);
     const healthPlanQb = makeQb([{ id: 'hp-1', name: 'Bradesco' }]);
     const procedureQb = makeQb([{ id: 'pr-1', name: 'Artrodese' }]);
@@ -125,7 +123,6 @@ describe('DocumentEntityResolverService', () => {
   });
 
   it('ignora nome com menos de 2 caracteres na busca por nome', async () => {
-    // CPF é inválido (não tem 11 dígitos), nome tem 1 char
     const patientQb = makeQb([]);
     dataSource.getRepository.mockReturnValue({
       createQueryBuilder: () => patientQb,
@@ -153,7 +150,6 @@ describe('DocumentEntityResolverService', () => {
       'user-1',
     );
 
-    // andWhere deve ser chamado com { cpf: '98765432100' } (sem máscara)
     expect(patientQb.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('cpf'),
       expect.objectContaining({ cpf: '98765432100' }),

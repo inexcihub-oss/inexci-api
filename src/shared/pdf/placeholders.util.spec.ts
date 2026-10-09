@@ -83,7 +83,6 @@ describe('aplicarPlaceholders — concordância de {{dias}}', () => {
     ['período de {{dias}} dias.', 3, 'período de 3 dias.'],
     ['período de {{dias}} dia.', 2, 'período de 2 dias.'],
     ['período de {{dias}} dia(s).', 1, 'período de 1 dia.'],
-    // A caixa da palavra do modelo é preservada.
     ['período de {{ dias }} DIAS', 1, 'período de 1 DIA'],
     ['período de {{dias}} DIA', 3, 'período de 3 DIAS'],
     ['{{dias}} Dias de repouso', 3, '3 Dias de repouso'],

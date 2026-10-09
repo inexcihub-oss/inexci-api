@@ -13,16 +13,13 @@ export interface MailAttachment {
 
 export interface MailJobData {
   template?: MailTemplateName;
-  /** HTML bruto — usado quando não há template Handlebars disponível */
   html?: string;
   to: string;
   cc?: string;
   subject: string;
   context?: Record<string, any>;
   attachments?: MailAttachment[];
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
-  /** Usuário/tenant da request que originou o envio (logging end-to-end). */
   userId?: string | null;
   tenantId?: string | null;
 }
@@ -33,9 +30,6 @@ export class MailService {
 
   constructor(@InjectQueue('mail') private readonly mailQueue: Queue) {}
 
-  /**
-   * Enfileira um e-mail para envio assíncrono usando template Handlebars.
-   */
   async send(
     template: MailTemplateName,
     to: string,
@@ -47,9 +41,6 @@ export class MailService {
     await this.enqueue({ template, to, subject, context, attachments, cc });
   }
 
-  /**
-   * Enfileira um e-mail com HTML arbitrário (sem template Handlebars).
-   */
   async sendRaw(to: string, subject: string, html: string): Promise<void> {
     await this.enqueue({ html, to, subject });
   }
@@ -83,9 +74,6 @@ export class MailService {
     }
   }
 
-  /**
-   * Solicitação enviada ao convênio.
-   */
   sendSurgeryRequestSent(
     to: string,
     context: {
@@ -108,9 +96,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Autorização recebida do convênio.
-   */
   sendSurgeryAuthorized(
     to: string,
     context: {
@@ -122,9 +107,6 @@ export class MailService {
     return this.send('surgery-authorized', to, 'Autorização Recebida', context);
   }
 
-  /**
-   * Contestação de autorização enviada.
-   */
   sendSurgeryContested(
     to: string,
     subject: string,
@@ -147,9 +129,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Cirurgia agendada.
-   */
   sendSurgeryScheduled(
     to: string,
     context: {
@@ -162,9 +141,6 @@ export class MailService {
     return this.send('surgery-scheduled', to, 'Cirurgia Agendada', context);
   }
 
-  /**
-   * Fatura enviada ao convênio.
-   */
   sendInvoiceSent(
     to: string,
     context: {
@@ -178,9 +154,6 @@ export class MailService {
     return this.send('invoice-sent', to, 'Fatura Enviada ao Convênio', context);
   }
 
-  /**
-   * Pagamento recebido confirmado.
-   */
   sendPaymentReceived(
     to: string,
     context: {
@@ -198,9 +171,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Contestação de pagamento enviada.
-   */
   sendPaymentContested(
     to: string,
     subject: string,
@@ -234,10 +204,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Notificação de mudança de status ao paciente (usa layout unificado).
-   * Paciente não tem acesso ao dashboard: a comunicação se concentra no WhatsApp.
-   */
   sendStatusChangePatient(
     to: string,
     context: {
@@ -256,9 +222,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Lembrete de solicitação parada (stale).
-   */
   sendStaleReminder(
     to: string,
     context: {
@@ -279,9 +242,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Alerta crítico de solicitação parada (15+ dias).
-   */
   sendStaleCritical(
     to: string,
     context: {
@@ -302,9 +262,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Alerta de ação para admins.
-   */
   sendActionAdminAlert(
     to: string,
     context: {
@@ -325,10 +282,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Boas-vindas ao paciente.
-   * Paciente não tem acesso ao dashboard: toda a comunicação ocorre via WhatsApp.
-   */
   sendWelcomePatient(
     to: string,
     context: {
@@ -340,9 +293,6 @@ export class MailService {
     return this.send('welcome-patient', to, 'Bem-vindo ao Inexci!', context);
   }
 
-  /**
-   * Boas-vindas ao médico.
-   */
   sendWelcomeDoctor(
     to: string,
     context: {
@@ -355,16 +305,10 @@ export class MailService {
   ) {
     return this.send('welcome-doctor', to, 'Bem-vindo ao Inexci, Dr(a)!', {
       ...context,
-      // O hash `title` do `_layout` não interpola mustache entre aspas — o
-      // valor entre aspas é literal e `{{doctorName}}` chegava cru ao
-      // cabeçalho. Título dinâmico é montado aqui; o template só repassa.
       title: `Bem-vindo ao Inexci, Dr(a). ${context.doctorName}!`,
     });
   }
 
-  /**
-   * Recuperação de senha — código de verificação.
-   */
   sendPasswordRecovery(
     to: string,
     context: { userName: string; validationCode: string },
@@ -377,9 +321,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Confirmação de e-mail após cadastro.
-   */
   sendEmailVerification(
     to: string,
     context: {
@@ -396,9 +337,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Resumo semanal de solicitações cirúrgicas e pendências.
-   */
   sendWeeklySummary(
     to: string,
     context: {
@@ -429,9 +367,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Lembrete de consulta agendada (24h antes).
-   */
   sendAppointmentReminder(
     to: string,
     context: {
@@ -450,9 +385,6 @@ export class MailService {
     );
   }
 
-  /**
-   * Notificação genérica (in-app com e-mail).
-   */
   sendGenericNotification(
     to: string,
     subject: string,
@@ -460,7 +392,6 @@ export class MailService {
       userName?: string;
       title?: string;
       message: string;
-      /** Linha de referência em destaque, antes da mensagem (ex.: qual SC). */
       context?: string;
       link?: string;
       linkText?: string;

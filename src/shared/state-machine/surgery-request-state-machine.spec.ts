@@ -26,8 +26,6 @@ describe('SurgeryRequestStateMachine', () => {
     sm = new SurgeryRequestStateMachine();
   });
 
-  // ── PENDING → SENT ─────────────────────────────────────────────────────
-
   describe('PENDING → SENT', () => {
     it('deve permitir transição quando status é PENDING', () => {
       const req = makeRequest();
@@ -46,8 +44,6 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── SENT → IN_ANALYSIS ─────────────────────────────────────────────────
-
   describe('SENT → IN_ANALYSIS', () => {
     it('deve permitir transição de SENT', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.SENT });
@@ -63,8 +59,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── IN_ANALYSIS → IN_SCHEDULING ────────────────────────────────────────
 
   describe('IN_ANALYSIS → IN_SCHEDULING', () => {
     it('deve permitir transição de IN_ANALYSIS', () => {
@@ -82,8 +76,6 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── IN_SCHEDULING → SCHEDULED ──────────────────────────────────────────
-
   describe('IN_SCHEDULING → SCHEDULED', () => {
     it('deve permitir transição de IN_SCHEDULING', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING });
@@ -99,8 +91,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── SCHEDULED → PERFORMED ──────────────────────────────────────────────
 
   describe('SCHEDULED → PERFORMED', () => {
     it('deve permitir transição de SCHEDULED', () => {
@@ -118,8 +108,6 @@ describe('SurgeryRequestStateMachine', () => {
     });
   });
 
-  // ── PERFORMED → INVOICED ───────────────────────────────────────────────
-
   describe('PERFORMED → INVOICED', () => {
     it('deve permitir transição de PERFORMED (dados do DTO, não pré-checados)', () => {
       const req = makeRequest({ status: SurgeryRequestStatus.PERFORMED });
@@ -133,8 +121,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── INVOICED → FINALIZED ───────────────────────────────────────────────
 
   describe('INVOICED → FINALIZED', () => {
     it('deve permitir transição de INVOICED (dados do DTO, não pré-checados)', () => {
@@ -151,8 +137,6 @@ describe('SurgeryRequestStateMachine', () => {
       );
     });
   });
-
-  // ── QUALQUER → CLOSED ─────────────────────────────────────────────────
 
   describe('→ CLOSED', () => {
     it('deve permitir encerrar de PENDING', () => {
@@ -198,8 +182,6 @@ describe('SurgeryRequestStateMachine', () => {
       expect(pendencies[0]).toContain('Encerrada');
     });
   });
-
-  // ── assertCanTransition ────────────────────────────────────────────────
 
   describe('assertCanTransition', () => {
     beforeEach(() => {
@@ -249,8 +231,6 @@ describe('SurgeryRequestStateMachine', () => {
       });
     });
   });
-
-  // ── Status desconhecido ────────────────────────────────────────────────
 
   describe('status desconhecido', () => {
     it('deve retornar pendência para status não reconhecido', () => {

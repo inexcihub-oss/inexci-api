@@ -26,8 +26,6 @@ describe('Troca de senha — revogacao de sessoes', () => {
       userRepository,
       recoveryCodeRepository,
     });
-    // revokeRefreshTokens (auth.service.ts:611) apenas delega ao store; o
-    // teste observa o store para nao depender do wrapper.
 
     await service.changePassword({
       email: 'a@b.com',

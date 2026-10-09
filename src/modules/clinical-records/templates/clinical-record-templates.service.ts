@@ -9,7 +9,6 @@ import { ClinicalRecordTemplate } from 'src/database/entities/clinical-record-te
 import { CreateClinicalRecordTemplateDto } from './dto/create-clinical-record-template.dto';
 import { UpdateClinicalRecordTemplateDto } from './dto/update-clinical-record-template.dto';
 
-/** Campos clínicos que o modelo carrega para dentro da ficha. */
 const CLINICAL_FIELDS = [
   'anamnesis',
   'physicalExam',
@@ -18,11 +17,6 @@ const CLINICAL_FIELDS = [
   'cidCodes',
 ] as const;
 
-/**
- * Modelos de anamnese — o texto-base que o médico reaproveita a cada
- * atendimento. Aplicar um modelo é só devolver os campos: quem escreve na
- * ficha é o frontend, então o modelo nunca altera um atendimento já gravado.
- */
 @Injectable()
 export class ClinicalRecordTemplatesService {
   constructor(
@@ -30,7 +24,6 @@ export class ClinicalRecordTemplatesService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  /** Modelos da clínica, opcionalmente filtrados por médico. */
   async findMany(
     userId: string,
     doctorId?: string,
@@ -77,7 +70,6 @@ export class ClinicalRecordTemplatesService {
   ): Promise<ClinicalRecordTemplate> {
     await this.getEditable(id, userId);
 
-    // Só o que veio no corpo — string vazia é uma limpeza intencional do campo.
     const updateData: Partial<ClinicalRecordTemplate> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.specialty !== undefined) updateData.specialty = data.specialty;
@@ -95,16 +87,6 @@ export class ClinicalRecordTemplatesService {
     await this.templateRepository.delete(id);
   }
 
-  /**
-   * Devolve o modelo para preencher a ficha e conta o uso.
-   *
-   * Aplicar é o primeiro passo de escrever na ficha, então também é ato do
-   * médico. Não é uma fronteira de confidencialidade — `findMany` já devolve o
-   * texto do modelo para quem tem `atendimento` —, mas é uma escrita: o
-   * contador de uso é a estatística de qual texto-base aquele médico
-   * realmente usa, e quem não pode escrever na ficha não deveria estar
-   * carimbando esse número. O recorte de clínica continua valendo por cima.
-   */
   async apply(id: string, userId: string): Promise<ClinicalRecordTemplate> {
     await this.accessControlService.assertIsDoctor(userId);
     const template = await this.getOwned(id, userId);
@@ -122,17 +104,6 @@ export class ClinicalRecordTemplatesService {
     return template;
   }
 
-  /**
-   * Alterar ou excluir exige **ser médico** e ter acesso ao médico dono do
-   * modelo — as duas coisas, como em `create`.
-   *
-   * O recorte por médico sozinho não bastava: a secretária vinculada ao médico
-   * M1 passava por ele e reescrevia (ou apagava) o texto-base clínico gravado
-   * em nome do M1. Modelo de anamnese é conteúdo clínico assinado pelo médico;
-   * escrever nele é ato do médico, igual à ficha (`assertCanWriteRecord`) e à
-   * emissão de receita/atestado. Ler continua liberado para quem tem
-   * `atendimento` — `findMany` não passa por aqui.
-   */
   private async getEditable(
     id: string,
     userId: string,

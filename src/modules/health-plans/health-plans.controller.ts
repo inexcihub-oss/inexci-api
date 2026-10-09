@@ -32,12 +32,6 @@ import { BulkDeleteHealthPlansDto } from './dto/bulk-delete-health-plans.dto';
 @ApiTags('Planos de Saúde')
 @ApiBearerAuth()
 @Controller('health_plans')
-// Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
-// uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Criar e atualizar herdam essa regra: quem monta a solicitação
-// ou marca a consulta precisa cadastrar o convênio que faltou, sem depender do
-// admin. Só `delete`/`bulkDelete` seguem em `ADMINISTRACAO` — apagar um
-// convênio afeta solicitações que já o referenciam.
 @RequireAnyArea()
 export class HealthPlansController {
   constructor(private readonly healthPlansService: HealthPlansService) {}

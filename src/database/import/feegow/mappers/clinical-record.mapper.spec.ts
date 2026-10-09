@@ -11,7 +11,6 @@ import {
 import { LEDGER_PACIENTE } from './patient.mapper';
 import { LEDGER_PROFISSIONAL } from './team.mapper';
 
-/** Ledger como as fases anteriores deixariam: 2 pacientes, 2 médicos, 1 consulta. */
 function contexto(): ContextoImportacao {
   const ctx = contextoDeTeste();
   ctx.ledger.registrar(LEDGER_PACIENTE, '10', 'pac-10');
@@ -226,8 +225,6 @@ describe('planejarModelosVazios', () => {
   it('segunda rodada não recria o modelo de nome repetido', () => {
     const ctx = comModelosVazios();
     planejarModelosVazios(formularios, ctx);
-    // Mesmo ledger, nova rodada: o 3 já foi importado; o 8 (mesmo nome)
-    // não pode virar outro modelo.
     const segunda = comModelosVazios();
     segunda.ledger = ctx.ledger;
     expect(planejarModelosVazios(formularios, segunda)).toEqual([]);

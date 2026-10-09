@@ -6,7 +6,6 @@ import { getRequestContext } from 'src/shared/logging/request-context';
 export interface PdfGenerationJobData {
   surgeryRequestId: string;
   userId: string;
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
 }
 
@@ -19,11 +18,6 @@ export class PdfGenerationService {
     private readonly pdfGenerationQueue: Queue,
   ) {}
 
-  /**
-   * Enfileira a geração assíncrona do PDF da solicitação cirúrgica.
-   * Chamado após a transição PENDENTE → ENVIADA.
-   * Não lança exceção — falhas apenas são registradas em log.
-   */
   async scheduleGeneration(
     surgeryRequestId: string,
     userId: string,

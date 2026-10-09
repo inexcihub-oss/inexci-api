@@ -13,12 +13,6 @@ import { translateServiceError } from './helpers/service-error-translator';
 import { downloadTwilioInboundMedia } from './helpers/twilio-media-download';
 import { buildToolResult } from './tool-result';
 
-/**
- * Baixa uma mídia inbound do WhatsApp (Twilio) usando autenticação básica com
- * as credenciais da conta. Delega ao helper endurecido (allowlist de host
- * Twilio + timeout + limite de bytes) — antes era um `fetch(url)` cru que, com
- * a URL vinda do webhook, permitia SSRF com vazamento das credenciais Twilio.
- */
 async function downloadInboundMedia(
   url: string,
   configService?: ConfigService,
@@ -35,29 +29,6 @@ export function buildDoctorProfileTools(
   documentDispatcher?: WhatsappDocumentDispatcherService,
   conversationMemory?: ConversationMemoryService,
 ): AiTool[] {
-  // ────────────────────────────────────────────────────────────────────────
-  // upload_doctor_signature
-  //
-  // Atualiza a assinatura digital do médico (campo
-  // `doctor_profiles.signature_url`) a partir de uma imagem enviada na
-  // mesma conversa do WhatsApp.
-  //
-  // Regra de negócio crítica: APENAS o próprio médico pode subir a sua
-  // assinatura. Se o usuário não tiver `doctor_profile` (é colaborador),
-  // a tool RECUSA a operação e devolve uma orientação para o colaborador
-  // pedir ao médico que faça o upload pelo WhatsApp dele (ou pelo app).
-  //
-  // Não escrevemos a assinatura do médico A a partir do WhatsApp do
-  // colaborador B mesmo que B tenha acesso ao médico A — é informação
-  // pessoal do médico e exige ação dele.
-  //
-  // Migrada para o envelope canônico `ToolResult` na Fase 4 do
-  // `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`: era a única tool ainda no
-  // `PREVIEWABLE_MUTATION_TOOLS` e por isso forçava o orchestrator a
-  // manter heurísticas de string (`looksLikeConfirmationPreview` /
-  // `looksLikeExecutedMutation`). Agora segue o mesmo padrão das tools
-  // `*_draft_preview` / `*_draft_commit`.
-  // ────────────────────────────────────────────────────────────────────────
   const uploadDoctorSignature: AiTool = {
     name: 'upload_doctor_signature',
     definition: {
@@ -94,20 +65,10 @@ export function buildDoctorProfileTools(
         });
       }
 
-      // 1) Verifica se o usuário é médico (tem doctor_profile).
-      //    Consultamos o `doctorProfileRepo` direto em vez de inferir da
-      //    relação `userRepo.findOne`. Motivo: `userRepo.findOne` usa um
-      //    `select` (objeto whitelist) sem `doctorProfile: true`, então no
-      //    TypeORM 0.3 a relação volta `null` mesmo para médicos — fazendo
-      //    a tool recusar o upload achando que o usuário é colaborador
-      //    (regressão observada em 2026-05-14 com o Dr. Carlos Mendonça).
       const doctorProfile = await doctorProfileRepo.findByUserId(
         context.userId,
       );
       if (!doctorProfile?.id) {
-        // Confirma que o usuário existe antes de tratar como colaborador,
-        // só pra dar uma mensagem decente quando o context.userId está
-        // bagunçado.
         const user = await userRepo.findOne({ id: context.userId });
         if (!user) {
           return buildToolResult({
@@ -122,7 +83,6 @@ export function buildDoctorProfileTools(
             ],
           });
         }
-        // Colaborador — devolve orientação clara, sem tentar a operação.
         const collaboratorText = [
           'A assinatura digital pertence ao médico e SÓ pode ser cadastrada por ele mesmo, pelo próprio WhatsApp dele (ou pelo app).',
           'Como você é colaborador, peça ao médico responsável que envie a imagem da assinatura aqui no WhatsApp dele e me chame para registrar — eu cuido do resto.',
@@ -136,13 +96,6 @@ export function buildDoctorProfileTools(
         });
       }
 
-      // 2) Médico — precisa ter mídia (imagem). A foto pode estar:
-      //    a) na MENSAGEM ATUAL (`context.inboundMedia`), OU
-      //    b) no STAGING do `documentDispatcher` (foto enviada num turno
-      //       anterior, ainda dentro do TTL — ex.: usuário mandou a foto,
-      //       respondeu "configurar minha assinatura" no turno seguinte).
-      //    Sem essa fallback a IA pedia eternamente "envie a foto" mesmo
-      //    quando ela já estava no R2 tmp (regressão 2026-05-14).
       const inboundMedia = context.inboundMedia || [];
       const rawIndex = args.mediaIndex;
 
@@ -190,21 +143,13 @@ export function buildDoctorProfileTools(
       }
 
       if (!resolvedMedia) {
-        // Registra a expectativa estruturada: a próxima imagem que esse
-        // usuário enviar pelo WhatsApp será tratada como a foto da
-        // assinatura, mesmo sem caption. Sem isso, o pipeline genérico de
-        // documento (1=anexar / 2=criar SC / 3=cadastrar paciente)
-        // interceptaria a foto antes do LLM ter chance de chamar esta tool
-        // de novo. Best-effort — falha não impede o fluxo.
         if (conversationMemory && context.conversationId) {
           try {
             await conversationMemory.setAwaitingMedia(
               context.conversationId,
               'signature',
             );
-          } catch {
-            // best-effort: o LLM ainda pode pedir a foto sem estado
-          }
+          } catch {}
         }
         return buildToolResult({
           status: 'needs_input',
@@ -232,20 +177,14 @@ export function buildDoctorProfileTools(
         });
       }
 
-      // 3) Preview / confirmação explícita.
       if (!args.confirm) {
-        // Mantém a expectativa registrada (a foto pode vir do staging ou
-        // do inbound atual — em ambos os casos, o próximo turno deve
-        // continuar tratando assinatura como contexto principal).
         if (conversationMemory && context.conversationId) {
           try {
             await conversationMemory.setAwaitingMedia(
               context.conversationId,
               'signature',
             );
-          } catch {
-            // best-effort
-          }
+          } catch {}
         }
         const replacing = doctorProfile.signatureUrl
           ? ' Isso substitui a assinatura cadastrada anteriormente.'
@@ -276,7 +215,6 @@ export function buildDoctorProfileTools(
         });
       }
 
-      // 4) Faz o upload e atualiza o doctor_profile.
       try {
         let newPath: string;
         if (resolvedMedia.source === 'inbound') {
@@ -299,24 +237,17 @@ export function buildDoctorProfileTools(
             context.userId as string,
           );
         } else {
-          // Staging: arquivo já está no R2 em whatsapp-tmp/. Movemos
-          // para a pasta de assinaturas (rename no bucket — sem download
-          // + re-upload) e limpamos a pendência depois.
           newPath = await storageService.move(
             resolvedMedia.storagePath,
             STORAGE_FOLDERS.SIGNATURES,
           );
         }
 
-        // 5) Apaga a assinatura anterior (best-effort) — só se for um path
-        //    interno do storage (não uma URL externa) e diferente da nova.
         const oldPath: string | null = doctorProfile.signatureUrl ?? null;
         if (oldPath && !oldPath.startsWith('http') && oldPath !== newPath) {
           try {
             await storageService.delete(oldPath);
-          } catch {
-            // best-effort: se a remoção falhar, mantemos o novo registro mesmo assim.
-          }
+          } catch {}
         }
 
         try {
@@ -341,14 +272,10 @@ export function buildDoctorProfileTools(
           });
         }
 
-        // Limpa a pendência do staging (best-effort) — o arquivo já foi
-        // movido pra pasta definitiva.
         if (resolvedMedia.source === 'staging' && documentDispatcher) {
           try {
             await documentDispatcher.clearPending(context.phone);
-          } catch {
-            // best-effort
-          }
+          } catch {}
         }
 
         const successText = [

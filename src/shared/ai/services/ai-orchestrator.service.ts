@@ -45,16 +45,6 @@ import { SimpleCache } from '../utils/simple-cache';
 import { OperationDraftType } from '../drafts/operation-draft.types';
 import { resolveEffectivePermissions } from '../../permissions';
 
-/**
- * Coordenador do pipeline de IA do WhatsApp; delega aos colaboradores da
- * Fase 1 (`MessageProcessor`, `ToolLoopRunner`, `ConfirmationManager`,
- * `OrchestratorTelemetry`, `ResponseNormalizer`, `PhoneNormalizer`,
- * `ClearContextDetector`). Fase 4 do `PLANO-SANITIZACAO-CLEAN-CODE-IA`
- * removeu as heurísticas legadas de `pending_confirmation`
- * (`PREVIEWABLE_MUTATION_TOOLS`, `looksLikeConfirmationPreview`,
- * `looksLikeExecutedMutation`): toda decisão agora vem do envelope
- * canônico `ToolResult` via `parseToolResult`.
- */
 @Injectable()
 export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
@@ -96,27 +86,6 @@ export class AiOrchestratorService {
     return Math.max(60, Math.floor(Number(value) || 450));
   }
 
-  /**
-   * Mascara CPF/telefone/email "literais" produzidos pelo próprio assistente
-   * antes de persistir a mensagem no histórico conversacional.
-   *
-   * Motivo: o LLM costuma escrever exemplos de formato em respostas
-   * orientativas (ex.: "Telefone (formato: DDD + número, ex: 31 99999-9999)").
-   * Sanitizar aqui mantém o histórico limpo de PII estrutural; mesmo que
-   * algo escape, o `redactResidualPii` redige in-place antes da chamada à
-   * OpenAI no turno seguinte (sem incomodar o usuário).
-   *
-   * Placeholders válidos do vault (`{{categoria_n}}`) são preservados pois as
-   * regexes de CPF/telefone/email não casam com chaves duplas.
-   */
-  /**
-   * Mensagem de fallback quando o loop de tools estoura sem texto produzido.
-   *
-   * Em vez do antigo "Vou parar por aqui pra não te deixar esperando",
-   * tentamos dar uma dica do que estava em andamento, usando a última tool
-   * pendente ou o tipo de draft ativo. Isso reduz a sensação de "bot quebrou"
-   * e dá ao usuário um próximo passo concreto.
-   */
   private buildLoopLimitFallback(
     pendingToolNames: string[],
     activeDraftType: OperationDraftType | null,
@@ -173,59 +142,10 @@ export class AiOrchestratorService {
     );
   }
 
-  /**
-   * Invalida o cache do usuário e o cooldown da mensagem de consentimento.
-   * Usado pelo `ConsentService` quando o usuário concede/revoga consentimento
-   * via web — assim a próxima mensagem do WhatsApp já reflete o novo estado.
-   *
-   * Sem invocação explícita, o cache TTL (10 min) garante que a próxima sessão
-   * eventualmente recarregue o usuário do banco. Aceitável como fallback.
-   */
   invalidateUserCacheByPhone(phone: string | null | undefined): void {
     this.messageProcessor.invalidateUserCacheByPhone(phone);
   }
 
-  /**
-   * Invalida os três caches em memória dos quais `toolContext.permissions`
-   * (e a própria identidade resolvida por telefone) derivam, sempre que o
-   * acesso de um colaborador muda por uma ação administrativa
-   * (`UsersService`: `updateCollaborator`, `deleteCollaborator`,
-   * `bulkDeleteCollaborators`, `toggleCollaboratorStatus`).
-   *
-   * Sem isto, a permissão efetiva do WhatsApp fica obsoleta pela duração dos
-   * TTLs envolvidos: até 10 min no `user` cacheado por telefone
-   * (`MessageProcessorService.userCache`), até 5 min no `accessibleDoctorIds`
-   * cacheado por userId (`doctorIdsCache` abaixo, usado para derivar
-   * `isDoctor`) e até 90s no cache interno de
-   * `AccessControlService.getAccessibleDoctorIds` (compartilhado com o
-   * caminho HTTP). O guard HTTP não tem essa janela — a `JwtStrategy` resolve
-   * a permissão a cada request. Assinado via evento (`user.access_changed`)
-   * para não acoplar `UsersService` a este módulo de IA.
-   *
-   * Complementado pelo gate de status em `MessageProcessorService.runPreflight`
-   * (espelha a `JwtStrategy` do caminho web: `status !== ACTIVE` é recusado).
-   * Os dois mecanismos cobrem casos diferentes: o gate sozinho já barra um
-   * usuário `PENDING`/`INACTIVE` na PRIMEIRA vez que aparece (nunca fica
-   * cacheado); este evento é o que fecha a lacuna de quem JÁ estava
-   * cacheado como ACTIVE e foi desativado depois — sem invalidar aqui, essa
-   * cópia cacheada continuaria dizendo `status: ACTIVE` (o campo em si é
-   * que está obsoleto, não a checagem) até o TTL de 10 min expirar.
-   *
-   * Também invalida `AccessControlService.accessibleDoctorsCache` (TTL 90s,
-   * compartilhado com o caminho HTTP) para o mesmo `userId`: `doctorIdsCache`
-   * só envolve a chamada em memória DESTE service — limpar apenas ele não
-   * basta, porque a próxima chamada (com `doctorIdsCache` já vazio) cai em
-   * `accessControlService.getAccessibleDoctorIds`, que tem seu PRÓPRIO cache
-   * interno de 90s. Sem invalidar os dois, promover/rebaixar um médico podia
-   * ficar obsoleto no WhatsApp por até 90s a mais, mesmo já tendo passado por
-   * aqui.
-   *
-   * LIMITE CONHECIDO REMANESCENTE (arquitetural, não desta função): tanto
-   * este cache quanto o gate de status leem o `user` de um `Map` em memória
-   * por processo — em um deploy com múltiplas instâncias, o evento só
-   * invalida a instância que o recebeu; as demais só refletem a mudança
-   * quando o próprio TTL do cache expirar.
-   */
   @OnEvent('user.access_changed')
   onUserAccessChanged(payload: {
     userId: string;
@@ -307,10 +227,6 @@ export class AiOrchestratorService {
           if (preflight.status !== 'continue') return;
           const { user, userId } = preflight;
           const ownerId = user?.ownerId || null;
-          // Injeta userId/tenantId no contexto de log (AsyncLocalStorage) assim
-          // que o usuário é identificado — mesma técnica do LoggingInterceptor
-          // no caminho HTTP — para que todo log a partir daqui (inclusive em
-          // services chamados profundamente) carregue esses campos.
           setRequestContext({ userId, tenantId: ownerId });
 
           const cachedDoctorIds = this.doctorIdsCache.get(userId);
@@ -318,37 +234,8 @@ export class AiOrchestratorService {
             cachedDoctorIds ??
             (await this.accessControlService.getAccessibleDoctorIds(userId));
           if (!cachedDoctorIds)
-            this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000); // 5 min
+            this.doctorIdsCache.set(userId, accessibleDoctorIds, 5 * 60 * 1000);
 
-          // Permissão efetiva do usuário para as tools do WhatsApp — derivada
-          // localmente em vez de chamar `AccessControlService.getEffectivePermissions`,
-          // que faria mais um `findOneWithProfile` por mensagem. `user.role` e
-          // `user.permissions` já vieram no preflight: `findOneByPhone` usa
-          // `findOneWithProfile` (não `findOne` — cujo `select` de ~26
-          // colunas NÃO inclui `permissions`, e com `select` parcial o
-          // TypeORM devolve a propriedade como `undefined`, não como o valor
-          // real), então `user.permissions` aqui é sempre o array cru vindo
-          // do banco. `isDoctor` é equivalente a
-          // `accessibleDoctorIds.includes(userId)` porque
-          // `computeAccessibleDoctorIds` só inclui o próprio id quando
-          // `user.doctorProfile` existe (consulta com relation já feita ali,
-          // cacheada acima) — sem isso teríamos que carregar a relation de novo
-          // só para saber se é médico.
-          //
-          // JANELA DE STALENESS: diferente do guard HTTP (que resolve a
-          // permissão a cada request via `JwtStrategy`), aqui `user` vem do
-          // cache de 10 min por telefone (`MessageProcessorService.userCache`)
-          // e `accessibleDoctorIds` do cache de 5 min por userId
-          // (`doctorIdsCache` acima). Revogar `permissions`/`doctor_profile`,
-          // desativar ou excluir um colaborador não tem efeito imediato no
-          // WhatsApp — só depois que os dois caches expirarem OU que
-          // `onUserAccessChanged` (abaixo, assinado em `user.access_changed`)
-          // os invalidar. `UsersService` emite esse evento em
-          // `updateCollaborator` (quando `permissions`/`isDoctor` mudam),
-          // `deleteCollaborator`, `bulkDeleteCollaborators` e
-          // `toggleCollaboratorStatus`.
-          // `user.doctorProfile` também veio do `findOneWithProfile` (relation
-          // completa, com `council`): é dele que sai se o perfil é de médico.
           const isDoctor = accessibleDoctorIds.includes(userId);
           const permissions = resolveEffectivePermissions({
             role: user.role,
@@ -364,10 +251,6 @@ export class AiOrchestratorService {
             );
           activeConversationId = conversation.id;
 
-          // Inicia sessão do PII Vault para esta mensagem (T0.6) e restaura os
-          // bindings persistidos do turno anterior, se houver. Isso garante que
-          // placeholders já presentes no histórico (`{{protocol_1}}`, etc.)
-          // continuem mapeando para os valores reais no detokenize de saída.
           this.piiVault.startSession(conversation.id);
           const persistedBindings =
             await this.piiBindingService.loadPersistedPiiBindings(
@@ -432,9 +315,6 @@ export class AiOrchestratorService {
               conversationId: conversation.id,
             });
           if (docIntakeResult.handled) return;
-          // syntheticBody é injetado quando a imagem veio sem caption mas o
-          // contexto da conversa indica upload de assinatura: evita o guard
-          // "Não consegui identificar texto" e dá input real ao LLM.
           const effectiveBody = docIntakeResult.syntheticBody ?? data.body;
 
           const hasInboundAudio =
@@ -479,7 +359,6 @@ export class AiOrchestratorService {
             return;
           }
 
-          // T0.5 — pré-processador de input: tokeniza CPF/telefone/email/blocos longos.
           const userInputForAi = this.piiVault.preprocessUserInput(
             conversation.id,
             userInputRaw,
@@ -490,8 +369,6 @@ export class AiOrchestratorService {
             transcriptionContext,
           );
 
-          // Histórico armazena a versão TOKENIZADA — evita re-vazar PII em
-          // `buildMessagesForOpenAI` em turnos futuros.
           await this.conversationService.appendMessage(
             conversation.id,
             'user',
@@ -523,9 +400,6 @@ export class AiOrchestratorService {
             },
           );
 
-          // RAG opera sobre a versão tokenizada (a base é pública, sem PII).
-          // Skip para inputs triviais (confirmações, números soltos, comandos de
-          // limpeza) — nesses casos o RAG não agrega valor e só adiciona latência.
           const shouldQueryRag =
             userInputForAi.trim().length >= 15 &&
             !this.clearContextDetector.isConfirmationInput(normalizedInput) &&
@@ -594,12 +468,6 @@ export class AiOrchestratorService {
               conversation.id,
             );
 
-          // Confirmação determinística de operação pendente: se o usuário disse
-          // "sim/confirmo/ok" e o turno anterior gravou pending_confirmation no
-          // conversation_memory (tool de mutação chamada com confirm:false),
-          // injeta um hint imperativo dizendo qual tool re-chamar com confirm:true.
-          // Sem isso, o LLM frequentemente esquece a operação pendente e responde
-          // "não ficou claro o que confirmou".
           const confirmationHint =
             await this.confirmationManager.buildPendingConfirmationHint(
               conversation.id,
@@ -614,17 +482,9 @@ export class AiOrchestratorService {
               conversation.id,
             );
 
-          // Hint determinístico para documento pendente (Sprint 4 — fix loop):
-          // se há `pending` com classification ativa, injeta no system prompt o
-          // resumo dos dados extraídos + instrução clara de qual tool chamar
-          // dada a intent declarada (`attach`, `create_sc`, `create_patient`).
-          // Sem isso o LLM "esquece" o documento e responde "não ficou claro
-          // qual ação você quer confirmar" mesmo após o usuário dizer "sim".
           const documentHint =
             await this.documentIntakeService.buildDocumentPendingHint(phone);
           if (documentHint)
-            // role: 'user' — documentHint carrega texto extraido de arquivo
-            // enviado por terceiro; nunca deve entrar como 'system'.
             this.injectSystemHint(
               messages,
               documentHint,
@@ -634,10 +494,6 @@ export class AiOrchestratorService {
               'user',
             );
 
-          // Filtra tools pelo draft ativo para não estourar o limite de 128
-          // tools por request da OpenAI (temos 138 registradas). Recalculamos
-          // antes de cada chamada porque `plan_actions` pode abrir um draft
-          // entre iterações.
           const initialDraftCtx = await this.draftContext.buildToolsForDraft(
             conversation.id,
           );
@@ -645,7 +501,6 @@ export class AiOrchestratorService {
           let activeDraftType = initialDraftCtx.draftType;
 
           this.ensureWithinTimeout(processStartedAt, processTimeoutMs);
-          // T0.7 — redator defensivo antes da primeira chamada à IA.
           await this.piiBindingService.redactResidualPii(messages, {
             conversationId: conversation.id,
             messageSid: data.messageSid,
@@ -730,13 +585,6 @@ export class AiOrchestratorService {
           const loopLimitReached = loopResult.loopLimitReached;
           const pendingToolNames = loopResult.pendingToolNames;
 
-          // Quando o loop de tools estoura o limite, ainda tentamos aproveitar
-          // qualquer conteúdo textual que o LLM tenha produzido na última
-          // iteração — ele costuma ser mais útil ao usuário do que uma
-          // mensagem genérica. Só caímos no fallback se o `content` final
-          // estiver vazio. Nesse caso, escolhemos a frase de acordo com a
-          // última tool pendente: assim o usuário vê "Estou tendo dificuldade
-          // para concluir o envio…" em vez do genérico "Vou parar por aqui".
           const trimmedContent = responseMessage.content?.trim() ?? '';
           let finalText: string;
           if (loopLimitReached && !trimmedContent) {
@@ -758,11 +606,6 @@ export class AiOrchestratorService {
               '...\n\n_Acesse a plataforma para ver a resposta completa._';
           }
 
-          // Histórico mantém versão TOKENIZADA + literais de PII (CPF/telefone/
-          // email que a IA possa ter escrito como exemplo) mascarados por
-          // placeholders genéricos. Sem essa máscara, exemplos do tipo
-          // "use o formato 31 99999-9999" envenenam o histórico e fazem
-          // `assertNoResidualPii` bloquear todos os turnos seguintes.
           const sanitizedHistoryText = this.sanitizeAssistantOutputForHistory(
             finalText,
             conversation.id,
@@ -775,8 +618,6 @@ export class AiOrchestratorService {
             sanitizedHistoryText,
           );
 
-          // T0.6 — detokeniza somente para envio externo (WhatsApp). Usa o texto
-          // original (com placeholders), não o sanitizado para histórico.
           const detokenizedText = this.piiVault.detokenize(
             conversation.id,
             finalText,
@@ -787,9 +628,6 @@ export class AiOrchestratorService {
               conversation.id,
               data.messageSid,
             );
-          // Defesa final contra duplicação de prefixo "SC-" que pode ter sido
-          // produzida pela IA (ex.: alucinação "SC-SC-{{protocol_n}}"). Garante
-          // que o usuário sempre recebe "SC-468131", nunca "SC-SC-468131".
           const safeText = this.responseNormalizer.collapseSCPrefixes(
             scrubbedText,
             conversation.id,
@@ -814,9 +652,6 @@ export class AiOrchestratorService {
             usageSnapshots,
           );
 
-          // Atualização incremental de summary/memory em background. Após 3 falhas
-          // consecutivas em uma mesma conversa, `buildContext` para de injetar
-          // summary/memory automaticamente (circuit breaker).
           const ctxService = this.contextService;
           const convId = conversation.id;
           Promise.resolve()
@@ -837,7 +672,6 @@ export class AiOrchestratorService {
               );
             });
 
-          // T0.11 — métrica/contador de PII por categoria nesta sessão.
           this.telemetry.logPiiVaultUsage(data.messageSid, conversation.id);
 
           this.logger.log(
@@ -874,11 +708,6 @@ export class AiOrchestratorService {
 
           await this.whatsappService.sendMessage(phone, userFacingMessage);
         } finally {
-          // Persiste bindings do vault (Redis com fallback in-memory) ANTES de
-          // encerrar a sessão. Sem isso, o próximo turno desta conversa carrega
-          // o histórico com placeholders órfãos e o detokenize não substitui nada
-          // — exatamente o bug em que a resposta chegava ao WhatsApp com
-          // `{{protocol_1}}`, `{{patient_name_1}}`, etc., visíveis ao usuário.
           if (activeConversationId) {
             try {
               await this.piiBindingService.persistPiiBindings(
@@ -903,7 +732,7 @@ export class AiOrchestratorService {
         span.setStatus({ code: SpanStatusCode.OK });
         span.end();
       }
-    }); // fim startActiveSpan 'ai.processMessage'
+    });
   }
 
   private getRemainingTimeoutMs(
@@ -949,17 +778,6 @@ export class AiOrchestratorService {
     }
   }
 
-  /**
-   * Insere `hint` logo após o último bloco de system prompts iniciais, antes
-   * da janela de mensagens recentes. Os três hints de contexto (numeric
-   * choice, pending confirmation, document pending) compartilham essa lógica.
-   *
-   * `role` é `'system'` por padrão (hints determinísticos gerados pelo nosso
-   * próprio código). O hint de documento pendente carrega texto extraído de
-   * arquivo enviado por terceiro (OCR/Vision) — mesmo já delimitado e
-   * marcado como não confiável por `montarBlocoDeDocumento`, ele nunca deve
-   * entrar como `role: 'system'`, a posição de maior confiança do prompt.
-   */
   private injectSystemHint(
     messages: OpenAI.ChatCompletionMessageParam[],
     hint: string,

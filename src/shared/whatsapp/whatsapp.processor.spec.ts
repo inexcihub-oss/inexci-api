@@ -73,7 +73,6 @@ describe('WhatsappProcessor', () => {
       const job = createJob('+5511999999999', 'Olá teste');
       await processor.handleSendWhatsapp(job);
 
-      // Telefone vai mascarado no log (LGPD); apenas o sufixo é preservado.
       expect(mockSendLogRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: NotificationChannel.WHATSAPP,
@@ -186,8 +185,6 @@ describe('WhatsappProcessor', () => {
       const job = createJob('21987654321', 'Teste E164');
       await processor.handleSendWhatsapp(job);
 
-      // O `to` persistido fica mascarado, mas preserva os 4 últimos dígitos
-      // do número normalizado em E.164 (`+5521987654321`).
       expect(mockSendLogRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
           to: expect.stringMatching(/4321$/),

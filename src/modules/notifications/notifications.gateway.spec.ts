@@ -48,7 +48,6 @@ describe('NotificationsGateway', () => {
     }).compile();
 
     gateway = module.get<NotificationsGateway>(NotificationsGateway);
-    // Simula o servidor Socket.IO
     (gateway as any).server = {
       to: jest.fn().mockReturnValue({ emit: jest.fn() }),
     };

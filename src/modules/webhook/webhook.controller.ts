@@ -190,9 +190,6 @@ export class WebhookController {
       );
     }
 
-    // Os dois handlers têm ids de botão próprios e não disputam payload, então
-    // a ordem entre eles é indiferente: cada um devolve `false` de imediato
-    // para o botão do outro.
     try {
       const appointmentHandled =
         await this.webhookService.tryHandleAppointmentConfirmation({

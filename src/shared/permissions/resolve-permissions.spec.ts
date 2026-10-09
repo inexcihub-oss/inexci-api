@@ -28,12 +28,6 @@ describe('resolveEffectivePermissions', () => {
     ).toEqual([Permission.AGENDA]);
   });
 
-  /**
-   * Finalizar ficha com indicação cirúrgica abre a SC (SOLICITACOES) e o
-   * médico marca a própria consulta como realizada / agenda retorno a
-   * partir da ficha do paciente (AGENDA). Sem elas o médico não conseguiria
-   * atender nem enxergar a SC que ele mesmo abriu.
-   */
   it('acrescenta agenda, atendimento e solicitações a quem é médico', () => {
     expect(
       resolveEffectivePermissions({

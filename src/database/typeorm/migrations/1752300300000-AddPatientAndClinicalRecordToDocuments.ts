@@ -1,10 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Permite anexar documentos (exames/anexos) ao paciente e à ficha de
- * atendimento, além da solicitação cirúrgica. `surgery_request_id` deixa de
- * ser obrigatório; ganham `patient_id` e `clinical_record_id` (ambos nullable).
- */
 export class AddPatientAndClinicalRecordToDocuments1752300300000 implements MigrationInterface {
   name = 'AddPatientAndClinicalRecordToDocuments1752300300000';
 

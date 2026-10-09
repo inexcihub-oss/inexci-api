@@ -1,14 +1,4 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-/**
- * Prepara o banco dedicado aos testes e2e.
- *
- * Existe porque a suíte e2e trunca todas as tabelas a cada teste: apontá-la
- * para o banco de desenvolvimento apaga o trabalho de quem estiver na máquina.
- * Este script cria (se preciso) o banco de teste, habilita o `pgvector` e roda
- * as migrations nele — sem tocar no banco de dev.
- *
- * Uso: `yarn test:e2e:prepare` (o `pretest:e2e` chama automaticamente).
- */
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { Client } = require('pg');
@@ -44,7 +34,6 @@ async function main() {
     );
   }
 
-  // Conecta no `postgres` para poder criar o banco de teste.
   const admin = new URL(base);
   admin.pathname = '/postgres';
   const client = new Client({ connectionString: admin.toString() });

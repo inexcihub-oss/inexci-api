@@ -26,20 +26,11 @@ import {
 } from './phases/disponibilidade.phase';
 import { ArmazenamentoImportacao } from '../core/armazenamento';
 
-/** Fases do importador, na ordem em que precisam rodar. */
 export interface Fase<P = unknown> {
   nome: string;
   planejar(exp: ExportFeegow, ctx: ContextoImportacao): P;
   gravar(plano: P, manager: EntityManager): Promise<void>;
-  /**
-   * Passo fora do banco antes da transação (upload de arquivos). Devolve o
-   * que criou, para o runner desfazer se a gravação falhar.
-   */
   enviar?(plano: P, armazenamento: ArmazenamentoImportacao): Promise<string[]>;
-  /**
-   * Arquivos enviados que a gravação acabou não usando (ex.: paciente que já
-   * tinha foto). O runner apaga depois do COMMIT.
-   */
   descartados?(plano: P): string[];
 }
 
@@ -87,14 +78,9 @@ export interface OpcoesCli {
   incluirRascunhos: boolean;
   modelosVazios: boolean;
   bloqueiosSoFuturos: boolean;
-  /** Só confere a carga já feita (ledger × banco); não roda fase. */
   verificar: boolean;
   hoje: string;
   confirmar: boolean;
-  /**
-   * Aceita um `ledger.json` do formato antigo (sem conta/banco gravados) como
-   * desta conta e deste banco. Ver `Ledger.vincular`.
-   */
   adotarLedger: boolean;
 }
 
@@ -208,13 +194,7 @@ export function interpretarArgumentos(argv: string[]): OpcoesCli {
   };
 }
 
-/**
- * Data de hoje (`YYYY-MM-DD`) no fuso da clínica. `toISOString()` daria a data
- * UTC: entre 21h e meia-noite em São Paulo já é "amanhã", e as consultas da
- * noite seriam classificadas como passadas.
- */
 export function hojeEmSaoPaulo(agora: Date = new Date()): string {
-  // en-CA formata como AAAA-MM-DD.
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Sao_Paulo',
     year: 'numeric',
@@ -223,10 +203,6 @@ export function hojeEmSaoPaulo(agora: Date = new Date()): string {
   }).format(agora);
 }
 
-/**
- * Nunca contra o banco dos e2e (que trunca tudo a cada teste) nem com
- * NODE_ENV=test: o importador grava dado de paciente real.
- */
 export function assertBancoPermitido(
   nomeDoBanco: string,
   nodeEnv: string | undefined,
@@ -242,7 +218,6 @@ export function assertBancoPermitido(
   }
 }
 
-/** Monta o contexto lendo do banco o que a fase precisa conferir. */
 export async function contextoDoBanco(
   ds: DataSource,
   ownerEmail: string,
@@ -272,8 +247,6 @@ export async function contextoDoBanco(
     tem_perfil: boolean;
     excluido: boolean;
   }[] = await ds.query(
-    // Excluídos também vêm (marcados): o e-mail deles pode ainda ocupar
-    // `uq_users_email`, e a equipe precisa saber para não casar nem recriar.
     `SELECT u.id, lower(u.email) AS email, u.owner_id,
               (dp.id IS NOT NULL) AS tem_perfil,
               (u.deleted_at IS NOT NULL) AS excluido
@@ -316,7 +289,6 @@ export async function contextoDoBanco(
   };
 }
 
-/** Dry-run sem conexão: nada existente para conferir, dono fictício. */
 export function contextoSemBanco(
   base: Omit<
     ContextoImportacao,

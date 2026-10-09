@@ -22,7 +22,6 @@ export class ClinicRepository extends BaseRepository<Clinic> {
     });
   }
 
-  /** Clínicas cadastradas pela conta (ownerId). */
   findByOwnerId(ownerId: string): Promise<Clinic[]> {
     return this.repository.find({
       where: { ownerId },

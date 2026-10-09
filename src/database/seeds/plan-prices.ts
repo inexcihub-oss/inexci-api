@@ -1,19 +1,3 @@
-/**
- * Reconciliação entre `subscription_plans.gateway_price_id` e os preços que
- * existem de fato na conta Stripe.
- *
- * Por que isso existe: até então o único caminho para gravar o `price_id` era
- * o `yarn seed`, bloqueado fora de dev (`seed.ts:26`) e abortado quando já há
- * dados (`seed.ts:225`). Em produção só restava `UPDATE` manual, sem ninguém
- * conferindo se o ID existia — foi assim que um price de test mode entrou no
- * banco de produção e derrubou o checkout com `No such price`.
- *
- * A lógica de decisão vive aqui, em `src/`, e não junto do script em
- * `scripts/`, porque o `rootDir` do Jest é `src` — em `scripts/` nenhum teste
- * rodaria e a regressão só apareceria no deploy. O script é só a casca de I/O.
- */
-
-/** Slugs que têm preço na Stripe → variável de ambiente correspondente. */
 export const SLUG_PARA_ENV: Readonly<Record<string, string>> = {
   starter: 'STRIPE_PRICE_STARTER_MONTHLY',
   'starter-anual': 'STRIPE_PRICE_STARTER_YEARLY',
@@ -41,32 +25,20 @@ export interface PrecoDoGateway {
   interval: 'month' | 'year' | null;
 }
 
-/**
- * De onde veio o price ID que vamos validar: do `.env` (o operador quer
- * gravar este) ou do próprio banco (nada no `.env`, então validamos o que já
- * está lá — é isso que detecta um ID podre gravado por `UPDATE` manual).
- */
 export type OrigemDoAlvo = 'env' | 'banco';
 
 export interface AlvoDePreco {
   slug: string;
   priceId: string;
   origem: OrigemDoAlvo;
-  /** `true` quando o banco já tem exatamente este ID — nada a gravar. */
   jaGravado: boolean;
 }
 
 export interface Alvos {
   alvos: AlvoDePreco[];
-  /** Planos sem price ID no `.env` e sem nada no banco (ex.: `enterprise`). */
   semPriceId: string[];
 }
 
-/**
- * Decide, para cada plano ativo, qual price ID deve ser conferido e se ele
- * precisa ser gravado. O `.env` sempre vence o banco: é ele que o operador
- * acabou de editar.
- */
 export function resolverAlvos(
   planos: readonly PlanoDoBanco[],
   env: Record<string, string | undefined>,
@@ -95,12 +67,6 @@ export function resolverAlvos(
   return { alvos, semPriceId };
 }
 
-/**
- * Divergências entre o plano local e o preço na Stripe. São avisos, não
- * bloqueios: o checkout funciona mesmo com valor diferente do que a tela
- * mostra — mas quase sempre significa price ID trocado entre planos, e é
- * melhor o operador ver isso antes do primeiro cliente pagar o valor errado.
- */
 export function conferirPreco(
   plano: PlanoDoBanco,
   preco: PrecoDoGateway,
@@ -135,7 +101,6 @@ export function conferirPreco(
 
 export type ModoDaChave = 'live' | 'test' | 'desconhecido';
 
-/** Modo da conta pelo prefixo da secret key — sem expor a chave. */
 export function modoDaChave(secretKey: string | undefined): ModoDaChave {
   if (!secretKey) return 'desconhecido';
   if (secretKey.startsWith('sk_live_') || secretKey.startsWith('rk_live_')) {
@@ -147,11 +112,6 @@ export function modoDaChave(secretKey: string | undefined): ModoDaChave {
   return 'desconhecido';
 }
 
-/**
- * Diagnóstico do `No such price`. O erro cru da Stripe não diz a causa real,
- * que em produção é quase sempre ID de um modo com chave do outro — então a
- * mensagem já aponta para onde olhar.
- */
 export function mensagemPrecoInexistente(
   alvo: AlvoDePreco,
   modo: ModoDaChave,

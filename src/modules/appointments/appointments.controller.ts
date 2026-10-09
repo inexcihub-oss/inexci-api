@@ -26,16 +26,9 @@ import { CreateAppointmentCommentDto } from './dto/create-appointment-comment.dt
 @ApiTags('Consultas')
 @ApiBearerAuth()
 @Controller('appointments')
-// Escrever na agenda é o padrão do controller; a leitura abre para quem atende.
 @RequirePermission(Permission.AGENDA)
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
-
-  // `appointments.id` e `patients.id` são `uuid`. Sem o pipe, um id malformado
-  // chega cru ao Postgres, a query aborta ("invalid input syntax for type
-  // uuid") e o `AllExceptionsFilter` devolve um 400 genérico de banco — que não
-  // diz o que está errado e ainda gasta uma ida ao banco. Mesmo padrão do
-  // `ClinicalRecordsController`.
 
   @Get()
   @ApiOperation({ summary: 'Listar consultas da agenda por intervalo de data' })

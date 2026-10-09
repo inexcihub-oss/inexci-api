@@ -8,17 +8,6 @@ import { AiTokenUsageLog } from 'src/database/entities/ai-token-usage-log.entity
 import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.entity';
 import { StaleNotificationLog } from 'src/database/entities/stale-notification-log.entity';
 
-/**
- * Cron diário (04:00 America/Sao_Paulo) que aplica retenção configurável
- * para tabelas de log persistido. Mantém o banco enxuto e atende às
- * janelas LGPD declaradas na política de privacidade.
- *
- * Janelas (defaults; override via env):
- *   - notification_send_logs:   90 dias  (LOG_RETENTION_NOTIFICATION_DAYS)
- *   - ai_token_usage_logs:     365 dias  (LOG_RETENTION_AI_USAGE_DAYS)
- *   - ai_pii_redaction_logs:   180 dias  (LOG_RETENTION_PII_DAYS)
- *   - stale_notification_logs:  60 dias  (LOG_RETENTION_STALE_DAYS)
- */
 @Injectable()
 export class LogRetentionService {
   private readonly logger = new Logger(LogRetentionService.name);

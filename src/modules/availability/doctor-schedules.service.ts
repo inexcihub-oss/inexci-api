@@ -24,18 +24,6 @@ import {
   UpdateDoctorScheduleDto,
 } from './dto/doctor-schedule.dto';
 
-/**
- * Grade de atendimento por profissional (MIG-05).
- *
- * Ler: quem acessa o profissional, ou quem tem Administração na conta (a
- * mesma regra de quem escreve — senão o admin delegado gravaria uma grade
- * que não consegue ler). Escrever: o próprio profissional na própria grade,
- * ou quem tem Administração na conta.
- *
- * Validar e gravar rodam numa transação travada por profissional
- * (`comTravaDoProfissional`), para a checagem de sobreposição não correr
- * contra outro POST simultâneo.
- */
 @Injectable()
 export class DoctorSchedulesService {
   constructor(
@@ -110,7 +98,6 @@ export class DoctorSchedulesService {
     const mudancas: Partial<DoctorSchedule> = {};
     if (data.clinicId !== undefined) mudancas.clinicId = data.clinicId ?? null;
     if (data.roomId !== undefined) mudancas.roomId = data.roomId ?? null;
-    // Trocar a clínica sem mandar sala tira a sala da clínica antiga.
     if (data.clinicId !== undefined && data.roomId === undefined)
       mudancas.roomId = null;
     if (data.weekday !== undefined) mudancas.weekday = data.weekday;
@@ -126,9 +113,6 @@ export class DoctorSchedulesService {
       mudancas.validTo = data.validTo?.slice(0, 10) ?? null;
     if (data.active !== undefined) mudancas.active = data.active;
 
-    // Clínica/sala só são reconferidas quando mudam ou quando o período volta
-    // a valer: com a clínica ou a sala já removida, o período ainda pode ser
-    // editado — inclusive desativado.
     const final = { ...atual, ...mudancas };
     const verificarLocal =
       data.clinicId !== undefined ||
@@ -160,7 +144,6 @@ export class DoctorSchedulesService {
     return grade;
   }
 
-  /** O usuário é profissional de saúde da conta `ownerId`? */
   private async profissionalDaConta(
     doctorId: string,
     ownerId: string,
@@ -173,7 +156,6 @@ export class DoctorSchedulesService {
     );
   }
 
-  /** Devolve o `ownerId` da conta. */
   private async assertPodeEscrever(
     doctorId: string,
     userId: string,
@@ -198,10 +180,6 @@ export class DoctorSchedulesService {
     return ownerId;
   }
 
-  /**
-   * Horário coerente, clínica/sala da conta (só com `verificarLocal`) e sem
-   * sobreposição na vigência. Roda dentro da transação travada.
-   */
   private async validar(
     tx: DoctorScheduleTx,
     g: Pick<

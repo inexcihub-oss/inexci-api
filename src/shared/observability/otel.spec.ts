@@ -120,7 +120,6 @@ describe('initOtel', () => {
     expect(config.metricReaders).toBeUndefined();
     expect(config.views).toBeUndefined();
     expect(metricExporterCtor).not.toHaveBeenCalled();
-    // Guarda o auto-configurado do NodeSDK para não duplicar/errar export.
     expect(process.env.OTEL_METRICS_EXPORTER).toBe('none');
   });
 

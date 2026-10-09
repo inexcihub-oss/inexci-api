@@ -31,10 +31,6 @@ describe('Users (e2e)', () => {
   });
 
   describe('/users/profile (GET)', () => {
-    // Antes o teste aceitava 200, 401 ou 500 — com token válido, 401 significa
-    // autenticação quebrada e 500 é defeito; aceitar os três fazia o teste
-    // passar justamente nos cenários que ele deveria denunciar.
-    // `getProfile` busca o usuário autenticado e devolve o perfil: 200 sempre.
     it('should return current user profile', async () => {
       const response = await request(app.getHttpServer())
         .get('/users/profile')
@@ -44,8 +40,6 @@ describe('Users (e2e)', () => {
       expect(response.body.id).toBe(currentUser.id);
       expect(response.body.email).toBe(currentUser.email);
       expect(response.body).toHaveProperty('name');
-      // `getProfile` deriva `isDoctor` e a permissão EFETIVA (não a coluna
-      // crua) e remove `password`/`isPlatformAdmin` do retorno.
       expect(response.body).toHaveProperty('isDoctor');
       expect(Array.isArray(response.body.permissions)).toBe(true);
       expect(response.body).not.toHaveProperty('password');
@@ -58,9 +52,6 @@ describe('Users (e2e)', () => {
   });
 
   describe('/users/profile (PUT)', () => {
-    // Mesmo motivo do GET acima: com token válido a rota é determinística.
-    // `updateProfile` grava e devolve o usuário relido do banco, então dá para
-    // conferir a persistência pelo próprio corpo da resposta e por um GET.
     it('should update current user profile', async () => {
       const response = await request(app.getHttpServer())
         .put('/users/profile')
@@ -101,11 +92,6 @@ describe('Users (e2e)', () => {
       expect(response.body.name).toBe(userData.name);
     });
 
-    // `POST /users` é liberado por Permission.ADMINISTRACAO, que o admin
-    // delegado também tem. Aceitar `role: 'admin'` aqui deixaria ele criar um
-    // segundo dono para a conta — o novo usuário herdaria o `ownerId` de quem
-    // criou em vez de `self.id`, quebrando a invariante que sustenta todo o
-    // isolamento de tenant. O DTO recusa com 400 (`@IsIn`).
     it('deve recusar a criação de um usuário com role admin', async () => {
       const userData = TestDataFactory.generateCreateUserData();
 
@@ -146,9 +132,6 @@ describe('Users (e2e)', () => {
     });
   });
 
-  // Usa `/users/profile` porque `GET /users` foi removido: o `JwtAuthGuard`
-  // roda DEPOIS do roteamento, então uma rota inexistente devolve 404 e o
-  // teste passaria a medir o 404 em vez do 401 que ele existe para provar.
   describe('Authorization', () => {
     it('should deny access with invalid token', async () => {
       await request(app.getHttpServer())

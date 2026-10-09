@@ -25,11 +25,6 @@ export class OpmeItemRepository extends BaseRepository<OpmeItem> {
     return this.repository.save(opmeItem);
   }
 
-  /**
-   * Fornecedores ESCOLHIDOS nos itens OPME das solicitações pedidas. É esta a
-   * definição de "fornecedor da SC" em toda a plataforma — a coluna Fornecedor
-   * da agenda, o filtro do kanban e a tela do próprio fornecedor.
-   */
   async findSelectedSuppliersByRequestIds(requestIds: string[]): Promise<
     Array<{
       surgeryRequestId: string;

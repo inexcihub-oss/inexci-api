@@ -39,7 +39,6 @@ describe('ClinicalRecordTemplatesService', () => {
     assertIsDoctor: jest.fn(),
   };
 
-  /** Reproduz o não-médico: `assertIsDoctor` é o único ponto que o barra. */
   const naoEhMedico = () =>
     accessControlService.assertIsDoctor.mockRejectedValue(
       new ForbiddenException('Apenas médicos podem realizar esta operação.'),
@@ -238,11 +237,6 @@ describe('ClinicalRecordTemplatesService', () => {
     });
   });
 
-  /**
-   * D-17: o não-médico vinculado ao médico M1 passava por todo o recorte de
-   * clínica/médico e escrevia conteúdo clínico em nome dele — criava, renomeava,
-   * aplicava e excluía modelo. Escrever é ato do médico; ler não.
-   */
   describe('escrever no modelo é ato do médico (D-17)', () => {
     it('recusa criação por quem não tem doctor_profile', async () => {
       naoEhMedico();

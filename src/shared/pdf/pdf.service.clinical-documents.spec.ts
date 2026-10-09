@@ -2,11 +2,6 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { PdfService } from './pdf.service';
 
-/**
- * Os três documentos do atendimento (receita, atestado e encaminhamento de
- * exames) são renderizados a partir dos templates `.hbs` reais — o Puppeteer é
- * substituído por um spy, então o que se verifica aqui é o HTML final.
- */
 describe('PdfService — documentos do atendimento', () => {
   let service: PdfService;
   let htmlToPdf: jest.SpyInstance;

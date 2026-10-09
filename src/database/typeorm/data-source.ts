@@ -24,7 +24,6 @@ export const dataSourceOptions: DataSourceOptions = {
   },
 };
 
-// DataSource para migrations e CLI (deve ser default export)
 const dataSource = new DataSource(dataSourceOptions);
 
 export default dataSource;

@@ -5,7 +5,6 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 
-/** Repositórios de coleções to-many não são usados pelos testes que só passam por `loadRequest` (singular). */
 const buildCollectionRepoMocks = () => ({
   opmeItemRepository: { findMany: jest.fn() } as any,
   documentRepository: { findMany: jest.fn() } as any,
@@ -78,8 +77,6 @@ describe('PendencyValidatorService — patient_data', () => {
     ]);
   });
 
-  // CPF do paciente passou a ser anulável (MIG-01): paciente migrado sem CPF
-  // chega com `cpf: null`, e a SC tem que continuar travada até preencher.
   it('considera patient_data incompleto com CPF null (paciente sem CPF no cadastro)', async () => {
     mockRepository.findOne.mockResolvedValue({
       ...baseRequest,
@@ -335,9 +332,6 @@ describe('PendencyValidatorService — getBatchSummary', () => {
     reportSectionRepository as any,
   );
 
-  // Bases sem as coleções to-many embutidas: agora elas chegam via `Promise.all`
-  // separado (join to-one + 4 buscas paralelas por `surgeryRequestId`), não mais
-  // dentro do mesmo `find` da SC.
   const completeRequestBase = {
     id: 'req-ok',
     status: SurgeryRequestStatus.PENDING,
@@ -378,7 +372,6 @@ describe('PendencyValidatorService — getBatchSummary', () => {
 
     const result = await service.getBatchSummary('req-ok, req-bad', 'owner-1');
 
-    // 1 query base (to-one) + 4 buscas de coleções, todas em paralelo — não sequenciais.
     expect(mockRepository.find).toHaveBeenCalledTimes(1);
     expect(tussItemRepository.findMany).toHaveBeenCalledTimes(1);
     expect(opmeItemRepository.findMany).toHaveBeenCalledTimes(1);

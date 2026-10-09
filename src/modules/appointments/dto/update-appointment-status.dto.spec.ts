@@ -7,13 +7,8 @@ import {
 } from './update-appointment-status.dto';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 
-/**
- * ST-09: `PATCH /appointments/:id/status` aceitava um `cancellationReason` de
- * 10.001 caracteres e gravava inteiro — a coluna é `text`, então nada barrava.
- */
 describe('UpdateAppointmentStatusDto', () => {
   function transform(payload: Record<string, unknown>) {
-    // Reproduz o ValidationPipe global (transform: true).
     return plainToInstance(UpdateAppointmentStatusDto, payload);
   }
 

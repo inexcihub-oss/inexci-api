@@ -23,8 +23,6 @@ import { MentionEmailsProcessor } from './mentions/mention-emails.processor';
       SurgeryRequest,
       User,
     ]),
-    // A fila vem configurada (retry, backoff, métricas) de QueuesModule —
-    // registrá-la aqui de novo criaria outra instância, sem essas opções.
     QueuesModule,
     NotificationsModule,
     MailModule,

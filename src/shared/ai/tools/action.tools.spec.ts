@@ -362,17 +362,12 @@ describe('ActionTools', () => {
     });
   });
 
-  // Regressão Sub-fase 3.8 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // `update_surgery_request_data` e `update_patient_data` foram removidas.
   it('não expõe mais update_surgery_request_data nem update_patient_data', () => {
     const names = tools.map((t) => t.name);
     expect(names).not.toContain('update_surgery_request_data');
     expect(names).not.toContain('update_patient_data');
   });
 
-  // ----------------------------------------------------------------
-  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
-  // ----------------------------------------------------------------
   describe('envelope ToolResult — close_surgery_request', () => {
     it('status=pending_confirmation quando sem confirm', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue(mockRequest);

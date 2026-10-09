@@ -23,11 +23,6 @@ const STATUS_LABELS: Record<number, string> = {
   9: 'Encerrada',
 };
 
-/**
- * Bloqueia uso da tool quando não há draft ativo do tipo esperado. A
- * checagem complementa a filtragem do `ToolRegistryService`, que já
- * só expõe as tools de `mark_performed` quando há draft desse tipo.
- */
 export async function guardDraft(
   draftService: OperationDraftService,
   context: ToolContext,
@@ -50,27 +45,10 @@ export async function guardDraft(
 }
 
 export interface AssertStatusResult {
-  /** Payload `blocked`/`error` pronto para retornar à tool. Null quando OK. */
   error: string | null;
-  /** UUID real da SC quando resolvida (mesmo que `surgeryRequestId` tenha vindo como protocolo `SC-XXXX`). */
   resolvedId: string | null;
 }
 
-/**
- * Valida que a SC apontada pelo draft está no status esperado para a
- * transição. Retorna `{ error, resolvedId }` — `error` preenchido quando a
- * SC não existe ou está em outro status; `resolvedId` traz o UUID real (útil
- * quando o `surgeryRequestId` veio como protocolo SC-XXXX).
- *
- * Aceita tanto UUID quanto protocolo (`SC-XXXXXX`). Antes desta versão, se o
- * LLM gravasse o protocolo (formato amigável) no `surgeryRequestId` do draft,
- * a busca falhava com "Solicitação não encontrada" e o usuário ficava em
- * loop no WhatsApp.
- *
- * Resolve via `resolveAuthorizedRequest`, que confere `context.accessibleDoctorIds`
- * antes de devolver a SC — o `draft_update` valida o campo na escrita, mas esta
- * função é a última barreira antes de qualquer transição de status.
- */
 export async function assertCurrentStatusIs(
   surgeryRequestRepo: SurgeryRequestRepository,
   surgeryRequestId: string,
@@ -103,10 +81,6 @@ export async function assertCurrentStatusIs(
   return { error: null, resolvedId: sc.id };
 }
 
-/**
- * Extrai uma mensagem legível de erros de transição de status.
- * Quando o backend retorna pendencies[], lista-as para o LLM.
- */
 export function extractTransitionErrorMessage(
   err: any,
   defaultPrefix: string,
@@ -135,10 +109,6 @@ export function extractTransitionErrorMessage(
   return `${defaultPrefix}: ${err?.message || 'erro desconhecido'}`;
 }
 
-/**
- * Lista os documentos cirúrgicos pós-operatórios já presentes na SC e
- * indica quais ainda faltam para que a transição possa acontecer.
- */
 export async function checkPostSurgeryDocuments(
   documentRepo: DocumentRepository,
   surgeryRequestId: string,

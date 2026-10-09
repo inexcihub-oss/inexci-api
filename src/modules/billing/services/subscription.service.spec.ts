@@ -304,7 +304,6 @@ describe('SubscriptionService', () => {
           pastDueSince: null,
         });
 
-      // Chamado dentro de syncFromGatewaySubscription
       subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
         id: 'sub-1',
         ownerId: 'owner-1',
@@ -326,7 +325,6 @@ describe('SubscriptionService', () => {
         cancelAtPeriodEnd: false,
         canceledAt: new Date('2026-01-15'),
       });
-      // findOne({ gatewayPriceId }) durante sync
       planRepo.findOne.mockResolvedValue(null);
 
       const result = await service.getMySubscription('owner-1');
@@ -620,11 +618,6 @@ describe('SubscriptionService', () => {
       expect(result.url).toBe('https://checkout.stripe.com/new');
     });
 
-    /**
-     * A Stripe recusa `trial_end` a menos de 48 h no futuro. A checagem antiga
-     * era só `> new Date()`, então um trial terminando em poucas horas fazia o
-     * checkout inteiro estourar — e a rejeição chegava como 500 opaco.
-     */
     describe('trial_end enviado ao gateway', () => {
       function prepararComTrial(trialEndsAt: Date | null) {
         userRepo.findOne.mockResolvedValue(buildOwner());
@@ -904,7 +897,7 @@ describe('SubscriptionService', () => {
         currentPeriodStart: new Date('2026-01-01'),
       });
       planRepo.findOne
-        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 50 }) // findOne({ gatewayPriceId })
+        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 50 })
         .mockResolvedValue(null);
 
       await service.syncFromGatewaySubscription(buildGatewaySub());
@@ -964,8 +957,8 @@ describe('SubscriptionService', () => {
         currentPeriodStart: new Date('2026-02-01'),
       });
       planRepo.findOne
-        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 10 }) // gatewayPriceId
-        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 10 }); // id
+        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 10 })
+        .mockResolvedValueOnce({ id: 'plan-new', surgeryRequestQuota: 10 });
       quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue({
         id: 'quota-1',
         surgeryRequestsLimit: 40,

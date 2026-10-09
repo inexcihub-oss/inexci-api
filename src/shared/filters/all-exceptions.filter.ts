@@ -44,15 +44,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = HttpStatus.NOT_FOUND;
       message = 'Recurso não encontrado';
     } else if (exception instanceof PaymentGatewayError) {
-      // 502, não o status que a Stripe devolveu: um `No such price` é 400 lá,
-      // mas do lado do cliente a requisição estava correta — quem errou foi a
-      // nossa configuração. Repassar o 400 culparia quem só clicou em "assinar".
       status = HttpStatus.BAD_GATEWAY;
       message =
         'Não foi possível falar com o gateway de pagamento. Tente novamente em instantes; se persistir, acione o suporte informando o requestId.';
-      // O `code` vai no corpo (`resource_missing`, `api_key_expired`, …) para
-      // o suporte fechar o diagnóstico sem acesso ao servidor. A mensagem crua
-      // da Stripe fica só no log: cita IDs internos e não ajuda o usuário.
       extra = { gatewayCode: exception.code };
       this.logger.error(
         `Gateway de pagamento recusou [${exception.code}] em ${request.method} ${request.url}: ${exception.message}`,
@@ -61,9 +55,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (isPayloadTooLargeError(exception)) {
       status = HttpStatus.PAYLOAD_TOO_LARGE;
       message = 'Conteúdo muito grande. Reduza o tamanho do texto ou do anexo.';
-      // `warn`, não `error`: o corpo excedeu o limite configurado — é entrada
-      // do cliente, não falha da aplicação, e não deve poluir o alerta de
-      // exceções não tratadas.
       this.logger.warn(`Payload too large: ${request.method} ${request.url}`);
     } else {
       this.logger.error(
@@ -86,18 +77,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 }
 
-/**
- * Corpo maior que o limite do `body-parser` (100kb por padrão).
- *
- * O erro vem do `raw-body`/`body-parser`, que é anterior ao Nest no pipeline:
- * não é `HttpException` e caía no `else` genérico, virando um 500 "Erro
- * interno do servidor" com stack de "Unhandled exception" — o cliente não
- * ficava sabendo que o problema era o tamanho do que ele mandou.
- *
- * A identificação é por `type: 'entity.too.large'` (a marca do `raw-body`) com
- * o `statusCode`/`status` 413 como rede de segurança para outras camadas que
- * lancem o mesmo erro do `http-errors` sem o `type`.
- */
 function isPayloadTooLargeError(exception: unknown): boolean {
   if (typeof exception !== 'object' || exception === null) return false;
   const erro = exception as {
@@ -112,10 +91,6 @@ function isPayloadTooLargeError(exception: unknown): boolean {
   );
 }
 
-/**
- * Campos que o filtro reconstrói por conta própria — replicá-los a partir do
- * corpo da exceção só criaria divergência.
- */
 const CAMPOS_RESERVADOS = new Set([
   'statusCode',
   'message',
@@ -126,15 +101,6 @@ const CAMPOS_RESERVADOS = new Set([
   'error',
 ]);
 
-/**
- * Preserva as chaves extras que a exceção declarou (`reason` do
- * `BillingRequiredException`, `pendencies[]` dos bloqueios de transição).
- *
- * Antes o filtro montava a resposta do zero e só repassava `message`/`details`,
- * o que apagava esses campos no caminho: o frontend recebia um 402/400 sem o
- * motivo e só conseguia exibir um erro genérico. A propagação é aditiva — os
- * campos reservados acima continuam vindo do próprio filtro.
- */
 function pickExtraFields(
   res: Record<string, unknown>,
 ): Record<string, unknown> {

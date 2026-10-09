@@ -12,17 +12,6 @@ import { AppointmentActivityRepository } from 'src/database/repositories/appoint
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 
-/**
- * E2E do Sprint 4 — exercita o webhook Twilio recebendo:
- *  - imagem (image/jpeg) → categoria `image`,
- *  - PDF (application/pdf) → categoria `pdf`,
- *  - mensagem de texto sem mídia (intent reply 1/2/3),
- *
- * e garante que o controller normaliza corretamente o payload antes de
- * delegar ao `AiOrchestratorService.enqueueInboundMessage`. O processamento
- * pesado (download, OCR, classifier, vision fallback) é coberto por specs
- * unitárias dedicadas — aqui validamos apenas o contrato HTTP.
- */
 describe('Webhook Documentos (e2e)', () => {
   let app: INestApplication;
   const enqueueInboundMessage = jest.fn();
@@ -54,8 +43,6 @@ describe('Webhook Documentos (e2e)', () => {
           provide: SurgeryRequestActivityRepository,
           useValue: {},
         },
-        // Confirmação/cancelamento de consulta pelos botões do WhatsApp — o
-        // contrato testado aqui não exercita esse caminho.
         { provide: AppointmentRepository, useValue: {} },
         {
           provide: AppointmentActivityRepository,

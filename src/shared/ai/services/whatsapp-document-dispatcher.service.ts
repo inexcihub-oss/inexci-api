@@ -14,45 +14,19 @@ const PENDING_DOC_REDIS_KEY_PREFIX = 'doc:pending:';
 
 export type DocumentIntent = 'attach' | 'create_sc' | 'create_patient';
 
-/**
- * Estado guardado por telefone enquanto o assistente espera o usuário
- * decidir o que fazer com a mídia recém enviada (anexar a uma SC, criar SC
- * a partir dela ou cadastrar paciente). Esse staging permite separar a
- * etapa de DOWNLOAD da etapa de PROCESSAMENTO PESADO (OCR/LLM).
- *
- * Persistido preferencialmente no Redis (`AiRedisService`) para sobreviver
- * a restarts do worker; cai num cache in-memory quando Redis indisponível.
- */
 export interface PendingDocumentRequest {
-  /** Path completo no bucket R2 (ex.: `whatsapp-tmp/<uuid>-<file>`). */
   storagePath: string;
-  /** MIME efetivo retornado pelo Twilio (ex.: `application/pdf`). */
   contentType: string;
-  /** Tamanho em bytes do arquivo baixado. */
   sizeBytes: number;
-  /** Nome do arquivo já normalizado pelo media service. */
   fileName: string;
-  /** `image` ou `pdf` — determinado pelo MIME. */
   kind: 'image' | 'pdf';
-  /** Epoch ms em que foi recebido pelo webhook. */
   receivedAt: number;
-  /** Epoch ms a partir do qual a pendência deve ser descartada. */
   expiresAt: number;
-  /** SID da mensagem Twilio (correlation id). */
   messageSid: string;
 
-  // ---- Estendido no Sprint 3 (OCR + classificador) ----
-  /** Intent reconhecida pelo dispatcher quando o usuário respondeu 1/2/3. */
   intent?: DocumentIntent;
-  /** Resultado do `DocumentClassifierService` (após OCR + LLM). */
   classification?: DocumentClassification;
-  /** Epoch ms em que a classificação foi concluída. */
   classifiedAt?: number;
-  /**
-   * Texto OCR já tokenizado pelo PII Vault. Mantido junto da pendência
-   * para que tools (`attach_document_from_whatsapp`) possam, no futuro,
-   * gravar o laudo extraído sem chamar OCR de novo.
-   */
   ocrTokenizedText?: string;
 }
 
@@ -93,11 +67,6 @@ export class WhatsappDocumentDispatcherService {
     return normalized === 'true' || normalized === '1';
   }
 
-  /**
-   * Para um conjunto de mídias inbound, retorna a primeira que é imagem ou
-   * PDF (ignora áudio — esse fluxo permanece com o STT). Múltiplos arquivos
-   * na mesma mensagem WhatsApp são raros; pegamos o primeiro.
-   */
   pickDocumentMedia(
     media:
       | Array<{
@@ -111,8 +80,6 @@ export class WhatsappDocumentDispatcherService {
     const target = media.find((item) => {
       if (item.category === 'image' || item.category === 'pdf') return true;
       if (item.category === 'audio') return false;
-      // category === 'other' — checa MIME por garantia (clientes antigos
-      // mandavam tudo como `other`).
       return (
         this.mediaService.isImageMime(item.contentType) ||
         this.mediaService.isPdfMime(item.contentType)
@@ -126,11 +93,6 @@ export class WhatsappDocumentDispatcherService {
     };
   }
 
-  /**
-   * Baixa o documento, persiste na pasta tmp e grava a pendência por
-   * telefone. Não chama OCR nem LLM. Usado pelo orchestrator antes de
-   * decidir se deve perguntar a intent ao usuário.
-   */
   async stageInboundDocument(opts: {
     media: InboundWhatsappMedia;
     phone: string;
@@ -205,11 +167,6 @@ export class WhatsappDocumentDispatcherService {
     }
   }
 
-  /**
-   * Mensagem amigável para o usuário quando o staging do documento falha.
-   * Mantém o tom didático (mostra alternativa) — espelha o padrão usado em
-   * `buildAudioFailureUserMessage` no orchestrator.
-   */
   buildDownloadFailureMessage(reason: PendingDownloadFailureReason): string {
     switch (reason) {
       case 'DOC_NOT_ALLOWED':
@@ -225,14 +182,6 @@ export class WhatsappDocumentDispatcherService {
     }
   }
 
-  /**
-   * Mensagem do "intent gate" enviada ao usuário após o documento ser
-   * staged. Texto livre, conversacional: sugere as opções mais comuns mas
-   * deixa claro que o usuário pode descrever outra coisa. As opções
-   * numeradas continuam funcionando porque `parseIntent` reconhece tanto
-   * dígitos quanto verbos ("anexar", "criar SC", "cadastrar paciente",
-   * "cancelar").
-   */
   buildIntentPromptMessage(): string {
     return [
       'Recebi seu arquivo, posso te ajudar a usá-lo. Algumas formas comuns:',
@@ -245,11 +194,6 @@ export class WhatsappDocumentDispatcherService {
     ].join('\n');
   }
 
-  /**
-   * Tenta interpretar a resposta do usuário ao intent prompt. Retorna
-   * `null` se o input não for claramente uma intent (mantém o fluxo de
-   * conversa normal).
-   */
   parseIntent(
     input: string | null | undefined,
   ): DocumentIntent | 'cancel' | null {
@@ -346,11 +290,6 @@ export class WhatsappDocumentDispatcherService {
     this.inMemoryStore.delete(phone);
   }
 
-  /**
-   * Apaga o arquivo da pasta tmp (após anexar definitivo, descartar ou
-   * expirar). Falhas são logadas mas não propagadas — o cron ainda limpa
-   * eventuais resíduos.
-   */
   async deleteStoragePath(storagePath: string): Promise<void> {
     if (!storagePath) return;
     try {

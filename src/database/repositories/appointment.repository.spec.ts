@@ -1,11 +1,6 @@
 import { AppointmentRepository } from './appointment.repository';
 import { AppointmentStatus } from '../entities/appointment.entity';
 
-/**
- * `findAgenda` monta uma janela semiaberta e opcional em cada ponta: a agenda
- * (mês/semana/dia) passa as duas datas, a aba "Próximas" só o início e a aba
- * "Realizadas" nenhuma — filtrando por status e invertendo a ordem.
- */
 describe('AppointmentRepository.findAgenda', () => {
   function buildRepo() {
     const qb = {
@@ -32,7 +27,6 @@ describe('AppointmentRepository.findAgenda', () => {
     return { repo, qb };
   }
 
-  /** Cláusulas passadas ao `andWhere`, em uma string só. */
   const clauses = (qb: { andWhere: jest.Mock }) =>
     qb.andWhere.mock.calls.map((c) => c[0] as string).join(' | ');
 
@@ -103,9 +97,6 @@ describe('AppointmentRepository.findAgenda', () => {
     expect(clauses(qb)).not.toContain(':...statuses');
   });
 
-  // D-15: `getManyAndCount` aplica o `take` só às linhas — a contagem é a do
-  // recorte inteiro. Com `getMany` + `records.length`, o `total` era o próprio
-  // teto e o corte ficava indistinguível de uma lista completa.
   it('devolve a contagem total do recorte, independente do teto da página', async () => {
     const { repo, qb } = buildRepo();
     qb.getManyAndCount.mockResolvedValue([[{ id: 'a-1' }], 1103]);
@@ -122,10 +113,6 @@ describe('AppointmentRepository.findAgenda', () => {
     expect(resultado).toEqual({ records: [{ id: 'a-1' }], total: 1103 });
   });
 
-  // A agenda é liberada por `Permission.AGENDA`, que não implica acesso ao
-  // prontuário. Trazer o paciente inteiro entregava CPF, endereço, nascimento
-  // e `medicalNotes` de todo paciente da janela a quem só marca consulta — e o
-  // frontend descarta tudo menos o nome (`mapAppointment`).
   it('traz do paciente apenas id e nome', async () => {
     const { repo, qb } = buildRepo();
 
@@ -226,8 +213,6 @@ describe('AppointmentRepository.findByPatient', () => {
     return { repo: new AppointmentRepository(dataSource as never), qb };
   }
 
-  // Mesmo motivo do `findAgenda`: o histórico do paciente alimenta a aba
-  // "Consultas", que mostra data, tipo e status — nunca os dados cadastrais.
   it('traz do paciente apenas id e nome', async () => {
     const { repo, qb } = buildRepo();
 
@@ -243,13 +228,6 @@ describe('AppointmentRepository.findByPatient', () => {
   });
 });
 
-/**
- * O TypeORM aplica o filtro de soft delete também às relações: sem
- * `withDeleted()`, a consulta de uma clínica excluída voltaria com
- * `clinic: null` — exatamente o que o soft delete deveria evitar. E como
- * `withDeleted()` vale para a query inteira, o filtro do root precisa voltar
- * na mão, senão consultas excluídas apareceriam na agenda.
- */
 describe('AppointmentRepository — join da clínica', () => {
   const qb = {
     leftJoin: jest.fn(),
@@ -276,9 +254,6 @@ describe('AppointmentRepository — join da clínica', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Encadeamento do query builder: todo método fluente devolve o próprio qb.
-    // Os terminais (`getManyAndCount`, `getMany`, `getOne`) ficam de fora — se
-    // devolvessem o qb, o `await` nunca resolveria.
     qb.getManyAndCount.mockResolvedValue([[], 0]);
     qb.getMany.mockResolvedValue([]);
     qb.getOne.mockResolvedValue(null);
@@ -294,8 +269,6 @@ describe('AppointmentRepository — join da clínica', () => {
     repo = new AppointmentRepository(dataSource);
   });
 
-  // MIG-03: sala, convênio e quem agendou entram no card com id e nome — nada
-  // do cadastro do usuário que agendou (CPF, telefone, endereço).
   it.each([
     [
       'findAgenda',
@@ -342,12 +315,6 @@ describe('AppointmentRepository — join da clínica', () => {
     expect(qb.andWhere).toHaveBeenCalledWith('appointment.deletedAt IS NULL');
   });
 
-  /**
-   * `.where()` limpa `expressionMap.wheres`: se o filtro de soft delete do
-   * root for registrado antes dele, some sem aviso e a consulta excluída
-   * volta para a agenda. Só a ORDEM protege isso — `toHaveBeenCalledWith`
-   * passaria igual, esteja o `andWhere` antes ou depois do `.where()`.
-   */
   function ordemDoFiltroDeSoftDelete(): { where: number; softDelete: number } {
     const indice = qb.andWhere.mock.calls.findIndex(
       ([condicao]) => condicao === 'appointment.deletedAt IS NULL',
@@ -398,12 +365,6 @@ describe('AppointmentRepository — join da clínica', () => {
     expect(softDelete).toBeGreaterThan(where);
   });
 
-  // I2: `withDeleted()` vale para a query inteira — sem uma condição própria
-  // no join, o paciente soft-deletado voltaria a aparecer (nome exibido na
-  // agenda, no histórico e no GET por id), quebrando o comportamento anterior
-  // ao soft delete de paciente. A assimetria é proposital: só o paciente
-  // ganha a condição no join; a clínica excluída deve mesmo continuar
-  // aparecendo (é o próprio propósito do `withDeleted()` aqui).
   it('junta o paciente com a condição de soft delete e a clínica sem nenhuma', async () => {
     await repo.findAgenda('owner-1', ['doctor-1'], { take: 10 });
 
@@ -414,15 +375,6 @@ describe('AppointmentRepository — join da clínica', () => {
     );
     expect(qb.leftJoin).toHaveBeenCalledWith('appointment.clinic', 'clinic');
   });
-  /**
-   * O TypeORM fixa a condição de soft delete do join no instante em que
-   * `leftJoin` é chamado, lendo `expressionMap.withDeleted` naquele momento
-   * (0.3.28, `SelectQueryBuilder.join`). Com `withDeleted()` DEPOIS dos joins,
-   * o SQL sai com `AND clinic.deleted_at IS NULL` e a clínica excluída volta
-   * como `null` — o histórico perde o nome da unidade, que é exatamente o que
-   * o soft delete existe para preservar. Só a ORDEM protege isso:
-   * `toHaveBeenCalled()` passa dos dois jeitos.
-   */
   function withDeletedVeioAntesDosJoins(): boolean {
     return (
       qb.withDeleted.mock.invocationCallOrder[0] <
@@ -449,10 +401,6 @@ describe('AppointmentRepository — join da clínica', () => {
   });
 });
 
-/**
- * Resposta do paciente ao lembrete de consulta pelo WhatsApp: o webhook só tem
- * o telefone dele, e é por ele que a consulta é localizada.
- */
 describe('AppointmentRepository.findAtivaPorTelefone', () => {
   function buildRepo(resultado: unknown = null) {
     const qb = {
@@ -494,7 +442,6 @@ describe('AppointmentRepository.findAtivaPorTelefone', () => {
     );
   });
 
-  /** Consulta cancelada ou já realizada não é o que o paciente está respondendo. */
   it('só considera consultas ativas na agenda', async () => {
     const { repo, qb } = buildRepo();
 
@@ -519,13 +466,6 @@ describe('AppointmentRepository.findAtivaPorTelefone', () => {
     expect(clauses(qb)).toContain('appointment.scheduledAt < :to');
   });
 
-  /**
-   * A janela olha 6h para trás, então uma consulta que já aconteceu mas que
-   * ninguém marcou como realizada continua ativa e cai dentro dela. Por horário
-   * ela vinha primeiro e roubava a resposta do lembrete da consulta seguinte —
-   * o paciente cancelava a de amanhã e o sistema cancelava a de hoje de manhã.
-   * Quem desempata é o lembrete: o respondido é o último que saiu.
-   */
   it('elege a consulta cujo lembrete saiu por último, não a mais antiga', async () => {
     const { repo, qb } = buildRepo();
 
@@ -549,10 +489,6 @@ describe('AppointmentRepository.findAtivaPorTelefone', () => {
     expect(qb.getOne).not.toHaveBeenCalled();
   });
 
-  /**
-   * A resposta ao lembrete é respondida em texto livre com o local do
-   * atendimento — daí trazer o endereço junto, em vez de uma segunda consulta.
-   */
   it('traz o endereço da unidade para montar a resposta ao paciente', async () => {
     const { repo, qb } = buildRepo();
 
@@ -590,8 +526,6 @@ describe('AppointmentRepository.hasOverlap', () => {
     qb.getCount.mockResolvedValue(0);
   });
 
-  // MIG-03: falta não segura o horário — a recepção usa o horário vago sem
-  // precisar marcar encaixe.
   it('realizada ocupa o horário; cancelada e falta não', async () => {
     await repo.hasOverlap('d-1', new Date(), new Date());
 

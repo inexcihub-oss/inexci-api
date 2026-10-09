@@ -25,10 +25,6 @@ export class ClinicsService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  /**
-   * Garante os sete dias na saída. Sem isso, o consumidor precisaria de
-   * `hours.mon ?? []` em todo acesso — e a coluna nasce com `{}` por default.
-   */
   private comGradeNormalizada(clinic: Clinic): Clinic {
     clinic.businessHours = normalizeBusinessHours(clinic.businessHours);
     return clinic;
@@ -86,9 +82,6 @@ export class ClinicsService {
     if (!clinic) throw new NotFoundException('Clínica não encontrada');
     await this.accessControlService.assertSameOwner(userId, clinic.ownerId);
 
-    // A grade é substituída inteira quando vem no payload; ausente, fica como
-    // está. Merge parcial de dias não existe de propósito — o editor sempre
-    // manda a semana completa, e um merge esconderia a remoção de um bloco.
     const dados: Partial<Clinic> = { ...data } as Partial<Clinic>;
     if (data.businessHours !== undefined) {
       dados.businessHours = normalizeBusinessHours(data.businessHours);
@@ -102,8 +95,6 @@ export class ClinicsService {
     if (!clinic) throw new NotFoundException('Clínica não encontrada');
     await this.accessControlService.assertSameOwner(userId, clinic.ownerId);
 
-    // `BaseRepository.delete` já faz soft delete quando a entidade tem
-    // `deletedAt` — a consulta antiga continua apontando para a clínica.
     await this.clinicRepository.delete(id);
   }
 

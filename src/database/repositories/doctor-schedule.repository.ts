@@ -3,7 +3,6 @@ import { DataSource, DeepPartial, QueryDeepPartialEntity } from 'typeorm';
 import { DoctorSchedule } from '../entities/doctor-schedule.entity';
 import { BaseRepository } from './base.repository';
 
-/** Operações da grade dentro da transação travada por profissional. */
 export interface DoctorScheduleTx {
   findActiveByDoctor(doctorId: string): Promise<DoctorSchedule[]>;
   create(data: DeepPartial<DoctorSchedule>): Promise<DoctorSchedule>;
@@ -19,7 +18,6 @@ export class DoctorScheduleRepository extends BaseRepository<DoctorSchedule> {
     super(dataSource.getRepository(DoctorSchedule));
   }
 
-  /** Grades do profissional (ativas e inativas), por dia e horário. */
   findByDoctor(ownerId: string, doctorId: string): Promise<DoctorSchedule[]> {
     return this.repository.find({
       where: { ownerId, doctorId },
@@ -28,7 +26,6 @@ export class DoctorScheduleRepository extends BaseRepository<DoctorSchedule> {
     });
   }
 
-  /** Grades ativas de um dia da semana, para expandir slots e checar a grade. */
   findActiveByDoctor(doctorId: string): Promise<DoctorSchedule[]> {
     return this.repository.find({
       where: { doctorId, active: true },
@@ -36,12 +33,6 @@ export class DoctorScheduleRepository extends BaseRepository<DoctorSchedule> {
     });
   }
 
-  /**
-   * Roda `fn` numa transação serializada por profissional
-   * (`pg_advisory_xact_lock`): checar sobreposição e gravar viram uma coisa
-   * só, e dois POSTs simultâneos do mesmo profissional não criam períodos
-   * sobrepostos. A trava cai no commit/rollback.
-   */
   comTravaDoProfissional<T>(
     doctorId: string,
     fn: (tx: DoctorScheduleTx) => Promise<T>,

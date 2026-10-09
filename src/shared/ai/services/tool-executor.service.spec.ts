@@ -5,8 +5,6 @@ import {
 import { AiTool } from '../tools/tool.interface';
 import { ALL_PERMISSIONS, Permission } from '../../permissions';
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
 function makeCall(name: string, args: Record<string, any> = {}) {
   return {
     id: `call-${name}`,
@@ -37,7 +35,6 @@ function buildRegistryMock(tools: AiTool[]) {
       if (!tool) return `Ferramenta "${name}" não encontrada.`;
       return tool.execute(args, ctx);
     },
-    // Expõe o mapa interno para o ToolExecutorService construir o índice
     tools: map,
   };
 }
@@ -82,8 +79,6 @@ const CONTEXT = {
   ownerId: 'owner-1',
 };
 
-// ─── testes ───────────────────────────────────────────────────────────────────
-
 describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
   describe('buildCacheKey', () => {
     it('gera chave com prefixo, owner, toolName e args serializados', () => {
@@ -118,8 +113,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(key).toMatch(/^tcache:anon:search_cid_codes:/);
     });
   });
-
-  // ─── cache hit / miss ─────────────────────────────────────────────────────
 
   describe('cache in-memory (Redis offline)', () => {
     it('cache miss: chama execute e armazena resultado', async () => {
@@ -204,8 +197,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
     });
   });
 
-  // ─── invalidação ─────────────────────────────────────────────────────────
-
   describe('invalidação por mutation', () => {
     it('invalida cache de list_sc_creation_catalog após patient_draft_commit', async () => {
       const catalogFn = jest
@@ -225,19 +216,16 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
         buildRedisOffline() as any,
       );
 
-      // Primeira chamada ao catálogo → cache miss → armazena 'catalogo v1'
       await svc.executeMany(
         [makeCall('list_sc_creation_catalog', {})],
         CONTEXT,
       );
 
-      // Commit de paciente → deve invalidar o cache do catálogo
       await svc.executeMany(
         [makeCall('patient_draft_commit', { confirm: true })],
         CONTEXT,
       );
 
-      // Segunda chamada ao catálogo → cache foi invalidado → chama execute novamente
       const results = await svc.executeMany(
         [makeCall('list_sc_creation_catalog', {})],
         CONTEXT,
@@ -253,7 +241,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
 
       const tussToolMock = buildTool('search_tuss_codes', tussFn, {
         ttlSeconds: 3600,
-        // NÃO tem invalidatesOn → nenhuma tool invalida este cache
       });
       const unrelatedTool = buildTool(
         'some_unrelated_commit',
@@ -275,7 +262,7 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
         CONTEXT,
       );
 
-      expect(tussFn).toHaveBeenCalledTimes(1); // cache ainda válido
+      expect(tussFn).toHaveBeenCalledTimes(1);
     });
 
     it('invalida apenas o owner correto: caches de outros owners permanecem', async () => {
@@ -296,7 +283,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       const ctxOwner1 = { ...CONTEXT, ownerId: 'owner-1' };
       const ctxOwner2 = { ...CONTEXT, ownerId: 'owner-2' };
 
-      // Popula cache para os dois owners
       await svc.executeMany(
         [makeCall('list_sc_creation_catalog', {})],
         ctxOwner1,
@@ -307,17 +293,14 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       );
       expect(executeFn).toHaveBeenCalledTimes(2);
 
-      // Commit para owner-1 invalida só o cache de owner-1
       await svc.executeMany([makeCall('patient_draft_commit', {})], ctxOwner1);
 
-      // owner-1: cache invalidado → chama execute novamente
       await svc.executeMany(
         [makeCall('list_sc_creation_catalog', {})],
         ctxOwner1,
       );
       expect(executeFn).toHaveBeenCalledTimes(3);
 
-      // owner-2: cache ainda válido → não chama execute
       await svc.executeMany(
         [makeCall('list_sc_creation_catalog', {})],
         ctxOwner2,
@@ -325,8 +308,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(executeFn).toHaveBeenCalledTimes(3);
     });
   });
-
-  // ─── cache Redis ──────────────────────────────────────────────────────────
 
   describe('Redis online: usa Redis como primário', () => {
     it('armazena no Redis quando disponível e retorna no hit', async () => {
@@ -342,7 +323,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
         redisMock as any,
       );
 
-      // Miss → executa e armazena no Redis
       await svc.executeMany(
         [makeCall('search_tuss_codes', { query: 'joelho' })],
         CONTEXT,
@@ -351,7 +331,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(redisMock.cacheSet).toHaveBeenCalledTimes(1);
       expect(executeFn).toHaveBeenCalledTimes(1);
 
-      // Hit → não chama execute
       await svc.executeMany(
         [makeCall('search_tuss_codes', { query: 'joelho' })],
         CONTEXT,
@@ -361,8 +340,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(executeFn).toHaveBeenCalledTimes(1);
     });
   });
-
-  // ─── permissão de tool ────────────────────────────────────────────────────
 
   describe('permissão de tool', () => {
     function buildGuardedTool(executeFn: jest.Mock): AiTool {
@@ -434,12 +411,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(execute).not.toHaveBeenCalled();
     });
 
-    /**
-     * Lista = "qualquer uma destas" (OR), igual ao `@RequirePermission(...)` do
-     * HTTP. `ALL_PERMISSIONS` é como as tools de cadastro transversal
-     * (hospital, convênio) expressam o `@RequireAnyArea()`: pede uma área
-     * qualquer, mas não deixa passar quem não tem nenhuma.
-     */
     function buildTransversalTool(executeFn: jest.Mock): AiTool {
       return {
         ...buildTool('hospital_draft_commit', executeFn),
@@ -481,8 +452,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(execute).not.toHaveBeenCalled();
     });
   });
-
-  // ─── regra de permissão isolada ───────────────────────────────────────────
 
   describe('temPermissaoParaTool', () => {
     it('libera quando a tool não exige nada', () => {

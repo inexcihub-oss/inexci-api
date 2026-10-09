@@ -11,10 +11,6 @@ export function buildHealthPlanDraftCommitTool(
   const { draftService, healthPlansService } = deps;
   return {
     name: 'health_plan_draft_commit',
-    // Mesma regra do HTTP: `HealthPlansController.create` herda o
-    // `@RequireAnyArea()` da classe — convênio é cadastro transversal, então
-    // qualquer área cria, mas o colaborador sem área nenhuma não. Excluir
-    // continua sendo ato do admin e não tem tool.
     requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',

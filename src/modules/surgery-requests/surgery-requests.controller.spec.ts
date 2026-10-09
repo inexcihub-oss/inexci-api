@@ -20,7 +20,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ]);
   });
 
-  /** A agenda usa este endpoint para o filtro de médico. */
   it('deixa available-doctors aberto a qualquer autenticado', () => {
     expect(
       reflector.get(
@@ -30,13 +29,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ).toEqual([]);
   });
 
-  /**
-   * Ponte deliberada: quem atende vê as cirurgias do paciente que está
-   * atendendo (aba Histórico / timeline), mas não navega a carteira
-   * cirúrgica da clínica. A metade que o decorator não consegue expressar
-   * (exigir `patientId` quando falta SOLICITACOES) é responsabilidade do
-   * `SurgeryRequestsService.findAll`.
-   */
   it('abre findAll para SOLICITACOES ou ATENDIMENTO', () => {
     expect(
       reflector.get(
@@ -46,7 +38,6 @@ describe('Permissões declaradas no módulo de SC', () => {
     ).toEqual([Permission.SOLICITACOES, Permission.ATENDIMENTO]);
   });
 
-  /** O CidPicker da ficha de atendimento consome este controller. */
   it('não exige solicitações na busca de CID', () => {
     expect(reflector.get(PERMISSIONS_KEY, CidController)).toBeUndefined();
   });

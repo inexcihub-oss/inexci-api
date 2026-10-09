@@ -11,13 +11,6 @@ import { detokenizeArg } from '../pii/tool-pii-helpers';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { resolveAuthorizedRequest } from './_helpers/resolve-surgery-request';
 
-/**
- * Campos válidos por tipo de draft, com tipo esperado para coerção/validação
- * básica. Usado pela tool `draft_update` para evitar que o LLM grave campos
- * inexistentes.
- *
- * `'any'` indica campos sem restrição de tipo (objetos, arrays, valores livres).
- */
 const VALID_FIELDS_BY_TYPE: Record<
   OperationDraftType,
   Record<string, 'string' | 'number' | 'boolean' | 'string[]' | 'any' | 'null'>
@@ -165,22 +158,8 @@ export interface DraftGenericDeps {
   surgeryRequestRepo: SurgeryRequestRepository;
 }
 
-/**
- * Constrói as três tools globais de draft (sempre registradas após a Fase 5
- * do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`):
- *
- *  - `draft_update`  — atualiza qualquer campo de qualquer draft ativo.
- *  - `draft_status`  — exibe o status e campos do draft atual.
- *  - `draft_cancel`  — cancela o draft ativo.
- *
- * Substituíram os ~70 setters individuais (`*_draft_set_*`) e as
- * 13 tools per-type `*_draft_status` e `*_draft_cancel`, que foram removidos
- * fisicamente do registry — não há mais rollback parcial via feature flag.
- */
 export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
   const { draftService, surgeryRequestRepo } = deps;
-
-  // ─── draft_update ──────────────────────────────────────────────────────────
 
   const draftUpdate: AiTool = {
     name: 'draft_update',
@@ -266,8 +245,6 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
         });
       }
 
-      // O campo surgeryRequestId aponta para um recurso de outro usuario em
-      // potencial: valida o acesso antes de gravar no draft.
       if (fieldName === 'surgeryRequestId') {
         const { error: erroDeAcesso } = await resolveAuthorizedRequest(
           surgeryRequestRepo,
@@ -299,8 +276,6 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
       });
     },
   };
-
-  // ─── draft_status ──────────────────────────────────────────────────────────
 
   const draftStatus: AiTool = {
     name: 'draft_status',
@@ -371,8 +346,6 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
       });
     },
   };
-
-  // ─── draft_cancel ──────────────────────────────────────────────────────────
 
   const draftCancel: AiTool = {
     name: 'draft_cancel',

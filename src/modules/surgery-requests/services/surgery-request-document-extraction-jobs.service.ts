@@ -42,15 +42,8 @@ export interface DocumentExtractionJobData {
     size: number;
     bufferBase64: string;
   };
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
-  /** Fluxos em primeiro plano exibem o resultado no próprio modal. */
   notifyOnCompletion?: boolean;
-  /**
-   * Presente quando o documento é enviado para completar uma SC já
-   * existente (`ApplyDocumentExtractionModal`), em vez de criar uma nova.
-   * Muda o texto e o link da notificação de conclusão.
-   */
   surgeryRequestId?: string;
 }
 

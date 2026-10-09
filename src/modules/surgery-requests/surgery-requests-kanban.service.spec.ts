@@ -1,9 +1,5 @@
 import { SurgeryRequestsService } from './surgery-requests.service';
 
-/**
- * Cobertura do endpoint enxuto do kanban (item 3.4): payload reduzido +
- * contadores de pendência já embutidos (sem o round-trip a batch-summary).
- */
 describe('SurgeryRequestsService.findAllForKanban', () => {
   const buildRecord = (over: Record<string, unknown> = {}) => ({
     id: 'sr-1',
@@ -126,13 +122,11 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
     );
     expect(result.total).toBe(1);
     const card = result.records[0] as Record<string, unknown>;
-    // Contadores vêm do validador em lote, não do cálculo simplificado.
     expect(card.pendenciesCount).toBe(2);
     expect(card.totalPendencies).toBe(5);
     expect(card.canAdvance).toBe(false);
     expect(card.patient).toEqual({ id: 'p-1', name: 'Paciente' });
     expect(card.procedure).toEqual({ id: 'proc-1', name: 'Artroscopia' });
-    // Campos pesados não devem vazar no card enxuto.
     expect(card).not.toHaveProperty('documents');
     expect(card).not.toHaveProperty('completedCount');
   });
@@ -150,21 +144,13 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
     expect(card.canAdvance).toBe(true);
   });
 
-  /**
-   * O filtro de fornecedor do kanban roda no cliente, sobre os cards já
-   * carregados: sem este campo no payload não há o que filtrar. Fornecedor da
-   * SC é o ESCOLHIDO no OPME — mesma definição que a agenda e a tela do
-   * fornecedor já usam.
-   */
   it('leva os fornecedores escolhidos no OPME para o card', async () => {
     const { service, opmeItemRepository } = makeService({
       records: [buildRecord()],
       supplierRows: [
         { surgeryRequestId: 'sr-1', supplierId: 'f-1', supplierName: 'Sintex' },
-        // Dois itens OPME do mesmo fornecedor não podem duplicar a opção.
         { surgeryRequestId: 'sr-1', supplierId: 'f-1', supplierName: 'Sintex' },
         { surgeryRequestId: 'sr-1', supplierId: 'f-2', supplierName: 'Baumer' },
-        // Fornecedor de outra SC não pode vazar para este card.
         { surgeryRequestId: 'sr-9', supplierId: 'f-3', supplierName: 'Outro' },
       ],
     });
@@ -204,10 +190,6 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
     ).not.toHaveBeenCalled();
   });
 
-  /**
-   * SC não tem clínica própria: ela vem da consulta cuja ficha indicou a
-   * cirurgia. O filtro de clínica do kanban depende deste campo.
-   */
   it('leva a clínica da consulta de origem para o card', async () => {
     const { service, clinicalRecordRepository } = makeService({
       records: [buildRecord(), buildRecord({ id: 'sr-2' })],
@@ -217,7 +199,6 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
           clinicId: 'c-1',
           clinicName: 'Unidade Centro',
         },
-        // Linha de outra SC não pode vazar para este card.
         { surgeryRequestId: 'sr-9', clinicId: 'c-9', clinicName: 'Outra' },
       ],
     });
@@ -231,7 +212,6 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       Record<string, unknown>
     >;
     expect(comClinica.clinic).toEqual({ id: 'c-1', name: 'Unidade Centro' });
-    // SC criada fora do atendimento (wizard, documento, WhatsApp).
     expect(semClinica.clinic).toBeNull();
   });
 

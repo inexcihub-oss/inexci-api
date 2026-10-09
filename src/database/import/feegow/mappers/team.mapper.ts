@@ -61,7 +61,6 @@ export interface PlanoEquipe {
   acessos: NovoAcesso[];
 }
 
-/** `conselhos_profissionais.codigo` do Feegow → conselho da INEXCI. */
 const CONSELHOS: Record<string, ProfessionalCouncil> = {
   CRM: ProfessionalCouncil.CRM,
   CRP: ProfessionalCouncil.CRP,
@@ -74,20 +73,9 @@ const CONSELHOS: Record<string, ProfessionalCouncil> = {
   CREF: ProfessionalCouncil.CREF,
 };
 
-/**
- * Ocupações que não são de médico mesmo citando uma área médica
- * ("Instrumentação Cirúrgica", "Técnico em Radiologia") ou de outro conselho
- * que a INEXCI não tem (CRMV, CRF, CRBio): nunca viram CRM. Checado depois
- * das profissões, porque "Técnico de Enfermagem" é COREN.
- */
 const NAO_DEDUZ =
   /instrument|tecnic|tecnolog|auxiliar|assistente|veterin|farmac|biolog/;
 
-/**
- * Especialidades que não são de médico → o conselho da profissão. Vem antes
- * da lista médica porque "Enfermagem (Técnico)" ou "Nutrição clínica" não
- * podem cair em CRM.
- */
 const CONSELHO_DA_PROFISSAO: [RegExp, ProfessionalCouncil][] = [
   [/enferm/, ProfessionalCouncil.COREN],
   [/nutri/, ProfessionalCouncil.CRN],
@@ -102,11 +90,9 @@ const CONSELHO_DA_PROFISSAO: [RegExp, ProfessionalCouncil][] = [
   [/educacao fisica|personal/, ProfessionalCouncil.CREF],
 ];
 
-/** Especialidades médicas reconhecidas (lista fechada: na dúvida, OUTRO). */
 const ESPECIALIDADE_MEDICA =
   /medicina|clinica (geral|medica)|ortoped|traumato|cirurgi|cardiolog|dermatolog|endocrinolog|gastroenterolog|geriatr|ginecolog|obstetr|hematolog|infectolog|mastolog|nefrolog|neurolog|neurocirurg|oftalmolog|oncolog|otorrino|pediatr|pneumolog|psiquiatr|radiolog|reumatolog|urolog|anestesiolog|angiolog|coloproctolog|nutrolog|fisiatr|homeopat|acupuntura medica/;
 
-/** `null` = não reconhecida; `'veto'` = ocupação que impede deduzir CRM. */
 function conselhoDeUmaEspecialidade(
   especialidade: string,
 ): ProfessionalCouncil | 'veto' | null {
@@ -118,16 +104,6 @@ function conselhoDeUmaEspecialidade(
   return ESPECIALIDADE_MEDICA.test(e) ? ProfessionalCouncil.CRM : null;
 }
 
-/**
- * Conselho deduzido das especialidades, para profissional que veio do Feegow
- * sem conselho nenhum. Profissão não médica reconhecida → o conselho dela;
- * especialidade médica reconhecida → CRM; o resto → `null` (fica OUTRO).
- * Lista fechada de propósito: CRM dá atos privativos (receita, atestado,
- * indicação cirúrgica), então só entra quem a especialidade deixa claro.
- * Com várias especialidades, as desconhecidas são ignoradas ("Ortopedia" +
- * "Acupuntura" → CRM); conflito entre reconhecidas, ou uma ocupação de
- * `NAO_DEDUZ` no meio, → OUTRO.
- */
 export function conselhoPelaEspecialidade(
   especialidades: string | null | undefined | (string | null | undefined)[],
 ): ProfessionalCouncil | null {
@@ -140,10 +116,6 @@ export function conselhoPelaEspecialidade(
   return [...conselhos][0] as ProfessionalCouncil;
 }
 
-/**
- * Código do conselho no Feegow → chave de `CONSELHOS`. O cadastro às vezes
- * traz a UF junto ("CRM-SP", "CRM/RJ", "CRM."): vale a sigla do começo.
- */
 function siglaDoConselho(codigo: string | null | undefined): string {
   return (codigo ?? '')
     .normalize('NFD')
@@ -153,7 +125,6 @@ function siglaDoConselho(codigo: string | null | undefined): string {
     .match(/^[A-Z]*/)![0];
 }
 
-/** Especialidades distintas, juntas até caber na coluna sem cortar nome. */
 function juntarEspecialidades(nomes: string[], max: number): string | null {
   const unicos: string[] = [];
   const chaves = new Set<string>();
@@ -177,7 +148,6 @@ interface Pessoa {
   idOrigem: string;
   nome: string | null;
   email: string | null;
-  /** Havia e-mail válido, mas maior que `users.email` (descartado). */
   emailLongo: boolean;
   telefone: string | null;
   cpf: string | null;
@@ -186,26 +156,11 @@ interface Pessoa {
   ativo: boolean;
   excluido: boolean;
   perfil: Omit<NovoPerfil, 'id' | 'userId'> | null;
-  /** Conselho veio da especialidade, não do Feegow. */
   conselhoDeduzido?: boolean;
-  /** Código de conselho do Feegow que a INEXCI não tem (CRMV, CRF…). */
   conselhoDesconhecido?: string | null;
   permissoes: Permission[];
 }
 
-/**
- * Equipe: cada profissional e funcionário do Feegow vira (ou casa com) um
- * usuário da INEXCI.
- *
- * - Casa com usuário existente **da mesma conta** pelo e-mail do export (ou
- *   pelo `--mapear`). É assim que o dono entra: ele já fez o cadastro.
- * - Senão, cria colaborador `pending` (sem senha — o admin reenvia o convite
- *   pela tela) ou `inactive` se estava desativado no Feegow.
- * - Profissional ganha `doctor_profile` com o conselho do Feegow; sem conselho
- *   → `OUTRO`. Número sem UF (o Feegow não guarda a UF do registro).
- * - Todo colaborador fica vinculado a todo profissional: o Feegow não tem esse
- *   recorte, todo mundo via tudo.
- */
 export function planejarEquipe(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -213,9 +168,6 @@ export function planejarEquipe(
   const rel = ctx.relatorio;
   const plano: PlanoEquipe = { usuarios: [], perfis: [], acessos: [] };
   const telefonesReservados = new Set(ctx.telefonesEmUso);
-  // E-mail é único (`uq_users_email`). Os do banco já caem no casamento
-  // acima; os que este plano vai criar ficam reservados como os telefones,
-  // senão dois cadastros do export com o mesmo e-mail derrubariam o INSERT.
   const emailsReservados = new Map<string, string>();
 
   const pessoas = [...lerProfissionais(exp), ...lerFuncionarios(exp)];
@@ -251,8 +203,6 @@ export function planejarEquipe(
     const existente = email ? ctx.usuariosPorEmail.get(email) : undefined;
 
     if (existente?.excluido) {
-      // Ex-colaborador excluído na INEXCI: casar ressuscitaria vínculo com um
-      // usuário morto, e criar outro esbarra em `uq_users_email`.
       rel.rejeitar(
         rotulo,
         p.idOrigem,
@@ -366,9 +316,6 @@ export function planejarEquipe(
           `sem conselho no Feegow — entra como ${p.perfil.council}, deduzido da especialidade "${p.perfil.specialty}"; confira na tela de colaboradores`,
         );
       }
-      // Documento e indicação cirúrgica exigem número **e** UF
-      // (`hasCouncilRegistry`). O Feegow não guarda a UF: todo CRM/CRO entra
-      // bloqueado até alguém completar o registro — o relatório tem que dizer.
       if (
         isClinicalDocumentIssuerProfile(p.perfil) &&
         !hasCouncilRegistry(p.perfil)
@@ -408,16 +355,6 @@ export function planejarEquipe(
   return plano;
 }
 
-/**
- * O dono da conta (o médico que assina a INEXCI) só casa com o profissional
- * dele no Feegow se o e-mail for o mesmo ou houver `--mapear`. Sem isso, ele
- * entraria como um colaborador novo (duplicado) e as consultas, fichas e
- * pacientes dele ficariam em nome desse outro usuário. Aborta a fase,
- * dizendo como corrigir; `--dono-nao-profissional` desliga para a conta cujo
- * dono não atende.
- *
- * Sem banco (`--sem-banco`) o e-mail do dono é desconhecido: só avisa.
- */
 function conferirDonoProfissional(
   pessoas: Pessoa[],
   ctx: ContextoImportacao,
@@ -476,8 +413,6 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
     const codigo = siglaDoConselho(conselhoPorId.get(p.conselho_id ?? ''));
     const especialidades = especialidadesPorProf.get(p.id ?? '') ?? [];
     const doFeegow = CONSELHOS[codigo];
-    // Só deduz quem veio sem conselho: um conselho que a INEXCI não tem
-    // (CRMV, CRF…) fica OUTRO, nunca vira CRM pela especialidade.
     const deduzido = codigo ? null : conselhoPelaEspecialidade(especialidades);
     const council = doFeegow ?? deduzido ?? ProfessionalCouncil.OUTRO;
     return {
@@ -513,18 +448,11 @@ function lerProfissionais(exp: ExportFeegow): Pessoa[] {
         codigo && !doFeegow
           ? (conselhoPorId.get(p.conselho_id ?? '') ?? codigo).trim()
           : null,
-      // O perfil já dá as áreas (agenda + atendimento, e solicitações se CRM).
       permissoes: [],
     };
   });
 }
 
-/**
- * Chave do Feegow que permite alterar usuários. Quem a tem administra a equipe
- * lá e ganha Administração aqui. Mais robusto que exigir o perfil "acesso
- * master" inteiro: no export deste cliente, os funcionários administradores
- * têm 677 das 678 chaves do perfil (falta só excluir usuário).
- */
 export const CHAVE_GERIR_USUARIOS = 'usuariosA';
 
 function lerFuncionarios(exp: ExportFeegow): Pessoa[] {
@@ -538,8 +466,6 @@ function lerFuncionarios(exp: ExportFeegow): Pessoa[] {
   return exp.tabela('funcionarios').map((f) => {
     const login = loginPorFuncionario.get(f.id);
     const permissoes = conjuntoDePermissoes(login?.permissoes);
-    // Recepção agenda; quem gere usuários no Feegow também administra aqui.
-    // Ajustável na tela depois da carga.
     const administra = permissoes.has(CHAVE_GERIR_USUARIOS);
     return {
       tipo: 'func' as const,
@@ -561,7 +487,6 @@ function lerFuncionarios(exp: ExportFeegow): Pessoa[] {
   });
 }
 
-/** `|agendaV|, |agendaI|, ...` → conjunto de chaves. */
 export function conjuntoDePermissoes(
   texto: string | null | undefined,
 ): Set<string> {
@@ -578,12 +503,6 @@ export function conjuntoDePermissoes(
   );
 }
 
-/**
- * Usuário do Feegow (`usuarios.id`, o `usuario_id`/`usuario` dos agendamentos
- * e do log) → uuid do usuário importado. Um usuário do Feegow é um
- * profissional ou um funcionário (`tipo_usuario` + `id_relativo`). Fora do
- * mapa (`0`, sistema, equipe não importada) = sem autor.
- */
 export function autoresDoFeegow(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -605,10 +524,6 @@ export function autoresDoFeegow(
   );
 }
 
-/**
- * Como `autoresDoFeegow`, mas só para usuários que são **profissionais**:
- * o médico de uma ficha não pode ser um funcionário da recepção.
- */
 export function profissionaisDoFeegow(
   exp: ExportFeegow,
   ctx: ContextoImportacao,

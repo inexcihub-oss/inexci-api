@@ -99,7 +99,6 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
             '[WhatsApp IA] Solicitação criada via rascunho estruturado (sc_draft).',
         });
 
-        // ── Pós-create: popula laudo / TUSS / OPME via SurgeryRequestAssemblyService.
         const { warnings } = assemblyService
           ? await assemblyService.assembleFromExtracted({
               scId: created.id,
@@ -115,12 +114,6 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
             })
           : { warnings: [] as string[] };
 
-        // Recarrega a SC com TODAS as relações reais (procedure, hospital,
-        // healthPlan, patient, tussItems, opmeItems, reportSections). Usar
-        // labels do draft para o `displayText` causou bugs no passado
-        // (mensagem "criada com hospital Bradesco" enquanto o banco não
-        // tinha hospital algum). A regra agora é: SÓ mostra ao usuário o
-        // que de fato foi persistido.
         const repoWithRelations = surgeryRequestRepo as unknown as {
           findOneWithRelations(
             where: { id: string },
@@ -177,7 +170,6 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           ? persisted.reportSections.length
           : 0;
 
-        // O que foi efetivamente salvo (sem mentir).
         if (persisted?.hospital?.name)
           linesOk.push(`• Hospital: ${persisted.hospital.name}`);
         if (persisted?.healthPlan?.name)
@@ -193,7 +185,6 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
         if (persistedReportCount > 0)
           linesOk.push(`• Laudo: ${persistedReportCount} seção(ões)`);
 
-        // O que ficou faltando (transparência total).
         const pendingForSend: string[] = [];
         if (!persisted?.hospital?.id) pendingForSend.push('hospital');
         if (!persisted?.healthPlan?.id) pendingForSend.push('convênio');

@@ -31,9 +31,6 @@ export class HealthPlanRepository extends BaseRepository<HealthPlan> {
     });
   }
 
-  /**
-   * Lista convênios cadastrados pela clínica (ownerId).
-   */
   findByOwnerId(ownerId: string): Promise<HealthPlan[]> {
     return this.repository.find({
       where: { ownerId },

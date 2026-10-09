@@ -32,15 +32,6 @@ describe('PermissionsGuard', () => {
     expect(guard.canActivate(contextoCom([]))).toBe(true);
   });
 
-  /**
-   * `@RequirePermission()` sem argumentos (decorator presente, array vazio)
-   * é o opt-out explícito que o `OnboardingController` usa: um colaborador
-   * recém-criado com `permissions: []` precisa ler o próprio estado no
-   * primeiro acesso. Distinto do caso "sem decorator" acima — aqui
-   * `getAllAndOverride` devolve `[]`, não `undefined`. Sem este teste, um
-   * hardening futuro de "fail-closed em array vazio" 403aria as três rotas
-   * de onboarding para todo mundo com a suíte inteira verde.
-   */
   it('libera rota com @RequirePermission() vazio, mesmo para permissions: []', () => {
     exigir([]);
     expect(guard.canActivate(contextoCom([]))).toBe(true);
@@ -58,7 +49,6 @@ describe('PermissionsGuard', () => {
     );
   });
 
-  /** Rotas compartilhadas: agenda e atendimento leem a mesma consulta. */
   it('basta uma das exigidas quando há várias', () => {
     exigir([Permission.AGENDA, Permission.ATENDIMENTO]);
     expect(guard.canActivate(contextoCom([Permission.ATENDIMENTO]))).toBe(true);
@@ -71,7 +61,6 @@ describe('PermissionsGuard', () => {
     ).toThrow(ForbiddenException);
   });
 
-  /** Fail-closed: request sem user autenticado nunca passa numa rota com decorator. */
   it('bloqueia request sem usuário', () => {
     exigir([Permission.AGENDA]);
     expect(() => guard.canActivate(contextoCom(undefined))).toThrow(

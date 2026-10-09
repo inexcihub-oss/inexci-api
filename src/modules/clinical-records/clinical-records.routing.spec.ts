@@ -8,18 +8,9 @@ import { ClinicalDocumentsController } from './documents/clinical-documents.cont
 import { ClinicalDocumentsService } from './documents/clinical-documents.service';
 import { ClinicalDocumentGenerationService } from './documents/clinical-document-generation.service';
 
-/**
- * `clinical-records/documents` é um caminho fixo que colide com o
- * `clinical-records/:id` do controller de fichas. Quando o de fichas era
- * registrado primeiro, listar e excluir documentos caía em `findOne`/`delete`
- * com id `"documents"` e estourava no banco (500, invalid input syntax for
- * type uuid). Estes testes prendem a ordem de registro e a validação do `:id`.
- */
 describe('Roteamento de clinical-records', () => {
   let app: INestApplication;
 
-  // Os testes de HTTP abaixo montam sua própria lista de controllers; este
-  // amarra a ordem no módulo de produção, que é onde o bug morava.
   it('registra o controller de documentos antes do de fichas', () => {
     const controllers: unknown[] =
       Reflect.getMetadata('controllers', ClinicalRecordsModule) ?? [];
@@ -51,7 +42,6 @@ describe('Roteamento de clinical-records', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      // Mesma ordem do ClinicalRecordsModule: o caminho específico primeiro.
       controllers: [ClinicalDocumentsController, ClinicalRecordsController],
       providers: [
         { provide: ClinicalDocumentsService, useValue: documentsService },
@@ -68,8 +58,6 @@ describe('Roteamento de clinical-records', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    // Substitui o JwtAuthGuard global (vive no AppModule): os handlers só
-    // precisam de `request.user`.
     app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
       req.user = { userId: 'user-1', ownerId: 'owner-1', role: 'admin' };
       next();

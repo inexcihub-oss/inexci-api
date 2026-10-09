@@ -117,7 +117,6 @@ describe('OperationDraftService', () => {
   });
 
   it('finalizeCommit com parent retoma pai e injeta returnField', async () => {
-    // Cenário: create_patient aberto como sub-draft de create_sc.
     const parentSnapshot = {
       type: 'create_sc',
       startedAt: new Date().toISOString(),

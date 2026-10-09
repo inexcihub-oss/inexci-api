@@ -34,9 +34,6 @@ export class DocumentsService {
   ) {
     if (!file) throw new BadRequestException('File is required');
 
-    // `STORAGE_FOLDER_SIZE_LIMITS` é a fonte de verdade do limite de tamanho:
-    // o `FileInterceptor` só consegue cortar pelo maior limite, porque a pasta
-    // chega no corpo, depois do interceptor.
     const sizeLimit = STORAGE_FOLDER_SIZE_LIMITS[data.folder];
     const fileSize = file.size ?? file.buffer?.length ?? 0;
     if (sizeLimit !== undefined && fileSize > sizeLimit) {
@@ -45,9 +42,6 @@ export class DocumentsService {
       );
     }
 
-    // O SurgeryRequestOwnerGuard nao cobre esta rota: guards rodam antes dos
-    // interceptors, entao o FileInterceptor ainda nao parseou o multipart e o
-    // body chega vazio ao guard. A validacao precisa acontecer aqui.
     await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
     const storagePath = await this.storageService.create(
@@ -93,18 +87,10 @@ export class DocumentsService {
   }
 
   async delete(data: DeleteDocumentDto) {
-    // Busca escopada pela SC: sem isto, o DELETE no banco nao afetava nada
-    // (o WHERE composto nao casava) mas o arquivo da outra clinica era
-    // apagado do R2 assim mesmo.
     const document = await this.documentRepository.findOneSimple({
       id: data.id,
       surgeryRequestId: data.surgeryRequestId,
     });
-    // Mesma armadilha do `surgeryRequestId`, agora no `key`: ele também entra
-    // no WHERE do DELETE, mas o storage apaga pela `uri` do documento
-    // carregado. Com `key` divergente o banco não removia nada e o arquivo ia
-    // embora do R2 mesmo assim. 404 antes de qualquer efeito, sem revelar qual
-    // campo divergiu.
     if (!document || document.key !== data.key)
       throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
 
@@ -113,15 +99,12 @@ export class DocumentsService {
       async (manager) => {
         const documentRepo = manager.getRepository(Document);
 
-        // Deletar do banco de dados
         const result = await documentRepo.delete({
           id: data.id,
           key: data.key,
           surgeryRequestId: data.surgeryRequestId,
         });
 
-        // Só apaga no R2 depois de a linha ter mesmo saído do banco — apagar o
-        // arquivo de um registro que continua existindo é perda de dado.
         if (!result.affected) {
           throw new NotFoundException(ERROR_MESSAGES.DOCUMENT_NOT_FOUND);
         }
@@ -130,8 +113,6 @@ export class DocumentsService {
           try {
             await this.storageService.delete(document.uri);
           } catch (error) {
-            // Não falha a transação se o arquivo não existir no storage —
-            // falha tolerada/esperada, não é um problema acionável.
             this.logger.warn('Erro ao deletar arquivo do storage', error);
           }
         }

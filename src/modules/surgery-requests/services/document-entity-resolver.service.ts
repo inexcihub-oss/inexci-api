@@ -21,9 +21,7 @@ export interface ResolvedCandidates {
   hospital: EntityCandidate[];
   healthPlan: EntityCandidate[];
   procedure: EntityCandidate[];
-  /** true quando o documento identificou um paciente pelo nome mas sem CPF. */
   patientCpfMissing: boolean;
-  /** true quando há um único match exato de paciente por CPF. */
   patientMatchedByCpf: boolean;
 }
 
@@ -51,15 +49,12 @@ function buildSearchTerms(raw: string): string[] {
   const terms = new Set<string>();
   terms.add(base);
 
-  // Ex.: "SULAMERICA 88888 0167 4659 0018" -> "SULAMERICA"
   const withoutLongNumbers = base
     .replace(/\b\d[\d\s./-]{7,}\d\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (withoutLongNumbers.length >= 2) terms.add(withoutLongNumbers);
 
-  // Ex.: "Local: Será realizada no Hospital Caxias D'Or, na data..."
-  // -> "Hospital Caxias D'Or"
   const venueMatch = base.match(/\b(hospital[^,.;:\n]*|cl[ií]nica[^,.;:\n]*)/i);
   if (venueMatch?.[1]) {
     const venue = venueMatch[1].replace(/\s+/g, ' ').trim();
@@ -69,12 +64,6 @@ function buildSearchTerms(raw: string): string[] {
   return Array.from(terms).slice(0, 4);
 }
 
-/**
- * A partir dos dados extraídos de um documento, busca candidatos existentes
- * no banco (escopados por ownerId) para paciente, hospital, convênio e
- * procedimento. Todas as buscas são best-effort — se não encontrar, retorna
- * lista vazia.
- */
 @Injectable()
 export class DocumentEntityResolverService {
   constructor(

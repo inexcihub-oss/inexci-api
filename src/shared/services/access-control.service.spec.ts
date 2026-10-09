@@ -43,8 +43,6 @@ describe('AccessControlService', () => {
     service = module.get<AccessControlService>(AccessControlService);
   });
 
-  // ─── getAccessibleDoctorIds ───
-
   describe('getAccessibleDoctorIds', () => {
     it('should return empty array for unknown user', async () => {
       userRepository.findOneWithProfile.mockResolvedValue(null);
@@ -124,7 +122,6 @@ describe('AccessControlService', () => {
       const result = await service.getAccessibleDoctorIds('doctor-user-id');
 
       expect(result).toEqual(['doctor-user-id', 'other-doc']);
-      // No duplicates
       expect(result.filter((id) => id === 'doctor-user-id')).toHaveLength(1);
     });
 
@@ -144,7 +141,6 @@ describe('AccessControlService', () => {
 
       expect(first).toEqual(['doc-1']);
       expect(second).toEqual(['doc-1']);
-      // Só uma consulta ao banco graças ao cache.
       expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(1);
       expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledTimes(1);
     });
@@ -204,12 +200,9 @@ describe('AccessControlService', () => {
       service.invalidateAccessibleDoctors('admin-id');
       await service.getAccessibleDoctorIds('admin-id');
 
-      // Invalidação força nova consulta.
       expect(userRepository.findOneWithProfile).toHaveBeenCalledTimes(2);
     });
   });
-
-  // ─── getAvailableDoctorsForCreation ───
 
   describe('getAvailableDoctorsForCreation', () => {
     it('should return empty array for unknown user', async () => {
@@ -271,7 +264,6 @@ describe('AccessControlService', () => {
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'linked-doc-id', doctor: { id: 'linked-doc-id' } },
       ] as any);
-      // Carga única por IDs (substitui o N+1 de findOneWithProfile por vínculo).
       userRepository.findManyWithProfileByIds.mockResolvedValue([
         linkedDoctor,
       ] as any);
@@ -295,7 +287,6 @@ describe('AccessControlService', () => {
       userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-id', doctor: { id: 'doctor-id' } },
       ] as any);
-      // Mesmo médico via vínculo — deve ser deduplicado com o "self".
       userRepository.findManyWithProfileByIds.mockResolvedValue([
         doctorUser,
       ] as any);
@@ -305,8 +296,6 @@ describe('AccessControlService', () => {
       expect(result).toHaveLength(1);
     });
   });
-
-  // ─── canAccessDoctor ───
 
   describe('canAccessDoctor', () => {
     it('should return true if doctorId is in accessible list', async () => {
@@ -342,8 +331,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  // ─── getAccountId ───
-
   describe('getAccountId', () => {
     it('should return ownerId when user is found', async () => {
       userRepository.findOne.mockResolvedValue({
@@ -365,8 +352,6 @@ describe('AccessControlService', () => {
       );
     });
   });
-
-  // ─── assertIsPhysicianWithRegistry ───
 
   describe('assertIsPhysicianWithRegistry', () => {
     const comPerfil = (doctorProfile: object | null) =>
@@ -440,8 +425,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  // ─── canIndicateSurgery ───
-
   describe('canIndicateSurgery', () => {
     const comPerfil = (doctorProfile: object | null) =>
       userRepository.findOneWithProfile.mockResolvedValue({
@@ -461,8 +444,6 @@ describe('AccessControlService', () => {
       await expect(service.canIndicateSurgery('u-1')).resolves.toBe(esperado);
     });
   });
-
-  // ─── assertCanIssueClinicalDocuments (CRM ou CRO) ───
 
   describe('assertCanIssueClinicalDocuments', () => {
     const comPerfil = (doctorProfile: object | null) =>
@@ -508,8 +489,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  // ─── assertIsPhysician (MIG-02) ───
-
   describe('assertIsPhysician', () => {
     const comPerfil = (doctorProfile: object | null) =>
       userRepository.findOneWithProfile.mockResolvedValue({
@@ -535,7 +514,6 @@ describe('AccessControlService', () => {
       },
     );
 
-    // Estrito: perfil carregado sem a coluna não vira médico por omissão.
     it('bloqueia perfil sem council carregado', async () => {
       comPerfil({ id: 'p-1' });
 
@@ -560,8 +538,6 @@ describe('AccessControlService', () => {
       ).rejects.toThrow('mensagem própria');
     });
   });
-
-  // ─── assertIsDoctor ───
 
   describe('assertIsDoctor', () => {
     it('libera quem tem doctorProfile', async () => {
@@ -588,8 +564,6 @@ describe('AccessControlService', () => {
       );
     });
 
-    // Admin não é médico: quem administra a clínica sem doctorProfile também
-    // não assina prontuário.
     it('bloqueia admin sem doctorProfile', async () => {
       userRepository.findOneWithProfile.mockResolvedValue({
         id: 'admin-id',
@@ -610,8 +584,6 @@ describe('AccessControlService', () => {
       );
     });
   });
-
-  // ─── getEffectivePermissions ───
 
   describe('getEffectivePermissions', () => {
     it('deriva a permissão efetiva do usuário', async () => {
@@ -635,7 +607,6 @@ describe('AccessControlService', () => {
       );
     });
   });
-  // ─── getUsersWithAccessToDoctor ───
 
   describe('getUsersWithAccessToDoctor', () => {
     const medico = {

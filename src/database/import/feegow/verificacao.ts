@@ -18,14 +18,8 @@ import {
   LEDGER_GRADE,
 } from './mappers/availability.mapper';
 
-/** `ds.query` (ou um falso, nos testes). */
 export type Consultar = (sql: string, params?: unknown[]) => Promise<any[]>;
 
-/**
- * Colunas que as trilhas T1–T10 criaram e que o importador grava. Sem elas a
- * fase falha no meio da transação com um erro cru do Postgres; aqui o
- * operador recebe a lista e o comando para rodar as migrations.
- */
 export const COLUNAS_EXIGIDAS: Record<string, string[]> = {
   patients: ['photo_path', 'secondary_phone'],
   doctor_profiles: ['council'],
@@ -38,7 +32,6 @@ export const COLUNAS_EXIGIDAS: Record<string, string[]> = {
   holidays: ['id'],
 };
 
-/** Devolve o que falta, como `tabela.coluna`. Vazio = schema pronto. */
 export async function verificarSchema(consultar: Consultar): Promise<string[]> {
   const linhas: { table_name: string; column_name: string }[] = await consultar(
     `SELECT table_name, column_name FROM information_schema.columns
@@ -55,11 +48,6 @@ export async function verificarSchema(consultar: Consultar): Promise<string[]> {
   );
 }
 
-/**
- * Onde cada entidade do ledger mora. `filtro` restringe à conta do dono (ou,
- * na foto e no histórico, ao que precisa existir). Nomes de tabela e coluna
- * são fixos aqui — nunca vêm de entrada do usuário.
- */
 const CONFERENCIA: {
   entidade: string;
   rotulo: string;
@@ -153,11 +141,6 @@ export interface LinhaConferencia {
   encontrados: number;
 }
 
-/**
- * Pós-carga: cada uuid do ledger existe no banco, na conta do dono? Conta
- * distintos (vários ids do Feegow podem apontar para o mesmo registro, como
- * dois convênios fundidos num só).
- */
 export async function verificarCarga(
   consultar: Consultar,
   ledger: Ledger,
@@ -174,7 +157,6 @@ export async function verificarCarga(
   return linhas;
 }
 
-/** Tabela para o terminal; marca as linhas que não bateram. */
 export function formatarConferencia(linhas: LinhaConferencia[]): string {
   const largura = Math.max(...linhas.map((l) => l.rotulo.length), 10);
   return linhas

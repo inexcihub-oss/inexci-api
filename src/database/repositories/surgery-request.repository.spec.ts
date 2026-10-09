@@ -8,13 +8,6 @@ import { SurgeryRequestTussItem } from '../entities/surgery-request-tuss-item.en
 import { Document } from '../entities/document.entity';
 import { Contestation } from '../entities/contestation.entity';
 
-/**
- * Cobertura da Fase 2 do plano de otimização (§4): `findOne` (detalhe da SC)
- * passa a carregar as 4 coleções to-many (`opmeItems`, `tussItems`,
- * `documents`, `contestations`) em paralelo via `Promise.all`, filtradas pelo
- * `id` já resolvido no bloco base — em vez de `relationLoadStrategy: 'query'`
- * encadeando round-trips sequenciais.
- */
 describe('SurgeryRequestRepository.findOne', () => {
   const baseEntity = {
     id: 'sr-1',
@@ -157,13 +150,6 @@ describe('SurgeryRequestRepository.findOne', () => {
   });
 });
 
-/**
- * `statusChangedAt` permite backdatar a transição (ex.: "Confirmar com
- * documento de origem" perguntando a data real de envio). O valor precisa
- * chegar tanto em `lastStatusChangedAt` (kanban/estagnação/resumo semanal)
- * quanto no `createdAt` da atividade — senão a timeline de Atividades mostra
- * "agora" enquanto o kanban já mostra dias parado.
- */
 describe('SurgeryRequestRepository.recordStatusChange', () => {
   function buildFakeManager() {
     const surgeryRequestRepo = { update: jest.fn().mockResolvedValue({}) };

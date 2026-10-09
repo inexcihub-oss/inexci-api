@@ -1,17 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Notificações in-app, preferências por usuário e log unificado de envio.
- *
- * Política de notificações:
- *  - Atualizações de status: somente in-app (push) + WhatsApp.
- *  - Único e-mail enviado: o resumo semanal (`weekly_report`).
- *
- * `notification_send_logs` é a tabela única de auditoria de envio (e-mail
- * + WhatsApp). Depende de `whatsapp_conversations`, por isso esta migration
- * roda após `CreateWhatsappAndAi`. `body` e `error_message` são limitados em
- * VARCHAR(600) — truncagem é aplicada na escrita por `truncateForLog`.
- */
 export class CreateNotifications1746144700000 implements MigrationInterface {
   name = 'CreateNotifications1746144700000';
 

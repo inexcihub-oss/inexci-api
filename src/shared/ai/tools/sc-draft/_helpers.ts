@@ -18,10 +18,6 @@ export function enumKeyToPriority(
   }
 }
 
-/**
- * Quando o usuário tem acesso a apenas 1 médico, o `doctorId` é dedutível
- * — preenche o draft automaticamente antes de validar.
- */
 export async function autoFillDoctorIfSingle(
   draftService: OperationDraftService,
   userRepo: UserRepository,
@@ -35,13 +31,6 @@ export async function autoFillDoctorIfSingle(
   );
   if (!current || current.fields.doctorId) return;
 
-  // 1) Único médico acessível → auto-preenche.
-  // 2) Múltiplos médicos acessíveis, MAS o próprio usuário é um deles
-  //    (i.e. o usuário do WhatsApp é médico) → assume "self" como
-  //    default, evitando a pergunta "qual médico responsável?" no caso
-  //    típico do médico falando da própria conta. O LLM ainda pode
-  //    sobrescrever via `draft_update(create_sc, doctorId, …)` se o
-  //    usuário esclarecer.
   let pick: string | null = null;
   if (accessible.length === 1) {
     pick = accessible[0];

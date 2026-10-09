@@ -30,10 +30,6 @@ const SUPPORTED_DOCUMENT_TYPES = [
   'additional_document',
 ] as const;
 
-/**
- * MIME types que conseguimos enviar para a API Vision do gpt-4o como
- * `data:` URL. PDFs precisam ser rasterizados antes (cabe ao chamador).
- */
 const VISION_INPUT_MIMES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -222,7 +218,6 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 export interface VisionFallbackInput {
-  /** Buffer da imagem a enviar (apenas formatos `VISION_INPUT_MIMES`). */
   imageBuffer: Buffer;
   imageMimeType: string;
   intent?: DocumentClassificationIntent;
@@ -243,17 +238,6 @@ export interface VisionFallbackResult {
   usage: VisionFallbackUsage;
 }
 
-/**
- * Fallback para casos onde o pipeline texto-OCR falha:
- * - texto extraído é muito curto (< 30 chars),
- * - confiança média do Tesseract é baixa (< 0.75), ou
- * - o `DocumentClassifierService` lança erro/JSON inválido.
- *
- * Envia a imagem original direto ao `gpt-4o` (vision) com o mesmo JSON
- * Schema strict do classifier text-only. Após receber, **tokeniza CPF/
- * telefone/email** dos campos extraídos via `PiiVaultService` para que o
- * resto do pipeline trate o resultado igual ao do classifier text-only.
- */
 @Injectable()
 export class DocumentVisionFallbackService {
   private readonly logger = new Logger(DocumentVisionFallbackService.name);
@@ -403,11 +387,6 @@ export class DocumentVisionFallbackService {
     return 'auto';
   }
 
-  /**
-   * Normaliza a saída do LLM Vision e tokeniza CPF/telefone/email dos
-   * campos extraídos. Idempotente — o resultado fica equivalente ao do
-   * classifier text-only (que já recebeu texto pré-tokenizado).
-   */
   private normalizeAndTokenize(
     raw: any,
     latencyMs: number,

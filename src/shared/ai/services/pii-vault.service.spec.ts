@@ -212,9 +212,6 @@ describe('PiiVaultService', () => {
   describe('serializeSession / restoreSession', () => {
     it('serializeSession devolve cópia dos bindings (JSON-safe)', () => {
       service.tokenize(sid, 'João Silva', 'patient_name');
-      // tokenize de protocolo NORMALIZA o realValue (strip SC-), porque o
-      // banco armazena o protocolo sem prefixo. As tools prefixam "SC-"
-      // FORA do placeholder na resposta para o usuário (regressão SC-SC-).
       service.tokenize(sid, 'SC-0042', 'protocol');
 
       const snapshot = service.serializeSession(sid);
@@ -231,7 +228,6 @@ describe('PiiVaultService', () => {
         },
       ]);
 
-      // Mutar o snapshot não deve afetar a sessão.
       snapshot.push({
         token: '{{cpf_1}}',
         category: 'cpf',
@@ -241,8 +237,6 @@ describe('PiiVaultService', () => {
     });
 
     it('restoreSession permite detokenizar placeholders salvos em turno anterior', () => {
-      // Simula bindings persistidos no turno anterior (Redis/banco).
-      // Note: realValue de protocol é armazenado SEM prefixo "SC-".
       const persisted = [
         {
           token: '{{protocol_1}}',
@@ -265,9 +259,6 @@ describe('PiiVaultService', () => {
       );
     });
 
-    // Regressão SC-SC-: bindings persistidos ANTES do fix gravavam
-    // realValue="SC-0042". Sem normalização no restoreSession, o detokenize
-    // de "SC-{{protocol_1}}" produzia "SC-SC-0042" no WhatsApp.
     it('restoreSession normaliza realValue de protocol legado removendo prefixo SC-', () => {
       const persistedLegacy = [
         {
@@ -379,9 +370,6 @@ describe('PiiVaultService', () => {
     });
 
     it('NÃO transforma laudos longos (> 1500 chars) em payload_blob por padrão', () => {
-      // Comportamento esperado pós-fix: o blobThreshold padrão é Infinity.
-      // Antes (default 1500) qualquer laudo médico era reduzido a um único
-      // `{{payload_blob_n}}` e o classifier devolvia `kind=unknown`.
       const longLaudo =
         'Diagnóstico: artrose. ' +
         'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(40);

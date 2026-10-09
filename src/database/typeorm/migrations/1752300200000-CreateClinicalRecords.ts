@@ -1,9 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Cria a tabela `clinical_records` (prontuário / ficha de atendimento) — Fase 3
- * do módulo de atendimento. Escopada por clínica (owner_id) e paciente.
- */
 export class CreateClinicalRecords1752300200000 implements MigrationInterface {
   name = 'CreateClinicalRecords1752300200000';
 

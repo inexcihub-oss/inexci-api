@@ -250,9 +250,6 @@ describe('ToolLoopRunnerService', () => {
     toolExecutor.executeMany.mockResolvedValue([
       { toolCallId: 'a', output: 'r' },
     ]);
-    // MAX_TOOL_ITERATIONS = 8 → todas as 8 chamadas de follow-up ainda
-    // devolvem tool_calls, fazendo o loop atingir o teto. A última tool
-    // pendente é a do `tc('i')` (a 8ª iteração) que volta no follow-up final.
     openaiService.chatCompletion
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('b')])))
       .mockResolvedValueOnce(buildCompletion(buildAssistantMessage([tc('c')])))
@@ -269,9 +266,6 @@ describe('ToolLoopRunnerService', () => {
     expect(openaiService.chatCompletion).toHaveBeenCalledTimes(8);
     expect(result.loopLimitReached).toBe(true);
     expect(result.responseMessage.tool_calls).toBeDefined();
-    // Last tool pending (i.e. the one that the LLM was still trying to call
-    // when the loop limit was hit). Used by the orchestrator to build the
-    // contextual fallback message.
     expect(result.pendingToolNames).toEqual(['noop']);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[AI_LOOP_LIMIT]'),

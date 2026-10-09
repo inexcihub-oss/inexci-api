@@ -3,12 +3,6 @@ import { Reflector } from '@nestjs/core';
 import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { PermissionsGuard } from 'src/shared/guards/permissions.guard';
 
-/**
- * Regressão da falha de controle de acesso: cadastros transversais (pacientes,
- * hospitais, convênios, fornecedores, procedimentos, fabricantes) ficavam sem
- * decorator, então um colaborador com `permissions: []` lia/escrevia toda a
- * base. `@RequireAnyArea()` exige ao menos uma das quatro áreas.
- */
 function contextoCom(permissions: Permission[]): ExecutionContext {
   return {
     getHandler: () => () => undefined,

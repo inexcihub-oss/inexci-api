@@ -1,10 +1,3 @@
-// O ConfigModule do Nest só carrega o `.env` quando o AppModule é
-// instanciado (dentro de bootstrap(), mais abaixo) — tarde demais para o
-// initOtel(), que precisa rodar ANTES de qualquer módulo Nest para os
-// instrumentors se registrarem a tempo. Por isso o dotenv é carregado aqui,
-// manualmente, só para preencher o process.env a tempo do initOtel() ler as
-// envs OTEL_*. Não sobrescreve variáveis já definidas no ambiente real
-// (produção injeta via env_file do Docker, não via arquivo .env).
 import { config as loadDotenv } from 'dotenv';
 loadDotenv();
 
@@ -30,57 +23,36 @@ import { requestContextMiddleware } from './shared/logging/request-context.middl
 dayjs.extend(customParse);
 
 async function bootstrap() {
-  // NOTA: As migrations NÃO são executadas automaticamente.
-  // Para rodá-las manualmente: npm run migration:run
-  // Para executar seeds, use manualmente: npm run seed
-  // Não executamos automaticamente para evitar duplicações em hot reload
-
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: true,
     bufferLogs: true,
     rawBody: true,
   });
 
-  // Atrás do nginx: confia em exatamente 1 hop para que req.ip seja o IP real do
-  // cliente. Sem isso o rate limit vira um balde global compartilhado.
   app.set('trust proxy', 1);
 
-  // Logger custom — JSON em produção, pretty colorido em dev. Honra LOG_LEVEL
-  // e enriquece cada linha com `requestId`/`userId`/`tenantId` do
-  // AsyncLocalStorage populado pelo `requestContextMiddleware`.
   app.useLogger(new InexciLogger());
 
   app.use(requestContextMiddleware);
 
-  // Headers de segurança (V5): HSTS, nosniff, frameguard, remove X-Powered-By.
-  // CSP desabilitada — a API responde JSON e a CSP padrão do helmet quebraria o
-  // Swagger UI em dev; a CSP relevante já vive no frontend.
   app.use(helmet({ contentSecurityPolicy: false }));
 
-  // Compressão gzip como defesa em profundidade — cobre ambientes sem o nginx
-  // na frente (ngrok, dev). Em produção o nginx já comprime (ver nginx/default.conf).
   app.use(compression());
 
   app.use(cookieParser());
 
   app.useWebSocketAdapter(new IoAdapter(app));
 
-  // Configurar JSON para não escapar caracteres Unicode
   app.getHttpAdapter().getInstance().set('json escape', false);
   app.getHttpAdapter().getInstance().set('json replacer', null);
-  // Pretty-print apenas fora de produção. Em produção a indentação inflaria o
-  // payload em ~25–35% e gastaria CPU de serialização sem benefício.
   if (process.env.NODE_ENV !== 'production') {
     app.getHttpAdapter().getInstance().set('json spaces', 2);
   }
 
-  // Pipe + filtro + interceptor globais: mesmo ponto único usado pelo app dos
-  // e2e (`createTestApp`), para os dois não divergirem.
   applyGlobalAppConfig(app);
 
   const configService = app.get(ConfigService);
 
-  // BullBoard — bloqueado por padrão; só abre se BULL_BOARD_USER e BULL_BOARD_PASS estiverem definidos
   const bullBoardUser = configService.get<string>('BULL_BOARD_USER', '');
   const bullBoardPass = configService.get<string>('BULL_BOARD_PASS', '');
   if (bullBoardUser && bullBoardPass) {
@@ -99,7 +71,6 @@ async function bootstrap() {
     });
   }
 
-  // Swagger / OpenAPI — desabilitado em produção
   if (configService.get<string>('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Inexci API')
@@ -138,7 +109,6 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Permite requisições sem Origin (curl, healthchecks, server-to-server)
       if (!origin) {
         return callback(null, true);
       }
@@ -149,7 +119,6 @@ async function bootstrap() {
         return callback(null, true);
       }
 
-      // Bloqueia sem lançar exceção global (evita ruído/500 no ExceptionFilter)
       return callback(null, false);
     },
     credentials: true,

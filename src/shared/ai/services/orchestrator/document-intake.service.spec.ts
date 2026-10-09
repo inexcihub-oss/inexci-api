@@ -238,7 +238,7 @@ describe('DocumentIntakeService', () => {
           suggestedDocumentType: 'medical_report',
         },
         intent: 'attach',
-        classifiedAt: Date.now() - 6 * 60 * 1000, // 6 min atrás
+        classifiedAt: Date.now() - 6 * 60 * 1000,
       };
       const deps = makeDeps({
         documentDispatcher: {
@@ -264,8 +264,6 @@ describe('DocumentIntakeService', () => {
         deps.phoneNormalizer as any,
         deps.conversationMemory as any,
       );
-      // Com pendência expirada, o intent=attach ainda chama o processor
-      // (não há reuso de cache).
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
         body: '1',
@@ -273,7 +271,6 @@ describe('DocumentIntakeService', () => {
         messageSid: 'sid',
         userId: 'user-1',
       });
-      // Se o processor retornou ok+summary, encerra o turno.
       expect(result.handled).toBe(true);
     });
 
@@ -307,9 +304,7 @@ describe('DocumentIntakeService', () => {
           conversationId: 'conv-1',
         });
         expect(result.handled).toBe(false);
-        // Sem caption, não deve precisar de syntheticBody
         expect(result.syntheticBody).toBeUndefined();
-        // Pipeline de staging não deve ter sido chamado
         expect(
           deps.documentDispatcher.stageInboundDocument,
         ).not.toHaveBeenCalled();
@@ -347,7 +342,7 @@ describe('DocumentIntakeService', () => {
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
-          body: '', // sem caption
+          body: '',
           normalizedInput: '',
           messageSid: 'sid',
           userId: 'user-1',
@@ -362,12 +357,6 @@ describe('DocumentIntakeService', () => {
         ).not.toHaveBeenCalled();
       });
 
-      // Regressão 2026-05-14: Carlos perguntou "pendências da SC pendente",
-      // assistente respondeu "envie a foto da sua assinatura". Carlos
-      // mandou a foto sem caption. Como o histórico do USUÁRIO não tinha
-      // "assinatura" (só do assistente), o pipeline genérico engajava e
-      // mostrava "1=anexar SC / 2=criar SC / 3=cadastrar paciente",
-      // confundindo. Agora o último turno do assistente também conta.
       it('bypassa quando última msg do assistente pediu a assinatura e foto chega sem caption', async () => {
         const deps = makeDeps({
           documentDispatcher: {
@@ -401,7 +390,7 @@ describe('DocumentIntakeService', () => {
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
-          body: '', // sem caption
+          body: '',
           normalizedInput: '',
           messageSid: 'sid',
           userId: 'user-1',
@@ -450,7 +439,6 @@ describe('DocumentIntakeService', () => {
           userId: 'user-1',
           conversationId: 'conv-1',
         });
-        // RG deve ir pelo pipeline normal
         expect(result.handled).toBe(true);
         expect(deps.documentDispatcher.stageInboundDocument).toHaveBeenCalled();
       });
@@ -489,7 +477,6 @@ describe('DocumentIntakeService', () => {
           userId: 'user-1',
           conversationId: 'conv-1',
         });
-        // PDF deve sempre ir pelo pipeline, mesmo que caption mencione assinatura
         expect(result.handled).toBe(true);
         expect(deps.documentDispatcher.stageInboundDocument).toHaveBeenCalled();
       });

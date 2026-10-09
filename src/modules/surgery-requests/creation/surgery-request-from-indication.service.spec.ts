@@ -69,8 +69,6 @@ describe('SurgeryRequestFromIndicationService', () => {
     );
   });
 
-  // cid_code é varchar(10): um CID mais longo estouraria o insert e derrubaria a
-  // criação inteira em silêncio (mesma armadilha do documents.name varchar(75)).
   it('trunca o CID em 10 caracteres', async () => {
     await service.createPendingFromIndication({
       manager: manager as never,

@@ -114,12 +114,6 @@ describe('OpmeService', () => {
     expect(service).toBeDefined();
   });
 
-  /**
-   * A plataforma exige 3 fornecedores e 3 fabricantes por item OPME, então um
-   * rascunho que só tem um preenche o resto com "Outro". Antes desta regra, o
-   * nome era tratado como qualquer outro digitado e virava cadastro de verdade
-   * no catálogo da clínica — um por conta, criado sem ninguém pedir.
-   */
   describe('opção genérica "Outro"', () => {
     beforeEach(() => {
       mockSupplierRepository.create.mockImplementation(
@@ -199,8 +193,6 @@ describe('OpmeService', () => {
       expect(mockManufacturerRepository.ensureGeneric).not.toHaveBeenCalled();
     });
   });
-
-  // ─── create ───────────────────────────────────────────────────────────────
 
   describe('create', () => {
     it('deve lançar BadRequestException se fabricantes não fornecidos (< 3)', async () => {
@@ -459,8 +451,6 @@ describe('OpmeService', () => {
     });
   });
 
-  // ─── update ───────────────────────────────────────────────────────────────
-
   describe('update', () => {
     const existingOpme = {
       id: 'opme-1',
@@ -575,8 +565,6 @@ describe('OpmeService', () => {
       );
     });
   });
-
-  // ─── delete ───────────────────────────────────────────────────────────────
 
   describe('delete', () => {
     it('deve deletar item OPME com sucesso', async () => {

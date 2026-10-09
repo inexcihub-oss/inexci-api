@@ -31,20 +31,6 @@ const LEVEL_COLOR: Record<string, string> = {
   verbose: ANSI.gray,
 };
 
-/**
- * Logger custom do Nest. Emite **uma linha JSON** por evento em produção
- * (timestamp ISO, level, context, message, requestId, userId, tenantId,
- * extras opcionais) e mantém output legível com cores em desenvolvimento.
- *
- * Comportamento controlado por env:
- * - `LOG_LEVEL` (default `log`) — filtra severidades.
- * - `LOG_PRETTY` ('true'/'false', default automático) — formato pretty
- *   ativado quando `NODE_ENV=development`.
- *
- * Os ~60 services existentes que usam `new Logger(Class.name)` continuam
- * funcionando inalterados — eles delegam para o nosso logger via
- * `app.useLogger(InexciLogger)` no bootstrap.
- */
 @Injectable({ scope: Scope.DEFAULT })
 export class InexciLogger extends ConsoleLogger {
   private readonly minRank: number;
@@ -119,10 +105,6 @@ export class InexciLogger extends ConsoleLogger {
       context: context ?? this.context ?? null,
     };
 
-    // Mensagens estruturadas (ex.: evento http_request) são achatadas no
-    // nível raiz do JSON — não aninhadas dentro de "message" — para que
-    // cada campo (event, userId, statusCode...) vire coluna filtrável no
-    // Loki em vez de texto escapado ilegível.
     if (structured) {
       Object.assign(payload, rawMessage as Record<string, unknown>);
     } else {

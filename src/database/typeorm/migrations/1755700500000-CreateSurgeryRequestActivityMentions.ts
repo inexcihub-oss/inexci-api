@@ -1,17 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Menções (@) em comentários da solicitação cirúrgica.
- *
- * Todas as constraints vão inline no `CREATE TABLE`, e não como
- * `ADD CONSTRAINT`: a tabela nasce aqui, não existe dado legado que possa
- * violá-las e, por isso, não há o que verificar em
- * `preflight/data-checks.ts` (ver `migrations-restritivas.spec.ts`).
- *
- * A unicidade (activity_id, mentioned_user_id) é o que impede o mesmo
- * usuário receber duas notificações porque foi citado duas vezes no mesmo
- * comentário.
- */
 export class CreateSurgeryRequestActivityMentions1755700500000 implements MigrationInterface {
   name = 'CreateSurgeryRequestActivityMentions1755700500000';
 

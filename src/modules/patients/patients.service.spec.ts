@@ -41,9 +41,7 @@ describe('PatientsService', () => {
     findAndCountWithSearch: jest.Mock;
     getRepository: jest.Mock;
   };
-  /** Pacientes (fora o editado) que já apontam para o caminho consultado. */
   let contagemDeUso: jest.Mock;
-  /** Linha lida com FOR UPDATE dentro da transação da troca de foto. */
   let lidoNaTransacao: jest.Mock;
   let transaction: jest.Mock;
   let storageService: {
@@ -63,7 +61,6 @@ describe('PatientsService', () => {
       getRepository: jest.fn(),
     };
     contagemDeUso = jest.fn().mockResolvedValue(0);
-    // Por padrão a linha travada é a mesma lida no início do update.
     lidoNaTransacao = jest.fn(() => patientRepository.findOne());
     transaction = jest.fn(
       (cb: (em: { getRepository: () => unknown }) => unknown) =>
@@ -280,7 +277,6 @@ describe('PatientsService', () => {
     });
 
     it('apaga a foto que o UPDATE substituiu, não a lida no início (corrida com a conversão)', async () => {
-      // Lida no início: a PNG. Antes do UPDATE, o script trocou para a WebP.
       patientRepository.findOne.mockResolvedValue(
         paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
       );
@@ -300,7 +296,6 @@ describe('PatientsService', () => {
       patientRepository.findOne.mockResolvedValue(
         paciente({ photoPath: `patient-photos/${OWNER}/antiga.png` }),
       );
-      // 1ª contagem: validarFoto(FOTO) → livre. 2ª: a antiga → em uso.
       contagemDeUso.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
 
       await service.update('pac-1', { photoPath: FOTO }, 'user-1');
@@ -331,7 +326,6 @@ describe('PatientsService', () => {
       await expect(
         service.update('pac-1', { photoPath: FOTO }, 'user-1'),
       ).rejects.toThrow(BadRequestException);
-      // A checagem exclui o próprio paciente (manter a mesma foto é válido).
       const where = contagemDeUso.mock.calls[0][0].where;
       expect(where.photoPath).toBe(FOTO);
       expect(where.id).toBeDefined();

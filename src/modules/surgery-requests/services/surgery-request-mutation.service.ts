@@ -53,10 +53,6 @@ export class SurgeryRequestMutationService {
     private readonly realtimeService: SurgeryRequestRealtimeService,
   ) {}
 
-  /**
-   * Delega para DoctorResolutionService.
-   * @deprecated Use doctorResolutionService.resolveDoctorId() diretamente.
-   */
   resolveDoctorId(
     userId: string,
     doctorIdFromPayload?: string,
@@ -259,7 +255,6 @@ export class SurgeryRequestMutationService {
     }
 
     const { id, hospital: _h, healthPlan, cid, ...validData } = data;
-    // cid.code persiste em cid_code — sem FK para tabela CID
     const cidData: { cidCode?: string | null } = {};
     if (cid === null) {
       cidData.cidCode = null;
@@ -396,7 +391,6 @@ export class SurgeryRequestMutationService {
     id: string,
     userId: string,
   ): Promise<SurgeryRequest> {
-    // Fail-closed: escopa por ownerId (V1). Ver AccessControlService.
     const where = await this.accessControlService.buildSurgeryAccessWhere(
       { id },
       userId,
@@ -418,9 +412,6 @@ export class SurgeryRequestMutationService {
     },
     ownerId: string,
   ): Promise<HealthPlan> {
-    // Nomes de convenio colidem naturalmente entre clinicas ("Unimed"): sem o
-    // ownerId, a SC da clinica A era vinculada ao registro da clinica B e
-    // mudava junto quando a B editava ou excluia.
     let entity = await repo.findOne({ name: data.name, ownerId });
     if (!entity) {
       const payload = {
@@ -447,9 +438,6 @@ export class SurgeryRequestMutationService {
     },
     ownerId: string,
   ): Promise<Hospital> {
-    // Nomes de hospital colidem naturalmente entre clinicas: sem o ownerId,
-    // a SC da clinica A era vinculada ao registro da clinica B e mudava
-    // junto quando a B editava ou excluia.
     let entity = await repo.findOne({ name: data.name, ownerId });
     if (!entity) {
       const payload = {

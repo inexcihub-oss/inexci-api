@@ -13,11 +13,6 @@ import {
 import { User } from './user.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 
-/**
- * Hospital — Entidade de negócio (não faz login).
- * Cadastro pertence à clínica/conta (ownerId): médicos e colaboradores
- * da mesma clínica compartilham os hospitais cadastrados.
- */
 @Entity('hospitals')
 @Index('idx_hospitals_owner_id', ['ownerId'])
 export class Hospital {
@@ -35,8 +30,6 @@ export class Hospital {
 
   @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string | null;
-
-  // ============ CONTATO ============
 
   @Column({
     name: 'contact_name',
@@ -62,8 +55,6 @@ export class Hospital {
   })
   contactEmail: string | null;
 
-  // ============ ENDEREÇO ============
-
   @Column({ name: 'zip_code', type: 'varchar', length: 10, nullable: true })
   zipCode: string | null;
 
@@ -87,14 +78,9 @@ export class Hospital {
   @Column({ type: 'char', length: 2, nullable: true })
   state: string | null;
 
-  // ============ STATUS ============
-
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
-  // ============ ISOLAMENTO POR CLÍNICA ============
-
-  /** ID do admin dono da clínica — todos os usuários da mesma clínica enxergam o mesmo hospital. */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
@@ -106,8 +92,6 @@ export class Hospital {
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'owner_id' })

@@ -9,10 +9,6 @@ export class AppointmentActivityRepository extends BaseRepository<AppointmentAct
     super(dataSource.getRepository(AppointmentActivity));
   }
 
-  /**
-   * Linha do tempo da consulta, da mais antiga para a mais recente, com o nome
-   * de quem fez — só id e nome: `User` tem CPF, telefone e endereço.
-   */
   findByAppointment(appointmentId: string): Promise<AppointmentActivity[]> {
     return this.repository
       .createQueryBuilder('activity')

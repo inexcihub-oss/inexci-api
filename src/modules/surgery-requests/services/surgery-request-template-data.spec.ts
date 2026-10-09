@@ -1,11 +1,5 @@
 import { sanitizeTemplateData } from './surgery-request-template-data';
 
-/**
- * O `templateData` era gravado como `object` cru: o que o frontend mandasse,
- * entrava. O `SendRequestModal` despejava a SC inteira ali dentro —
- * `authorizedQuantity`, os `id` dos itens da SC de origem e o marcador de
- * sistema `sc_creation_source` no lugar de um documento exigido.
- */
 describe('sanitizeTemplateData', () => {
   it('mantém procedimento, hospital e convênio apenas com id e nome', () => {
     const data = sanitizeTemplateData({

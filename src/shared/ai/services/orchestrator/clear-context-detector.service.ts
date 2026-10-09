@@ -1,17 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-/**
- * TTL da pending de "limpar contexto" — após esse tempo a confirmação
- * expira silenciosamente e um "sim" do usuário deixa de quebrar o histórico.
- */
 export const CLEAR_CONTEXT_CONFIRMATION_TTL_MS = 10 * 60 * 1000;
 
-/**
- * Comandos exatos que disparam o fluxo de limpeza de contexto. Match exato
- * em texto normalizado (sem acentos, lowercase, espaços colapsados). Para
- * variações com sufixo (ex.: "limpar contexto da conversa") usamos
- * `startsWith` em `isClearContextCommand`.
- */
 export const CLEAR_CONTEXT_EXACT_COMMANDS = new Set<string>([
   'limpar contexto',
   'limpar o contexto',
@@ -72,26 +62,6 @@ const CANCEL_INPUTS = new Set<string>([
   'não limpar',
 ]);
 
-/**
- * Encapsula o fluxo de "limpar contexto" — detecta o comando, mantém a
- * pending de confirmação por telefone e responde ao "sim/não" do usuário.
- *
- * Métodos públicos:
- *  - `isClearContextCommand` — detecta no input normalizado.
- *  - `isConfirmationInput` / `isCancelConfirmationInput` — também
- *    reaproveitados pelo guard de RAG (skip em inputs triviais).
- *  - `tryHandleClearContext(phone, normalizedInput, conversationId)` —
- *    se for comando, registra a pending e devolve a mensagem de prompt.
- *  - `tryHandleClearContextConfirmation(phone, normalizedInput)` — se há
- *    pending para esse telefone, processa "sim/não" ou pede reprompt.
- *
- * Estado interno: `pendingClearContextByPhone` (in-memory, TTL
- * `CLEAR_CONTEXT_CONFIRMATION_TTL_MS`). Não persiste em Redis: a janela
- * é curta e a perda em restart é aceitável.
- *
- * Extraído do `AiOrchestratorService` na Fase 1 do
- * `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
- */
 @Injectable()
 export class ClearContextDetectorService {
   private readonly pendingClearContextByPhone = new Map<
@@ -99,10 +69,6 @@ export class ClearContextDetectorService {
     PendingClearContextConfirmation
   >();
 
-  /**
-   * Normaliza texto de entrada: remove acentos, converte para lowercase e
-   * colapsa espaços. Resultado idempotente — pode ser chamado múltiplas vezes.
-   */
   normalizeText(value: string): string {
     return (value || '')
       .normalize('NFD')
@@ -136,10 +102,6 @@ export class ClearContextDetectorService {
     return CANCEL_INPUTS.has(normalizedInput);
   }
 
-  /**
-   * Se o input for um comando de limpeza, registra a pending e devolve
-   * `{ status: 'prompt', message }`. Caso contrário devolve `{ status: 'none' }`.
-   */
   tryHandleClearContext(
     phone: string,
     normalizedInput: string,
@@ -159,13 +121,6 @@ export class ClearContextDetectorService {
     };
   }
 
-  /**
-   * Se houver pending fresca para o telefone, processa o input:
-   *  - confirmação → consome pending e devolve `confirmed` + conversationId.
-   *  - cancelamento → consome pending e devolve `cancelled`.
-   *  - qualquer outro texto → mantém pending e devolve `reprompt`.
-   * Sem pending (ou expirada): `{ status: 'none' }`.
-   */
   tryHandleClearContextConfirmation(
     phone: string,
     normalizedInput: string,

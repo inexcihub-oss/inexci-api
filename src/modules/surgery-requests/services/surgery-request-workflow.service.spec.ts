@@ -25,8 +25,6 @@ import {
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 function makeRequest(overrides: Partial<SurgeryRequest> = {}): SurgeryRequest {
   return {
     id: 'req-1',
@@ -71,8 +69,6 @@ function createMockManager() {
   });
   return { getRepository, repos };
 }
-
-// ── Suite ────────────────────────────────────────────────────────────────────
 
 describe('SurgeryRequestWorkflowService', () => {
   let service: SurgeryRequestWorkflowService;
@@ -149,7 +145,6 @@ describe('SurgeryRequestWorkflowService', () => {
       create: jest.fn().mockResolvedValue({}),
     };
 
-    // Mock DataSource.transaction to execute the callback with a mock manager
     dataSource = {
       transaction: jest.fn(async (cb: (manager: any) => Promise<any>) => {
         const mockManager = createMockManager();
@@ -228,8 +223,6 @@ describe('SurgeryRequestWorkflowService', () => {
 
     service = module.get(SurgeryRequestWorkflowService);
   });
-
-  // ── sendRequest (PENDING → SENT) ──────────────────────────────────────────
 
   describe('sendRequest', () => {
     it('should throw NotFoundException when request not found', async () => {
@@ -383,7 +376,6 @@ describe('SurgeryRequestWorkflowService', () => {
 
     it('aceita a data de hoje antes das 09:00 de São Paulo', async () => {
       jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
-      // 07:00 em São Paulo (10:00 UTC): meio-dia UTC de hoje ainda não chegou.
       jest.setSystemTime(new Date('2026-06-10T10:00:00.000Z'));
       try {
         const request = makeRequest();
@@ -501,8 +493,6 @@ describe('SurgeryRequestWorkflowService', () => {
     });
   });
 
-  // ── startAnalysis (SENT → IN_ANALYSIS) ────────────────────────────────────
-
   describe('startAnalysis', () => {
     it('should throw when status is not SENT', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.PENDING });
@@ -537,8 +527,6 @@ describe('SurgeryRequestWorkflowService', () => {
       ).not.toHaveBeenCalled();
     });
   });
-
-  // ── acceptAuthorization (IN_ANALYSIS → IN_SCHEDULING) ─────────────────────
 
   describe('acceptAuthorization', () => {
     it('should throw when status is not IN_ANALYSIS', async () => {
@@ -628,8 +616,6 @@ describe('SurgeryRequestWorkflowService', () => {
     });
   });
 
-  // ── contestAuthorization ──────────────────────────────────────────────────
-
   describe('contestAuthorization', () => {
     it('should throw when status is not IN_ANALYSIS', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.SENT });
@@ -674,8 +660,6 @@ describe('SurgeryRequestWorkflowService', () => {
     });
   });
 
-  // ── confirmDate (IN_SCHEDULING → SCHEDULED) ──────────────────────────────
-
   describe('confirmDate', () => {
     it('should throw when status is not IN_SCHEDULING', async () => {
       const request = makeRequest({ status: SurgeryRequestStatus.IN_ANALYSIS });
@@ -719,8 +703,6 @@ describe('SurgeryRequestWorkflowService', () => {
       ).not.toHaveBeenCalled();
     });
   });
-
-  // ── updateDateOptions ─────────────────────────────────────────────────────
 
   describe('updateDateOptions', () => {
     it('should throw when status is not IN_SCHEDULING', async () => {
@@ -781,8 +763,6 @@ describe('SurgeryRequestWorkflowService', () => {
     });
   });
 
-  // ── reschedule ────────────────────────────────────────────────────────────
-
   describe('reschedule', () => {
     it('should throw when status is not SCHEDULED', async () => {
       surgeryRequestRepository.findOneSimple.mockResolvedValue(
@@ -807,8 +787,6 @@ describe('SurgeryRequestWorkflowService', () => {
       );
     });
   });
-
-  // ── markPerformed (SCHEDULED → PERFORMED) ─────────────────────────────────
 
   describe('markPerformed', () => {
     it('should throw when status is not SCHEDULED', async () => {
@@ -840,16 +818,12 @@ describe('SurgeryRequestWorkflowService', () => {
         'user-1',
       );
 
-      // markPerformed roda em executeInTransaction (envolve dataSource.transaction)
-      // e dispara notificação para stakeholders.
       expect(dataSource.transaction).toHaveBeenCalled();
       expect(
         notificationService.notifyStakeholdersOfStatusChange,
       ).toHaveBeenCalled();
     });
   });
-
-  // ── Billing delegations ───────────────────────────────────────────────────
 
   describe('invoiceRequest', () => {
     it('should delegate to billingService', async () => {
@@ -903,8 +877,6 @@ describe('SurgeryRequestWorkflowService', () => {
       );
     });
   });
-
-  // ── closeSurgeryRequest (ANY → CLOSED) ────────────────────────────────────
 
   describe('closeSurgeryRequest', () => {
     it('should throw when request not found', async () => {
@@ -990,8 +962,6 @@ describe('SurgeryRequestWorkflowService', () => {
       );
     });
   });
-
-  // ── notify ────────────────────────────────────────────────────────────────
 
   describe('notify', () => {
     it('should delegate to notificationService', async () => {

@@ -8,22 +8,12 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT.trim().length).toBeGreaterThan(100);
   });
 
-  // Regressão: o prompt já chegou a conter literais de PII estruturada
-  // (ex.: "123.456.789-00", "11 99999-9999", "exemplo@dominio.com") usados
-  // como exemplos negativos. O `assertNoResidualPii` rodando antes da
-  // chamada à OpenAI detectava esses literais e bloqueava 100% das
-  // mensagens com erro `PII_RESIDUAL`. O prompt deve usar APENAS
-  // placeholders abstratos — sem dígitos e sem `@<dominio>` real.
   it('não contém literais de CPF/telefone/e-mail que disparem o filtro defensivo', () => {
     const vault = new PiiVaultService();
     const findings = vault.detectResidualPii(SYSTEM_PROMPT);
     expect(findings).toEqual([]);
   });
 
-  // Em 1.5.1 o usuário pediu para REMOVER emojis de todas as respostas.
-  // O prompt deve continuar gentil/profissional, mas instruir explicitamente
-  // que NUNCA é para usar emojis. Esse assert evita regredir para a versão
-  // anterior que tolerava 1-2 emojis.
   it('orienta a IA a usar tom gentil e proibe completamente emojis', () => {
     expect(SYSTEM_PROMPT).toMatch(/gentil/i);
     expect(SYSTEM_PROMPT).toMatch(/N[ÃA]O use emojis/i);
@@ -35,10 +25,6 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/1 - /);
   });
 
-  // Em 1.6.0 o usuário relatou que a IA inventava os requisitos para criar
-  // uma SC (incluía TUSS/OPME/laudo na criação, quando esses são exigências
-  // só do envio). O prompt agora obriga a IA a chamar a tool
-  // get_workflow_requirements em vez de listar requisitos de cabeça.
   it('exige que a IA chame get_workflow_requirements quando perguntarem requisitos', () => {
     expect(SYSTEM_PROMPT).toMatch(/get_workflow_requirements/);
     expect(SYSTEM_PROMPT).toMatch(/CRIAR\s*≠\s*ENVIAR/);
@@ -55,11 +41,6 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/set_has_opme/);
   });
 
-  // Regressão da v1.7.1 — print de 2026-05-11:
-  //   "1 - SC-565044 — Patrícia / 2 - Hospital: Sírio-Libanês / 3 - Convênio: ..."
-  // A IA tinha pedido "minhas SC" e veio: lista renumerada, ordem de status
-  // fora do workflow (Pendente por último) e detalhes de uma SC enxertados
-  // dentro da listagem geral. Os 3 reforços abaixo evitam regressão.
   it('limita "Próximos passos" a NO MÁXIMO 3 opções', () => {
     expect(SYSTEM_PROMPT).toMatch(/NO M[ÁA]XIMO 3 pr[óo]ximos passos/i);
     expect(SYSTEM_PROMPT).toMatch(/NUNCA passe de 3 op[çc][õo]es/i);
@@ -86,11 +67,6 @@ describe('SYSTEM_PROMPT', () => {
     );
   });
 
-  // Regressão v1.7.2 — print de 2026-05-11:
-  // A IA ofereceu "1 - Ver detalhes / 2 - Ver pendências / 3 - Criar nova SC",
-  // o usuário respondeu apenas "3" e a IA disse "não ficou claro qual ação".
-  // O prompt agora obriga a interpretar dígitos isolados como escolha da
-  // opção correspondente do turno anterior.
   it('tem seção "INTERPRETAÇÃO DE RESPOSTAS NUMÉRICAS DO USUÁRIO"', () => {
     expect(SYSTEM_PROMPT).toMatch(
       /INTERPRETA[ÇC][ÃA]O DE RESPOSTAS NUM[ÉE]RICAS DO USU[ÁA]RIO/,
@@ -116,10 +92,6 @@ describe('SYSTEM_PROMPT', () => {
     );
   });
 
-  // ============================================================
-  // v2.0 — Drafts de operação
-  // ============================================================
-
   it('é versão 2.x', () => {
     expect(PROMPT_VERSION.startsWith('2.')).toBe(true);
   });
@@ -130,10 +102,6 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/RASCUNHO ESTRUTURADO/);
   });
 
-  // Após a Fase 5 do PLANO-SANITIZACAO-CLEAN-CODE-IA, os setters per-type
-  // (`*_draft_set_*`) foram removidos. O LLM passa a usar `draft_update`
-  // global para preencher campos, e `*_draft_preview` / `*_draft_commit`
-  // continuam por tipo.
   it('lista a tool global draft_update e o ciclo preview/commit', () => {
     expect(SYSTEM_PROMPT).toMatch(/draft_update/);
     expect(SYSTEM_PROMPT).toMatch(/_draft_preview/);
@@ -141,9 +109,6 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/confirm=true/);
   });
 
-  // Regressão Fase 5 do PLANO-SANITIZACAO-CLEAN-CODE-IA: nenhum setter
-  // per-type (`*_draft_set_*`) deve ser citado como tool no prompt — todos
-  // foram removidos do registry.
   it('não menciona mais setters per-type *_draft_set_* como tool names', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/sc_draft_set_/);
     expect(SYSTEM_PROMPT).not.toMatch(/patient_draft_set_/);
@@ -170,33 +135,15 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/RETOMA o draft pai/);
   });
 
-  // Regressão Fase 3.1 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // a tool legacy `create_surgery_request_from_whatsapp` foi REMOVIDA do
-  // registry e nem deve ser mencionada no prompt — caso contrário o LLM
-  // tentaria chamá-la e receberia "Ferramenta não encontrada".
   it('não menciona mais create_surgery_request_from_whatsapp (tool legacy removida)', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/create_surgery_request_from_whatsapp/);
   });
 
-  // Regressão Fase 3.2 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // a tool legacy `create_patient` (general.tools.ts) foi REMOVIDA. O LLM
-  // deve usar `plan_actions(intent="create_patient")` + `patient_draft_*`.
-  // Garantimos que o prompt não cite mais a tool legacy diretamente (a
-  // string "create_patient" pode aparecer como INTENT no plan_actions, mas
-  // não como nome de tool no formato `create_patient(...)` ou
-  // `\`create_patient\``).
   it('não menciona mais a tool legacy create_patient como tool name', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`create_patient`/);
     expect(SYSTEM_PROMPT).not.toMatch(/create_patient\s*\(/);
   });
 
-  // Regressão Fase 3.3 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // as tools legacy `create_hospital`, `create_health_plan` e
-  // `create_procedure` (catalog.tools.ts) foram REMOVIDAS. Cadastros desses
-  // catálogos passam por `plan_actions(intent="create_*")` + `*_draft_*`.
-  // Strings como `create_hospital` ainda podem aparecer como INTENT no
-  // `plan_actions`, mas não como nome de tool no formato `create_hospital(...)`
-  // ou `\`create_hospital\``.
   it('não menciona mais create_hospital/create_health_plan/create_procedure como tool names', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`create_hospital`/);
     expect(SYSTEM_PROMPT).not.toMatch(/create_hospital\s*\(/);
@@ -206,26 +153,11 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/create_procedure\s*\(/);
   });
 
-  // Regressão Fase 3.4 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // a tool legacy `invoice_request` (whatsapp-flow.tools.ts) foi REMOVIDA
-  // do registry. Faturamento agora passa exclusivamente pelo fluxo
-  // `plan_actions(intent="invoice")` + `invoice_draft_*`. O nome
-  // `invoice_request` não pode aparecer como nome de tool no prompt — caso
-  // contrário o LLM tentaria chamá-la e receberia "Ferramenta não encontrada".
-  // (A string "invoice" continua válida quando aparece como intent ou
-  // descrição genérica.)
   it('não menciona mais a tool legacy invoice_request como tool name', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`invoice_request`/);
     expect(SYSTEM_PROMPT).not.toMatch(/invoice_request\s*\(/);
   });
 
-  // Regressão Fase 3.5 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // as tools legacy `contest_authorization_full` e `contest_payment`
-  // (whatsapp-flow.tools.ts) foram REMOVIDAS. Toda contestação passa pelo
-  // fluxo `plan_actions(intent="contestation")` + `contestation_draft_*`,
-  // que roteia internamente para `contestAuthorization` ou `contestPayment`
-  // do workflowService conforme o `contestationType` ("AUTHORIZATION" |
-  // "PAYMENT"). Os nomes das tools legacy não podem aparecer no prompt.
   it('não menciona mais as tools legacy contest_authorization_full / contest_payment', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`contest_authorization_full`/);
     expect(SYSTEM_PROMPT).not.toMatch(/contest_authorization_full\s*\(/);
@@ -233,15 +165,6 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/contest_payment\s*\(/);
   });
 
-  // Regressão Fase 3.6 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // as tools legacy `confirm_date` e `update_date_options`
-  // (whatsapp-flow.tools.ts) foram REMOVIDAS. Toda definição/confirmação de
-  // data passa pelo fluxo `plan_actions(intent="scheduling")` +
-  // `scheduling_draft_*`, que roteia internamente para
-  // `workflowService.updateDateOptions` (quando há `dateOptions`) e/ou
-  // `confirmDate` (quando há `confirmedDateIndex`). Os nomes das tools legacy
-  // não podem aparecer como nome de tool no prompt — caso contrário o LLM
-  // tentaria chamá-las e receberia "Ferramenta não encontrada".
   it('não menciona mais as tools legacy confirm_date / update_date_options como tool names', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`confirm_date`/);
     expect(SYSTEM_PROMPT).not.toMatch(/confirm_date\s*\(/);
@@ -249,24 +172,11 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/update_date_options\s*\(/);
   });
 
-  // Regressão Fase 3.7 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // a tool legacy `mark_performed` (whatsapp-flow.tools.ts) foi REMOVIDA.
-  // Toda transição SCHEDULED → PERFORMED passa pelo fluxo
-  // `plan_actions(intent="mark_performed")` + `mark_performed_draft_*`. O
-  // identificador `mark_performed` continua válido no prompt como `intent`
-  // (lista de intents do `plan_actions`) e como tipo de draft, mas NÃO pode
-  // aparecer como nome de tool autônoma — `\`mark_performed\`` ou
-  // `mark_performed(`. (Os nomes `mark_performed_draft_*` continuam válidos.)
   it('não menciona mais a tool legacy mark_performed como tool name', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`mark_performed`/);
     expect(SYSTEM_PROMPT).not.toMatch(/mark_performed\s*\(/);
   });
 
-  // Regressão Sub-fase 3.8 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // `update_request_clinical_data`, `update_request_admin_data`,
-  // `update_patient_data` e `update_surgery_request_data` removidas.
-  // Toda atualização de SC ou paciente passa pelo fluxo
-  // `plan_actions(intent="update_sc")` + `update_sc_draft_*`.
   it('não menciona mais as tools legacy de update como tool names', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/`update_request_clinical_data`/);
     expect(SYSTEM_PROMPT).not.toMatch(/update_request_clinical_data\s*\(/);
@@ -281,10 +191,6 @@ describe('SYSTEM_PROMPT', () => {
   it('deixa claro que nomes de paciente/hospital/convênio ficam EM CLARO (não tokenizados)', () => {
     expect(SYSTEM_PROMPT).toMatch(/N[ÃA]O s[ãa]o tokenizados/i);
   });
-
-  // ============================================================
-  // v2.1 — Drafts de transição de status
-  // ============================================================
 
   it('é versão 2.1.x ou superior', () => {
     expect(PROMPT_VERSION).toMatch(/^2\.[1-9]/);
@@ -324,10 +230,6 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toMatch(/mark_performed_draft_check_docs/);
     expect(SYSTEM_PROMPT).toMatch(/opcionais.*faturamento/i);
   });
-
-  // ============================================================
-  // v2.2.0 — draft-only flow completo
-  // ============================================================
 
   it('é versão 2.2.0 ou superior', () => {
     const [major, minor] = PROMPT_VERSION.split('.').map(Number);

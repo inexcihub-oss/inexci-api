@@ -75,7 +75,6 @@ export class ReportsService {
       any,
       any,
     ] = await Promise.all([
-      // 4 counts (total/agendada/realizada/faturada) em UMA query (P13).
       this.surgeryRequestRepository.countsByStatus(doctorIds, filters),
       this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
       this.surgeryRequestRepository.totalByHealthPlan(doctorIds, filters),
@@ -173,7 +172,6 @@ export class ReportsService {
   async pendingNotifications(userId: string, filters?: ReportFilters) {
     const { where } = await this.getWhereConditions(userId, filters);
 
-    // Considerar como pendentes: solicitações em análise ou reanálise há mais de 5 dias
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
@@ -183,7 +181,6 @@ export class ReportsService {
       updatedAt: LessThan(fiveDaysAgo),
     });
 
-    // Status CLOSED representa o fechamento manual (era inReanalysis no sistema legado)
     const pendingClosed = await this.surgeryRequestRepository.total({
       ...where,
       status: SurgeryRequestStatus.IN_SCHEDULING,
@@ -215,12 +212,6 @@ export class ReportsService {
     }));
   }
 
-  /**
-   * Endpoint consolidado do dashboard (P13): reúne as 5 consultas antes
-   * servidas por endpoints separados numa única resposta/round-trip. Cada
-   * método reusa `getAccessibleDoctorIds` (cache de 30s), então a resolução de
-   * acesso não é refeita 5×.
-   */
   async dashboardFull(
     userId: string,
     filters?: ReportFilters,

@@ -46,13 +46,11 @@ describe('converterFotosExistentes', () => {
       'patient-photos/o1/p1.png',
       'patient-photos/o1/novo-p1.webp',
     );
-    // Uma chamada por foto, não um lote no fim.
     expect(d.apagar).toHaveBeenCalledTimes(2);
     expect(d.apagar.mock.calls.map((c) => c[0]).sort()).toEqual([
       ['patient-photos/o1/p1.png'],
       ['patient-photos/o1/p2.png'],
     ]);
-    // A original de cada foto só é apagada depois da troca dela.
     const ordemTroca = d.trocarCaminho.mock.invocationCallOrder[0];
     const ordemApaga = d.apagar.mock.invocationCallOrder[0];
     expect(ordemApaga).toBeGreaterThan(ordemTroca);

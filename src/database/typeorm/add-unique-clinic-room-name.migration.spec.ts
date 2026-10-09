@@ -8,11 +8,6 @@ import {
   VERIFICACOES_PRE_MIGRATION,
 } from './preflight/data-checks';
 
-/**
- * O índice fecha a corrida do `assertNomeLivre`. Dado legado repetido
- * derrubaria o `CREATE UNIQUE INDEX` sem dizer quais salas colidem — a
- * migration confere antes, com a mesma verificação do pré-flight de deploy.
- */
 describe('AddUniqueClinicRoomName1755801000000', () => {
   function criarQueryRunner(conflitos: Record<string, unknown>[] = []) {
     const query = jest.fn((sql: string) =>

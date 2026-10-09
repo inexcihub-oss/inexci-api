@@ -4,15 +4,6 @@ import { RagService, RagSearchResult } from './rag.service';
 import { EmbeddingService } from './embedding.service';
 import { DataSource } from 'typeorm';
 
-/**
- * Spec para as funcionalidades adicionadas na Fase 7 do
- * `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`:
- *  - rerank por keyword overlap
- *  - computeMetrics
- *  - filtro de categoria
- *  - configurabilidade de topK/minScore
- */
-
 const mockEmbeddingService = {
   generate: jest.fn(),
   toSqlVector: jest.fn(),
@@ -55,8 +46,6 @@ describe('RagService — rerank (Fase 7)', () => {
     jest.clearAllMocks();
   });
 
-  // ─── rerank ──────────────────────────────────────────────────────────────────
-
   describe('rerank', () => {
     it('mantém resultado único sem alterar', () => {
       const single = [
@@ -86,8 +75,6 @@ describe('RagService — rerank (Fase 7)', () => {
         'autorização cirurgia procedimento',
       );
 
-      // highOverlap: cosine=0.7, overlap ~3/3 = 1.0  → 0.7*0.7 + 0.3*1.0 = 0.79
-      // highCosine:  cosine=0.9, overlap ~0/3 = 0.0  → 0.7*0.9 + 0.3*0.0 = 0.63
       expect(reranked[0].id).toBe('b');
       expect(reranked[1].id).toBe('a');
     });
@@ -105,7 +92,6 @@ describe('RagService — rerank (Fase 7)', () => {
         content: 'mais um texto genérico',
       });
 
-      // query sem palavras >= 3 chars → extractKeywords retorna []
       const result = service.rerank([r1, r2, r3], 'X Y');
       expect(result).toEqual([r1, r2, r3]);
     });
@@ -123,8 +109,6 @@ describe('RagService — rerank (Fase 7)', () => {
       });
 
       const reranked = service.rerank([r1, r2], 'agendamento cirurgia');
-      // r1: 0.7*0.8 + 0.3*(2/2) = 0.56 + 0.30 = 0.86
-      // r2: 0.7*0.75 + 0.3*(2/2) = 0.525 + 0.30 = 0.825
       expect(reranked[0].id).toBe('1');
       expect(reranked[1].id).toBe('2');
     });
@@ -141,13 +125,10 @@ describe('RagService — rerank (Fase 7)', () => {
         content: 'texto completamente diferente',
       });
 
-      // "de a" → nenhuma keyword >= 3 chars → overlap = [] → mantém cosine order
       const result = service.rerank([r1, r2], 'de a');
-      expect(result[0].id).toBe('1'); // ordem original preservada (mesmo overlap)
+      expect(result[0].id).toBe('1');
     });
   });
-
-  // ─── computeMetrics ──────────────────────────────────────────────────────────
 
   describe('computeMetrics', () => {
     it('retorna zeros para array vazio', () => {
@@ -179,12 +160,9 @@ describe('RagService — rerank (Fase 7)', () => {
         makeResult({ score: 0.8333 }),
       ]);
       expect(metrics.topScore).toBe(0.833);
-      // (0.7777 + 0.8333) / 2 = 0.8055 → Math.round(805.5) = 806 → 0.806
       expect(metrics.avgScore).toBe(0.806);
     });
   });
-
-  // ─── search com opções ───────────────────────────────────────────────────────
 
   describe('search — configurabilidade (Fase 7)', () => {
     beforeEach(() => {
@@ -203,8 +181,8 @@ describe('RagService — rerank (Fase 7)', () => {
       await service.search('query de teste');
 
       const [sql, params] = mockDataSource.query.mock.calls[0];
-      expect(params[1]).toBe(0.7); // minScore
-      expect(params[2]).toBe(5); // topK
+      expect(params[1]).toBe(0.7);
+      expect(params[2]).toBe(5);
       expect(sql).not.toContain('category =');
     });
 
@@ -236,8 +214,8 @@ describe('RagService — rerank (Fase 7)', () => {
       await service.search('query legada', 7, 0.55);
 
       const [, params] = mockDataSource.query.mock.calls[0];
-      expect(params[2]).toBe(7); // topK
-      expect(params[1]).toBe(0.55); // minScore
+      expect(params[2]).toBe(7);
+      expect(params[1]).toBe(0.55);
     });
 
     it('aplica rerank nos resultados retornados pelo banco', async () => {
@@ -249,7 +227,6 @@ describe('RagService — rerank (Fase 7)', () => {
 
       const results = await service.search('cirurgia autorização');
 
-      // 'y' tem maior overlap → deve subir para posição 0 após rerank
       expect(results[0].id).toBe('y');
       expect(results[1].id).toBe('x');
     });

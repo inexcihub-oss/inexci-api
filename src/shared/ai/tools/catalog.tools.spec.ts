@@ -23,13 +23,6 @@ function createTools(overrides: Partial<Record<string, any>> = {}) {
 }
 
 describe('CatalogTools', () => {
-  // Tools legacy `create_hospital`, `create_health_plan` e `create_procedure`
-  // removidas em 2026-05-12 (Fase 3.3 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  // cadastro de hospital/convênio/procedimento passa pelo fluxo
-  // `plan_actions(intent="create_*")` + `*_draft_*` (cobertura em
-  // `cadastro-draft.tools.spec.ts`). Só o `search_procedures` (leitura)
-  // continua aqui — ele é tool global e não cria nada.
-
   describe('search_procedures', () => {
     it('retorna catálogo com IDs visíveis ao LLM', async () => {
       const { map, procedureRepo } = createTools();
@@ -43,12 +36,10 @@ describe('CatalogTools', () => {
         .get('search_procedures')!
         .execute({ query: 'joelho' }, baseContext());
 
-      // Procedimentos cirúrgicos com substring "joelho" devem aparecer com id.
       expect(result).toContain('Artroscopia de Joelho');
       expect(result).toContain('id: proc-1');
       expect(result).toContain('Cirurgia do Joelho');
       expect(result).toContain('id: proc-2');
-      // Procedimento sem joelho não aparece.
       expect(result).not.toContain('Quadril');
     });
 
@@ -64,8 +55,6 @@ describe('CatalogTools', () => {
 
       expect(result).toContain('Não encontrei');
       expect(result).toContain('joelho');
-      // Mensagem aponta para o fluxo de draft, não para a tool legacy
-      // `create_procedure` que foi removida na Fase 3.3.
       expect(result).toContain('plan_actions');
       expect(result).toContain('procedure_draft');
     });

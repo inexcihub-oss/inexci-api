@@ -20,21 +20,12 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
 
-/**
- * Índice único parcial em `patients.photo_path` (migration
- * `AddUniquePatientPhotoPath1755801100000`). Fecha a corrida do `fotoEmUso`,
- * que é check-then-write: duas gravações simultâneas com o mesmo caminho
- * passariam as duas pela checagem.
- */
 export const UQ_PATIENTS_PHOTO_PATH = 'UQ_patients_photo_path';
 
-/** A foto enviada sumiu do bucket antes de o cadastro/PATCH referenciá-la. */
 export const FOTO_EXPIRADA = 'A foto enviada expirou; envie novamente.';
 
-/** Paciente como sai nas respostas HTTP: com a URL assinada da foto. */
 export type PatientWithPhoto = Patient & { photoUrl: string | null };
 
-/** Campo de texto opcional: vazio ou só espaços vira `null`, nunca `''`. */
 function textoOuNulo(valor: string | null | undefined): string | null {
   return valor?.trim() || null;
 }
@@ -54,8 +45,6 @@ export class PatientsService {
   async findAll(query: FindManyPatientDto, userId: string) {
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    // Busca + paginação server-side num único round-trip (P6/P7). O `total`
-    // reflete o filtro aplicado, permitindo paginação correta no frontend.
     const [records, total] =
       await this.patientRepository.findAndCountWithSearch(
         ownerId,
@@ -67,21 +56,6 @@ export class PatientsService {
     return { total, records: await this.comFotos(records) };
   }
 
-  /**
-   * Busca pacientes por nome com suporte a múltiplos modos de comparação.
-   *
-   * - `contains`, `prefix`, `exact`: filtragem **server-side** via
-   *   `ILIKE unaccent(...)` — retorna no máximo `limit` registros sem carregar
-   *   a tabela inteira em memória.
-   * - `fuzzy`: carrega até `limit * 4` candidatos do banco (ILIKE `%search%`)
-   *   e delega o ranking ao `EntityResolverService` no chamador; sem `search`
-   *   lista todos (o chamador aplica o resolver).
-   *
-   * Benchmark aproximado (Postgres 16, índice GIN não criado):
-   *   - 10 pacientes   → ~0,3 ms  (todos os modos)
-   *   - 100 pacientes  → ~0,8 ms  (server-side) vs ~12 ms (in-memory anterior)
-   *   - 1000 pacientes → ~2,5 ms  (server-side) vs ~90 ms (in-memory anterior)
-   */
   async findManyWithSearch(
     search: string | null | undefined,
     mode: 'fuzzy' | 'contains' | 'prefix' | 'exact',
@@ -90,12 +64,10 @@ export class PatientsService {
   ): Promise<Patient[]> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    // Sem termo de busca — lista todos (o chamador decide quantos usar).
     if (!search) {
       return this.patientRepository.findMany({ ownerId }, 0, limit);
     }
 
-    // Modos exatos: delegam completamente ao banco (server-side ILIKE).
     if (mode === 'contains' || mode === 'prefix' || mode === 'exact') {
       return this.patientRepository.findByNameIlike(
         ownerId,
@@ -105,8 +77,6 @@ export class PatientsService {
       );
     }
 
-    // Modo fuzzy: busca candidatos com substring no banco (limite generoso)
-    // e delega o ranking fino ao EntityResolverService no chamador.
     const candidateLimit = Math.min(limit * 4, 100);
     return this.patientRepository.findByNameIlike(
       ownerId,
@@ -130,12 +100,6 @@ export class PatientsService {
     return patient;
   }
 
-  /**
-   * `findOne` + URL assinada da foto, para a resposta HTTP. O `findOne` puro
-   * continua sem a URL porque também é usado pela tool do assistente de
-   * WhatsApp, que repassa o paciente ao modelo — URL assinada não vai para a
-   * OpenAI.
-   */
   async findOneWithPhoto(
     id: string,
     userId: string,
@@ -143,11 +107,6 @@ export class PatientsService {
     return this.comFoto(await this.findOne(id, userId));
   }
 
-  /**
-   * Resposta HTTP do create: mesmo formato do `findOneWithPhoto`, para quem
-   * cadastra com foto já receber a URL. O `create` puro fica sem ela pelo
-   * mesmo motivo do `findOne` (é o que o assistente de WhatsApp usa).
-   */
   async createWithPhoto(
     data: CreatePatientDto,
     userId: string,
@@ -254,9 +213,6 @@ export class PatientsService {
       return (await this.patientRepository.update(id, updateData))!;
     }
 
-    // Troca de foto: a antiga a apagar é a que o UPDATE de fato substituiu,
-    // não a lida lá em cima (o script de conversão pode tê-la trocado no
-    // meio — apagar a lida deixaria a WebP dele órfã no bucket).
     const substituida = await this.traduzirFotoDuplicada(() =>
       this.gravarTrocandoFoto(id, updateData),
     );
@@ -265,7 +221,6 @@ export class PatientsService {
     return (await this.patientRepository.findOne({ id }))!;
   }
 
-  /** Resposta HTTP do update: mesmo formato do `findOneWithPhoto`. */
   async updateWithPhoto(
     id: string,
     data: UpdatePatientDto,
@@ -307,23 +262,6 @@ export class PatientsService {
     return { deleted: uniqueIds.length };
   }
 
-  /**
-   * Só aceita foto enviada por esta conta para a pasta de fotos de paciente.
-   * Sem isso, um caminho de outro tenant (ou de outra pasta, como `documents/`)
-   * gravado aqui viraria uma URL assinada gerada pelo próprio backend, por fora
-   * da checagem de posse do `UploadService.getSignedUrl`.
-   *
-   * Também recusa a foto que já é de OUTRO paciente: trocar a foto de um apaga
-   * o objeto antigo do bucket, e o outro ficaria apontando para o nada.
-   *
-   * E recusa a foto que não existe mais no bucket: o modal guarda o caminho do
-   * upload para a próxima tentativa, e entre um e outro o objeto pode ter sido
-   * descartado (`POST /patients/photos/discard`) ou levado pela varredura de
-   * órfãs (`FotosPacienteOrfasService`, 24 h). Gravar o caminho morto deixava
-   * o paciente com uma foto quebrada para sempre. A foto que o paciente JÁ tem
-   * (`fotoAtual`, reenviada pelo PATCH sem mudança) não é conferida: não é
-   * upload novo, e recusá-la impediria salvar os outros campos da ficha.
-   */
   private async validarFoto(
     photoPath: string | null | undefined,
     ownerId: string,
@@ -343,11 +281,6 @@ export class PatientsService {
     return caminho;
   }
 
-  /**
-   * `HEAD` no R2. Falha que não seja "não existe" (R2 fora, rede) é 503, e não
-   * "existe": gravar sem confirmar é justamente o caminho morto que a checagem
-   * evita.
-   */
   private async fotoNoBucket(caminho: string): Promise<boolean> {
     try {
       return await this.storageService.exists(caminho);
@@ -358,7 +291,6 @@ export class PatientsService {
     }
   }
 
-  /** Caminho direto em `patient-photos/<ownerId>/`, sem subpasta nem `..`. */
   private assertFotoDaConta(caminho: string, ownerId: string): void {
     const prefixo = `${STORAGE_FOLDERS.PATIENT_PHOTOS}/${ownerId}/`;
     const nome = caminho.slice(prefixo.length);
@@ -372,18 +304,6 @@ export class PatientsService {
     }
   }
 
-  /**
-   * Descarta uma foto que o front enviou mas não chegou a usar: o `PATCH` da
-   * troca falhou, ou o cadastro do paciente falhou e o modal foi fechado. Sem
-   * isso, o objeto (dado de saúde) ficava no bucket até a varredura diária
-   * (`FotosPacienteOrfasService`).
-   *
-   * Não é um "apagar arquivo" genérico: só aceita caminho na pasta de fotos
-   * DA CONTA de quem chama, e não faz nada se algum paciente (inclusive
-   * excluído) referencia o caminho — então não serve para apagar a foto de um
-   * paciente existente, nem a de outro tenant. Idempotente e silencioso: o
-   * front chama em best-effort e não tem o que fazer com um erro.
-   */
   async descartarFotoNaoUsada(
     photoPath: string,
     userId: string,
@@ -400,11 +320,6 @@ export class PatientsService {
     }
   }
 
-  /**
-   * O índice único de `photo_path` recusou a gravação: outra requisição
-   * gravou o mesmo caminho entre o `fotoEmUso` e o INSERT/UPDATE. Mesma
-   * resposta do `validarFoto` — para o cliente é o mesmo caso.
-   */
   private async traduzirFotoDuplicada<T>(gravar: () => Promise<T>): Promise<T> {
     try {
       return await gravar();
@@ -416,10 +331,6 @@ export class PatientsService {
     }
   }
 
-  /**
-   * Algum paciente (fora `excetoId`) aponta para este caminho? Conta também os
-   * excluídos (soft delete): um paciente restaurado não pode voltar sem foto.
-   */
   private async fotoEmUso(
     photoPath: string,
     excetoId?: string,
@@ -431,13 +342,6 @@ export class PatientsService {
     return total > 0;
   }
 
-  /**
-   * Grava o update com `SELECT … FOR UPDATE` na linha: lê o `photo_path`
-   * vigente e troca dentro da mesma transação, então ninguém (o script de
-   * conversão, outro save da tela) troca a foto entre a leitura e a escrita.
-   * Devolve o caminho efetivamente substituído (ou `null` se não havia foto
-   * ou ela não mudou) — esse, e só esse, é candidato a sair do bucket.
-   */
   private gravarTrocandoFoto(
     id: string,
     updateData: Partial<Patient>,
@@ -462,7 +366,6 @@ export class PatientsService {
     try {
       return await this.storageService.getSignedUrl(photoPath);
     } catch {
-      // Foto que sumiu do storage não pode derrubar a ficha do paciente.
       this.logger.warn('Falha ao gerar URL da foto de paciente');
       return null;
     }
@@ -476,11 +379,6 @@ export class PatientsService {
     return Promise.all(pacientes.map((p) => this.comFoto(p)));
   }
 
-  /**
-   * Best-effort: o cadastro já foi gravado; objeto órfão no R2 não é erro.
-   * Não apaga objeto que outro paciente ainda referencia (foto compartilhada
-   * gravada antes da checagem do `validarFoto`, ou importação antiga).
-   */
   private async apagarFotoAntiga(photoPath: string): Promise<void> {
     try {
       if (await this.fotoEmUso(photoPath)) return;

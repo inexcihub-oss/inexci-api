@@ -16,11 +16,6 @@ export interface PlanoProntuario {
   modelosVazios: NovoModeloAnamnese[];
 }
 
-/**
- * Fase `prontuario`: fichas dos atendimentos, formulários soltos, resumos de
- * IA com texto próprio e o atestado emitido no Feegow. Depende das fases
- * `cadastro` e `agenda` no ledger.
- */
 export function planejarProntuario(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -35,7 +30,6 @@ export async function gravarProntuario(
   plano: PlanoProntuario,
   manager: EntityManager,
 ): Promise<void> {
-  // Ficha é HTML grande: lotes menores que o padrão.
   await inserirEmLotes(manager, ClinicalRecord, plano.fichas, false, 50);
   await inserirEmLotes(manager, ClinicalRecordTemplate, plano.modelosVazios);
 }

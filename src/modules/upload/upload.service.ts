@@ -34,19 +34,12 @@ const MIME_TO_EXT: Record<string, string> = {
   'video/webm': 'webm',
 };
 
-/** Pastas que armazenam dados de pacientes e requerem verificação de tenant. */
 const TENANT_SCOPED_FOLDERS = [
   STORAGE_FOLDERS.DOCUMENTS,
   STORAGE_FOLDERS.POST_SURGICAL,
   STORAGE_FOLDERS.REPORT,
 ] as string[];
 
-/**
- * Unicas pastas dispensadas de prova de posse: conteudo publico dentro da
- * plataforma (avatar e cabecalho aparecem para toda a equipe). Todo o resto
- * exige validacao — antes a lista era o inverso, e pastas criadas depois
- * (pdfs, signatures, whatsapp-tmp) nasceram sem checagem alguma.
- */
 const PASTAS_PUBLICAS = [
   STORAGE_FOLDERS.AVATARS,
   STORAGE_FOLDERS.HEADERS,
@@ -54,11 +47,6 @@ const PASTAS_PUBLICAS = [
 
 const ALLOWED_FOLDERS: readonly string[] = Object.values(STORAGE_FOLDERS);
 
-/**
- * Pastas que só aceitam um subconjunto dos tipos de `MIME_TO_EXT`. Foto de
- * paciente vira `<img>` na tela: PDF, áudio ou vídeo ali não têm uso e só
- * abririam porta para guardar outro tipo de arquivo atrás de uma "foto".
- */
 const MIME_PERMITIDOS_POR_PASTA: Record<string, readonly string[]> = {
   [STORAGE_FOLDERS.PATIENT_PHOTOS]: [
     'image/jpeg',
@@ -68,20 +56,10 @@ const MIME_PERMITIDOS_POR_PASTA: Record<string, readonly string[]> = {
   ],
 };
 
-/** `image/jpg` não é MIME oficial, mas navegadores mandam; o `file-type` diz `image/jpeg`. */
 function mimeCanonico(mime: string): string {
   return mime === 'image/jpg' ? 'image/jpeg' : mime;
 }
 
-/**
- * Tipos declarados cuja assinatura (magic bytes) o `file-type` sempre
- * reconhece: para eles, NÃO detectar nada já é prova de que o conteúdo não é
- * o declarado. É o caso clássico do SVG (texto/XML, que o `file-type` não
- * detecta) enviado como `image/png` — antes passava, porque só se recusava
- * quando a detecção dava OUTRO tipo. Áudio/vídeo ficam de fora: o `file-type`
- * devolve variantes (`audio/ogg; codecs=opus`, `video/mp4` para `.m4a`...)
- * e endurecer ali quebraria upload legítimo sem ganho real.
- */
 function exigeDeteccao(mime: string): boolean {
   return mime.startsWith('image/') || mime === 'application/pdf';
 }
@@ -93,10 +71,6 @@ export class UploadService {
     private readonly documentRepository: DocumentRepository,
   ) {}
 
-  /**
-   * Faz upload de um arquivo para o R2 Storage.
-   * Valida MIME type, magic bytes e limite de tamanho por pasta.
-   */
   async uploadFile(
     file: Express.Multer.File,
     folder: string = STORAGE_FOLDERS.DOCUMENTS,
@@ -136,7 +110,6 @@ export class UploadService {
     if (
       (detected && mimeCanonico(detected.mime) !== declarado) ||
       (!detected && exigeDeteccao(declarado)) ||
-      // Allowlist da pasta vale também para o tipo DETECTADO, não só o declarado.
       (detected &&
         permitidosNaPasta &&
         !permitidosNaPasta.includes(detected.mime))
@@ -144,11 +117,6 @@ export class UploadService {
       throw new BadRequestException('Tipo de arquivo inválido');
     }
 
-    // Foto de paciente vira WebP de até 800 px: a mesma versão serve a
-    // miniatura e a foto ampliada, e um PNG de ~500 KB cai para ~15 KB.
-    // O `otimizarFotoPaciente` ainda confere o formato pelo decoder do sharp
-    // (jpeg/png/webp), limita os pixels da entrada e recusa imagem truncada —
-    // qualquer erro dele é culpa do arquivo enviado, então vira 400.
     let arquivo = file;
     if (folder === STORAGE_FOLDERS.PATIENT_PHOTOS) {
       let otimizada: Buffer;
@@ -174,10 +142,6 @@ export class UploadService {
     return { url, path: filePath };
   }
 
-  /**
-   * Gera uma URL assinada para um arquivo existente no Storage.
-   * Para pastas com dados de pacientes exige que o arquivo pertença ao tenant.
-   */
   async getSignedUrl(
     filePath: string,
     ownerId: string | null,
@@ -191,7 +155,6 @@ export class UploadService {
         throw new ForbiddenException('Acesso negado ao arquivo solicitado');
       }
 
-      // Pastas com registro em `documents`: prova de posse pela entidade.
       if (TENANT_SCOPED_FOLDERS.includes(folder)) {
         const belongs = await this.documentRepository.existsByUriAndOwner(
           safePath,
@@ -201,8 +164,6 @@ export class UploadService {
           throw new ForbiddenException('Acesso negado ao arquivo solicitado');
         }
       } else if (tenantDoCaminho !== ownerId) {
-        // Demais pastas (pdfs, signatures, stamps, whatsapp-*): o proprio
-        // caminho embute o ownerId — `${folder}/${ownerId}/${arquivo}`.
         throw new ForbiddenException('Acesso negado ao arquivo solicitado');
       }
     }
@@ -211,16 +172,10 @@ export class UploadService {
     return { url };
   }
 
-  /**
-   * Deleta um arquivo do Storage.
-   */
   async deleteFile(filePath: string): Promise<void> {
     await this.storageService.delete(filePath);
   }
 
-  /**
-   * Faz upload de múltiplos arquivos.
-   */
   uploadMultipleFiles(
     files: Express.Multer.File[],
     folder: string = STORAGE_FOLDERS.DOCUMENTS,

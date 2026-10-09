@@ -160,7 +160,6 @@ export class OpmeService {
       userId,
     );
 
-    // Limpa as junction tables antes de remover
     opmeItem.suppliers = [];
     opmeItem.manufacturers = [];
     await this.opmeItemRepository.saveWithSuppliers(opmeItem);
@@ -243,10 +242,6 @@ export class OpmeService {
       const normalized = trimmed.toLowerCase();
       if (addedNamesNormalized.has(normalized)) continue;
 
-      // "Outro" não é um nome digitado: é o fornecedor genérico da conta, a
-      // resposta para "nenhum dos cadastrados". Antes desta regra o
-      // preenchimento automático dos slots o transformava num cadastro real,
-      // que aparecia no catálogo e o usuário não tinha pedido.
       if (isGenericOptionName(trimmed)) {
         const generico = await this.supplierRepository.ensureGeneric(ownerId);
         if (!addedIds.has(generico.id)) {
@@ -329,8 +324,6 @@ export class OpmeService {
       const normalized = trimmed.toLowerCase();
       if (addedNamesNormalized.has(normalized)) continue;
 
-      // Mesma regra dos fornecedores: "Outro" é o fabricante genérico da
-      // conta, não um nome a cadastrar.
       if (isGenericOptionName(trimmed)) {
         const generico =
           await this.manufacturerRepository.ensureGeneric(ownerId);

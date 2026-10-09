@@ -87,16 +87,12 @@ import { ObservabilityModule } from './shared/observability/observability.module
           retryStrategy: (times: number) => Math.min(times * 200, 5000),
         };
 
-        // Bull exige enableReadyCheck: false e maxRetriesPerRequest: null
-        // para as conexões subscriber e bclient (ver bull#1873).
         const workerRedisOptions: RedisOptions = {
           ...redisOptions,
           enableReadyCheck: false,
           maxRetriesPerRequest: null,
         };
 
-        // Compartilhando client e subscriber, reduzimos de 3×N para N+2 conexões,
-        // evitando "ERR max number of clients reached" em planos com limite baixo.
         const sharedClient = new IORedis(redisOptions);
         const sharedSubscriber = new IORedis(workerRedisOptions);
 
@@ -108,7 +104,6 @@ import { ObservabilityModule } from './shared/observability/observability.module
               case 'subscriber':
                 return sharedSubscriber;
               case 'bclient':
-                // bclient precisa de conexão dedicada (operações de bloqueio)
                 return new IORedis(workerRedisOptions);
               default:
                 throw new Error(`Tipo de conexão Redis inesperado: ${type}`);

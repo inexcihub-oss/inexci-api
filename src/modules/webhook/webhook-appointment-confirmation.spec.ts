@@ -1,14 +1,6 @@
 import { WebhookService } from './webhook.service';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 
-/**
- * Resposta do paciente ao template `appointment_confirmation`.
- *
- * A consulta é localizada pelo telefone do remetente dentro da janela do
- * lembrete — o webhook do Twilio não entrega id de consulta. Os ids de botão
- * próprios (`consulta_confirmar`/`consulta_cancelar`) é que separam este fluxo
- * do agendamento cirúrgico, que usa `opcao_*`.
- */
 describe('WebhookService — confirmação de consulta', () => {
   const configService = { get: jest.fn().mockReturnValue('') };
   const surgeryRequestRepository = {
@@ -65,8 +57,6 @@ describe('WebhookService — confirmação de consulta', () => {
       appointmentActivityRepository as any,
     );
   });
-
-  // ─── MIG-04: histórico da consulta ───────────────────────────────────────
 
   it('registra a confirmação pelo paciente no histórico da consulta', async () => {
     await service.tryHandleAppointmentConfirmation(
@@ -147,10 +137,6 @@ describe('WebhookService — confirmação de consulta', () => {
     });
   });
 
-  /**
-   * O paciente acabou de cancelar apertando o botão — reenviar o template
-   * `appointment_cancelled` seria avisá-lo do que ele mesmo fez.
-   */
   it('não reenvia o template de cancelamento para quem cancelou pelo botão', async () => {
     await service.tryHandleAppointmentConfirmation(evento('consulta_cancelar'));
 
@@ -173,8 +159,6 @@ describe('WebhookService — confirmação de consulta', () => {
     );
   });
 
-  // ─── Localização da consulta ─────────────────────────────────────────────
-
   it('procura pelas variantes do telefone e numa janela que cobre o lembrete', async () => {
     jest
       .spyOn(Date, 'now')
@@ -188,19 +172,12 @@ describe('WebhookService — confirmação de consulta', () => {
       appointmentRepository.findAtivaPorTelefone.mock.calls[0];
     expect(telefones).toContain('5511998877665');
     expect(telefones).toContain('11998877665');
-    // O lembrete sai até 24h antes; a resposta pode chegar já com a consulta
-    // recém-passada, então a janela abre um pouco antes de agora.
     expect(janela.from.getTime()).toBeLessThan(Date.now());
     expect(janela.to.getTime()).toBeGreaterThan(Date.now() + 24 * 3600 * 1000);
 
     jest.restoreAllMocks();
   });
 
-  /**
-   * O status já foi gravado. Deixar a exceção subir fazia o controller cair no
-   * `catch` e entregar o clique do botão ao orquestrador de IA, que respondia
-   * ao paciente qualquer coisa sobre uma consulta que já estava cancelada.
-   */
   it('continua tratando a resposta quando o aviso ao paciente falha', async () => {
     whatsappService.sendMessage.mockRejectedValue(new Error('twilio fora'));
 
@@ -246,11 +223,6 @@ describe('WebhookService — confirmação de consulta', () => {
     expect(appointmentRepository.findAtivaPorTelefone).not.toHaveBeenCalled();
   });
 
-  /**
-   * `opcao_1`/`opcao_2` são do template de agendamento cirúrgico. Aceitá-los
-   * aqui traria de volta a colisão que os ids próprios do template de consulta
-   * resolveram.
-   */
   it('ignora os ids do template de agendamento cirúrgico', async () => {
     for (const payload of ['opcao_1', 'opcao_2', 'opcao_3']) {
       await expect(
@@ -273,12 +245,6 @@ describe('WebhookService — confirmação de consulta', () => {
     });
   });
 
-  // ─── Local do atendimento na resposta ────────────────────────────────────
-
-  /**
-   * A janela de 24h abre quando o paciente aperta o botão — é a única chance de
-   * mandar o endereço sem gastar template (variável opcional não cabe num).
-   */
   it('informa nome e endereço da unidade ao confirmar', async () => {
     appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
       ...consulta,
@@ -332,7 +298,6 @@ describe('WebhookService — confirmação de consulta', () => {
     expect(texto).not.toContain('📍');
   });
 
-  /** Quem cancelou não precisa saber onde era. */
   it('não menciona local no cancelamento', async () => {
     appointmentRepository.findAtivaPorTelefone.mockResolvedValue({
       ...consulta,

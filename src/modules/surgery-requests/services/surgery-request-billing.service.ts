@@ -44,10 +44,6 @@ export class SurgeryRequestBillingService {
     private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
-  // ============================================================
-  // FATURAMENTO E RECEBIMENTO
-  // ============================================================
-
   async invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },

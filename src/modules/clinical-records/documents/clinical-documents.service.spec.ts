@@ -76,11 +76,6 @@ describe('ClinicalDocumentsService', () => {
 
   const file = { originalname: 'exame.pdf' } as Express.Multer.File;
 
-  // Diferente de `surgery-requests/documents`, este service não checava o
-  // limite por pasta (`STORAGE_FOLDER_SIZE_LIMITS`) — só o corte grosso do
-  // `FileInterceptor`. Como o corte grosso agora é o maior limite da config
-  // (50 MB), sem esta checagem qualquer pasta pequena (ex.: assinatura,
-  // 500 KB) aceitaria um arquivo bem maior que o previsto.
   describe('create — limite de tamanho por pasta', () => {
     const arquivo = (bytes: number): Express.Multer.File =>
       ({
@@ -99,7 +94,7 @@ describe('ClinicalDocumentsService', () => {
             folder: STORAGE_FOLDERS.SIGNATURES,
           },
           'user-1',
-          arquivo(600 * 1024), // limite de signatures: 500 KB
+          arquivo(600 * 1024),
         ),
       ).rejects.toThrow(BadRequestException);
       expect(storageService.create).not.toHaveBeenCalled();
@@ -115,7 +110,7 @@ describe('ClinicalDocumentsService', () => {
             folder: STORAGE_FOLDERS.DOCUMENTS,
           },
           'user-1',
-          arquivo(40 * 1024 * 1024), // dentro dos 50 MB da config
+          arquivo(40 * 1024 * 1024),
         ),
       ).resolves.toMatchObject({ id: 'doc-1' });
       expect(storageService.create).toHaveBeenCalled();
@@ -273,9 +268,6 @@ describe('ClinicalDocumentsService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    // O `key` entra no WHERE do DELETE, mas o storage apaga pela `uri`: com
-    // `key` divergente o registro clínico ficava no banco e o arquivo sumia do
-    // R2 (documento fantasma no prontuário).
     it('404 e não toca no R2 quando o `key` informado não casa com o do documento', async () => {
       documentRepository.findOneSimple.mockResolvedValue({
         id: 'doc-1',
@@ -293,7 +285,6 @@ describe('ClinicalDocumentsService', () => {
 
       expect(storageService.delete).not.toHaveBeenCalled();
       expect(documentTypeormRepo.delete).not.toHaveBeenCalled();
-      // Nem chega a validar posse — recusa antes de qualquer efeito.
       expect(accessControlService.assertSameOwner).not.toHaveBeenCalled();
     });
 

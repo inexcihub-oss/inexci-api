@@ -45,7 +45,7 @@ export class AuthController {
   private readonly logger = new Logger(AuthController.name);
   /** Cookie httpOnly para refresh token */
   private readonly REFRESH_COOKIE = 'refresh_token';
-  private readonly REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+  private readonly REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
   constructor(private readonly authService: AuthService) {}
 
@@ -124,19 +124,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Registrar novo usuário' })
   @ApiResponse({ status: 201, description: 'Usuário registrado com sucesso' })
   async register(@Body() req: RegisterDto) {
-    // O service não emite mais access/refresh token: o usuário precisa confirmar
-    // o e-mail antes de logar. Nenhum cookie de sessão é definido aqui.
     return await this.authService.register(req);
   }
 
   @Public()
-  // Endpoint de enumeração por natureza (registered/available). Não dá para
-  // eliminar o vazamento sem quebrar a UX do wizard — e o próprio `register`
-  // revelaria o mesmo no submit. A defesa aqui é inviabilizar a enumeração EM
-  // VOLUME: 5/min prende o uso legítimo (o wizard checa um punhado de e-mails) e
-  // 20/h por IP torna impraticável varrer uma lista grande a partir de um IP.
-  // Mitigação completa (varredura com rotação de IP) exige um desafio anti-bot
-  // (CAPTCHA/Turnstile) — fora do escopo desta correção; ver relatório.
   @Throttle({
     short: { ttl: 60000, limit: 5 },
     long: { ttl: 3600000, limit: 20 },
@@ -155,12 +146,6 @@ export class AuthController {
   }
 
   @Public()
-  // Mesmo trade-off do `check-email` acima, e o mesmo throttle. A diferença é
-  // que telefone tem espaço de busca muito menor que e-mail (um DDD + 9 dígitos
-  // é enumerável; um endereço arbitrário não), então o limite por hora é o que
-  // segura o volume — e ele só passou a valer por cliente de verdade depois do
-  // `real_ip` da Cloudflare no nginx: antes, todo mundo compartilhava a mesma
-  // chave (o IP do edge) e o limite era simultaneamente inútil e injusto.
   @Throttle({
     short: { ttl: 60000, limit: 5 },
     long: { ttl: 3600000, limit: 20 },
@@ -242,20 +227,12 @@ export class AuthController {
       data,
       user.userId,
     );
-    // Revogar todos os refresh tokens ao trocar senha
     await this.authService.revokeRefreshTokens(user.userId);
     this.clearRefreshCookie(res);
     return result;
   }
 
   @Public()
-  // 10/min era o teto de um endpoint de credencial digitada; este aqui é
-  // acionado pela própria aplicação, uma vez por carregamento de página e por
-  // aba (o access token vive só em memória). Quem navega rápido ou mantém
-  // algumas abas abertas estourava o limite e recebia 429 — o que, do lado do
-  // navegador, virava sessão derrubada ou tela sem dados, com o cookie de
-  // refresh ainda válido. 60/min continua limitando abuso (o endpoint ainda
-  // exige o cookie e rotaciona o token a cada uso) sem punir uso normal.
   @Throttle({ short: { ttl: 60000, limit: 60 } })
   @Post('refresh')
   @ApiOperation({ summary: 'Renovar access token via refresh token' })
@@ -264,14 +241,8 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // Apenas o cookie httpOnly (V5): sem fallback via body, que enfraqueceria a
-    // proteção httpOnly ao expor o token ao JavaScript do cliente.
     const refreshToken = req.cookies?.refresh_token;
     if (!refreshToken) {
-      // Fluxo esperado para visitante anônimo / cookie expirado — não é erro
-      // operacional. O frontend (Fase 6a) só dispara refresh com pista de
-      // sessão, então em produção isso deve ficar raro. Mantido em debug para
-      // não poluir os logs de erro.
       this.logger.debug(
         'Tentativa de refresh sem token (cookie/body ausentes). Se ocorrer para usuário logado, verifique SameSite/Domain/Path do cookie de refresh.',
       );
@@ -287,7 +258,6 @@ export class AuthController {
         error instanceof BadRequestException ||
         error instanceof UnauthorizedException
       ) {
-        // Evita loop infinito de refresh com cookie órfão/revogado.
         this.clearRefreshCookie(res);
       }
       throw error;

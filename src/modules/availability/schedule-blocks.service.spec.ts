@@ -3,9 +3,7 @@ import { Permission } from 'src/shared/permissions';
 import { ScheduleBlocksService } from './schedule-blocks.service';
 
 const OWNER = 'owner-1';
-/** Colaborador só com Agenda (sem Administração). */
 const COLAB = [Permission.AGENDA];
-/** Dono/admin da conta: as quatro áreas. */
 const ADMIN = [
   Permission.AGENDA,
   Permission.ATENDIMENTO,
@@ -237,7 +235,6 @@ describe('ScheduleBlocksService (MIG-05)', () => {
       await expect(
         service.update('bm', { doctorId: 'doc-x' }, 'sec-1', COLAB),
       ).rejects.toThrow(ForbiddenException);
-      // nem o admin passa por cima do vínculo com o médico
       await expect(
         service.create({ ...bloqueio, doctorId: 'doc-x' }, 'adm-1', ADMIN),
       ).rejects.toThrow(ForbiddenException);

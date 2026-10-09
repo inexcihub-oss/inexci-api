@@ -46,7 +46,6 @@ describe('DoctorSchedulesService (MIG-05)', () => {
       doctorProfile: { id: 'p' },
     });
     repo.findActiveByDoctor.mockResolvedValue([]);
-    // A transação travada entrega as mesmas operações do repositório.
     repo.comTravaDoProfissional.mockImplementation(
       (_doctorId: string, fn: (tx: unknown) => unknown) => fn(repo),
     );
@@ -107,8 +106,6 @@ describe('DoctorSchedulesService (MIG-05)', () => {
   });
 
   it('resolve a conta do profissional pela mesma regra do AccessControlService (ownerId ?? adminId ?? id)', async () => {
-    // Cadastro antigo: conta só no `adminId`. Antes, `ownerId ?? id` dava o
-    // próprio id e o admin da conta era barrado como "outra conta".
     users.findOneWithProfile.mockResolvedValue({
       id: 'doc-legado',
       ownerId: null,
@@ -213,7 +210,6 @@ describe('DoctorSchedulesService (MIG-05)', () => {
     ).resolves.toEqual([{ id: 'g1' }]);
     expect(repo.findByDoctor).toHaveBeenCalledWith(OWNER, 'doc-1');
 
-    // Profissional de outra conta continua 403, mesmo com Administração.
     users.findOneWithProfile.mockResolvedValue({
       id: 'x',
       ownerId: 'outra',
@@ -242,7 +238,6 @@ describe('DoctorSchedulesService (MIG-05)', () => {
 
     beforeEach(() => {
       repo.findOne.mockResolvedValue(atual);
-      // Clínica e sala soft-deletadas: não aparecem mais.
       clinics.findOne.mockResolvedValue(null);
       rooms.findOne.mockResolvedValue(null);
     });

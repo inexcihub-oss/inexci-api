@@ -4,18 +4,6 @@ import { ProcedureRepository } from '../../../database/repositories/procedure.re
 import { normalizeNameForCompare } from './catalog.helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
 
-/**
- * Tools de catálogo (apenas LEITURA do catálogo global de procedimentos).
- *
- * As tools legacy de criação (`create_hospital`, `create_health_plan`,
- * `create_procedure`) foram removidas em 2026-05-12 (Fase 3.3 do
- * PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). A criação desses cadastros agora
- * passa exclusivamente pelo fluxo de drafts:
- *
- *   - `plan_actions(intent="create_hospital")` + `hospital_draft_*`
- *   - `plan_actions(intent="create_health_plan")` + `health_plan_draft_*`
- *   - `plan_actions(intent="create_procedure")` + `procedure_draft_*`
- */
 export function buildCatalogTools(
   procedureRepo: ProcedureRepository,
   resolver?: EntityResolverService,
@@ -72,8 +60,6 @@ export function buildCatalogTools(
         if (substringMatches.length > 0) {
           candidates = substringMatches;
         } else {
-          // Fallback fuzzy: tolera typos / erros de transcrição
-          // (ex.: "artoplastia" -> "artroplastia").
           const result = entityResolver.resolve<any>({
             query: queryRaw,
             candidates: all,

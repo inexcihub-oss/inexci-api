@@ -71,10 +71,6 @@ describe('PendencyTools', () => {
       expect(result).toContain('Parâmetros mínimos');
     });
 
-    // Regressão 2026-05-14: o medical_report era recomendado SEMPRE como
-    // `manage_report_sections` (criar seção), mesmo quando paciente e
-    // seções já estavam OK e só faltava a assinatura do médico — fazendo
-    // a IA dizer "Recomendo criar a seção do laudo" para o Dr. Carlos.
     it('medical_report com APENAS assinatura faltando → recomenda upload_doctor_signature', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         id: 'req-sign',
@@ -111,10 +107,6 @@ describe('PendencyTools', () => {
         baseContext,
       );
 
-      // Caminho especial: mensagem ULTRA-direta — instrui o LLM a NÃO
-      // mencionar "criar seção" ou "completar laudo médico". A mensagem
-      // CONTÉM "criar seção" entre aspas como instrução negativa ao LLM,
-      // então não checamos a substring solta.
       expect(result).toContain('PENDÊNCIA ÚNICA');
       expect(result).toContain('assinatura digital do médico');
       expect(result).toContain('upload_doctor_signature');
@@ -375,15 +367,7 @@ describe('PendencyTools', () => {
       expect(piiVault.detokenize('conv-1', result)).toContain('SC-664980');
     });
 
-    // Regressão: print 2026-05-10 — usuário pediu pendências da SC e recebeu
-    // "Não consegui acessar as pendências da solicitação SC-SC-468131".
-    // Causa: o vault armazenava o protocol já com prefixo "SC-"; a IA copiava
-    // o padrão "SC-{{protocol_n}}" como argumento, o detokenize gerava
-    // "SC-SC-468131" e o `findOneSimple` não encontrava nada.
-    // Após o fix: o vault guarda só o sufixo (ex.: "468131"); o argumento
-    // "SC-{{protocol_n}}" detokeniza para "SC-468131" e a tool resolve.
     it('resolve a SC mesmo quando a IA passa "SC-{{protocol_n}}" como argumento (regressão SC-SC-)', async () => {
-      // Banco devolve o protocol cru (como o `generate_protocol()` em SQL).
       mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
         if (where?.protocol === '468131') {
           return {
@@ -403,8 +387,6 @@ describe('PendencyTools', () => {
 
       const piiVault = new PiiVaultService();
       piiVault.startSession('conv-1');
-      // Simula um turno anterior de `list_surgery_requests` que tokenizou o
-      // protocol cru e retornou "SC-{{protocol_1}}" para o LLM.
       const protocolToken = piiVault.tokenize('conv-1', '468131', 'protocol');
       expect(protocolToken).toBe('{{protocol_1}}');
 
@@ -423,17 +405,6 @@ describe('PendencyTools', () => {
       expect(detokenized).not.toContain('SC-SC-468131');
     });
 
-    // Regressão: print 2026-05-10 (segunda recorrência) — usuário continuou
-    // recebendo "Não consegui acessar as pendências da solicitação SC-SC-468131"
-    // mesmo após o fix do `stripScPrefix`. Causa: o `PiiVaultService` é
-    // PERSISTIDO em Redis (TTL 1h). Bindings criados ANTES do fix gravavam
-    // realValue="SC-468131"; ao restaurar a sessão, o detokenize de
-    // "SC-{{protocol_n}}" gerava "SC-SC-468131" e o lookup falhava.
-    // Defesa correta: o `restoreSession` do `PiiVaultService` normaliza o
-    // realValue de protocol (strip recursivo de SC-), de modo que mesmo
-    // bindings legados são reescritos para o sufixo cru. O lookup permanece
-    // estrito (não tolera SC-SC-XXXX) — quem trata duplicação textual da IA
-    // é o `collapseDuplicatedScPrefixes` aplicado no orchestrator.
     it('resolve a SC mesmo quando o vault tem binding legado com realValue="SC-XXXX" (regressão SC-SC-)', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockImplementation(async (where) => {
         if (where?.protocol === '468131') {
@@ -453,7 +424,6 @@ describe('PendencyTools', () => {
       });
 
       const piiVault = new PiiVaultService();
-      // Restaura binding LEGADO do Redis (versão antiga gravava com SC-).
       piiVault.restoreSession('conv-1', [
         {
           token: '{{protocol_1}}',
@@ -477,11 +447,6 @@ describe('PendencyTools', () => {
       expect(detokenized).not.toContain('SC-SC-468131');
     });
 
-    // Regressão: 2026-05-14 — usuário disse "pendências da sc pendente" após o
-    // LLM ter listado as SCs por status. O LLM passava "pendente" como
-    // surgeryRequestId (identifier), o lookup falhava e retornava
-    // "Solicitação não encontrada". Correção: detectar identifier que é rótulo
-    // de status e redirecionar para a lógica de statusHint.
     it('quando surgeryRequestId é rótulo de status ("pendente"), usa statusHint automaticamente', async () => {
       const pendingSc = {
         id: 'req-pending-1',
@@ -587,10 +552,8 @@ describe('PendencyTools', () => {
       expect(result).toContain('Paciente');
       expect(result).toContain('Procedimento');
       expect(result).toContain('Prioridade');
-      // Hospital e convênio aparecem como OPCIONAIS na criação
       expect(result).toMatch(/Hospital.*opcional/i);
       expect(result).toMatch(/Conv[êe]nio.*opcional/i);
-      // Reforço explícito: TUSS/OPME/laudo só para enviar
       expect(result).toMatch(/TUSS.*OPME.*laudo.*N[ÃA]O.*exigidos.*criar/i);
     });
 
@@ -622,9 +585,7 @@ describe('PendencyTools', () => {
       expect(result).toContain('Procedimentos (TUSS)');
       expect(result).toContain('Itens OPME');
       expect(result).toContain('Laudo Médico');
-      // Item OPME deve mencionar a opção de marcar que NÃO há OPME
       expect(result).toMatch(/marcar que N[ÃA]O h[áa] OPME/i);
-      // Laudo deve mencionar assinatura
       expect(result).toMatch(/assinatura do m[ée]dico/i);
     });
 

@@ -21,26 +21,9 @@ function formatLines(items: TussResponse[]): string[] {
   return items.map((item) => `${item.tussCode} — ${item.name}`);
 }
 
-/**
- * Tools de catálogo TUSS (lookup somente — não há mutação aqui).
- *
- * O catálogo é um arquivo estático (`src/utils/tuss.json`). A IA usa esta
- * tool quando o usuário menciona um código TUSS, seja por:
- *   - código completo (com ou sem máscara `00.00.00.000-0`);
- *   - parte do código (qualquer substring de dígitos);
- *   - descrição completa (ex.: "Artroscopia de joelho - sinovectomia");
- *   - parte da descrição (ex.: "joelho", "artroscopia").
- *
- * O retorno preserva a ordem de relevância calculada pelo `TussService.lookup`
- * (matches exatos primeiro, depois prefixo, depois substring) para que o LLM
- * apresente o melhor candidato em primeiro lugar.
- */
 export function buildTussTools(tussService: TussService): AiTool[] {
   const searchTussCodes: AiTool = {
     name: 'search_tuss_codes',
-    // Catálogo TUSS é um arquivo estático — nunca muda em runtime.
-    // TTL 1 h elimina lookups redundantes (ex.: mesmo código consultado
-    // duas vezes na mesma conversa ou em conversas próximas).
     cacheable: { ttlSeconds: 3600 },
     definition: {
       type: 'function',
@@ -76,9 +59,6 @@ export function buildTussTools(tussService: TussService): AiTool[] {
 
       const limit = clampLimit(args.limit);
 
-      // Para entradas claramente numéricas, prefere `findByExactCode` quando
-      // o usuário deu o código completo (10 dígitos). Caso não exista, cai
-      // para o lookup geral — assim o LLM consegue sugerir códigos próximos.
       const numericOnly = isNumericQuery(query);
       if (numericOnly) {
         const exact = tussService.findByExactCode(query);

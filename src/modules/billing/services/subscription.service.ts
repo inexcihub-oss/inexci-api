@@ -27,18 +27,8 @@ import {
   GatewaySubscriptionStatus,
 } from 'src/shared/payment-gateway/payment-gateway.types';
 
-/** Antecedência mínima que a Stripe exige em `trial_end` (48 h). */
 const TRIAL_END_ANTECEDENCIA_MINIMA_MS = 48 * 60 * 60 * 1000;
 
-/**
- * Orquestrador do ciclo de vida da assinatura.
- *
- * Modelo Stripe Checkout + Customer Portal:
- * - Cadastro cria trial local leve (sem gateway).
- * - Pagamento, troca de plano, cancelamento e cartão são gerenciados
- *   pelo Customer Portal da Stripe.
- * - Transições de status vêm exclusivamente de webhooks Stripe.
- */
 @Injectable()
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
@@ -52,12 +42,6 @@ export class SubscriptionService {
     @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
   ) {}
 
-  // ───── Criação (chamado no register) ─────
-
-  /**
-   * Cria assinatura inicial em TRIALING.
-   * Sem gateway — o Checkout só é acionado quando o admin decide assinar.
-   */
   async createInitialSubscription(
     ownerId: string,
     planSlug?: string,
@@ -65,10 +49,6 @@ export class SubscriptionService {
     return this.createTrialSubscription(ownerId, planSlug);
   }
 
-  /**
-   * Cria assinatura TRIALING para um novo admin/owner.
-   * Idempotente: devolve a existente sem recriar.
-   */
   async createTrialSubscription(
     ownerId: string,
     planSlug?: string,
@@ -130,8 +110,6 @@ export class SubscriptionService {
     return trialPlan;
   }
 
-  // ───── Leitura ─────
-
   async getMySubscription(userId: string): Promise<{
     subscription: Subscription;
     daysLeftInTrial: number | null;
@@ -143,9 +121,6 @@ export class SubscriptionService {
       throw new NotFoundException('Assinatura não encontrada');
     }
 
-    // Reconciliação best-effort com o gateway em leitura (ex.: login),
-    // para cobrir janelas em que webhooks falharam enquanto o serviço estava
-    // indisponível.
     subscription = await this.reconcileWithGatewayOnRead(subscription);
 
     const now = new Date();
@@ -180,10 +155,6 @@ export class SubscriptionService {
     return { subscription, daysLeftInTrial, daysUntilSuspension };
   }
 
-  /**
-   * Sincroniza o espelho local com o gateway no momento de leitura.
-   * Não bloqueia o fluxo caso o gateway esteja indisponível.
-   */
   private async reconcileWithGatewayOnRead(
     subscription: Subscription,
   ): Promise<Subscription> {
@@ -219,7 +190,6 @@ export class SubscriptionService {
         gatewaySubLatestByCustomer,
       );
 
-      // Se não existe mais no gateway, marca como cancelada localmente.
       if (!gatewaySub) {
         if (subscription.status !== SubscriptionStatus.CANCELED) {
           await this.subscriptionRepo.update(subscription.id, {
@@ -276,8 +246,6 @@ export class SubscriptionService {
     return byId;
   }
 
-  // ───── Hooks chamados pelo cron / webhook handler ─────
-
   async markPastDue(subscriptionId: string, at: Date): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
     if (!sub) return;
@@ -317,10 +285,6 @@ export class SubscriptionService {
     });
   }
 
-  /**
-   * Avança o período de cobrança e renova a cota.
-   * Chamado pelo webhook `invoice.paid` / `customer.subscription.updated`.
-   */
   async advanceBillingPeriod(subscriptionId: string): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
     if (!sub) return;
@@ -347,12 +311,6 @@ export class SubscriptionService {
     });
   }
 
-  // ───── Checkout / Portal ─────
-
-  /**
-   * Cria uma Stripe Checkout Session para o plano selecionado e retorna a URL.
-   * O admin é redirecionado para a Stripe para inserir o cartão e confirmar.
-   */
   async startCheckout(
     userId: string,
     planId: string,
@@ -385,18 +343,6 @@ export class SubscriptionService {
     return { url: session.url };
   }
 
-  /**
-   * O trial que sobrevive à ida para o Stripe.
-   *
-   * A Stripe recusa `trial_end` a menos de 48 h no futuro ("trial_end must be
-   * at least 48 hours in the future"); a checagem anterior era só
-   * `> new Date()`, então um trial terminando hoje ou amanhã fazia o checkout
-   * inteiro estourar — e a rejeição chegava ao usuário como 500 opaco.
-   *
-   * Dentro da janela de 48 h o trial é descartado e a cobrança começa na hora,
-   * que é o desfecho certo: o período de teste está acabando de qualquer jeito,
-   * e é melhor cobrar do que impedir a assinatura.
-   */
   private trialEndParaCheckout(trialEndsAt: Date | null): Date | null {
     if (!trialEndsAt) return null;
 
@@ -404,13 +350,6 @@ export class SubscriptionService {
     return trialEndsAt > minimo ? trialEndsAt : null;
   }
 
-  /**
-   * Cria uma sessão no Stripe Customer Portal para o admin gerenciar a assinatura.
-   *
-   * Com `planId`, o portal abre já na confirmação de troca para aquele plano —
-   * antes o plano escolhido na aplicação se perdia e o usuário aterrissava na
-   * home do portal tendo que reencontrá-lo na Stripe.
-   */
   async openBillingPortal(
     userId: string,
     planId?: string,
@@ -435,9 +374,6 @@ export class SubscriptionService {
         });
         return { url: session.url };
       } catch (err) {
-        // O fluxo de troca depende de o "subscription_update" estar habilitado
-        // na configuração do portal. Se a Stripe recusar, o portal simples
-        // ainda resolve — melhor cair nele do que devolver erro.
         this.logger.warn(
           `[openBillingPortal] fluxo de troca recusado (plano=${planId}): ${
             err instanceof Error ? err.message : String(err)
@@ -454,10 +390,6 @@ export class SubscriptionService {
     return { url: session.url };
   }
 
-  /**
-   * Só há o que trocar quando existe assinatura no gateway e o plano de destino
-   * tem preço lá. Fora disso o portal abre normal, sem fluxo.
-   */
   private async resolveSubscriptionUpdate(
     ownerId: string,
     planId: string,
@@ -474,13 +406,6 @@ export class SubscriptionService {
     };
   }
 
-  // ───── Sincronização via webhook ─────
-
-  /**
-   * Sincroniza o espelho local com os dados de uma subscription do gateway.
-   * Chamado por BillingWebhookService nos eventos subscription.created/updated
-   * e checkout.completed.
-   */
   async syncFromGatewaySubscription(
     gatewaySub: GatewaySubscription,
   ): Promise<void> {
@@ -531,7 +456,6 @@ export class SubscriptionService {
         : {}),
     });
 
-    // Renova cota quando o período avança
     const periodAdvanced =
       gatewaySub.currentPeriodStart !== null &&
       prevPeriodStart !== null &&
@@ -581,11 +505,6 @@ export class SubscriptionService {
     }
   }
 
-  // ───── Helpers ─────
-
-  /**
-   * Apenas o admin (owner = self) pode contratar/alterar o plano.
-   */
   private async assertOwner(userId: string) {
     const user = await this.userRepo.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -613,7 +532,6 @@ export class SubscriptionService {
     return d;
   }
 
-  /** Garante/cria Stripe customer para o owner e persiste o ID localmente. */
   async ensureGatewayCustomer(ownerId: string): Promise<string> {
     const sub = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (!sub) throw new NotFoundException('Assinatura não encontrada');

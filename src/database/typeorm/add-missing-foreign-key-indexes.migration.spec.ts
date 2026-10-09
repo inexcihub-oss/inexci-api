@@ -6,19 +6,9 @@ import { DoctorSchedule } from '../entities/doctor-schedule.entity';
 import { ScheduleBlock } from '../entities/schedule-block.entity';
 import { Holiday } from '../entities/holiday.entity';
 
-/**
- * A migration cria os índices que faltavam nas FKs `ON DELETE SET NULL` e dá
- * nome explícito às FKs/CHECKs que o Postgres batizou sozinho. O nome importa
- * porque o TypeORM compara constraint por nome: se a entidade declarar outro,
- * `migration:generate` derruba e recria tudo.
- */
 describe('AddMissingForeignKeyIndexes1755800800000', () => {
   const RE_LOOKUP = /FROM "pg_constraint"/;
 
-  /**
-   * Simula o catálogo: `nomes` mapeia "tabela.coluna.tipo" para o nome atual
-   * da constraint. Ausente = constraint não encontrada.
-   */
   function criarQueryRunner(nomeAtual: (chave: string) => string | undefined) {
     const query = jest.fn((sql: string, params?: string[]) => {
       if (RE_LOOKUP.test(sql) && params) {
@@ -80,7 +70,6 @@ describe('AddMissingForeignKeyIndexes1755800800000', () => {
   });
 
   it('up não renomeia o que já tem o nome final (reexecução)', async () => {
-    // Primeira passada só para descobrir os nomes finais.
     const primeira = criarQueryRunner(automatico);
     await new AddMissingForeignKeyIndexes1755800800000().up(
       primeira.queryRunner,
@@ -116,7 +105,6 @@ describe('AddMissingForeignKeyIndexes1755800800000', () => {
     await new AddMissingForeignKeyIndexes1755800800000().up(subida.queryRunner);
     const finais = new Set(renomeadasPara(subida.query));
 
-    // Qualquer nome atual diferente do automático força a renomeação.
     const { queryRunner, query } = criarQueryRunner(() => 'FK_qualquer');
 
     await new AddMissingForeignKeyIndexes1755800800000().down(queryRunner);
@@ -137,10 +125,6 @@ describe('AddMissingForeignKeyIndexes1755800800000', () => {
     );
   });
 
-  /**
-   * Guarda contra drift: todo nome que a migration grava no banco tem de
-   * estar declarado na entidade (`foreignKeyConstraintName` ou `@Check`).
-   */
   it('todo nome renomeado está declarado nas entidades', async () => {
     const { queryRunner, query } = criarQueryRunner(automatico);
     await new AddMissingForeignKeyIndexes1755800800000().up(queryRunner);

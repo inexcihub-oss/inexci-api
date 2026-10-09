@@ -13,12 +13,6 @@ const SLUG_TO_TYPE: Record<string, ConsentType> = Object.fromEntries(
   ]),
 );
 
-// Em dev (ts-node) `__dirname` aponta para `src/modules/privacy/`, e os
-// `.md` ficam em `src/shared/legal/`. Após o build, o Nest CLI copia os
-// assets para `dist/shared/legal/`, mas o JS compilado fica em
-// `dist/src/modules/privacy/` (porque o tsc adota `rootDir: "."` ao
-// detectar a pasta `scripts/` ao lado de `src/`). Isso gera um nível
-// extra de `src/`, então procuramos em ambos os layouts.
 const LEGAL_DIR_CANDIDATES = [
   join(__dirname, '..', '..', 'shared', 'legal'),
   join(__dirname, '..', '..', '..', 'shared', 'legal'),
@@ -28,10 +22,6 @@ const LEGAL_DIR_CANDIDATES = [
 
 @Injectable()
 export class LegalDocumentsService {
-  /**
-   * Serve o markdown atual de um documento legal.
-   * Caminho-fonte: src/shared/legal/<slug>.md
-   */
   async getCurrent(slug: string): Promise<{
     slug: string;
     type: ConsentType;
@@ -48,9 +38,7 @@ export class LegalDocumentsService {
       try {
         const content_md = await fs.readFile(join(dir, filename), 'utf-8');
         return { slug, type, content_md };
-      } catch {
-        // tenta o próximo candidato
-      }
+      } catch {}
     }
 
     throw new NotFoundException(

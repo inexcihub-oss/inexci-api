@@ -6,7 +6,6 @@ import { PAGINATION_DEFAULTS } from 'src/shared/constants/pagination';
 
 describe('FindManySharedDto', () => {
   function transform(payload: Record<string, unknown>) {
-    // Reproduz o ValidationPipe global (transform: true).
     return plainToInstance(FindManySharedDto, payload, {
       enableImplicitConversion: false,
     });
@@ -31,11 +30,6 @@ describe('FindManySharedDto', () => {
   });
 
   it('honra valores explícitos altos (ex.: telas que carregam tudo)', () => {
-    // O frontend usa FETCH_ALL_TAKE=1000 (lib/api.ts) em varios seletores
-    // (pacientes, convenios, hospitais, etc.) — sem a asserção de
-    // validateSync aqui, um teto abaixo de 1000 quebraria essas telas em
-    // produção sem que este teste acusasse nada (regressão real ja
-    // observada: MAX_TAKE=200 rejeitava exatamente este valor com 400).
     const dto = transform({ take: '1000' });
 
     expect(dto.skip).toBe(PAGINATION_DEFAULTS.SKIP);

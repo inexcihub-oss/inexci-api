@@ -129,10 +129,6 @@ export class RagBootstrapService implements OnModuleInit {
     }
   }
 
-  /**
-   * Apenas valida (não cria/altera) presença de tabela e coluna `embedding`.
-   * DDL deve ser aplicada exclusivamente via migrations TypeORM.
-   */
   private async isRagSchemaReady(): Promise<boolean> {
     try {
       const tableExists = await this.dataSource.query(
@@ -343,11 +339,6 @@ export class RagBootstrapService implements OnModuleInit {
     );
   }
 
-  /**
-   * Fallback usado apenas em ambientes não-produtivos (dev/test) quando o
-   * arquivo estruturado não estiver disponível. Em produção, ausência do
-   * arquivo é erro fatal — seed nunca cai aqui.
-   */
   private async seedDefault(): Promise<void> {
     await this.ingestionService.replaceCategory(
       'faq',

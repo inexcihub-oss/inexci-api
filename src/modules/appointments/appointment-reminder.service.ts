@@ -19,19 +19,11 @@ const TYPE_LABELS: Record<AppointmentType, string> = {
   [AppointmentType.FOLLOW_UP]: 'Acompanhamento',
 };
 
-/** Resultado do envio de um lembrete, por consulta. */
 interface ReminderOutcome {
-  /** O paciente tinha ao menos um canal de contato. */
   attempted: boolean;
-  /** Ao menos um canal foi enfileirado com sucesso. */
   delivered: boolean;
 }
 
-/**
- * Dispara lembretes de consulta 24h antes (e-mail + WhatsApp), de forma
- * idempotente via `reminderSentAt`. Roda de hora em hora — uma consulta entra
- * na janela [agora, agora+24h] e é lembrada uma única vez.
- */
 @Injectable()
 export class AppointmentReminderService {
   private readonly logger = new Logger(AppointmentReminderService.name);
@@ -56,7 +48,6 @@ export class AppointmentReminderService {
     }
   }
 
-  /** Envia lembretes das consultas devidas e marca `reminderSentAt`. */
   async sendDueReminders(now: Date = new Date()): Promise<number> {
     const until = new Date(now.getTime() + REMINDER_WINDOW_MS);
     const due = await this.appointmentRepository.findDueForReminder(now, until);
@@ -66,9 +57,6 @@ export class AppointmentReminderService {
       try {
         const outcome = await this.notify(appt);
 
-        // Havia canal e nenhum entregou (Redis fora, SMTP recusando): não
-        // marca, para a execução seguinte tentar de novo. Marcar aqui perdia o
-        // lembrete em silêncio — o registro dizia "enviado" e ninguém foi avisado.
         if (outcome.attempted && !outcome.delivered) {
           this.logger.warn(
             `Lembrete da consulta ${appt.id} não foi enfileirado em nenhum canal; será retentado.`,
@@ -76,8 +64,6 @@ export class AppointmentReminderService {
           continue;
         }
 
-        // Sem canal (paciente sem e-mail e sem telefone) marca do mesmo jeito:
-        // não há o que retentar, e reprocessar a cada hora seria desperdício.
         await this.appointmentRepository.update(appt.id, {
           reminderSentAt: new Date(),
         });
@@ -91,13 +77,6 @@ export class AppointmentReminderService {
     return sent;
   }
 
-  /**
-   * Enfileira o lembrete nos canais disponíveis do paciente.
-   *
-   * `attempted` = o paciente tinha ao menos um canal; `delivered` = ao menos um
-   * enfileiramento deu certo. A falha de um canal é isolada (logada) para não
-   * cancelar o outro nem derrubar o lote.
-   */
   private async notify(appt: Appointment): Promise<ReminderOutcome> {
     const patient = await this.patientRepository.findOne({
       id: appt.patientId,

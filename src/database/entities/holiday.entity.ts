@@ -11,10 +11,6 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 
-/**
- * Feriado da conta (MIG-05). `recurring` repete todo ano no mesmo dia/mês;
- * `blocksAgenda` impede agendar no dia (senão é só informativo).
- */
 @Entity('holidays')
 @Index('idx_holidays_owner_date', ['ownerId', 'date'])
 export class Holiday {
@@ -27,7 +23,6 @@ export class Holiday {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  /** `YYYY-MM-DD`. */
   @Column({ type: 'date' })
   date: string;
 
@@ -46,8 +41,6 @@ export class Holiday {
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 
-  // Nome explícito: o que as migrations criaram (1755800700000 + renomeação
-  // em 1755800800000), para o `migration:generate` não recriar a FK.
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({
     name: 'owner_id',

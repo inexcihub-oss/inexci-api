@@ -30,10 +30,6 @@ export class NotificationLogsService {
     private readonly repo: Repository<NotificationSendLog>,
   ) {}
 
-  /**
-   * Lista paginada de logs (mais recentes primeiro). `body` e `errorMessage`
-   * vêm do banco já truncados em VARCHAR(600). Default 50/página, máx 200.
-   */
   async list(query: NotificationLogQuery): Promise<{
     items: NotificationSendLog[];
     total: number;
@@ -59,11 +55,6 @@ export class NotificationLogsService {
     return { items, total };
   }
 
-  /**
-   * Estatísticas agregadas (count por channel/status) para o intervalo dado.
-   * Útil para dashboards de saúde dos canais (e.g. % de falhas no WhatsApp
-   * nas últimas 24h).
-   */
   async stats(from?: string, to?: string): Promise<NotificationLogStatsRow[]> {
     const qb = this.repo
       .createQueryBuilder('l')

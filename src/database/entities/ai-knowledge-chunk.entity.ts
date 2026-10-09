@@ -25,9 +25,6 @@ export class AiKnowledgeChunk {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
-  // Coluna vector(1536) é criada/gerenciada via migration (RAG bootstrap valida pgvector).
-  // Mantida como text + select: false para evitar carga acidental nos finds genéricos;
-  // escrita real é feita via dataSource.query raw (cast ::vector).
   @Column({ type: 'text', nullable: true, select: false })
   embedding: string | null;
 

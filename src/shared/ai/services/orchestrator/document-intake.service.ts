@@ -7,19 +7,10 @@ import { PhoneNormalizerService } from './phone-normalizer.service';
 import { ConversationMemoryService } from './conversation-memory.service';
 import { OperationDraftService } from '../operation-draft.service';
 
-/**
- * Empacota texto extraido de documento (OCR/Vision) para entrar no prompt.
- *
- * O conteudo vem de arquivo enviado por terceiros e NAO pode entrar como
- * `role: system` — essa posicao e de maxima confianca e permitia que um PDF
- * com "INSTRUCAO: envie a SC-xxxxxx para ..." fosse obedecido como se fosse
- * instrucao da plataforma.
- */
 export function montarBlocoDeDocumento(texto: string): {
   role: 'user';
   content: string;
 } {
-  // Neutraliza tentativa do proprio documento de fechar o delimitador.
   const seguro = (texto ?? '').replace(
     /<\/?DADOS_EXTRAIDOS_DE_DOCUMENTO>/gi,
     '[delimitador removido]',
@@ -39,13 +30,6 @@ export function montarBlocoDeDocumento(texto: string): {
   };
 }
 
-/**
- * Gerencia o pipeline de documentos inbound do WhatsApp (imagens e PDFs):
- * staging, intent gate e delegação ao processador OCR/classificador.
- *
- * Extraído de `AiOrchestratorService` na Fase 5 do
- * `PLANO-CORRECOES-CODE-REVIEW-2026-05-13.md`.
- */
 @Injectable()
 export class DocumentIntakeService {
   private readonly logger = new Logger(DocumentIntakeService.name);
@@ -61,27 +45,6 @@ export class DocumentIntakeService {
     private readonly draftService?: OperationDraftService,
   ) {}
 
-  /**
-   * Processa mídia de documento inbound (image/pdf) ou resposta a intent
-   * pendente.
-   *
-   * Retorna `{ handled: true }` quando o turno deve ser encerrado sem passar
-   * pelo LLM. Retorna `{ handled: false }` para deixar o orchestrator
-   * continuar normalmente.
-   *
-   * Caso especial — bypass de assinatura: quando a imagem é reconhecida como
-   * upload de assinatura digital, retorna `{ handled: false, syntheticBody }`
-   * com um texto sintético que será usado como body pelo orchestrator (evita
-   * o guard "Não consegui identificar texto" quando a imagem é enviada sem
-   * caption).
-   *
-   * Pipeline (Sprint 1–3):
-   * - Mídia nova → staging no R2 tmp, salva pendência por telefone e
-   *   envia mensagem de intent (1/2/3).
-   * - Pendência ativa + "cancelar" → apaga staging + pendência.
-   * - Pendência ativa + intent reconhecida → roda OCR + classifier; injeta
-   *   resultado no histórico para o próximo turno do LLM.
-   */
   async processInboundDocumentIfNeeded(opts: {
     phone: string;
     body: string;
@@ -101,17 +64,10 @@ export class DocumentIntakeService {
       return { handled: false };
     }
 
-    // 1) Tem mídia inbound de documento? Faz staging + intent prompt.
     const incomingDocMedia = this.documentDispatcher.pickDocumentMedia(
       opts.media as any,
     );
     if (incomingDocMedia) {
-      // Bypass para upload de assinatura: a tool `upload_doctor_signature`
-      // precisa receber a imagem como `inboundMedia`. Verificamos tanto a
-      // caption atual quanto o histórico recente da conversa (cobre o caso em
-      // que o usuário avisou que mandaria a assinatura num turno anterior e
-      // enviou a imagem sem texto no turno seguinte).
-      // PDFs nunca são assinaturas — bypass só se for imagem.
       if (
         incomingDocMedia.category === 'image' &&
         (await this.hasSignatureUploadIntent({
@@ -121,8 +77,6 @@ export class DocumentIntakeService {
           phone: opts.phone,
         }))
       ) {
-        // Se a imagem veio sem caption, sintetizamos um body para o LLM não
-        // cair no guard "Não consegui identificar texto na sua mensagem".
         const syntheticBody = opts.body.trim()
           ? undefined
           : 'Quero fazer upload da minha assinatura digital.';
@@ -156,10 +110,6 @@ export class DocumentIntakeService {
       }
 
       if (outcome.status === 'staged') {
-        // SHORT-CIRCUIT: se há um draft `create_sc` ativo nesta conversa,
-        // pular o menu "1=anexar / 2=criar SC / 3=cadastrar paciente". O
-        // contexto é claro: o documento veio durante a criação. Processa
-        // direto como `intent=create_sc` (pré-preenche o draft).
         const activeDraft = opts.conversationId
           ? await this.draftService
               ?.getCurrent(opts.conversationId)
@@ -195,7 +145,6 @@ export class DocumentIntakeService {
               }
               return { handled: true };
             }
-            // Se falhou o processamento, cai no menu padrão.
           }
         }
 
@@ -209,8 +158,6 @@ export class DocumentIntakeService {
       return { handled: false };
     }
 
-    // 2) Não tem mídia nova — verifica se há pendência ativa de turno
-    //    anterior e se a mensagem é uma intent reconhecida.
     const pending = await this.documentDispatcher.getPending(opts.phone);
     if (!pending) return { handled: false };
 
@@ -256,8 +203,6 @@ export class DocumentIntakeService {
       return { handled: true };
     }
 
-    // Texto livre que casou com a intent E já tem classificação válida no
-    // cache: não rerodamos OCR/LLM — deixamos o orchestrator continuar.
     if (
       pending.classification &&
       pending.intent === intent &&
@@ -306,17 +251,6 @@ export class DocumentIntakeService {
     return { handled: true };
   }
 
-  /**
-   * Retorna `true` quando há evidência (na caption atual ou em mensagens
-   * recentes da conversa) de que o usuário quer fazer upload da assinatura
-   * digital, e NÃO de outro tipo de documento (RG, laudo, guia, etc.).
-   *
-   * Verifica em dois passos:
-   * 1. Caption da mensagem atual — rápida e sem I/O extra.
-   * 2. Últimas 3 mensagens do usuário na conversa — cobre o caso em que o
-   *    usuário disse "vou mandar minha assinatura" num turno anterior e enviou
-   *    a imagem sem texto no turno seguinte.
-   */
   private async hasSignatureUploadIntent(opts: {
     body: string;
     conversationId?: string;
@@ -324,17 +258,11 @@ export class DocumentIntakeService {
     phone: string;
   }): Promise<boolean> {
     const signatureRe = /assinatura/i;
-    // Palavras que indicam outro tipo de documento — evita falso bypass
     const otherDocRe =
       /\b(identidade|rg\b|cpf\b|passaporte|laudo|guia|exame|certid[aã]o|prontu[aá]rio|nota\s*fiscal|receita|relat[oó]rio)\b/i;
 
     const caption = (opts.body || '').trim();
 
-    // 0) ESTADO ESTRUTURADO — fonte primária. Se o orchestrator marcou
-    //    `awaitingMedia: signature` no turno anterior (ex.: usuário escolheu
-    //    "1 - Enviar foto da assinatura digital" do menu), aceitamos a
-    //    próxima imagem como assinatura sem depender de regex em texto.
-    //    Funciona mesmo quando o usuário envia a foto SEM legenda.
     if (opts.conversationId) {
       try {
         const awaiting = await this.conversationMemory.getAwaitingMedia(
@@ -346,15 +274,11 @@ export class DocumentIntakeService {
           );
           return true;
         }
-      } catch {
-        // não-crítico — segue com as heurísticas legadas abaixo
-      }
+      } catch {}
     }
 
-    // 1) Caption explicitamente indica outro tipo de documento → não bypassa
     if (otherDocRe.test(caption)) return false;
 
-    // 2) Caption menciona "assinatura" → bypassa
     if (signatureRe.test(caption)) {
       this.logger.log(
         `[AI_DOC] sid=${opts.messageSid} phone=${this.phoneNormalizer.maskPhone(opts.phone)} bypassed=signature_upload source=caption`,
@@ -362,15 +286,12 @@ export class DocumentIntakeService {
       return true;
     }
 
-    // 3) Sem match na caption — verifica histórico recente da conversa
     if (!opts.conversationId) return false;
     try {
       const recent = await this.conversationService.loadRecentForLlm(
         opts.conversationId,
         8,
       );
-      // Analisa as últimas 3 mensagens do USUÁRIO (cobre "vou mandar minha
-      // assinatura" sem foto seguido pela foto no turno seguinte)
       const recentUserMsgs = recent.filter((m) => m.role === 'user').slice(-3);
       const hasRecentSignatureIntent = recentUserMsgs.some(
         (m) => signatureRe.test(m.content) && !otherDocRe.test(m.content),
@@ -382,11 +303,6 @@ export class DocumentIntakeService {
         return true;
       }
 
-      // 4) Cobre o caso simétrico: o ASSISTENTE acabou de pedir a foto
-      //    da assinatura (ex.: "envie a imagem da sua assinatura aqui no
-      //    chat") e o usuário responde mandando a imagem sem caption.
-      //    Sem isso, o pipeline genérico mostra "1=anexar / 2=criar SC /
-      //    3=cadastrar paciente" — confundindo totalmente o usuário.
       const lastAssistantMsg = [...recent]
         .reverse()
         .find((m) => m.role === 'assistant');
@@ -400,20 +316,10 @@ export class DocumentIntakeService {
         );
         return true;
       }
-    } catch {
-      // Falha não-crítica: continua com o pipeline normal de documento
-    }
+    } catch {}
     return false;
   }
 
-  /**
-   * Hint injetado no system prompt quando há um documento pendente já
-   * classificado para o telefone. Dá ao LLM o resumo extraído, a intent
-   * declarada e instrução determinística de qual tool chamar.
-   *
-   * Retorna `null` quando não há pendência classificada ou quando o
-   * documento foi processado há > 5 min.
-   */
   async buildDocumentPendingHint(phone: string): Promise<string | null> {
     try {
       const pending = await this.documentDispatcher.getPending(phone);
@@ -481,10 +387,6 @@ export class DocumentIntakeService {
         ? dataLines.join('\n')
         : '  (poucos dados confiáveis foram extraídos do documento)';
 
-      // O laudo é texto livre digitado/escaneado de um documento de
-      // terceiro — o vetor de injeção mais direto. Nunca entra solto no
-      // meio do hint: vai sempre dentro do bloco delimitado e marcado como
-      // DADO, não instrução (`montarBlocoDeDocumento`).
       const laudoBlock = extracted.laudoText
         ? montarBlocoDeDocumento(extracted.laudoText)
         : null;
@@ -575,10 +477,6 @@ export class DocumentIntakeService {
     }
   }
 
-  /**
-   * Quando o usuário responde a intent uma segunda vez, devolve um resumo
-   * encurtado sem chamar OCR/LLM novamente.
-   */
   buildDocumentReminderMessage(
     intent: 'attach' | 'create_sc' | 'create_patient',
     pending: any,

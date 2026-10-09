@@ -1,15 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Marcador de paciente cirúrgico na ficha de atendimento e o vínculo com a SC
- * gerada ao finalizar.
- *
- * `surgery_request_id` não é só um link de conveniência: a combinação
- * "finalizada + com indicação + sem SC" é o outbox que o sweeper do
- * `SurgicalIndicationService` varre, e é o que impede a criação em duplicidade.
- * Daí o índice parcial — a varredura precisa ser barata mesmo com a tabela
- * grande, já que a esmagadora maioria das fichas nunca entra nessa condição.
- */
 export class AddSurgicalIndicationToClinicalRecords1752300500000 implements MigrationInterface {
   name = 'AddSurgicalIndicationToClinicalRecords1752300500000';
 

@@ -23,7 +23,6 @@ import {
 } from './agenda-time';
 import { FindSlotsDto } from './dto/find-slots.dto';
 
-/** Janela máxima de `GET /availability/slots`. */
 export const SLOTS_MAX_DIAS = 31;
 
 export type MotivoOcupado = 'appointment' | 'block' | 'holiday';
@@ -33,22 +32,16 @@ export interface Slot {
   end: string;
   free: boolean;
   reason?: MotivoOcupado;
-  /**
-   * Local do período da grade que gerou o horário — deixa o agendamento
-   * preencher clínica/sala ao escolher o horário (null = grade sem local).
-   */
   clinicId: string | null;
   roomId: string | null;
 }
 
 export interface DiaDisponivel {
   date: string;
-  /** Feriado do dia (bloqueando a agenda ou não). */
   holiday: { name: string; blocksAgenda: boolean } | null;
   slots: Slot[];
 }
 
-/** Feriado que cai na data: no dia exato ou, se recorrente, no mesmo dia/mês. */
 export function feriadoDoDia(
   feriados: Holiday[],
   data: string,
@@ -59,21 +52,6 @@ export function feriadoDoDia(
   );
 }
 
-/**
- * O bloqueio atinge a consulta/horário (`doctorId`, `clinicId`)?
- *
- * | bloqueio (médico, clínica) | item na clínica X | item na clínica Y | item sem clínica |
- * | -------------------------- | ----------------- | ----------------- | ---------------- |
- * | (—, —) conta toda          | sim               | sim               | sim              |
- * | (D, —) médico em qualquer  | sim               | sim               | sim              |
- * | (—, X) clínica X           | sim               | não               | não              |
- * | (D, X) médico na clínica X | sim               | não               | sim              |
- *
- * Bloqueio de outro médico nunca atinge. Bloqueio só de uma clínica não
- * alcança o que não tem clínica — senão fechar uma unidade travaria a agenda
- * "sem local" de todos os médicos. Quando o bloqueio também é do médico, o
- * item sem clínica é dele e pode estar acontecendo ali: atinge.
- */
 export function bloqueioAtinge(
   b: ScheduleBlock,
   doctorId: string,
@@ -88,13 +66,6 @@ export function bloqueioAtinge(
 const sobrepoe = (aIni: number, aFim: number, bIni: number, bFim: number) =>
   aIni < bFim && bIni < aFim;
 
-/**
- * Disponibilidade da agenda (MIG-05): expande a grade em horários, marca o
- * que está ocupado, e diz se um horário está bloqueado ou fora da grade.
- *
- * Contas que não configuram nada (sem grade, bloqueio ou feriado) continuam
- * como antes: nada é bloqueado e nada fica "fora da grade".
- */
 @Injectable()
 export class AvailabilityService {
   constructor(
@@ -111,8 +82,6 @@ export class AvailabilityService {
   ): Promise<DiaDisponivel[]> {
     const from = query.from.slice(0, 10);
     const to = query.to.slice(0, 10);
-    // Mede o intervalo antes de expandir: `datasEntre` aloca um dia por vez e
-    // o DTO não limita as datas (0001-01-01 a 9999-12-31 seriam ~3,6 mi).
     const dias =
       (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
         86_400_000 +
@@ -222,10 +191,6 @@ export class AvailabilityService {
     };
   }
 
-  /**
-   * Bloqueio ou feriado que bloqueia a agenda no intervalo → 409. Vale também
-   * para encaixe: bloqueio é ausência do profissional, não disputa de horário.
-   */
   async assertNaoBloqueado(params: {
     ownerId: string;
     doctorId: string;
@@ -256,14 +221,6 @@ export class AvailabilityService {
     }
   }
 
-  /**
-   * O horário cai fora da grade do profissional? Só responde `true` quando o
-   * profissional **tem** grade configurada: sem grade, nada está "fora".
-   *
-   * Período com clínica só cobre consulta naquela clínica; período sem
-   * clínica cobre qualquer uma. `clinicId` omitido (`undefined`) ignora a
-   * clínica — compatibilidade com quem ainda não a informa.
-   */
   async foraDaGrade(
     doctorId: string,
     start: Date,

@@ -69,9 +69,7 @@ describe('PiiBindingService', () => {
         deps.aiRedis as any,
         deps.piiRedactionLogRepo as any,
       );
-      // Persiste no fallback in-memory
       await svc.persistPiiBindings('conv-1');
-      // Deve recuperar do in-memory
       const result = await svc.loadPersistedPiiBindings('conv-1');
       expect(result).toEqual(stored);
     });

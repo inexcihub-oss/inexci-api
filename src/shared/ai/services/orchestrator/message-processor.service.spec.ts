@@ -174,14 +174,6 @@ describe('MessageProcessorService', () => {
     });
   });
 
-  /**
-   * Tarefa 14 (revisão 4): espelha a `JwtStrategy` do caminho web
-   * (`user.status !== ACTIVE` → `UnauthorizedException`). Sem isto, um
-   * colaborador desativado ou ainda pendente de primeiro acesso continuava
-   * conversando com o assistente e criando SC por mensagem indefinidamente
-   * — a invalidação de cache (rodada 3) só cobria a IDENTIDADE/PERMISSÃO
-   * ficarem obsoletas, não a AUTORIZAÇÃO de usar o canal.
-   */
   describe('runPreflight — gate de status (INACTIVE/PENDING)', () => {
     const buildInput = (overrides: Partial<any> = {}) => ({
       phone: '+5511999999999',
@@ -253,22 +245,9 @@ describe('MessageProcessorService', () => {
         buildHooks(),
       );
 
-      // Duas mensagens, duas idas ao banco — nenhuma serviu do cache, porque
-      // usuário não-ACTIVE nunca é gravado em `userCache`.
       expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(2);
     });
 
-    /**
-     * O ponto central do pedido: um usuário ACTIVE fica cacheado (`userCache`,
-     * 10 min) e é desativado depois. Dentro do MESMO processo, o combo
-     * "invalidação por evento" (rodada 3: `toggleCollaboratorStatus` →
-     * `user.access_changed` → `invalidateUserCacheByPhone`) + "gate de
-     * status" (esta rodada) fecha o ciclo: a mensagem seguinte à
-     * desativação já vem barrada, porque a invalidação força reconsulta e a
-     * reconsulta já não devolve mais ACTIVE. Sem o gate desta rodada, a
-     * invalidação sozinha só forçaria reconsulta — o `user` INACTIVE
-     * recarregado ainda seria liberado, porque nada checava `status`.
-     */
     it('cache quente + invalidação (evento) + gate: desativação some com o acesso na mensagem seguinte', async () => {
       const activeUser = {
         id: 'user-1',
@@ -277,14 +256,12 @@ describe('MessageProcessorService', () => {
       };
       userRepository.findOneByPhone.mockResolvedValue(activeUser);
 
-      // 1ª mensagem: ACTIVE, cacheia e segue.
       const first = await service.runPreflight(
         buildInput({ messageSid: 'sid-1' }),
         buildHooks(),
       );
       expect(first.status).toBe('continue');
 
-      // 2ª mensagem: cache quente, nem consulta o banco de novo.
       const second = await service.runPreflight(
         buildInput({ messageSid: 'sid-2' }),
         buildHooks(),
@@ -292,17 +269,12 @@ describe('MessageProcessorService', () => {
       expect(second.status).toBe('continue');
       expect(userRepository.findOneByPhone).toHaveBeenCalledTimes(1);
 
-      // Admin desativa o colaborador: banco muda e o evento (simulado aqui
-      // via `invalidateUserCacheByPhone`, o que `onUserAccessChanged` chama)
-      // limpa o cache.
       userRepository.findOneByPhone.mockResolvedValue({
         ...activeUser,
         status: UserStatus.INACTIVE,
       });
       service.invalidateUserCacheByPhone('whatsapp:+5511999999999');
 
-      // 3ª mensagem: cache frio, reconsulta o banco, vê INACTIVE e barra —
-      // e o usuário barrado não fica cacheado para a próxima.
       const third = await service.runPreflight(
         buildInput({ messageSid: 'sid-3' }),
         buildHooks(),
@@ -624,7 +596,6 @@ describe('MessageProcessorService', () => {
         minScore: 0.7,
       });
 
-      // Garante que NÃO foi chamado com a sobrecarga posicional legacy (3 args)
       const call = ragService.search.mock.calls[0];
       expect(call).toHaveLength(2);
       expect(typeof call[1]).toBe('object');
@@ -656,8 +627,6 @@ describe('MessageProcessorService', () => {
 
       service.invalidateUserCacheByPhone('whatsapp:+5511999999999');
 
-      // After invalidation, lookup is called again (returning null this time)
-      // hence subsequent flow goes to unknown_user.
       openaiService.chatCompletion.mockResolvedValue({
         choices: [{ message: { content: 'cadastre-se' } }],
       });

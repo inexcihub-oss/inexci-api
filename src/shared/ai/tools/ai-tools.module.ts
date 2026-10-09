@@ -1,25 +1,3 @@
-/**
- * Fábrica central de todas as tools de IA.
- *
- * Fase 6 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md` — substitui o service
- * locator de 30+ deps no construtor do `ToolRegistryService` pelo padrão
- * "Opção B: multi-provider via token `AI_TOOL`".
- *
- * Este arquivo NÃO é um `@Module` NestJS — é um ES module TypeScript que:
- *   1. Declara `AllToolsDeps` com as dependências de todas os grupos de tools.
- *   2. Exporta `buildAllAiTools(deps)` com a lógica de agregação (ordem
- *      importa — não reordene sem bumpar `PROMPT_VERSION`).
- *   3. Exporta `aiToolsFactory` (função posicional compatível com `useFactory`
- *      do NestJS) e `AI_TOOLS_INJECT` (array de tokens para `inject`).
- *
- * Para adicionar uma nova tool:
- *   - Crie o arquivo `*.tool.ts` no subfolder correspondente.
- *   - Adicione a chamada ao builder neste arquivo (em `buildAllAiTools`).
- *   - Adicione o dep necessário em `AllToolsDeps`, `aiToolsFactory` e
- *     `AI_TOOLS_INJECT` se for uma nova dependência.
- *   - **Não mexa em `tool-registry.service.ts`.**
- */
-
 import { ConfigService } from '@nestjs/config';
 import { InjectionToken } from '@nestjs/common';
 
@@ -77,8 +55,6 @@ import { buildWhatsappFlowTools } from './whatsapp-flow.tools';
 import { buildManageTools } from './manage.tools';
 import { buildDraftGenericTools } from './draft-generic.tools';
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
 export interface AllToolsDeps {
   draftService: OperationDraftService;
   userRepo: UserRepository;
@@ -115,16 +91,6 @@ export interface AllToolsDeps {
   assemblyService: SurgeryRequestAssemblyService;
 }
 
-// ─── Fábrica principal ────────────────────────────────────────────────────────
-
-/**
- * Constrói o array completo de tools na ordem canônica.
- *
- * ⚠️  ORDEM IMPORTA — não reordene sem bumpar `PROMPT_VERSION`.
- * O array resultante compõe o prefixo do request à OpenAI; qualquer mudança
- * de ordem invalida o prompt caching. Veja Fase 1 do
- * `PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA.md`.
- */
 export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
   const {
     draftService,
@@ -263,24 +229,10 @@ export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
       entityResolver,
       tussService,
     ),
-    // Tools globais de draft (`draft_update`, `draft_status`, `draft_cancel`).
-    // Mantidas ao FINAL da ordem para preservar o hash do prefixo de
-    // prompt caching estável.
     ...buildDraftGenericTools({ draftService, surgeryRequestRepo }),
   ];
 }
 
-// ─── Provider NestJS ──────────────────────────────────────────────────────────
-
-/**
- * Função de fábrica posicional compatível com a propriedade `useFactory` do
- * NestJS. Os parâmetros DEVEM estar na MESMA ORDEM que `AI_TOOLS_INJECT`.
- *
- * Usar em `AiModule`:
- * ```ts
- * { provide: AI_TOOL, useFactory: aiToolsFactory, inject: AI_TOOLS_INJECT }
- * ```
- */
 export function aiToolsFactory(
   draftService: OperationDraftService,
   userRepo: UserRepository,
@@ -353,13 +305,6 @@ export function aiToolsFactory(
   });
 }
 
-/**
- * Tokens de injeção para o provider `AI_TOOL`.
- *
- * A ORDEM DEVE ser a mesma dos parâmetros de `aiToolsFactory`.
- * Adicionar um novo dep: acrescentar aqui E no final da lista de params
- * de `aiToolsFactory` (e no `AllToolsDeps`).
- */
 export const AI_TOOLS_INJECT: InjectionToken[] = [
   OperationDraftService,
   UserRepository,

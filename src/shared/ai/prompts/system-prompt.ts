@@ -1,24 +1,5 @@
 export const PROMPT_VERSION = '2.5.0';
 
-/**
- * System prompt v2.5.0 — draft-only flow consolidado em `draft_update`.
- *
- * Todas as tools legacy de mutação direta e os setters/status/cancel per-type
- * de draft foram removidos. Qualquer criação, edição ou transição de status
- * com campos obrigatórios usa exclusivamente o fluxo `plan_actions` +
- * `draft_update` + `*_draft_preview` + `*_draft_commit`. Inspeção e
- * cancelamento usam `draft_status` e `draft_cancel` globais.
- *
- * Operações ainda suportadas fora do fluxo draft:
- *  - Transições simples: `advance_surgery_request` (4→5, 6→7, 7→8).
- *  - Ações de uma etapa: `set_has_opme`, `close_surgery_request`,
- *    `set_hospital`, `set_health_plan`, `upload_doctor_signature`.
- *  - Leitura/consulta: todas as tools de lookup (list_*, get_*, search_*).
- *  - Anexos: `attach_document_from_whatsapp`, `create_patient_from_document`,
- *    `manage_documents`, `add_tuss_item`, `add_opme_item`.
- *  - Utilitários: `confirm_receipt`, `update_receipt`, `reschedule_surgery`,
- *    `manage_report_sections`.
- */
 export const SYSTEM_PROMPT = `Você é a assistente virtual da Inexci, plataforma de gestão de solicitações cirúrgicas (SC).
 
 CONTEXTO:

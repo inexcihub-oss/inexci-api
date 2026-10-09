@@ -13,13 +13,6 @@ import {
 import { CreateOpmeDto } from '../opme/dto/create-opme.dto';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 
-/**
- * Todas essas colunas são `uuid` no Postgres. Validadas como string genérica,
- * um id malformado escapava do ValidationPipe e virava QueryFailedError no
- * banco. Nas rotas `multipart/form-data` o DTO é a única barreira: o
- * `SurgeryRequestOwnerGuard` roda antes do `FileInterceptor` e não enxerga o
- * corpo.
- */
 const UUID_VALIDO = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
 const ID_MALFORMADO = 'nao-e-uuid';
 
@@ -116,13 +109,6 @@ describe('DTOs de solicitação cirúrgica — ids uuid', () => {
       expect(await validate(dto)).toHaveLength(0);
     });
 
-    /**
-     * `procedureId` é campo morto — `ProceduresService.create` nunca o lê. Ele
-     * era validado como uuid, mas o catálogo TUSS vem de `tuss.json` e não tem
-     * uuid nenhum: o frontend mandava o próprio código no campo e o payload
-     * inteiro voltava 400, deixando a SC criada por modelo sem TUSS.
-     * Tolerado como string livre para não quebrar cliente com bundle antigo.
-     */
     it('tolera procedureId com o código TUSS, que não é uuid', async () => {
       const dto = plainToInstance(ProcedureItemDto, {
         ...item,

@@ -86,7 +86,6 @@ describe('catalog.helpers', () => {
         'o1',
       );
 
-      // Match parcial (substring) já pega esse caso — fuzzy é fallback.
       expect(result?.id).toBe('h-2');
     });
 

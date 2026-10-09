@@ -9,7 +9,6 @@ export class HolidayRepository extends BaseRepository<Holiday> {
     super(dataSource.getRepository(Holiday));
   }
 
-  /** Todos os feriados da conta; quem filtra por ano/recorrência é o service. */
   findByOwner(ownerId: string): Promise<Holiday[]> {
     return this.repository.find({
       where: { ownerId },

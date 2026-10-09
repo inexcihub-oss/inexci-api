@@ -44,8 +44,6 @@ describe('Webhook Áudio (e2e)', () => {
           provide: SurgeryRequestActivityRepository,
           useValue: {},
         },
-        // Confirmação/cancelamento de consulta pelos botões do WhatsApp — o
-        // contrato testado aqui não exercita esse caminho.
         { provide: AppointmentRepository, useValue: {} },
         {
           provide: AppointmentActivityRepository,

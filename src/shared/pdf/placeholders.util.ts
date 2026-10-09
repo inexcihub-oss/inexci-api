@@ -1,7 +1,3 @@
-/**
- * Placeholders dos modelos de documento clínico (MIG-06). A lista é a única
- * fonte da verdade: o frontend mostra os mesmos rótulos na barra de inserção.
- */
 export const DOCUMENT_PLACEHOLDERS = {
   'paciente.nome': 'Nome do paciente',
   'paciente.cpf': 'CPF do paciente',
@@ -15,24 +11,14 @@ export const DOCUMENT_PLACEHOLDERS = {
 
 export type DocumentPlaceholder = keyof typeof DOCUMENT_PLACEHOLDERS;
 
-/** Valores disponíveis na emissão; ausente = o dado não existe (ex.: sem CPF). */
 export type PlaceholderValues = Partial<
   Record<DocumentPlaceholder, string | number | null | undefined>
 >;
 
 const PADRAO = /\{\{\s*([a-zA-Z.]+)\s*\}\}/g;
 
-/**
- * `{{dias}}` seguido da palavra "dia"/"dias"/"dia(s)". O modelo é escrito uma
- * vez ("pelo período de {{dias}} dias") e serve para qualquer afastamento —
- * com 1 dia, sairia "1 dias".
- */
 const DIAS_COM_PALAVRA = /\{\{\s*dias\s*\}\}(\s+)(dia(?:s|\(s\))?)(?!\p{L})/giu;
 
-/**
- * "dia"/"dias" na caixa que o modelo usou: "{{dias}} Dias" segue "Dias",
- * "{{dias}} DIAS" segue "DIAS".
- */
 function palavraDia(original: string, plural: boolean): string {
   const palavra = plural ? 'dias' : 'dia';
   if (original === original.toUpperCase()) return palavra.toUpperCase();
@@ -42,11 +28,6 @@ function palavraDia(original: string, plural: boolean): string {
   return palavra;
 }
 
-/**
- * Chave do placeholder normalizada: o lookup é insensível à caixa
- * (`{{DIAS}}`, `{{Paciente.Nome}}`). Só a lista própria conta — `in` aceitaria
- * chaves do protótipo (`{{constructor}}`).
- */
 function chaveConhecida(chave: string): DocumentPlaceholder | null {
   const normalizada = chave.toLowerCase();
   return Object.prototype.hasOwnProperty.call(
@@ -60,16 +41,12 @@ function chaveConhecida(chave: string): DocumentPlaceholder | null {
 const semValor = (valor: unknown): boolean =>
   valor === null || valor === undefined || String(valor).trim() === '';
 
-/** Resultado detalhado de `aplicarPlaceholdersDetalhado`. */
 export interface PlaceholdersAplicados {
   texto: string;
-  /** Placeholders conhecidos que o texto **original** continha. */
   presentes: ReadonlySet<DocumentPlaceholder>;
-  /** Dos presentes, os que não tinham valor (vazios ou mantidos literais). */
   semValor: ReadonlySet<DocumentPlaceholder>;
 }
 
-/** Placeholders conhecidos presentes no texto (caixa ignorada). */
 export function placeholdersNoTexto(texto: string): Set<DocumentPlaceholder> {
   const presentes = new Set<DocumentPlaceholder>();
   for (const [, chave] of texto.matchAll(PADRAO)) {
@@ -79,13 +56,6 @@ export function placeholdersNoTexto(texto: string): Set<DocumentPlaceholder> {
   return presentes;
 }
 
-/**
- * Troca `{{chave}}` pelo valor. Chave conhecida sem valor vira texto vazio (o
- * paciente sem CPF não imprime "{{paciente.cpf}}"); chave desconhecida fica
- * literal, para o médico ver o erro de digitação na prévia.
- *
- * Texto puro entra e texto puro sai: quem escapa para o PDF é o Handlebars.
- */
 export function aplicarPlaceholders(
   texto: string,
   valores: PlaceholderValues,
@@ -95,20 +65,9 @@ export function aplicarPlaceholders(
 }
 
 interface OpcoesDePlaceholder {
-  /**
-   * Chaves que ficam literais quando ainda não têm valor. Aplicar o modelo
-   * antes de escolher os dias de afastamento não pode apagar `{{dias}}`: o
-   * placeholder segue no texto e a emissão o preenche com o valor final.
-   */
   manterSemValor?: readonly DocumentPlaceholder[];
 }
 
-/**
- * Igual a `aplicarPlaceholders`, mas informa quais placeholders o texto tinha
- * e quais ficaram sem valor — quem emite decide por aí (ex.: o texto do
- * atestado já traz `{{dias}}`, então não precisa da nota de afastamento; ou
- * depende de `{{dias}}` sem dias informados, e aí é erro).
- */
 export function aplicarPlaceholdersDetalhado(
   texto: string,
   valores: PlaceholderValues,

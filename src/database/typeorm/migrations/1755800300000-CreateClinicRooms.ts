@@ -1,10 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Salas (consultórios) dentro de uma clínica. Tabela nova: as chaves
- * estrangeiras nascem com ela, sem dado legado para conferir.
- * Ver `planos-implementacao/MIG-03-agenda-salas-encaixe-sala-de-espera.md`.
- */
 export class CreateClinicRooms1755800300000 implements MigrationInterface {
   name = 'CreateClinicRooms1755800300000';
 

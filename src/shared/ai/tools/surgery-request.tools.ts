@@ -72,18 +72,6 @@ export function buildSurgeryRequestTools(
   surgeryRequestRepo: SurgeryRequestRepository,
   pendencyValidator?: PendencyValidatorService,
 ): AiTool[] {
-  /**
-   * `query_surgery_requests` substitui `get_surgery_request_status` +
-   * `list_surgery_requests` (removidas em Mai/2026 — Fase 4.2 do
-   * PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
-   *
-   * - Com `identifier` → detalhe completo da SC (status, prioridade,
-   *   paciente, hospital, convênio, CID, data, pendências).
-   * - Sem `identifier` → lista todas as SCs, opcionalmente filtradas por status.
-   *
-   * ⚠️ bypass justificado: acessa o repositório diretamente pois a lógica
-   * é exclusivamente de leitura e constrói um payload simplificado para o LLM.
-   */
   const querySurgeryRequests: AiTool = {
     name: 'query_surgery_requests',
     requiredPermission: Permission.SOLICITACOES,
@@ -122,7 +110,6 @@ export function buildSurgeryRequestTools(
 
       const identifierRaw = (args as any).identifier;
 
-      // ── Detalhe de uma SC específica ────────────────────────────────────────
       if (identifierRaw) {
         const resolvedRequest = await resolveRequestByIdentifier(
           surgeryRequestRepo,
@@ -151,8 +138,6 @@ export function buildSurgeryRequestTools(
         const priority =
           PRIORITY_LABELS[request.priority as any] || String(request.priority);
         const TOOL = 'query_surgery_requests';
-        // Vault armazena o protocol SEM prefixo "SC-"; prefixamos no template
-        // para evitar duplicação "SC-SC-" quando a IA copia o padrão.
         const protocolToken = tokenizePii(
           context,
           TOOL,
@@ -160,8 +145,6 @@ export function buildSurgeryRequestTools(
           stripScPrefix(request.protocol),
         );
         const protocolDisplay = `SC-${protocolToken}`;
-        // Nomes de paciente/hospital/convênio ficam em claro nas saídas de
-        // tools de leitura (PII de negócio do próprio owner_id).
         const patientLabel = String(
           (request as any).patient?.name ||
             request.patientId ||
@@ -240,7 +223,6 @@ export function buildSurgeryRequestTools(
         ].join('\n');
       }
 
-      // ── Listagem ────────────────────────────────────────────────────────────
       const STATUS_MAP: Record<string, number> = {
         pendente: 1,
         enviada: 2,
@@ -284,7 +266,6 @@ export function buildSurgeryRequestTools(
         bucket.push(request);
         groups.set(status, bucket);
       }
-      // Desempate dentro de cada grupo: createdAt mais recente primeiro.
       for (const items of groups.values()) {
         items.sort((a: any, b: any) => {
           const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -294,14 +275,11 @@ export function buildSurgeryRequestTools(
       }
 
       const sections: string[] = [];
-      // Ordem fixa do workflow — não depende da ordem de inserção no Map.
       const ORDERED_STATUSES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
       for (const statusCode of ORDERED_STATUSES) {
         const items = groups.get(statusCode);
         if (!items?.length) continue;
         const label = STATUS_LABELS[statusCode] || `Status ${statusCode}`;
-        // Sem bullet/numeração: a SC já tem protocolo (SC-XXXX) como
-        // identificador natural.
         const itemLines = items.map((r: any) => {
           const protocolToken = tokenizePii(
             context,
@@ -320,11 +298,6 @@ export function buildSurgeryRequestTools(
       return `*Suas solicitações por status:*\n\n${sections.join('\n\n')}`;
     },
   };
-
-  // Tools legacy removidas:
-  //  - `get_surgery_request_status` + `list_surgery_requests` (2026-05-12,
-  //    Fase 4.2 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST): unificadas
-  //    em `query_surgery_requests`.
 
   return [querySurgeryRequests];
 }

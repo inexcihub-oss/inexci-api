@@ -5,14 +5,6 @@ import { ToolRegistryService } from './tool-registry.service';
 import { AiRedisService } from './ai-redis.service';
 import { AiTool, ToolContext } from '../tools/tool.interface';
 
-/**
- * Espelho do `PermissionsGuard` para o WhatsApp: uma lista de permissões
- * exigidas significa **qualquer uma destas** (OR), nunca todas. Exportado para
- * ser testado direto — a regra é fail-closed e é o único gate de permissão do
- * assistente, já que o guard HTTP não passa por aqui.
- *
- * Contexto sem `permissions` é tratado como "nenhuma permissão".
- */
 export function temPermissaoParaTool(
   exigida: AiTool['requiredPermission'],
   context: Pick<ToolContext, 'permissions'>,
@@ -24,29 +16,16 @@ export function temPermissaoParaTool(
   return aceitas.some((p) => concedidas.includes(p));
 }
 
-/**
- * Payload emitido nos eventos de telemetria de tools.
- * Consumível por listeners de métricas / alertas.
- */
 export interface ToolTelemetryEvent {
   toolName: string;
   ownerId: string | null | undefined;
   durationMs: number;
-  /** `true` quando a tool ainda acessa um repositório direto (conformidade). */
   bypassedService: boolean;
-  /** Apenas no evento `tool_failed`. */
   errorMessage?: string;
 }
 
-/**
- * Prefixo usado em todas as chaves do cache de leitura de tools.
- * Mantido curto para não desperdiçar bytes no Redis.
- */
 const TOOL_CACHE_PREFIX = 'tcache:';
 
-/**
- * Entrada do fallback in-memory (usado quando o Redis está indisponível).
- */
 interface MemCacheEntry {
   value: string;
   expiresAt: number;
@@ -56,21 +35,8 @@ interface MemCacheEntry {
 export class ToolExecutorService {
   private readonly logger = new Logger(ToolExecutorService.name);
 
-  /**
-   * Fallback in-memory para quando o Redis está indisponível.
-   * Como o serviço é singleton, o Map é compartilhado entre requests —
-   * comportamento desejado para o cache de leitura (TUSS/CID/catálogo).
-   */
   private readonly memCache = new Map<string, MemCacheEntry>();
 
-  /**
-   * Índice reverso: toolName que foi executada → lista de tools cacheáveis
-   * cujo cache deve ser invalidado. Construído em `buildInvalidationIndex`
-   * na primeira execução (lazy, pois o registry pode não ter todas as tools
-   * registradas no construtor).
-   *
-   * Ex.: 'patient_draft_commit' → ['list_sc_creation_catalog']
-   */
   private invalidationIndex: Map<string, string[]> | null = null;
 
   constructor(
@@ -132,8 +98,6 @@ export class ToolExecutorService {
             results.push({ toolCallId: call.id, output: cached });
             continue;
           }
-          // Os argumentos carregam laudo, diagnostico, nome e endereco de
-          // paciente (LGPD art. 11). Loga apenas o formato, nunca o conteudo.
           this.logger.log(
             `Executando tool: ${fn.name} campos=[${Object.keys(args ?? {}).join(',')}]`,
           );
@@ -152,8 +116,6 @@ export class ToolExecutorService {
             durationMs: Date.now() - startMs,
           } satisfies ToolTelemetryEvent);
         } else {
-          // Os argumentos carregam laudo, diagnostico, nome e endereco de
-          // paciente (LGPD art. 11). Loga apenas o formato, nunca o conteudo.
           this.logger.log(
             `Executando tool: ${fn.name} campos=[${Object.keys(args ?? {}).join(',')}]`,
           );
@@ -168,8 +130,6 @@ export class ToolExecutorService {
             durationMs: Date.now() - startMs,
           } satisfies ToolTelemetryEvent);
 
-          // Após executar uma tool de mutação, invalida caches que a listam
-          // em `invalidatesOn`.
           const toInvalidate = this.invalidationIndex!.get(fn.name) ?? [];
           for (const cachedToolName of toInvalidate) {
             this.invalidateByOwnerAndTool(context.ownerId, cachedToolName);
@@ -179,10 +139,6 @@ export class ToolExecutorService {
           }
         }
       } catch (error: any) {
-        // Exceções de negócio (4xx — validação, "não encontrado", etc.) são
-        // esperadas no fluxo conversacional e viram apenas texto de resposta
-        // ao LLM; não devem poluir `level=error` no Loki. Só falhas
-        // inesperadas (infra, bug) merecem `error`.
         const logMessage = `Erro na tool ${fn.name}: ${error.message}`;
         if (error instanceof HttpException && error.getStatus() < 500) {
           this.logger.warn(logMessage);
@@ -207,13 +163,6 @@ export class ToolExecutorService {
     return results;
   }
 
-  // ─── helpers de cache ───────────────────────────────────────────────────────
-
-  /**
-   * Chave canônica: `tcache:${owner}:${toolName}:${argsJson}`.
-   * Args são serializados com chaves ordenadas para garantir equivalência
-   * semântica (`{a:1,b:2}` e `{b:2,a:1}` geram a mesma chave).
-   */
   buildCacheKey(
     ownerId: string | null | undefined,
     toolName: string,
@@ -225,7 +174,6 @@ export class ToolExecutorService {
   }
 
   private async getCached(key: string): Promise<string | null> {
-    // Redis tem prioridade; in-memory é fallback.
     if (this.aiRedis.isAvailable) {
       return this.aiRedis.cacheGet<string>(key);
     }
@@ -240,8 +188,6 @@ export class ToolExecutorService {
     if (this.aiRedis.isAvailable) {
       await this.aiRedis.cacheSet(key, value, ttlSeconds);
     }
-    // Sempre popula o in-memory (cobre o período de indisponibilidade do Redis
-    // e garante hit instantâneo para chamadas na mesma instância).
     this.setMemCached(key, value, ttlSeconds);
   }
 
@@ -262,15 +208,6 @@ export class ToolExecutorService {
     });
   }
 
-  /**
-   * Invalida todas as entradas in-memory para um dado `ownerId` + `toolName`.
-   * Para o Redis, deleta a chave exata se soubermos o argsHash — mas como não
-   * armazenamos o índice de chaves, delegamos a invalidação Redis ao TTL
-   * curto da tool (30 s para `list_sc_creation_catalog`).
-   *
-   * Na prática, a invalidação in-memory cobre o caso mais crítico (mesma
-   * instância, mesmo turno) e o TTL cobre o restante.
-   */
   invalidateByOwnerAndTool(
     ownerId: string | null | undefined,
     toolName: string,
@@ -283,14 +220,6 @@ export class ToolExecutorService {
     }
   }
 
-  // ─── índice de invalidação ──────────────────────────────────────────────────
-
-  /**
-   * Constrói o índice reverso de invalidação uma única vez, na primeira
-   * chamada de `executeMany`. Lazy para garantir que o `ToolRegistryService`
-   * já terminou de registrar todas as tools (o registry chama `registerAll`
-   * no construtor, mas `OnModuleInit` pode não ter rodado ainda em testes).
-   */
   private ensureInvalidationIndex(): void {
     if (this.invalidationIndex !== null) return;
     this.invalidationIndex = new Map<string, string[]>();

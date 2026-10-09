@@ -1,19 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Sub-tabelas e relacionamentos da solicitação cirúrgica:
- *  - surgery_request_tuss_items
- *  - opme_items + opme_item_suppliers + opme_item_manufacturers (junctions)
- *  - surgery_request_quotations
- *  - contestations
- *  - documents (depende de contestations)
- *  - surgery_request_analyses
- *  - surgery_request_billings
- *  - surgery_request_templates
- *  - surgery_request_activities
- *  - report_sections
- *  - stale_notification_logs
- */
 export class CreateSurgeryRequestRelations1746144500000 implements MigrationInterface {
   name = 'CreateSurgeryRequestRelations1746144500000';
 

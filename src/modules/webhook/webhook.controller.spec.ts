@@ -222,7 +222,6 @@ describe('WebhookController', () => {
     expect(aiOrchestratorMock.enqueueInboundMessage).not.toHaveBeenCalled();
     expect(response).toBe('<Response></Response>');
   });
-  /** Handler que resolveu a mensagem encerra o processamento. */
   it('não tenta a confirmação de consulta quando o agendamento cirúrgico resolveu', async () => {
     webhookServiceMock.tryHandleSchedulingSelection.mockResolvedValue(true);
 
@@ -291,7 +290,6 @@ describe('WebhookController', () => {
     expect(response).toBe('<Response></Response>');
   });
 
-  /** Falhar aqui não pode engolir a mensagem: a IA ainda tem de recebê-la. */
   it('segue para a IA quando a confirmação de consulta falha', async () => {
     webhookServiceMock.tryHandleAppointmentConfirmation.mockRejectedValue(
       new Error('db down'),

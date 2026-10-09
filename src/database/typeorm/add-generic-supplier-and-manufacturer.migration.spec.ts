@@ -3,19 +3,6 @@ import * as path from 'path';
 import { QueryRunner } from 'typeorm';
 import { AddGenericSupplierAndManufacturer1755700200000 } from './migrations/1755700200000-AddGenericSupplierAndManufacturer';
 
-/**
- * A unificação das linhas legadas "Outro"/"Outros" NÃO mora nesta migration.
- * Ela é história do banco de produção — nasceu do preenchimento automático de
- * slots de OPME, que gravava a string como se fosse um nome digitado. Banco
- * criado do zero nunca teve esse código escrevendo nele, então não há o que
- * fundir: a migration só precisa do schema.
- *
- * A fusão é feita uma vez, à mão, por `scripts/sql/outro-generico-aplicar.sql`.
- * O que sobra para a migration é ser idempotente (o script já criou coluna e
- * índice em produção, e ela roda de novo lá) e recusar-se a completar o schema
- * num banco que ainda tenha linha legada solta — senão `ensureGeneric`
- * esbarraria no índice de nome único e quebraria em runtime.
- */
 describe('AddGenericSupplierAndManufacturer1755700200000', () => {
   const SQL_VERIFICACAO = "IN ('outro', 'outros')";
 
@@ -58,11 +45,6 @@ describe('AddGenericSupplierAndManufacturer1755700200000', () => {
   });
 
   describe('idempotência', () => {
-    /**
-     * Rodando o script à mão, a linha da migration não entra na tabela
-     * `migrations` por conta própria — o próximo `migration:run` a executa
-     * contra um banco que já tem tudo. Sem `IF NOT EXISTS` ela aborta o deploy.
-     */
     it('não falha contra schema que já existe', async () => {
       const sqls = await rodarUp();
 
@@ -135,12 +117,6 @@ describe('AddGenericSupplierAndManufacturer1755700200000', () => {
   });
 });
 
-/**
- * O script manual e a migration precisam concordar nos nomes: é pelo nome que
- * o `IF NOT EXISTS` da migration reconhece o que o script já criou. Se um lado
- * renomear, a migration tenta criar de novo e o deploy quebra no índice
- * duplicado — em produção, com a API subindo.
- */
 describe('scripts/sql/outro-generico-aplicar.sql', () => {
   const DIR_SQL = path.join(__dirname, '..', '..', '..', 'scripts', 'sql');
   const aplicar = () =>

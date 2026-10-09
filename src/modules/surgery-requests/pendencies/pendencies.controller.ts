@@ -58,7 +58,6 @@ export class PendenciesController {
   ): Promise<
     Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
-    // Escopado por tenant no service — o guard não resolve id em rota de lote.
     return this.pendencyValidatorService.getBatchSummary(ids, user.ownerId);
   }
 

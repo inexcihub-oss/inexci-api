@@ -71,7 +71,6 @@ describe('atividadesDoLog (MIG-04 §6)', () => {
       toStatus: null,
       content: 'Remarcado - Adiantamos a consulta',
     });
-    // Segue do status de antes da remarcação, não de "cancelada".
     expect(atividades[2]).toMatchObject({
       fromStatus: 'scheduled',
       toStatus: 'confirmed',

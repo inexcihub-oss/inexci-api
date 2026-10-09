@@ -12,18 +12,11 @@ import { SurgeryRequest } from './surgery-request.entity';
 import { User } from './user.entity';
 import { Document } from './document.entity';
 
-/**
- * Tipos de contestação armazenados como enum no banco
- */
 export enum ContestationTypeEnum {
   AUTHORIZATION = 'authorization',
   PAYMENT = 'payment',
 }
 
-/**
- * Contestação — registrada quando o usuário contesta uma autorização parcial/recusada
- * ou quando há divergência no valor recebido de pagamento.
- */
 @Entity('contestations')
 export class Contestation {
   @PrimaryGeneratedColumn('uuid')
@@ -44,7 +37,6 @@ export class Contestation {
   @Column({ type: 'text' })
   reason: string;
 
-  /** null = contestação ainda ativa */
   @Column({ name: 'resolved_at', type: 'timestamp', nullable: true })
   resolvedAt: Date | null;
 
@@ -53,8 +45,6 @@ export class Contestation {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => SurgeryRequest, (request) => request.contestations)
   @JoinColumn({ name: 'surgery_request_id' })

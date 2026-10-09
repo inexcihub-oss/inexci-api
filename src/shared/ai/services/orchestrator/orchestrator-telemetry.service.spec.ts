@@ -164,7 +164,6 @@ describe('OrchestratorTelemetryService', () => {
     });
 
     it('estimates cost using MODEL_COST_PER_1K (gpt-4o)', () => {
-      // gpt-4o: input 0.25¢/1K, output 1.0¢/1K -> (1*0.25 + 0.5*1) = 0.75 -> Math.round = 1
       const result = service.estimateCostCents([
         {
           stage: 'initial',
@@ -201,7 +200,6 @@ describe('OrchestratorTelemetryService', () => {
           model: 'unknown',
         },
       ]);
-      // 2*0.25 + 1*0.06 = 0.56 -> Math.round = 1
       expect(result).toBe(1);
     });
   });

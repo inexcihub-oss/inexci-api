@@ -3,12 +3,6 @@ import * as path from 'path';
 import { QueryRunner } from 'typeorm';
 import { AddUniqueIndexUserPhone1752300900000 } from './migrations/1752300900000-AddUniqueIndexUserPhone';
 
-/**
- * Este spec mora FORA de `migrations/` de propósito: o `data-source.ts` carrega
- * `migrations/*.{ts,js}` inteiro, então um `.spec.ts` ali dentro é importado
- * pelo CLI do TypeORM e derruba o `migration:run` com `describe is not defined`
- * — no deploy, não no `yarn test`.
- */
 describe('diretório de migrations', () => {
   it('não contém arquivos de teste (o glob do data-source carrega tudo)', () => {
     const dir = path.join(__dirname, 'migrations');
@@ -20,13 +14,6 @@ describe('diretório de migrations', () => {
   });
 });
 
-/**
- * O `CREATE UNIQUE INDEX` quebra em qualquer banco que já tenha telefone
- * repetido — foi o que aconteceu no deploy de produção, e o erro do Postgres
- * (`could not create unique index`, `Key (phone)=(...) is duplicated`) não diz
- * quais contas estão em conflito nem o que fazer. A migration passa a olhar o
- * dado antes e abortar com diagnóstico acionável.
- */
 describe('AddUniqueIndexUserPhone1752300900000', () => {
   const SQL_DUPLICADOS = 'HAVING count(*) > 1';
   const SQL_CRIA_INDICE = 'CREATE UNIQUE INDEX';
@@ -78,7 +65,6 @@ describe('AddUniqueIndexUserPhone1752300900000', () => {
 
     const mensagem = (erro as Error).message;
     expect(mensagem).toContain('id-a, id-b');
-    // Telefone mascarado: o log de deploy não é lugar para PII completa.
     expect(mensagem).not.toContain('21995953689');
     expect(mensagem).toContain('89');
   });

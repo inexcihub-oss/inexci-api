@@ -10,9 +10,6 @@ import {
 import { SurgeryRequest } from './surgery-request.entity';
 import { Supplier } from './supplier.entity';
 
-/**
- * Cotação de OPME para uma solicitação cirúrgica.
- */
 @Entity('surgery_request_quotations')
 export class SurgeryRequestQuotation {
   @PrimaryGeneratedColumn('uuid')
@@ -50,7 +47,6 @@ export class SurgeryRequestQuotation {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  /** Indica se esta cotação foi a escolhida. */
   @Column({ type: 'boolean', default: false })
   selected: boolean;
 
@@ -60,13 +56,10 @@ export class SurgeryRequestQuotation {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // ============ RELAÇÕES ============
-
   @ManyToOne(() => SurgeryRequest, (request) => request.quotations)
   @JoinColumn({ name: 'surgery_request_id' })
   surgeryRequest: SurgeryRequest;
 
-  // A cotação não sobrevive ao fornecedor: `supplier_id` é NOT NULL.
   @ManyToOne(() => Supplier, (supplier) => supplier.quotations, {
     onDelete: 'CASCADE',
   })

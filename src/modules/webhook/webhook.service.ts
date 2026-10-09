@@ -23,13 +23,6 @@ export class WebhookService {
   private static readonly SCHEDULING_PATIENT_SELECTED_STATUS_LABEL =
     'Em agendamento';
 
-  /**
-   * Ids do template `appointment_confirmation`, próprios deste fluxo. Os
-   * `opcao_*` pertencem ao agendamento cirúrgico e NÃO entram aqui — foi
-   * exatamente essa sobreposição que fazia a resposta do paciente à consulta
-   * ser lida como escolha de data da cirurgia. O texto do botão entra como
-   * fallback para quando o Twilio manda `ButtonText` sem `ButtonPayload`.
-   */
   private static readonly APPOINTMENT_CONFIRM_TOKENS = [
     'consulta_confirmar',
     'confirmar',
@@ -42,11 +35,6 @@ export class WebhookService {
     'cancela',
   ];
 
-  /**
-   * Janela em que a consulta respondida pode estar. O lembrete sai até 24h
-   * antes, e a resposta pode chegar com a consulta recém-passada — daí a folga
-   * para trás.
-   */
   private static readonly MOTIVO_CANCELAMENTO_PELO_PACIENTE =
     'Cancelada pelo paciente pelo WhatsApp';
   private static readonly APPOINTMENT_LOOKBACK_MS = 6 * 60 * 60 * 1000;
@@ -65,13 +53,6 @@ export class WebhookService {
     private readonly appointmentActivityRepository: AppointmentActivityRepository,
   ) {}
 
-  /**
-   * Traduz o botão do template `appointment_confirmation`.
-   *
-   * Só reconhece os ids próprios deste fluxo (ver
-   * `APPOINTMENT_CONFIRM_TOKENS`). `opcao_1`/`opcao_2` pertencem ao
-   * agendamento cirúrgico e são recusados aqui de propósito.
-   */
   private parseAppointmentAnswer(
     buttonPayload: string,
     buttonText: string,
@@ -97,17 +78,6 @@ export class WebhookService {
     return null;
   }
 
-  /**
-   * Processa a resposta do paciente ao lembrete de consulta.
-   *
-   * Localiza a consulta pelo telefone do remetente dentro da janela do lembrete
-   * e devolve `false` quando não acha nada — assim uma resposta que não é de
-   * consulta segue para o próximo handler.
-   *
-   * Com ids de botão próprios, este handler e o de agendamento cirúrgico não
-   * disputam mais o mesmo payload — a ordem entre os dois no controller passou
-   * a ser indiferente.
-   */
   async tryHandleAppointmentConfirmation(params: {
     from: string;
     messageSid: string;
@@ -156,10 +126,6 @@ export class WebhookService {
       });
     }
 
-    // MIG-04: a mudança feita pelo paciente entra no histórico da consulta
-    // como qualquer outra. Sem usuário (`userId: null`) — quem agiu foi o
-    // paciente, e o conteúdo diz a origem. Best-effort (ver
-    // `registrarNoHistorico`): o status já foi gravado.
     if (appointment.status !== novoStatus) {
       await registrarNoHistorico(
         this.appointmentActivityRepository,
@@ -187,14 +153,6 @@ export class WebhookService {
       response: answer,
     });
 
-    // Resposta em texto livre: a janela de 24h está aberta porque o paciente
-    // acabou de interagir, então não gasta template — e é por isso que o local
-    // do atendimento cabe aqui e não no lembrete (variável opcional faria a
-    // Meta recusar o envio às consultas sem unidade).
-    //
-    // Best-effort: o status já está gravado. Deixar a exceção subir faria o
-    // controller cair no catch e entregar o clique ao orquestrador de IA, que
-    // responderia sobre uma consulta que já mudou de estado.
     try {
       await this.whatsappService.sendMessage(
         params.from,
@@ -212,11 +170,6 @@ export class WebhookService {
     return true;
   }
 
-  /**
-   * Linha com o local do atendimento, para anexar à confirmação. Vazia quando a
-   * consulta não tem unidade vinculada; só com o nome quando a unidade existe
-   * mas não tem endereço cadastrado.
-   */
   private linhaDoLocal(clinic?: Clinic | null): string {
     const nome = clinic?.name?.trim();
     if (!nome) return '';
@@ -421,15 +374,9 @@ export class WebhookService {
       .get<string>('TWILIO_AUTH_TOKEN', '')
       .trim();
 
-    // Opt-out explícito é escape hatch APENAS de dev — nunca desliga em produção.
     if (explicitlyDisabled && nodeEnv !== 'production') return;
 
     if (!authToken) {
-      // Sem token não há como validar. Em produção isso é erro de config e
-      // precisa ser fail-closed: o webhook é @Public(), então "aceita qualquer
-      // requisição" deixaria um atacante forjar o From e operar a plataforma
-      // como o médico. Fora de produção, seguimos permitindo o dev local sem
-      // Twilio configurado.
       if (nodeEnv === 'production') {
         throw new UnauthorizedException(
           'Configuração de webhook inválida: TWILIO_AUTH_TOKEN ausente',
@@ -438,10 +385,6 @@ export class WebhookService {
       return;
     }
 
-    // Token presente ⇒ valida SEMPRE, independente do NODE_ENV. Antes a
-    // validação só ligava em `production` (ou com a flag), então um deploy em
-    // `staging`/`NODE_ENV` diferente aceitava webhooks forjados mesmo tendo o
-    // token. Defesa em profundidade: se dá para validar, valida.
     const isValid = urls.some((url) =>
       validateRequest(authToken, signature, url, body),
     );

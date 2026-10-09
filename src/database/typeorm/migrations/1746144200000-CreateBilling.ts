@@ -1,21 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Billing — assinaturas, cobrança e cotas.
- *
- * Modelo Stripe Checkout + Customer Portal:
- * - Stripe é a fonte da verdade para pagamentos.
- * - `subscription_plans.gateway_price_id` guarda o Price ID da Stripe.
- * - `payment_methods` e `invoices` foram removidas: cartões e faturas
- *   ficam exclusivamente no Customer Portal da Stripe.
- * - `default_payment_method_id` e `next_plan_id` removidos de `subscriptions`.
- *
- * Tabelas: subscription_plans, subscriptions,
- *          subscription_quota_periods, payment_gateway_events.
- *
- * Price IDs populados via `yarn seed:prices` após configurar as vars
- * STRIPE_PRICE_* no .env.
- */
 export class CreateBilling1746144200000 implements MigrationInterface {
   name = 'CreateBilling1746144200000';
 

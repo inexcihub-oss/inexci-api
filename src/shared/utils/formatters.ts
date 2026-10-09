@@ -31,11 +31,6 @@ export function formatDateBR(v: string): string {
   return v;
 }
 
-/**
- * Data de hoje (DD/MM/AAAA) no fuso da clínica. `toISOString()` é UTC e o
- * servidor roda em UTC: a partir das 21h em São Paulo, o documento sairia
- * datado do dia seguinte.
- */
 export function todayBR(
   now: Date = new Date(),
   timeZone = 'America/Sao_Paulo',
@@ -48,32 +43,14 @@ export function todayBR(
   }).format(now);
 }
 
-/**
- * Reconhece um nome que já vem com tratamento médico ("Dr. Carlos",
- * "Dra. Ana", "Dr(a). Paulo"). O ponto é opcional e o espaço é obrigatório —
- * sem ele, "Drauzio" seria confundido com "Dra".
- */
 const DOCTOR_TITLE_PREFIX = /^(dr|dra|dr\(a\))\.?\s/i;
 
-/**
- * Nome do médico com o tratamento na frente, sem duplicar o que já existe.
- *
- * Muito cadastro guarda o nome já como "Dr. Carlos Mendonça"; prefixar às
- * cegas produzia "Dr(a). Dr. Carlos Mendonça" na tela e no e-mail de lembrete.
- */
 export function formatDoctorName(name?: string | null): string {
   const trimmed = (name ?? '').trim();
   if (!trimmed) return '';
   return DOCTOR_TITLE_PREFIX.test(trimmed) ? trimmed : `Dr(a). ${trimmed}`;
 }
 
-/**
- * Data/hora de uma consulta em pt-BR, no fuso de São Paulo
- * (ex.: "sáb., 01/08 às 14:00").
- *
- * Compartilhado pelo lembrete e pela resposta do paciente no WhatsApp: o
- * horário que ele confirma tem de ser, letra por letra, o que ele recebeu.
- */
 export function formatAppointmentWhen(date: Date): string {
   const day = new Intl.DateTimeFormat('pt-BR', {
     weekday: 'short',
@@ -89,7 +66,6 @@ export function formatAppointmentWhen(date: Date): string {
   return `${day} às ${time}`;
 }
 
-/** Campos de endereço da unidade de atendimento, todos opcionais na entidade. */
 export interface EnderecoDaClinica {
   address: string | null;
   addressNumber: string | null;
@@ -98,14 +74,6 @@ export interface EnderecoDaClinica {
   state: string | null;
 }
 
-/**
- * Endereço da unidade em uma linha, para mensagens de texto livre no WhatsApp
- * (ex.: "Rua das Flores, 120 - Centro, São Paulo/SP").
- *
- * Cada pedaço só entra se existir — a clínica pode ter sido cadastrada pela
- * metade, e concatenar às cegas produzia ", - , /". Sem logradouro não há
- * endereço a mostrar, então devolve vazio e quem chama omite a linha.
- */
 export function formatClinicAddress(
   clinic: EnderecoDaClinica | null | undefined,
 ): string {

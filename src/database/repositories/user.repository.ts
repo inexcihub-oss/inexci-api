@@ -99,14 +99,6 @@ export class UserRepository extends BaseRepository<User> {
     });
   }
 
-  /**
-   * Carrega vários usuários (com doctorProfile) em uma única query (WHERE id IN),
-   * evitando o N+1 de buscar um a um. Select mais enxuto que o de
-   * `findOneWithProfile` — não inclui `isPlatformAdmin`, `permissions` nem
-   * `onboardingState`, que passaram a fazer parte daquele desde que
-   * `onboardingState` foi adicionado; ajuste os dois juntos se um consumidor
-   * futuro desta função precisar de algum desses campos.
-   */
   async findManyWithProfileByIds(ids: string[]): Promise<User[]> {
     if (ids.length === 0) return [];
     return await this.repository.find({
@@ -145,10 +137,6 @@ export class UserRepository extends BaseRepository<User> {
       skip,
       take,
       relations: ['doctorProfile'],
-      // Sem CPF, gênero e nascimento de propósito: `GET /users` é o diretório
-      // do staff, liberado a qualquer área autenticada, e nenhum consumidor
-      // usa esses três (a camada de IA lê só `id`/`name`). Quem precisa do
-      // cadastro completo de uma pessoa usa a rota por id.
       select: {
         id: true,
         role: true,
@@ -198,24 +186,6 @@ export class UserRepository extends BaseRepository<User> {
     return await this.findOne({ id });
   }
 
-  /**
-   * Lookup por telefone usado exclusivamente pelo preflight do assistente do
-   * WhatsApp (`PhoneNormalizerService`/`MessageProcessorService`). Usa
-   * `findOneWithProfile` (não `findOne`) DE PROPÓSITO: `findOne` tem um
-   * `select` de ~26 colunas que **não inclui `permissions`** — com `select`
-   * parcial o TypeORM devolve a propriedade como `undefined`, então o
-   * orquestrador de IA calculava a permissão efetiva do usuário sobre um
-   * array vazio (`resolveEffectivePermissions({ permissions: undefined })`),
-   * recusando todas as tools com `requiredPermission` para qualquer
-   * colaborador não-médico. Ampliar o `select` de `findOne` para incluir
-   * `permissions` NÃO é a correção certa: `findOne` tem dezenas de
-   * chamadores fora deste módulo (ex.: `UsersService.findOne`, que devolve o
-   * resultado direto numa resposta HTTP sem filtrar `permissions`/
-   * `isPlatformAdmin`) — vazaria a coluna crua em rotas que não são
-   * gated por `ADMINISTRACAO`. `findOneWithProfile` já filtra esse uso a um
-   * conjunto controlado de chamadores que sabem descartar o campo quando
-   * necessário (ver `UsersService.getProfile`/`findCollaboratorById`).
-   */
   findOneByPhone(phone: string): Promise<User | null> {
     return this.findOneWithProfile({ phone });
   }

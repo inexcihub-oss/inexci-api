@@ -22,8 +22,6 @@ function makeTussService(overrides: {
 }
 
 function fakeMatch(digits: string, name: string): TussResponse {
-  // Replica o `formatTussCode` interno do TussService (10 dígitos →
-  // `XX.XX.XX.XXX-X`). Garante que o teste reflete o que a tool real recebe.
   const padded = digits.padStart(10, '0');
   const formatted = `${padded.slice(0, 2)}.${padded.slice(2, 4)}.${padded.slice(4, 6)}.${padded.slice(6, 9)}-${padded.slice(9)}`;
   return { id: padded, tussCode: formatted, name, active: true };
@@ -63,7 +61,6 @@ describe('search_tuss_codes', () => {
     expect(findByExactCode).toHaveBeenCalledWith('30713153');
     expect(result).toContain(exactMatch.tussCode);
     expect(result).toContain('Artroscopia diag');
-    // Quando o match exato é encontrado, lookup não precisa ser chamado.
     expect(service.lookup).not.toHaveBeenCalled();
   });
 

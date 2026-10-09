@@ -27,12 +27,6 @@ import { BulkDeleteManufacturersDto } from './dto/bulk-delete-manufacturers.dto'
 @ApiTags('Fabricantes')
 @ApiBearerAuth()
 @Controller('manufacturers')
-// Cadastro transversal às quatro áreas: `@RequireAnyArea()` exige ao menos
-// uma área (fail-closed p/ colaborador sem permissão) sem amarrar a uma
-// específica. Criar e atualizar herdam essa regra: quem monta a solicitação
-// precisa cadastrar o fabricante de OPME que faltou, sem depender do admin.
-// Só `delete`/`bulkDelete` seguem em `ADMINISTRACAO` — apagar um fabricante
-// afeta OPMEs que já o referenciam.
 @RequireAnyArea()
 export class ManufacturersController {
   constructor(private readonly manufacturersService: ManufacturersService) {}

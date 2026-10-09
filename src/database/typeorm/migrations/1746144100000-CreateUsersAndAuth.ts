@@ -1,19 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Usuários, autenticação e perfil médico.
- *
- * Tabelas:
- *  - users (auto-referenciada via owner_id e admin_id)
- *  - recovery_codes (com reset_token de uso único para troca de senha)
- *  - doctor_profiles, doctor_headers
- *  - user_doctor_accesses (vínculo binário colaborador ↔ médico)
- *
- * Refresh tokens vivem no Redis (`RefreshTokenStore`) — sem tabela Postgres.
- *
- * Consentimentos LGPD vivem como timestamps em `users` (sem versionamento,
- * sem tabela de auditoria).
- */
 export class CreateUsersAndAuth1746144100000 implements MigrationInterface {
   name = 'CreateUsersAndAuth1746144100000';
 

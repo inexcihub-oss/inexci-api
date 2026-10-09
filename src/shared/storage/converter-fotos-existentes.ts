@@ -9,21 +9,12 @@ export interface FotoExistente {
 
 export interface DependenciasConversao {
   baixar(caminho: string): Promise<Buffer | null>;
-  /** Sobe a foto otimizada e devolve o caminho novo. */
   enviar(conteudo: Buffer, nome: string, ownerId: string): Promise<string>;
-  /**
-   * Troca o caminho no paciente só se ele ainda aponta para o antigo (alguém
-   * pode ter trocado a foto pela tela no meio da conversão).
-   */
   trocarCaminho(
     patientId: string,
     antigo: string,
     novo: string,
   ): Promise<boolean>;
-  /**
-   * Apaga os objetos e devolve as chaves que NÃO foram apagadas (vazio =
-   * tudo certo). Não deve lançar; se lançar, todas contam como não apagadas.
-   */
   apagar(caminhos: string[]): Promise<string[]>;
 }
 
@@ -35,30 +26,10 @@ export interface ResultadoConversao {
   bytesDepois: number;
 }
 
-/**
- * Argumentos do script `otimizar-fotos-pacientes`: simulação é o padrão, e só
- * `--aplicar` grava/apaga. Um `--simular` sobrando (o opt-in antigo) não muda
- * nada; um typo em `--aplicar` também cai na simulação, nunca no destrutivo.
- */
 export function conversaoSimulada(argv: readonly string[]): boolean {
   return !argv.includes('--aplicar');
 }
 
-/**
- * Converte as fotos de paciente já gravadas para o formato otimizado (WebP de
- * até 800 px), 5 em paralelo. Para cada foto, nesta ordem:
- *
- *  1. sobe a nova;
- *  2. troca o caminho no paciente (só se ainda aponta para a antiga);
- *  3. apaga a original logo em seguida — não no fim do lote: se o processo
- *     cair no meio, no máximo as fotos em voo ficam para trás, e não a conta
- *     inteira de originais (dado de paciente) sem nenhum registro apontando.
- *
- * Se a troca não acontecer (ou o UPDATE lançar), quem é apagada é a nova. Se a
- * original não puder ser apagada, a foto entra em `falhas` com o caminho —
- * o paciente já aponta para a nova, então uma nova rodada a pularia e o
- * relatório é o único rastro do objeto que sobrou. Com `simular`, só mede.
- */
 export async function converterFotosExistentes(
   fotos: FotoExistente[],
   deps: DependenciasConversao,
@@ -74,7 +45,6 @@ export async function converterFotosExistentes(
   const falhou = (patientId: string, motivo: string) =>
     resultado.falhas.push({ patientId, motivo });
 
-  /** Apaga e devolve o que sobrou; exceção conta como nada apagado. */
   const apagar = async (caminhos: string[]): Promise<string[]> => {
     try {
       return await deps.apagar(caminhos);
@@ -121,7 +91,6 @@ export async function converterFotosExistentes(
       }
       resultado.convertidas++;
     } catch (erro) {
-      // Subiu a nova mas o UPDATE falhou: a nova não é de ninguém.
       if (novo && !trocado) await apagar([novo]);
       falhou(
         foto.patientId,

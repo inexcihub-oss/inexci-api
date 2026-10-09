@@ -4,7 +4,6 @@ import { HolidayRepository } from 'src/database/repositories/holiday.repository'
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { CreateHolidayDto, UpdateHolidayDto } from './dto/holiday.dto';
 
-/** Feriados da conta (MIG-05). Escrever é da Administração (controller). */
 @Injectable()
 export class HolidaysService {
   constructor(
@@ -12,7 +11,6 @@ export class HolidaysService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  /** Feriados do ano (os recorrentes entram em todo ano). Sem ano: todos. */
   async findMany(userId: string, year?: number): Promise<Holiday[]> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
     const todos = await this.holidayRepository.findByOwner(ownerId);

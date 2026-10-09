@@ -54,9 +54,6 @@ export class SurgeryRequestDocumentExtractionProcessor {
         userId,
       );
 
-      // `notifyOnCompletion` explicitamente `undefined` cai no default do
-      // service (`= true`) — jobs enfileirados antes da flag existir também
-      // não a possuem e continuam se comportando como antes.
       await this.jobsService.markDone(
         jobId,
         userId,

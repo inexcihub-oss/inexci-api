@@ -125,10 +125,6 @@ describe('SurgeryRequestFromDocumentService', () => {
     );
   });
 
-  // ─────────────────────────────────────────────
-  // extractFromDocument
-  // ─────────────────────────────────────────────
-
   it('extrai e retorna DTO completo com candidatos e tempStoragePath', async () => {
     const result = await service.extractFromDocument(buildFile(), 'user-1');
 
@@ -189,10 +185,6 @@ describe('SurgeryRequestFromDocumentService', () => {
       service.extractFromDocument(buildFile(), 'user-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
-
-  // ─────────────────────────────────────────────
-  // createFromDocument
-  // ─────────────────────────────────────────────
 
   it('cria SC com paciente existente e retorna id+protocol', async () => {
     const result = await service.createFromDocument(

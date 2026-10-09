@@ -19,14 +19,6 @@ function sanitizeIdentifier(raw: unknown): string {
   return raw.trim().replace(/[\s.,;:!?]+$/g, '');
 }
 
-/**
- * Mapeia uma pendência para a ação recomendada que a IA deve sugerir.
- *
- * Para pendências compostas (ex.: `medical_report`, `opme_items`), a
- * recomendação é DINÂMICA: depende de quais sub-itens (`undoneItems`) ainda
- * estão pendentes. Isso evita recomendar "criar seção do laudo" quando o
- * único sub-item faltando é "Assinatura do médico configurada".
- */
 function mapPendencyToRecommendedAction(
   key: string,
   undoneItems: Array<{ label: string; done: boolean }> = [],
@@ -56,9 +48,6 @@ function mapPendencyToRecommendedAction(
         minParams: ['surgeryRequestId', 'tussCode', 'name'],
       };
     case 'opme_items': {
-      // Se o único sub-item pendente é "indicar se há OPME", recomende
-      // `set_has_opme`. Caso contrário (já indicou que tem OPME mas falta
-      // cadastrar item), recomende `add_opme_item`.
       const onlyMissingFlag =
         undoneLabels.size === 1 &&
         Array.from(undoneLabels).some((l) =>
@@ -81,8 +70,6 @@ function mapPendencyToRecommendedAction(
       };
     }
     case 'medical_report': {
-      // Recomendação dinâmica: depende do que está faltando dentro do
-      // pacote do laudo (paciente, seções OU assinatura).
       const missingSignature = Array.from(undoneLabels).some((l) =>
         l.includes('assinatura'),
       );
@@ -93,9 +80,6 @@ function mapPendencyToRecommendedAction(
         ['nome do paciente', 'cpf'].includes(l),
       );
 
-      // Quando só falta a assinatura, oriente direto para
-      // `upload_doctor_signature` — esse era o caso mais comum em que a
-      // IA recomendava erradamente "criar seção do laudo".
       if (missingSignature && !missingSections && !missingPatient) {
         return {
           action: 'upload_doctor_signature',
@@ -118,8 +102,6 @@ function mapPendencyToRecommendedAction(
           minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
         };
       }
-      // Caso geral (mais de um sub-item faltando): liste tudo que se
-      // aplica para a IA orientar passo a passo.
       const actions: string[] = [];
       if (missingPatient) {
         actions.push('completar dados do paciente via update_sc_draft_*');
@@ -196,10 +178,6 @@ async function resolveRequestByIdentifier(
   return found || null;
 }
 
-/**
- * Mapeia rótulos em PT para o enum `SurgeryRequestStatus`.
- * Normaliza acentos e variações comuns para cobrir o que o LLM pode passar.
- */
 function resolveStatusFromHint(hint: string): SurgeryRequestStatus | null {
   const normalize = (s: string) =>
     s
@@ -284,8 +262,6 @@ export function buildPendencyTools(
 
       let request: any = null;
 
-      // Se o identifier passado é, na verdade, um rótulo de status (ex.: "pendente",
-      // "enviada", "em análise"), trata como statusHint em vez de buscar por protocolo.
       const identifierAsStatus = identifier
         ? resolveStatusFromHint(identifier)
         : null;
@@ -294,9 +270,6 @@ export function buildPendencyTools(
         identifierAsStatus !== null ? identifierAsStatus : null;
 
       if (!effectiveIdentifier) {
-        // Auto-detecta a SC quando não há identificador explícito.
-        // Se `statusHint` for fornecido, filtra pelo status correspondente.
-        // Sem hint, busca todas as SCs acessíveis.
         const statusFromHint =
           statusHintOverride ??
           (args.statusHint
@@ -310,10 +283,6 @@ export function buildPendencyTools(
           filterWhere.status = statusFromHint;
         }
 
-        // O `findMany` já filtra por `doctorId: In(accessibleDoctorIds)` no
-        // WHERE — não precisa filtrar de novo no JS. (Filtrar por `r.doctorId`
-        // depois quebrava quando o select do repositório não incluía a coluna
-        // — bug 2026-05-14.)
         const accessible =
           (await surgeryRequestRepo.findMany(filterWhere, 0, 20)) || [];
 
@@ -327,7 +296,6 @@ export function buildPendencyTools(
         if (accessible.length === 1) {
           request = accessible[0];
         } else {
-          // Múltiplas SCs — lista para o LLM apresentar ao usuário
           const statusLabel = statusFromHint
             ? ` com status "${STATUS_LABEL[statusFromHint]}"`
             : '';
@@ -357,10 +325,6 @@ export function buildPendencyTools(
       }
 
       const result = await pendencyValidator.validateForStatus(request.id);
-      // Vault armazena o protocol SEM prefixo "SC-"; a string da tool prefixa
-      // explicitamente para que o LLM copie o padrão "SC-{{protocol_n}}"
-      // (evita o bug de duplicação "SC-SC-XXXXXX" quando a IA também
-      // adiciona "SC-" antes do placeholder na resposta final).
       const protocolToken = tokenizePii(
         context,
         'get_pendencies',
@@ -381,11 +345,6 @@ export function buildPendencyTools(
         return `A solicitação ${protocolDisplay} não possui pendências bloqueantes no status ${result.statusLabel}. Pode avançar para a próxima etapa.`;
       }
 
-      // Caso especial: única pendência é `medical_report` e o ÚNICO sub-item
-      // faltando é a assinatura do médico. Devolve uma mensagem ULTRA-direta
-      // que evita o LLM continuar dizendo "completar o laudo médico" /
-      // "criar seção do laudo" — só falta a foto da assinatura no WhatsApp
-      // do próprio médico.
       if (pending.length === 1 && pending[0].key === 'medical_report') {
         const undone = (pending[0].checkItems || []).filter((i) => !i.done);
         const onlySignature =
@@ -436,14 +395,6 @@ export function buildPendencyTools(
     },
   };
 
-  // Mapa stage → status fonte de verdade.
-  // "create"   → o que precisa ANTES da SC nascer (não está no PENDENCIES_CONFIG
-  //              porque PENDING é o estado pós-criação; é apenas o mínimo do
-  //              wizard de criação para PERSISTIR a SC).
-  // "send"     → pendências bloqueantes do status PENDING (passar para Enviada).
-  // "schedule" → pendências do IN_SCHEDULING.
-  // "invoice"  → pendências do INVOICED.
-  // "all"      → todos os status com pendências configuradas.
   const STAGE_LABEL: Record<string, string> = {
     create: 'Criar uma nova SC',
     send: 'Enviar a SC (Pendente → Enviada)',
@@ -452,7 +403,7 @@ export function buildPendencyTools(
   };
 
   const STAGE_TO_STATUS: Record<string, SurgeryRequestStatus | null> = {
-    create: null, // tratado à parte
+    create: null,
     send: SurgeryRequestStatus.PENDING,
     schedule: SurgeryRequestStatus.IN_SCHEDULING,
     invoice: SurgeryRequestStatus.INVOICED,
@@ -579,21 +530,6 @@ export function buildPendencyTools(
     },
   };
 
-  // ────────────────────────────────────────────────────────────────────────
-  // list_post_surgery_required_docs
-  //
-  // Lista os documentos pós-cirúrgicos esperados antes de marcar uma SC
-  // como Realizada (transição SCHEDULED → PERFORMED). Para cada documento
-  // esperado, verifica se já está anexado à SC.
-  //
-  // Fonte de verdade: `config/post-surgery-documents.config.ts`. O endpoint
-  // `/mark-performed` hoje não bloqueia rigidamente na ausência desses
-  // documentos, mas operacionalmente eles são esperados — esta tool
-  // existe para que a IA possa orientar proativamente o usuário antes de
-  // iniciar o fluxo `plan_actions(intent="mark_performed")` +
-  // `mark_performed_draft_*` (que também valida docs no `_check_docs`,
-  // `_preview` e `_commit`).
-  // ────────────────────────────────────────────────────────────────────────
   const listPostSurgeryRequiredDocs: AiTool = {
     name: 'list_post_surgery_required_docs',
     requiredPermission: Permission.SOLICITACOES,

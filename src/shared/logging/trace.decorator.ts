@@ -1,48 +1,15 @@
 import { Logger as NestLogger } from '@nestjs/common';
 
-/**
- * Logs de tracing seguem o `InexciLogger`, que enriquece cada linha com
- * `requestId`/`userId`/`tenantId` lidos do AsyncLocalStorage. Logo, basta
- * emitir através de `Logger('Trace')` que o id da request acompanha.
- */
 const TRACE_LOGGER = new NestLogger('Trace');
 
-/** Marca em uma função para não decorar duas vezes a mesma instância/método. */
 const TRACED = Symbol.for('inexci.logging.traced');
 
 export interface LogTraceOptions {
-  /** Nível padrão para entry/exit. Default `log` (visível). */
   level?: 'log' | 'debug';
-  /**
-   * Nome custom para identificar a classe nos logs (ex: "Repository").
-   * Default: `target.constructor.name`.
-   */
   label?: string;
-  /**
-   * Lista de nomes de métodos a ignorar (além de `constructor` e métodos
-   * que começam com `_`).
-   */
   exclude?: string[];
 }
 
-/**
- * Decorator de método **ou** de classe que envolve cada chamada com logs de
- * entrada e saída no formato:
- *
- *   [Trace] → AuthService.login
- *   [Trace] ← AuthService.login (45ms)
- *
- * Em caso de erro a linha de saída sai como `error`:
- *
- *   [Trace] ✗ AuthService.login (12ms) — Credenciais inválidas
- *
- * Aplicado em classe, decora todos os métodos do prototype (exceto
- * `constructor`, métodos privados `_xxx`, e os listados em `exclude`).
- *
- * **Não use em controllers** — eles já são cobertos pelo
- * `LoggingInterceptor`. O decorator preserva a metadata do `reflect-metadata`
- * (necessária para Nest), mas usar nos dois lugares geraria duplicação.
- */
 export function LogTrace(options: LogTraceOptions = {}): any {
   return function (
     target: any,
@@ -78,16 +45,6 @@ export function LogTrace(options: LogTraceOptions = {}): any {
   };
 }
 
-/**
- * Envolve em runtime todos os métodos da instância (incluindo os herdados
- * de classes pais) com logs de trace, criando overrides como **propriedades
- * próprias** da instância — não modifica o prototype, então outras
- * instâncias da mesma classe não são afetadas.
- *
- * Útil para classes-base como `BaseRepository`, onde queremos cobrir tanto
- * os métodos da base quanto sobrescritos das subclasses (ex.:
- * `UserRepository.findOne`).
- */
 export function traceInstanceMethods(
   instance: object,
   options: LogTraceOptions = {},
@@ -244,12 +201,6 @@ function describeError(err: unknown): string {
   }
 }
 
-/**
- * Copia toda a metadata registrada via `reflect-metadata` (usada por
- * decorators do Nest como `@Body`, `@Param`, `@Roles`, etc.) da função
- * original para a função wrapped — caso contrário o Nest não enxerga
- * os argumentos / decorators do método decorado.
- */
 function copyMetadata(from: object, to: object): void {
   const reflect = Reflect as unknown as {
     getMetadataKeys?: (target: object) => unknown[];

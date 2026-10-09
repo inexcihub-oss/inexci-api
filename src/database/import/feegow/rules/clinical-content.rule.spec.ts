@@ -7,7 +7,7 @@ import {
   textoComparavel,
 } from './clinical-content.rule';
 
-const quando = new Date('2026-05-14T13:33:00.000Z'); // 10:33 em SP
+const quando = new Date('2026-05-14T13:33:00.000Z');
 
 function form(parcial: Partial<FormularioFeegow>): FormularioFeegow {
   return {

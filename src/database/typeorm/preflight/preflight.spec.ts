@@ -45,8 +45,6 @@ describe('rodarPreflight', () => {
       verificacoes: [VERIFICACAO],
     });
 
-    // Rodar a checagem de uma migration já aplicada acusaria um conflito que o
-    // banco, por definição, não tem mais — e travaria deploy por nada.
     expect(consultar).not.toHaveBeenCalled();
     expect(resultado.aprovado).toBe(true);
     expect(resultado.puladas).toContain(VERIFICACAO.migration);

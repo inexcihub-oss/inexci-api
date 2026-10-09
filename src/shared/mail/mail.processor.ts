@@ -50,13 +50,6 @@ export class MailProcessor implements OnModuleInit {
     await this.registerPartials();
   }
 
-  /**
-   * Em dev (ts-node) `__dirname` é `src/shared/mail/`. Após `nest build`, o JS
-   * compilado pode acabar em `dist/src/shared/mail/` (porque o tsc adota
-   * `rootDir: "."` ao detectar a pasta `scripts/` ao lado de `src/`), enquanto
-   * os assets `.hbs` são copiados para `dist/shared/mail/templates/`. Para
-   * sobreviver aos dois layouts, procuramos os templates em vários candidatos.
-   */
   private resolveTemplatesDir(): string[] {
     return [
       path.join(__dirname, 'templates'),
@@ -72,9 +65,7 @@ export class MailProcessor implements OnModuleInit {
       try {
         await fs.promises.access(candidate);
         return candidate;
-      } catch {
-        // tenta próximo candidato
-      }
+      } catch {}
     }
     return null;
   }
@@ -166,7 +157,6 @@ export class MailProcessor implements OnModuleInit {
           } else if (typeof a.content === 'string') {
             content = Buffer.from(a.content, 'base64');
           } else {
-            // Bull serializa Buffer como { type: 'Buffer', data: [...] } via JSON/Redis
             const raw = a.content as any;
             content = Buffer.from(raw.data ?? raw);
           }

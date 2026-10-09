@@ -33,10 +33,8 @@ export class ProceduresService {
   ) {}
 
   async create(data: CreateSurgeryRequestProcedureDto, userId: string) {
-    // Fail-closed: garante posse da SC-pai antes de qualquer escrita (V1).
     await this.accessValidator.validateAndFetch(data.surgeryRequestId, userId);
 
-    // Verifica duplicatas dentro do próprio payload enviado
     const incomingCodes = data.procedures.map((p) => p.tussCode);
     const uniqueIncoming = new Set(incomingCodes);
     if (uniqueIncoming.size !== incomingCodes.length) {
@@ -45,9 +43,6 @@ export class ProceduresService {
       );
     }
 
-    // Tudo ou nada: sem a transação, uma duplicata no item N deixava os
-    // anteriores gravados e devolvia 400 com o banco meio alterado. O laço é
-    // sequencial de propósito — as queries compartilham a mesma conexão.
     return await executeInTransaction(
       this.dataSource,
       async (manager) => {
@@ -61,7 +56,6 @@ export class ProceduresService {
         }> = [];
 
         for (const item of data.procedures) {
-          // Verifica se já existe o mesmo tussCode para esta solicitação
           const existing = await tussRepo.findOne({
             where: {
               surgeryRequestId: data.surgeryRequestId,
@@ -98,14 +92,6 @@ export class ProceduresService {
     );
   }
 
-  /**
-   * Resolve o fornecedor vencedor de cada item OPME antes da transação.
-   *
-   * Duas respostas são válidas: um fornecedor da própria conta, ou o genérico
-   * "Outro" — o convênio aprovou alguém fora dos cotados. O id vem do cliente e
-   * até aqui só era validado como UUID: apontar o item para o fornecedor de
-   * outra clínica fazia o nome dela sair no PDF da solicitação.
-   */
   private async resolverFornecedores(
     opmeItems: AuthorizeOpmeItemDto[],
     ownerId: string,
@@ -155,7 +141,6 @@ export class ProceduresService {
   }
 
   async authorize(data: AuthorizeProceduresDto, userId: string) {
-    // Fail-closed: garante posse da SC-pai antes de autorizar itens (V1).
     const surgeryRequest = await this.accessValidator.validateAndFetch(
       data.surgeryRequestId,
       userId,
@@ -166,17 +151,12 @@ export class ProceduresService {
       surgeryRequest.ownerId,
     );
 
-    // Tudo ou nada: um id estranho no meio da lista não pode deixar os itens
-    // anteriores já autorizados.
     await executeInTransaction(
       this.dataSource,
       async (manager) => {
         const tussRepo = manager.getRepository(SurgeryRequestTussItem);
         const opmeRepo = manager.getRepository(OpmeItem);
 
-        // Os ids dos itens vem do cliente: sem conferir o vinculo com a SC ja
-        // validada, era possivel zerar quantidades e trocar fornecedor de itens
-        // de uma cirurgia de outra clinica.
         for (const item of data.surgeryRequestProcedures) {
           const existente = await tussRepo.findOne({
             where: {
@@ -230,7 +210,6 @@ export class ProceduresService {
     if (!item) {
       throw new NotFoundException('Procedimento TUSS não encontrado');
     }
-    // Fail-closed: posse via SC-pai do item (V1).
     await this.accessValidator.validateAndFetch(item.surgeryRequestId, userId);
 
     await this.tussItemRepository.update(id, { quantity: dto.quantity });
@@ -244,7 +223,6 @@ export class ProceduresService {
     if (!item) {
       throw new NotFoundException('Procedimento TUSS não encontrado');
     }
-    // Fail-closed: posse via SC-pai do item (V1).
     await this.accessValidator.validateAndFetch(item.surgeryRequestId, userId);
 
     await this.tussItemRepository.delete(id);

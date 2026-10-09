@@ -15,9 +15,7 @@ interface TussJsonRow {
 }
 
 interface TussRecordInternal extends TussResponse {
-  /** Código apenas com dígitos (10 posições, padronizado). */
   digits: string;
-  /** Nome normalizado para comparação (lowercase, sem acentos, sem caracteres não alfanuméricos). */
   nameNormalized: string;
 }
 
@@ -26,22 +24,8 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-const TTL_MS = 60 * 60 * 1000; // 1 hora (dados estáticos)
+const TTL_MS = 60 * 60 * 1000;
 
-/**
- * Tabela de códigos TUSS carregada a partir de `src/utils/tuss.json`.
- *
- * O serviço suporta dois modos de busca:
- *  - `search()` — usado pelo controller HTTP (`GET /tuss?search=...`),
- *    devolve uma lista paginada compatível com o frontend.
- *  - `lookup()` — usado pela IA do WhatsApp, devolve resultados ordenados
- *    por relevância (exact > prefix > substring no código; substring
- *    multi-token no nome) com suporte a:
- *      • código completo, com ou sem máscara (`30715016` ou `3.07.15.01-6`);
- *      • parte do código (qualquer substring de dígitos);
- *      • descrição completa ou parcial (acentos/caixa ignorados);
- *      • múltiplas palavras na descrição (todas precisam aparecer).
- */
 @Injectable()
 export class TussService {
   private readonly cache = new Map<string, CacheEntry<TussResponse[]>>();
@@ -69,11 +53,6 @@ export class TussService {
     return this.allRecords;
   }
 
-  /**
-   * Busca usada pelo controller HTTP. Mantida com a mesma assinatura para
-   * compatibilidade com o frontend existente, mas agora aplica o ranking
-   * inteligente do `lookup` (matches exatos primeiro).
-   */
   search(search?: string, limit: number = 50): TussResponse[] {
     const cacheKey = `tuss:search:${search ?? ''}:${limit}`;
     const hit = this.cache.get(cacheKey);
@@ -93,11 +72,6 @@ export class TussService {
     return result;
   }
 
-  /**
-   * Busca usada pela IA do WhatsApp. Aceita query em qualquer formato
-   * (código completo/parcial com ou sem máscara, descrição completa/parcial)
-   * e devolve resultados ordenados por relevância.
-   */
   lookup(query: string, limit: number = 10): TussResponse[] {
     const trimmed = (query ?? '').trim();
     if (!trimmed) return [];
@@ -114,10 +88,6 @@ export class TussService {
     return result;
   }
 
-  /**
-   * Conveniência para localizar EXATAMENTE um código TUSS (com ou sem
-   * máscara). Devolve `null` quando não há match exato.
-   */
   findByExactCode(code: string): TussResponse | null {
     const digits = (code ?? '').replace(/\D/g, '');
     if (!digits) return null;
@@ -191,8 +161,6 @@ export class TussService {
         score += 200;
       }
 
-      // Bonus quando todos os tokens (>= 2) aparecem no nome — útil quando
-      // o usuário fala palavras fora de ordem (ex.: "joelho artroscopia").
       if (queryTokens.length > 1) {
         const allTokensMatch = queryTokens.every((token) =>
           record.nameNormalized.includes(token),

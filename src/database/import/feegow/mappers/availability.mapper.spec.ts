@@ -11,8 +11,6 @@ import {
 } from './availability.mapper';
 import { LEDGER_PROFISSIONAL } from './team.mapper';
 
-// `hoje` do contexto de teste: 2026-09-26 (sábado).
-
 function contexto(
   opcoes: Partial<ContextoImportacao['opcoes']> = {},
 ): ContextoImportacao {
@@ -26,7 +24,6 @@ function contexto(
 const exportCom = (tabelas: Record<string, Partial<LinhaCsv>[]>) =>
   new ExportFeegow(null, tabelas as Record<string, LinhaCsv[]>);
 
-/** Grade fixa de segunda (Feegow `dia_semana` 2), 08–12h. */
 function gf(id: string, extra: Record<string, string | null> = {}) {
   return {
     id,
@@ -42,7 +39,6 @@ function gf(id: string, extra: Record<string, string | null> = {}) {
   };
 }
 
-/** Grade por período (2026-10-05 é segunda). */
 function gp(id: string, extra: Record<string, string | null> = {}) {
   return {
     id,
@@ -274,7 +270,6 @@ describe('planejarBloqueios — vários dias', () => {
   });
 
   it('dia inteiro no fim do horário de verão termina à meia-noite local', () => {
-    // 17/02/2018 ainda era -02:00; a meia-noite de 18/02 já é -03:00 (25 h).
     const blocos = planejarBloqueios(
       exportCom({
         agenda_bloqueios: [

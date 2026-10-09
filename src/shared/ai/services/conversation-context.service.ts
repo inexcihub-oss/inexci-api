@@ -13,15 +13,6 @@ import { SYSTEM_PROMPT } from '../prompts/system-prompt';
 
 const SUMMARY_FAILURE_LIMIT = 3;
 
-/**
- * Estratégia efetivamente aplicada na montagem do contexto.
- *
- * - `hybrid`: caminho normal — system + summary + memory + RAG + janela curta.
- * - `history_only`: estado degradado quando o circuit breaker disparou
- *   (>= 3 falhas consecutivas do sumarizador na mesma conversa). Apenas
- *   `system + RAG + janela curta` são enviados; summary/memory são ignorados
- *   até a próxima sumarização bem-sucedida.
- */
 export type ContextStrategy = 'history_only' | 'hybrid';
 
 export interface ContextBlockBreakdown {
@@ -46,11 +37,6 @@ export interface UserContextInfo {
   role?: string | null;
   isDoctor?: boolean;
   ownerId?: string | null;
-  /**
-   * Lista resumida de médicos acessíveis ao usuário (id + nome). Permite
-   * que a IA cite o médico correto quando o usuário pedir "criar SC para
-   * o Dr. Fulano" sem precisar consultar a base.
-   */
   accessibleDoctors?: Array<{ id: string; name?: string | null }>;
 }
 
@@ -58,16 +44,10 @@ export interface BuildContextOptions {
   conversation: WhatsappConversation;
   ragContext?: string | null;
   systemPromptBase?: string;
-  /** Override do número de mensagens recentes (default = AI_MAX_RECENT_MESSAGES). */
   recentLimit?: number;
-  /** Dados do usuário atual injetados como bloco no system. */
   userInfo?: UserContextInfo | null;
 }
 
-/**
- * Estima tokens via heurística simples (text.length / 4). Suficiente para
- * decisões de orçamento; não tenta ser exata como tiktoken.
- */
 export function estimateTokens(text: string | null | undefined): number {
   if (!text) return 0;
   return Math.max(1, Math.ceil(text.length / 4));
@@ -111,23 +91,6 @@ export class ConversationContextService {
     return Math.max(100, Math.floor(Number(value) || 450));
   }
 
-  /**
-   * Monta a lista final de mensagens para o LLM:
-   *   `system + summary + memory + RAG + janela curta`
-   * respeitando `AI_CONTEXT_TOKEN_BUDGET` (corta na ordem rag → recent → summary).
-   *
-   * Circuit breaker: se o sumarizador acumulou >= SUMMARY_FAILURE_LIMIT falhas
-   * consecutivas neste `conversationId`, summary/memory são ignorados até a
-   * próxima sumarização bem-sucedida (estratégia retornada como `history_only`).
-   */
-
-  /**
-   * Constrói um bloco system curto e imperativo com as entidades que o
-   * usuário já forneceu para a SC em construção (paciente, procedimento,
-   * hospital, convênio, prioridade). Esse bloco é incluído em TODOS os
-   * turnos, mesmo no modo `history_only`, para evitar que o LLM esqueça
-   * informações dadas em turnos anteriores e fique repetindo perguntas.
-   */
   private buildSurgeryRequestBuildingBlock(
     memory: Record<string, unknown> | null | undefined,
   ): string | null {
@@ -206,9 +169,6 @@ export class ConversationContextService {
     breakdown.system_tokens = estimateTokens(systemBase);
 
     if (conversation.userId) {
-      // Tokeniza o telefone do usuário (LGPD/T0.7): preserva o número como
-      // placeholder para a IA usar (em vez de ser redigido por máscara
-      // genérica pelo `redactResidualPii`).
       const phoneToken = conversation.phone
         ? this.piiVault.tokenize(conversation.id, conversation.phone, 'phone')
         : '';
@@ -254,10 +214,6 @@ export class ConversationContextService {
       }
     }
 
-    // SC EM CONSTRUÇÃO — bloco SEMPRE incluído (qualquer strategy) quando
-    // houver entidades já mencionadas/coletadas em turnos anteriores. Sem
-    // isso, o LLM "esquece" o procedimento que o usuário falou três turnos
-    // atrás e volta a perguntar, causando o loop.
     const scBuildingBlock = this.buildSurgeryRequestBuildingBlock(
       conversation.conversationMemory,
     );
@@ -287,8 +243,6 @@ export class ConversationContextService {
 
     let usage = computeUsage();
 
-    // Ordem de corte (3.4 do plano): rag → recent older → summary.
-    // Memória estruturada e system prompt nunca são cortados.
     while (usage.used > budget && ragBlock) {
       ragBlock = null;
       usage = computeUsage();
@@ -333,13 +287,6 @@ export class ConversationContextService {
     };
   }
 
-  /**
-   * Decide se vale a pena rodar `updateSummaryAndMemory` agora.
-   * Gatilhos (qualquer um disparar):
-   *   - mensagens novas desde o último summary >= AI_SUMMARY_TRIGGER_EVERY_MESSAGES;
-   *   - janela recente acumulou > 1200 tokens;
-   *   - mudança de intent (memory.intent != intent novo).
-   */
   async shouldRefreshSummary(
     conversation: WhatsappConversation,
     newIntentHint?: string,
@@ -376,12 +323,6 @@ export class ConversationContextService {
     return false;
   }
 
-  /**
-   * Gera/atualiza summary + memory para a conversa. Usa modelo barato e prompt
-   * compacto. Em caso de falha, incrementa contador `summary_failures` da
-   * memória; ao atingir `SUMMARY_FAILURE_LIMIT`, o orchestrator cai para
-   * `history_only` automaticamente (lido por shouldRefreshSummary/buildContext).
-   */
   async updateSummaryAndMemory(conversationId: string): Promise<void> {
     const conv = await this.conversationRepo.findOne({ id: conversationId });
     if (!conv) return;
@@ -442,8 +383,6 @@ export class ConversationContextService {
         return;
       }
 
-      // Bloqueia resíduos de PII estruturada não tokenizada (defesa em
-      // profundidade). Tokens {{cat_n}} permanecem.
       const residual = this.piiVault.detectResidualPii(parsed.summary || '');
       if (residual.length) {
         await this.recordSummaryFailure(conv);
@@ -480,7 +419,6 @@ export class ConversationContextService {
     }
   }
 
-  /** Limita janela recente. Sempre preserva par user→assistant mais recente. */
   trimRecentMessages<T extends { role: string; content: string }>(
     messages: T[],
     max: number,
@@ -489,10 +427,6 @@ export class ConversationContextService {
     return messages.slice(-max);
   }
 
-  /**
-   * Aplica orçamento de tokens manualmente sobre blocos pré-formatados.
-   * Útil para chamadas externas (testes ou integração customizada).
-   */
   enforceTokenBudget(
     blocks: {
       kind: 'system' | 'summary' | 'memory' | 'rag' | 'recent';
@@ -542,7 +476,6 @@ export class ConversationContextService {
   ): { summary: string; memory: ConversationMemory } | null {
     if (!raw) return null;
     let candidate = raw.trim();
-    // Remove fences ```json ... ```
     if (candidate.startsWith('```')) {
       candidate = candidate
         .replace(/^```(?:json)?\s*/i, '')

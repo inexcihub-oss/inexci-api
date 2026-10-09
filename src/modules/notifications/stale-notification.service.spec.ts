@@ -12,7 +12,6 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { UserRole } from 'src/database/entities/user.entity';
 
-// Mock WHATSAPP_TEMPLATES before importing the service
 jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
     STATUS_CHANGE_PATIENT: 'mock-status-sid',

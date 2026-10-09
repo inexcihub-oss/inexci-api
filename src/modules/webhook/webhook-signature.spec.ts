@@ -34,9 +34,6 @@ describe('WebhookService.validateTwilioSignature', () => {
   });
 
   it('valida assinatura FORA de producao quando ha token (ex.: staging)', () => {
-    // Regressão: antes a validação só ligava em production, então um deploy em
-    // staging com token aceitava webhooks forjados. Agora, token presente ⇒
-    // valida em qualquer ambiente. Assinatura inválida deve ser recusada.
     const service = criarService({
       NODE_ENV: 'staging',
       TWILIO_AUTH_TOKEN: 'token-secreto',
@@ -59,7 +56,6 @@ describe('WebhookService.validateTwilioSignature', () => {
       dev.validateTwilioSignature('qualquer', ['https://api/x'], {}),
     ).not.toThrow();
 
-    // Em produção o opt-out é ignorado: sem assinatura válida, recusa.
     const prod = criarService({
       NODE_ENV: 'production',
       TWILIO_VALIDATE_SIGNATURE: 'false',

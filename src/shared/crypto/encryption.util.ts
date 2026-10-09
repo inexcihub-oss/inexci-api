@@ -18,8 +18,6 @@ function getKey(): Buffer | null {
 export function encrypt(plaintext: string): string {
   const key = getKey();
   if (!key) {
-    // Em producao a ausencia da chave nao pode virar "grava em claro": o
-    // consumidor e o conteudo integral das conversas clinicas do WhatsApp.
     if (process.env.NODE_ENV === 'production') {
       throw new Error(
         'DB_ENCRYPTION_KEY ausente: recusando gravar dado sensível em texto claro',
@@ -36,7 +34,6 @@ export function encrypt(plaintext: string): string {
   ]);
   const tag = cipher.getAuthTag();
 
-  // iv:tag:ciphertext em base64
   return `enc:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
 }
 
@@ -63,10 +60,6 @@ export function decrypt(value: string): string {
   return decrypted.toString('utf8');
 }
 
-/**
- * ValueTransformer para TypeORM — cifra ao salvar, decifra ao ler.
- * Só ativa se DB_ENCRYPTION_KEY estiver definida.
- */
 export const encryptedTransformer = {
   to: (value: string | null): string | null => (value ? encrypt(value) : value),
   from: (value: string | null): string | null =>

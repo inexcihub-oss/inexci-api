@@ -10,9 +10,6 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, proceduresService } = deps;
   return {
     name: 'procedure_draft_commit',
-    // Mesma regra do HTTP: `ProceduresController.create` herda o
-    // `@RequireAnyArea()` da classe — qualquer área cria, mas o colaborador
-    // sem área nenhuma não. Excluir continua sendo ato do admin e não tem tool.
     requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',

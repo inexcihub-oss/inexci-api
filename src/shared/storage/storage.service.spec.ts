@@ -50,7 +50,6 @@ describe('StorageService — cache das fotos de paciente', () => {
   });
 
   it('link entregue nunca vale menos que o max-age do cache nem mais que o TTL', async () => {
-    // Pior caso: pedido no último segundo da janela.
     const agora = new Date('2026-10-07T10:29:59.000Z');
     jest.useFakeTimers({ now: agora });
     await service.getSignedUrl('patient-photos/owner-a/foto.webp');

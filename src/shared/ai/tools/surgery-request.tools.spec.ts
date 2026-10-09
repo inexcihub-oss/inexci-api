@@ -209,12 +209,9 @@ describe('SurgeryRequestTools', () => {
         { ...baseContext, piiVault },
       );
 
-      // Nomes de negócio ficam em claro após a refatoração de drafts: o LLM
-      // precisa enxergar o nome real para fazer matching por similaridade.
       expect(result).toContain('João Silva');
       expect(result).toContain('Hospital Santa Maria');
       expect(result).toContain('Unimed');
-      // Apenas protocolo continua tokenizado.
       expect(result).toContain('{{protocol_1}}');
     });
   });
@@ -254,7 +251,6 @@ describe('SurgeryRequestTools', () => {
       expect(indexAnalise).toBeGreaterThan(indexPendente);
       expect(indexAgendada).toBeGreaterThan(indexAnalise);
 
-      // Os dois itens "Em Análise" devem estar agrupados (sem outro status entre eles)
       const segmentoAnalise = result.slice(
         indexAnalise,
         indexAgendada > indexAnalise ? indexAgendada : result.length,
@@ -298,10 +294,6 @@ describe('SurgeryRequestTools', () => {
       );
     });
 
-    // Regressão: print 2026-05-11 — colaborador com acesso a múltiplos médicos
-    // só via SCs do primeiro doctorId porque a tool fazia
-    // `where.doctorId = accessibleDoctorIds[0]` em vez de `In(...)`. Faltavam
-    // SCs e a IA via uma lista incompleta.
     it('lista SCs de TODOS os médicos acessíveis ao usuário (não só do primeiro)', async () => {
       mockSurgeryRequestRepo.findMany.mockResolvedValue([]);
 
@@ -313,7 +305,6 @@ describe('SurgeryRequestTools', () => {
 
       const callArgs = mockSurgeryRequestRepo.findMany.mock.calls[0];
       const where = callArgs[0];
-      // O TypeORM In(...) cria um objeto com `_type: 'in'` e `_value: [...]`.
       const doctorIdValue = where?.doctorId;
       const inValues =
         doctorIdValue?._value || doctorIdValue?.value || doctorIdValue;
@@ -323,7 +314,6 @@ describe('SurgeryRequestTools', () => {
     });
 
     it('respeita a ordem canônica do workflow mesmo quando a query devolve embaralhado', async () => {
-      // Devolve totalmente fora de ordem, com status 9, 5, 1, 7, 3 misturados.
       mockSurgeryRequestRepo.findMany.mockResolvedValue([
         { protocol: '0099', status: 9, patient: { name: 'Z' } },
         { protocol: '0050', status: 5, patient: { name: 'C' } },
@@ -342,9 +332,7 @@ describe('SurgeryRequestTools', () => {
         'Faturada',
         'Encerrada',
       ].map((label) => result.indexOf(label));
-      // Todos presentes
       expect(order.every((i) => i > -1)).toBe(true);
-      // Estritamente crescente — confirma a ordem do workflow
       for (let i = 1; i < order.length; i++) {
         expect(order[i]).toBeGreaterThan(order[i - 1]);
       }
@@ -449,11 +437,9 @@ describe('SurgeryRequestTools', () => {
       const tool = getTool('query_surgery_requests');
       const result = await tool.execute({}, baseContext);
 
-      // Não deve aparecer prefixo de bullet ou numeração antes do "SC-"
       expect(result).not.toMatch(/•\s*SC-/);
       expect(result).not.toMatch(/^\s*1\s*[-.)]\s*SC-/m);
       expect(result).not.toMatch(/^\s*2\s*[-.)]\s*SC-/m);
-      // E o item deve aparecer começando direto com "SC-"
       expect(result).toMatch(/SC-0001\s—\sMaria/);
       expect(result).toMatch(/SC-0002\s—\sJosé/);
     });

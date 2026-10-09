@@ -8,17 +8,6 @@ import { OrchestratorTelemetryService } from './orchestrator/orchestrator-teleme
 import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { AudioIntakeService } from './orchestrator/audio-intake.service';
 
-/**
- * Testes focados na nova camada de "pending_confirmation": o orchestrator
- * grava no conversation_memory quando uma tool de mutação retorna preview
- * (confirm:false) e, no turno seguinte, traduz determinísticamente um
- * "sim/confirmo/ok" do usuário em chamada da MESMA tool com confirm:true,
- * sem depender do LLM lembrar do contexto.
- *
- * Acessamos as funções privadas via `as any` para testá-las isoladamente —
- * a integração via fluxo de turno é coberta pelos testes principais do
- * orchestrator.
- */
 describe('AiOrchestratorService — pending_confirmation', () => {
   let service: AiOrchestratorService;
   const whatsappConversationRepoMock = {
@@ -184,10 +173,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
   });
 
   describe('trackPendingConfirmation', () => {
-    // Fase 4 do PLANO-SANITIZACAO-CLEAN-CODE-IA: o caminho legacy (texto
-    // livre + PREVIEWABLE_MUTATION_TOOLS + heurísticas de string) foi
-    // removido. Toda tool que queira participar do ciclo de confirmação
-    // devolve `ToolResult` canônico (envelope JSON via `buildToolResult`).
     it('grava pending_confirmation a partir do envelope de upload_doctor_signature', async () => {
       whatsappConversationRepoMock.findOne.mockResolvedValue({
         id: 'conv-1',
@@ -264,9 +249,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         )
         .mockImplementation(() => undefined);
 
-      // `upload_doctor_signature` é confirmable (está em TOOL_DISPLAY_LABELS)
-      // mas, hipoteticamente, devolve string crua — caminho de regressão
-      // que justifica o warning.
       await (service as any).confirmationManager.trackPendingConfirmation({
         conversationId: 'conv-1',
         toolName: 'upload_doctor_signature',
@@ -282,9 +264,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       warnSpy.mockRestore();
     });
 
-    // Tools de leitura (`query_patients`, `query_surgery_requests`,
-    // `get_pendencies`, `search_*`) devolvem string crua de propósito —
-    // não devem disparar o warning `envelope_missing`.
     it('tool de leitura com output não-envelope NÃO loga warning', async () => {
       const warnSpy = jest
         .spyOn(
@@ -306,10 +285,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       warnSpy.mockRestore();
     });
 
-    // Regressão: o loop "responda 'sim' para confirmar" no fluxo de
-    // criação de SC vinha do fato de `sc_draft_preview` não estar na
-    // allowlist hardcoded — então nada era gravado e o "sim" do usuário
-    // não disparava o commit.
     it('grava pending a partir do envelope JSON de sc_draft_preview (apontando sc_draft_commit)', async () => {
       whatsappConversationRepoMock.findOne.mockResolvedValue({
         id: 'conv-1',
@@ -443,7 +418,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         output: envelope,
       });
 
-      // Nenhum update — o pending de outra mutação fica preservado.
       expect(whatsappConversationRepoMock.update).not.toHaveBeenCalled();
     });
 
@@ -467,11 +441,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
   });
 
   describe('buildPendingConfirmationHint', () => {
-    // Migrado em 2026-05-12 (Fase 3.3): os testes do hint usavam
-    // `create_procedure` como cobaia. Como ela foi removida do registry, o
-    // novo cobaia é `upload_doctor_signature` (única tool legacy que ainda
-    // exercita o caminho heurístico). O comportamento testado é genérico —
-    // o hint só monta uma string a partir de `pending_confirmation`.
     it('injeta hint determinístico quando há pending_confirmation fresco e usuário diz "sim"', async () => {
       whatsappConversationRepoMock.findOne.mockResolvedValue({
         id: 'conv-1',
@@ -523,7 +492,6 @@ describe('AiOrchestratorService — pending_confirmation', () => {
         service as any
       ).confirmationManager.buildPendingConfirmationHint('conv-1', 'Sim');
       expect(hint).toBeNull();
-      // O orchestrator deve ter agendado a limpeza.
       expect(whatsappConversationRepoMock.update).toHaveBeenCalled();
     });
 

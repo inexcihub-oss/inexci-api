@@ -1,19 +1,9 @@
 import { AiOrchestratorService } from './ai-orchestrator.service';
 
-/**
- * Cobertura pontual da Task 12b: `injectSystemHint` aceita `role` e o hint de
- * documento pendente (que carrega texto extraído de arquivo enviado por
- * terceiro) entra como `role: 'user'`, nunca `role: 'system'` — a posição de
- * maior confiança do prompt. Os demais hints (numeric choice, pending
- * confirmation) são determinísticos, gerados pelo próprio código, e
- * continuam como `role: 'system'` por padrão.
- */
 describe('AiOrchestratorService.injectSystemHint — role do hint de documento', () => {
   const service = Object.create(
     AiOrchestratorService.prototype,
   ) as AiOrchestratorService;
-  // `logger` é inicializado no corpo do construtor (property initializer),
-  // que Object.create não executa — stub manual necessário.
   (service as any).logger = { log: jest.fn() };
 
   function inject(

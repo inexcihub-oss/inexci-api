@@ -23,8 +23,8 @@ describe('agenda-time', () => {
   });
 
   it('dia da semana, intervalo de datas e minutos', () => {
-    expect(diaDaSemana('2026-10-04')).toBe(0); // domingo
-    expect(diaDaSemana('2026-10-10')).toBe(6); // sábado
+    expect(diaDaSemana('2026-10-04')).toBe(0);
+    expect(diaDaSemana('2026-10-10')).toBe(6);
     expect(datasEntre('2026-02-27', '2026-03-02')).toEqual([
       '2026-02-27',
       '2026-02-28',

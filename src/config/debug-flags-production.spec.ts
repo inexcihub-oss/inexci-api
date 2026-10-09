@@ -1,14 +1,5 @@
 import { envValidationSchema } from './app.config';
 
-/**
- * Regressão: flags de debug que despejam PII (SQL completo com parâmetros;
- * cópia de áudio clínico em disco) não podem ser ligadas em produção. A
- * validação Joi do boot deve recusar o startup nesse caso.
- *
- * O schema tem muitos campos obrigatórios; validamos com `abortEarly: false` e
- * inspecionamos se a mensagem de erro menciona (ou não) a flag — assim o teste
- * não depende de montar um env de produção completo.
- */
 function validate(env: Record<string, string>) {
   return envValidationSchema.validate(env, {
     allowUnknown: true,

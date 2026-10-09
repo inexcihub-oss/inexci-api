@@ -168,8 +168,6 @@ describe('QuotaService', () => {
       const status = await service.getQuotaStatus('owner-1');
 
       expect(status).toMatchObject({ isUnlimited: true, remaining: null });
-      // Infinity vira `null` no JSON.stringify — o cliente já recebia nulo,
-      // só que tipado como `number`. Aqui o contrato é honesto.
       expect(JSON.parse(JSON.stringify(status)).remaining).toBeNull();
     });
 

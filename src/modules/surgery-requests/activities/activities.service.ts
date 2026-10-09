@@ -25,14 +25,11 @@ export class ActivitiesService {
   ) {}
 
   async findAll(surgeryRequestId: string, userId: string) {
-    // Verifica acesso
     await this.loadRequest(surgeryRequestId, userId);
 
     const activities =
       await this.activityRepository.findBySurgeryRequest(surgeryRequestId);
 
-    // Uma consulta só para todas as atividades — uma por atividade seria
-    // N+1 numa aba que costuma ter dezenas de linhas.
     const mentions = await this.mentionRepository.findByActivityIds(
       activities.map((a) => a.id),
     );
@@ -62,7 +59,6 @@ export class ActivitiesService {
               pdfUrl = await this.storageService.getSignedUrl(parsed.pdf_path);
             }
           } catch {
-            // conteúdo não é JSON — usa o texto bruto
             this.logger.warn(
               `Atividade ${a.id}: conteúdo não é JSON válido, usando texto bruto`,
             );
@@ -88,12 +84,6 @@ export class ActivitiesService {
     );
   }
 
-  /**
-   * Usuários que podem ser mencionados nos comentários desta SC.
-   *
-   * O autor sai da lista: mencionar a si mesmo só geraria uma notificação
-   * para quem acabou de escrever o comentário.
-   */
   async findMentionableUsers(surgeryRequestId: string, userId: string) {
     const request = await this.loadRequest(surgeryRequestId, userId);
 
@@ -159,7 +149,6 @@ export class ActivitiesService {
     });
     if (!request) throw new NotFoundException('Solicitação não encontrada.');
 
-    // Admin tem acesso total
     if (user.role === UserRole.ADMIN) return request;
 
     return request;

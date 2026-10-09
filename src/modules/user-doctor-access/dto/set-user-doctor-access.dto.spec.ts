@@ -22,10 +22,6 @@ describe('SetUserDoctorAccessDto', () => {
     expect(validar({ doctor_user_ids: [] })).toHaveLength(0);
   });
 
-  /**
-   * O motivo de o DTO existir: sem ele o corpo chegava sem validação, o
-   * service recebia `undefined` e a rota devolvia 500 em vez de 400.
-   */
   it('recusa corpo vazio em vez de deixar passar', () => {
     const erros = validar({});
     expect(erros.length).toBeGreaterThan(0);

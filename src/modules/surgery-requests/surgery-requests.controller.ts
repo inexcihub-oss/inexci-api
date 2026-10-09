@@ -44,7 +44,6 @@ import {
 } from 'src/shared/decorators/current-user.decorator';
 import { SurgeryRequestDocumentExtractionJobsService } from './services/surgery-request-document-extraction-jobs.service';
 
-// DTOs gerais
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { FindManySurgeryRequestDto } from './dto/find-many.dto';
 import { FindManyKanbanDto } from './dto/find-many-kanban.dto';
@@ -53,7 +52,6 @@ import { FindOneSurgeryRequestDto } from './dto/find-one.dto';
 import { UpdateSurgeryRequestDto } from './dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from './dto/update-surgery-request-basic.dto';
 
-// DTOs de transição
 import { SendRequestDto } from './dto/send-request.dto';
 import { StartAnalysisDto } from './dto/start-analysis.dto';
 import { AcceptAuthorizationDto } from './dto/accept-authorization.dto';
@@ -84,10 +82,6 @@ export class SurgeryRequestsController {
     private readonly fromDocumentService: SurgeryRequestFromDocumentService,
     private readonly documentExtractionJobsService: SurgeryRequestDocumentExtractionJobsService,
   ) {}
-
-  // ============================================================
-  // CRIAÇÃO
-  // ============================================================
 
   @Post()
   @Throttle({ short: { ttl: 60000, limit: 10 } })
@@ -171,14 +165,7 @@ export class SurgeryRequestsController {
     );
   }
 
-  // ============================================================
-  // LEITURA
-  // ============================================================
-
   @Get()
-  // Ponte deliberada: quem atende vê as cirurgias do paciente que está
-  // atendendo, mas não navega a carteira cirúrgica da clínica. Sem
-  // `patientId`, só quem tem SOLICITACOES lista (regra aplicada no service).
   @RequirePermission(Permission.SOLICITACOES, Permission.ATENDIMENTO)
   @ApiOperation({ summary: 'Listar solicitações cirúrgicas' })
   findAll(
@@ -224,10 +211,6 @@ export class SurgeryRequestsController {
     return this.surgeryRequestsService.findOne(query.id, user.userId);
   }
 
-  // ============================================================
-  // ATUALIZAÇÃO GERAL
-  // ============================================================
-
   @Put()
   @ApiOperation({ summary: 'Atualizar solicitação cirúrgica' })
   update(
@@ -272,10 +255,6 @@ export class SurgeryRequestsController {
       user.userId,
     );
   }
-
-  // ============================================================
-  // TRANSIÇÕES DE STATUS
-  // ============================================================
 
   /**
    * PENDING → SENT
@@ -505,10 +484,6 @@ export class SurgeryRequestsController {
     return this.surgeryRequestsService.notify(id, dto, user.userId);
   }
 
-  // ============================================================
-  // SEÇÕES DO LAUDO MÉDICO (CRUD)
-  // ============================================================
-
   /** GET /surgery-requests/:id/sections — listar sections ordenadas */
   @Get(':id/sections')
   @ApiOperation({ summary: 'Listar seções do laudo' })
@@ -578,10 +553,6 @@ export class SurgeryRequestsController {
     );
   }
 
-  // ============================================================
-  // PDF DO LAUDO MÉDICO
-  // ============================================================
-
   /**
    * Exporta o PDF da solicitação cirúrgica sem alterar o status.
    * Disponível para solicitações já enviadas (status ≥ 2).
@@ -629,18 +600,12 @@ export class SurgeryRequestsController {
     res.status(HttpStatus.OK).end(buffer);
   }
 
-  // ============================================================
-  // TEMPLATES DE SOLICITAÇÃO
-  // ============================================================
-
   /**
    * GET /surgery-requests/available-doctors
    * Lista os médicos disponíveis para o usuário logado criar solicitações.
    * IMPORTANTE: rota registrada ANTES de ':id/...' para não conflitar.
    */
   @Get('available-doctors')
-  // Lista de médicos acessíveis, não dado cirúrgico: alimenta o filtro da
-  // agenda e o hub de atendimento. Já vem recortada pelo AccessControlService.
   @RequirePermission()
   @ApiOperation({ summary: 'Listar médicos disponíveis' })
   getAvailableDoctors(@CurrentUser() user: AuthenticatedUser) {
@@ -698,7 +663,7 @@ export class SurgeryRequestsController {
    * Exclui um template do médico logado.
    */
   @Delete('templates/:id')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Excluir template' })
   deleteTemplate(
     @Param('id') id: string,
@@ -716,7 +681,7 @@ export class SurgeryRequestsController {
    * Atualiza um template do médico logado.
    */
   @Patch('templates/:id')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Atualizar template' })
   updateTemplate(
     @Param('id') id: string,
@@ -738,7 +703,7 @@ export class SurgeryRequestsController {
    * usado para criar uma solicitação.
    */
   @Get('templates/:id')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Detalhar template' })
   getTemplate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.surgeryRequestsService.getTemplate(
@@ -749,7 +714,7 @@ export class SurgeryRequestsController {
   }
 
   @Post('templates/:id/increment-usage')
-  @SkipSurgeryOwner() // `:id` aqui é o id do template, não da SC (posse via ownerId no service).
+  @SkipSurgeryOwner()
   @ApiOperation({ summary: 'Incrementar uso do template' })
   incrementTemplateUsage(
     @Param('id') id: string,

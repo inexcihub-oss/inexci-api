@@ -3,9 +3,7 @@ import { AppointmentActivityType } from 'src/database/entities/appointment-activ
 import { decodificarEntidadesHtml } from '../../core/normalizers';
 import { statusDoFeegow } from './appointment-status.rule';
 
-/** Uma linha de `log_marcacoes`, já com a data convertida. */
 export interface EventoDoLog {
-  /** `A` agendado, `R` alteração, `X` exclusão. */
   arx: string | null;
   statusId: string | null;
   obs: string | null;
@@ -23,28 +21,12 @@ export interface AtividadeDoLog {
   userId: string | null;
 }
 
-/** Texto que o Feegow grava sozinho ao trocar o status: não informa nada. */
 const TEXTO_PADRAO = /^altera[çc][ãa]o de status\.?$/i;
 const STATUS_REMARCADO = '15';
 const INICIADO = /^atendimento iniciado/i;
 const FINALIZADO = /^atendimento finalizado/i;
 const REMARCADO = /^(remarcado|altera[çc][ãa]o de hor[áa]rio)/i;
 
-/**
- * Linha do tempo de uma consulta a partir dos eventos do Feegow, já em ordem
- * cronológica (MIG-04 §6).
- *
- * - `A` → `created` (o texto é a observação digitada ao agendar).
- * - "Remarcado…" / "Alteração de horário…" ou o status 15 ("Remarcado"),
- *   com qualquer texto → `rescheduled`; o 15 nunca muda o status da linha
- *   do tempo.
- * - "Atendimento iniciado…" → em atendimento; "Atendimento finalizado" →
- *   realizada.
- * - Demais `R`: `status_change` quando o status mudou; senão `updated`, ou
- *   nada se não houver texto (o "Alteração de status" automático não conta).
- * - `X` fica de fora: consulta excluída não é importada.
- * - `motivo` ≠ 0 vai no fim do texto: o export não traz a tabela de motivos.
- */
 export function atividadesDoLog(eventos: EventoDoLog[]): AtividadeDoLog[] {
   const atividades: AtividadeDoLog[] = [];
   let atual: AppointmentStatus | null = null;
@@ -90,12 +72,7 @@ export function atividadesDoLog(eventos: EventoDoLog[]): AtividadeDoLog[] {
       (obs && REMARCADO.test(obs))
     ) {
       type = AppointmentActivityType.RESCHEDULED;
-      // O 15 ("Remarcado") é uma marca de passagem no Feegow: a mesma
-      // consulta segue para confirmada/aguardando depois. Tratar como
-      // cancelamento criaria "Cancelada → Confirmada" falsos na linha do tempo
-      // — vale para qualquer texto (ou nenhum) que acompanhe o 15.
       if (e.statusId === STATUS_REMARCADO) novo = atual;
-      // "Remarcado - " sem justificativa.
       content = obs ? obs.replace(/\s*-\s*$/, '') : null;
     } else if (novo !== atual) {
       type = AppointmentActivityType.STATUS_CHANGE;

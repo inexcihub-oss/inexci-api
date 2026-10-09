@@ -1,9 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
 
-/**
- * Numero maximo de tentativas por codigo de recuperacao antes da invalidacao.
- * Sem esse limite, 10^6 combinacoes sao forcaveis dentro da janela de validade.
- */
 const MAX_TENTATIVAS = 5;
 
 describe('Recuperacao de senha — forca bruta do codigo', () => {
@@ -27,7 +23,6 @@ describe('Recuperacao de senha — forca bruta do codigo', () => {
 
     const { consumirTentativa } = await import('./recovery-code-attempts.util');
 
-    // 5 tentativas erradas: a quinta deve marcar o codigo como usado.
     for (let i = 0; i < MAX_TENTATIVAS; i++) {
       await consumirTentativa(repo as any, registro as any);
     }

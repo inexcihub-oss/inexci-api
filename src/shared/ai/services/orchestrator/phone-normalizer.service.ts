@@ -4,38 +4,10 @@ import { UserRepository } from '../../../../database/repositories/user.repositor
 import { maskPhone as maskPhoneUtil } from '../../../utils/mask.util';
 
 export interface NormalizedInboundPhone {
-  /**
-   * Telefone canônico em formato internacional (`+55DDDNNNNNNNN`). Usado
-   * sempre que precisamos representar o número de forma estável (cache key,
-   * logs com hash, lookup primário).
-   */
   canonicalPhone: string;
-  /**
-   * Lista de variações (com/sem +, com/sem 55, com/sem nono dígito,
-   * formatadas com parênteses/hífen). Usada para casar usuários cadastrados
-   * com formatos heterogêneos no banco.
-   */
   lookupCandidates: string[];
 }
 
-/**
- * Normalização canônica de números brasileiros recebidos via WhatsApp e
- * lookup de usuário tolerante a formatos heterogêneos.
- *
- * - `normalizeInboundPhone`: tira o prefixo `whatsapp:`, força o DDI 55,
- *   gera variantes para o lookup.
- * - `buildPhoneLookupVariants` + `expandBrazilianLocalVariants`: produzem
- *   as combinações (com/sem nono dígito, formatos `(DD) XXXXX-XXXX`,
- *   `+55…`, etc.).
- * - `findUserByPhoneCandidates`: tenta cada variante no `UserRepository`
- *   na ordem em que foram geradas, devolvendo o primeiro hit. Como
- *   fallback, tenta o `primaryPhone` se ele não estiver na lista.
- * - `maskPhone`: máscara LGPD (T0/T25) reusando `shared/utils/mask.util`.
- *
- * Extraído do `AiOrchestratorService` na Fase 1 do
- * `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`. A normalização é pura; o lookup
- * recebe `UserRepository` por DI (mockável em teste).
- */
 @Injectable()
 export class PhoneNormalizerService {
   constructor(private readonly userRepository: UserRepository) {}
@@ -92,20 +64,10 @@ export class PhoneNormalizerService {
     return null;
   }
 
-  /**
-   * Mascaramento de telefones para logs (LGPD — T0/T25). Delegado ao
-   * helper compartilhado em `shared/utils/mask.util` para manter o formato
-   * único em todo o backend.
-   */
   maskPhone(phone: string): string {
     return maskPhoneUtil(phone);
   }
 
-  /**
-   * Gera variantes formatadas (com parênteses, hífen, espaços) e variantes
-   * com/sem DDI 55. Usado para casar usuários cadastrados com diferentes
-   * convenções de formatação no banco.
-   */
   buildPhoneLookupVariants(
     withCountry: string,
     localWithoutCountry: string,
@@ -142,23 +104,12 @@ export class PhoneNormalizerService {
     return variants.filter(Boolean);
   }
 
-  /**
-   * Expande variações brasileiras do "nono dígito":
-   *  - `31 8908-5791` → `31 9 8908-5791` (10 → 11 dígitos com 9 inserido)
-   *  - `31 9 8908-5791` → `31 8908-5791` (11 → 10 dígitos sem o 9)
-   * Útil porque o WhatsApp normaliza o nono dígito mas usuários antigos
-   * podem ter sido cadastrados sem ele (e vice-versa).
-   */
   expandBrazilianLocalVariants(localDigits: string): string[] {
     const variants = new Set<string>();
     if (!localDigits) return [];
 
     variants.add(localDigits);
 
-    // No Brasil so celular tem nono digito, e o primeiro digito do numero
-    // local (apos o DDD, indice 2) e 9 (ou 6-8 em faixas antigas). Fixo
-    // comeca com 2-5: expandir um fixo gera o celular de OUTRA pessoa,
-    // permitindo assumir a sessao alheia.
     if (
       localDigits.length === 10 &&
       ['6', '7', '8', '9'].includes(localDigits[2])

@@ -233,7 +233,6 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
         }
       }
 
-      // operation === 'remove'
       const blockedRemove = ensurePendingForMutation(auth.request);
       if (blockedRemove) {
         return buildToolResult({ status: 'blocked', message: blockedRemove });

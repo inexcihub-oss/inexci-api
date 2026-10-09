@@ -32,11 +32,6 @@ export class NotificationRepository extends BaseRepository<Notification> {
     });
   }
 
-  /**
-   * Total de notificações que casam com o filtro da listagem, ignorando
-   * `skip`/`take`. É o `total` da paginação — sem ele o cliente recebia o
-   * tamanho da página como se fosse o total.
-   */
   async countByUserId(
     userId: string,
     options?: { unreadOnly?: boolean },
@@ -56,7 +51,6 @@ export class NotificationRepository extends BaseRepository<Notification> {
     });
   }
 
-  /** Devolve quantas linhas foram alteradas: 0 = id inexistente ou de outro usuário. */
   async markAsRead(notificationId: string, userId: string): Promise<number> {
     const result = await this.repository.update(
       { id: notificationId, userId },
@@ -69,7 +63,6 @@ export class NotificationRepository extends BaseRepository<Notification> {
     await this.repository.update({ userId, read: false }, { read: true });
   }
 
-  /** Devolve quantas linhas foram removidas: 0 = id inexistente ou de outro usuário. */
   async deleteByUser(notificationId: string, userId: string): Promise<number> {
     const result = await this.repository.delete({ id: notificationId, userId });
     return result.affected ?? 0;

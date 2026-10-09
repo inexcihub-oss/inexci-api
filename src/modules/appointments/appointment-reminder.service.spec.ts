@@ -73,10 +73,6 @@ describe('AppointmentReminderService', () => {
     });
   });
 
-  /**
-   * D-07: o nome cadastrado costuma vir com o tratamento ("Dr. Carlos"), e
-   * prefixar às cegas produzia "Dr(a). Dr. Carlos" no e-mail e no WhatsApp.
-   */
   it('não duplica o tratamento quando o nome do médico já o tem', async () => {
     mockUserRepository.findOne.mockResolvedValue({
       id: 'd1',
@@ -124,7 +120,6 @@ describe('AppointmentReminderService', () => {
     expect(
       mockWhatsappService.sendAppointmentConfirmation,
     ).not.toHaveBeenCalled();
-    // Ainda marca para não reprocessar toda hora (idempotência).
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
       reminderSentAt: expect.any(Date),
     });
@@ -160,7 +155,6 @@ describe('AppointmentReminderService', () => {
 
     expect(sent).toBe(1);
     expect(mockMailService.sendAppointmentReminder).toHaveBeenCalledTimes(1);
-    // O que falhou não é marcado; o que passou é marcado.
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-2', {
       reminderSentAt: expect.any(Date),
     });
@@ -170,9 +164,6 @@ describe('AppointmentReminderService', () => {
     );
   });
 
-  // D-04: os envios eram fire-and-forget (`void`), então uma falha de
-  // enfileiramento (Redis fora) era engolida e a consulta ficava marcada como
-  // lembrada — o lembrete sumia em silêncio.
   it('não marca reminderSentAt quando todos os canais falham', async () => {
     mockAppointmentRepository.findDueForReminder.mockResolvedValue([appt]);
     mockPatientRepository.findOne.mockResolvedValue({
@@ -212,7 +203,6 @@ describe('AppointmentReminderService', () => {
     const sent = await service.sendDueReminders();
 
     expect(sent).toBe(1);
-    // A falha do e-mail não pode cancelar o WhatsApp.
     expect(mockWhatsappService.sendAppointmentConfirmation).toHaveBeenCalled();
     expect(mockAppointmentRepository.update).toHaveBeenCalledWith('appt-1', {
       reminderSentAt: expect.any(Date),
@@ -244,7 +234,6 @@ describe('AppointmentReminderService', () => {
     const sent = await service.sendDueReminders();
 
     expect(sent).toBe(1);
-    // A que falhou fica sem marca, para a próxima execução tentar de novo.
     expect(mockAppointmentRepository.update).not.toHaveBeenCalledWith(
       'appt-1',
       expect.anything(),

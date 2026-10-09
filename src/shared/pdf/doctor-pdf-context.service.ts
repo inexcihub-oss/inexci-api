@@ -4,10 +4,6 @@ import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.
 import { StorageService } from 'src/shared/storage/storage.service';
 import { CustomHeaderData } from './pdf.service';
 
-/**
- * `CRM 12345/RJ`. Sem número, nada é impresso (como antes). Perfil antigo sem
- * `council` carregado é CRM — aqui é só exibição, não decide permissão.
- */
 export function formatarRegistroProfissional(
   profile:
     | { council?: string | null; crm?: string | null; crmState?: string | null }
@@ -22,23 +18,11 @@ export function formatarRegistroProfissional(
 export interface DoctorPdfContext {
   doctor: any;
   profile: any;
-  /**
-   * Registro no conselho já formatado para impressão (ex.: `CRM 12345/RJ`,
-   * `CRN 4567/RJ`). Nome histórico `doctorCrm`: os templates `.hbs` o usam.
-   */
   doctorCrm?: string;
   doctorSignatureUrl?: string;
   customHeader: CustomHeaderData | null;
 }
 
-/**
- * Dados do médico usados no cabeçalho e no rodapé de qualquer PDF assinado
- * (laudo, contestação, receita, atestado, encaminhamento de exames).
- *
- * Vive em `shared/pdf` porque não é específico da solicitação cirúrgica: o
- * módulo de atendimento precisa exatamente do mesmo bloco — nome, CRM,
- * assinatura e cabeçalho customizado do médico responsável.
- */
 @Injectable()
 export class DoctorPdfContextService {
   constructor(
@@ -47,7 +31,6 @@ export class DoctorPdfContextService {
     private readonly storageService: StorageService,
   ) {}
 
-  /** Carrega o médico pelo id e monta o contexto de PDF. */
   async buildForDoctorId(doctorId: string): Promise<DoctorPdfContext> {
     const doctor = await this.userRepository.findOneWithProfile({
       id: doctorId,
@@ -58,7 +41,6 @@ export class DoctorPdfContextService {
     return this.buildForDoctor(doctor);
   }
 
-  /** Monta o contexto a partir de um médico já carregado (com `doctorProfile`). */
   async buildForDoctor(doctor: any): Promise<DoctorPdfContext> {
     const profile = doctor?.doctorProfile;
 
@@ -70,7 +52,6 @@ export class DoctorPdfContextService {
     return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
   }
 
-  /** URL da assinatura do médico (assinada quando é um path do storage). */
   async resolveSignatureUrl(profile: any): Promise<string | undefined> {
     if (!profile?.signatureUrl) return undefined;
     const raw: string = profile.signatureUrl;
@@ -82,7 +63,6 @@ export class DoctorPdfContextService {
     }
   }
 
-  /** Cabeçalho customizado (logo + HTML livre) configurado pelo médico. */
   async resolveCustomHeader(profile: any): Promise<CustomHeaderData | null> {
     if (!profile?.id) return null;
 

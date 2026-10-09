@@ -1,19 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * WhatsApp / IA — conversação, RAG, tokens e PII.
- *
- * Tabelas:
- *  - whatsapp_conversations
- *  - whatsapp_conversation_messages
- *  - ai_knowledge_chunks (RAG, requer extensão `vector`)
- *  - ai_token_usage_logs
- *  - ai_pii_redaction_logs
- *  - conversation_cleanup_log
- *
- * Histórico bruto vive em `whatsapp_conversation_messages` (1 linha por
- * mensagem) — sem coluna JSONB monolítica `messages_history` para reduzir I/O.
- */
 export class CreateWhatsappAndAi1746144600000 implements MigrationInterface {
   name = 'CreateWhatsappAndAi1746144600000';
 

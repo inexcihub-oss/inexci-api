@@ -29,9 +29,7 @@ function HasExplicitTime(validationOptions?: ValidationOptions) {
             if (typeof iso !== 'string') return false;
             const d = new Date(iso);
             if (isNaN(d.getTime())) return false;
-            // Rejeita datas que chegam sem componente de tempo (somente data)
             if (!iso.includes('T')) return false;
-            // Rejeita meia-noite UTC — sentinela de horário não preenchido
             return (
               d.getUTCHours() !== 0 ||
               d.getUTCMinutes() !== 0 ||

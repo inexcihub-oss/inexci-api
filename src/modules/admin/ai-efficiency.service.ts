@@ -3,16 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AiTokenUsageLog } from '../../database/entities/ai-token-usage-log.entity';
 
-/**
- * Linha de saída do relatório de eficiência da IA do WhatsApp.
- *
- * Cobre as métricas-alvo da Fase 0 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA:
- *  - tokens médios (prompt/completion/total) e custo médio por turno;
- *  - latência p50/p95 (via `percentile_cont` do PostgreSQL);
- *  - hit rate de prompt caching (`cached_tokens / prompt_tokens`);
- *  - distribuição de chamadas por turno e % de stages "rewrite"/etc.;
- *  - quebra opcional por draft ativo (útil para validar Fase 1).
- */
 export interface AiEfficiencyReport {
   windowFrom: string | null;
   windowTo: string | null;
@@ -28,29 +18,14 @@ export interface AiEfficiencyReport {
   p50LatencyMs: number;
   p95LatencyMs: number;
   avgCallsPerTurn: number;
-  /** Total de tokens reaproveitados via prompt caching no período. */
   totalCachedTokens: number;
-  /** `cached_tokens / prompt_tokens` (0–100, em %). */
   cacheHitRate: number;
-  /** % de turnos que dispararam ao menos uma chamada de stage `rewrite`. */
   rewriteRate: number;
-  /** % de turnos com summary atualizado no mesmo turno (stage `summary`). */
   summaryStageRate: number;
-  /**
-   * % de turnos em que a consulta ao RAG retornou ao menos 1 hit.
-   * Fase 7 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
-   */
   ragHitRate: number;
-  /**
-   * Score médio dos chunks retornados pelo RAG nos turnos com hit.
-   * Fase 7 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
-   */
   avgRagScore: number;
-  /** Soma de centavos de USD estimados no período (pode ser nulo). */
   totalCostCents: number | null;
-  /** Custo médio por turno em centavos de USD. */
   avgCostCents: number | null;
-  /** Quebra por draft ativo no início do turno (top 10). */
   byDraftType: Array<{
     draftType: string;
     turns: number;
@@ -58,7 +33,6 @@ export interface AiEfficiencyReport {
     avgTotalTokens: number;
     cacheHitRate: number;
   }>;
-  /** Distribuição de iterations por turno (`callsCount` 1, 2, 3, 4, 5+). */
   callsDistribution: Array<{ calls: number; turns: number; percent: number }>;
 }
 
@@ -87,9 +61,6 @@ export class AiEfficiencyService {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // Agregados gerais. Cada linha de `ai_token_usage_logs` corresponde a um
-    // "turno" (1 mensagem do usuário processada). `breakdown` é JSONB com 1+
-    // entradas (initial + followups + rewrite + summary).
     const totalsSql = `
       SELECT
         COUNT(*)::int                                            AS "totalTurns",
@@ -118,9 +89,6 @@ export class AiEfficiencyService {
       ${whereSql}
     `;
 
-    // Cache hit rate: somatório de `breakdown[*].cachedTokens` dividido pelo
-    // somatório de `breakdown[*].promptTokens`. Faz `jsonb_array_elements` na
-    // mesma query para evitar puxar o JSONB para a aplicação.
     const cacheSql = `
       SELECT
         COALESCE(SUM(COALESCE((b->>'cachedTokens')::int, 0)), 0)::int AS "totalCachedTokens",
@@ -130,7 +98,6 @@ export class AiEfficiencyService {
       ${whereSql}
     `;
 
-    // Quantos turnos dispararam stage `rewrite` ou `summary` (informativo).
     const stageRatesSql = `
       SELECT
         SUM(CASE WHEN EXISTS (
@@ -146,7 +113,6 @@ export class AiEfficiencyService {
       ${whereSql}
     `;
 
-    // Quebra por draftType (lê do snapshot `initial` do breakdown). Top 10.
     const byDraftSql = `
       SELECT
         COALESCE((
@@ -168,7 +134,6 @@ export class AiEfficiencyService {
       LIMIT 10
     `;
 
-    // Distribuição de iterations: 1, 2, 3, 4, 5+.
     const callsDistSql = `
       SELECT
         LEAST(log.calls_count, 5)::int AS calls,
@@ -179,9 +144,6 @@ export class AiEfficiencyService {
       ORDER BY 1
     `;
 
-    // Métricas RAG: hit rate e score médio.
-    // Fase 7 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
-    // Lê `rag.hitsCount` e `rag.avgScore` do campo `breakdown[*].rag`.
     const ragMetricsSql = `
       SELECT
         COUNT(DISTINCT log.id)::int AS "totalTurnsWithRagData",
@@ -296,18 +258,6 @@ export class AiEfficiencyService {
     };
   }
 
-  /**
-   * Converte um SQL com placeholders nomeados (`:from`, `:to`) em posicional
-   * ($1, $2, ...) deduplicando — múltiplas ocorrências da mesma chave reusam
-   * o mesmo `$N`. `Repository.query` usa o driver cru do `pg` que só aceita
-   * posicional.
-   *
-   * **Heurística de não-ambiguidade:** o lookbehind negativo `(?<!:)` impede
-   * que casts PostgreSQL (`::int`, `::vector`, `::float`) sejam confundidos
-   * com placeholders nomeados. A âncora `\b` no final evita casamento
-   * parcial em literais como `'foo:bar'`. Desta forma `:from` é substituído
-   * normalmente mas `::int`, `::vector` e `'prefix:suffix'` são preservados.
-   */
   private bindNamed(
     sql: string,
     args: Record<string, any>,

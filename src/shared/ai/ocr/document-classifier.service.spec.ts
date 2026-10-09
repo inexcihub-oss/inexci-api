@@ -288,8 +288,6 @@ describe('DocumentClassifierService', () => {
   });
 
   it('extrai diagnóstico, procedimento sugerido, OPME com supplier/manufacturer e fornecedores', async () => {
-    // Caso real do laudo do Jean Pierre — o classifier deve devolver TUDO
-    // que aparece estruturado no documento.
     openai.chatCompletion.mockResolvedValueOnce(
       buildLlmResponse({
         kind: 'surgery_request',
@@ -457,7 +455,6 @@ describe('DocumentClassifierService', () => {
       text: '   {{payload_blob_3}}   ',
     });
 
-    // Não chegou a chamar a OpenAI — economiza tokens.
     expect(openai.chatCompletion).not.toHaveBeenCalled();
     expect(result.kind).toBe('unknown');
     expect(result.confidence).toBe(0);

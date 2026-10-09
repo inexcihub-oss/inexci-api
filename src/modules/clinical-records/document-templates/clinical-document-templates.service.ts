@@ -13,14 +13,6 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { CreateClinicalDocumentTemplateDto } from './dto/create-clinical-document-template.dto';
 import { UpdateClinicalDocumentTemplateDto } from './dto/update-clinical-document-template.dto';
 
-/**
- * Modelos de texto de atestado e pedido de exame (MIG-06).
- *
- * Ler segue o recorte da clínica e dos profissionais acessíveis. Escrever exige
- * **médico (CRM) ou dentista (CRO)** (`assertCanIssueClinicalDocuments`),
- * porque atestado e pedido de exame são emitidos só por eles, e acesso ao
- * profissional dono do modelo.
- */
 @Injectable()
 export class ClinicalDocumentTemplatesService {
   constructor(
@@ -28,12 +20,6 @@ export class ClinicalDocumentTemplatesService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  /**
-   * Modelos da clínica restritos aos profissionais que o usuário acessa (o
-   * mesmo recorte de `getAccessibleDoctorIds`): o texto do modelo é do
-   * profissional, e quem não tem vínculo com ele não lê. Filtrar por um
-   * `doctorId` fora do acesso é 403, não lista vazia.
-   */
   async findMany(
     userId: string,
     filtro: { kind?: ClinicalDocumentTemplateKind; doctorId?: string } = {},
@@ -99,16 +85,6 @@ export class ClinicalDocumentTemplatesService {
     await this.templateRepository.softDelete(id);
   }
 
-  /**
-   * Modelo para emitir um documento do tipo `kind`: da mesma clínica, de um
-   * médico acessível, **do profissional que assina o documento** e do tipo
-   * certo (um modelo de atestado não preenche o pedido de exame); `kind` nulo
-   * aceita qualquer tipo. Quem chama já conferiu que o usuário pode emitir.
-   *
-   * O modelo é o texto do profissional: um assistente com acesso a dois
-   * médicos não pode pôr o texto do Dr. A num atestado assinado pelo Dr. B.
-   * Não existe modelo "da clínica" (`doctor_id` é obrigatório).
-   */
   async getForUse(
     id: string,
     kind: ClinicalDocumentTemplateKind | null,

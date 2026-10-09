@@ -16,23 +16,6 @@ import { buildMarkPerformedDraftCommitTool } from './mark-performed/mark-perform
 
 export type { FlowDraftTransitionDeps } from './_types';
 
-/**
- * Tools de transição com draft que cobrem as transições "ricas"
- * onde o frontend abre um modal exigindo campos obrigatórios antes de mudar
- * o status:
- *
- *  - `send_sc_draft_*`              — PENDING → SENT (método de envio, destinatário/email)
- *  - `start_analysis_draft_*`       — SENT → IN_ANALYSIS (nº da operadora, data, cotações)
- *  - `accept_authorization_draft_*` — IN_ANALYSIS → IN_SCHEDULING (datas propostas)
- *  - `mark_performed_draft_*`       — SCHEDULED → PERFORMED (data + documentos cirúrgicos)
- *
- * A partir da Fase 5 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`, os setters
- * per-type (`*_draft_set_*`), `*_draft_status` e `*_draft_cancel` foram
- * removidos em favor das tools globais `draft_update`, `draft_status` e
- * `draft_cancel` (`draft-generic.tools.ts`). Sobram apenas
- * `*_draft_preview`, `*_draft_commit` e a utility
- * `mark_performed_draft_check_docs` (que verifica documentos cirúrgicos).
- */
 export function buildFlowDraftTransitionTools(
   deps: FlowDraftTransitionDeps,
 ): AiTool[] {

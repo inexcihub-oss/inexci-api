@@ -103,13 +103,6 @@ describe('cadastro draft tools (preview + commit)', () => {
     ]);
   });
 
-  /**
-   * O assistente tem que exigir o mesmo que a rota HTTP equivalente. Hospital e
-   * convênio são cadastros transversais (`@RequireAnyArea()` em
-   * `HospitalsController`/`HealthPlansController`): qualquer área cria. Enquanto
-   * a tool pedia ADMINISTRACAO, o colaborador cadastrava pela tela e levava
-   * "você não tem permissão" pelo WhatsApp — a mesma ação, duas respostas.
-   */
   it.each([
     'hospital_draft_commit',
     'health_plan_draft_commit',

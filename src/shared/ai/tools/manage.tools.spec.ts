@@ -118,8 +118,6 @@ describe('ManageTools', () => {
     mockSupplierRepo.create.mockImplementation((dto: any) =>
       Promise.resolve({ id: `sup-${dto.name}`, name: dto.name }),
     );
-    // Por padrão, o catálogo TUSS confirma o código informado pelo caller.
-    // Testes específicos sobrescrevem com cenários de ambiguidade/not_found.
     mockTussService.findByExactCode.mockImplementation((code: string) => ({
       id: code,
       tussCode: code,
@@ -907,9 +905,6 @@ describe('ManageTools', () => {
     });
   });
 
-  // ----------------------------------------------------------------
-  // Fase 2 PLANO-CORRECOES-CODE-REVIEW-2026-05-13: envelope ToolResult
-  // ----------------------------------------------------------------
   describe('envelope ToolResult — Fase 2', () => {
     describe('manage_tuss_items', () => {
       it('status=pending_confirmation para add sem confirm', async () => {

@@ -1,18 +1,5 @@
 import { TussService } from './tuss.service';
 
-/**
- * Os testes carregam o `tuss.json` real do diretório `src/utils/`. Os
- * códigos abaixo foram escolhidos por estarem garantidos no arquivo
- * (verificados manualmente):
- *
- *   - 30713153 → "Artroscopia para diagnóstico com ou sem biópsia sinovial"
- *   - 30401011 → "Biópsia de pavilhão auricular"
- *   - 10101012 → "Consulta em consultório (no horário normal ou preestabelecido)"
- *
- * O `formatTussCode` interno mantém compatibilidade com o formato exposto ao
- * frontend (10 dígitos formatados como `XX.XX.XX.XXX-X`). Por isso comparamos
- * apenas pelos dígitos quando precisamos validar identidade do código.
- */
 const onlyDigits = (code: string): string => code.replace(/\D/g, '');
 
 describe('TussService', () => {

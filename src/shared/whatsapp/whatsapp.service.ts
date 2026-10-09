@@ -7,25 +7,14 @@ import { maskPhone } from '../utils';
 
 export interface WhatsappJobData {
   to: string;
-  /** Mensagem freeform — usado apenas dentro da janela de 24h de conversa iniciada pelo usuário */
   body?: string;
-  /** contentSid do template pré-aprovado pela Meta via Twilio Content API */
   contentSid?: string;
-  /** Variáveis do template com chaves numéricas: {"1": valor1, "2": valor2} */
   variables?: Record<string, string>;
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
-  /** Usuário/tenant da request que originou o envio (logging end-to-end). */
   userId?: string | null;
   tenantId?: string | null;
 }
 
-/**
- * Dados dos três templates de consulta. Objeto nomeado, e não parâmetros
- * soltos: os três campos são string e os templates numeram as variáveis em
- * ordens diferentes — posicional, trocar dois deles compila e só aparece na
- * mensagem que chega ao paciente.
- */
 export interface DadosDaConsulta {
   patientName: string;
   doctorName: string;
@@ -41,10 +30,6 @@ export class WhatsappService {
     private readonly whatsappQueue: Queue,
   ) {}
 
-  /**
-   * Enfileira uma mensagem WhatsApp freeform para envio assíncrono via Bull queue.
-   * Só funciona dentro da janela de 24h de uma conversa iniciada pelo usuário.
-   */
   async sendMessage(to: string, body: string): Promise<void> {
     const ctx = getRequestContext();
     const masked = maskPhone(to);
@@ -73,10 +58,6 @@ export class WhatsappService {
     }
   }
 
-  /**
-   * Enfileira um template WhatsApp pré-aprovado para envio assíncrono via Bull.
-   * Deve ser usado para mensagens proativas (fora da janela de 24h).
-   */
   async sendTemplate(
     to: string,
     contentSid: string,
@@ -112,24 +93,18 @@ export class WhatsappService {
     }
   }
 
-  /** Envia boas-vindas ao paciente recém-cadastrado via template aprovado pela Meta. */
   sendPatientWelcome(to: string, patientName: string): Promise<void> {
     return this.sendTemplate(to, WHATSAPP_TEMPLATES.WELCOME_PATIENT, {
       '1': patientName,
     });
   }
 
-  /** Envia boas-vindas ao usuário (médico/colaborador) recém-cadastrado via template aprovado pela Meta. */
   sendUserWelcome(to: string, userName: string): Promise<void> {
     return this.sendTemplate(to, WHATSAPP_TEMPLATES.WELCOME_USER, {
       '1': userName,
     });
   }
 
-  /**
-   * Lembrete de consulta 24h antes, pedindo que o paciente confirme presença
-   * pelos botões do template.
-   */
   sendAppointmentConfirmation(
     to: string,
     dados: DadosDaConsulta,
@@ -141,7 +116,6 @@ export class WhatsappService {
     });
   }
 
-  /** Aviso de que a consulta foi marcada (ou remarcada) para uma data. */
   sendAppointmentScheduled(to: string, dados: DadosDaConsulta): Promise<void> {
     return this.sendTemplate(to, WHATSAPP_TEMPLATES.APPOINTMENT_SCHEDULED, {
       '1': dados.patientName,
@@ -150,10 +124,6 @@ export class WhatsappService {
     });
   }
 
-  /**
-   * Aviso de consulta cancelada. Este template numera as variáveis em outra
-   * ordem — paciente → horário → médico — e é só aqui que isso aparece.
-   */
   sendAppointmentCancelled(to: string, dados: DadosDaConsulta): Promise<void> {
     return this.sendTemplate(to, WHATSAPP_TEMPLATES.APPOINTMENT_CANCELLED, {
       '1': dados.patientName,

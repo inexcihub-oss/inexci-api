@@ -54,48 +54,25 @@ import {
   PreviewPrescriptionDto,
 } from './dto/preview-clinical-document.dto';
 
-/** Limite da coluna `documents.name`. */
 const DOCUMENT_NAME_MAX_LENGTH = 75;
 
 const digitsOnly = (value?: string | null): string =>
   value ? value.replace(/\D/g, '') : '';
 
-/** Contexto comum aos três documentos (paciente + profissional que assina). */
 type BaseContext = Awaited<
   ReturnType<ClinicalDocumentGenerationService['buildBaseContext']>
 >['base'];
 
-/** Placeholders que o "aplicar modelo" deixa para a emissão preencher. */
 const PREENCHIDOS_NA_EMISSAO = ['dias', 'inicio'] as const;
 
-/**
- * Título do atestado pelo conselho de quem assina: o dentista (CRO) emite
- * atestado odontológico, não médico.
- */
 const tituloDoAtestado = (council?: string | null): string =>
   council === ProfessionalCouncil.CRO
     ? 'ATESTADO ODONTOLÓGICO'
     : 'ATESTADO MÉDICO';
 
-/**
- * Recusa de quem não é o profissional que assina. Receita, atestado e pedido
- * de exame saem com nome, registro e assinatura de quem assina — ninguém emite
- * (nem pré-visualiza) em nome de outro, nem um colega CRM/CRO com vínculo.
- */
 export const MENSAGEM_SO_O_PROFISSIONAL_EMITE =
   'Só o profissional da consulta pode emitir este documento.';
 
-/**
- * Linha de afastamento para o atestado com texto livre/modelo. A declaração
- * padrão imprime dias e início; o texto a substitui e, sem esta linha, o que o
- * médico preencheu no formulário sumia do PDF.
- *
- * A regra é estrutural, não pelo conteúdo do texto: a linha entra quando há
- * dias de afastamento e o texto **não** trazia `{{dias}}` (se trazia, os dias
- * já foram impressos no lugar do placeholder). Atestado de comparecimento é o
- * atestado sem `restDays`. O início explícito que o texto não traz (nem por
- * `{{inicio}}`, nem literal) também entra, para não sumir do documento.
- */
 export function montarNotaDeAfastamento(opcoes: {
   texto: string;
   textoTinhaDias: boolean;
@@ -119,17 +96,11 @@ export function montarNotaDeAfastamento(opcoes: {
   return faltaInicio ? `Início do afastamento: ${startDate}.` : undefined;
 }
 
-/** Placeholders de afastamento — só o atestado tem valor para eles. */
 const PLACEHOLDERS_DE_AFASTAMENTO: readonly DocumentPlaceholder[] = [
   'dias',
   'inicio',
 ];
 
-/**
- * Texto que ainda depende de `{{dias}}`/`{{inicio}}` sem valor sairia "por
- * dias" no PDF: recusa com 400 dizendo o que falta. Vale para emitir e para a
- * prévia (a montagem é a mesma).
- */
 export function assertSemAfastamentoPendente(
   preenchido: PlaceholdersAplicados | undefined,
   documento: 'atestado' | 'pedido de exame',
@@ -147,22 +118,13 @@ export function assertSemAfastamentoPendente(
   );
 }
 
-/**
- * Origem dos dados do documento.
- *
- * Emitir sempre parte de uma ficha gravada (`clinicalRecordId`). Pré-visualizar
- * pode partir do paciente + campos em memória: conferir um documento não pode
- * criar prontuário. Ver `PreviewTargetDto`.
- */
 interface DocumentSource {
   clinicalRecordId?: string;
   patientId?: string;
   doctorId?: string;
-  /** CIDs da ficha em memória, quando não há ficha gravada. */
   cidCodes?: CidCodeDto[] | null;
 }
 
-/** Extrai o alvo de um payload de prévia. */
 const previewSource = (data: {
   clinicalRecordId?: string;
   patientId?: string;
@@ -175,15 +137,6 @@ const previewSource = (data: {
   cidCodes: data.cidCodes,
 });
 
-/**
- * Documentos emitidos durante o atendimento — receita, atestado e
- * encaminhamento de exames.
- *
- * Não existe entidade própria: o PDF é gerado a partir do payload, gravado no
- * R2 e registrado como `Document` do paciente (e da ficha, quando houver). O
- * documento é um retrato do momento da emissão — corrigir significa emitir
- * outro, o que mantém a mesma regra de imutabilidade do prontuário.
- */
 @Injectable()
 export class ClinicalDocumentGenerationService {
   private readonly logger = new Logger(ClinicalDocumentGenerationService.name);
@@ -200,7 +153,6 @@ export class ClinicalDocumentGenerationService {
     private readonly documentTemplatesService: ClinicalDocumentTemplatesService,
   ) {}
 
-  /** Receituário. */
   async generatePrescription(
     recordId: string,
     data: CreatePrescriptionDto,
@@ -221,7 +173,6 @@ export class ClinicalDocumentGenerationService {
     );
   }
 
-  /** Atestado médico. */
   async generateMedicalCertificate(
     recordId: string,
     data: CreateMedicalCertificateDto,
@@ -242,7 +193,6 @@ export class ClinicalDocumentGenerationService {
     );
   }
 
-  /** Encaminhamento/solicitação de exames. */
   async generateExamReferral(
     recordId: string,
     data: CreateExamReferralDto,
@@ -262,13 +212,6 @@ export class ClinicalDocumentGenerationService {
       userId,
     );
   }
-
-  // ── Pré-visualização ─────────────────────────────────────────────────────
-  // Mesmo template e mesmos dados da emissão, devolvidos como HTML: quem só
-  // quer conferir na tela não precisa esperar o Puppeteer subir um Chromium
-  // para produzir um PDF que será descartado. Emitir é que gera o arquivo.
-  //
-  // A prévia também não exige ficha gravada — ver `PreviewTargetDto`.
 
   async previewPrescription(
     data: PreviewPrescriptionDto,
@@ -309,17 +252,6 @@ export class ClinicalDocumentGenerationService {
     return this.pdfService.renderClinicalDocumentHtml('exam-referral', pdfData);
   }
 
-  // ── Modelos de texto (MIG-06) ─────────────────────────────────────────────
-
-  /**
-   * Texto do modelo já com os placeholders do paciente e do médico que
-   * assina — o mesmo contexto que vai para o PDF, para o texto aplicado e o
-   * documento emitido não divergirem. Aplicar é o que conta o uso.
-   *
-   * Exige o mesmo que emitir (médico ou dentista, com acesso ao paciente, e
-   * ser o próprio profissional que assina): o texto devolvido já traz nome e
-   * CPF do paciente.
-   */
   async applyTemplate(
     id: string,
     data: ApplyClinicalDocumentTemplateDto,
@@ -336,11 +268,6 @@ export class ClinicalDocumentGenerationService {
       doctorId,
     );
     if (!data.refresh) await this.documentTemplatesService.incrementUsage(id);
-    // `{{dias}}`/`{{inicio}}` ficam sempre literais no texto aplicado: quem os
-    // preenche é a prévia/emissão, com o afastamento escolhido naquela hora.
-    // Antes o apply gravava "1 dia" no texto; o médico editava o texto, mudava
-    // os dias para 3 e o PDF saía com "1 dia" no texto e "3 dias" na nota.
-    // `restDays`/`startDate` do DTO são ignorados (ver o DTO).
     return {
       id: template.id,
       kind: template.kind,
@@ -371,10 +298,6 @@ export class ClinicalDocumentGenerationService {
     return this.preencherModelo(template.body, valores, base);
   }
 
-  /**
-   * Placeholders preenchidos e sem o título/assinatura que o PDF já imprime —
-   * o modelo costuma ser escrito como o documento inteiro.
-   */
   private preencherModelo(
     body: string,
     valores: PlaceholderValues,
@@ -417,8 +340,6 @@ export class ClinicalDocumentGenerationService {
     };
   }
 
-  // ── Montagem dos PDFs (compartilhada por emitir e pré-visualizar) ─────────
-
   private async buildPrescription(
     source: DocumentSource,
     data: CreatePrescriptionDto | PreviewPrescriptionDto,
@@ -443,24 +364,16 @@ export class ClinicalDocumentGenerationService {
     const { record, base, cidCodes, doctorId, council } =
       await this.buildBaseContext(source, userId);
 
-    // O CID expõe o diagnóstico a quem recebe o atestado (empregador, escola),
-    // então nunca entra sozinho: ou o médico escolhe o CID no atestado, ou
-    // marca explicitamente para reaproveitar o da ficha.
     const cid = data.cid ?? (data.includeCid ? (cidCodes?.[0] ?? null) : null);
 
     const restDaysLabel = this.buildRestDaysLabel(data.restDays);
     const startDate = data.startDate ? formatDateBR(data.startDate) : undefined;
-    // Sem início informado, o afastamento conta da emissão (ver o DTO).
     const valores = this.placeholderValues(
       base,
       data.restDays,
       startDate ?? (restDaysLabel ? base.today : undefined),
     );
 
-    // O modelo é o texto do atestado: substitui a declaração padrão. Antes
-    // ia para as observações e o atestado saía com o texto duas vezes. O
-    // texto que já vem pronto (modelo aplicado na tela) ainda pode trazer
-    // `{{dias}}`/`{{inicio}}` literais — preenchidos aqui com o valor final.
     const preenchido =
       data.text !== undefined
         ? aplicarPlaceholdersDetalhado(data.text, valores)
@@ -527,30 +440,13 @@ export class ClinicalDocumentGenerationService {
       ...base,
       exams: data.exams,
       clinicalIndication: indicacao?.texto,
-      // Por padrão o pedido carrega a hipótese diagnóstica já registrada na
-      // ficha — é o que o convênio exige para autorizar o exame.
       cidCodes: data.cidCodes ?? cidCodes ?? undefined,
     };
 
     return { record, pdfData };
   }
 
-  /**
-   * Carrega ficha (quando houver), paciente e médico e monta o bloco comum aos
-   * três PDFs.
-   *
-   * São três verificações, e nenhuma cobre a outra: quem emite precisa ser
-   * médico ou dentista (ato privativo), pertencer à clínica e **ser o próprio
-   * profissional do documento**. O documento sai assinado com o nome, o
-   * registro (CRM/CRO) e a imagem de assinatura desse profissional — ninguém
-   * emite em nome de outro, nem um colega com vínculo (decisão de produto).
-   *
-   * Vale também para a prévia: é o mesmo documento, só que na tela.
-   */
   private async buildBaseContext(source: DocumentSource, userId: string) {
-    // Receita, atestado e pedido de exame são atos de médico (CRM) ou de
-    // dentista (CRO), e só quem assina emite: o `doctorId` da ficha (ou o
-    // informado na prévia sem ficha) tem que ser o próprio usuário.
     await this.accessControlService.assertCanIssueClinicalDocuments(userId);
 
     const { record, patient, doctorId, cidCodes } = await this.resolveSubject(
@@ -564,9 +460,6 @@ export class ClinicalDocumentGenerationService {
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
       await this.doctorPdfContextService.buildForDoctorId(doctorId);
 
-    // Registro sem número ou sem UF sai do importador (profissional sem
-    // conselho no Feegow e especialidade médica). Documento com o registro
-    // pela metade não vale — recusa até alguém completá-lo em Colaboradores.
     if (!hasCouncilRegistry(profile)) {
       throw new BadRequestException(
         `Preencha o número e a UF do ${profile?.council || 'CRM'} de ${doctor?.name ?? 'quem assina'} em Colaboradores antes de emitir documentos.`,
@@ -593,11 +486,6 @@ export class ClinicalDocumentGenerationService {
     };
   }
 
-  /**
-   * Resolve paciente, médico e CIDs a partir da ficha gravada ou, na prévia sem
-   * ficha, do próprio payload. O recorte de acesso é o mesmo nos dois caminhos:
-   * clínica (`ownerId`) + vínculo com o médico que assina.
-   */
   private async resolveSubject(
     source: DocumentSource,
     userId: string,
@@ -642,9 +530,6 @@ export class ClinicalDocumentGenerationService {
     });
     if (!patient) throw new NotFoundException('Paciente não encontrado');
 
-    // Sem ficha não há médico gravado: assina quem está pré-visualizando. Um
-    // `doctorId` de outro profissional passa pelo recorte de acesso e é
-    // recusado em `buildBaseContext` (só quem assina emite).
     const doctorId = source.doctorId ?? userId;
     await this.accessControlService.assertCanAccessDoctorResource(
       userId,
@@ -660,7 +545,6 @@ export class ClinicalDocumentGenerationService {
     };
   }
 
-  /** Emitir grava um `Document` da ficha — só a prévia dispensa a ficha. */
   private assertRecord(record: ClinicalRecord | null): ClinicalRecord {
     if (!record) throw new NotFoundException('Atendimento não encontrado');
     return record;
@@ -709,7 +593,6 @@ export class ClinicalDocumentGenerationService {
     return `${restDays} ${restDays === 1 ? 'dia' : 'dias'}`;
   }
 
-  /** Sobe o PDF no R2 e registra o `Document` do paciente. */
   private async persist(
     record: ClinicalRecord,
     pdf: Buffer,

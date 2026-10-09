@@ -69,39 +69,13 @@ export class UsersService {
     private readonly configService: ConfigService,
     private readonly doctorHeaderRepository: DoctorHeaderRepository,
     private readonly refreshTokenStore: RefreshTokenStore,
-    // Opcional: só usado para emitir `user.access_changed` (invalida os
-    // caches de identidade/autorização do assistente do WhatsApp). Manter
-    // opcional evita acoplar este service ao módulo de IA e não quebra a
-    // instanciação manual usada nos testes unitários deste arquivo.
     @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
-  /**
-   * Emite `user.access_changed` para que o assistente do WhatsApp invalide
-   * os caches em memória que derivam a permissão efetiva de um usuário
-   * (`AiOrchestratorService.onUserAccessChanged`). Cobre TODAS as mutações
-   * que alteram o que um colaborador pode fazer pelo WhatsApp — não só
-   * `permissions`/`doctor_profile` (nome antigo do evento,
-   * `user.permissions_changed`), mas também exclusão e desativação, daí o
-   * nome mais amplo.
-   *
-   * `phone` precisa ser o telefone ORIGINAL do usuário — em
-   * `deleteCollaborator`/`bulkDeleteCollaborators` o telefone já foi
-   * trocado por uma sentinela no banco antes deste ponto, então invalidar
-   * com o telefone atual não limparia a entrada certa do cache (que ainda
-   * está indexada pelo telefone antigo).
-   */
   private emitAccessChanged(userId: string, phone: string | null | undefined) {
     this.eventEmitter?.emit('user.access_changed', { userId, phone });
   }
 
-  /**
-   * Gerir a equipe é ato de quem tem Administração — o dono da conta ou o
-   * colaborador a quem ele delegou. Não basta o role: o admin delegado
-   * continua sendo `collaborator`. Devolve o usuário carregado (em vez de
-   * `void`) para que os 11 chamadores não precisem refazer um `findOne` do
-   * mesmo id logo em seguida.
-   */
   private async assertPodeGerirEquipe(userId: string): Promise<User> {
     const usuario = await this.userRepository.findOneWithProfile({
       id: userId,
@@ -124,11 +98,6 @@ export class UsersService {
     return usuario;
   }
 
-  /**
-   * O dono da conta não é gerenciável por ninguém: é quem paga a assinatura e
-   * a raiz do tenant (`ownerId = self.id`). Um admin delegado que pudesse
-   * desativá-lo tomaria a clínica.
-   */
   private assertAlvoNaoEhDono(alvo: { id: string; ownerId: string }): void {
     if (alvo.id === alvo.ownerId) {
       throw new ForbiddenException(
@@ -141,35 +110,23 @@ export class UsersService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Remove credenciais e campos internos (permissions cru, isPlatformAdmin
-    // e onboardingState cru) do retorno — não são dados que a rota de perfil
-    // deve expor. `onboardingState` cru pode vir `null` e nunca passou por
-    // `normalizeOnboardingState` (isso é feito só em `AuthService.me()`); o
-    // consumidor desta rota não deve receber a coluna crua para se defender.
-    // O spread final escapa do `ClassSerializerInterceptor`, então o
-    // `@Exclude()` da entidade não cobre esta resposta.
     const { permissions, isPlatformAdmin, onboardingState, ...comCredenciais } =
       user;
     const userWithoutPassword = omitUserSecrets(comCredenciais);
 
-    // Gerar signed URL para assinatura do médico (bucket privado)
     const profile = userWithoutPassword.doctorProfile;
     if (profile?.signatureUrl && !profile.signatureUrl.startsWith('http')) {
       try {
         profile.signatureUrl = await this.storageService.getSignedUrl(
           profile.signatureUrl,
         );
-      } catch {
-        // manter path original se falhar
-      }
+      } catch {}
     }
 
     return {
       ...userWithoutPassword,
       isDoctor: !!userWithoutPassword.doctorProfile,
       isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
-      // A permissão EFETIVA, não a coluna crua: o frontend precisa saber o
-      // que o usuário pode de fato, incluindo o que ganha por ser médico.
       permissions: resolveEffectivePermissions({
         role: userWithoutPassword.role,
         permissions,
@@ -183,7 +140,6 @@ export class UsersService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Verifica se o telefone já está em uso por outro usuário
     if (data.phone) {
       const phoneFound = await this.userRepository.findOne({
         phone: data.phone,
@@ -192,7 +148,6 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
 
-    // Verifica se o CPF já está em uso por outro usuário
     if (data.cpf) {
       const cpfFound = await this.userRepository.findOne({
         cpf: data.cpf,
@@ -201,8 +156,6 @@ export class UsersService {
       if (cpfFound) throw new BadRequestException('CPF já está em uso');
     }
 
-    // Caminhos de arquivo vêm do cliente: valida ANTES de gravar qualquer
-    // coisa, para um caminho recusado não deixar o perfil meio salvo.
     const novoAvatar =
       data.avatarUrl !== undefined
         ? this.validarCaminhoDeArquivo(
@@ -228,7 +181,6 @@ export class UsersService {
           )
         : undefined;
 
-    // Campos do usuário base
     const userUpdates: Partial<User> = {};
     if (data.name) userUpdates.name = data.name;
     if (data.phone) userUpdates.phone = data.phone;
@@ -247,8 +199,6 @@ export class UsersService {
 
     await this.userRepository.update(userId, userUpdates);
 
-    // Avatar antigo sai do Storage quando é removido ou substituído — só se
-    // for um arquivo da pasta de avatares da conta e mais ninguém o usar.
     if (novoAvatar !== undefined && user.avatarUrl !== novoAvatar) {
       const antigo = user.avatarUrl;
       if (
@@ -262,7 +212,6 @@ export class UsersService {
       }
     }
 
-    // Assinatura: grava no DoctorProfile e apaga a antiga, com a mesma regra.
     if (docProfile && novaAssinatura !== undefined) {
       await this.doctorProfileRepository.update(docProfile.id, {
         signatureUrl: novaAssinatura,
@@ -280,23 +229,9 @@ export class UsersService {
       }
     }
 
-    // Mesmo formato do GET /users/profile, relido DEPOIS de todas as
-    // gravações: o frontend cacheia esta resposta como o perfil. Devolver o
-    // retorno cru do `update` (sem isDoctor/isPhysician/permissions e com o
-    // doctorProfile montado antes de gravar a assinatura) fazia a tela de
-    // Configurações esconder Dados Profissionais/Assinatura/Cabeçalho até
-    // recarregar.
     return this.getProfile(userId);
   }
 
-  /**
-   * Caminho de arquivo (avatar, assinatura) mandado pelo cliente depois do
-   * upload. Vazio/null remove. Igual ao atual passa sem conferir (o cliente
-   * reenviando o que já está gravado, inclusive caminho legado sem a pasta da
-   * conta). Qualquer outro valor precisa ser um arquivo da pasta da conta —
-   * senão o perfil passaria a apontar (e, na troca seguinte, apagar) qualquer
-   * objeto do bucket, como a foto de um paciente.
-   */
   private validarCaminhoDeArquivo(
     valor: string | null | undefined,
     atual: string | null | undefined,
@@ -313,7 +248,6 @@ export class UsersService {
     return caminho;
   }
 
-  /** Best-effort: o perfil já foi gravado; objeto órfão no R2 não é erro. */
   private async apagarDoStorage(caminho: string): Promise<void> {
     try {
       await this.storageService.delete(caminho);
@@ -335,12 +269,6 @@ export class UsersService {
     const target = await this.userRepository.findOne({ id: targetId });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Apenas quem tem Administração ou o próprio usuário podem atualizar o
-    // perfil. Editando terceiro: precisa estar no mesmo tenant (`ownerId`) —
-    // sem essa checagem o alvo poderia estar em outra conta — e o alvo não
-    // pode ser o dono da conta (essa rota grava `phone`/`cpf`/`name`; o
-    // `phone` do dono é a chave de identidade dele no assistente WhatsApp
-    // via `findOneByPhone`, então reescrevê-lo é sequestrar o canal dele).
     if (requestingUserId !== targetId) {
       await this.assertPodeGerirEquipe(requestingUserId);
       if (target.ownerId !== requesting.ownerId) {
@@ -371,11 +299,6 @@ export class UsersService {
     if (data.cpf !== undefined) userUpdates.cpf = data.cpf;
     if (data.birthDate !== undefined)
       userUpdates.birthDate = new Date(data.birthDate);
-    // `gender` é `char(1)`, e o Postgres preenche `char` com espaço: gravar
-    // string vazia devolve `' '` na leitura seguinte, que o DTO recusa
-    // ("gender must be one of the following values: M, F, O, ''"). Resultado:
-    // salvar duas vezes um usuário sem gênero definido falhava com 400. Vazio
-    // é ausência de valor, então grava `null`.
     if (data.gender !== undefined)
       userUpdates.gender = data.gender?.trim() ? data.gender.trim() : null;
     if (data.avatarUrl !== undefined)
@@ -402,7 +325,6 @@ export class UsersService {
   async create(data: CreateUserDto, userId: string) {
     const user = await this.assertPodeGerirEquipe(userId);
 
-    // Verifica telefone duplicado
     if (data.phone) {
       const phoneFound = await this.userRepository.findOne({
         phone: data.phone,
@@ -410,19 +332,11 @@ export class UsersService {
       if (phoneFound) throw new BadRequestException('Telefone em uso');
     }
 
-    // Verifica email duplicado
     const emailFound = await this.userRepository.findOne({ email: data.email });
     if (emailFound) throw new BadRequestException('Email em uso');
 
     const placeholderPw = generateValidationCode(16);
 
-    // `data.role` é ignorado de propósito: esta rota é gateada por
-    // Permission.ADMINISTRACAO (que o admin delegado também tem), e o novo
-    // usuário herda `ownerId` de quem criou — nunca `self.id`. Se aceitássemos
-    // `role: 'admin'` aqui, um delegado cunharia um segundo "dono" com
-    // `ownerId` de outra pessoa, quebrando a invariante "para admin, ownerId
-    // = self.id" usada em todo o isolamento de tenant. O DTO já restringe o
-    // valor a `collaborator`; isto é a segunda camada.
     const newUser = await this.userRepository.create({
       email: data.email,
       name: data.name,
@@ -434,7 +348,6 @@ export class UsersService {
       adminId: userId,
     });
 
-    // Gera token de convite (recovery code) válido por 72 horas
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
@@ -466,10 +379,6 @@ export class UsersService {
       void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
 
-    // `repository.save()` devolve a entidade com o hash que acabamos de
-    // gravar. Aqui o `ClassSerializerInterceptor` até cobriria (é instância de
-    // `User`), mas a garantia não pode depender de o retorno continuar sendo
-    // uma instância — qualquer spread futuro reabriria o vazamento.
     return omitUserSecrets(newUser);
   }
 
@@ -481,7 +390,6 @@ export class UsersService {
     const user = await this.userRepository.findOne({ id: userId }, true);
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
-    // Verifica senha atual
     if (!user.password) {
       throw new UnauthorizedException(
         'Conta sem senha definida. Acesse pelo link de primeiro acesso.',
@@ -494,7 +402,6 @@ export class UsersService {
     if (!isPasswordValid)
       throw new BadRequestException('Senha atual incorreta');
 
-    // Atualiza senha
     const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(userId, { password: hashedPassword });
 
@@ -519,8 +426,6 @@ export class UsersService {
     });
   }
 
-  // ============ PERFIL MÉDICO ============
-
   async updateDoctorProfileById(
     targetId: string,
     data: UpdateDoctorProfileDto,
@@ -536,12 +441,6 @@ export class UsersService {
     });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Permitir acesso ao próprio usuário (se for médico) e a quem tem
-    // Administração no MESMO tenant do alvo — pertencimento é `ownerId`
-    // (o tenant), nunca `adminId` (só quem criou o registro). Checar por
-    // `role === ADMIN` deixaria o admin delegado (role='collaborator' +
-    // permissão) sem acesso a CRM/especialidade de qualquer médico que não
-    // tenha criado — o mesmo bug do C3, aqui.
     const isSelf = requestingUserId === targetId;
     const permissoesRequesting = resolveEffectivePermissions({
       role: requesting.role,
@@ -553,16 +452,11 @@ export class UsersService {
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
       target.ownerId === requesting.ownerId;
 
-    // Colaborador vinculado ao médico pode atualizar APENAS a assinatura.
-    // CRM/estado/especialidade continuam restritos ao próprio médico ou admin.
     const onlySignature =
       data.council === undefined &&
       data.crm === undefined &&
       data.crmState === undefined &&
       data.specialty === undefined;
-    // O dono da conta só tem a assinatura trocada por ele mesmo ou pelo
-    // colaborador vinculado a ele — ter Administração não basta (ver abaixo).
-    // Por isso o vínculo é conferido também para o admin, quando o alvo é o dono.
     const alvoEhDono = target.id === target.ownerId;
     let isLinkedCollaborator = false;
     if (!isSelf && onlySignature && (!isAdmin || alvoEhDono)) {
@@ -579,14 +473,6 @@ export class UsersService {
       );
     }
 
-    // O registro profissional do dono da conta (conselho, número, UF e
-    // especialidade) só é alterado por ele mesmo — mesma regra de
-    // `assertAlvoNaoEhDono` em `updateProfileById`/`updateCollaborator`. Um
-    // admin delegado que trocasse o conselho do dono mudaria o que ele pode
-    // fazer (receita, indicação cirúrgica, Solicitações). A assinatura segue
-    // liberada ao colaborador VINCULADO ao dono, porque o editor de laudo
-    // depende dela — mas não ao admin delegado só por ser admin: a assinatura
-    // sai impressa em receita e laudo em nome do dono.
     if (!isSelf && !(onlySignature && isLinkedCollaborator)) {
       this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
     }
@@ -595,16 +481,9 @@ export class UsersService {
       throw new BadRequestException('Este usuário não é médico');
     }
 
-    // Trocar o conselho muda o que a pessoa pode fazer (só CRM emite receita,
-    // indica cirurgia e vê Solicitações). Por isso é ato de Administração —
-    // nem o próprio profissional nem o colaborador vinculado o fazem.
     const mudaConselho =
       data.council !== undefined &&
       data.council !== target.doctorProfile.council;
-    // O admin delegado que também é profissional tem Administração, mas não
-    // troca o PRÓPRIO conselho — senão um nutricionista com Administração se
-    // promoveria a médico (CRM) sozinho. Quem troca é o dono ou outro admin.
-    // O dono da conta segue alterando o próprio: não há ninguém acima dele.
     const ehDonoDaConta = target.id === target.ownerId;
     if (mudaConselho && (!isAdmin || (isSelf && !ehDonoDaConta))) {
       throw new ForbiddenException(
@@ -612,7 +491,6 @@ export class UsersService {
       );
     }
 
-    // Atualiza no DoctorProfile
     const profileUpdates: Partial<DoctorProfile> = {};
     if (data.council !== undefined) profileUpdates.council = data.council;
     if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
@@ -620,10 +498,6 @@ export class UsersService {
       profileUpdates.crmState = data.crmState?.trim() || null;
     if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
 
-    // O banco não garante mais número/UF: valida o estado FINAL do perfil —
-    // mas só quando a requisição mexe no registro. Perfil antigo com `crm`
-    // vazio (o código anterior chegou a gravar '') continua podendo trocar só
-    // a assinatura ou a especialidade.
     if (
       data.council !== undefined ||
       data.crm !== undefined ||
@@ -650,8 +524,6 @@ export class UsersService {
       profileUpdates,
     );
     if (mudaConselho) {
-      // Mesmo motivo do `updateCollaborator`: o assistente do WhatsApp guarda
-      // a permissão em cache.
       this.emitAccessChanged(targetId, target.phone);
     }
 
@@ -660,11 +532,6 @@ export class UsersService {
     });
     if (!updated) throw new NotFoundException('Usuário alvo não encontrado');
 
-    // Quem chama esta rota pode ser um colaborador vinculado só-assinatura
-    // (isLinkedCollaborator acima); permissions cru, isPlatformAdmin e
-    // onboardingState cru do médico-alvo não devem vazar nessa resposta —
-    // terceira instância do mesmo vazamento já corrigido em getProfile e
-    // findCollaboratorById (achado Important da revisão final).
     const {
       permissions,
       isPlatformAdmin,
@@ -673,8 +540,6 @@ export class UsersService {
     } = updated;
     return updatedWithoutInternalFields;
   }
-
-  // ============ GESTÃO DE COLABORADORES ============
 
   async findCollaborators(userId: string, skip = 0, take = 50) {
     const admin = await this.assertPodeGerirEquipe(userId);
@@ -685,22 +550,10 @@ export class UsersService {
       take,
     );
 
-    // O dono da conta não é "gerenciável" (`assertAlvoNaoEhDono` bloqueia
-    // qualquer ação sobre ele) — não deve aparecer na lista de colaboradores
-    // para ninguém, nem para si mesmo (já excluído por `c.id !== userId`)
-    // nem para um admin delegado, que veria um botão de ação que sempre
-    // falha com 403.
     const filtered = collaborators.filter(
       (c) => c.id !== userId && c.id !== admin.ownerId,
     );
 
-    // Projeção explícita, não spread: `findByOwnerId` não define `select`, e
-    // um spread da entidade escapa do `ClassSerializerInterceptor` (que só
-    // honra `@Exclude()` em instância de classe). Antes saíam junto o hash da
-    // senha, os tokens de verificação, `isPlatformAdmin` e — o motivo desta
-    // lista — CPF, CEP, endereço, cidade, UF, gênero e nascimento de cada
-    // colega, que a tela `/colaboradores` não exibe. Quem precisa do cadastro
-    // completo abre a edição, que usa `findCollaboratorById`.
     const records = await Promise.all(
       filtered.map(async (c) => ({
         id: c.id,
@@ -716,8 +569,6 @@ export class UsersService {
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
-        // A permissão EFETIVA, não a coluna crua — mesmo motivo do
-        // getProfile/findCollaboratorById.
         permissions: resolveEffectivePermissions({
           role: c.role,
           permissions: c.permissions,
@@ -733,7 +584,6 @@ export class UsersService {
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
     const admin = await this.assertPodeGerirEquipe(adminId);
 
-    // Verifica email duplicado
     const emailFound = await this.userRepository.findOneWithDeleted({
       email: data.email,
     });
@@ -741,14 +591,11 @@ export class UsersService {
       if (!emailFound.deletedAt) {
         throw new BadRequestException('Email já está em uso');
       }
-      // Usuário soft-deletado com email original (deletado antes da anonimização automática)
-      // Anonimiza agora para liberar a constraint
       await this.userRepository.update(emailFound.id, {
         email: `deleted_${emailFound.email}_${emailFound.id}`,
       });
     }
 
-    // Verifica telefone duplicado entre usuários ativos
     if (data.phone) {
       const phoneFound = await this.userRepository.findOne({
         phone: data.phone,
@@ -758,16 +605,11 @@ export class UsersService {
 
     const council = data.council ?? ProfessionalCouncil.CRM;
     const hasDoctorCredentials = Boolean(data.crm && data.crmState);
-    // Compat: sem `isDoctor` explícito, CRM + UF informados continuam
-    // significando "é médico". Para os demais conselhos o número é opcional,
-    // então só `isDoctor: true` cria o perfil.
     const isDoctor = data.isDoctor ?? hasDoctorCredentials;
     if (isDoctor) {
       UsersService.assertRegistroDoConselho(council, data.crm, data.crmState);
     }
 
-    // Gera uma senha aleatória apenas para satisfazer o schema — o colaborador
-    // nunca saberá esta senha; ela será substituída ao definir a senha pelo link.
     const placeholderPassword = generateValidationCode(16);
 
     let newUser: Awaited<ReturnType<typeof this.userRepository.create>>;
@@ -781,8 +623,6 @@ export class UsersService {
         password: await bcrypt.hash(placeholderPassword, BCRYPT_ROUNDS),
         ownerId: admin.ownerId,
         adminId: adminId,
-        // Sem nada informado, o colaborador nasce sem acesso a área nenhuma
-        // — `role` não vem deste DTO, só `permissions`.
         permissions: data.permissions ?? [],
       });
     } catch (err) {
@@ -798,7 +638,6 @@ export class UsersService {
       throw err;
     }
 
-    // Profissional de saúde: cria o perfil (médico se o conselho for CRM).
     if (isDoctor) {
       await this.doctorProfileRepository.create({
         userId: newUser.id,
@@ -809,10 +648,6 @@ export class UsersService {
       });
     }
 
-    // Vínculo padrão: se o admin criador é médico (tem doctorProfile), o novo
-    // colaborador já nasce com acesso às solicitações dele. Sem isso, o
-    // colaborador não enxerga nenhum médico no modal de criação de SC até que
-    // o admin faça a atribuição manual em user_doctor_access.
     const adminDoctorProfile = await this.doctorProfileRepository.findByUserId(
       admin.id,
     );
@@ -825,7 +660,6 @@ export class UsersService {
       });
     }
 
-    // Gera token de convite (recovery code) válido por 24 horas
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
@@ -835,13 +669,12 @@ export class UsersService {
       userId: newUser.id,
       used: false,
       code: inviteToken,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 horas
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
     const setupLink = `${dashboardUrl}/primeiro-acesso?email=${encodeURIComponent(newUser.email)}&token=${inviteToken}`;
 
-    // Envia e-mail de convite usando template Handlebars
     void this.mailService.send(
       'invite-collaborator',
       newUser.email,
@@ -858,20 +691,9 @@ export class UsersService {
       void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
 
-    // `userRepository.create` devolve exatamente o que foi persistido — sem
-    // `select` — então `newUser.permissions` ainda é a coluna crua e
-    // `isPlatformAdmin` também está lá. Mesmo tratamento dos outros
-    // retornos de colaborador: tira os dois e acrescenta a permissão
-    // EFETIVA. `isDoctor` (calculado acima, antes do `doctorProfile` ser
-    // criado) já reflete se o `doctor_profile` foi de fato criado — não
-    // precisa recarregar do banco.
     const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
       newUser;
 
-    // `omitUserSecrets` porque este retorno é um objeto literal, não a
-    // entidade: o `ClassSerializerInterceptor` global só aplica `@Exclude()`
-    // sobre instâncias, então sem isto o hash bcrypt recém-gerado (e o
-    // `emailVerificationToken`) saíam no corpo do 201.
     return {
       ...omitUserSecrets(newUserWithoutInternalFields),
       permissions: resolveEffectivePermissions({
@@ -895,9 +717,6 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
-    // criou): um admin delegado precisa editar colaboradores criados pelo
-    // dono, e o dono precisa editar colaboradores criados pelo delegado.
     if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
@@ -905,18 +724,10 @@ export class UsersService {
       ownerId: collaborator.ownerId,
     });
 
-    // Mesma regra do `updateDoctorProfileById`: o admin delegado não mexe no
-    // próprio vínculo profissional por aqui — virar (ou deixar de ser)
-    // profissional e trocar o conselho mudam a permissão efetiva (só CRM
-    // ganha Solicitações, receita, indicação cirúrgica). Fica com o dono ou
-    // com outro admin. Número, UF e especialidade do próprio registro seguem
-    // editáveis pela rota de perfil profissional.
     if (collaboratorId === adminId) {
       const mudaVinculo =
         data.isDoctor !== undefined &&
         data.isDoctor !== !!collaborator.doctorProfile;
-      // Sem perfil, o conselho só vale junto com `isDoctor: true` — que já
-      // cai em `mudaVinculo`.
       const mudaConselho =
         data.council !== undefined &&
         !!collaborator.doctorProfile &&
@@ -928,7 +739,6 @@ export class UsersService {
       }
     }
 
-    // Verifica email duplicado
     if (data.email) {
       const emailFound = await this.userRepository.findOne({
         email: data.email,
@@ -937,7 +747,6 @@ export class UsersService {
       if (emailFound) throw new BadRequestException('Email já está em uso');
     }
 
-    // Verifica telefone duplicado
     if (data.phone) {
       const phoneFound = await this.userRepository.findOne({
         phone: data.phone,
@@ -948,7 +757,6 @@ export class UsersService {
 
     const hasProfile = !!collaborator.doctorProfile;
 
-    // Campos do usuário base
     const updates: Partial<User> = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.email !== undefined) updates.email = data.email;
@@ -962,16 +770,9 @@ export class UsersService {
     if (data.city !== undefined) updates.city = data.city;
     if (data.state !== undefined) updates.state = data.state;
     if (data.permissions !== undefined) {
-      // `undefined` significa "não mexi nas permissões"; `[]` significa
-      // "retirei todas". Os dois casos precisam ser distinguíveis — por
-      // isso o `if` não usa o padrão `data.x ?? valorPadrao` dos campos
-      // acima.
       updates.permissions = data.permissions;
     }
 
-    // Gestão do doctorProfile. O banco não garante mais número/UF (outros
-    // conselhos podem não ter), então o estado FINAL do perfil é validado aqui
-    // antes de gravar: CRM continua exigindo número e UF.
     const perfilAtual = collaborator.doctorProfile ?? null;
     const profileUpdates: Partial<DoctorProfile> = {};
     if (data.council !== undefined) profileUpdates.council = data.council;
@@ -984,9 +785,6 @@ export class UsersService {
     const councilFinal =
       profileUpdates.council ?? perfilAtual?.council ?? ProfessionalCouncil.CRM;
 
-    // Valida o registro quando o perfil nasce ou quando a requisição mexe nele
-    // (mesmo motivo do `updateDoctorProfileById`: perfil antigo com `crm`
-    // vazio não pode travar a edição de outros campos do colaborador).
     const mexeNoRegistro =
       data.council !== undefined ||
       data.crm !== undefined ||
@@ -1021,26 +819,10 @@ export class UsersService {
     const updated = await this.userRepository.update(collaboratorId, updates);
     if (!updated) throw new NotFoundException('Colaborador não encontrado');
 
-    // `userRepository.update` devolve o resultado de `findOne`, cujo
-    // `select` não inclui `permissions` — por isso o admin que acabou de
-    // conceder/revogar acesso não recebia confirmação nenhuma no payload.
-    // Reconstrói o estado pós-mutação sem outra ida ao banco: `hasProfile`
-    // (antes) + a mesma lógica de branches acima já dizem se o
-    // `doctor_profile` existe agora, e a permissão gravada é `data.permissions`
-    // quando informada, ou a que já estava em `collaborator` quando omitida.
     const isDoctorAfterUpdate = terPerfil;
     const isPhysicianAfterUpdate =
       terPerfil && councilFinal === ProfessionalCouncil.CRM;
 
-    // O assistente do WhatsApp deriva `permissions` a partir de caches em
-    // memória (identidade do usuário por telefone, ~10 min; médicos
-    // acessíveis por userId, ~5 min — ver `AiOrchestratorService`), não a
-    // cada mensagem como o guard HTTP faz a cada request. Sem este evento,
-    // revogar `SOLICITACOES` (ou o `doctor_profile`) de um colaborador
-    // deixaria uma janela de até 10 min em que o WhatsApp ainda opera com a
-    // permissão antiga. Emitido só quando o que afeta a permissão efetiva
-    // (`data.permissions` ou `data.isDoctor`) de fato mudou.
-    // O conselho também muda a permissão efetiva (só CRM ganha Solicitações).
     if (
       data.permissions !== undefined ||
       data.isDoctor !== undefined ||
@@ -1054,19 +836,14 @@ export class UsersService {
         ? data.permissions
         : (collaborator.permissions ?? []);
 
-    // Mesmo motivo do `createCollaborator`: spread de entidade escapa do
-    // `ClassSerializerInterceptor`.
     return {
       ...omitUserSecrets(updated),
-      // Efetiva — para exibir. Ver `findCollaboratorById` para o motivo de
-      // nunca usar este campo para semear um formulário de edição.
       permissions: resolveEffectivePermissions({
         role: collaborator.role,
         permissions: grantedPermissionsAfterUpdate,
         isDoctor: isDoctorAfterUpdate,
         isPhysician: isPhysicianAfterUpdate,
       }),
-      // Crua — para editar (o que a tela deve guardar como novo baseline).
       grantedPermissions: grantedPermissionsAfterUpdate,
     };
   }
@@ -1079,8 +856,6 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
-    // criou) — ver mesmo comentário em `updateCollaborator`.
     if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
@@ -1088,30 +863,14 @@ export class UsersService {
       ownerId: collaborator.ownerId,
     });
 
-    // Telefone ORIGINAL, capturado antes da sentinela sobrescrever a coluna
-    // — é essa a chave que `MessageProcessorService.userCache` usa. Emitir a
-    // invalidação com o telefone já trocado (`DEL...`) limparia uma entrada
-    // de cache que nunca existiu e deixaria a antiga intacta.
     const originalPhone = collaborator.phone;
 
-    // Anonimiza dados pessoais antes do soft-delete (LGPD — princípio de minimização).
-    // email: libera a constraint unique para permitir re-cadastro com mesmo endereço.
-    // phone: quebra o match no findOneByPhone, impedindo que um ex-colaborador continue
-    //        sendo identificado pelo sistema (incluindo o assistente WhatsApp). A sentinela
-    //        usa os 12 primeiros chars do UUID para unicidade sem ultrapassar varchar(15).
     await this.userRepository.update(collaboratorId, {
       email: `deleted_${collaborator.email}_${collaboratorId}`,
       phone: `DEL${collaboratorId.slice(0, 12)}`,
     });
     await this.userRepository.delete(collaboratorId);
 
-    // A troca de telefone acima já impede um NOVO lookup por telefone de
-    // encontrar este usuário — mas não apaga a entrada já cacheada em
-    // `MessageProcessorService.userCache` (até 10 min) nem o
-    // `accessibleDoctorIds` cacheado por userId (até 5 min) em
-    // `AiOrchestratorService`. Sem isto, um colaborador excluído continuaria
-    // operando pelo WhatsApp com a identidade e permissões antigas — inclusive
-    // mutando SC — pela duração desses caches.
     this.emitAccessChanged(collaboratorId, originalPhone);
 
     return { message: 'Colaborador desativado com sucesso' };
@@ -1124,10 +883,6 @@ export class UsersService {
     const admin = await this.assertPodeGerirEquipe(adminId);
 
     const uniqueIds = [...new Set(collaboratorIds)];
-    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
-    // criou) — do contrário colaboradores criados por outra pessoa dentro da
-    // mesma conta (o dono, ou outro admin delegado) ficariam invisíveis a
-    // este filtro e o bulk delete falharia com "não encontrados" para eles.
     const collaborators = await this.userRepository.getRepository().find({
       where: {
         id: In(uniqueIds),
@@ -1138,9 +893,6 @@ export class UsersService {
         id: true,
         email: true,
         ownerId: true,
-        // Telefone ORIGINAL — precisa ser capturado antes da sentinela
-        // sobrescrever a coluna, senão a invalidação de cache (ver loop
-        // abaixo) usaria o telefone errado e não limparia nada.
         phone: true,
       },
     });
@@ -1151,8 +903,6 @@ export class UsersService {
       );
     }
 
-    // O alvo é cada item da lista, não a lista — o dono da conta jamais pode
-    // ser incluído em um bulk delete de colaboradores.
     for (const collaborator of collaborators) {
       this.assertAlvoNaoEhDono({
         id: collaborator.id,
@@ -1169,9 +919,6 @@ export class UsersService {
 
     await this.userRepository.getRepository().softDelete(uniqueIds);
 
-    // Mesmo raciocínio de `deleteCollaborator`: sem isto, cada colaborador
-    // excluído em lote continuaria com identidade/permissões cacheadas no
-    // assistente do WhatsApp por até 10 min.
     for (const collaborator of collaborators) {
       this.emitAccessChanged(collaborator.id, collaborator.phone);
     }
@@ -1179,11 +926,6 @@ export class UsersService {
     return { deleted: uniqueIds.length };
   }
 
-  // ============ MÉDICOS DA CONTA ============
-
-  /**
-   * Lista médicos da conta (users com doctorProfile na mesma conta)
-   */
   async findDoctors(userId: string) {
     const admin = await this.assertPodeGerirEquipe(userId);
 
@@ -1191,10 +933,6 @@ export class UsersService {
       admin.ownerId,
     );
 
-    // Mesma projeção explícita de `findCollaborators`, pelo mesmo motivo:
-    // `findDoctorsByOwnerId` não define `select` e o spread escapa do
-    // `ClassSerializerInterceptor`. Esta lista alimenta seletores de médico
-    // (nome, CRM, especialidade, status) — não é tela de cadastro.
     const records = await Promise.all(
       doctors.map(async (d) => ({
         id: d.id,
@@ -1222,8 +960,6 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
-    // criou) — ver mesmo comentário em `updateCollaborator`.
     if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
@@ -1238,12 +974,6 @@ export class UsersService {
 
     await this.userRepository.update(collaboratorId, { status: newStatus });
 
-    // Invalida os caches do assistente do WhatsApp assim que o status muda
-    // (em qualquer direção). `MessageProcessorService.runPreflight` agora
-    // espelha a `JwtStrategy` do caminho web e recusa `status !== ACTIVE` —
-    // e nunca cacheia usuário não-ACTIVE — então a invalidação aqui garante
-    // que a próxima mensagem já vê o banco atualizado em vez de servir do
-    // cache por até 10 min.
     this.emitAccessChanged(collaboratorId, collaborator.phone);
 
     return { status: newStatus };
@@ -1261,8 +991,6 @@ export class UsersService {
     });
     if (!collaborator)
       throw new NotFoundException('Colaborador não encontrado');
-    // Pertencimento é por `ownerId` (o tenant), não por `adminId` (só quem
-    // criou) — ver mesmo comentário em `updateCollaborator`.
     if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
     this.assertAlvoNaoEhDono({
@@ -1273,18 +1001,11 @@ export class UsersService {
     const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     await this.userRepository.update(collaboratorId, { password: hashed });
 
-    // Mesma logica de `AuthService.changePassword`: redefinir a senha por
-    // admin tambem precisa encerrar as sessoes existentes do colaborador.
     await this.refreshTokenStore.revokeAllForUser(collaborator.id);
 
     return { message: 'Senha redefinida com sucesso' };
   }
 
-  /**
-   * Reenvia o e-mail de convite (link de primeiro acesso) para um colaborador
-   * que ainda não ativou a conta. Gera um novo token de 72h e invalida os
-   * anteriores. Disponível apenas para colaboradores com status PENDING.
-   */
   async resendCollaboratorInvite(collaboratorId: string, adminId: string) {
     const admin = await this.assertPodeGerirEquipe(adminId);
 
@@ -1310,10 +1031,6 @@ export class UsersService {
       throw new BadRequestException('Colaborador não possui e-mail cadastrado');
     }
 
-    // Invalida TODOS os tokens anteriores deste usuário (usados ou não) para
-    // garantir que apenas o novo link seja válido. Sem o filtro de `used`,
-    // tokens já validados (mas com senha ainda não trocada) também são
-    // descartados — caso contrário o link antigo continuaria funcionando.
     await this.recoveryCodeRepository.deleteMany({
       userId: collaborator.id,
     });
@@ -1347,9 +1064,6 @@ export class UsersService {
     };
   }
 
-  /**
-   * Detalhes de um colaborador (dados + doctorProfile + user_doctor_access)
-   */
   async findCollaboratorById(collaboratorId: string, adminId: string) {
     const admin = await this.assertPodeGerirEquipe(adminId);
 
@@ -1361,18 +1075,9 @@ export class UsersService {
     if (collaborator.ownerId !== admin.ownerId)
       throw new ForbiddenException('Este colaborador não pertence à sua conta');
 
-    // Buscar vínculos com médicos
     const accesses =
       await this.userDoctorAccessRepository.findAllByUserId(collaboratorId);
 
-    // Remove senha e campos internos (isPlatformAdmin, onboardingState cru)
-    // do retorno. `permissions` crua é retirada do spread e devolvida à parte
-    // como `grantedPermissions` (ver abaixo) — só esta rota pode expor a
-    // coluna crua, porque é a única gated por `ADMINISTRACAO` que a tela de
-    // edição de colaborador consome. `onboardingState` não tem equivalente:
-    // nunca deve sair daqui cru (pode vir `null`, sem passar por
-    // `normalizeOnboardingState`) — o admin não tem por que ver o onboarding
-    // do colaborador por esta rota.
     const { permissions, isPlatformAdmin, onboardingState, ...comCredenciais } =
       collaborator;
     const userWithoutPassword = omitUserSecrets(comCredenciais);
@@ -1391,28 +1096,15 @@ export class UsersService {
       isDoctor: !!collaborator.doctorProfile,
       isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       doctorAccesses: accesses,
-      // A permissão EFETIVA (com o bônus de médico já somado) — para EXIBIR
-      // o que o colaborador pode fazer hoje. Nunca usar este campo para
-      // semear um formulário de edição: ele reintroduziria no PATCH, como
-      // concessão gravada, o que só valia por causa de `doctor_profile`
-      // (bug I2 do PLANO-PERMISSOES-COLABORADORES — desmarcar "é médico"
-      // meses depois não voltava a tirar Agenda/Atendimento/Solicitações,
-      // porque a tela nunca soube que elas não tinham sido concedidas de
-      // fato).
       permissions: resolveEffectivePermissions({
         role: collaborator.role,
         permissions,
         isDoctor: !!collaborator.doctorProfile,
         isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       }),
-      // A coluna CRUA (o que foi de fato concedido) — para EDITAR. É este
-      // campo que a tela de colaborador deve semear no formulário e
-      // devolver no PATCH, nunca `permissions`.
       grantedPermissions: permissions ?? [],
     };
   }
-
-  // ============ CABEÇALHO DE DOCUMENTOS ============
 
   private sanitizeHeaderHtml(html: string): string {
     return sanitizeHtml(html, {
@@ -1457,12 +1149,6 @@ export class UsersService {
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
     const isSelf = requestingUserId === targetUserId;
-    // Rota já é gateada por ADMINISTRACAO no controller (RequirePermission);
-    // aqui restringimos ao mesmo tenant. Pertencimento é `ownerId`, nunca
-    // `adminId` (só quem criou) — checar por `target.adminId ===
-    // requestingUserId` é o mesmo bug do C3: barra o admin delegado no
-    // cabeçalho de qualquer médico que não tenha criado (a maioria) e barra
-    // o dono no cabeçalho de médico criado pelo delegado.
     const permissoesRequesting = resolveEffectivePermissions({
       role: requesting.role,
       permissions: requesting.permissions,
@@ -1575,8 +1261,6 @@ export class UsersService {
     return { message: 'Cabeçalho removido com sucesso' };
   }
 
-  // ============ ASSINATURA DIGITAL ============
-
   async updateSignatureUrl(userId: string, signatureUrl: string) {
     const profile = await this.doctorProfileRepository.findByUserId(userId);
     if (!profile)
@@ -1586,12 +1270,6 @@ export class UsersService {
     await this.doctorProfileRepository.update(profile.id, { signatureUrl });
   }
 
-  /**
-   * CRM exige número e UF: é o que sai impresso em receita, atestado e laudo.
-   * Os demais conselhos podem ficar sem número (profissional migrado de outro
-   * sistema sem o registro cadastrado). Era garantido pelo NOT NULL do banco
-   * até o `AddCouncilToDoctorProfiles`; agora é aqui.
-   */
   private static assertRegistroDoConselho(
     council: ProfessionalCouncil,
     crm: string | null | undefined,

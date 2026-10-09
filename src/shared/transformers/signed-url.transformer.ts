@@ -3,10 +3,6 @@ import { StorageService } from 'src/shared/storage/storage.service';
 
 const logger = new Logger('SignedUrlTransformer');
 
-/**
- * Transforma os documentos de uma solicitação cirúrgica, substituindo
- * os `uri` internos por URLs assinadas do R2.
- */
 export function transformDocumentUrls(
   documents: any[],
   storageService: StorageService,
@@ -29,21 +25,14 @@ export function transformDocumentUrls(
   );
 }
 
-/**
- * Transforma a `signatureUrl` do médico substituindo o path interno
- * por uma URL assinada do R2, quando necessário.
- */
 export async function transformDoctorSignatureUrl(
   doctor: any,
   storageService: StorageService,
 ): Promise<any> {
-  // A assinatura fica em doctor.doctorProfile.signatureUrl (path bruto).
-  // Promove para doctor.signatureUrl como signed URL para uso no frontend.
   const rawSignature: string | undefined =
     doctor?.doctorProfile?.signatureUrl || doctor?.signatureUrl;
 
   if (!rawSignature) {
-    // Mesmo sem assinatura, resolve o logo do cabeçalho se houver
     return resolveHeaderLogoUrl(doctor, storageService);
   }
 
@@ -74,10 +63,6 @@ export async function transformDoctorSignatureUrl(
   return resolveHeaderLogoUrl(transformed, storageService);
 }
 
-/**
- * Resolve a URL assinada do logo do cabeçalho customizado do médico,
- * quando houver um path bruto armazenado.
- */
 async function resolveHeaderLogoUrl(
   doctor: any,
   storageService: StorageService,

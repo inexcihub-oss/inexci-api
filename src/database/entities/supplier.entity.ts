@@ -15,11 +15,6 @@ import { User } from './user.entity';
 import { SurgeryRequestQuotation } from './surgery-request-quotation.entity';
 import { OpmeItem } from './opme-item.entity';
 
-/**
- * Fornecedor de OPME — Entidade de negócio (não faz login).
- * Cadastro pertence à clínica/conta (ownerId): médicos e colaboradores
- * da mesma clínica compartilham os fornecedores cadastrados.
- */
 @Entity('suppliers')
 @Index('idx_suppliers_owner_id', ['ownerId'])
 export class Supplier {
@@ -37,8 +32,6 @@ export class Supplier {
 
   @Column({ type: 'varchar', length: 15, nullable: true })
   phone: string | null;
-
-  // ============ CONTATO COMERCIAL ============
 
   @Column({
     name: 'contact_name',
@@ -63,8 +56,6 @@ export class Supplier {
     nullable: true,
   })
   contactEmail: string | null;
-
-  // ============ ENDEREÇO ============
 
   @Column({ name: 'zip_code', type: 'varchar', length: 10, nullable: true })
   zipCode: string | null;
@@ -97,8 +88,6 @@ export class Supplier {
   @Column({ type: 'char', length: 2, nullable: true })
   state: string | null;
 
-  // ============ COMERCIAL ============
-
   @Column({ type: 'varchar', length: 200, nullable: true })
   website: string | null;
 
@@ -121,23 +110,12 @@ export class Supplier {
   })
   deliveryTime: string | null;
 
-  // ============ OBSERVAÇÕES ============
-
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
-  // ============ ISOLAMENTO POR CLÍNICA ============
-
-  /** ID do admin dono da clínica. */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
-  /**
-   * Marca o fornecedor genérico "Outro" da conta — o que significa "nenhum dos
-   * cadastrados". Uma linha por conta, escondida do catálogo e criada sob
-   * demanda. É flag e não nome para que relatório possa contá-lo ou excluí-lo
-   * sem comparar texto.
-   */
   @Column({ name: 'is_generic', type: 'boolean', default: false })
   isGeneric: boolean;
 
@@ -149,8 +127,6 @@ export class Supplier {
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deletedAt: Date | null;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'owner_id' })

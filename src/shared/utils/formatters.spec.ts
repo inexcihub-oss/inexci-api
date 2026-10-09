@@ -5,10 +5,6 @@ import {
   todayBR,
 } from './formatters';
 
-/**
- * D-07: a tela e o e-mail de lembrete prefixavam "Dr(a)." em um nome que já
- * vinha com o tratamento, produzindo "Dr(a). Dr. Carlos Mendonça".
- */
 describe('formatDoctorName', () => {
   it('prefixa o tratamento em nome sem título', () => {
     expect(formatDoctorName('Carlos Mendonça')).toBe('Dr(a). Carlos Mendonça');
@@ -24,7 +20,6 @@ describe('formatDoctorName', () => {
     expect(formatDoctorName(name)).toBe(name);
   });
 
-  /** "Drauzio" começa com "Dra" mas não é tratamento. */
   it('não confunde nome próprio começado por Dr', () => {
     expect(formatDoctorName('Drauzio Varella')).toBe('Dr(a). Drauzio Varella');
   });
@@ -38,18 +33,12 @@ describe('formatDoctorName', () => {
 
 describe('formatAppointmentWhen', () => {
   it('formata dia da semana, data e hora no fuso de São Paulo', () => {
-    // 14:00 em São Paulo (UTC-3) — se cair no fuso do servidor, vira 17:00.
     expect(formatAppointmentWhen(new Date('2026-08-01T17:00:00.000Z'))).toBe(
       'sáb., 01/08 às 14:00',
     );
   });
 });
 
-/**
- * Endereço da unidade em uma linha, para mensagens de texto livre no WhatsApp.
- * Todos os campos são opcionais na entidade, então cada pedaço só entra se
- * existir — nunca sai vírgula ou barra solta.
- */
 describe('formatClinicAddress', () => {
   it('monta logradouro, número, bairro e cidade/UF', () => {
     expect(
@@ -99,7 +88,6 @@ describe('formatClinicAddress', () => {
     ).toBe('Rua das Flores, 120, São Paulo');
   });
 
-  /** Sem logradouro não há endereço a mostrar, por mais campos que existam. */
   it('devolve vazio quando não há logradouro', () => {
     expect(
       formatClinicAddress({
@@ -116,7 +104,6 @@ describe('formatClinicAddress', () => {
 
 describe('todayBR', () => {
   it('usa o dia de São Paulo, não o de UTC', () => {
-    // 23:59 de 07/10 em São Paulo = 02:59 de 08/10 em UTC.
     expect(todayBR(new Date('2026-10-08T02:59:00Z'))).toBe('07/10/2026');
     expect(todayBR(new Date('2026-10-08T03:00:00Z'))).toBe('08/10/2026');
   });

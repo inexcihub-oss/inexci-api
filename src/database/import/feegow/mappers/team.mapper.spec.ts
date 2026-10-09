@@ -461,7 +461,6 @@ describe('planejarEquipe — dono da conta precisa casar com um profissional', (
         aviso: expect.stringContaining('dono da conta não conferido'),
       }),
     );
-    // Lista os candidatos já no ensaio, para o operador montar o --mapear.
     const aviso = ctx.relatorio.avisos.find((a) =>
       a.aviso.includes('dono da conta não conferido'),
     );
@@ -507,7 +506,6 @@ describe('planejarEquipe — e-mail repetido dentro do export', () => {
         motivo: expect.stringContaining('profissional 6'),
       }),
     );
-    // O celular do rejeitado não fica reservado à toa.
     expect(plano.usuarios.map((u) => u.phone)).not.toContain('24999990007');
   });
 });

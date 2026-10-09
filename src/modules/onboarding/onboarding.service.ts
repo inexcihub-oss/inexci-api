@@ -42,12 +42,6 @@ export class OnboardingService {
     return proximo;
   }
 
-  /**
-   * Serializa toda escrita do onboarding por usuário. Sem a transação + lock,
-   * dois PATCHes que leem o mesmo JSONB antes de gravar fariam read/merge/write
-   * concorrente, e a última escrita apagaria os passos adicionados pela outra.
-   * O reset usa o mesmo caminho para ser ordenado com os PATCHes concorrentes.
-   */
   private async mutateLocked(
     userId: string,
     mutate: (atual: OnboardingState) => OnboardingState,

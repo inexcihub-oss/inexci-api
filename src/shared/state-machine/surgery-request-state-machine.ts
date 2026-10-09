@@ -5,13 +5,6 @@ import {
 } from 'src/database/entities/surgery-request.entity';
 import { recordWorkflowTransition } from '../observability/metrics.util';
 
-/**
- * SurgeryRequestStateMachine
- *
- * Valida APENAS a parte estrutural da transição: se o status atual é o
- * esperado para a transição alvo. Toda validação de completude de dados
- * é responsabilidade do PendencyValidatorService (assertCanAdvance).
- */
 export class SurgeryRequestStateMachine {
   canTransitionTo(
     request: SurgeryRequest,

@@ -24,9 +24,6 @@ export class ManufacturersService {
 
   async findAll(query: FindManyManufacturerDto, userId: string) {
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    // O genérico "Outro" não é cadastro do usuário: ele responde
-    // "nenhum dos cadastrados" nos itens OPME. No catálogo, só
-    // convidaria a editar ou excluir uma linha que a plataforma usa.
     const where: FindOptionsWhere<Manufacturer> = {
       ownerId,
       isGeneric: false,
@@ -51,11 +48,6 @@ export class ManufacturersService {
     return manufacturer;
   }
 
-  /**
-   * "Outro" é conceito da plataforma, não cadastro da clínica: editar ou
-   * excluir a linha genérica quebraria os itens OPME que a referenciam e o
-   * significado do que já foi aprovado.
-   */
   private assertNaoEGenerico(registro: { isGeneric?: boolean }): void {
     if (registro.isGeneric) {
       throw new ForbiddenException(

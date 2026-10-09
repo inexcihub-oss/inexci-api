@@ -251,10 +251,6 @@ describe('ConfirmationManagerService', () => {
       expect(conversationRepoMock.update).not.toHaveBeenCalled();
     });
 
-    // Regressão 2026-05-14: tools de leitura como `query_surgery_requests`
-    // devolvem string crua (não envelope ToolResult), e o
-    // `trackPendingConfirmation` logava warning `envelope_missing` em toda
-    // consulta, poluindo o log. Solução: pular cedo se não for confirmável.
     it('NÃO loga warning envelope_missing quando tool de leitura devolve string crua', async () => {
       const warnSpy = jest
         .spyOn((service as any).logger, 'warn')
@@ -468,7 +464,6 @@ describe('ConfirmationManagerService', () => {
 
       const out = await service.buildPendingConfirmationHint('conv-1', 'sim');
       expect(out).toBeNull();
-      // E limpa o pending expirado.
       expect(conversationRepoMock.update).toHaveBeenCalledWith(
         'conv-1',
         expect.objectContaining({

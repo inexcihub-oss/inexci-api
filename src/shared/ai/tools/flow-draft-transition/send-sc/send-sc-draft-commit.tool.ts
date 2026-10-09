@@ -103,10 +103,6 @@ export function buildSendScDraftCommitTool(
           });
         }
 
-        // DOWNLOAD: tenta subir o PDF retornado pelo handler para o
-        // R2 e devolver uma signed URL ao usuário. Quando o upload
-        // falha, ainda confirmamos a transição (ela já aconteceu) e
-        // pedimos ao usuário para baixar pela plataforma.
         const pdfPayload = sendResult as
           | { pdf?: string; protocol?: string }
           | undefined;
@@ -128,7 +124,6 @@ export function buildSendScDraftCommitTool(
               displayText: `Solicitação ${label} pronta para download. Link válido por 1 hora: ${url}`,
             });
           } catch (uploadErr: any) {
-            // Não-crítico: a transição já aconteceu. Apenas avisamos.
             return buildToolResult({
               status: 'ok',
               message: `Solicitação ${label} enviada. Falha ao subir o PDF para link temporário: ${uploadErr?.message || 'erro desconhecido'}.`,

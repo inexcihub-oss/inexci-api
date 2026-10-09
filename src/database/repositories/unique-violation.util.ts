@@ -1,6 +1,5 @@
 import { GENERIC_OPTION_NAME } from '../../shared/constants/generic-option';
 
-/** `unique_violation` do Postgres. */
 const CHAVE_DUPLICADA = '23505';
 
 interface DetalheDoDriver {
@@ -8,15 +7,6 @@ interface DetalheDoDriver {
   constraint?: string;
 }
 
-/**
- * Lê uma violação de unicidade do erro, ou `null` se for outra coisa.
- *
- * O `constraint` importa tanto quanto o código: "índice único violado" não diz
- * qual, e dois índices diferentes sobre a mesma tabela significam problemas
- * diferentes. O TypeORM ora expõe os campos do driver direto no erro, ora
- * embrulhados em `driverError` — depende de o comando ter passado pelo
- * `QueryRunner` ou pelo repositório.
- */
 export function violacaoDeUnicidade(
   erro: unknown,
 ): { constraint?: string } | null {
@@ -27,12 +17,6 @@ export function violacaoDeUnicidade(
   return { constraint: falha?.constraint ?? falha?.driverError?.constraint };
 }
 
-/**
- * Mensagem para quando a criação da linha genérica esbarra num índice que não é
- * o dela. O caso conhecido é `uq_manufacturers_owner_name_active`: a conta ainda
- * tem a linha legada chamada "Outro", e o genérico usa esse mesmo nome. O erro
- * cru do Postgres não diz nada disso.
- */
 export function mensagemDeGenericoBloqueado(
   entidade: 'fornecedor' | 'fabricante',
   ownerId: string,

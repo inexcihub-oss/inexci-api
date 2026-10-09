@@ -39,7 +39,6 @@ export class OpmeItem {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => SurgeryRequest, (request) => request.opmeItems)
   @JoinColumn({ name: 'surgery_request_id' })
   surgeryRequest: SurgeryRequest;

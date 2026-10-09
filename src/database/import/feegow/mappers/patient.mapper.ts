@@ -51,7 +51,6 @@ export interface NovoPaciente {
   updatedAt: Date;
 }
 
-/** Lookups do Feegow com valor real para meia dúzia de pacientes. */
 const TABELAS_DEMOGRAFICAS: [
   campo: string,
   tabela: string,
@@ -64,25 +63,6 @@ const TABELAS_DEMOGRAFICAS: [
   ['prioridade_id', 'pacientes_prioridades', 'prioridade', 'Prioridade'],
 ];
 
-/**
- * Pacientes: `pacientes` + `paciente_endereco` + `paciente_convenio` (1:1).
- *
- * - `sys_active` 1 → ativo, 0 → inativo, -1 (excluído) → fora, salvo se
- *   tiver consulta, atendimento, formulário ou anexo: aí entra inativo.
- * - CPF inválido fica `null` (a SC cobra depois) e o valor original vai para
- *   as observações, como todo contato sem formato válido (`contatosDoPaciente`).
- * - Telefone: celular > celular_2 > fixo_1 > fixo_2; o segundo válido vai
- *   para `secondary_phone`, os demais para as observações.
- * - Médico responsável: `primary-doctor.rule`, pulando profissional que não
- *   foi importado; sem nenhum → o dono da conta.
- * - Convênio: o da consulta ativa mais recente com convênio de verdade.
- * - Dados demográficos que a INEXCI não tem (estado civil, profissão…) vão
- *   para as observações, quando preenchidos.
- * - CPF repetido só avisa: o mesmo CPF pode ser de pessoas diferentes
- *   (filho com o CPF da mãe, digitação), então nada é mesclado sozinho.
- * - Nome sem nenhuma letra (é um telefone), sem nenhum outro dado e sem
- *   consulta, atendimento ou ficha: fora. Com qualquer um deles, entra com aviso.
- */
 export function planejarPacientes(
   exp: ExportFeegow,
   ctx: ContextoImportacao,
@@ -120,9 +100,6 @@ export function planejarPacientes(
       rel.pular('paciente');
       continue;
     }
-    // Excluído no Feegow: em geral um cadastro duplicado, mas o Feegow não
-    // move consulta nem formulário para o cadastro que ficou. Com qualquer um
-    // deles (ou anexo), entra inativo — descartar levaria o prontuário junto.
     const excluidoComRegistro =
       p.sys_active === '-1' &&
       (atividade.has(idOrigem) || comAnexo.has(idOrigem));
@@ -150,12 +127,7 @@ export function planejarPacientes(
       rel.rejeitar('paciente', idOrigem, 'sem nome');
       continue;
     }
-    // O export do Feegow cortou alguns nomes numa entidade HTML (`JOS&EACUTE`)
-    // e, nessas linhas, às vezes deslocou as colunas seguintes.
     const { nome, cortado } = repararNomeCortado(nomeBruto);
-    // Nome sem letras ("24 98841-4691", "."): sem nenhum outro dado, anexo
-    // nem atividade, não há paciente aqui — é lixo de cadastro. Vem antes de
-    // qualquer aviso ou registro de CPF/nome, para o descarte não deixar rastro.
     if (!/\p{L}/u.test(nome)) {
       if (
         !temOutroDado(
@@ -320,26 +292,13 @@ interface ContatosDoPaciente {
   cpf: string | null;
   cpfInvalido: boolean;
   email: string | null;
-  /** Havia e-mail válido, mas maior que `patients.email` (fica nas observações). */
   emailLongo: boolean;
   nascimento: string | null;
   telefones: string[];
-  /** O que foi recuperado de outra coluna (`e-mail`, `nascimento`, `telefone`). */
   deslocados: string[];
-  /** Valores sem formato válido: vão para as observações, não se perdem. */
   naoReconhecidos: string[];
 }
 
-/**
- * CPF, telefones, e-mail e nascimento de uma linha de `pacientes`.
- *
- * Em algumas linhas o export do Feegow deslocou as colunas (o nome cortado
- * numa entidade HTML empurra o resto): o telefone cai no CPF, o e-mail num
- * telefone, o nascimento no e-mail. Cada valor é reconhecido pelo formato e
- * vai para o campo certo quando o próprio está vazio. Valor que não se
- * reconhece (CPF com dígito errado, telefone incompleto, data impossível) fica
- * nas observações — descartá-lo apagaria o único registro dele.
- */
 export function contatosDoPaciente(p: LinhaCsv): ContatosDoPaciente {
   const r: ContatosDoPaciente = {
     cpf: null,
@@ -401,7 +360,6 @@ export function contatosDoPaciente(p: LinhaCsv): ContatosDoPaciente {
   }
 
   if (!r.email && emailsDeslocados.length) {
-    // O 1º que cabe na coluna; o longo demais fica nas observações.
     const i = emailsDeslocados.findIndex((e) =>
       normalizarEmail(e, EMAIL_MAX.paciente),
     );
@@ -431,7 +389,6 @@ function indexar(linhas: LinhaCsv[], chave: string): Map<string, LinhaCsv> {
   return new Map(linhas.filter((l) => l[chave]).map((l) => [l[chave]!, l]));
 }
 
-/** Convênio da consulta ativa mais recente que tem convênio de verdade. */
 function convenioMaisRecente(agendamentos: LinhaCsv[]): Map<string, string> {
   const melhor = new Map<string, { quando: string; convenio: string }>();
   for (const a of agendamentos) {
@@ -447,13 +404,6 @@ function convenioMaisRecente(agendamentos: LinhaCsv[]): Map<string, string> {
   return new Map([...melhor].map(([p, v]) => [p, v.convenio]));
 }
 
-/**
- * Número da carteirinha do convênio escolhido: `matriculaN` do mesmo slot
- * `convenio_idN`. Vale o id igual; senão, um slot cujo convênio virou o mesmo
- * na INEXCI (`mesmoConvenio` — "UNIMED" e "unimed" fundidos). Convênio que
- * não está no cadastro do paciente (veio só da consulta) não tem matrícula
- * correspondente → `null`, nunca a de outro convênio.
- */
 export function matriculaDoConvenio(
   conv: LinhaCsv | undefined,
   convenioId: string | null,
@@ -478,7 +428,6 @@ function primeiroConvenio(conv: LinhaCsv | undefined): string | null {
   return null;
 }
 
-/** Pacientes com anexo ativo — o que se perderia junto (mesmo critério de `planejarAnexos`). */
 function pacientesComAnexo(exp: ExportFeegow): Set<string> {
   const ids = new Set<string>();
   for (const a of exp.tabela('arquivos')) {
@@ -488,7 +437,6 @@ function pacientesComAnexo(exp: ExportFeegow): Set<string> {
   return ids;
 }
 
-/** Colunas de texto de `pacientes` que vão para as notas do paciente. */
 const COLUNAS_DE_TEXTO = [
   'Observacoes',
   'profissao',
@@ -505,19 +453,9 @@ const COLUNAS_DO_ENDERECO = [
   'cidade',
 ];
 
-/**
- * Valor que diz algo: tem letra ou dígito diferente de zero. Descarta os
- * preenchimentos vazios do Feegow — `0`, `0.00`, `0000-00-00`, máscara de
- * telefone sem número (`(  )     -    `).
- */
 const temConteudo = (v: string | null | undefined) =>
   /[\p{L}1-9]/u.test(v ?? '');
 
-/**
- * Algum dado que a importação levaria para a INEXCI além do nome: cadastro,
- * notas, endereço ou convênio. Até um CPF inválido conta — mostra que o
- * registro é de alguém.
- */
 function temOutroDado(
   p: LinhaCsv,
   end: LinhaCsv | undefined,

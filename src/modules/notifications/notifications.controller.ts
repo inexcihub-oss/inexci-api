@@ -29,8 +29,6 @@ import {
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  // ============ Settings ============
-
   @Get('settings')
   @ApiOperation({ summary: 'Obter configurações de notificação' })
   async getSettings(@CurrentUser() user: AuthenticatedUser) {
@@ -45,8 +43,6 @@ export class NotificationsController {
   ) {
     return await this.notificationsService.updateSettings(user.userId, data);
   }
-
-  // ============ Notifications ============
 
   @Get()
   @ApiOperation({ summary: 'Listar notificações' })
@@ -69,7 +65,6 @@ export class NotificationsController {
   @Put(':id/read')
   @ApiOperation({ summary: 'Marcar notificação como lida' })
   async markAsRead(
-    // Coluna `uuid`: sem o pipe, um id malformado só falhava no Postgres.
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {

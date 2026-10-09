@@ -1,15 +1,5 @@
 import { CidService } from './cid.service';
 
-/**
- * Os testes carregam o `cid.json` real do diretório `src/utils/`. Códigos
- * usados (verificados manualmente no arquivo):
- *
- *   - A00  → "Cólera"
- *   - A001 → "Cólera Devida a Vibrio Cholerae 01, Biótipo El Tor"
- *   - M17  → "Gonartrose (artrose do Joelho)"
- *   - M170 → "Gonartrose Primária Bilateral"
- *   - M171 → "Outras Gonartroses Primárias"
- */
 describe('CidService', () => {
   const service = new CidService();
 
@@ -55,7 +45,6 @@ describe('CidService', () => {
     it('encontra por prefixo de código (M17 retorna a categoria + filhos)', () => {
       const result = service.lookup('M17', 10);
       expect(result.length).toBeGreaterThan(1);
-      // O match exato de "M17" deve vir primeiro.
       expect(result[0].code).toBe('M17');
       expect(
         result.every((item) => item.code.toUpperCase().startsWith('M17')),

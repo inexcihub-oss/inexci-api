@@ -1,28 +1,25 @@
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
 
-/** `agendamento_status` do Feegow → status da INEXCI. */
 const STATUS_FEEGOW: Record<string, AppointmentStatus> = {
-  '1': AppointmentStatus.SCHEDULED, // Marcado - não confirmado
-  '7': AppointmentStatus.CONFIRMED, // Marcado - confirmado
-  '208': AppointmentStatus.CONFIRMED, // Aguardando pagamento
-  '4': AppointmentStatus.WAITING, // Aguardando (chegou na recepção)
-  '5': AppointmentStatus.WAITING, // Chamando
-  '2': AppointmentStatus.IN_PROGRESS, // Em atendimento
-  '3': AppointmentStatus.COMPLETED, // Atendido
-  '6': AppointmentStatus.NO_SHOW, // Não compareceu
-  '11': AppointmentStatus.CANCELLED, // Desmarcado pelo paciente
-  '22': AppointmentStatus.CANCELLED, // Cancelado pelo profissional
-  '15': AppointmentStatus.CANCELLED, // Remarcado (o horário antigo)
+  '1': AppointmentStatus.SCHEDULED,
+  '7': AppointmentStatus.CONFIRMED,
+  '208': AppointmentStatus.CONFIRMED,
+  '4': AppointmentStatus.WAITING,
+  '5': AppointmentStatus.WAITING,
+  '2': AppointmentStatus.IN_PROGRESS,
+  '3': AppointmentStatus.COMPLETED,
+  '6': AppointmentStatus.NO_SHOW,
+  '11': AppointmentStatus.CANCELLED,
+  '22': AppointmentStatus.CANCELLED,
+  '15': AppointmentStatus.CANCELLED,
 };
 
-/** Status da INEXCI equivalente ao `status_id` do Feegow (sem as exceções da carga). */
 export function statusDoFeegow(
   statusId: string | null | undefined,
 ): AppointmentStatus | null {
   return STATUS_FEEGOW[statusId ?? ''] ?? null;
 }
 
-/** Status que, no Feegow, ainda estavam "em aberto". */
 const EM_ABERTO = new Set<AppointmentStatus>([
   AppointmentStatus.SCHEDULED,
   AppointmentStatus.CONFIRMED,
@@ -35,18 +32,6 @@ export interface StatusImportado {
   cancellationReason: string | null;
 }
 
-/**
- * Status da consulta importada.
- *
- * - Mapa direto do Feegow, mantendo "aguardando" e "em atendimento".
- * - Consulta em aberto **com atendimento registrado** vira realizada: o
- *   atendimento aconteceu, só o status do Feegow não foi fechado.
- * - Consulta passada em aberto **sem** atendimento: mantém, salvo
- *   `--passadas-sem-atendimento`.
- * - Cancelada leva o nome do status do Feegow como motivo.
- *
- * `null` = status desconhecido (a consulta é rejeitada com o id do status).
- */
 export function statusDaConsulta(params: {
   statusId: string | null;
   nomeDoStatus: string | null;

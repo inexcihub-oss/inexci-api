@@ -14,21 +14,6 @@ import {
 
 import { SubscriptionService } from './subscription.service';
 
-/**
- * Recebe e processa webhooks do gateway de pagamento.
- *
- * Garantias:
- * - Idempotência: cada `(provider, eventId)` é processado uma única vez.
- * - Resiliência: erros de processamento são gravados em
- *   `payment_gateway_events.error` para investigação.
- *
- * Eventos cobertos:
- * - `checkout.completed`          → vincula customer+subscription; chama sync.
- * - `subscription.created/updated` → sincroniza espelho local (status, plano, cota).
- * - `subscription.canceled`       → cancela localmente.
- * - `invoice.paid`                → marca ACTIVE.
- * - `invoice.failed/overdue`      → marca PAST_DUE.
- */
 @Injectable()
 export class BillingWebhookService {
   private readonly logger = new Logger(BillingWebhookService.name);
@@ -107,8 +92,6 @@ export class BillingWebhookService {
         return;
     }
   }
-
-  // ───── Handlers ─────
 
   private async handleCheckoutCompleted(event: NormalizedWebhookEvent) {
     const { customerId, subscriptionId } = event.refs ?? {};

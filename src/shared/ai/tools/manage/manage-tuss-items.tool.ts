@@ -288,7 +288,6 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      // operation === 'remove'
       const blocked = ensurePendingForMutation(auth.request);
       if (blocked) {
         return buildToolResult({ status: 'blocked', message: blocked });

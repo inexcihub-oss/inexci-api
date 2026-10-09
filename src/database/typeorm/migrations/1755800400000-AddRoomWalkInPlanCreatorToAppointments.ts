@@ -1,13 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Consulta ganha sala, encaixe, convênio e quem agendou — todos opcionais ou
- * com default que reproduz o comportamento atual (`is_walk_in = false`).
- * Colunas novas: as chaves estrangeiras não têm dado legado para violar.
- *
- * Os status novos (`waiting`, `in_progress`) não precisam de DDL: `status` é
- * `varchar(20)`, não enum do Postgres.
- */
 export class AddRoomWalkInPlanCreatorToAppointments1755800400000 implements MigrationInterface {
   name = 'AddRoomWalkInPlanCreatorToAppointments1755800400000';
 
@@ -24,11 +16,6 @@ export class AddRoomWalkInPlanCreatorToAppointments1755800400000 implements Migr
     );
   }
 
-  /**
-   * Reverter apaga sala, encaixe, convênio e autor das consultas. Consulta em
-   * `waiting`/`in_progress` volta a ser um status que o código antigo não
-   * conhece; o `down` a devolve para `confirmed` em vez de deixá-la órfã.
-   */
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `UPDATE "appointments" SET "status" = 'confirmed'

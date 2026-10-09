@@ -57,16 +57,12 @@ export class AvailabilityController {
     private readonly holidaysService: HolidaysService,
   ) {}
 
-  // ── Horários livres ─────────────────────────────────────────────────────
-
   @Get('slots')
   @RequirePermission(Permission.AGENDA, Permission.ATENDIMENTO)
   @ApiOperation({ summary: 'Horários da grade do profissional, com ocupação' })
   slots(@Query() query: FindSlotsDto, @CurrentUser() user: AuthenticatedUser) {
     return this.availabilityService.getSlots(query, user.userId);
   }
-
-  // ── Grade ───────────────────────────────────────────────────────────────
 
   @Get('schedules')
   @ApiOperation({ summary: 'Grade de atendimento do profissional' })
@@ -114,8 +110,6 @@ export class AvailabilityController {
     return this.schedulesService.delete(id, user.userId, user.permissions);
   }
 
-  // ── Bloqueios ───────────────────────────────────────────────────────────
-
   @Get('blocks')
   @ApiOperation({ summary: 'Bloqueios de agenda no intervalo' })
   blocks(
@@ -155,8 +149,6 @@ export class AvailabilityController {
   ) {
     return this.blocksService.delete(id, user.userId, user.permissions);
   }
-
-  // ── Feriados ────────────────────────────────────────────────────────────
 
   @Get('holidays')
   @ApiOperation({ summary: 'Feriados da conta (do ano, com os recorrentes)' })

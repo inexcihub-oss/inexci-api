@@ -34,10 +34,6 @@ export class SurgeryRequestNotificationService {
     private readonly patientNotificationService: PatientNotificationService,
   ) {}
 
-  /**
-   * Envia e-mail + WhatsApp de atualização de status ao paciente, se solicitado.
-   * Delega para PatientNotificationService. Não bloqueia nem lança exceção.
-   */
   async notifyPatientIfRequested(
     request: any,
     prevStatus: SurgeryRequestStatus,
@@ -54,9 +50,6 @@ export class SurgeryRequestNotificationService {
     });
   }
 
-  /**
-   * Envia as opções de data ao paciente quando explicitamente solicitado (notifyPatient=true).
-   */
   async notifyPatientSchedulingOptions(
     request: any,
     dateOptions: string[],
@@ -67,9 +60,6 @@ export class SurgeryRequestNotificationService {
     });
   }
 
-  /**
-   * Envia e-mail com template específico conforme o status atual da solicitação.
-   */
   async notify(
     id: string,
     dto: {
@@ -94,7 +84,6 @@ export class SurgeryRequestNotificationService {
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
 
-    // Template especial: notificação ao paciente com canais selecionados pelo usuário
     if (dto.template === 'status-change-patient') {
       const previousStatus =
         (dto.oldStatus as SurgeryRequestStatus | undefined) ??
@@ -221,9 +210,6 @@ export class SurgeryRequestNotificationService {
     return { notified: true, template: dto.template, to };
   }
 
-  /**
-   * Notifica todos os envolvidos na solicitação sobre uma mudança de status.
-   */
   async notifyStakeholdersOfStatusChange(
     request: {
       id: string;
@@ -246,9 +232,6 @@ export class SurgeryRequestNotificationService {
     );
   }
 
-  /**
-   * Notifica admins da conta sobre uma ação de workflow realizada por um usuário.
-   */
   async notifyAdminsOfWorkflowAction(
     actorId: string,
     patientName: string,

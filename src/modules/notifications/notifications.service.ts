@@ -34,12 +34,9 @@ export class NotificationsService {
     @Optional() private readonly accessControlService?: AccessControlService,
   ) {}
 
-  // ============ Settings ============
-
   async getSettings(userId: string) {
     let settings = await this.settingsRepository.findByUserId(userId);
 
-    // Se não existir, cria com valores padrão
     if (!settings) {
       settings = await this.settingsRepository.create({
         userId: userId,
@@ -61,14 +58,10 @@ export class NotificationsService {
     return await this.settingsRepository.upsert(userId, data);
   }
 
-  // ============ Notifications ============
-
   async getNotifications(
     userId: string,
     options?: { skip?: number; take?: number; unreadOnly?: boolean },
   ) {
-    // `total` é o total do filtro (para a paginação), não o tamanho da página:
-    // exige um count separado — `notifications.length` nunca passa de `take`.
     const [notifications, unreadCount, total] = await Promise.all([
       this.notificationRepository.findByUserId(userId, options),
       this.notificationRepository.countUnread(userId),
@@ -88,9 +81,6 @@ export class NotificationsService {
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
-    // `user_id` faz parte do WHERE: 0 linhas alteradas significa id inexistente
-    // ou notificação de outro usuário. Sem checar isso, o cliente recebia 200
-    // confirmando uma operação que nunca aconteceu.
     const affected = await this.notificationRepository.markAsRead(
       notificationId,
       userId,
@@ -112,8 +102,6 @@ export class NotificationsService {
     notificationId: string,
     userId: string,
   ): Promise<MessageResponse> {
-    // Mesma checagem do `markAsRead`: sem `affected`, id inexistente respondia
-    // "Notificação removida".
     const affected = await this.notificationRepository.deleteByUser(
       notificationId,
       userId,
@@ -137,18 +125,6 @@ export class NotificationsService {
     }
   }
 
-  // ============ Create Notifications ============
-
-  /**
-   * Cria notificação in-app + emite via WebSocket (push) para o usuário.
-   *
-   * Política de canais para usuários do sistema (médico/admin/colaborador):
-   *  - Push (in-app + WS): controlado por `pushNotifications` + tipo
-   *  - WhatsApp: enviado pelos services específicos (notifyStatusChange,
-   *    StaleNotificationService) consultando `resolveChannels`
-   *  - E-mail: NUNCA é usado para notificações de status. O único e-mail
-   *    enviado ao usuário é o resumo semanal (WeeklySummaryService).
-   */
   async createNotification(data: CreateNotificationDto) {
     const type = data.type || NotificationType.INFO;
     const channels = await this.resolveChannels(data.userId, type);
@@ -224,22 +200,6 @@ export class NotificationsService {
     return created;
   }
 
-  // ============ Notification Helpers ============
-
-  /**
-   * Resolve quais canais (push/whatsapp) devem ser usados para um usuário
-   * e tipo de notificação. Centraliza a leitura de preferências.
-   *
-   * Regras:
-   *  - Se o usuário ainda não tem registro em `user_notification_settings`,
-   *    todos os canais são considerados habilitados (default).
-   *  - Se o tipo (`statusUpdate`, `pendencies`, etc.) está desligado,
-   *    nenhum canal é usado.
-   *  - Caso contrário, cada canal individual respeita sua própria flag.
-   *
-   * Nota: e-mail não é mais um canal de notificação para usuários do sistema.
-   * O único e-mail enviado é o resumo semanal, controlado por `weeklyReport`.
-   */
   async resolveChannels(
     userId: string,
     type: NotificationType,
@@ -275,8 +235,6 @@ export class NotificationsService {
         return true;
     }
   }
-
-  // ============ Convenience Methods ============
 
   notifyStatusUpdate(
     userId: string,
@@ -322,11 +280,6 @@ export class NotificationsService {
     });
   }
 
-  /**
-   * Notifica todos os envolvidos numa solicitação cirúrgica sobre uma mudança de status.
-   * Envolvidos = médico + criador + admins da conta + usuários com atividade registrada.
-   * O próprio ator não recebe notificação.
-   */
   async notifyStatusChange(
     surgeryRequestId: string,
     doctorId: string,
@@ -381,7 +334,6 @@ export class NotificationsService {
       const oldLabel = getStatusLabel(oldStatus);
       const newLabel = getStatusLabel(newStatus);
 
-      // Push (in-app + WS) — respeita pushNotifications + tipo
       await this.createNotificationForUsers(stakeholderIds, {
         type: NotificationType.STATUS_UPDATE,
         title: 'Status da Solicitação Atualizado',
@@ -407,8 +359,6 @@ export class NotificationsService {
 
       const shouldSendWhatsapp = options?.sendWhatsapp !== false;
       if (shouldSendWhatsapp) {
-        // WhatsApp — respeita whatsappNotifications + tipo. E-mail não é mais
-        // enviado para usuários do sistema em mudanças de status.
         await Promise.all(
           stakeholderIds.map(async (uid) => {
             try {
@@ -451,14 +401,6 @@ export class NotificationsService {
     }
   }
 
-  /**
-   * Avisa a equipe que o paciente respondeu ao template de confirmação de
-   * consulta pelo WhatsApp. Vai para o médico e para todo colaborador da conta
-   * que enxerga a agenda dele — o mesmo recorte de `notifyStatusChange`.
-   *
-   * Best-effort: é reação a um webhook público do Twilio, e falhar aqui não
-   * pode desfazer a mudança de status que já foi gravada.
-   */
   async notifyAppointmentPatientResponse(params: {
     appointmentId: string;
     ownerId: string;
@@ -485,9 +427,6 @@ export class NotificationsService {
         }),
       );
 
-      // O médico entra sempre, fora do recorte: é a agenda dele que mudou. Sem
-      // isto, um `AccessControlService` ausente (é `@Optional`) ou uma falha na
-      // consulta de acesso deixavam o cancelamento sem ninguém para ver.
       const destinatarios = [
         ...new Set([
           params.doctorId,
@@ -521,10 +460,6 @@ export class NotificationsService {
     }
   }
 
-  /**
-   * Notifica todos os admins da conta sobre uma ação realizada por um usuário.
-   * O próprio ator não recebe notificação.
-   */
   async notifyAdminsOfAction(
     actorId: string,
     title: string,

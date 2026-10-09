@@ -12,22 +12,6 @@ import {
   resolverAlvos,
 } from '../src/database/seeds/plan-prices';
 
-/**
- * Sincroniza `subscription_plans.gateway_price_id` com os price IDs da Stripe,
- * validando cada um contra a API ANTES de gravar.
- *
- * Diferente do `yarn seed`, roda em produção: mexe só nesta coluna, é
- * idempotente e nunca cria nem apaga linha. É o caminho suportado para trocar
- * os preços — o `UPDATE` manual não conferia nada e foi como um price de test
- * mode entrou no banco de produção, derrubando o checkout com `No such price`.
- *
- * Uso:
- *   yarn seed:prices           grava os IDs válidos
- *   yarn seed:prices --check   só valida e relata (read-only)
- *
- * Saída: 0 tudo certo · 1 configuração ausente · 2 algum price inválido.
- */
-
 const SOMENTE_CHECAGEM =
   process.argv.includes('--check') || process.argv.includes('--dry-run');
 
@@ -118,7 +102,6 @@ async function main(): Promise<void> {
     }
 
     for (const slug of semPriceId) {
-      // `enterprise` é "fale conosco" e não tem preço na Stripe de propósito.
       console.log(`${TAG} · ${slug}: sem price ID (não assinável pelo checkout)`);
     }
 
@@ -157,7 +140,6 @@ async function carregarPlanos(client: Client): Promise<PlanoDoBanco[]> {
   }));
 }
 
-/** `null` quando o price não existe nesta conta/modo (404 da Stripe). */
 async function buscarPreco(
   stripe: StripeLib.Stripe,
   priceId: string,

@@ -117,7 +117,6 @@ describe('NotificationDispatcherService', () => {
     });
 
     expect(mockNotificationRepository.create).not.toHaveBeenCalled();
-    // WhatsApp continua independente do push
     expect(mockWhatsappService.sendTemplate).toHaveBeenCalled();
   });
 

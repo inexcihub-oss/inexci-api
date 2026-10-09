@@ -100,7 +100,6 @@ describe('EntityResolverService', () => {
       const r = resolve('Bea', ['Beatriz Helena Santos', 'Beatriz Souza'], {
         resolveThreshold: 0.99,
       });
-      // Forçando threshold alto, mesmo Bea→Beatriz Helena Santos vira ambíguo.
       expect(['ambiguous', 'not_found']).toContain(r.status);
     });
 

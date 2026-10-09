@@ -73,11 +73,6 @@ export function statusLabel(status: number | null | undefined): string {
   }
 }
 
-/**
- * Espelha a regra do frontend (`statusNum >= 2`): informações gerais, TUSS,
- * OPME e laudo só podem ser alterados enquanto a SC está em "Pendente". A
- * partir de "Enviada" tudo vira histórico (somente leitura).
- */
 export function ensurePendingForMutation(request: any): string | null {
   if (request?.status !== SurgeryRequestStatus.PENDING) {
     return `Não é possível alterar essas informações: a solicitação está em "${statusLabel(

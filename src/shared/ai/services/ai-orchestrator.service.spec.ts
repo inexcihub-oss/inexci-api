@@ -381,14 +381,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       permissions: [Permission.AGENDA],
       aiConsentAcceptedAt: new Date('2026-01-01T00:00:00Z'),
     });
-    // NÃO inclui o próprio userId — usuário sem doctorProfile, então
-    // `isDoctor` é `false` e a permissão efetiva não ganha o bônus de
-    // AGENDA/ATENDIMENTO/SOLICITACOES. Isolar `isDoctor: false` aqui é
-    // proposital: com `isDoctor: true` (como antes desta correção) o teste
-    // passaria mesmo que `user.permissions` fosse ignorado por completo —
-    // foi exatamente esse ponto cego que deixou passar o bug de
-    // `findOneByPhone` não trazer a coluna `permissions` (ver
-    // `user.repository.ts`).
     accessControlMock.getAccessibleDoctorIds.mockResolvedValue([]);
 
     const toolCall: OpenAI.ChatCompletionMessageToolCall = {
@@ -419,12 +411,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
     expect(toolExecutorMock.executeMany).toHaveBeenCalledTimes(1);
     const [, contextArg] = toolExecutorMock.executeMany.mock.calls[0];
-    // Exatamente o array cru devolvido por `findOneByPhone` — nem vazio
-    // (bug do `select` sem `permissions`), nem inflado pelo bônus de médico.
     expect(contextArg.permissions).toEqual([Permission.AGENDA]);
-    // `AccessControlService` não expõe `getEffectivePermissions` neste mock —
-    // se o orquestrador chamasse o método, a chamada acima teria rejeitado
-    // com TypeError e `processMessage` não teria concluído normalmente.
   });
 
   describe('onUserAccessChanged — invalidação de cache', () => {
@@ -441,8 +428,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         choices: [{ message: { content: 'ok', tool_calls: null } }],
       });
 
-      // Primeira mensagem: popula os dois caches (user por telefone,
-      // accessibleDoctorIds por userId).
       await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'olá',
@@ -452,7 +437,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(userRepositoryMock.findOneByPhone).toHaveBeenCalledTimes(1);
       expect(accessControlMock.getAccessibleDoctorIds).toHaveBeenCalledTimes(1);
 
-      // Segunda mensagem sem invalidar: os dois caches ainda estão quentes.
       await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'oi de novo',
@@ -462,21 +446,15 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(userRepositoryMock.findOneByPhone).toHaveBeenCalledTimes(1);
       expect(accessControlMock.getAccessibleDoctorIds).toHaveBeenCalledTimes(1);
 
-      // Simula o evento emitido por `UsersService.updateCollaborator`.
       service.onUserAccessChanged({
         userId: 'user-1',
         phone: '+5511999999999',
       });
 
-      // O evento também precisa invalidar o cache interno de
-      // `AccessControlService.getAccessibleDoctorIds` (TTL 90s) — sem isso,
-      // mesmo com `doctorIdsCache` limpo, a próxima chamada podia devolver
-      // um valor obsoleto vindo do cache do `AccessControlService`.
       expect(
         accessControlMock.invalidateAccessibleDoctors,
       ).toHaveBeenCalledWith('user-1');
 
-      // Terceira mensagem: os dois caches foram invalidados, então recarrega.
       await service.processMessage({
         from: 'whatsapp:+5511999999999',
         body: 'terceira mensagem',
@@ -618,8 +596,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     expect(audioCall?.[0]).toBe('+5511888888888');
   });
 
-  // Fase 4 (PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA): rewriteForWhatsappQuality
-  // removida. normalizeWhatsappText agora sanitiza diretamente sem LLM.
   it('deve normalizar resposta mal formatada via normalizeWhatsappText (sem rewrite LLM)', async () => {
     openaiServiceMock.chatCompletion.mockResolvedValueOnce({
       choices: [
@@ -639,9 +615,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       mediaUrl: null,
     });
 
-    // Apenas 1 chamada ao LLM (sem segundo call de rewrite).
     expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(1);
-    // normalizeWhatsappText: strip code block → strip header # → convert bullet.
     expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
       '+5511888888888',
       'Status\n1 - item técnico',
@@ -933,10 +907,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
   describe('Pseudonimização de PII (Fase 0)', () => {
     it('limpa placeholders alucinados pela IA quando não há binding correspondente no vault', async () => {
-      // Cenário do print do bug: a IA escreveu "{{protocol_1}}" sem que esse
-      // placeholder tivesse sido tokenizado pela tool no turno atual (nem
-      // restaurado de turnos anteriores). Antes da limpeza defensiva, o
-      // usuário recebia o placeholder cru no WhatsApp.
       openaiServiceMock.chatCompletion.mockResolvedValue({
         choices: [
           {
@@ -1071,10 +1041,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('persiste bindings do vault entre turnos para evitar placeholders órfãos no WhatsApp', async () => {
-      // Reproduz o bug: turno 1 tokeniza protocols/patient_names, salva no
-      // histórico; turno 2 reaproveita placeholders mas a sessão do vault é
-      // nova. Sem persistência de bindings, o detokenize devolveria texto
-      // com `{{protocol_1}}` cru (exatamente o que o usuário viu).
       const piiVaultStore = new PiiVaultService();
       service = new AiOrchestratorService(
         openaiServiceMock as any,
@@ -1162,10 +1128,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         },
       };
 
-      // Turno 1: tool tokeniza diretamente no vault (como em produção) e o
-      // LLM responde reaproveitando os placeholders. As tools reais
-      // armazenam o protocol SEM prefixo "SC-" no vault e prefixam "SC-"
-      // FORA do placeholder no output (regressão SC-SC-).
       toolExecutorMock.executeMany.mockImplementationOnce(
         async (_calls: any[], context: any) => {
           context.piiVault.tokenize(context.conversationId, '0042', 'protocol');
@@ -1214,7 +1176,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(turn1Sent).not.toContain('{{protocol_1}}');
 
       jest.clearAllMocks();
-      // Reapaga o cooldown e re-injeta o usuário com consent válido.
       userRepositoryMock.findOneByPhone.mockResolvedValue({
         id: 'user-1',
         status: UserStatus.ACTIVE,
@@ -1228,8 +1189,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         messagesHistory: [],
       });
 
-      // Turno 2: LLM responde DIRETO citando os placeholders do histórico,
-      // sem chamar tool (cenário real do bug).
       openaiServiceMock.chatCompletion.mockResolvedValueOnce({
         choices: [
           {
@@ -1387,8 +1346,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      // Note: o vault normaliza realValue de protocol removendo SC-
-      // (regressão SC-SC-): mesmo que a tool passe "SC-9999", grava "9999".
       expect(redisAvailableMock.cacheSet).toHaveBeenCalledWith(
         expect.stringContaining('pii:vault:conv-1'),
         expect.arrayContaining([
@@ -1402,12 +1359,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       );
     });
 
-    // Regressão: print 2026-05-10 — usuário recebia "SC-SC-468131" no
-    // WhatsApp porque a IA, ao copiar o padrão "SC-{{protocol_n}}" do
-    // contexto, prefixava MAIS um "SC-" por engano. Defesa: o orchestrator
-    // colapsa "SC-SC-XXX" em "SC-XXX" antes de enviar e antes de gravar no
-    // histórico, garantindo que o erro nunca chegue ao usuário e nem se
-    // propague nos turnos seguintes.
     it('colapsa "SC-SC-XXXX" para "SC-XXXX" antes de enviar a resposta ao WhatsApp', async () => {
       const tool: OpenAI.ChatCompletionMessageToolCall = {
         id: 'call-list',
@@ -1429,7 +1380,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         },
       );
 
-      // IA alucina prefixo duplicado ao referenciar a SC.
       openaiServiceMock.chatCompletion
         .mockResolvedValueOnce({
           choices: [{ message: { content: null, tool_calls: [tool] } }],
@@ -1459,7 +1409,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(sentText).not.toContain('SC-SC-468131');
       expect(sentText).not.toContain('SC-SC-');
 
-      // Histórico também é saneado para impedir que o erro se propague.
       const historyAppendCall = (
         conversationServiceMock.appendMessage as jest.Mock
       ).mock.calls.find((call) => call[1] === 'assistant');
@@ -1467,10 +1416,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('não bloqueia turno seguinte quando assistant histórico contém exemplo de telefone (regressão print 2026-05-09)', async () => {
-      // Reproduz o cenário do print: o assistant escreveu literalmente
-      // "ex: 31 99999-9999" em uma resposta anterior; antes da correção,
-      // `assertNoResidualPii` detectava esse texto no histórico e bloqueava
-      // todos os turnos seguintes com a notice "Detectei um dado sensível...".
       defaultContextServiceMock.buildContext.mockResolvedValueOnce({
         messages: [
           { role: 'system', content: 'system' },
@@ -1554,9 +1499,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
 
     it('não dispara notice de PII por causa do telefone do usuário no contexto (regressão)', async () => {
-      // Reproduz o bloco real produzido por ConversationContextService.buildContext:
-      // antes da correção, "Telefone=+5511999999999" era detectado como PII residual
-      // e qualquer mensagem (até "olá") respondia com a notice "Detectei um dado sensível".
       defaultContextServiceMock.buildContext.mockResolvedValueOnce({
         messages: [
           { role: 'system', content: 'system' },
@@ -1700,12 +1642,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(ragServiceMock.search).toHaveBeenCalled();
       expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(1);
       const completionArgs = openaiServiceMock.chatCompletion.mock.calls[0][0];
-      // Modo limitado não envia tools
       expect(completionArgs.tools).toBeUndefined();
       const sentBody = (whatsappServiceMock.sendMessage as jest.Mock).mock
         .calls[0][1] as string;
       expect(sentBody).toContain('Solicitações');
-      // Não enviou a notice de consent
       expect(whatsappServiceMock.sendMessage).toHaveBeenCalledTimes(1);
     });
 
@@ -1779,19 +1719,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     );
   });
 
-  // describe('Plano Tokens (Fase 4) — slot-filling') removido em 2026-05-12
-  // (Fase 3.1 do PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA). O slot-filling
-  // determinístico saiu do orchestrator junto com a tool legacy
-  // `create_surgery_request_from_whatsapp`. A validação de campos
-  // obrigatórios da criação de SC agora vive dentro do fluxo `sc_draft_*`
-  // (coberto por `sc-draft.tools.spec.ts`).
-
   describe('Resposta numérica determinística', () => {
-    /**
-     * Captura a lista de mensagens enviada ao OpenAI na PRIMEIRA chamada
-     * dentro do turno atual. Útil para conferir o conteúdo do system hint
-     * de interpretação numérica.
-     */
     const firstMessagesSentToOpenAi = (): any[] => {
       const call = openaiServiceMock.chatCompletion.mock.calls.at(0);
       return (call?.[0]?.messages || []) as any[];
@@ -2076,9 +2004,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
   });
 
-  // ============================================================
-  // Fase 5 — MAX_TOOL_ITERATIONS (loop limit)
-  // ============================================================
   describe('loop limit (MAX_TOOL_ITERATIONS = 8)', () => {
     const persistentToolCall: OpenAI.ChatCompletionMessageToolCall = {
       id: 'call-loop',
@@ -2095,9 +2020,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     };
 
     it('loga [AI_LOOP_LIMIT] e envia mensagem contextual quando esgota iterações', async () => {
-      // Sempre devolve tool_calls → o loop esgota independente do número de
-      // iterações (initial + 8 followups). `mockResolvedValue` (sem `Once`)
-      // cobre todas as chamadas.
       openaiServiceMock.chatCompletion.mockResolvedValue(loopResponse);
 
       toolExecutorMock.executeMany.mockResolvedValue([
@@ -2119,16 +2041,10 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('[AI_LOOP_LIMIT]'),
       );
-      // Após Fase 1 do PLANO-CORRECAO-IA-WHATSAPP-FLUXOS-COMPLETOS, o
-      // fallback é contextual com base na última tool pendente. Para
-      // `advance_surgery_request`, a mensagem cai no ramo genérico
-      // "dificuldade técnica para concluir essa ação" — não no antigo
-      // "Vou parar por aqui" (removido).
       expect(whatsappServiceMock.sendMessage).toHaveBeenCalledWith(
         '+5511999999999',
         expect.stringContaining('dificuldade técnica'),
       );
-      // Também garante que o texto antigo não vaza mais.
       expect(whatsappServiceMock.sendMessage).not.toHaveBeenCalledWith(
         '+5511999999999',
         expect.stringContaining('Vou parar por aqui'),
@@ -2176,9 +2092,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
   });
 
-  // ============================================================
-  // Fase 4 — normalizeWhatsappText (sanitizador sem rewrite LLM)
-  // ============================================================
   describe('normalizeWhatsappText (delegado a ResponseNormalizerService)', () => {
     const norm = (text: string) =>
       (service as any).responseNormalizer.normalizeWhatsappText(text);
@@ -2257,9 +2170,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     });
   });
 
-  // ============================================================
-  // Fase 6 — RAG sob demanda (skip para inputs triviais)
-  // ============================================================
   describe('Fase 6 — RAG sob demanda: skip para inputs triviais', () => {
     const defaultOpenaiResponse = {
       choices: [{ message: { content: 'ok', tool_calls: null } }],

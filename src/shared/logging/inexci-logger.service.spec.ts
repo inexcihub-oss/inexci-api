@@ -59,7 +59,6 @@ describe('InexciLogger', () => {
     expect(payload.event).toBe('http_request');
     expect(payload.method).toBe('GET');
     expect(payload.statusCode).toBe(200);
-    // Não deve existir um campo "message" contendo JSON serializado.
     expect(payload.message).toBeUndefined();
     expect(JSON.stringify(payload)).not.toContain('\\"event\\"');
   });

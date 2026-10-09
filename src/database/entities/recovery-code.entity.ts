@@ -23,21 +23,12 @@ export class RecoveryCode {
   @Column({ type: 'varchar', length: 64 })
   code: string;
 
-  /**
-   * Tentativas de validacao ja feitas contra este codigo. Ao atingir
-   * MAX_TENTATIVAS_RECOVERY o registro e marcado como usado.
-   */
   @Column({ type: 'int', default: 0 })
   attempts: number;
 
   @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
   expiresAt: Date | null;
 
-  /**
-   * Reset token de uso único emitido após a validação do código. Exigido no
-   * `changePassword` para amarrar a validação do código à troca de senha
-   * (evita trocar a senha apenas por existir "algum" código usado).
-   */
   @Column({
     name: 'reset_token',
     type: 'varchar',
@@ -59,7 +50,6 @@ export class RecoveryCode {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 
-  // Relations
   @ManyToOne(() => User, (user) => user.recoveryCodes)
   @JoinColumn({ name: 'user_id' })
   user: User;

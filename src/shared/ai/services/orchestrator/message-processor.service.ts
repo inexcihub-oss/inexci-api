@@ -68,12 +68,10 @@ export interface PreflightInput {
 }
 
 export interface PreflightHooks {
-  /** Redator defensivo aplicado a mensagens antes do `tryAnswerLimitedFaq`. */
   redactResidualPii: (
     messages: OpenAI.ChatCompletionMessageParam[],
     ctx: { conversationId: string; messageSid: string },
   ) => Promise<void>;
-  /** Wrapper opcional para `getRemainingTimeoutMs` do orchestrator. */
   getRemainingTimeoutMs?: (startedAt: number, totalTimeoutMs: number) => number;
 }
 
@@ -84,27 +82,6 @@ export type PreflightOutcome =
   | { status: 'consent_block'; mode: 'limited_faq' | 'notice' | 'suppressed' }
   | { status: 'continue'; user: User; userId: string };
 
-/**
- * Orquestra o pré-fluxo de toda mensagem inbound do WhatsApp:
- *
- *  1. Enfileiramento (`enqueueInboundMessage`).
- *  2. Rate limit por telefone (Redis com fallback in-memory).
- *  3. Lookup de usuário (cacheado).
- *  4. Resposta determinística para usuário desconhecido (`handleUnknownUser`).
- *  5. Gate de status — espelha a `JwtStrategy` do caminho web
- *     (`user.status !== ACTIVE` → sessão inválida). Roda ANTES do gate de
- *     consentimento e independe de o `user` ter vindo do cache ou de uma
- *     consulta fresca: um usuário `INACTIVE`/`PENDING` nunca é gravado no
- *     cache (ver `runPreflight`), então cache quente não contorna este gate.
- *  6. Gate de consentimento de IA — `tryAnswerLimitedFaq` (modo RAG-only) e
- *     notice cooldown.
- *
- * Quando o pré-fluxo finaliza a mensagem (rate limit, unknown user, acesso
- * bloqueado, consent), o orchestrator não precisa fazer mais nada. Caso
- * contrário, devolve o `User` resolvido para o orchestrator continuar com
- * PII vault, RAG, contexto
- * e tool loop.
- */
 @Injectable()
 export class MessageProcessorService {
   private readonly logger = new Logger(MessageProcessorService.name);
@@ -128,8 +105,6 @@ export class MessageProcessorService {
   ) {}
 
   async enqueueInboundMessage(data: InboundMessageData): Promise<void> {
-    // Injeta o trace context do OTel no payload do job para que o worker
-    // consiga restaurar o span pai e manter o trace contínuo (tarefa 8.6).
     const carrier: Record<string, string> = {};
     propagation.inject(context.active(), carrier);
     await this.aiQueue.add(
@@ -166,12 +141,6 @@ export class MessageProcessorService {
         phone,
         lookupCandidates,
       ));
-    // Nunca cacheia usuário INACTIVE/PENDING: se cacheássemos, uma
-    // reativação (`toggleCollaboratorStatus` → ACTIVE) só valeria depois do
-    // TTL de 10 min OU do evento `user.access_changed` chegar (que só
-    // invalida a MESMA instância do processo — `userCache` é um `Map` em
-    // memória, não Redis). Não cachear o lado bloqueado elimina essa janela
-    // sem depender do evento: a próxima mensagem sempre relê o banco.
     if (user && !cachedUser && user.status === UserStatus.ACTIVE) {
       this.userCache.set(phone, user, 10 * 60 * 1000);
     }
@@ -189,16 +158,6 @@ export class MessageProcessorService {
       return { status: 'unknown_user' };
     }
 
-    // Espelha a `JwtStrategy` do caminho web (`user.status !== ACTIVE` →
-    // `UnauthorizedException`). Roda com o `user` já resolvido acima —
-    // cacheado ou fresco — então cobre os dois casos igualmente: um usuário
-    // que estava ACTIVE quando cacheado e foi desativado depois só passa a
-    // ser barrado quando o cache expira/é invalidado (mesma janela de
-    // qualquer cache), mas nunca fica PERMANENTEMENTE liberado, porque
-    // nunca mais será cacheado como ACTIVE de novo sem reativação real no
-    // banco. `PENDING` é tratado igual a `INACTIVE`: não existe fluxo de
-    // ativação de conta pelo WhatsApp (o link de primeiro acesso é só web,
-    // em `AuthService`), então barrar aqui não quebra nenhum onboarding.
     if (user.status !== UserStatus.ACTIVE) {
       this.logger.warn(
         `[AI_ACCESS_BLOCK] sid=${messageSid} user=${userId} phone=${maskedPhone} status=${user.status}`,
@@ -280,12 +239,6 @@ export class MessageProcessorService {
     ].join('\n');
   }
 
-  /**
-   * Mensagem enviada quando `user.status !== ACTIVE` (colaborador desativado
-   * ou ainda com primeiro acesso pendente). Em português, sem jargão e sem
-   * revelar o status — só orienta a procurar o administrador da clínica,
-   * igual à recusa de permissão do `ToolExecutorService`.
-   */
   buildAccessUnavailableMessage(): string {
     return 'Seu acesso à Inexci está indisponível no momento. Fale com o administrador da sua clínica para mais informações.';
   }
@@ -425,9 +378,6 @@ export class MessageProcessorService {
       { role: 'user', content: message },
     ];
 
-    // Telefone nao cadastrado: nao ha base legal nem consentimento de IA.
-    // A mensagem pode conter CPF e nome de paciente — redige antes de sair.
-    // `redactResidualPii` mascara `messages` in-place (nao retorna string).
     if (hooks?.redactResidualPii) {
       await hooks.redactResidualPii(messages, {
         conversationId: `unknown:${phone}`,
@@ -459,12 +409,6 @@ export class MessageProcessorService {
     return this.checkRateLimitInMemory(phone, max, windowSec);
   }
 
-  // T32: Rate limit via Redis com fallback in-memory.
-  // Janela curta (default 20 msgs / 60 s) para proteger contra flood real
-  // sem atrapalhar fluxos de cadastro/conversa, em que cada turno (texto,
-  // áudio, confirmação) conta como 1 mensagem. Configurável via env:
-  //   AI_RATELIMIT_MAX           (default 20)
-  //   AI_RATELIMIT_WINDOW_SEC    (default 60)
   private getRateLimitConfig(): { max: number; windowSec: number } {
     const max = Math.max(
       1,

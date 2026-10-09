@@ -49,11 +49,6 @@ describe('resolverAlvos', () => {
     ]);
   });
 
-  /**
-   * Sem nada no `.env`, o valor do banco ainda precisa ser conferido — é
-   * exatamente esse caminho que pega o price ID podre que entrou por `UPDATE`
-   * manual e só apareceu quando um cliente tentou assinar.
-   */
   it('valida o que já está no banco quando o .env não traz nada', () => {
     const { alvos } = resolverAlvos(
       [plano({ gatewayPriceId: 'price_banco' })],
@@ -148,7 +143,6 @@ describe('conferirPreco', () => {
     ).toEqual([]);
   });
 
-  /** Price mensal gravado no slug anual (ou vice-versa) — troca clássica. */
   it('acusa periodicidade trocada entre plano mensal e anual', () => {
     const avisos = conferirPreco(
       plano({ slug: 'starter-anual', billingPeriod: 'YEARLY' }),

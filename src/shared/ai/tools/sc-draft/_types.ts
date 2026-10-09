@@ -5,15 +5,6 @@ import { SurgeryRequestsService } from '../../../../modules/surgery-requests/sur
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestAssemblyService } from '../../../../modules/surgery-requests/services/surgery-request-assembly.service';
 
-/**
- * Dependências mínimas das tools `sc_draft_preview` e `sc_draft_commit`.
- * Setters per-type (`sc_draft_set_*`) e tools de status/cancel foram
- * removidos na Fase 5 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md` em favor
- * das tools globais `draft_update`, `draft_status` e `draft_cancel`.
- *
- * `assemblyService` é opcional; quando presente, popula laudo/TUSS/OPME
- * via `SurgeryRequestAssemblyService.assembleFromExtracted`.
- */
 export interface ScDraftToolDeps {
   draftService: OperationDraftService;
   userRepo: UserRepository;

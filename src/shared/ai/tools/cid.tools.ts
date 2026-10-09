@@ -16,12 +16,6 @@ function clampLimit(value: unknown, fallback = 10, max = 30): number {
   return Math.min(Math.max(Math.floor(value), 1), max);
 }
 
-/**
- * Heurística leve para decidir se a query parece um CID-10 (ex.: "M17", "M17.1",
- * "M171"). CIDs sempre começam com letra seguida de dígitos. Usado apenas
- * para escolher entre `findByExactCode` e `lookup` — em qualquer caso, a tool
- * cai para `lookup` quando não há match exato.
- */
 function looksLikeCidCode(query: string): boolean {
   const cleaned = query.toUpperCase().replace(/[^A-Z0-9]/g, '');
   return /^[A-Z]\d{1,4}$/.test(cleaned);
@@ -31,25 +25,9 @@ function formatLines(items: CidResponse[]): string[] {
   return items.map((item) => `${item.code} — ${item.description}`);
 }
 
-/**
- * Tools de catálogo CID-10 (lookup somente — não há mutação aqui).
- *
- * O catálogo é um arquivo estático (`src/utils/cid.json`). A IA usa esta tool
- * quando o usuário menciona um código CID, seja por:
- *   - código completo (com ou sem ponto: `M17`, `M17.1`, `M171`);
- *   - parte do código (`M17`, `M1`);
- *   - descrição completa (ex.: "Artrose primária bilateral do joelho");
- *   - parte da descrição (ex.: "joelho", "artrose").
- *
- * O CID é OPCIONAL na SC — a tool serve só para ajudar a IA a confirmar
- * código + descrição quando o usuário traz um deles.
- */
 export function buildCidTools(cidService: CidService): AiTool[] {
   const searchCidCodes: AiTool = {
     name: 'search_cid_codes',
-    // Catálogo CID-10 é um arquivo estático — nunca muda em runtime.
-    // TTL 1 h elimina lookups redundantes (ex.: mesmo CID consultado
-    // duas vezes na mesma conversa ou em conversas próximas).
     cacheable: { ttlSeconds: 3600 },
     definition: {
       type: 'function',
@@ -85,9 +63,6 @@ export function buildCidTools(cidService: CidService): AiTool[] {
 
       const limit = clampLimit(args.limit);
 
-      // Quando a query parece um CID completo, tenta match exato primeiro.
-      // Isso garante que o LLM receba apenas 1 linha quando o usuário forneceu
-      // um código válido (caso comum de "qual a descrição do M17.1?").
       const codeLike = looksLikeCidCode(query);
       if (codeLike) {
         const exact = cidService.findByExactCode(query);

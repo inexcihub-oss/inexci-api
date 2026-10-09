@@ -4,13 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-/**
- * Converte exceções HTTP do NestJS em mensagens curtas em português
- * adequadas para retornar ao LLM via `buildToolResult`.
- *
- * Garante que erros técnicos (stack traces, IDs internos) nunca
- * cheguem ao modelo de linguagem.
- */
 export function translateServiceError(err: unknown): string {
   if (err instanceof ConflictException) {
     const response = err.getResponse();

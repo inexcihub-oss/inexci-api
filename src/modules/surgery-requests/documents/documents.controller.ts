@@ -39,8 +39,6 @@ export class DocumentsController {
   @ApiOperation({ summary: 'Enviar documento' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    // Corte grosso pelo maior limite configurado; o limite por pasta é
-    // aplicado no service (a pasta só é conhecida depois do parse do corpo).
     FileInterceptor('document', {
       limits: { fileSize: MAX_STORAGE_FILE_SIZE },
     }),

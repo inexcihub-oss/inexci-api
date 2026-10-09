@@ -29,8 +29,6 @@ export function buildSchedulingDraftPreviewTool(deps: FlowDraftDeps): AiTool {
         });
       }
       const f = v.draft.fields;
-      // Agendamento exige: ou `dateOptions` (para enviar opções) ou
-      // `confirmedDateIndex`/`confirmedDate` (para confirmar uma data).
       const hasDateOptions =
         Array.isArray(f.dateOptions) && f.dateOptions.length > 0;
       const hasConfirmation =

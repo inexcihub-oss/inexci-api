@@ -1,19 +1,3 @@
-/**
- * TESTE E2E — MÓDULO DE ATENDIMENTO (AGENDA + PRONTUÁRIO)
- *
- * Fecha a lacuna AU-08 do `PLANO-TESTES-ATENDIMENTO-AGENDA.md`: até aqui o
- * módulo tinha só teste unitário, e nenhuma suíte exercitava a pilha inteira
- * (guards de permissão, pipes, filtro de exceção, banco).
- *
- * Cobre o caminho principal — agendar → conflito 409 → abrir ficha →
- * finalizar → SC criada — e os defeitos de regressão que só aparecem no HTTP:
- * D-01 (ST-08), D-02 (FN-06), D-05 (MT-04), D-06 (EX-04), D-12 (VL-03) e
- * D-17 (ST-09).
- *
- * O setup é feito por rotas HTTP; SQL direto só onde não há rota (marcar
- * `reminder_sent_at`, inspecionar o que a API não devolve).
- */
-
 import { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import * as request from 'supertest';
@@ -35,7 +19,6 @@ const DOCTOR = {
   specialty: 'Ortopedia',
 };
 
-/** Segundo tenant — para provar que a agenda não vaza entre contas. */
 const OUTRO_MEDICO = {
   name: 'Dra. Outra Clinica E2E',
   email: `dra.outra.${Date.now()}@inexci.test`,
@@ -47,7 +30,6 @@ const OUTRO_MEDICO = {
   specialty: 'Ortopedia',
 };
 
-/** Horário base das consultas — futuro, para não colidir com o cron de lembrete. */
 const BASE = '2027-03-15T13:00:00.000Z';
 
 function maisMinutos(iso: string, minutos: number): string {
@@ -85,7 +67,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
     };
   }
 
-  /** Agenda uma consulta e devolve o corpo criado. */
   async function agendar(
     scheduledAt: string,
     overrides: Record<string, unknown> = {},
@@ -135,10 +116,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
   afterAll(async () => {
     await closeTestApp(app);
   });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Bloco 2/3 — Criar consulta e conflito de horário
-  // ──────────────────────────────────────────────────────────────────────────
 
   describe('Agenda — criação e conflito', () => {
     let criadaId: string;
@@ -194,10 +171,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Bloco 1/17 — Leitura da agenda e recorte por médico (D-05 / MT-04)
-  // ──────────────────────────────────────────────────────────────────────────
-
   describe('Agenda — leitura e recorte', () => {
     let id: string;
 
@@ -224,15 +197,9 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
       expect(res.body.total).toBe(1);
       expect(res.body.records).toHaveLength(1);
       expect(res.body.records[0].id).toBe(id);
-      // O join do paciente vem junto — a agenda mostra o nome sem N+1.
       expect(res.body.records[0].patient?.name).toBe(
         'Paciente Atendimento E2E',
       );
-      // ...mas só id e nome. A agenda é liberada por `Permission.AGENDA`, que
-      // não dá acesso a prontuário: com `leftJoinAndSelect` a entidade inteira
-      // saía, e `Patient` não tem `@Exclude` em campo nenhum — CPF, endereço,
-      // nascimento e `medicalNotes` de todo paciente da janela iam para quem
-      // só marca consulta.
       expect(Object.keys(res.body.records[0].patient).sort()).toEqual([
         'id',
         'name',
@@ -271,10 +238,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
       await request(app.getHttpServer()).get('/appointments').expect(401);
     });
   });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Bloco 4/5 — Reagendar e status (D-01 / D-03 / D-17)
-  // ──────────────────────────────────────────────────────────────────────────
 
   describe('Agenda — reagendamento e status', () => {
     let id: string;
@@ -338,7 +301,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
         .send({ status: 'cancelled', cancellationReason: 'paciente desmarcou' })
         .expect(200);
 
-      // O slot é reocupado enquanto a primeira está fora da agenda.
       const nova = await agendar(horario);
       expect(nova.status).toBe(201);
 
@@ -375,7 +337,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
         .expect(200);
 
       expect(res.body.status).toBe('scheduled');
-      // Motivo de cancelamento não sobrevive à reativação.
       expect(res.body.cancellationReason).toBeNull();
     });
 
@@ -388,10 +349,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
       expect(res.status).toBe(400);
     });
   });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Blocos 9/10/11 — Ficha, finalização e indicação cirúrgica
-  // ──────────────────────────────────────────────────────────────────────────
 
   describe('Prontuário — ficha, finalização e SC', () => {
     let appointmentId: string;
@@ -488,7 +445,7 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
         `SELECT status, patient_id, doctor_id FROM surgery_requests WHERE id = $1`,
         [ficha.surgery_request_id],
       );
-      expect(sc.status).toBe(1); // PENDING
+      expect(sc.status).toBe(1);
       expect(sc.patient_id).toBe(patientId);
       expect(sc.doctor_id).toBe(doctorId);
     });
@@ -552,10 +509,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
     });
   });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Bloco 10 — D-02 / FN-06: finalizar ficha de consulta cancelada
-  // ──────────────────────────────────────────────────────────────────────────
-
   describe('D-02: finalizar ficha de consulta cancelada', () => {
     it('preserva o status "cancelled" e o motivo', async () => {
       const consulta = await agendar(maisMinutos(BASE, 5760));
@@ -588,10 +541,6 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
       expect(depois.body.cancellationReason).toBe('paciente faltou');
     });
   });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Bloco 16 — Atos privativos do médico
-  // ──────────────────────────────────────────────────────────────────────────
 
   describe('Permissões — escrever na ficha é ato do médico', () => {
     let secretariaToken: string;

@@ -1,14 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { SurgeryRequestMutationService } from './surgery-request-mutation.service';
 
-/**
- * Cobre só o que este módulo adiciona a `update()`: permitir escolher/trocar
- * o procedimento (`procedureId`) direto na tela da SC — o mesmo campo que já
- * existe na criação (`create`/`createSurgeryRequest`), agora editável depois
- * que a solicitação já existe. O restante de `update()` (hospital, convênio,
- * CID, prioridade) já roda em produção sem suíte própria; não é reescrito
- * aqui.
- */
 describe('SurgeryRequestMutationService.update — procedimento', () => {
   let service: SurgeryRequestMutationService;
 

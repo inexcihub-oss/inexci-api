@@ -1,16 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-/**
- * Excluir um usuário — ou a conta inteira — precisa funcionar em uma operação
- * só, sem limpar dependências à mão antes.
- *
- * O que trava não são as chaves para `users`, que já cascateiam, e sim um
- * `RESTRICT`/`NO ACTION` em qualquer tabela alcançada pela cascata: ele aborta
- * a operação inteira, e o erro do Postgres só cita a constraint. Este teste
- * percorre o schema como o Postgres percorreria e falha se alguma migration
- * futura reintroduzir um bloqueio nesse caminho.
- */
 const DIR_MIGRATIONS = path.join(__dirname, 'migrations');
 
 interface ChaveEstrangeira {
@@ -27,14 +17,12 @@ const FK = new RegExp(
   'gs',
 );
 
-/** Só o `up()`: o `down()` descreve o estado que a migration desfaz. */
 function corpoUp(conteudo: string): string {
   const inicio = conteudo.indexOf('public async up(');
   const fim = conteudo.indexOf('public async down(');
   return conteudo.slice(inicio, fim > inicio ? fim : conteudo.length);
 }
 
-/** Tabela de cada constraint: o `CREATE`/`ALTER TABLE` mais próximo acima. */
 function tabelaDaConstraint(up: string, posicao: number): string {
   const antes = up.slice(0, posicao);
   const criacoes = [
@@ -50,11 +38,6 @@ function tabelaDaConstraint(up: string, posicao: number): string {
   return vencedor?.[1] ?? '';
 }
 
-/**
- * Estado final do schema: as migrations rodam em ordem de timestamp, e o nome
- * do arquivo começa por ele — ordenar por nome é ordenar por cronologia. Uma
- * migration posterior que recria a constraint sobrescreve a anterior.
- */
 function chavesEstrangeiras(): Map<string, ChaveEstrangeira> {
   const estado = new Map<string, ChaveEstrangeira>();
 
@@ -77,7 +60,6 @@ function chavesEstrangeiras(): Map<string, ChaveEstrangeira> {
   return estado;
 }
 
-/** Tabelas cujas linhas somem junto com o usuário, seguindo as cascatas. */
 function alcancadasPelaCascata(fks: ChaveEstrangeira[]): Set<string> {
   const alcancadas = new Set(['users']);
   let cresceu = true;
@@ -123,11 +105,6 @@ describe('exclusão de usuário', () => {
     expect(bloqueios).toEqual([]);
   });
 
-  /**
-   * `surgery_requests.created_by_id` é NOT NULL: `SET NULL` ali não é uma
-   * alternativa mais branda ao `CASCADE`, é uma exclusão que aborta por
-   * violação de not-null. Foi assim que o schema nasceu.
-   */
   it('não devolve SET NULL para uma coluna obrigatória', () => {
     const criacao = fs.readFileSync(
       path.join(DIR_MIGRATIONS, '1746144400000-CreateSurgeryRequests.ts'),

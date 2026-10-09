@@ -28,7 +28,6 @@ export class ConversationCleanupService {
 
     const deleted = await this.conversationRepo.deleteOlderThan(cutoff);
 
-    // T31: Registrar último cleanup no DB para idempotência
     await this.recordCleanupRun(deleted, cutoff);
 
     this.logger.log(
@@ -36,7 +35,6 @@ export class ConversationCleanupService {
     );
   }
 
-  // T31: Registra execução do cleanup para auditoria/idempotência
   private async recordCleanupRun(
     deletedCount: number,
     cutoffDate: Date,
@@ -47,8 +45,6 @@ export class ConversationCleanupService {
          VALUES ($1, $2, NOW())`,
         [deletedCount, cutoffDate],
       );
-    } catch {
-      // Tabela pode não existir ainda — silencia o erro
-    }
+    } catch {}
   }
 }

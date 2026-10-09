@@ -79,7 +79,6 @@ describe('ExportFeegow.arquivo', () => {
     mkdirSync(client, { recursive: true });
     mkdirSync(join(raiz, 'export', 'outra'));
     writeFileSync(join(raiz, 'export', 'outra', 'laudo.pdf'), '%PDF');
-    // Client/Arquivos -> fora do export; Client/Perfil -> dentro do export.
     symlinkSync(fora, join(client, 'Arquivos'));
     symlinkSync(join(raiz, 'export', 'outra'), join(client, 'Perfil'));
     const exp = new ExportFeegow(join(raiz, 'export'));

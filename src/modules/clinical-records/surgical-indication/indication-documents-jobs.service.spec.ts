@@ -49,8 +49,6 @@ describe('IndicationDocumentsJobsService', () => {
 
     await service.schedule(params);
 
-    // Sem Redis a cópia ainda acontece — melhor um atendimento mais lento do
-    // que uma solicitação sem os exames.
     expect(documentsService.copyPatientDocuments).toHaveBeenCalledWith(params);
   });
 

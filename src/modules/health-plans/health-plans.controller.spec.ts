@@ -3,12 +3,6 @@ import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
 import { PERMISSIONS_KEY } from 'src/shared/decorators/require-permission.decorator';
 import { HealthPlansController } from './health-plans.controller';
 
-/**
- * A exigência é lida do mesmo jeito que o `PermissionsGuard` lê:
- * `getAllAndOverride([método, classe])`. Olhar só o método esconderia o
- * `@RequireAnyArea()` da classe e faria uma rota parecer aberta a qualquer
- * autenticado quando na verdade exige ao menos uma área.
- */
 describe('HealthPlansController — permissões declaradas', () => {
   const reflector = new Reflector();
 

@@ -17,19 +17,6 @@ describe('UsersController — permissões declaradas', () => {
       UsersController.prototype[metodo],
     );
 
-  /**
-   * PATCH doctor-profile/:id (assinatura/CRM de perfil médico de terceiro) é
-   * a ÚNICA das 4 rotas de perfil médico/cabeçalho de terceiro que precisa
-   * das duas permissões: o editor de laudo (MedicalReportEditor.tsx:315,336)
-   * a usa para o colaborador vinculado ao médico da solicitação (que tem
-   * Solicitações, não Administração) subir/remover só a assinatura. A
-   * restrição fina (vínculo colaborador↔médico, campo permitido) continua em
-   * UsersService.updateDoctorProfileById.
-   *
-   * Atendimento entra porque o próprio profissional salva os dados dele em
-   * Configurações por esta rota, e quem não é CRM (CRN/CRP/COREN/CRO/OUTRO)
-   * não recebe Solicitações — só Atendimento.
-   */
   it('exige Administração, Solicitações OU Atendimento em updateDoctorProfile', () => {
     expect(exigidoEm('updateDoctorProfile')).toEqual([
       Permission.ADMINISTRACAO,
@@ -51,13 +38,6 @@ describe('UsersController — permissões declaradas', () => {
     ).toBe(true);
   });
 
-  /**
-   * As 3 rotas de cabeçalho "por id" (diferente de `/users/me/header`) NÃO
-   * são usadas pelo editor de laudo — ele lê/grava o cabeçalho do PRÓPRIO
-   * usuário (`isOwnRequest` em MedicalReportEditor.tsx:351-357). Só o admin
-   * da conta configura cabeçalho de outro médico (ex.:
-   * `colaboradores/assistente/[id]`), então aqui é só Administração.
-   */
   it.each([
     'create',
     'findDoctors',
@@ -77,11 +57,6 @@ describe('UsersController — permissões declaradas', () => {
     expect(exigidoEm(metodo)).toEqual([Permission.ADMINISTRACAO]);
   });
 
-  // O diretório do staff (`GET /users` e `GET /users/one`) foi removido — não
-  // tinha consumidor e devolvia nome/e-mail/telefone/CPF dos colegas a
-  // qualquer autenticado com uma área. Este teste trava a remoção: se alguém
-  // reintroduzir a rota, precisa reabrir a decisão em vez de herdar o gate
-  // frouxo de antes.
   it.each(['findMany', 'findOne'] as const)(
     'não existe mais o método %s no controller',
     (metodo) => {

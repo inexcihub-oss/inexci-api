@@ -15,19 +15,6 @@ import { buildUpdateScDraftCommitTool } from './update-sc/update-sc-draft-commit
 
 export type { FlowDraftDeps } from './_types';
 
-/**
- * Tools de fluxo complexo que dependem de um draft estruturado:
- *  - `invoice_draft_*` — faturamento.
- *  - `contestation_draft_*` — contestação de autorização ou pagamento.
- *  - `scheduling_draft_*` — agendamento (sugerir opções e/ou confirmar data).
- *  - `update_sc_draft_*` — atualização de dados clínicos / administrativos / paciente.
- *
- * A partir da Fase 5 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`, os setters
- * per-type (`*_draft_set_*`), `*_draft_status` e `*_draft_cancel` foram
- * removidos em favor das tools globais `draft_update`, `draft_status` e
- * `draft_cancel` (`draft-generic.tools.ts`). Sobram apenas
- * `*_draft_preview` e `*_draft_commit` por fluxo.
- */
 export function buildFlowDraftTools(deps: FlowDraftDeps): AiTool[] {
   return [
     buildInvoiceDraftPreviewTool(deps),

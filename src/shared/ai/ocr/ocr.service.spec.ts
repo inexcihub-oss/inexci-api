@@ -157,12 +157,6 @@ describe('OcrService', () => {
   });
 
   it('REGRESSION: extractAndTokenize NÃO transforma laudo grande em payload_blob', async () => {
-    // Bug observado em prod: laudos médicos de PDF (frequentemente
-    // > 1500 chars) saíam como UM ÚNICO `{{payload_blob_1}}`, fazendo o
-    // classifier text-only devolver `kind=unknown, confidence=0.5,
-    // extracted={}`. O fix foi remover o `payload_blob` automático do
-    // PII Vault — apenas dados sensíveis estruturados (CPF/telefone/
-    // email) seguem sendo tokenizados.
     const longLaudo =
       'Paciente Jean Pierre Pereira Proximo, CPF 529.982.247-25. ' +
       'Diagnóstico: artrose cervical em 2 níveis. Indicação: artrodese cervical. ' +

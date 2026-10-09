@@ -1,11 +1,3 @@
-/**
- * Mapeamento explícito de resposta para o detalhe da SC (P11 / item 3.6).
- *
- * Allowlist derivada do contrato tipado do frontend (`surgery-request.types.ts`
- * e `SurgeryRequestDetail`). Relações com escape hatch (`analysis`,
- * `contestations`) ficam pass-through.
- */
-
 import type { CidResponse } from '../cid/cid.service';
 import { formatPatientAddressForLaudo } from '../utils/laudo-patient-fields.util';
 

@@ -86,8 +86,6 @@ export async function downloadInboundMedia(
   url: string,
   configService?: ConfigService,
 ): Promise<{ buffer: Buffer; contentType: string | null; fileName: string }> {
-  // Delega ao helper endurecido (allowlist de host Twilio + timeout + limite de
-  // bytes). Antes era um `fetch(url)` cru — SSRF com vazamento de credencial.
   return downloadTwilioInboundMedia(url, configService, 'media');
 }
 
@@ -178,11 +176,6 @@ export function ensurePendingForMutation(request: any): string | null {
   return null;
 }
 
-/**
- * Tenta resolver código TUSS + descrição a partir do que o usuário forneceu.
- * Aceita: só código (resolve descrição), só nome (resolve código), ambos
- * (mantém ambos), nada (devolve erro).
- */
 export function resolveTussFromCatalog(
   tussService: TussService | undefined,
   rawCode: string | null,

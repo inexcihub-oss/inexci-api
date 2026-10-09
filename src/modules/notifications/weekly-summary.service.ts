@@ -32,7 +32,6 @@ interface WeeklyCounts {
 export class WeeklySummaryService {
   private readonly logger = new Logger(WeeklySummaryService.name);
 
-  /** Status considerados ativos (não fechados/finalizados) — usados para highlights de pendências. */
   private readonly OPEN_STATUSES: SurgeryRequestStatus[] = [
     SurgeryRequestStatus.PENDING,
     SurgeryRequestStatus.SENT,
@@ -53,12 +52,6 @@ export class WeeklySummaryService {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Envia o resumo semanal para todos os usuários ativos da plataforma que
-   * tenham e-mail e cujo `weeklyReport` não esteja desligado nas preferências.
-   *
-   * @returns número de e-mails enfileirados
-   */
   async sendWeeklySummariesForAllUsers(
     now: Date = new Date(),
   ): Promise<number> {
@@ -90,18 +83,11 @@ export class WeeklySummaryService {
     return dispatched;
   }
 
-  /**
-   * Calcula o resumo de um usuário individual e dispara o e-mail.
-   * Retorna true se o e-mail foi enfileirado.
-   */
   async dispatchForUser(user: User, start: Date, end: Date): Promise<boolean> {
     if (!user.email) return false;
 
     const settings = await this.settingsRepository.findByUserId(user.id);
 
-    // Opt-out explícito do resumo semanal bloqueia o envio. O resumo
-    // semanal é o único e-mail enviado a usuários do sistema, então o
-    // único toggle relevante aqui é `weeklyReport`.
     if (settings && settings.weeklyReport === false) return false;
 
     const doctorIds = await this.accessControlService
@@ -112,7 +98,6 @@ export class WeeklySummaryService {
 
     const summary = await this.buildSummary(doctorIds, start, end);
 
-    // Não envia se não há nenhum movimento na semana E nenhuma pendência aberta.
     const hasMovement =
       summary.counts.created > 0 ||
       summary.counts.statusChanged > 0 ||
@@ -140,9 +125,6 @@ export class WeeklySummaryService {
     return true;
   }
 
-  /**
-   * Busca solicitações dos médicos acessíveis e gera contadores + destaques.
-   */
   private async buildSummary(
     doctorIds: string[],
     start: Date,
@@ -150,7 +132,6 @@ export class WeeklySummaryService {
   ): Promise<{ counts: WeeklyCounts; highlights: WeeklyHighlight[] }> {
     const repo = this.surgeryRequestRepository['repository'];
 
-    // Janela [start, end) — start inclusivo, end exclusivo.
     const requests = await repo.find({
       where: { doctorId: In(doctorIds) },
       relations: ['patient'],
@@ -170,7 +151,6 @@ export class WeeklySummaryService {
       (r) => r.status === SurgeryRequestStatus.FINALIZED,
     );
 
-    // Pendências bloqueantes em SCs ativas.
     const openRequests = requests.filter((r) =>
       this.OPEN_STATUSES.includes(r.status),
     );
@@ -178,8 +158,6 @@ export class WeeklySummaryService {
     const highlights: WeeklyHighlight[] = [];
     let withPendingBlocking = 0;
 
-    // Limita o cálculo de pendências a 30 SCs por usuário para evitar custo
-    // excessivo no cron. Considera as 30 mais recentemente movimentadas.
     const limitedOpen = openRequests.slice(0, 30);
 
     for (const request of limitedOpen) {
@@ -204,7 +182,6 @@ export class WeeklySummaryService {
       }
     }
 
-    // Inclui também as movimentadas na semana (até atingir 10 destaques).
     for (const request of statusChanged) {
       if (highlights.length >= 10) break;
       if (
@@ -230,14 +207,9 @@ export class WeeklySummaryService {
     };
   }
 
-  /**
-   * Janela da última semana (segunda 00:00 → segunda 00:00 seguinte).
-   * Quando rodado num domingo às 08:00, devolve a semana ISO anterior completa.
-   */
   getLastWeekRange(reference: Date): { start: Date; end: Date } {
     const ref = new Date(reference);
-    const day = ref.getUTCDay(); // 0 = domingo
-    // Segunda-feira da semana atual em UTC
+    const day = ref.getUTCDay();
     const diffToMonday = (day + 6) % 7;
     const monday = new Date(ref);
     monday.setUTCDate(ref.getUTCDate() - diffToMonday);

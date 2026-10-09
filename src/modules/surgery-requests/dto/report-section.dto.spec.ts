@@ -4,10 +4,6 @@ import { CreateReportSectionDto } from './create-report-section.dto';
 import { UpdateReportSectionDto } from './update-report-section.dto';
 import { ReorderReportSectionsDto } from './reorder-report-sections.dto';
 
-/**
- * PRD: Reformulação Laudos — US-001 / US-002
- * Testa validação dos DTOs de seções de laudo.
- */
 describe('CreateReportSectionDto', () => {
   it('deve validar com title obrigatório', async () => {
     const dto = plainToInstance(CreateReportSectionDto, {

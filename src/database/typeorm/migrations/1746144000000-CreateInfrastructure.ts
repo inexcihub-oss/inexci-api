@@ -1,11 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Infraestrutura: extensões, enums e funções utilitárias.
- *
- * Roda fora de transação para permitir `CREATE EXTENSION` (pgvector exige
- * que a operação ocorra fora de uma transação ativa em alguns ambientes).
- */
 export class CreateInfrastructure1746144000000 implements MigrationInterface {
   name = 'CreateInfrastructure1746144000000';
 

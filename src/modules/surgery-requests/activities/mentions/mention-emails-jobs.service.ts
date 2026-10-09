@@ -12,25 +12,10 @@ export interface MentionEmailJobData {
   surgeryRequestId: string;
   authorName: string;
   content: string;
-  /**
-   * Se a notificação in-app foi criada no disparo. Distingue, no worker,
-   * "push desligado" (nunca houve o que ler) de "notificação excluída pelo
-   * usuário" — nos dois casos `notificationId` chega nulo, porque a FK é
-   * `ON DELETE SET NULL`. Ausente em jobs anteriores a este campo.
-   */
   inAppNotified?: boolean;
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
 }
 
-/**
- * Produtor do e-mail de menção.
- *
- * O `delay` é o coração da regra combinada com o usuário: o e-mail só é
- * cobrado do sistema depois de N minutos, e quem decide se ele ainda faz
- * sentido é o worker, olhando se a notificação in-app foi lida nesse
- * intervalo.
- */
 @Injectable()
 export class MentionEmailsJobsService {
   private readonly logger = new Logger(MentionEmailsJobsService.name);
@@ -40,7 +25,6 @@ export class MentionEmailsJobsService {
     private readonly configService: ConfigService,
   ) {}
 
-  /** Nunca lança: a menção já está gravada e notificada in-app. */
   async schedule(data: MentionEmailJobData): Promise<void> {
     const minutos = Number(
       this.configService.get<number>('MENTION_EMAIL_DELAY_MINUTES', 10),

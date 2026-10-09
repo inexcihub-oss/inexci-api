@@ -16,19 +16,8 @@ import {
 } from './ocr.types';
 import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
 
-/**
- * Limite mínimo de caracteres "úteis" extraídos via text-layer do PDF para
- * que consideremos o PDF como nativo. Abaixo disso, caímos no caminho de
- * rasterização + OCR (PDFs escaneados ou laudos com texto incorporado em
- * imagens).
- */
 const MIN_NATIVE_PDF_TEXT_CHARS = 100;
 
-/**
- * Subconjunto da API pública do `pdf-parse@2` utilizado neste serviço.
- * Tipagem explícita evita `any` na instanciação e nas chamadas de método,
- * satisfazendo o strict mode sem depender de `@types/pdf-parse`.
- */
 interface PdfParseTextResult {
   text: string;
   total?: number;
@@ -72,20 +61,10 @@ interface PdfParseInstance {
 
 type PdfParseCtor = new (opts: { data: Buffer }) => PdfParseInstance;
 
-/**
- * Escala de rasterização. Maior = melhor OCR, mais memória/CPU.
- * 2x cobre a maioria dos casos clínicos com letra pequena.
- */
 const PDF_RASTER_SCALE = 2;
 
-/** Teto de pixels por pagina rasterizada (~25 Mpx = 100 MB a 4 bytes/px). */
 export const MAX_PIXELS_POR_PAGINA = 25_000_000;
 
-/**
- * Escala de rasterizacao que respeita o teto de pixels. Um PDF de poucos KB
- * pode declarar MediaBox 14400x14400: em escala fixa 2 isso vira ~830 Mpx por
- * pagina (~3,3 GB), derrubando o processo antes de qualquer validacao.
- */
 export function calcularEscalaSegura(
   larguraPt: number,
   alturaPt: number,
@@ -99,10 +78,6 @@ export function calcularEscalaSegura(
   );
 }
 
-// Limita o sharp a uma thread de processamento por vez: evita que várias
-// rasterizações concorrentes (várias requisições do WhatsApp em paralelo)
-// multipliquem o pico de memória do libvips. Acesso defensivo: em testes o
-// módulo 'sharp' é mockado sem essa função estática.
 const sharpConcurrency = (
   sharp as unknown as { concurrency?: (n: number) => number }
 ).concurrency;
@@ -113,7 +88,6 @@ if (typeof sharpConcurrency === 'function') {
 @Injectable()
 export class OcrService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OcrService.name);
-  /** @deprecated Mantido só para compatibilidade de testes legados. */
   private workerPromise: Promise<TesseractWorker> | null = null;
   private workerPool: Array<Promise<TesseractWorker>> = [];
   private readonly lang: string;
@@ -196,11 +170,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     return this.maxPages;
   }
 
-  /**
-   * Roda OCR no documento e devolve apenas o resultado bruto (sem tokenização).
-   * O chamador é responsável por tokenizar antes de logar/persistir/enviar
-   * para LLM externo. Use `extractAndTokenize` para o caminho seguro.
-   */
   async extract(input: OcrInput): Promise<OcrResult> {
     const startedAt = Date.now();
     if (this.isImage(input.mimeType)) {
@@ -212,12 +181,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     throw new OcrUnsupportedMimeError(input.mimeType);
   }
 
-  /**
-   * Caminho preferido: extrai e já tokeniza CPF/telefone/email via
-   * `PiiVaultService.preprocessUserInput`. Garante que nada de PII estruturada
-   * vaza para o LLM externo (LGPD). Texto do laudo flui inteiro — sem
-   * `payload_blob` — para o classificador conseguir extrair os campos.
-   */
   async extractAndTokenize(
     input: OcrInput,
     sessionId: string,
@@ -251,12 +214,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  /**
-   * Rasteriza a primeira página de um PDF como PNG. Usado pelo Vision
-   * fallback quando o classifier text-only é insuficiente em PDFs (gpt-4o
-   * Vision aceita só imagens). Retorna `null` se a lib não estiver
-   * disponível ou se o PDF estiver corrompido.
-   */
   async rasterizeFirstPdfPage(buffer: Buffer): Promise<Buffer | null> {
     const PDFParseCtor = await this.loadPdfParseCtor();
     if (!PDFParseCtor) return null;
@@ -278,9 +235,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       const data: Buffer | undefined = firstPage?.data;
       if (!data) return null;
 
-      // O Vision fallback exige bytes de imagem válidos para o MIME informado.
-      // Garantimos PNG real aqui para evitar erros "Invalid base64 image_url"
-      // quando o rasterizador devolve um formato diferente do esperado.
       try {
         const sharpFactory =
           (sharp as unknown as { default?: typeof sharp }).default ||
@@ -292,8 +246,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
           .png()
           .toBuffer();
       } catch {
-        // Fallback defensivo: se não conseguir transcodificar, devolve o
-        // buffer original para manter compatibilidade com o fluxo atual.
         return data;
       }
     } catch (err: any) {
@@ -306,22 +258,10 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         if (parser && typeof parser.destroy === 'function') {
           await parser.destroy();
         }
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
   }
 
-  /**
-   * Lê as dimensões reais das páginas (via `getInfo`, sem renderizar) e
-   * devolve a menor escala segura entre elas — o teto de pixels vale para
-   * cada página individualmente, e `getScreenshot` recebe uma única escala
-   * para o lote inteiro. Se a leitura de dimensões falhar, caímos na escala
-   * desejada original: o mesmo parser/doc usado aqui alimenta o
-   * `getScreenshot` logo em seguida, então um PDF cujas dimensões não podem
-   * ser lidas tende a falhar (ou já ter falhado) na rasterização também —
-   * não é o caminho que a exploração usa (que depende de MediaBox legível).
-   */
   private async resolveSafeRasterScale(
     parser: PdfParseInstance,
     maxPages: number,
@@ -350,10 +290,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       return PDF_RASTER_SCALE;
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Imagem
-  // -------------------------------------------------------------------------
 
   private async extractFromImage(
     input: OcrInput,
@@ -389,7 +325,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     warnings: string[],
   ): Promise<Buffer> {
     try {
-      // sharp: módulo CJS sem named export consistente entre versões.
       const sharpFactory =
         (sharp as unknown as { default?: typeof sharp }).default ||
         (sharp as unknown as typeof sharp);
@@ -397,7 +332,7 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       return await (sharpFactory as any)(buffer, {
         limitInputPixels: MAX_PIXELS_POR_PAGINA,
       })
-        .rotate() // auto-orient via EXIF
+        .rotate()
         .grayscale()
         .normalize()
         .resize({ width: 2000, withoutEnlargement: true })
@@ -408,10 +343,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       return buffer;
     }
   }
-
-  // -------------------------------------------------------------------------
-  // PDF
-  // -------------------------------------------------------------------------
 
   private async extractFromPdf(
     input: OcrInput,
@@ -428,7 +359,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     let pageCount = 0;
     let nativeText = '';
 
-    // Tentativa 1: extração via text-layer (PDFs nativos).
     let parser: PdfParseInstance | undefined;
     try {
       parser = new PDFParseCtor({ data: input.buffer });
@@ -438,15 +368,11 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     } catch (err: any) {
       warnings.push(`pdf_parse_text_failed:${err?.message || 'erro'}`);
     } finally {
-      // O destroy abaixo é seguro: se falhou em criar parser, simplesmente
-      // não destruímos. Se criou, liberamos antes de tentar getScreenshot.
       try {
         if (parser && typeof parser.destroy === 'function') {
           await parser.destroy();
         }
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
 
     const trimmedNative = nativeText.trim();
@@ -471,7 +397,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    // Tentativa 2: rasterizar e rodar Tesseract.
     const maxPages = this.resolveMaxPages(input.maxPages);
     const ocrPages = await this.rasterizeAndOcrPdf(
       PDFParseCtor,
@@ -590,9 +515,7 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         if (parser && typeof parser.destroy === 'function') {
           await parser.destroy();
         }
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     }
     return pages;
   }
@@ -616,11 +539,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /**
-   * Carrega `PDFParse` lazy. Mantemos `await import` para que a falha de
-   * carregamento (ex.: lib nativa ausente em ambientes de teste) seja
-   * tratada como warning e não derrube o boot da app.
-   */
   private async loadPdfParseCtor(): Promise<PdfParseCtor | null> {
     try {
       const mod = await import('pdf-parse');
@@ -637,10 +555,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       return null;
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Tesseract
-  // -------------------------------------------------------------------------
 
   private async runTesseract(
     buffer: Buffer,
@@ -710,10 +624,6 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     return Promise.all(this.workerPool);
   }
 
-  /**
-   * Worker Tesseract singleton (lazy). Mantido para compatibilidade interna;
-   * o pool paralelo é o caminho preferido para PDFs multi-página.
-   */
   private async getWorker(): Promise<TesseractWorker> {
     if (!this.workerPromise) {
       this.workerPromise = this.ensureWorkerPool().then(

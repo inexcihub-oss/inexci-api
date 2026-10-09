@@ -1,10 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Modelos de texto de atestado e pedido de exame (MIG-06). Tabela nova, sem
- * dado legado para conferir. `kind` em `varchar(30)` (não enum do Postgres):
- * tipo novo de documento não exige migration.
- */
 export class CreateClinicalDocumentTemplates1755800600000 implements MigrationInterface {
   name = 'CreateClinicalDocumentTemplates1755800600000';
 

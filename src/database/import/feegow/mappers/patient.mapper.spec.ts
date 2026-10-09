@@ -1,7 +1,7 @@
 import { LinhaCsv } from '../../core/csv';
 import { contatosDoPaciente, matriculaDoConvenio } from './patient.mapper';
 
-const LONGO = `${'a'.repeat(95)}@clinica.com`; // 107 > patients.email (100)
+const LONGO = `${'a'.repeat(95)}@clinica.com`;
 
 describe('contatosDoPaciente — e-mail maior que a coluna', () => {
   it('descarta o e-mail longo, marca e guarda nas observações', () => {

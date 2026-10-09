@@ -14,13 +14,6 @@ export interface NovoConvenio {
   active: boolean;
 }
 
-/**
- * Convênios realmente usados (referenciados por consulta ativa ou por
- * paciente). Nomes iguais sem acento/caixa ("UNIMED" e "unimed") viram um só,
- * e o que já existe na conta é reaproveitado. `sys_active = -1` no Feegow é
- * ignorado de propósito: o cliente "excluiu" os convênios do cadastro, mas as
- * consultas continuam apontando para eles.
- */
 export function planejarConvenios(
   exp: ExportFeegow,
   ctx: ContextoImportacao,

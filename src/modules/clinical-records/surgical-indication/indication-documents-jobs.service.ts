@@ -11,18 +11,9 @@ export const INDICATION_DOCUMENTS_QUEUE = 'indication-documents';
 export const COPY_PATIENT_DOCUMENTS_JOB = 'copy-patient-documents';
 
 export interface CopyPatientDocumentsJobData extends CopyPatientDocumentsParams {
-  /** Correlation ID propagado para o processor (logging end-to-end). */
   requestId?: string;
 }
 
-/**
- * Produtor da cópia de documentos para a SC nascida de uma indicação.
- *
- * Enfileirar em vez de copiar inline mantém a resposta de "Finalizar
- * atendimento" fora do tempo de N cópias no R2 e, mais importante, dá
- * retentativa: a cópia direta perdia em silêncio os anexos de um paciente
- * quando o storage oscilava.
- */
 @Injectable()
 export class IndicationDocumentsJobsService {
   private readonly logger = new Logger(IndicationDocumentsJobsService.name);
@@ -33,7 +24,6 @@ export class IndicationDocumentsJobsService {
     private readonly documentsService: IndicationDocumentsService,
   ) {}
 
-  /** Nunca lança: a SC já existe e nada aqui pode derrubar o atendimento. */
   async schedule(params: CopyPatientDocumentsParams): Promise<void> {
     try {
       await this.queue.add(
@@ -56,8 +46,6 @@ export class IndicationDocumentsJobsService {
       );
     }
 
-    // Fallback com Redis fora: um atendimento mais lento é melhor do que uma
-    // solicitação que nasce sem os exames do paciente.
     try {
       const { copied, failed } =
         await this.documentsService.copyPatientDocuments(params);

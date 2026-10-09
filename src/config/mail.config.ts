@@ -1,9 +1,5 @@
 import { registerAs } from '@nestjs/config';
 
-/**
- * Configuração de e-mail via Nodemailer (SMTP genérico).
- * As credenciais são lidas das variáveis de ambiente via ConfigService.
- */
 export const mailConfig = registerAs('mail', () => ({
   host: process.env.MAIL_HOST || 'smtp.example.com',
   port: parseInt(process.env.MAIL_PORT || '587', 10),
@@ -19,10 +15,6 @@ export const mailConfig = registerAs('mail', () => ({
   appUrl: process.env.DASHBOARD_URL || '',
 }));
 
-/**
- * Templates de e-mail disponíveis.
- * Usados para validar o template solicitado no endpoint POST /notify.
- */
 export type MailTemplateName =
   | 'surgery-request-sent'
   | 'surgery-authorized'

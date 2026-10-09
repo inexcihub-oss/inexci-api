@@ -51,10 +51,6 @@ export class SendAnalysisHandler {
     private readonly pendencyValidator: PendencyValidatorService,
   ) {}
 
-  /**
-   * Exporta o PDF da solicitação cirúrgica sem alterar o status.
-   * Disponível para solicitações já enviadas (status ≥ 2).
-   */
   async exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
     const request = await this.surgeryRequestRepository.findOneWithAllRelations(
       { id },
@@ -79,12 +75,6 @@ export class SendAnalysisHandler {
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.SENT);
     await this.pendencyValidator.assertCanAdvance(id);
 
-    // "Confirmar com documento de origem" permite refletir um envio que já
-    // aconteceu fora da plataforma (ex.: usuário esqueceu de atualizar o
-    // status no dia). Pode ser anterior à criação da SC — clínica usando a
-    // plataforma como histórico —, mas nunca no futuro.
-    // Só vale para esse método: é o único em que o DTO valida `sentAt` —
-    // nos demais o envio acontece agora, pela plataforma.
     const sentAt =
       dto.method === SendMethod.DOCUMENT && dto.sentAt
         ? parseCalendarDate(dto.sentAt)
@@ -92,8 +82,6 @@ export class SendAnalysisHandler {
     if (Number.isNaN(sentAt.getTime())) {
       throw new BadRequestException('Data de envio inválida.');
     }
-    // Dia com dia (ambos ao meio-dia UTC): comparar com o instante atual
-    // rejeitaria "hoje" antes das 09:00 de São Paulo.
     if (
       dto.method === SendMethod.DOCUMENT &&
       dto.sentAt &&
@@ -104,10 +92,6 @@ export class SendAnalysisHandler {
       );
     }
 
-    // Consome cota mensal de solicitações cirúrgicas. Bloqueia se a
-    // assinatura estiver suspensa, cancelada ou se o limite do plano
-    // foi atingido. A unidade de cota é o ENVIO (PENDING → SENT) — rascunhos
-    // não consomem.
     await this.quotaService.consumeSurgeryRequest(request.ownerId);
 
     await executeInTransaction(
@@ -208,9 +192,6 @@ export class SendAnalysisHandler {
         }
       }
 
-      // Resolve documentos extras pedidos pelo cliente (IDs em
-      // `documents.id`). Best-effort: anexos que falharem ao baixar são
-      // ignorados (com warn), o e-mail é enviado mesmo assim.
       if (dto.attachments && dto.attachments.length > 0) {
         const docs = await Promise.all(
           dto.attachments.map((docId) =>

@@ -8,7 +8,6 @@ import { UpdateDoctorScheduleDto } from './dto/doctor-schedule.dto';
 import { UpdateHolidayDto } from './dto/holiday.dto';
 import { UpdateScheduleBlockDto } from './dto/schedule-block.dto';
 
-/** Propriedades com erro de validação para o corpo `body`. */
 async function invalidos(
   cls: new () => object,
   body: object,

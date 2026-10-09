@@ -161,7 +161,6 @@ describe('ActivityMentionsService', () => {
 
     const [[dto]] = dispatcher.dispatch.mock.calls;
     expect(dto.message.length).toBeLessThanOrEqual(143);
-    // A prévia vai entre aspas: "texto truncado…"
     expect(dto.message.endsWith('…"')).toBe(true);
   });
   it('agenda o e-mail atrasado da menção', async () => {

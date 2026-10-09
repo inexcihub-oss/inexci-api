@@ -178,7 +178,6 @@ export class AuthorizationHandler {
       `/solicitacao/${id}`,
     );
 
-    // ── Registrar atividade de contestação ────────────────────────────────
     const activityRepo = this.dataSource.getRepository(SurgeryRequestActivity);
     await activityRepo.save({
       surgeryRequestId: id,
@@ -255,7 +254,6 @@ export class AuthorizationHandler {
         userId,
       );
 
-    // ── Salvar PDF no storage e registrar atividade ───────────────────────
     try {
       const timestamp = Date.now();
       const filename = `contestacao-${id}-${timestamp}.pdf`;

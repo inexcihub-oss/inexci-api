@@ -9,10 +9,6 @@ export function buildHospitalDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, hospitalsService } = deps;
   return {
     name: 'hospital_draft_commit',
-    // Mesma regra do HTTP: `HospitalsController.create` herda o
-    // `@RequireAnyArea()` da classe — hospital é cadastro transversal, então
-    // qualquer área cria, mas o colaborador sem área nenhuma não. Excluir
-    // continua sendo ato do admin e não tem tool.
     requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',

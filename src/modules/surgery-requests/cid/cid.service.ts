@@ -15,9 +15,7 @@ interface CidJsonRow {
 }
 
 interface CidRecordInternal extends CidResponse {
-  /** Código normalizado (sem ponto, uppercase) — usado para matching. */
   codeNormalized: string;
-  /** Descrição normalizada (lowercase, sem acento, sem caracteres especiais). */
   descriptionNormalized: string;
 }
 
@@ -26,17 +24,8 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-const TTL_MS = 60 * 60 * 1000; // 1 hora (dados estáticos)
+const TTL_MS = 60 * 60 * 1000;
 
-/**
- * Tabela CID-10 carregada de `src/utils/cid.json`.
- *
- * Suporta dois modos de busca:
- *  - `findAll()` — controller HTTP (`GET /surgery-requests/cid?search=...`).
- *  - `lookup()` — IA do WhatsApp, com ranking inteligente para código
- *    completo, parcial (com ou sem ponto), descrição completa ou parcial.
- *    O CID admite forma "M17.1" e "M171" — ambas são equivalentes.
- */
 @Injectable()
 export class CidService {
   private readonly cache = new Map<string, CacheEntry<any>>();
@@ -60,11 +49,6 @@ export class CidService {
     return this.allRecords;
   }
 
-  /**
-   * Busca paginada usada pelo controller HTTP. Mantém a mesma assinatura
-   * (`{ total, records }`) para preservar o contrato com o frontend, mas
-   * passa a aplicar o ranking inteligente quando há `search`.
-   */
   findAll(query: FindManyCidDto): { total: number; records: CidResponse[] } {
     const { search, skip = 0, take = 50 } = query;
     const cacheKey = `cid:findAll:${search ?? ''}:${skip}:${take}`;
@@ -89,11 +73,6 @@ export class CidService {
     return result;
   }
 
-  /**
-   * Busca usada pela IA do WhatsApp. Aceita query em qualquer formato
-   * (código completo/parcial com ou sem ponto, descrição completa/parcial)
-   * e devolve resultados ordenados por relevância.
-   */
   lookup(query: string, limit: number = 10): CidResponse[] {
     const trimmed = (query ?? '').trim();
     if (!trimmed) return [];
@@ -111,10 +90,6 @@ export class CidService {
     return ranked;
   }
 
-  /**
-   * Conveniência para localizar EXATAMENTE um CID (com ou sem ponto, em
-   * qualquer caixa). Devolve `null` quando não há match exato.
-   */
   findByExactCode(code: string): CidResponse | null {
     const normalized = this.normalizeCode(code);
     if (!normalized) return null;
@@ -188,8 +163,6 @@ export class CidService {
         score += 200;
       }
 
-      // Bonus quando todos os tokens (>= 2) aparecem no nome — útil quando
-      // o usuário fala palavras fora de ordem (ex.: "joelho artrose").
       if (queryTokens.length > 1) {
         const allTokensMatch = queryTokens.every((token) =>
           record.descriptionNormalized.includes(token),
@@ -201,19 +174,10 @@ export class CidService {
     return score;
   }
 
-  /**
-   * Normaliza código CID: uppercase, sem ponto, sem espaço. Aceita entrada
-   * "M17.1", "m171", "m 17 1" → "M171".
-   *
-   * Observação: queries puramente textuais (ex.: "artrose") podem casualmente
-   * gerar uma "code-like string". Por isso só tratamos como código quando a
-   * primeira posição é alfabética e o restante é dígito (formato CID-10).
-   */
   private normalizeCode(value: string): string {
     if (!value) return '';
     const cleaned = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!cleaned) return '';
-    // CID-10 sempre começa com letra (A-Z) seguida de dígitos.
     if (!/^[A-Z]\d/.test(cleaned)) return '';
     return cleaned;
   }

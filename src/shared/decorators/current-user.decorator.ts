@@ -7,7 +7,6 @@ export interface AuthenticatedUser {
   ownerId: string | null;
   role: UserRole;
   isPlatformAdmin?: boolean;
-  /** Permissão **efetiva**, já derivada na JwtStrategy. */
   permissions: Permission[];
 }
 

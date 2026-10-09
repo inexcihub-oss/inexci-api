@@ -21,16 +21,6 @@ import { ContestPaymentDto } from '../dto/contest-payment.dto';
 import { UpdateReceiptDto } from '../dto/update-receipt.dto';
 import { CloseSurgeryRequestDto } from '../dto/close-surgery-request.dto';
 
-/**
- * Orquestrador de transições de status da solicitação cirúrgica.
- *
- * Delega a lógica para handlers especializados por fase:
- * - SendAnalysisHandler: envio e início da análise
- * - AuthorizationHandler: autorização e contestação
- * - SchedulingHandler: agendamento e reagendamento
- * - ExecutionHandler: realização e encerramento
- * - SurgeryRequestBillingService: faturamento (já existente)
- */
 @Injectable()
 export class SurgeryRequestWorkflowService {
   constructor(
@@ -41,8 +31,6 @@ export class SurgeryRequestWorkflowService {
     private readonly billingService: SurgeryRequestBillingService,
     private readonly notificationService: SurgeryRequestNotificationService,
   ) {}
-
-  // ── Envio e Análise ────────────────────────────────────────────────────────
 
   exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
     return this.sendAnalysisHandler.exportSurgeryRequestPdf(id, userId);
@@ -55,8 +43,6 @@ export class SurgeryRequestWorkflowService {
   startAnalysis(id: string, dto: StartAnalysisDto, userId: string) {
     return this.sendAnalysisHandler.startAnalysis(id, dto, userId);
   }
-
-  // ── Autorização ────────────────────────────────────────────────────────────
 
   acceptAuthorization(id: string, dto: AcceptAuthorizationDto, userId: string) {
     return this.authorizationHandler.acceptAuthorization(id, dto, userId);
@@ -77,8 +63,6 @@ export class SurgeryRequestWorkflowService {
     );
   }
 
-  // ── Agendamento ────────────────────────────────────────────────────────────
-
   confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
     return this.schedulingHandler.confirmDate(id, dto, userId);
   }
@@ -91,8 +75,6 @@ export class SurgeryRequestWorkflowService {
     return this.schedulingHandler.reschedule(id, dto, userId);
   }
 
-  // ── Execução e Encerramento ────────────────────────────────────────────────
-
   markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
     return this.executionHandler.markPerformed(id, dto, userId);
   }
@@ -100,8 +82,6 @@ export class SurgeryRequestWorkflowService {
   closeSurgeryRequest(id: string, dto: CloseSurgeryRequestDto, userId: string) {
     return this.executionHandler.closeSurgeryRequest(id, dto, userId);
   }
-
-  // ── Billing (delegado para SurgeryRequestBillingService) ───────────────────
 
   invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
     return this.billingService.invoiceRequest(id, dto, userId);
@@ -118,8 +98,6 @@ export class SurgeryRequestWorkflowService {
   updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
     return this.billingService.updateReceipt(id, dto, userId);
   }
-
-  // ── Notificação ────────────────────────────────────────────────────────────
 
   notify(
     id: string,

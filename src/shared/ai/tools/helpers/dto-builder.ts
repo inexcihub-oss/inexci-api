@@ -28,10 +28,6 @@ function collectErrors(errors: ValidationError[]): string[] {
 
 const VALIDATE_OPTS = { whitelist: true, forbidNonWhitelisted: false };
 
-/**
- * Constrói e valida um `CreatePatientDto` a partir dos campos do rascunho de
- * paciente. Aplica normalização de CPF, telefone, e-mail e data de nascimento.
- */
 export async function buildPatientCreateDto(
   fields: CreatePatientDraftFields,
 ): Promise<DtoBuildResult<CreatePatientDto>> {
@@ -49,9 +45,6 @@ export async function buildPatientCreateDto(
   return { dto, errors: errors.length ? collectErrors(errors) : null };
 }
 
-/**
- * Constrói e valida um `CreateHospitalDto` a partir do rascunho de hospital.
- */
 export async function buildHospitalCreateDto(
   fields: CreateHospitalDraftFields,
 ): Promise<DtoBuildResult<CreateHospitalDto>> {
@@ -60,19 +53,6 @@ export async function buildHospitalCreateDto(
   return { dto, errors: errors.length ? collectErrors(errors) : null };
 }
 
-/**
- * Constrói e valida um `CreateHealthPlanDto` a partir do rascunho de convênio.
- *
- * O fluxo de IA captura apenas o `name`. Os campos `phone` e `email` são
- * obrigatórios no DTO REST mas o rascunho não os coleta — passamos `''` para
- * que o validator REST rejeite se o service não aceitar dados incompletos, ou
- * podemos estender o rascunho para coletá-los.
- *
- * Na prática, `HealthPlansService.create` aceita phone/email sem validação
- * estrita de formato (só @IsNotEmpty). Para criação via IA, é comum passar
- * placeholder e atualizar depois via REST ou deixar em branco quando o
- * convênio é criado como rascunho interno.
- */
 export async function buildHealthPlanCreateDto(
   fields: CreateHealthPlanDraftFields & {
     phone?: string;
@@ -88,9 +68,6 @@ export async function buildHealthPlanCreateDto(
   return { dto, errors: errors.length ? collectErrors(errors) : null };
 }
 
-/**
- * Constrói e valida um `CreateProcedureDto` a partir do rascunho de procedimento.
- */
 export async function buildProcedureCreateDto(
   fields: CreateProcedureDraftFields,
 ): Promise<DtoBuildResult<CreateProcedureDto>> {

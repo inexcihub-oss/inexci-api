@@ -37,7 +37,6 @@ describe('CID - Classificação Internacional de Doenças (e2e)', () => {
         .expect(200);
 
       expect(response.body).toBeDefined();
-      // A resposta pode ser um array ou objeto com paginação
       const cids = Array.isArray(response.body)
         ? response.body
         : response.body.records || response.body.data;
@@ -82,7 +81,6 @@ describe('CID - Classificação Internacional de Doenças (e2e)', () => {
       const cids = Array.isArray(response.body)
         ? response.body
         : response.body.records || response.body.data || [];
-      // Aceitar tanto array vazio quanto objeto de paginação
       if (Array.isArray(cids)) {
         expect(cids.length).toBe(0);
       } else if (response.body.records) {

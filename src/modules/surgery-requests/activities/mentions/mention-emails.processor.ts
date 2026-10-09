@@ -15,22 +15,8 @@ import {
   SEND_MENTION_EMAIL_JOB,
 } from './mention-emails-jobs.service';
 
-/** Trecho do comentário que vai no corpo do e-mail. */
 const TAMANHO_PREVIA = 240;
 
-/**
- * Decide, N minutos depois da menção, se o e-mail ainda faz sentido.
- *
- * Três portas, nesta ordem: já enviado (o job pode reprocessar), o usuário
- * desligou o canal, e — a regra que o usuário pediu — a notificação dentro
- * da plataforma continua não lida. Sem notificação criada no disparo (push
- * desligado) não há o que ler, e aí o e-mail é o único aviso possível:
- * mandamos. Já a notificação que existiu e sumiu foi excluída pelo usuário —
- * ele a viu, então conta como lida.
- *
- * O envio é reservado no banco (`claimEmailSend`) antes de ir para a fila
- * de e-mail: um retry do job depois do envio encontra a reserva e para.
- */
 @Injectable()
 @Processor(MENTION_EMAILS_QUEUE)
 export class MentionEmailsProcessor {
@@ -78,10 +64,8 @@ export class MentionEmailsProcessor {
       const notification = await this.notificationRepository.findOne({
         id: mention.notificationId,
       });
-      // Sem a linha: excluída entre a leitura da menção e esta consulta.
       if (!notification || notification.read) return;
     } else if (inAppNotified) {
-      // A FK é ON DELETE SET NULL: a notificação existiu e foi excluída.
       return;
     }
 
@@ -97,10 +81,6 @@ export class MentionEmailsProcessor {
     try {
       await this.mailService.sendGenericNotification(
         destinatario.email,
-        // Assunto sem nome de paciente, de propósito: nenhum dos e-mails da
-        // plataforma identifica paciente no assunto, que vaza para prévia de
-        // notificação e lista da caixa de entrada. A identificação da SC vai no
-        // corpo, onde os outros templates já a colocam.
         `${authorName} mencionou você em uma solicitação`,
         {
           userName: destinatario.name,
@@ -120,16 +100,6 @@ export class MentionEmailsProcessor {
     this.logger.log(`[MENCAO] E-mail da menção ${mentionId} enviado.`);
   }
 
-  /**
-   * Linha que diz de qual solicitação a menção veio.
-   *
-   * Lida aqui, na hora do envio, e não capturada no job: entre a menção e o
-   * e-mail passam minutos, e o que vale é o estado atual da SC.
-   *
-   * Nunca lança nem impede o envio — identificar a SC é um ganho de
-   * contexto, enquanto o e-mail em si é o último aviso de uma menção que
-   * ninguém leu na plataforma.
-   */
   private async descreverSolicitacao(
     surgeryRequestId: string,
   ): Promise<string | undefined> {

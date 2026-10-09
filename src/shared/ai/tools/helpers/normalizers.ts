@@ -1,15 +1,6 @@
-/**
- * Funções de normalização de campos PII/formatados.
- * Fonte canônica — importar daqui; não definir localmente nas tools.
- */
-
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BIRTH_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * Normaliza telefone para somente dígitos (10–13).
- * Retorna `null` se inválido.
- */
 export function normalizePhoneDigits(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const digits = String(value).replace(/\D/g, '');
@@ -17,10 +8,6 @@ export function normalizePhoneDigits(value: unknown): string | null {
   return digits;
 }
 
-/**
- * Normaliza CPF para somente dígitos (11) com validação de DV.
- * Retorna `null` se inválido.
- */
 export function normalizeCpfDigits(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const digits = String(value).replace(/\D/g, '');
@@ -40,10 +27,6 @@ export function normalizeCpfDigits(value: unknown): string | null {
   return digits;
 }
 
-/**
- * Normaliza data de nascimento (AAAA-MM-DD).
- * Retorna `null` se inválida ou futura.
- */
 export function normalizeBirthDate(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const raw = String(value).trim();
@@ -62,10 +45,6 @@ export function normalizeBirthDate(value: unknown): string | null {
   return raw;
 }
 
-/**
- * Normaliza e-mail para letras minúsculas.
- * Retorna `null` se inválido.
- */
 export function normalizeEmail(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const raw = String(value).trim().toLowerCase();
@@ -74,10 +53,6 @@ export function normalizeEmail(value: unknown): string | null {
   return raw;
 }
 
-/**
- * Normaliza CPF sem validação de DV (versão simples, somente dígitos).
- * Usada quando a validação completa não é necessária (ex.: busca por CPF).
- */
 export function normalizeCpfSimple(value: unknown): string | null {
   if (value == null) return null;
   const digits = String(value).replace(/\D/g, '');

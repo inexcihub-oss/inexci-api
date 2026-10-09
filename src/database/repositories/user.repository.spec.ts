@@ -1,24 +1,5 @@
 import { UserRepository } from './user.repository';
 
-/**
- * Regressão do C1 (revisão final `feat/modulo-atendimento`): o assistente do
- * WhatsApp resolve o usuário via `findOneByPhone`, que por muito tempo
- * delegou para `findOne`. O `select` de `findOne` tem ~26 colunas e NÃO
- * inclui `permissions` — com `select` parcial o TypeORM devolve a
- * propriedade como `undefined`, então `resolveEffectivePermissions` recebia
- * `permissions: undefined` e qualquer colaborador não-médico perdia acesso a
- * todas as tools com `requiredPermission`.
- *
- * `findOneByPhone` agora delega para `findOneWithProfile` (que inclui
- * `permissions`). Este teste trava as duas pontas:
- *  - `findOneByPhone` usa o `select` de `findOneWithProfile` (com `permissions`).
- *  - `findOne` continua SEM `permissions` no `select` — não pode ser ampliado
- *    para incluir a coluna crua, porque tem dezenas de chamadores fora do
- *    módulo de IA (ex.: `UsersService.findOne`, que devolve o resultado
- *    direto numa resposta HTTP sem filtrar `permissions`/`isPlatformAdmin`)
- *    e ampliar o `select` vazaria a coluna crua fora das rotas gated por
- *    `ADMINISTRACAO` (ver I2 do PLANO-PERMISSOES-COLABORADORES).
- */
 describe('UserRepository', () => {
   function buildRepo() {
     const mockRepository = { findOne: jest.fn().mockResolvedValue(null) };
@@ -55,13 +36,6 @@ describe('UserRepository', () => {
     expect(call.select).toMatchObject({ permissions: true });
   });
 
-  /**
-   * Sem `onboardingState` no select, `AuthService.me()` recebe
-   * `user.onboardingState === undefined` e `normalizeOnboardingState`
-   * devolve sempre o estado vazio (`not_started`) — bug silencioso que
-   * nenhum teste com repositório mockado à mão pega. Trava a regressão do
-   * mesmo jeito que o teste de `permissions` acima trava a dele.
-   */
   it('findOneWithProfile inclui onboardingState no select', async () => {
     const { repo, mockRepository } = buildRepo();
 
@@ -71,13 +45,6 @@ describe('UserRepository', () => {
     expect(call.select).toMatchObject({ onboardingState: true });
   });
 
-  /**
-   * `findMany` alimenta duas coisas: `GET /users` — o diretório do staff,
-   * liberado a qualquer área via `@RequireAnyArea()` — e a resolução de nomes
-   * de médico do assistente do WhatsApp, que lê só `id` e `name`. Nenhuma das
-   * duas precisa de CPF, gênero ou nascimento; a primeira entregava os três de
-   * todo colega do tenant a qualquer autenticado.
-   */
   it('findMany não traz CPF, gênero nem nascimento', async () => {
     const mockRepository = { find: jest.fn().mockResolvedValue([]) };
     const repo = new UserRepository(mockRepository as never);
@@ -88,7 +55,6 @@ describe('UserRepository', () => {
     for (const campo of ['cpf', 'gender', 'birthDate']) {
       expect(select).not.toHaveProperty(campo);
     }
-    // O que a rota realmente usa continua vindo.
     expect(select).toMatchObject({
       id: true,
       name: true,

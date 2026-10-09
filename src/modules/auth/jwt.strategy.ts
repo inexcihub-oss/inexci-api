@@ -21,7 +21,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      // Verifica issuer/audience: rejeita tokens emitidos por outra origem.
       issuer: configService.get<string>('JWT_ISSUER', JWT_DEFAULT_ISSUER),
       audience: configService.get<string>('JWT_AUDIENCE', JWT_DEFAULT_AUDIENCE),
       secretOrKey: (() => {
@@ -35,8 +34,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    // findOneWithProfile (e não findOne) porque a permissão efetiva depende de
-    // haver doctor_profile. É um LEFT JOIN na mesma consulta que já existia.
     const user = await this.userRepository.findOneWithProfile({
       id: payload.userId,
     });
@@ -50,8 +47,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ownerId: user.ownerId,
       role: user.role,
       isPlatformAdmin: user.isPlatformAdmin ?? false,
-      // Resolvido a cada request: mudança de permissão vale no request
-      // seguinte, sem precisar de novo login.
       permissions: resolveEffectivePermissions({
         role: user.role,
         permissions: user.permissions,

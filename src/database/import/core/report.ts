@@ -1,23 +1,16 @@
-/** Linha do sistema de origem que não entrou, com o motivo. */
 export interface Rejeicao {
   entidade: string;
   idOrigem: string;
   motivo: string;
 }
 
-/** Algo que entrou, mas merece revisão (CPF inválido descartado etc.). */
 export interface Aviso {
   entidade: string;
   idOrigem: string;
   aviso: string;
-  /** Complemento por linha (ex.: o outro paciente com o mesmo CPF). */
   detalhe?: string;
 }
 
-/**
- * Relatório de uma fase: o que entra, o que não entra e por quê. É o que o
- * cliente revisa no dry-run antes da carga.
- */
 export class Relatorio {
   readonly aceitos: Record<string, number> = {};
   readonly pulados: Record<string, number> = {};
@@ -31,21 +24,15 @@ export class Relatorio {
     this.aceitos[entidade] = (this.aceitos[entidade] ?? 0) + quantidade;
   }
 
-  /**
-   * O planejamento aceitou, mas o item não entrou (arquivo ilegível no
-   * upload etc.): tira da contagem e registra a rejeição.
-   */
   rejeitarAceito(entidade: string, idOrigem: string, motivo: string): void {
     if (this.aceitos[entidade]) this.aceitos[entidade]--;
     this.rejeitar(entidade, idOrigem, motivo);
   }
 
-  /** O planejamento aceitou, mas o item não entrou: só tira da contagem. */
   desfazerAceite(entidade: string): void {
     if (this.aceitos[entidade]) this.aceitos[entidade]--;
   }
 
-  /** Já importado numa execução anterior (está no ledger). */
   pular(entidade: string): void {
     this.pulados[entidade] = (this.pulados[entidade] ?? 0) + 1;
   }
@@ -68,7 +55,6 @@ export class Relatorio {
     });
   }
 
-  /** Contagem por motivo, para o resumo no terminal. */
   static agrupar<T>(
     itens: T[],
     chave: (item: T) => string,

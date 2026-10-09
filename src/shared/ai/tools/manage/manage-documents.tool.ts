@@ -239,7 +239,6 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
         }
       }
 
-      // operation === 'remove'
       const documentId = asNonEmptyString(args.documentId);
       if (!documentId) {
         return buildToolResult({

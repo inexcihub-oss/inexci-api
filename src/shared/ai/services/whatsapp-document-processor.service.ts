@@ -22,11 +22,6 @@ export interface ProcessPendingDocumentInput {
   intent: DocumentClassificationIntent;
   conversationId: string;
   messageSid: string;
-  /**
-   * Identificação do usuário/owner para registro em `ai_token_usage_log`.
-   * Quando ausentes, o log de uso ainda é gravado com `null` em userId/ownerId
-   * (já é o padrão da entidade) — não bloqueia o pipeline.
-   */
   userId?: string | null;
   ownerId?: string | null;
 }
@@ -40,34 +35,11 @@ export type ProcessPendingDocumentStatus =
 export interface ProcessPendingDocumentOutcome {
   status: ProcessPendingDocumentStatus;
   classification?: DocumentClassification;
-  /** Resumo curto pronto para virar mensagem WhatsApp ao usuário. */
   userSummary?: string;
   errorMessage?: string;
-  /**
-   * Indica se o resultado veio do fallback Vision (`gpt-4o`) em vez do
-   * pipeline texto-OCR + classifier (`gpt-4o-mini`). Apenas para
-   * observabilidade — o consumidor não precisa diferenciar.
-   */
   usedVisionFallback?: boolean;
 }
 
-/**
- * Orquestra o pipeline pesado quando o usuário declara intent sobre uma
- * pendência ativa: download do staging → OCR + tokenização PII → LLM
- * classificador → atualização do `PendingDocumentRequest` com a classificação
- * e o texto OCR tokenizado.
- *
- * Sprint 4 adicionou:
- *  - **Vision fallback** (`gpt-4o`) para imagens quando o OCR/classifier
- *    text-only é insuficiente (texto curto, baixa confiança ou exceção).
- *  - **`ai_token_usage_log`** com stages `doc_classifier` e
- *    `doc_vision_fallback` para auditoria de custo.
- *  - Logs estruturados `[AI_DOC_PIPELINE_*]` no caminho hot.
- *
- * Foi extraído do `AiOrchestratorService` (que já está enorme) e do
- * `WhatsappDocumentDispatcherService` (que cuida só do staging) para manter
- * cada serviço com uma responsabilidade clara.
- */
 @Injectable()
 export class WhatsappDocumentProcessorService {
   private readonly logger = new Logger(WhatsappDocumentProcessorService.name);
@@ -105,10 +77,6 @@ export class WhatsappDocumentProcessorService {
       buffer,
       mimeType: pending.contentType,
       filename: pending.fileName,
-      // Precisa ser o mesmo id usado em `ai-orchestrator.service.ts`
-      // (`conversation.id`) para o cofre de PII e o `detokenizeArg`. Usar o
-      // `messageSid` aqui deixava os bindings do OCR orfaos e reiniciava o
-      // indice de tokens, colidindo `{{cpf_1}}` entre pacientes diferentes.
       sessionId: conversationId,
       intent,
     });
@@ -161,10 +129,6 @@ export class WhatsappDocumentProcessorService {
       `[AI_DOC_PIPELINE_OK] sid=${messageSid} phone=${phoneMasked} kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} vision_fallback=${usedVisionFallback}`,
     );
 
-    // Pré-preenche o draft `create_sc` direto a partir da classificação,
-    // sem depender do LLM seguir 11 passos de prompt. Isso garante que
-    // notes/tussItems/opmeItems já estejam no draft no momento do commit
-    // — corrige o bug de "SC criada vazia" reportado pelo usuário.
     if (intent === 'create_sc' && this.draftService) {
       try {
         await this.prefillCreateScDraftFromClassification({
@@ -189,15 +153,6 @@ export class WhatsappDocumentProcessorService {
     };
   }
 
-  /**
-   * Pré-preenche o draft `create_sc` ativo (cria um novo, se não existir)
-   * com os dados estruturados extraídos do documento — laudo, TUSS, OPME,
-   * labels de paciente/hospital/convênio/procedimento e prioridade default
-   * (`LOW`). IDs reais (patientId, procedureId, hospitalId, healthPlanId)
-   * NÃO são preenchidos aqui — ficam para o LLM resolver via tools de
-   * lookup. Mas as labels já no draft permitem que o `sc_draft_preview`
-   * mostre algo útil mesmo se o LLM ainda não chamou nenhuma tool.
-   */
   private async prefillCreateScDraftFromClassification(opts: {
     conversationId: string;
     classification: DocumentClassification;
@@ -208,7 +163,6 @@ export class WhatsappDocumentProcessorService {
     const { conversationId, classification } = opts;
     const extracted = classification.extracted || {};
 
-    // Abre o draft (idempotente: retoma o existente).
     const current = await this.draftService.getCurrent(conversationId);
     if (!current || current.type !== 'create_sc') {
       await this.draftService.start({
@@ -256,7 +210,6 @@ export class WhatsappDocumentProcessorService {
           manufacturer: isUsable(o.manufacturer) ? o.manufacturer : undefined,
         }));
     }
-    // Prioridade default: LOW. Não sobrescreve se o LLM já gravou outra.
     const refreshed = await this.draftService.getCurrent(conversationId);
     if (refreshed && refreshed.type === 'create_sc') {
       const existing = refreshed.fields as Record<string, unknown>;
@@ -320,11 +273,6 @@ export class WhatsappDocumentProcessorService {
     }
   }
 
-  /**
-   * Resumo textual usado pelo dispatcher para responder ao usuário logo
-   * após processar a intent. Nunca inclui dados em claro: o classifier
-   * trabalha com placeholders do PII Vault.
-   */
   private buildUserSummary(
     intent: DocumentClassificationIntent,
     classification: DocumentClassification,
@@ -334,15 +282,9 @@ export class WhatsappDocumentProcessorService {
     const kindLabel = this.kindLabel(classification.kind);
     lines.push(`Identifiquei o documento como: *${kindLabel}*.`);
 
-    // Confidence é usada apenas internamente (gate do Vision fallback,
-    // logs, métricas). Não a expomos ao usuário para não poluir a UX.
-
     const extracted = classification.extracted;
     const datapoints: string[] = [];
 
-    // O classifier pode retornar valores não-úteis ("null", "undefined",
-    // strings vazias) quando o documento não tem aquele campo. Filtramos
-    // tudo isso para não vazar "Hospital: null" para o usuário.
     const isUsable = (v: unknown): v is string => {
       if (typeof v !== 'string') return false;
       const trimmed = v.trim();
@@ -359,10 +301,6 @@ export class WhatsappDocumentProcessorService {
 
     if (isUsable(extracted.patient?.name))
       datapoints.push(`Paciente: ${extracted.patient!.name}`);
-    // CPF, telefone e e-mail chegam tokenizados pelo PII Vault
-    // (ex.: {{cpf_3}}) — nunca os incluímos na mensagem visível ao usuário.
-    // Eles ficam disponíveis no hint interno (buildDocumentPendingHint) para
-    // que o LLM os repasse às tools de cadastro/draft.
     if (isUsable(extracted.patient?.birthDate))
       datapoints.push(`Nascimento: ${extracted.patient!.birthDate}`);
     if (isUsable(extracted.hospital))
@@ -420,10 +358,6 @@ export class WhatsappDocumentProcessorService {
       lines.push(`Atenção: ${classification.ambiguity}`);
     }
 
-    // Quando o classifier (texto OU vision) não conseguiu extrair nada
-    // acionável, encerramos o turno com um pedido objetivo em vez de
-    // prometer "vou abrir uma SC" — assim o usuário sabe que precisa
-    // digitar os dados manualmente.
     const isEmpty = this.extractor.isExtractedEffectivelyEmpty(classification);
 
     lines.push('');
@@ -448,10 +382,6 @@ export class WhatsappDocumentProcessorService {
       return lines.join('\n');
     }
 
-    // Sinaliza ao usuário se temos dados RICOS o bastante para já avançar
-    // sem confirmação intermediária. O LLM, com o `buildDocumentPendingHint`
-    // injetado no system prompt, vai começar o draft IMEDIATAMENTE no
-    // próximo turno (ou já no mesmo) e o usuário só confirma o commit final.
     const hasRichScData =
       intent === 'create_sc' && this.hasRichSurgeryRequestData(classification);
 
@@ -482,14 +412,6 @@ export class WhatsappDocumentProcessorService {
     return lines.join('\n');
   }
 
-  /**
-   * Detecta documentos com dados suficientes para POPULAR uma SC sem
-   * perguntar nada além da confirmação final. Critério: paciente
-   * identificado + (procedimento sugerido OU pelo menos 1 TUSS) + (algum
-   * contexto extra: convênio OU OPME OU diagnóstico OU laudo).
-   * Usado para mudar o tom da mensagem ao usuário (de "Posso seguir?"
-   * para "Já vou montar tudo") e ativar o caminho rápido no hint do LLM.
-   */
   private hasRichSurgeryRequestData(
     classification: DocumentClassification,
   ): boolean {

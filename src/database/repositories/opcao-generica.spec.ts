@@ -2,13 +2,6 @@ import { SupplierRepository } from './supplier.repository';
 import { ManufacturerRepository } from './manufacturer.repository';
 import { GENERIC_OPTION_NAME } from '../../shared/constants/generic-option';
 
-/**
- * "Outro" é criado sob demanda: conta nova não nasce com ele, e a primeira
- * solicitação que precisar de um slot vazio o cria. Como duas requisições
- * simultâneas podem tentar criar ao mesmo tempo, o índice único
- * `(owner_id) WHERE is_generic` é quem arbitra — a segunda toma violação e
- * relê, em vez de criar uma segunda linha genérica.
- */
 describe.each([
   ['SupplierRepository', SupplierRepository, 'uq_suppliers_owner_generic'],
   [
@@ -82,14 +75,6 @@ describe.each([
     expect(findOne).toHaveBeenCalledTimes(2);
   });
 
-  /**
-   * Nem toda violação de unicidade aqui é a corrida entre duas requisições.
-   * Em `manufacturers`, `uq_manufacturers_owner_name_active` protege
-   * `(owner_id, LOWER(name))` — uma linha legada chamada "Outro" que nunca foi
-   * unificada derruba o insert por esse outro índice. Tratá-la como corrida
-   * fazia o método reler, não achar nada e relançar o erro cru do Postgres, que
-   * não diz o que aconteceu nem o que fazer.
-   */
   it('não confunde colisão de nome com a corrida entre requisições', async () => {
     const findOne = jest.fn().mockResolvedValue(null);
     const repositorio = montar({
@@ -103,7 +88,6 @@ describe.each([
     await expect(repositorio.ensureGeneric('owner-1')).rejects.toThrow(
       /outro-generico-aplicar\.sql/,
     );
-    // Não vale relê-la: a linha genérica não existe e não vai aparecer.
     expect(findOne).toHaveBeenCalledTimes(1);
   });
 
@@ -126,7 +110,6 @@ describe.each([
     );
   });
 
-  /** O TypeORM embrulha o erro do driver; a constraint fica lá dentro. */
   it('lê a constraint também de dentro de driverError', async () => {
     const repositorio = montar({
       findOne: jest.fn().mockResolvedValue(null),

@@ -1,73 +1,17 @@
 import { PiiCategory } from '../services/pii-vault.service';
 
-/**
- * Allowlist por tool: declara quais categorias de PII cada tool tem permissão de
- * tokenizar e devolver para o LLM externo.
- *
- * Regras:
- * - Lista vazia (`[]`) = a tool NÃO pode tokenizar nenhuma PII (apenas dados não pessoais).
- * - `protocol` é considerado pseudo-identificador interno; toda tool que opera em SC pode listá-lo.
- * - Conteúdo clínico do laudo vive em `report_sections` — não é exposto em tools de leitura.
- * - Quando uma tool precisa expor identificadores pessoais (nome, hospital, convênio etc.),
- *   declarar explicitamente aqui.
- */
 export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
-  // ---------- Leitura ----------
-  // `query_surgery_requests` unifica as antigas `get_surgery_request_status` e
-  // `list_surgery_requests` (Fase 4.2 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
   query_surgery_requests: ['protocol', 'date'],
   get_pendencies: ['protocol'],
-  // Apenas configuração estática (PENDENCIES_CONFIG) — nenhuma PII envolvida.
   get_workflow_requirements: [],
-  // Tokeniza apenas o protocolo da SC; a tool só lê tipos/nomes técnicos
-  // de documentos (lista canônica em post-surgery-documents.config.ts).
   list_post_surgery_required_docs: ['protocol'],
-  // Não expõe nenhum dado pessoal: a assinatura é binária (imagem) e a
-  // resposta para o usuário é só uma confirmação textual.
   upload_doctor_signature: [],
-  // Nomes de paciente/médico/hospital/convênio NÃO são mais tokenizados em
-  // saídas de tools de lookup — são dados de negócio do próprio owner_id
-  // (não PII de terceiro). Continuamos tokenizando CPF/telefone/email/data.
-  // `query_patients` unifica as antigas `get_patient_info` e `list_patients`
-  // (Fase 4.1 do PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST).
   query_patients: ['cpf', 'phone', 'email', 'birth_date'],
-  // Tools legacy removidas em 2026-05-12 (Fases 3.2 a 3.6 do
-  // PLANO-OTIMIZACAO-IA-WHATSAPP-EFICIENCIA):
-  //   - `create_patient` (Fase 3.2): substituída por `create_patient_from_document`
-  //     (OCR) e pelos `patient_draft_*`.
-  //   - `create_hospital`, `create_health_plan`, `create_procedure` (Fase 3.3):
-  //     substituídas pelos `hospital_draft_*`, `health_plan_draft_*` e
-  //     `procedure_draft_*`.
-  //   - `invoice_request` (Fase 3.4): substituída pelos `invoice_draft_*`.
-  //   - `contest_authorization_full`, `contest_payment` (Fase 3.5):
-  //     substituídas pelos `contestation_draft_*` (com `contestationType`
-  //     "AUTHORIZATION" | "PAYMENT" no commit roteando ao workflow correto).
-  //   - `confirm_date`, `update_date_options` (Fase 3.6): substituídas pelos
-  //     `scheduling_draft_*` (`scheduling_draft_set_request` +
-  //     `_set_date_options`/`_set_confirmed_date` + `_preview` + `_commit`).
-  //   - `mark_performed` (Fase 3.7): substituída pelos `mark_performed_draft_*`
-  //     (`mark_performed_draft_set_request` + `_set_performed_at` +
-  //     `_check_docs` + `_preview` + `_commit`). O draft adiciona checagem
-  //     obrigatória de docs pós-cirúrgicos antes do avanço de status.
-  //   - `update_request_clinical_data`, `update_request_admin_data` (Fase 3.8):
-  //     substituídas por `update_sc_draft_*` (scope=clinical/admin).
-  //   - `update_patient_data` (Fase 3.8): substituída por
-  //     `update_sc_draft_*` (scope=patient).
-  //   - `update_surgery_request_data` (Fase 3.8): substituída por
-  //     `update_sc_draft_*` (scope=admin, campo priority).
-  // Nenhuma allowlist é necessária para os `*_draft_*` — eles não tokenizam
-  // nada (o LLM só vê dados em claro no preview gerado pelo
-  // `OperationDraftService.getPreview`, que roda fora do tool registry).
   search_procedures: [],
-  // Catálogo TUSS é estático (arquivo `src/utils/tuss.json`) — sem PII.
   search_tuss_codes: [],
-  // Catálogo CID-10 é estático (arquivo `src/utils/cid.json`) — sem PII.
   search_cid_codes: [],
-  // Catálogo é puramente leitura: nomes de paciente/médico/hospital/convênio
-  // em claro permitem que o LLM identifique matches por similaridade.
   list_sc_creation_catalog: [],
 
-  // ---------- Mutação: workflow ----------
   advance_surgery_request: ['protocol'],
   set_has_opme: ['protocol'],
   close_surgery_request: ['protocol'],
@@ -76,23 +20,15 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   update_receipt: ['protocol', 'date'],
   manage_report_sections: ['protocol'],
 
-  // ---------- Mutação: dados ----------
   set_hospital: ['protocol'],
   set_health_plan: ['protocol'],
 
-  // ---------- Gestão consolidada (list/add/update/remove ou list/attach/remove) ----------
   manage_tuss_items: ['protocol'],
   manage_opme_items: ['protocol'],
   manage_documents: ['protocol'],
   manage_report_images: ['protocol'],
 
-  // ---------- OCR de documentos no WhatsApp (Sprint 3 do plano OCR) ----------
-  // attach: só ID/protocolo da SC. Os dados do documento já vivem no storage
-  // e no `documents` — a tool não tokeniza nenhum conteúdo do paciente.
   attach_document_from_whatsapp: ['protocol'],
-  // create_patient_from_document tokeniza patient_name, cpf, phone, email e
-  // birth_date: o usuário fornece dados pessoais para cadastro e a tool só
-  // ecoa de volta o nome do paciente (tokenizado).
   create_patient_from_document: [
     'patient_name',
     'cpf',
@@ -101,10 +37,6 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
     'birth_date',
   ],
 
-  // ---------- Draft de criação de SC (Fase 3) ----------
-  // Tools de draft expõem apenas `protocol` quando ecoam o resultado final.
-  // Nomes (paciente/médico/hospital/convênio) ficam em claro porque o LLM
-  // precisa enxergá-los para fazer matching por similaridade.
   sc_draft_set_patient: [],
   sc_draft_set_procedure: [],
   sc_draft_set_hospital: [],
@@ -118,13 +50,6 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   sc_draft_commit: ['protocol'],
   sc_draft_cancel: [],
 
-  // ---------- Drafts de cadastros (Fase 4) ----------
-  // Tools internas que orquestram cadastros estruturados (paciente, hospital,
-  // convênio, procedimento). Não tokenizam nada porque o LLM precisa ver o
-  // nome em claro para fazer preview e similaridade. Dados sensíveis do
-  // paciente (CPF/telefone/email/nascimento) ficam apenas no draft e
-  // nunca são ecoados como resposta da tool — só aparecem no preview
-  // textual gerado pelo `OperationDraftService.getPreview`.
   patient_draft_set_name: [],
   patient_draft_set_phone: [],
   patient_draft_set_email: [],
@@ -151,7 +76,6 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   procedure_draft_cancel: [],
   procedure_draft_status: [],
 
-  // ---------- Drafts dos demais fluxos complexos (Fase 5) ----------
   invoice_draft_set_request: ['protocol'],
   invoice_draft_set_protocol: [],
   invoice_draft_set_value: [],
@@ -184,9 +108,6 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   update_sc_draft_cancel: [],
   update_sc_draft_status: [],
 
-  // ---------- Drafts de transição de status (Fase 6.5) ----------
-  // Cobrem PENDING→SENT, SENT→IN_ANALYSIS, IN_ANALYSIS→IN_SCHEDULING e
-  // SCHEDULED→PERFORMED, exigindo os mesmos campos dos modais do frontend.
   send_sc_draft_set_request: ['protocol'],
   send_sc_draft_set_method: [],
   send_sc_draft_set_email_fields: ['email'],
@@ -217,17 +138,11 @@ export const TOOL_PII_ALLOWLIST: Record<string, PiiCategory[]> = {
   mark_performed_draft_cancel: [],
   mark_performed_draft_status: [],
 
-  // ---------- Plan tool ----------
   plan_actions: [],
 
-  // ---------- Notificação ----------
   send_notification: ['protocol'],
 };
 
-/**
- * Lança erro quando a tool tenta tokenizar uma categoria fora do escopo permitido.
- * Use no início de cada tool para garantir contrato pelo código (não só pela revisão).
- */
 export class PiiAllowlistViolationError extends Error {
   constructor(
     public readonly toolName: string,

@@ -9,10 +9,6 @@ export class ClinicalRecordTemplateRepository extends BaseRepository<ClinicalRec
     super(dataSource.getRepository(ClinicalRecordTemplate));
   }
 
-  /**
-   * Modelos da clínica, opcionalmente só os de um médico. Os mais usados
-   * primeiro — é o que o médico procura no meio do atendimento.
-   */
   findByOwner(
     ownerId: string,
     doctorId?: string,
@@ -23,7 +19,6 @@ export class ClinicalRecordTemplateRepository extends BaseRepository<ClinicalRec
     });
   }
 
-  /** Conta mais um uso sem reler o registro. */
   async incrementUsage(id: string): Promise<void> {
     await this.repository.increment({ id }, 'usageCount', 1);
   }

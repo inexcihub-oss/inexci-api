@@ -35,7 +35,6 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { withActiveSpan } from 'src/shared/observability/span.util';
 import { trace } from '@opentelemetry/api';
 
-// ── DTOs de transição ────────────────────────────────────────────────────────
 import { SendRequestDto } from './dto/send-request.dto';
 import { StartAnalysisDto } from './dto/start-analysis.dto';
 import { AcceptAuthorizationDto } from './dto/accept-authorization.dto';
@@ -59,7 +58,6 @@ import {
 import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 
-// ── Sub-services ─────────────────────────────────────────────────────────────
 import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
@@ -82,7 +80,6 @@ export class SurgeryRequestsService {
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
     private readonly pendencyValidatorService: PendencyValidatorService,
-    // ── Sub-services ───────────────────────────────────────────────────────
     private readonly mutationService: SurgeryRequestMutationService,
     private readonly workflowService: SurgeryRequestWorkflowService,
     private readonly reportService: SurgeryRequestReportService,
@@ -92,10 +89,6 @@ export class SurgeryRequestsService {
     private readonly clinicalRecordRepository: ClinicalRecordRepository,
   ) {}
 
-  // ============================================================
-  // CRIAÇÃO — delega para MutationService
-  // ============================================================
-
   create(data: CreateSurgeryRequestDto, userId: string) {
     return this.mutationService.create(data, userId);
   }
@@ -104,19 +97,11 @@ export class SurgeryRequestsService {
     return this.mutationService.createSurgeryRequest(data, userId);
   }
 
-  // ============================================================
-  // LEITURA
-  // ============================================================
-
   async findAll(
     query: FindManySurgeryRequestDto,
     userId: string,
     userPermissions: Permission[],
   ) {
-    // Ponte deliberada: o controller abre o método para SOLICITACOES OU
-    // ATENDIMENTO (guard só sabe fazer "OU"). Quem chegou sem SOLICITACOES
-    // só pode consultar as cirurgias de um paciente específico que está
-    // atendendo — nunca navegar a carteira cirúrgica inteira da clínica.
     if (
       !userPermissions.includes(Permission.SOLICITACOES) &&
       !query.patientId
@@ -126,8 +111,6 @@ export class SurgeryRequestsService {
       );
     }
 
-    // O JwtAuthGuard já validou a existência do usuário; getAccessibleDoctorIds
-    // retorna [] para usuário inexistente. Sem findOne redundante (P9).
     const doctorIds =
       await this.accessControlService.getAccessibleDoctorIds(userId);
     if (doctorIds.length === 0) return { total: 0, records: [] };
@@ -139,8 +122,6 @@ export class SurgeryRequestsService {
     if (query.healthPlanId) {
       where = { ...where, healthPlanId: query.healthPlanId };
     }
-    // O filtro por médico só estreita o escopo já autorizado: um médico fora
-    // dos acessíveis nunca vira uma consulta ampliada, vira lista vazia.
     if (query.doctorId) {
       if (!doctorIds.includes(query.doctorId)) return { total: 0, records: [] };
       where = { ...where, doctorId: query.doctorId };
@@ -158,16 +139,6 @@ export class SurgeryRequestsService {
     return { total, records };
   }
 
-  /**
-   * Listagem enxuta para o kanban (P8). Diferente de `findAll`:
-   * - Retorna apenas os campos consumidos pelos cards (sem relações pesadas).
-   * - Já embute os contadores de pendência REAIS (via
-   *   `PendencyValidatorService.getBatchSummary`, carga em lote com
-   *   `relationLoadStrategy: 'query'`), eliminando o segundo round-trip que o
-   *   frontend fazia ao endpoint `batch-summary` (P4).
-   * - Carrega todos os cards do tenant de uma vez (teto `KANBAN_MAX_TAKE`),
-   *   corrigindo o bug histórico do `take = 20`.
-   */
   async findAllForKanban(query: FindManyKanbanDto, userId: string) {
     return withActiveSpan(
       'surgeryRequest.kanban',
@@ -197,8 +168,6 @@ export class SurgeryRequestsService {
 
         const ids = records.map((record) => String(record.id));
         const ownerId = await this.accessControlService.getOwnerId(userId);
-        // Em paralelo: são consultas independentes na rota mais quente da
-        // aplicação, encadeá-las só somaria latência.
         const [summaries, suppliersById, clinicsById] = await Promise.all([
           ids.length
             ? this.pendencyValidatorService.getBatchSummary(
@@ -229,13 +198,6 @@ export class SurgeryRequestsService {
     );
   }
 
-  /**
-   * Fornecedores escolhidos no OPME, agrupados por solicitação. Vão como
-   * referências `{ id, name }` e não como texto concatenado: o filtro do
-   * kanban precisa do id, e juntar os nomes numa string obrigaria o cliente a
-   * separá-los de volta — o que quebra em nome com vírgula
-   * ("Medtronic Comercial, Ltda").
-   */
   private async loadSelectedSuppliers(
     requestIds: string[],
   ): Promise<Map<string, Array<{ id: string; name: string }>>> {
@@ -249,7 +211,6 @@ export class SurgeryRequestsService {
 
     for (const row of rows) {
       const list = byRequest.get(row.surgeryRequestId) ?? [];
-      // Vários itens OPME podem apontar para o mesmo fornecedor.
       if (!list.some((supplier) => supplier.id === row.supplierId)) {
         list.push({ id: row.supplierId, name: row.supplierName });
       }
@@ -259,10 +220,6 @@ export class SurgeryRequestsService {
     return byRequest;
   }
 
-  /**
-   * Clínica de origem por solicitação. Só o kanban usa (filtro de clínica),
-   * por isso fica fora do `toKanbanCard` compartilhado com a agenda.
-   */
   private async loadOriginClinics(
     requestIds: string[],
   ): Promise<Map<string, { id: string; name: string }>> {
@@ -274,7 +231,6 @@ export class SurgeryRequestsService {
         requestIds,
       );
     for (const row of rows) {
-      // Vem ordenado pela ficha mais antiga: a que originou a SC vence.
       if (!byRequest.has(row.surgeryRequestId)) {
         byRequest.set(row.surgeryRequestId, {
           id: row.clinicId,
@@ -322,12 +278,6 @@ export class SurgeryRequestsService {
     };
   }
 
-  /**
-   * Agenda por intervalo de `surgeryDate` (P7/P8). Substitui o antigo
-   * `status=5,6,7,8` (que trazia todas as cirurgias agendadas): consulta apenas
-   * as cirurgias com data dentro do período visível. Cards enxutos (mesmo
-   * formato do kanban) — a agenda não usa contadores de pendência.
-   */
   async findAgenda(query: FindAgendaDto, userId: string) {
     return withActiveSpan(
       'surgeryRequest.agenda',
@@ -373,7 +323,6 @@ export class SurgeryRequestsService {
       'surgeryRequest.findDetail',
       { 'surgeryRequest.id': id, 'user.id': userId },
       async () => {
-        // JwtAuthGuard já validou o usuário; buildAccessWhere restringe por acesso (P9).
         const where = await this.buildAccessWhere({ id }, userId);
         const surgeryRequest =
           await this.surgeryRequestRepository.findOne(where);
@@ -405,7 +354,6 @@ export class SurgeryRequestsService {
           ? this.cidService.findByExactCode(surgeryRequest.cidCode)
           : null;
 
-        // Resposta explícita (P11 / item 3.6): DTO por relação em vez de spread da entidade.
         return mapSurgeryRequestDetail(
           surgeryRequest as SurgeryRequestDetailInput,
           mapDetailDoctor(doctor),
@@ -417,7 +365,6 @@ export class SurgeryRequestsService {
   }
 
   async findOneSimple(id: string, userId: string) {
-    // JwtAuthGuard já validou o usuário; buildAccessWhere restringe por acesso (P9).
     const where = await this.buildAccessWhere({ id }, userId);
     const surgeryRequest =
       await this.surgeryRequestRepository.findOneSimple(where);
@@ -425,10 +372,6 @@ export class SurgeryRequestsService {
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     return surgeryRequest;
   }
-
-  // ============================================================
-  // ATUALIZAÇÃO — delega para MutationService
-  // ============================================================
 
   update(data: UpdateSurgeryRequestDto, userId: string) {
     return this.mutationService.update(data, userId);
@@ -441,10 +384,6 @@ export class SurgeryRequestsService {
   setHasOpme(id: string, hasOpme: boolean, userId: string) {
     return this.mutationService.setHasOpme(id, hasOpme, userId);
   }
-
-  // ============================================================
-  // ITENS TUSS
-  // ============================================================
 
   async addTussItem(
     surgeryRequestId: string,
@@ -498,10 +437,6 @@ export class SurgeryRequestsService {
     return this.tussItemRepository.deleteById(tussItemId);
   }
 
-  // ============================================================
-  // MÉDICOS DISPONÍVEIS PARA CRIAÇÃO
-  // ============================================================
-
   async getAvailableDoctors(userId: string) {
     const doctors =
       await this.accessControlService.getAvailableDoctorsForCreation(userId);
@@ -511,20 +446,13 @@ export class SurgeryRequestsService {
       crm: d.doctorProfile?.crm,
       crmState: d.doctorProfile?.crmState,
       specialty: d.doctorProfile?.specialty,
-      // A Agenda lista todos os profissionais; o wizard de SC só os médicos.
       council: d.doctorProfile?.council,
       isPhysician: isPhysicianProfile(d.doctorProfile),
-      // Receita/atestado/pedido de exame: CRM ou CRO. A tela de atendimento
-      // decide os botões por aqui — `isPhysician` deixaria o dentista de fora.
       canIssueClinicalDocuments: isClinicalDocumentIssuerProfile(
         d.doctorProfile,
       ),
     }));
   }
-
-  // ============================================================
-  // DELEGAÇÃO → WORKFLOW SERVICE
-  // ============================================================
 
   async sendRequest(id: string, dto: SendRequestDto, userId: string) {
     const result = await this.workflowService.sendRequest(id, dto, userId);
@@ -681,10 +609,6 @@ export class SurgeryRequestsService {
     return result;
   }
 
-  // ============================================================
-  // DELEGAÇÃO → REPORT SERVICE
-  // ============================================================
-
   getReportSections(id: string, userId: string) {
     return this.reportService.getReportSections(id, userId);
   }
@@ -734,10 +658,6 @@ export class SurgeryRequestsService {
     return this.workflowService.exportSurgeryRequestPdf(id, userId);
   }
 
-  // ============================================================
-  // DELEGAÇÃO → TEMPLATE SERVICE
-  // ============================================================
-
   createTemplate(
     dto: { name: string; templateData: object },
     userId: string,
@@ -774,8 +694,6 @@ export class SurgeryRequestsService {
   incrementTemplateUsage(id: string, userId: string, ownerId: string | null) {
     return this.templateService.incrementUsage(id, userId, ownerId);
   }
-
-  // ── Helpers privados ────────────────────────────────────────────────────────
 
   async getCcRecipients(id: string, userId: string) {
     const where = await this.buildAccessWhere({ id }, userId);
@@ -814,7 +732,6 @@ export class SurgeryRequestsService {
     base: FindOptionsWhere<SurgeryRequest>,
     userId: string,
   ): Promise<FindOptionsWhere<SurgeryRequest>> {
-    // Fail-closed: sempre escopa por ownerId (V1). Ver AccessControlService.
     return this.accessControlService.buildSurgeryAccessWhere(base, userId);
   }
 

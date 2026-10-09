@@ -123,9 +123,6 @@ export function getAuthHeader(token: string): { Authorization: string } {
   return { Authorization: `Bearer ${token}` };
 }
 
-/**
- * Gera um token JWT para um usuário específico (útil para testar rotas com diferentes permissões)
- */
 export function generateTestToken(userId: string | number): string {
   const jwt = require('jsonwebtoken');
   const secret =

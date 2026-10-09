@@ -9,9 +9,6 @@ describe('DocumentsService.delete — exclusao cross-tenant no storage', () => {
     };
 
     const storage = { delete: jest.fn() };
-    // Busca escopada: com o filtro correto (id + surgeryRequestId), o
-    // documento da vitima (de outra SC) nao e achado. Sem o filtro por
-    // surgeryRequestId, o mock simula o bug atual e "acha" o documento.
     const repo = {
       findOneSimple: jest.fn((where: any) =>
         where?.surgeryRequestId
@@ -44,9 +41,6 @@ describe('DocumentsService.delete — exclusao cross-tenant no storage', () => {
   });
 
   it('nao apaga no R2 quando o `key` informado nao casa com o do documento', async () => {
-    // O `key` errado fazia o DELETE no banco nao afetar linha nenhuma, mas o
-    // storage apagava pela `uri` do documento carregado: registro vivo,
-    // arquivo perdido.
     const storage = { delete: jest.fn() };
     const repo = {
       findOneSimple: jest.fn().mockResolvedValue({
@@ -89,7 +83,6 @@ describe('DocumentsService.delete — exclusao cross-tenant no storage', () => {
         uri: 'documents/owner-1/laudo.pdf',
       }),
     };
-    // Corrida: outra requisicao removeu a linha entre o SELECT e o DELETE.
     const documentTypeormRepo = {
       delete: jest.fn().mockResolvedValue({ affected: 0 }),
     };

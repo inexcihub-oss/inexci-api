@@ -164,8 +164,6 @@ describe('AppointmentsService', () => {
     });
   });
 
-  // "Iniciar" × "Continuar" × "Ver atendimento" sai da ficha, não do status
-  // da agenda (que pode ser mexido à mão sem acompanhar a ficha).
   describe('situação da ficha na leitura', () => {
     beforeEach(() => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
@@ -361,8 +359,6 @@ describe('AppointmentsService', () => {
       expect(mockAppointmentRepository.hasOverlap).not.toHaveBeenCalled();
     });
 
-    // D-03: sem zerar a marca, o lembrete "já enviado" era o da data antiga e
-    // o paciente nunca era avisado do novo horário.
     it('zera reminderSentAt ao reagendar para outro horário', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
@@ -479,8 +475,6 @@ describe('AppointmentsService', () => {
       });
     });
 
-    // D-01: reabrir uma consulta cancelada devolvia o slot sem checar se ele
-    // já tinha sido reocupado — duas consultas ativas no mesmo horário.
     it.each([
       [AppointmentStatus.CANCELLED, AppointmentStatus.SCHEDULED],
       [AppointmentStatus.CANCELLED, AppointmentStatus.CONFIRMED],
@@ -579,8 +573,6 @@ describe('AppointmentsService', () => {
       durationMinutes: 30,
     };
 
-    // D-06: sem a consulta, `/atendimento/[appointmentId]` dá 404 e o rascunho
-    // clínico fica inalcançável pela UI, mas continua na timeline do paciente.
     it('bloqueia a exclusão quando existe ficha de atendimento vinculada', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
         appointment,
@@ -725,9 +717,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    // D-05: antes o filtro era descartado em silêncio e a resposta trazia a
-    // agenda de todos os médicos acessíveis, como se o filtro não existisse.
-    // Lista vazia (e não 403) para não permitir enumerar ids de médicos.
     it('retorna vazio quando o médico do filtro não é acessível (fail-closed)', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
@@ -778,7 +767,6 @@ describe('AppointmentsService', () => {
         total: 0,
       });
 
-      // "Realizadas" lista todo o passado; "Próximas" não tem teto de data.
       await service.findAgenda({}, userId);
 
       expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
@@ -788,9 +776,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    // D-15: o teto de APPOINTMENTS_MAX_TAKE corta a lista em silêncio. Se
-    // `total` for o tamanho da página, ele vira o próprio teto e ninguém —
-    // nem o frontend, nem o usuário — consegue saber que faltou consulta.
     it('devolve a contagem real do banco, não o tamanho da página cortada', async () => {
       mockAccessControlService.getAccessibleDoctorIds.mockResolvedValue([
         doctorId,
@@ -810,7 +795,6 @@ describe('AppointmentsService', () => {
 
       expect(result.total).toBe(1103);
       expect(result.records).toHaveLength(APPOINTMENTS_MAX_TAKE);
-      // É a desigualdade que o consumidor usa para avisar do corte.
       expect(result.total).toBeGreaterThan(result.records.length);
     });
 
@@ -921,7 +905,6 @@ describe('AppointmentsService', () => {
       expect(dados).not.toHaveProperty('clinicId');
     });
   });
-  // ─── Aviso de cancelamento ao paciente (template appointment_cancelled) ──
 
   describe('aviso de cancelamento pelo WhatsApp', () => {
     const consultaAgendada = {
@@ -976,10 +959,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    /**
-     * O paciente já recebeu esse mesmo aviso na tela do WhatsApp quando a
-     * consulta foi cancelada; recancelar não é um fato novo para ele.
-     */
     it('não reavisa quando a consulta já estava cancelada', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         ...consultaAgendada,
@@ -1016,7 +995,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    /** Aviso é efeito colateral: Redis fora não pode desfazer o cancelamento. */
     it('cancela mesmo quando o aviso falha', async () => {
       mockWhatsappService.sendAppointmentCancelled.mockRejectedValue(
         new Error('redis down'),
@@ -1036,7 +1014,6 @@ describe('AppointmentsService', () => {
       });
     });
   });
-  // ─── Aviso de agendamento ao paciente (template appointment_scheduled) ───
 
   describe('aviso de consulta marcada pelo WhatsApp', () => {
     beforeEach(() => {
@@ -1079,7 +1056,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
 
-    /** Aviso é efeito colateral: a consulta tem de ser criada de qualquer jeito. */
     it('cria a consulta mesmo quando o aviso falha', async () => {
       mockWhatsappService.sendAppointmentScheduled.mockRejectedValue(
         new Error('redis down'),
@@ -1088,8 +1064,6 @@ describe('AppointmentsService', () => {
       await expect(service.create(baseCreate, userId)).resolves.toBeDefined();
       expect(mockAppointmentRepository.create).toHaveBeenCalled();
     });
-
-    // ─── Reagendamento ────────────────────────────────────────────────────
 
     it('reavisa com a data nova quando a consulta é remarcada', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
@@ -1118,7 +1092,6 @@ describe('AppointmentsService', () => {
       );
     });
 
-    /** Mexer em notas ou tipo não é notícia para o paciente. */
     it('não reavisa quando o horário não mudou', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue({
         id: 'appt-1',
@@ -1159,7 +1132,6 @@ describe('AppointmentsService', () => {
       ).not.toHaveBeenCalled();
     });
   });
-  // ─── MIG-03: sala, encaixe, convênio, autor e sala de espera ───
   describe('sala, encaixe, convênio e autor (MIG-03)', () => {
     const sala = (parcial: object = {}) => ({
       id: 'room-1',
@@ -1348,8 +1320,6 @@ describe('AppointmentsService', () => {
         );
       });
 
-      // A exclusion constraint ignora encaixes dos dois lados: um encaixe
-      // posto sobre a consulta não pode impedir de remarcá-la.
       it('remarcar consulta normal ignora encaixes na checagem de conflito', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           existente(),
@@ -1462,7 +1432,6 @@ describe('AppointmentsService', () => {
       );
     });
   });
-  // ─── MIG-04: histórico da consulta ───
   describe('histórico (MIG-04)', () => {
     const tipos = () =>
       mockActivityRepository.create.mock.calls.map(([d]) => d.type);
@@ -1806,8 +1775,6 @@ describe('AppointmentsService', () => {
     });
 
     describe('updateStatus', () => {
-      // Realizada ocupa o horário (OCCUPYING_APPOINTMENT_STATUSES): voltar de
-      // cancelada direto para realizada também disputa o slot.
       it('cancelada → realizada revalida conflito e bloqueio', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           consulta({ status: AppointmentStatus.CANCELLED }),
@@ -1837,7 +1804,6 @@ describe('AppointmentsService', () => {
 
         expect(mockAppointmentRepository.hasOverlap).toHaveBeenCalled();
         expect(mockAvailabilityService.assertNaoBloqueado).toHaveBeenCalled();
-        // Realizada não é reativação para o paciente: sem aviso nem reset.
         expect(
           mockWhatsappService.sendAppointmentScheduled,
         ).not.toHaveBeenCalled();
@@ -1905,8 +1871,6 @@ describe('AppointmentsService', () => {
         expect(mockAppointmentRepository.update).toHaveBeenCalled();
       });
 
-      // Ficha vinculada (rascunho ou finalizada) atesta o atendimento: a
-      // consulta não pode virar cancelada nem falta.
       it.each([
         [AppointmentStatus.IN_PROGRESS, AppointmentStatus.CANCELLED, null],
         [AppointmentStatus.IN_PROGRESS, AppointmentStatus.NO_SHOW, null],
@@ -2093,8 +2057,6 @@ describe('AppointmentsService', () => {
         },
       );
 
-      // Realizada continua ocupando o horário: mexer nela ainda disputa o slot
-      // (o banco recusaria pela constraint), mas não é aviso de agendamento.
       it('remarcar consulta realizada checa conflito mas não avisa o paciente', async () => {
         mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(
           consulta({ status: AppointmentStatus.COMPLETED }),

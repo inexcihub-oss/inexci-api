@@ -34,18 +34,8 @@ export interface TemplateRequiredDocument {
   name: string;
 }
 
-/**
- * Estrutura do `template_data` (jsonb).
- *
- * O modelo é um *snapshot*, não uma referência à SC que o originou: ele
- * sobrevive à exclusão dela, é editável por conta própria e pode nascer do
- * zero, sem SC nenhuma. O que ele não pode ser é um despejo da SC — só entra
- * aqui o que o wizard reaproveita ao criar a próxima. `sanitizeTemplateData`
- * (no módulo de solicitações) é o único caminho de escrita que garante isso.
- */
 export interface SurgeryRequestTemplateData {
   procedure?: TemplateEntityRef;
-  /** Usado quando o modelo não aponta para um procedimento do catálogo. */
   procedureName?: string;
   hospital?: TemplateEntityRef;
   healthPlan?: TemplateEntityRef;
@@ -55,12 +45,6 @@ export interface SurgeryRequestTemplateData {
   requiredDocuments?: TemplateRequiredDocument[];
 }
 
-/**
- * Template de solicitação cirúrgica.
- * Permite médicos salvarem modelos pré-configurados para criar solicitações rapidamente.
- *
- * Pertence a um médico (doctorId) e a uma clínica (ownerId).
- */
 @Entity('surgery_request_templates')
 @Index('idx_srt_doctor_id', ['doctorId'])
 @Index('idx_srt_owner_id', ['ownerId'])
@@ -71,7 +55,6 @@ export class SurgeryRequestTemplate {
   @Column({ name: 'doctor_id', type: 'uuid' })
   doctorId: string;
 
-  /** ID do admin dono da clínica (denormalizado para tenant isolation). */
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
@@ -89,8 +72,6 @@ export class SurgeryRequestTemplate {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
-
-  // ============ RELAÇÕES ============
 
   @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doctor_id' })

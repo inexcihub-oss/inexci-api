@@ -28,7 +28,6 @@ describe('PdfGenerationService', () => {
     expect(service).toBeDefined();
   });
 
-  // ─── PRD: Registro PDF Histórico — US-001 ────────────────────────────────
   describe('scheduleGeneration', () => {
     it('deve enfileirar job de geração de PDF com dados corretos', async () => {
       await service.scheduleGeneration('request-123', 'user-456');

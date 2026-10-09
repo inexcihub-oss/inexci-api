@@ -19,27 +19,14 @@ export interface AssemblyOpmeItem {
   qty?: number;
   supplier?: string;
   manufacturer?: string;
-  /** Lista de fornecedores candidatos (além de `supplier`, se ambos vierem). */
   suppliers?: string[];
-  /** Lista de fabricantes candidatos (além de `manufacturer`, se ambos vierem). */
   manufacturers?: string[];
 }
 
 export interface AssembleFromExtractedInput {
   scId: string;
   notes?: string;
-  /**
-   * Seções estruturadas do laudo (título + descrição). Quando fornecido,
-   * tem prioridade sobre `notes` — cria uma `ReportSection` por item, na
-   * ordem da lista. `notes` permanece como fallback de compatibilidade
-   * (cria uma única seção "Laudo") para chamadores que ainda não migraram.
-   */
   sections?: AssemblyReportSection[];
-  /**
-   * Fornecedores sugeridos no nível do documento (ex.: empresa que fornece
-   * + empresas alternativas para cotação) — aplicados a TODOS os itens OPME
-   * que não tiverem fornecedor próprio suficiente.
-   */
   suggestedSuppliers?: string[];
   tussItems?: AssemblyTussItem[];
   opmeItems?: AssemblyOpmeItem[];
@@ -93,12 +80,6 @@ function shouldPersistReportSection(title: string): boolean {
   );
 }
 
-/**
- * Popula laudo, TUSS e OPME numa SC já criada a partir dos dados extraídos
- * de um documento (seja via WhatsApp ou via upload web). Toda falha é
- * best-effort: warnings são acumulados e retornados ao chamador, nunca
- * derrubam a operação principal.
- */
 @Injectable()
 export class SurgeryRequestAssemblyService {
   private readonly logger = new Logger(SurgeryRequestAssemblyService.name);
@@ -164,9 +145,7 @@ export class SurgeryRequestAssemblyService {
         try {
           const matches = this.tussService.lookup(code, 1);
           if (matches?.[0]?.name) name = matches[0].name;
-        } catch {
-          // catálogo indisponível — segue sem descrição
-        }
+        } catch {}
       }
       if (!name) {
         warnings.push(`TUSS ${code} (descrição não resolvida)`);
@@ -191,9 +170,6 @@ export class SurgeryRequestAssemblyService {
     for (const item of opmeItems ?? []) {
       const name = item?.description;
       if (!name) continue;
-      // Plataforma exige >=3 fornecedores e >=3 fabricantes; mesclamos o
-      // que o documento trouxe (item + sugestões gerais) e preenchemos o
-      // restante com "Outros" (fornecedor/fabricante fallback reaproveitável).
       const supplierNames = padNames(
         dedupeNames([
           item.supplier,
@@ -233,9 +209,7 @@ export class SurgeryRequestAssemblyService {
     if (opmeAdded > 0) {
       try {
         await this.surgeryRequestsService.setHasOpme(scId, true, userId);
-      } catch {
-        // não-crítico
-      }
+      } catch {}
     }
 
     return { warnings };

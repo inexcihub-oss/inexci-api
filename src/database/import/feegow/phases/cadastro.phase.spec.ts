@@ -265,7 +265,6 @@ describe('planejarCadastro (export sintético)', () => {
       expect(p.pacientes[1].doctorId).toBe(
         ctx.ledger.resolver(LEDGER_PROFISSIONAL, '9'),
       );
-      // Sem consulta → dono.
       expect(p.pacientes[2].doctorId).toBe(OWNER);
     });
 
@@ -276,12 +275,9 @@ describe('planejarCadastro (export sintético)', () => {
         ctx.ledger.resolver('health_plan', '15'),
       );
       expect(p.pacientes[0].healthPlanNumber).toBe('ABC123');
-      // A consulta mais recente do 11 é "CONSULTA PARTICULAR" (tipo de
-      // consulta, não convênio): vale a anterior, com UNIMED.
       expect(p.pacientes[1].healthPlanId).toBe(
         ctx.ledger.resolver('health_plan', '14'),
       );
-      // Sem convênio em consulta nenhuma → null.
       expect(p.pacientes[2].healthPlanId).toBeNull();
     });
 
@@ -297,8 +293,6 @@ describe('planejarCadastro (export sintético)', () => {
               convenio_id2: '15',
               matricula2: 'UNI-2',
             },
-            // O 11 tem só GOLDEN CROSS no cadastro, mas a consulta escolhe
-            // UNIMED: sem matrícula correspondente, fica sem número.
             { paciente_id: '11', convenio_id1: '8', matricula1: 'GOLD-11' },
           ],
         }),
@@ -465,7 +459,6 @@ describe('planejarCadastro (export sintético)', () => {
       const ctx = contextoDeTeste({ usuariosPorEmail: donoExistente() });
       const exp = exportSintetico({
         pacientes: [
-          // telefone no CPF, e-mail no celular, nascimento no fixo
           {
             id: '50',
             nome_paciente: 'F&AACUTE',
@@ -474,7 +467,6 @@ describe('planejarCadastro (export sintético)', () => {
             fixo_1: '03/01/1972 00:00:00',
             sys_active: '1',
           },
-          // telefone no lugar, e-mail no fixo, nascimento no e-mail
           {
             id: '51',
             nome_paciente: 'JOS&EACUTE',

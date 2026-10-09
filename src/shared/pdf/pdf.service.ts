@@ -20,32 +20,26 @@ export interface SurgeryRequestPdfData {
   createdAt: string;
   sentAt?: string;
 
-  // Médico
   doctorName: string;
   doctorCrm?: string;
 
-  // Paciente
   patientName: string;
   patientBirthDate?: string;
   patientCpf?: string;
   patientPhone?: string;
 
-  // Convênio
   healthPlanName?: string;
   healthPlanRegistration?: string;
   healthPlanType?: string;
   healthPlanProtocol?: string;
 
-  // Hospital
   hospitalName?: string;
 
-  // Diagnóstico
   cid?: string;
   cidDescription?: string;
   diagnosis?: string;
   medicalReport?: string;
 
-  // Procedimentos
   procedures?: Array<{
     tussCode: string;
     description: string;
@@ -53,7 +47,6 @@ export interface SurgeryRequestPdfData {
     authorizedQuantity?: number;
   }>;
 
-  // OPME
   opmeItems?: Array<{
     name: string;
     quantity: number;
@@ -62,18 +55,15 @@ export interface SurgeryRequestPdfData {
     fornecedoresText?: string;
   }>;
 
-  // Datas
   surgeryDate?: string;
   surgeryPerformedAt?: string;
 
-  // Análise
   analysis?: {
     requestNumber?: string;
     receivedAt?: string;
     notes?: string;
   };
 
-  // Faturamento
   billing?: {
     invoiceProtocol?: string;
     invoiceValue?: string;
@@ -107,7 +97,6 @@ export interface InvoicePdfData {
 
 export interface MedicalReportPdfData {
   today: string;
-  // Paciente
   patientName?: string;
   patientBirthDate?: string;
   patientRg?: string;
@@ -117,14 +106,10 @@ export interface MedicalReportPdfData {
   patientZipCode?: string;
   patientHealthPlan?: string;
   patientHealthPlanNumber?: string;
-  // Seções dinâmicas do laudo (substitui historyAndDiagnosis / conduct)
   sections?: Array<{ title: string; description?: string | null }>;
-  // Campos legados (mantidos para compatibilidade com laudos antigos)
   historyAndDiagnosis?: string;
   conduct?: string;
-  // Imagens (data URIs ou signed URLs)
   examImages?: string[];
-  // Médico
   doctorName: string;
   doctorCrm?: string;
   doctorCrmState?: string;
@@ -136,10 +121,8 @@ export interface MedicalReportPdfData {
 
 export interface ContestAuthorizationPdfData {
   today: string;
-  // Texto da contestação (redigido pelo médico)
   reason: string;
   message?: string;
-  // Paciente
   patientName?: string;
   patientBirthDate?: string;
   patientRg?: string;
@@ -149,14 +132,12 @@ export interface ContestAuthorizationPdfData {
   patientZipCode?: string;
   patientHealthPlan?: string;
   patientHealthPlanNumber?: string;
-  // Procedimentos solicitados
   procedures?: Array<{
     description: string;
     tussCode?: string;
     requestedQuantity: number;
     authorizedQuantity?: number | null;
   }>;
-  // Materiais / OPME
   opmeItems?: Array<{
     name: string;
     requestedQuantity: number;
@@ -164,9 +145,7 @@ export interface ContestAuthorizationPdfData {
     fabricantesText?: string;
     fornecedoresText?: string;
   }>;
-  // Anexos (data URIs ou signed URLs)
   attachments?: string[];
-  // Médico
   doctorName: string;
   doctorCrm?: string;
   doctorSpecialty?: string;
@@ -175,12 +154,8 @@ export interface ContestAuthorizationPdfData {
   customHeader?: CustomHeaderData | null;
 }
 
-/**
- * Dados para o PDF de solicitação cirúrgica no design do laudo (Visualizar documento).
- */
 export interface SurgeryRequestLaudoPdfData {
   today: string;
-  // Paciente
   patientName?: string;
   patientBirthDate?: string;
   patientRg?: string;
@@ -190,33 +165,25 @@ export interface SurgeryRequestLaudoPdfData {
   patientZipCode?: string;
   patientHealthPlan?: string;
   patientHealthPlanNumber?: string;
-  // Laudo
   historyAndDiagnosis?: string;
   conduct?: string;
-  // Imagens dos exames (data URIs ou signed URLs)
   examImages?: string[];
-  // Procedimentos (TUSS)
   procedures?: Array<{
     name: string;
     tussCode: string;
     quantity: number;
   }>;
-  // Materiais (OPME)
   opmeItems?: Array<{
     name: string;
     quantity: number;
     fabricantesText?: string;
     fornecedoresText?: string;
   }>;
-  // Fabricantes/Fornecedores
   fabricantesText?: string;
   fornecedoresText?: string;
   hasSeparator?: boolean;
-  // Seções dinâmicas do laudo (substitui historyAndDiagnosis / conduct)
   sections?: Array<{ title: string; description?: string | null }>;
-  // Hospital (Local)
   localText?: string;
-  // Médico
   doctorName: string;
   doctorEmail?: string;
   doctorPhone?: string;
@@ -229,21 +196,18 @@ export interface SurgeryRequestLaudoPdfData {
   customHeader?: CustomHeaderData | null;
 }
 
-/** Item prescrito na receita. */
 export interface PrescriptionItem {
   name: string;
   quantity?: string;
   instructions?: string;
 }
 
-/** Exame pedido no encaminhamento. */
 export interface ExamReferralItem {
   name: string;
   tussCode?: string;
   observation?: string;
 }
 
-/** Campos de identificação do paciente comuns aos documentos do atendimento. */
 export interface ClinicalDocumentPatientFields {
   patientName?: string;
   patientBirthDate?: string;
@@ -255,10 +219,8 @@ export interface ClinicalDocumentPatientFields {
   patientHealthPlanNumber?: string;
 }
 
-/** Bloco do médico responsável, idêntico nos três documentos. */
 export interface ClinicalDocumentDoctorFields {
   doctorName: string;
-  /** Já formatado (ex.: `CRM 12345/RJ`). */
   doctorCrm?: string;
   doctorSpecialty?: string;
   doctorSignatureUrl?: string;
@@ -275,23 +237,11 @@ export interface PrescriptionPdfData
 export interface MedicalCertificatePdfData
   extends ClinicalDocumentPatientFields, ClinicalDocumentDoctorFields {
   today: string;
-  /**
-   * Título impresso no cabeçalho: `ATESTADO MÉDICO` (CRM) ou `ATESTADO
-   * ODONTOLÓGICO` (CRO). Ausente = `ATESTADO MÉDICO`.
-   */
   certificateTitle?: string;
-  /** Texto já pluralizado do afastamento (ex.: `3 dias`). */
   restDaysLabel?: string;
   startDate?: string;
-  /**
-   * Linha com o afastamento quando há `text`: o texto substitui a declaração
-   * padrão, que é quem imprime dias e início. Só vem preenchida com o que o
-   * texto ainda não diz — ver `ClinicalDocumentGenerationService`.
-   */
   restPeriodNote?: string;
-  /** Só é impresso quando o paciente autoriza expor o diagnóstico. */
   cid?: { code: string; description?: string } | null;
-  /** Texto do atestado (modelo ou digitado); substitui a declaração padrão. */
   text?: string;
   observations?: string;
 }
@@ -304,17 +254,11 @@ export interface ExamReferralPdfData
   cidCodes?: Array<{ code: string; description?: string }>;
 }
 
-/** Margens dos documentos do atendimento (mesmo padrão do laudo). */
 const CLINICAL_DOCUMENT_PDF_OPTIONS = {
   format: 'A4' as const,
   margin: { top: '14mm', right: '14mm', bottom: '16mm', left: '14mm' },
 };
 
-/**
- * Hosts de onde o renderizador pode buscar recursos (assinatura, logo).
- * Restrito ao R2: `*.amazonaws.com` aceitava API Gateway e Lambda Function
- * URLs, que qualquer pessoa cria e usa para redirecionar a rede interna.
- */
 const ALLOWED_URL_HOSTS = ['r2.cloudflarestorage.com'];
 
 export function isAllowedHost(url: string): boolean {
@@ -333,33 +277,24 @@ export function isAllowedHost(url: string): boolean {
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
-  /** Partials são lidos do disco uma vez por processo. */
   private partialsRegistered = false;
 
   constructor(private readonly configService: ConfigService) {
-    // Helper para checar se um valor foi definido (inclusive 0)
     Handlebars.registerHelper(
       'isDefined',
       (value: any) => value !== undefined && value !== null,
     );
-    // Numeração de listas nos documentos do atendimento (`@index` é 0-based).
     Handlebars.registerHelper(
       'sum',
       (a: number, b: number) => Number(a) + Number(b),
     );
   }
 
-  /**
-   * Gera o PDF do receituário emitido no atendimento.
-   */
   async generatePrescriptionPdf(data: PrescriptionPdfData): Promise<Buffer> {
     const html = await this.renderClinicalDocument('prescription', data);
     return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
   }
 
-  /**
-   * Gera o PDF do atestado médico emitido no atendimento.
-   */
   async generateMedicalCertificatePdf(
     data: MedicalCertificatePdfData,
   ): Promise<Buffer> {
@@ -367,21 +302,11 @@ export class PdfService {
     return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
   }
 
-  /**
-   * Gera o PDF de solicitação/encaminhamento de exames.
-   */
   async generateExamReferralPdf(data: ExamReferralPdfData): Promise<Buffer> {
     const html = await this.renderClinicalDocument('exam-referral', data);
     return this.htmlToPdf(html, CLINICAL_DOCUMENT_PDF_OPTIONS);
   }
 
-  /**
-   * HTML do documento do atendimento para exibir na tela (pré-visualização).
-   *
-   * Ao contrário da geração de PDF, as imagens ficam como URL assinada em vez
-   * de data URI: quem renderiza é o navegador, que busca a imagem sozinho —
-   * baixar e embutir aqui só somaria espera antes de a prévia aparecer.
-   */
   renderClinicalDocumentHtml(
     templateName: string,
     data: ClinicalDocumentDoctorFields & Record<string, any>,
@@ -392,11 +317,6 @@ export class PdfService {
     });
   }
 
-  /**
-   * Renderiza um documento do atendimento resolvendo antes os ativos remotos
-   * (assinatura e logo do cabeçalho) como data URIs — o Puppeteer roda com CSP
-   * restrita e não busca imagens por URL.
-   */
   private async renderClinicalDocument(
     templateName: string,
     data: ClinicalDocumentDoctorFields & Record<string, any>,
@@ -423,29 +343,21 @@ export class PdfService {
     });
   }
 
-  /**
-   * Gera o PDF do laudo médico seguindo o template Figma.
-   */
   async generateMedicalReportPdf(data: MedicalReportPdfData): Promise<Buffer> {
-    // Pré-carregar imagens dos exames como data URIs para garantir que
-    // o Puppeteer as renderize corretamente mesmo dentro do Docker.
     const resolvedImages: string[] = [];
     if (data.examImages?.length) {
       for (const url of data.examImages) {
         const dataUri = await this.fetchAsDataUri(url);
-        // Se falhar, usa a URL diretamente (Puppeteer tenta carregar)
         resolvedImages.push(dataUri ?? url);
       }
     }
 
-    // Resolver assinatura do médico
     let signatureUri: string | undefined;
     if (data.doctorSignatureUrl) {
       const dataUri = await this.fetchAsDataUri(data.doctorSignatureUrl);
       signatureUri = dataUri ?? data.doctorSignatureUrl;
     }
 
-    // Resolver logo do cabeçalho customizado
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
@@ -469,11 +381,6 @@ export class PdfService {
     });
   }
 
-  /**
-   * Busca uma URL remota e retorna como data URI (base64).
-   * Segue redirects HTTP (até 10 saltos) e loga erros.
-   * Retorna null em caso de falha para não bloquear a geração do PDF.
-   */
   private fetchAsDataUri(url: string, depth = 0): Promise<string | null> {
     if (depth > 10) {
       this.logger.warn(`fetchAsDataUri: muitos redirects para ${url}`);
@@ -493,16 +400,14 @@ export class PdfService {
             `fetchAsDataUri [${depth}] status=${res.statusCode} url=${url.substring(0, 80)}`,
           );
 
-          // Seguir redirecionamentos (301, 302, 303, 307, 308)
           if (
             res.statusCode &&
             res.statusCode >= 300 &&
             res.statusCode < 400 &&
             res.headers.location
           ) {
-            res.resume(); // Descartar corpo da resposta de redirect
+            res.resume();
             const location = res.headers.location;
-            // Montar URL absoluta se vier relativa
             const nextUrl = location.startsWith('http')
               ? location
               : new URL(location, url).href;
@@ -561,10 +466,6 @@ export class PdfService {
     });
   }
 
-  /**
-   * Busca uma URL remota e retorna o conteúdo como Buffer raw.
-   * Segue redirects (até 10 saltos). Retorna null em caso de falha.
-   */
   async fetchBuffer(url: string, depth = 0): Promise<Buffer | null> {
     if (depth > 10) return null;
     if (!isAllowedHost(url)) {
@@ -616,26 +517,18 @@ export class PdfService {
     });
   }
 
-  /**
-   * Mescla múltiplos Buffers de PDF (ou imagens PNG/JPEG) em um único PDF.
-   * Cada item vira uma ou mais páginas no documento final.
-   */
   async mergePdfs(buffers: Buffer[]): Promise<Buffer> {
     const { PDFDocument } = await import('pdf-lib');
     const merged = await PDFDocument.create();
 
     for (const buf of buffers) {
-      // --- tenta como PDF ---
       try {
         const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
         const copied = await merged.copyPages(doc, doc.getPageIndices());
         copied.forEach((p) => merged.addPage(p));
         continue;
-      } catch {
-        /* não é PDF, tenta como imagem */
-      }
+      } catch {}
 
-      // --- tenta como PNG ou JPEG ---
       const a4W = 595.28;
       const a4H = 841.89;
       try {
@@ -671,13 +564,9 @@ export class PdfService {
     return Buffer.from(await merged.save());
   }
 
-  /**
-   * Gera o PDF de solicitação cirúrgica no design do laudo (idêntico ao "Visualizar documento").
-   */
   async generateSurgeryRequestLaudoPdf(
     data: SurgeryRequestLaudoPdfData,
   ): Promise<Buffer> {
-    // Pré-carregar imagens dos exames como data URIs
     const resolvedImages: string[] = [];
     if (data.examImages?.length) {
       for (const url of data.examImages) {
@@ -686,14 +575,12 @@ export class PdfService {
       }
     }
 
-    // Resolver assinatura do médico
     let signatureUri: string | undefined;
     if (data.doctorSignatureUrl) {
       const dataUri = await this.fetchAsDataUri(data.doctorSignatureUrl);
       signatureUri = dataUri ?? data.doctorSignatureUrl;
     }
 
-    // Resolver logo do cabeçalho customizado
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
@@ -720,9 +607,6 @@ export class PdfService {
     });
   }
 
-  /**
-   * Gera o PDF de resumo da solicitação cirúrgica.
-   */
   async generateSurgeryRequestSummary(
     data: SurgeryRequestPdfData,
   ): Promise<Buffer> {
@@ -740,21 +624,14 @@ export class PdfService {
     return this.htmlToPdf(html);
   }
 
-  /**
-   * Gera o PDF de relatório de faturamento.
-   */
   async generateInvoiceReport(data: InvoicePdfData): Promise<Buffer> {
     const html = await this.renderTemplate('invoice-report', data);
     return this.htmlToPdf(html);
   }
 
-  /**
-   * Gera o PDF de contestação à negativa de autorização cirúrgica.
-   */
   async generateContestAuthorizationPdf(
     data: ContestAuthorizationPdfData,
   ): Promise<Buffer> {
-    // Pré-carregar anexos como data URIs
     const resolvedAttachments: string[] = [];
     if (data.attachments?.length) {
       for (const url of data.attachments) {
@@ -763,14 +640,12 @@ export class PdfService {
       }
     }
 
-    // Resolver assinatura do médico
     let signatureUri: string | undefined;
     if (data.doctorSignatureUrl) {
       const dataUri = await this.fetchAsDataUri(data.doctorSignatureUrl);
       signatureUri = dataUri ?? data.doctorSignatureUrl;
     }
 
-    // Resolver logo do cabeçalho customizado
     let customHeader = data.customHeader ?? null;
     if (customHeader?.logoUrl) {
       const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
@@ -797,13 +672,6 @@ export class PdfService {
     });
   }
 
-  /**
-   * Em dev (ts-node) `__dirname` é `src/shared/pdf/`. Após `nest build`, o JS
-   * compilado pode acabar em `dist/src/shared/pdf/` (porque o tsc adota
-   * `rootDir: "."` ao detectar a pasta `scripts/` ao lado de `src/`), enquanto
-   * os assets `.hbs` são copiados para `dist/shared/pdf/templates/`. Para
-   * sobreviver aos dois layouts, procuramos os templates em vários candidatos.
-   */
   private resolveTemplatesDir(): string[] {
     return [
       path.join(__dirname, 'templates'),
@@ -819,17 +687,11 @@ export class PdfService {
       try {
         await fs.promises.access(candidate);
         return candidate;
-      } catch {
-        // tenta próximo candidato
-      }
+      } catch {}
     }
     return null;
   }
 
-  /**
-   * Registra os partials de `templates/partials/` (CSS, cabeçalho, bloco do
-   * paciente e assinatura compartilhados pelos documentos do atendimento).
-   */
   private async registerPartials(): Promise<void> {
     if (this.partialsRegistered) return;
 
@@ -839,7 +701,7 @@ export class PdfService {
       try {
         files = await fs.promises.readdir(partialsDir);
       } catch {
-        continue; // diretório não existe neste layout, tenta o próximo
+        continue;
       }
 
       for (const file of files.filter((f) => f.endsWith('.hbs'))) {
@@ -890,13 +752,7 @@ export class PdfService {
         ],
       });
       const page = await browser.newPage();
-      // A CSP anterior ia em setExtraHTTPHeaders, que define headers de
-      // REQUISICAO — CSP e header de resposta, e setContent nem gera resposta
-      // HTTP, entao a politica nunca era aplicada. O PDF nao precisa de JS:
-      // desligar o motor e a defesa que realmente vale.
       await page.setJavaScriptEnabled(false);
-      // Bloqueia qualquer busca de rede que nao seja data: — impede que HTML
-      // injetado alcance a rede interna a partir do renderizador.
       await page.setRequestInterception(true);
       page.on('request', (req) => {
         if (req.url().startsWith('data:')) return void req.continue();
@@ -944,9 +800,7 @@ export class PdfService {
         }
 
         return candidate;
-      } catch {
-        // tenta próximo candidato
-      }
+      } catch {}
     }
 
     if (configuredPath) {

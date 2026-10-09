@@ -30,7 +30,7 @@ export class NotifySurgeryRequestDto {
 
   @IsOptional()
   @IsString()
-  to?: string; // Se não informado, usa o e-mail do criador da solicitação
+  to?: string;
 
   /** Canais de notificação ao paciente (usado com template status-change-patient) */
   @IsOptional()

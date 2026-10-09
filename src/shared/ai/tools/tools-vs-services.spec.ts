@@ -1,23 +1,9 @@
-/**
- * tools-vs-services.spec.ts
- *
- * Garante que todas as tools de MUTAÇÃO delegam ao Service correspondente
- * e NÃO chamam o repositório diretamente. Cada assertion "service chamado +
- * repo NÃO chamado" constitui o critério de aceitação arquitetural do
- * PLANO-CONSOLIDACAO-TOOLS-IA-VIA-SERVICES-REST.md.
- *
- * Quando uma tool ainda bypassa o service, este teste fica VERMELHO — sinal
- * para refatorar o commit correspondente.
- */
-
 import { buildCadastroDraftTools } from './cadastro-draft.tools';
 import { buildScDraftTools } from './sc-draft.tools';
 import { buildDoctorProfileTools } from './doctor-profile.tools';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { ToolContext } from './tool.interface';
 import { parseToolResult } from './tool-result';
-
-// ─── helpers compartilhados ────────────────────────────────────────────────
 
 function makeConvRepo() {
   let conv: any = { id: 'conv-1', operationDraft: null };
@@ -36,8 +22,6 @@ const CONTEXT: ToolContext = {
   conversationId: 'conv-1',
   ownerId: 'owner-1',
 };
-
-// ─── 1. patient_draft_commit → PatientsService.create (não patientRepo) ─────
 
 describe('tools vs services — patient_draft_commit', () => {
   let draftService: OperationDraftService;
@@ -109,8 +93,6 @@ describe('tools vs services — patient_draft_commit', () => {
   });
 });
 
-// ─── 2. hospital_draft_commit → HospitalsService.create ─────────────────────
-
 describe('tools vs services — hospital_draft_commit', () => {
   let draftService: OperationDraftService;
   let mockHospitalRepo: any;
@@ -168,8 +150,6 @@ describe('tools vs services — hospital_draft_commit', () => {
   });
 });
 
-// ─── 3. health_plan_draft_commit → HealthPlansService.create ─────────────────
-
 describe('tools vs services — health_plan_draft_commit', () => {
   let draftService: OperationDraftService;
   let mockHealthPlanRepo: any;
@@ -226,8 +206,6 @@ describe('tools vs services — health_plan_draft_commit', () => {
     expect(parsed!.status).toBe('ok');
   });
 });
-
-// ─── 4. procedure_draft_commit → ProceduresService.create ────────────────────
 
 describe('tools vs services — procedure_draft_commit', () => {
   let draftService: OperationDraftService;
@@ -290,8 +268,6 @@ describe('tools vs services — procedure_draft_commit', () => {
     expect(parsed!.status).toBe('ok');
   });
 });
-
-// ─── 5. sc_draft_commit → SurgeryRequestsService.createSurgeryRequest ────────
 
 describe('tools vs services — sc_draft_commit', () => {
   let draftService: OperationDraftService;
@@ -369,8 +345,6 @@ describe('tools vs services — sc_draft_commit', () => {
   });
 });
 
-// ─── 6. Verificação de metadados: bypassesService ausente nos commits ─────────
-
 describe('tools vs services — bypassesService ausente em todos os commits', () => {
   it('nenhum *_draft_commit de cadastro tem bypassesService=true', () => {
     const convRepo = makeConvRepo();
@@ -432,20 +406,6 @@ describe('tools vs services — bypassesService ausente em todos os commits', ()
   });
 });
 
-// ─── 7. Contrato canônico: tools de mutação devolvem ToolResult válido ───────
-//
-// Fase 4 do PLANO-SANITIZACAO-CLEAN-CODE-IA: o orchestrator passou a
-// depender exclusivamente do envelope canônico `ToolResult` para decidir
-// `pending_confirmation`. Toda tool que entra nesse ciclo precisa devolver
-// um envelope parseável em TODOS os caminhos (preview, success, error,
-// bloqueio de regra de negócio).
-//
-// Esta suite trava esse contrato para o conjunto inicial coberto pela
-// Fase 4 (`upload_doctor_signature` + todos os `*_draft_preview`). Tools
-// adicionais de mutação (`set_hospital`, `confirm_receipt`, etc.) vão
-// migrar em fases seguintes; quando isso acontecer, basta adicioná-las
-// aqui.
-
 describe('contrato canônico — toda tool migrada devolve ToolResult válido', () => {
   describe('upload_doctor_signature', () => {
     const buildTools = () => {
@@ -479,7 +439,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
     it('todos os caminhos devolvem JSON parseável via parseToolResult', async () => {
       const { tool, userRepo, doctorProfileRepo } = buildTools();
 
-      // 1) Sem userId → blocked
       const noUser = await tool.execute(
         {},
         { ...ctx, userId: undefined as any },
@@ -487,7 +446,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(noUser)).not.toBeNull();
       expect(parseToolResult(noUser)!.status).toBe('blocked');
 
-      // 2) Usuário inexistente → error
       doctorProfileRepo.findByUserId.mockResolvedValueOnce(null);
       userRepo.findOne.mockResolvedValueOnce(null);
       const missing = await tool.execute(
@@ -500,7 +458,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(missing)).not.toBeNull();
       expect(parseToolResult(missing)!.status).toBe('error');
 
-      // 3) Colaborador (sem doctor profile) → blocked
       doctorProfileRepo.findByUserId.mockResolvedValueOnce(null);
       userRepo.findOne.mockResolvedValueOnce({
         id: 'user-1',
@@ -516,7 +473,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(collaborator)).not.toBeNull();
       expect(parseToolResult(collaborator)!.status).toBe('blocked');
 
-      // 4) Sem mídia → needs_input
       doctorProfileRepo.findByUserId.mockResolvedValueOnce({
         id: 'dp-1',
         signatureUrl: null,
@@ -525,7 +481,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(noMedia)).not.toBeNull();
       expect(parseToolResult(noMedia)!.status).toBe('needs_input');
 
-      // 5) Mídia que não é imagem → blocked
       doctorProfileRepo.findByUserId.mockResolvedValueOnce({
         id: 'dp-1',
         signatureUrl: null,
@@ -542,7 +497,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(nonImage)).not.toBeNull();
       expect(parseToolResult(nonImage)!.status).toBe('blocked');
 
-      // 6) Preview (sem confirm) → pending_confirmation com pending_confirmation
       doctorProfileRepo.findByUserId.mockResolvedValueOnce({
         id: 'dp-1',
         signatureUrl: null,
@@ -561,7 +515,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         'upload_doctor_signature',
       );
 
-      // 7) Sucesso (confirm:true) → ok
       doctorProfileRepo.findByUserId.mockResolvedValueOnce({
         id: 'dp-1',
         signatureUrl: null,
@@ -585,7 +538,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
       expect(parseToolResult(success)!.status).toBe('ok');
       fetchMock.mockRestore();
 
-      // 8) Falha de download → error
       doctorProfileRepo.findByUserId.mockResolvedValueOnce({
         id: 'dp-1',
         signatureUrl: null,
@@ -664,9 +616,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
             `Tool "${tool.name}" não devolveu ToolResult parseável: ${raw.slice(0, 120)}`,
           );
         }
-        // Sem rascunho ativo, espera-se `blocked` ou `needs_input`. O ponto
-        // do teste é que o envelope SEJA parseável, qualquer que seja o
-        // status — heurísticas de string foram removidas na Fase 4.
         expect(parsed.status).toMatch(
           /^(blocked|needs_input|pending_confirmation|ok|error)$/,
         );
@@ -675,19 +624,6 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
   });
 });
 
-/**
- * Fase 9 — Testes arquiteturais permanentes.
- * Esses testes atuam como guardrails automáticos que detectam regressões
- * estruturais: ordem instável do registry (invalida prompt caching) e
- * crescimento inesperado de arquivos de tools.
- */
-/**
- * Deps mínimas para construir o registry completo via `buildAllAiTools` sem
- * lançar no construtor. `execute` nunca é chamado nos testes que usam este
- * helper — só a estrutura sincrônica das tools (`name`, `definition`,
- * `requiredPermission`) é inspecionada — por isso os mocks não precisam
- * refletir o comportamento real dos services.
- */
 function buildMinimalAiToolDeps() {
   return {
     draftService: {
@@ -774,18 +710,12 @@ function buildMinimalAiToolDeps() {
 describe('Fase 9 — guardrails arquiteturais', () => {
   describe('ToolRegistryService — ordem de registro estável', () => {
     it('a ordem das tools no registry é determinística e não muda entre execuções', () => {
-      // Snapshot da ordem canônica das 3 primeiras tools.
-      // Alterar esta lista requer bump de PROMPT_VERSION.
-      // Fase 6 do plano: auto-registro via AI_TOOL preserva esta ordem.
       const expectedOrderPrefix = [
-        'plan_actions', // buildPlanTools — sempre primeiro
-        'sc_draft_preview', // buildScDraftTools — segundo grupo
-        'sc_draft_commit', // segundo item do grupo sc_draft
+        'plan_actions',
+        'sc_draft_preview',
+        'sc_draft_commit',
       ];
 
-      // Constrói registry via DI simulada com buildAllAiTools (sem deps reais)
-      // — apenas verifica que as primeiras tools na ordem canônica estão no lugar certo.
-      // O conjunto completo é validado pelo tool-registry.service.spec.ts.
       const { buildAllAiTools } = require('./ai-tools.module');
       const tools = buildAllAiTools(buildMinimalAiToolDeps() as any);
 
@@ -793,24 +723,10 @@ describe('Fase 9 — guardrails arquiteturais', () => {
       for (let i = 0; i < expectedOrderPrefix.length; i++) {
         expect(names[i]).toBe(expectedOrderPrefix[i]);
       }
-      // Garante que a lista não está vazia e contém pelo menos as 4 tools globais
       expect(names.length).toBeGreaterThanOrEqual(expectedOrderPrefix.length);
     });
   });
 
-  /**
-   * Tarefa 14 (revisão) — rede de proteção contra tools de mutação de SC
-   * novas/futuras que esqueçam `requiredPermission`. `send_notification` e
-   * `manage_report_images` escaparam da varredura manual porque nenhum teste
-   * cruzava "tool que declara `surgeryRequestId` no schema" com "tool que
-   * exige `Permission.SOLICITACOES`". Este teste fecha esse buraco: QUALQUER
-   * tool nova cujo JSON schema aceite `surgeryRequestId` — o sinal mais
-   * confiável de "opera sobre uma SC específica" sem executar a tool — tem
-   * que declarar `requiredPermission`. Não cobre as tools baseadas em draft
-   * (`sc_draft_commit`, `send_sc_draft_commit`, etc.), que resolvem a SC por
-   * dentro do `operation_draft` em vez de um argumento `surgeryRequestId`
-   * literal — essas são uma família fechada, já auditada nesta tarefa.
-   */
   describe('toda tool com `surgeryRequestId` no schema exige requiredPermission', () => {
     it('nenhuma tool nova escapa da checagem de permissão', () => {
       const { buildAllAiTools } = require('./ai-tools.module');

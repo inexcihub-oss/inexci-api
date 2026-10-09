@@ -3,9 +3,6 @@ describe('Vazamentos de tenant em cadastros vinculados', () => {
     const tussRepo = { update: jest.fn(), findOne: jest.fn() };
     const opmeRepo = { update: jest.fn(), findOne: jest.fn() };
 
-    // Item de outra SC: nao pode ser atualizado. O mock simula o filtro
-    // composto (id + surgeryRequestId) que o repositorio real aplicaria —
-    // so retorna o item quando a query pede exatamente a SC dona dele.
     tussRepo.findOne.mockImplementation(
       async (where: { id: string; surgeryRequestId: string }) =>
         where.id === 'item-x' &&

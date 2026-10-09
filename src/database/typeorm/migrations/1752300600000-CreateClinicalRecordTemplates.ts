@@ -1,10 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Cria a tabela `clinical_record_templates` (modelos de anamnese) — Fase 4 do
- * módulo de atendimento. Mesmos campos clínicos da ficha, escopados por
- * clínica (`owner_id`) e médico (`doctor_id`).
- */
 export class CreateClinicalRecordTemplates1752300600000 implements MigrationInterface {
   name = 'CreateClinicalRecordTemplates1752300600000';
 

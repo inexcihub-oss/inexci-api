@@ -55,9 +55,6 @@ function buildConversation(
 function buildConfig(overrides: Record<string, any> = {}): ConfigService {
   const map: Record<string, any> = {
     AI_MAX_RECENT_MESSAGES: 4,
-    // 7000 dá espaço suficiente para o SYSTEM_PROMPT real (~4900 tokens
-    // após v1.7.x) mais summary/memory/recent. Em produção o budget é
-    // 10000, com folga ainda maior.
     AI_CONTEXT_TOKEN_BUDGET: 7000,
     AI_SUMMARY_TRIGGER_EVERY_MESSAGES: 5,
     AI_SUMMARY_MAX_TOKENS: 450,
@@ -226,7 +223,6 @@ describe('ConversationContextService', () => {
         conversation: buildConversation(),
       });
 
-      // Default test config: AI_MAX_RECENT_MESSAGES = 4
       expect(result.recentCount).toBe(4);
     });
 
@@ -272,9 +268,6 @@ describe('ConversationContextService', () => {
       });
 
       expect(result.breakdown.rag_tokens).toBe(0);
-      // system_prompt é imutável (nunca cortado); o par final é sempre preservado.
-      // Margem de 300 tokens acomoda crescimentos pontuais do system prompt sem
-      // precisar atualizar o número a cada adição de instrução.
       expect(result.breakdown.totalTokens).toBeLessThanOrEqual(
         7300 + estimateTokens(longContent),
       );

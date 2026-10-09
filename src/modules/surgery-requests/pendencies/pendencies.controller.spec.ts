@@ -26,12 +26,6 @@ describe('PendenciesController.getRequirements', () => {
     expect(pendente!.pendencies.every((p) => p.blocking)).toBe(true);
   });
 
-  /**
-   * O teste acima compara com uma lista literal: ele passaria igual se o
-   * controller devolvesse um array escrito à mão. Este aqui é o que sustenta a
-   * razão de existir da rota — mexer no config tem que mexer na resposta, sem
-   * ninguém tocar no controller. Falha contra qualquer cópia hardcoded.
-   */
   it('deriva do pendencies.config, não de uma cópia', () => {
     const doConfig = PENDENCIES_CONFIG.find(
       (c) => c.status === SurgeryRequestStatus.PENDING,

@@ -58,8 +58,6 @@ describe('SurgicalIndicationService', () => {
           manager,
           ownerId: 'owner-1',
           doctorId: 'doctor-1',
-          // createdById é o médico da ficha, não o usuário logado: o sweeper
-          // roda sem ator e as duas rotas precisam gerar SCs idênticas.
           createdById: 'doctor-1',
           patientId: 'patient-1',
           cidCode: 'M17.1',
@@ -99,7 +97,6 @@ describe('SurgicalIndicationService', () => {
         patientId: 'patient-1',
         surgeryRequestId: 'sc-1',
         ownerId: 'owner-1',
-        // Mesma autoria da SC: o sweeper roda sem usuário logado.
         createdById: 'doctor-1',
       });
     });
@@ -205,8 +202,6 @@ describe('SurgicalIndicationService', () => {
         'created',
         'user-1',
       );
-      // Fora da transação: o broadcast relê a SC no banco e não veria uma linha
-      // ainda não commitada.
       const transactionCall =
         dataSource.transaction.mock.invocationCallOrder[0];
       const broadcastCall =

@@ -1,10 +1,6 @@
 import { QueryRunner } from 'typeorm';
 import { AddCouncilToDoctorProfiles1755800200000 } from './migrations/1755800200000-AddCouncilToDoctorProfiles';
 
-/**
- * O `up` acrescenta `council` (default CRM) e afrouxa `crm`/`crm_state`.
- * O `down` aperta de volta e por isso olha o dado antes.
- */
 describe('AddCouncilToDoctorProfiles1755800200000', () => {
   const SQL_SEM_REGISTRO = 'dp."crm" IS NULL OR dp."crm_state" IS NULL';
   const SQL_OUTRO_CONSELHO = `dp."council" IS DISTINCT FROM 'CRM'`;
@@ -50,8 +46,6 @@ describe('AddCouncilToDoctorProfiles1755800200000', () => {
   });
 
   it('down aborta quando há perfil de outro conselho, mesmo com número e UF', async () => {
-    // Sem `council`, todo perfil volta a ser médico: o psicólogo com CRP
-    // preenchido passaria a emitir receita.
     const { queryRunner, query } = criarQueryRunner(
       [],
       [{ council: 'CRP', ids: 'user-psi' }],

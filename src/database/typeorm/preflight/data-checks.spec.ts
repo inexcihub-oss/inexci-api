@@ -8,13 +8,6 @@ import {
   montarDiagnostico,
 } from './data-checks';
 
-/**
- * As verificações vivem fora de `migrations/` (o glob do `data-source.ts`
- * carrega aquela pasta inteira) e são compartilhadas por dois consumidores: a
- * própria migration, que aborta antes de tentar o DDL, e o `migration:preflight`,
- * que roda read-only contra produção antes do deploy. Duplicar o SQL entre os
- * dois faria o pré-flight aprovar um deploy que a migration reprova.
- */
 describe('verificações pré-migration', () => {
   describe('TELEFONE_DUPLICADO', () => {
     it('só considera usuários vivos e com telefone', () => {
@@ -50,12 +43,6 @@ describe('verificações pré-migration', () => {
       );
     });
 
-    /**
-     * A verificação roda também num banco que ainda não tem a coluna — é o
-     * cenário principal dela, produção antes do script. Um `"is_generic"` cru
-     * ali viraria erro de coluna inexistente, e o pré-flight é fail-closed:
-     * falha ao consultar reprova o deploy. Todo banco novo travaria.
-     */
     it('tolera a coluna is_generic ainda não existir', () => {
       expect(OUTRO_NAO_UNIFICADO.sql).toContain('to_jsonb');
       expect(OUTRO_NAO_UNIFICADO.sql).not.toContain('"is_generic"');
@@ -183,10 +170,6 @@ describe('verificações pré-migration', () => {
   });
 
   describe('registro', () => {
-    /**
-     * Uma migration pode ter mais de uma verificação (a do no-overlap confere
-     * o dado e a extensão `btree_gist`), mas nunca a mesma duas vezes.
-     */
     it('não repete verificação (migration + descrição)', () => {
       const chaves = VERIFICACOES_PRE_MIGRATION.map(
         (v) => `${v.migration} :: ${v.descricao}`,
