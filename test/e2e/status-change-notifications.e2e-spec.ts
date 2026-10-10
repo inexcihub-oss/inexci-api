@@ -199,7 +199,7 @@ describe('Status Change Notifications E2E', () => {
     const collabId = (
       await dataSource.query(`SELECT uuid_generate_v4() AS id`)
     )[0].id;
-    const bcrypt = require('bcrypt');
+    const bcrypt = require('bcryptjs');
     const hashedPassword = await bcrypt.hash('Senha@12345', 10);
 
     await dataSource.query(

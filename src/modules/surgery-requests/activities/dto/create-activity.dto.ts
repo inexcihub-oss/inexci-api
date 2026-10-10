@@ -18,11 +18,6 @@ export class CreateActivityDto {
   @IsNotEmpty()
   content: string;
 
-  /**
-   * Usuários mencionados com @ no comentário. Quem valida se cada um
-   * realmente acessa a SC é o `ActivityMentionsService` — aqui só garantimos
-   * formato e um teto (o limite evita um corpo gigante virar N notificações).
-   */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)

@@ -12,7 +12,6 @@ import {
   TussItemFromDocumentDto,
 } from './create-from-document.dto';
 
-/** Dados confirmados pelo usuário para complementar uma SC pendente. */
 export class ApplyDocumentExtractionDto {
   @IsOptional() @IsBoolean() procedure?: boolean;
   @IsOptional() @IsBoolean() hospital?: boolean;

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -49,6 +49,8 @@ type MediaKind = 'audio' | 'image' | 'pdf';
 
 @Injectable()
 export class WhatsappMediaService {
+  private readonly logger = new Logger(WhatsappMediaService.name);
+
   constructor(private readonly configService: ConfigService) {}
 
   isAudioMime(mimeType: string | null | undefined): boolean {
@@ -473,7 +475,11 @@ export class WhatsappMediaService {
           if (stat.isFile() && stat.mtimeMs < threshold) {
             await fs.unlink(absolute);
           }
-        } catch {}
+        } catch (err) {
+          this.logger.debug(
+            `Falha ao limpar arquivo de debug ${entry}: ${(err as Error)?.message}`,
+          );
+        }
       }),
     );
   }

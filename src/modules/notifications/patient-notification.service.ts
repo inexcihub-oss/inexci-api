@@ -4,6 +4,7 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import {
+  errorMessage,
   getStatusLabel,
   getStatusDescriptionForPatient,
 } from 'src/shared/utils';
@@ -94,9 +95,9 @@ export class PatientNotificationService {
           '4': option3,
         },
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao enviar opções de agendamento para paciente: ${err?.message}`,
+        `Falha ao enviar opções de agendamento para paciente: ${errorMessage(err)}`,
       );
     }
   }
@@ -146,9 +147,9 @@ export class PatientNotificationService {
             newStatus: newLabel,
             changedAt,
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao notificar paciente por e-mail: ${err?.message}`,
+            `Falha ao notificar paciente por e-mail: ${errorMessage(err)}`,
           );
         }
       } else {
@@ -170,9 +171,9 @@ export class PatientNotificationService {
               '3': statusDescription,
             },
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao notificar paciente por WhatsApp: ${err?.message}`,
+            `Falha ao notificar paciente por WhatsApp: ${errorMessage(err)}`,
           );
         }
       } else {

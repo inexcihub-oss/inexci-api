@@ -24,8 +24,8 @@ export interface ManageToolDeps {
   healthPlanRepo: HealthPlanRepository;
   storageService: StorageService;
   configService: ConfigService;
-  entityResolver?: EntityResolverService;
-  tussService?: TussService;
+  entityResolver: EntityResolverService;
+  tussService: TussService;
   opmeService: OpmeService;
   documentsService: DocumentsService;
 }

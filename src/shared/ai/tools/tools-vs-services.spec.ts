@@ -328,6 +328,9 @@ describe('tools vs services — sc_draft_commit', () => {
       surgeryRequestRepo: mockSurgeryRequestRepo as any,
       surgeryRequestsService: mockSurgeryRequestsService as any,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
+      assemblyService: {
+        assembleFromExtracted: jest.fn().mockResolvedValue({ warnings: [] }),
+      } as any,
     });
   });
 
@@ -345,67 +348,6 @@ describe('tools vs services — sc_draft_commit', () => {
   });
 });
 
-describe('tools vs services — bypassesService ausente em todos os commits', () => {
-  it('nenhum *_draft_commit de cadastro tem bypassesService=true', () => {
-    const convRepo = makeConvRepo();
-    const draftService = new OperationDraftService(convRepo as any);
-    const noopService = { create: jest.fn() };
-    const baseRepo = {
-      findOne: jest.fn(),
-      findMany: jest.fn().mockResolvedValue([]),
-      create: jest.fn(),
-    };
-
-    const tools = buildCadastroDraftTools({
-      draftService,
-      patientRepo: baseRepo as any,
-      procedureRepo: baseRepo as any,
-      userRepo: {
-        findOne: jest.fn().mockResolvedValue({ id: 'u', ownerId: 'o' }),
-      } as any,
-      patientsService: noopService as any,
-      hospitalsService: noopService as any,
-      healthPlansService: noopService as any,
-      proceduresService: noopService as any,
-    });
-
-    const commitTools = tools.filter((t) => t.name.endsWith('_draft_commit'));
-    expect(commitTools.length).toBeGreaterThanOrEqual(4);
-
-    for (const tool of commitTools) {
-      if (tool.bypassesService === true) {
-        throw new Error(
-          `Tool "${tool.name}" ainda tem bypassesService=true — refatorar para delegar ao Service.`,
-        );
-      }
-      expect(tool.bypassesService).not.toBe(true);
-    }
-  });
-
-  it('sc_draft_commit não tem bypassesService=true', () => {
-    const convRepo = makeConvRepo();
-    const draftService = new OperationDraftService(convRepo as any);
-    const baseRepo = {
-      findOne: jest.fn(),
-      findMany: jest.fn().mockResolvedValue([]),
-      create: jest.fn(),
-      findOneSimple: jest.fn(),
-    };
-
-    const scTools = buildScDraftTools({
-      draftService,
-      userRepo: baseRepo as any,
-      surgeryRequestRepo: baseRepo as any,
-      surgeryRequestsService: { createSurgeryRequest: jest.fn() } as any,
-      activityRepo: { create: jest.fn() } as any,
-    });
-
-    const scCommit = scTools.find((t) => t.name === 'sc_draft_commit')!;
-    expect(scCommit).toBeDefined();
-    expect(scCommit.bypassesService).not.toBe(true);
-  });
-});
-
 describe('contrato canônico — toda tool migrada devolve ToolResult válido', () => {
   describe('upload_doctor_signature', () => {
     const buildTools = () => {
@@ -419,12 +361,18 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         delete: jest.fn(),
       };
       const configService = { get: jest.fn().mockReturnValue('') };
-      const tools = buildDoctorProfileTools(
-        userRepo as any,
-        doctorProfileRepo as any,
-        storageService as any,
-        configService as any,
-      );
+      const tools = buildDoctorProfileTools({
+        userRepo: userRepo as any,
+        doctorProfileRepo: doctorProfileRepo as any,
+        storageService: storageService as any,
+        configService: configService as any,
+        usersService: { updateSignatureUrl: jest.fn() } as any,
+        documentDispatcher: {
+          getPending: jest.fn().mockResolvedValue(null),
+          clearPending: jest.fn(),
+        } as any,
+        conversationMemory: { setAwaitingMedia: jest.fn() } as any,
+      });
       const tool = tools.find((t) => t.name === 'upload_doctor_signature')!;
       return { tool, userRepo, doctorProfileRepo };
     };
@@ -597,6 +545,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         surgeryRequestRepo: baseRepo as any,
         surgeryRequestsService: { createSurgeryRequest: jest.fn() } as any,
         activityRepo: { create: jest.fn() } as any,
+        assemblyService: { assembleFromExtracted: jest.fn() } as any,
       });
       return [...cadastro, ...sc];
     }

@@ -8,6 +8,8 @@ import {
   NotificationType,
 } from 'src/database/entities/notification.entity';
 import { NotificationsGateway } from './notifications.gateway';
+import { errorMessage } from 'src/shared/utils';
+import { UserNotificationSettings } from 'src/database/entities/user-notification-settings.entity';
 
 export interface DispatchNotificationDto {
   userId: string;
@@ -15,7 +17,7 @@ export interface DispatchNotificationDto {
   title: string;
   message: string;
   link?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   whatsappContentSid?: string;
   whatsappVariables?: Record<string, string>;
 }
@@ -59,9 +61,9 @@ export class NotificationDispatcherService {
           createdAt: notification.createdAt,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao criar notificação in-app para ${userId}: ${err?.message}`,
+        `Falha ao criar notificação in-app para ${userId}: ${errorMessage(err)}`,
       );
     }
 
@@ -80,29 +82,23 @@ export class NotificationDispatcherService {
           );
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao enviar WhatsApp para ${userId}: ${err?.message}`,
+        `Falha ao enviar WhatsApp para ${userId}: ${errorMessage(err)}`,
       );
     }
 
     return criada;
   }
 
-  async dispatchToMany(
-    userIds: string[],
-    data: Omit<DispatchNotificationDto, 'userId'>,
-  ): Promise<void> {
-    await Promise.all(
-      userIds.map((userId) => this.dispatch({ ...data, userId })),
-    );
-  }
-
   private getSettings(userId: string) {
     return this.settingsRepository.findByUserId(userId);
   }
 
-  private isTypeEnabled(settings: any, type: NotificationType): boolean {
+  private isTypeEnabled(
+    settings: UserNotificationSettings | null,
+    type: NotificationType,
+  ): boolean {
     if (!settings) return true;
     switch (type) {
       case NotificationType.MENTION:

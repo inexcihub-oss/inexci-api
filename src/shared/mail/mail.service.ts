@@ -41,10 +41,6 @@ export class MailService {
     await this.enqueue({ template, to, subject, context, attachments, cc });
   }
 
-  async sendRaw(to: string, subject: string, html: string): Promise<void> {
-    await this.enqueue({ html, to, subject });
-  }
-
   private async enqueue(data: MailJobData): Promise<void> {
     const ctx = getRequestContext();
     const masked = maskEmail(data.to);
@@ -185,25 +181,6 @@ export class MailService {
     return this.send('payment-contested', to, subject, context);
   }
 
-  sendStatusChangeStakeholder(
-    to: string,
-    context: {
-      patientName: string;
-      oldStatus: string;
-      newStatus: string;
-      changedBy: string;
-      changedAt: string;
-      dashboardUrl?: string;
-    },
-  ) {
-    return this.send(
-      'status-change-stakeholder',
-      to,
-      'Status da Solicitação Atualizado',
-      context,
-    );
-  }
-
   sendStatusChangePatient(
     to: string,
     context: {
@@ -222,66 +199,6 @@ export class MailService {
     );
   }
 
-  sendStaleReminder(
-    to: string,
-    context: {
-      patientName: string;
-      requestId?: string;
-      currentStatus: string;
-      staleDays: number;
-      lastMovedAt?: string;
-      dashboardUrl?: string;
-      preferencesUrl?: string;
-    },
-  ) {
-    return this.send(
-      'stale-reminder',
-      to,
-      `Solicitação parada há ${context.staleDays} dias`,
-      context,
-    );
-  }
-
-  sendStaleCritical(
-    to: string,
-    context: {
-      patientName: string;
-      requestId?: string;
-      currentStatus: string;
-      staleDays: number;
-      lastMovedAt?: string;
-      dashboardUrl?: string;
-      preferencesUrl?: string;
-    },
-  ) {
-    return this.send(
-      'stale-critical',
-      to,
-      `⚠️ ALERTA: Solicitação parada há ${context.staleDays} dias`,
-      context,
-    );
-  }
-
-  sendActionAdminAlert(
-    to: string,
-    context: {
-      actionLabel: string;
-      actorName: string;
-      patientName: string;
-      requestId: string;
-      actionAt: string;
-      dashboardUrl?: string;
-      preferencesUrl?: string;
-    },
-  ) {
-    return this.send(
-      'action-admin-alert',
-      to,
-      'Ação Realizada em Solicitação',
-      context,
-    );
-  }
-
   sendWelcomePatient(
     to: string,
     context: {
@@ -291,22 +208,6 @@ export class MailService {
     },
   ) {
     return this.send('welcome-patient', to, 'Bem-vindo ao Inexci!', context);
-  }
-
-  sendWelcomeDoctor(
-    to: string,
-    context: {
-      doctorName: string;
-      email: string;
-      hospitalName?: string;
-      dashboardUrl?: string;
-      preferencesUrl?: string;
-    },
-  ) {
-    return this.send('welcome-doctor', to, 'Bem-vindo ao Inexci, Dr(a)!', {
-      ...context,
-      title: `Bem-vindo ao Inexci, Dr(a). ${context.doctorName}!`,
-    });
   }
 
   sendPasswordRecovery(

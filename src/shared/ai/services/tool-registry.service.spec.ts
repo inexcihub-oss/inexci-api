@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { Test } from '@nestjs/testing';
 import { ToolRegistryService, detectDraftType } from './tool-registry.service';
-import { AiTool, AI_TOOL } from '../tools/tool.interface';
+import { AiTool, AI_TOOL, ANY_AUTHENTICATED } from '../tools/tool.interface';
 
 async function buildRegistryWithToolsDI(
   tools: AiTool[],
@@ -38,6 +38,7 @@ function makeTool(name: string): AiTool {
       type: 'function',
       function: { name, description: name, parameters: { type: 'object' } },
     } as OpenAI.ChatCompletionTool,
+    requiredPermission: ANY_AUTHENTICATED,
     execute: async () => '',
   };
 }
@@ -242,7 +243,7 @@ describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
 
     const registry = await buildRegistryWithToolsDI(tools);
 
-    const allDefs = registry.getToolDefinitions();
+    const allDefs = registry.getAll().map((t) => t.definition);
     expect(allDefs).toHaveLength(3);
     expect(allDefs.map((d) => d.function.name)).toEqual([
       'plan_actions',
@@ -269,9 +270,12 @@ describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
       insertionOrder.map(makeTool),
     );
 
-    expect(registry.getToolDefinitions().map((d) => d.function.name)).toEqual(
-      insertionOrder,
-    );
+    expect(
+      registry
+        .getAll()
+        .map((t) => t.definition)
+        .map((d) => d.function.name),
+    ).toEqual(insertionOrder);
   });
 
   it('filtragem por draft ativo funciona corretamente após DI', async () => {
@@ -308,9 +312,20 @@ describe('ToolRegistryService (Fase 6 — DI via AI_TOOL)', () => {
     ]);
   });
 
+  it('lança erro no boot quando duas tools têm o mesmo nome', () => {
+    expect(
+      () =>
+        new ToolRegistryService([
+          makeTool('plan_actions'),
+          makeTool('query_patients'),
+          makeTool('plan_actions'),
+        ]),
+    ).toThrow(/duplicada: "plan_actions"/);
+  });
+
   it('construtor recebe array vazio sem erros (zero tools)', async () => {
     const registry = await buildRegistryWithToolsDI([]);
-    expect(registry.getToolDefinitions()).toHaveLength(0);
+    expect(registry.getAll().map((t) => t.definition)).toHaveLength(0);
     expect(registry.getToolDefinitionsForDraft(null)).toHaveLength(0);
   });
 });

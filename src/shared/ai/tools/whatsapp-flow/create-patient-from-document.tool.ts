@@ -5,14 +5,21 @@ import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
-import { asValidDateString, normalizeCpf, normalizePhone } from './_helpers';
+import { asValidDateString } from '../helpers/arg-parsers';
+import {
+  normalizeCpfSimple as normalizeCpf,
+  normalizePhoneDigits as normalizePhone,
+} from '../helpers/normalizers';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 
 export function buildCreatePatientFromDocumentTool(
   deps: WhatsappFlowToolDeps,
 ): AiTool {
-  const { patientRepo, userRepo, patientsService, documentDeps } = deps;
+  const { patientRepo, userRepo, patientsService, documentDispatcher } = deps;
   return {
     name: 'create_patient_from_document',
+    requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -65,13 +72,6 @@ export function buildCreatePatientFromDocumentTool(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context): Promise<string> {
-      const { documentDispatcher } = documentDeps;
-      if (!patientsService || !patientRepo || !userRepo) {
-        return buildToolResult({
-          status: 'blocked',
-          message: 'Cadastro de paciente indisponível no momento.',
-        });
-      }
       if (!context.userId) {
         return buildToolResult({
           status: 'blocked',
@@ -301,7 +301,7 @@ export function buildCreatePatientFromDocumentTool(
         });
       }
 
-      if (documentDispatcher && context.phone) {
+      if (context.phone) {
         const pending = await documentDispatcher.getPending(context.phone);
         if (pending) {
           await documentDispatcher.deleteStoragePath(pending.storagePath);

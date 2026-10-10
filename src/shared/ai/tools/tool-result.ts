@@ -1,9 +1,3 @@
-import {
-  LookupResult,
-  LookupCandidate,
-  LookupStatus,
-} from '../services/entity-resolver.service';
-
 export type ToolResultStatus =
   | 'ok'
   | 'needs_input'
@@ -69,35 +63,6 @@ export function buildToolResult<T = unknown>(
   if (opts.displayText) payload.display_text = opts.displayText;
   if (opts.errors && opts.errors.length) payload.errors = opts.errors;
   if (opts.affected && opts.affected.length) payload.affected = opts.affected;
-  return JSON.stringify(payload);
-}
-
-export interface BuildLookupResultOptions<T> {
-  result: LookupResult<T>;
-  projectData?: (candidate: LookupCandidate<T>) => unknown;
-  message?: string;
-  hint?: string;
-}
-
-export function buildLookupResult<T>(
-  opts: BuildLookupResultOptions<T>,
-): string {
-  const { result, projectData, message, hint } = opts;
-  const project = (c: LookupCandidate<T>) => ({
-    id: c.id,
-    label: c.label,
-    score: c.score,
-    data: projectData ? projectData(c) : undefined,
-  });
-  const payload = {
-    status: result.status as LookupStatus,
-    query: result.query,
-    resolved: result.resolved ? project(result.resolved) : undefined,
-    candidates: result.candidates.map(project),
-    message: message ?? result.message,
-    hint: hint ?? result.hint,
-    v: 1 as const,
-  };
   return JSON.stringify(payload);
 }
 

@@ -567,7 +567,7 @@ describe('Atendimento — Agenda + Prontuário (e2e)', () => {
                 privacy_policy_accepted_at = NOW(),
                 terms_of_use_accepted_at = NOW()
           WHERE email = $1`,
-        [email, require('bcrypt').hashSync('Senha@12345', 10)],
+        [email, require('bcryptjs').hashSync('Senha@12345', 10)],
       );
 
       const [colaborador] = await dataSource.query(

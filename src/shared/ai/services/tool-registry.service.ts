@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import OpenAI from 'openai';
-import { AiTool, AI_TOOL, ToolContext } from '../tools/tool.interface';
+import { AiTool, AI_TOOL } from '../tools/tool.interface';
 import { OperationDraftType } from '../drafts/operation-draft.types';
 
 const DRAFT_PREFIX_TO_TYPE: Record<string, OperationDraftType> = {
@@ -52,6 +52,11 @@ export class ToolRegistryService implements OnModuleInit {
 
   constructor(@Inject(AI_TOOL) allTools: AiTool[]) {
     for (const tool of allTools) {
+      if (this.tools.has(tool.name)) {
+        throw new Error(
+          `[TOOL_REGISTRY] tool duplicada: "${tool.name}". Cada tool precisa de um nome único.`,
+        );
+      }
       this.tools.set(tool.name, tool);
     }
   }
@@ -70,8 +75,8 @@ export class ToolRegistryService implements OnModuleInit {
     );
   }
 
-  getToolDefinitions(): OpenAI.ChatCompletionTool[] {
-    return Array.from(this.tools.values()).map((t) => t.definition);
+  getAll(): AiTool[] {
+    return Array.from(this.tools.values());
   }
 
   getToolDefinitionsForDraft(
@@ -115,15 +120,5 @@ export class ToolRegistryService implements OnModuleInit {
 
   getTool(name: string): AiTool | undefined {
     return this.tools.get(name);
-  }
-
-  executeTool(
-    name: string,
-    args: Record<string, any>,
-    context: ToolContext,
-  ): Promise<string> {
-    const tool = this.tools.get(name);
-    if (!tool) return Promise.resolve(`Ferramenta "${name}" não encontrada.`);
-    return tool.execute(args, context);
   }
 }

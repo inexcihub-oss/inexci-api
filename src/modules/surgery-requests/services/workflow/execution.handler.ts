@@ -1,12 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 
-import {
-  SurgeryRequest,
-  SurgeryRequestStatus,
-} from 'src/database/entities/surgery-request.entity';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
+import {
+  SurgeryRequestStateMachine,
+  assertTransitionApplied,
+} from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
@@ -14,6 +15,7 @@ import { SurgeryRequestNotificationService } from '../surgery-request-notificati
 import { MarkPerformedDto } from '../../dto/mark-performed.dto';
 import { CloseSurgeryRequestDto } from '../../dto/close-surgery-request.dto';
 import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
+import { emitSurgeryRequestStatusChanged } from '../../events/surgery-request.events';
 
 @Injectable()
 export class ExecutionHandler {
@@ -25,15 +27,16 @@ export class ExecutionHandler {
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pendencyValidator: PendencyValidatorService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
     this.logger.log(
       `[markPerformed] Marcando solicitação ${id} como realizada`,
     );
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+    const request = await this.surgeryRequestRepository.findOneForWorkflow({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     this.stateMachine.assertCanTransition(
@@ -45,24 +48,25 @@ export class ExecutionHandler {
     await executeInTransaction(
       this.dataSource,
       async (manager) => {
-        const repo = manager.getRepository(SurgeryRequest);
-        await repo.update(
-          { id },
-          {
-            status: SurgeryRequestStatus.PERFORMED,
-            surgeryPerformedAt: new Date(dto.surgeryPerformedAt),
-          },
-        );
-        await this.surgeryRequestRepository.recordStatusChange(
-          manager,
-          id,
-          request.status,
-          SurgeryRequestStatus.PERFORMED,
-          userId,
-        );
+        const applied =
+          await this.surgeryRequestRepository.applyStatusTransition(manager, {
+            id,
+            from: request.status,
+            to: SurgeryRequestStatus.PERFORMED,
+            data: { surgeryPerformedAt: new Date(dto.surgeryPerformedAt) },
+            userId,
+          });
+        assertTransitionApplied(applied);
       },
       { logger: this.logger, operationName: 'markPerformed' },
     );
+
+    emitSurgeryRequestStatusChanged(this.eventEmitter, {
+      surgeryRequestId: id,
+      from: request.status,
+      to: SurgeryRequestStatus.PERFORMED,
+      actorId: userId,
+    });
 
     await this.notificationService.notifyStakeholdersOfStatusChange(
       request,
@@ -90,29 +94,28 @@ export class ExecutionHandler {
 
     this.stateMachine.assertCanTransition(request, SurgeryRequestStatus.CLOSED);
 
-    return executeInTransaction(
+    await executeInTransaction(
       this.dataSource,
       async (manager) => {
-        const repo = manager.getRepository(SurgeryRequest);
-        await repo.update(
-          { id },
-          {
-            status: SurgeryRequestStatus.CLOSED,
-            closedAt: new Date(),
-            closedReason: dto.reason,
-          },
-        );
-        await this.surgeryRequestRepository.recordStatusChange(
-          manager,
-          id,
-          request.status as SurgeryRequestStatus,
-          SurgeryRequestStatus.CLOSED,
-          userId,
-          undefined,
-          dto.reason,
-        );
+        const applied =
+          await this.surgeryRequestRepository.applyStatusTransition(manager, {
+            id,
+            from: request.status,
+            to: SurgeryRequestStatus.CLOSED,
+            data: { closedAt: new Date(), closedReason: dto.reason },
+            userId,
+            note: dto.reason,
+          });
+        assertTransitionApplied(applied);
       },
       { logger: this.logger, operationName: 'closeSurgeryRequest' },
     );
+
+    emitSurgeryRequestStatusChanged(this.eventEmitter, {
+      surgeryRequestId: id,
+      from: request.status,
+      to: SurgeryRequestStatus.CLOSED,
+      actorId: userId,
+    });
   }
 }

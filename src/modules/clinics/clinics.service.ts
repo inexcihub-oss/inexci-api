@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { FindOptionsWhere, In } from 'typeorm';
+import { FindOptionsWhere } from 'typeorm';
 import { Clinic } from 'src/database/entities/clinic.entity';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
@@ -15,6 +15,7 @@ import {
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
 import { FindManyClinicDto } from './dto/find-many-clinic.dto';
+import { bulkDeleteOwned } from 'src/shared/catalog/owned-catalog.helpers';
 
 @Injectable()
 export class ClinicsService {
@@ -103,22 +104,13 @@ export class ClinicsService {
     userId: string,
   ): Promise<{ deleted: number }> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const uniqueIds = [...new Set(ids)];
-
-    const clinics = await this.clinicRepository.findMany({
-      id: In(uniqueIds),
+    const result = await bulkDeleteOwned({
+      repository: this.clinicRepository,
+      ids,
       ownerId,
+      notFoundMessage: 'Uma ou mais clínicas não foram encontradas.',
     });
-
-    if (clinics.length !== uniqueIds.length) {
-      throw new NotFoundException(
-        'Uma ou mais clínicas não foram encontradas.',
-      );
-    }
-
-    await this.clinicRepository.getRepository().softDelete(uniqueIds);
-    this.logger.log(`Clínicas soft-deleted em lote: total=${uniqueIds.length}`);
-
-    return { deleted: uniqueIds.length };
+    this.logger.log(`Clínicas soft-deleted em lote: total=${result.deleted}`);
+    return result;
   }
 }

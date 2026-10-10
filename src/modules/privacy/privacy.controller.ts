@@ -5,7 +5,7 @@ import {
   AuthenticatedUser,
   CurrentUser,
 } from '../../shared/decorators/current-user.decorator';
-import { Public } from '../../shared/decorator/is-public.decorator';
+import { Public } from '../../shared/decorators/is-public.decorator';
 import { ConsentService } from './consent.service';
 import { LegalDocumentsService } from './legal-documents.service';
 import { SkipConsentCheck } from '../../shared/decorators/skip-consent-check.decorator';

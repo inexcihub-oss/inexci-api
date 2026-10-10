@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { Subscription } from '../entities/subscription.entity';
+import {
+  Subscription,
+  SubscriptionStatus,
+} from '../entities/subscription.entity';
 import { BaseRepository } from './base.repository';
 
 @Injectable()
@@ -34,6 +37,12 @@ export class SubscriptionRepository extends BaseRepository<Subscription> {
     return this.repository.findOne({
       where: { gatewayCustomerId },
       relations: ['plan'],
+    });
+  }
+
+  async findPastDue(): Promise<Subscription[]> {
+    return this.repository.find({
+      where: { status: SubscriptionStatus.PAST_DUE },
     });
   }
 }

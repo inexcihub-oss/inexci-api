@@ -4,13 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
-import {
-  SurgeryRequest,
-  SurgeryRequestStatus,
-} from 'src/database/entities/surgery-request.entity';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 
@@ -18,20 +16,28 @@ import { SurgeryRequestRepository } from 'src/database/repositories/surgery-requ
 import { ContestationRepository } from 'src/database/repositories/contestation.repository';
 import { ContestationTypeEnum } from 'src/database/entities/contestation.entity';
 import { MailService } from 'src/shared/mail/mail.service';
+import {
+  SurgeryRequestStateMachine,
+  assertTransitionApplied,
+} from 'src/shared/state-machine/surgery-request-state-machine';
 
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
-import { SurgeryRequestNotificationService } from './surgery-request-notification.service';
 import { InvoiceRequestDto } from '../dto/invoice-request.dto';
 import { ConfirmReceiptDto } from '../dto/confirm-receipt.dto';
 import { ContestPaymentDto } from '../dto/contest-payment.dto';
 import { UpdateReceiptDto } from '../dto/update-receipt.dto';
 import { PendencyValidatorService } from '../pendencies/pendency-validator.service';
+import {
+  emitSurgeryRequestStatusChanged,
+  emitSurgeryRequestUpdated,
+} from '../events/surgery-request.events';
 
 @Injectable()
 export class SurgeryRequestBillingService {
   private readonly logger = new Logger(SurgeryRequestBillingService.name);
+  private readonly stateMachine = new SurgeryRequestStateMachine();
 
   constructor(
     private readonly dataSource: DataSource,
@@ -40,46 +46,51 @@ export class SurgeryRequestBillingService {
     @InjectRepository(SurgeryRequestBilling)
     private readonly billingRepository: Repository<SurgeryRequestBilling>,
     private readonly contestationRepository: ContestationRepository,
-    private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pendencyValidator: PendencyValidatorService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+    const request = await this.surgeryRequestRepository.findOneForBilling({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    if (request.status !== SurgeryRequestStatus.PERFORMED) {
-      throw new BadRequestException(
-        'A solicitação precisa estar Realizada para ser faturada.',
-      );
-    }
+    this.stateMachine.assertCanTransition(
+      request,
+      SurgeryRequestStatus.INVOICED,
+    );
     await this.pendencyValidator.assertCanAdvance(id);
 
-    return executeInTransaction(
+    let paymentDeadline: Date | null = null;
+    if (dto.paymentDeadline) {
+      paymentDeadline = new Date(dto.paymentDeadline);
+    } else if (request.healthPlan?.defaultPaymentDays) {
+      const d = new Date(dto.invoiceSentAt);
+      d.setDate(d.getDate() + request.healthPlan.defaultPaymentDays);
+      paymentDeadline = d;
+    }
+
+    await executeInTransaction(
       this.dataSource,
       async (manager) => {
-        const repo = manager.getRepository(SurgeryRequest);
-        const billingRepo = manager.getRepository(SurgeryRequestBilling);
+        const applied =
+          await this.surgeryRequestRepository.applyStatusTransition(manager, {
+            id,
+            from: request.status,
+            to: SurgeryRequestStatus.INVOICED,
+            userId,
+          });
+        assertTransitionApplied(applied);
 
-        let paymentDeadline: Date | null = null;
-        if (dto.paymentDeadline) {
-          paymentDeadline = new Date(dto.paymentDeadline);
-        } else if (request.healthPlan?.defaultPaymentDays) {
-          const d = new Date(dto.invoiceSentAt);
-          d.setDate(d.getDate() + request.healthPlan.defaultPaymentDays);
-          paymentDeadline = d;
-        }
-
-        await billingRepo.save({
+        await manager.getRepository(SurgeryRequestBilling).save({
           surgeryRequestId: id,
           createdById: userId,
           invoiceProtocol: dto.invoiceProtocol,
           invoiceSentAt: new Date(dto.invoiceSentAt),
           invoiceValue: dto.invoiceValue,
           invoiceNotes: dto.invoiceNotes?.trim() || null,
-          paymentDeadline: paymentDeadline,
+          paymentDeadline,
         });
 
         if (
@@ -87,94 +98,93 @@ export class SurgeryRequestBillingService {
           request.healthPlanId &&
           dto.paymentDeadline
         ) {
-          const hpRepo = manager.getRepository(HealthPlan);
           const sentAt = new Date(dto.invoiceSentAt);
           const deadline = new Date(dto.paymentDeadline);
           const days = Math.round(
             (deadline.getTime() - sentAt.getTime()) / (1000 * 60 * 60 * 24),
           );
-          await hpRepo.update(
-            { id: request.healthPlanId },
-            { defaultPaymentDays: days },
-          );
+          await manager
+            .getRepository(HealthPlan)
+            .update({ id: request.healthPlanId }, { defaultPaymentDays: days });
         }
-
-        await repo.update({ id }, { status: SurgeryRequestStatus.INVOICED });
-        await this.surgeryRequestRepository.recordStatusChange(
-          manager,
-          id,
-          request.status,
-          SurgeryRequestStatus.INVOICED,
-          userId,
-        );
       },
       { logger: this.logger, operationName: 'invoiceRequest' },
     );
+
+    emitSurgeryRequestStatusChanged(this.eventEmitter, {
+      surgeryRequestId: id,
+      from: request.status,
+      to: SurgeryRequestStatus.INVOICED,
+      actorId: userId,
+    });
   }
 
   async confirmReceipt(id: string, dto: ConfirmReceiptDto, userId: string) {
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+    const request = await this.surgeryRequestRepository.findOneForBilling({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    if (request.status !== SurgeryRequestStatus.INVOICED) {
-      throw new BadRequestException(
-        'A solicitação precisa estar Faturada para confirmar recebimento.',
-      );
-    }
+    this.stateMachine.assertCanTransition(
+      request,
+      SurgeryRequestStatus.FINALIZED,
+    );
     if (!request.billing) {
       throw new NotFoundException(ERROR_MESSAGES.BILLING_NOT_FOUND);
     }
     await this.pendencyValidator.assertCanAdvance(id);
 
-    return executeInTransaction(
+    const invoiceValue = Number(request.billing.invoiceValue);
+    const receivedValue = Number(dto.receivedValue);
+    const hasDivergence = receivedValue !== invoiceValue;
+
+    await executeInTransaction(
       this.dataSource,
       async (manager) => {
-        const repo = manager.getRepository(SurgeryRequest);
-        const billingRepo = manager.getRepository(SurgeryRequestBilling);
+        const applied =
+          await this.surgeryRequestRepository.applyStatusTransition(manager, {
+            id,
+            from: request.status,
+            to: SurgeryRequestStatus.FINALIZED,
+            userId,
+          });
+        assertTransitionApplied(applied);
 
-        const invoiceValue = Number(request.billing!.invoiceValue);
-        const receivedValue = Number(dto.receivedValue);
-        const hasDivergence = receivedValue !== invoiceValue;
-
-        await billingRepo.update(
+        await manager.getRepository(SurgeryRequestBilling).update(
           { surgeryRequestId: id },
           {
-            receivedValue: receivedValue,
+            receivedValue,
             receivedAt: new Date(dto.receivedAt),
             receiptNotes: dto.receiptNotes,
             contestedReceivedValue: hasDivergence ? receivedValue : null,
             contestedReceivedAt: hasDivergence ? new Date() : null,
           },
         );
-
-        await repo.update({ id }, { status: SurgeryRequestStatus.FINALIZED });
-        await this.surgeryRequestRepository.recordStatusChange(
-          manager,
-          id,
-          request.status,
-          SurgeryRequestStatus.FINALIZED,
-          userId,
-        );
-
-        return { hasDivergence, invoiceValue, receivedValue };
       },
       { logger: this.logger, operationName: 'confirmReceipt' },
     );
+
+    emitSurgeryRequestStatusChanged(this.eventEmitter, {
+      surgeryRequestId: id,
+      from: request.status,
+      to: SurgeryRequestStatus.FINALIZED,
+      actorId: userId,
+    });
+
+    return { hasDivergence, invoiceValue, receivedValue };
   }
 
   async contestPayment(id: string, dto: ContestPaymentDto, userId: string) {
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+    const request = await this.surgeryRequestRepository.findOneForBilling({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    if (request.status !== SurgeryRequestStatus.FINALIZED) {
-      throw new BadRequestException(
-        'A solicitação precisa estar Finalizada para contestar pagamento.',
-      );
-    }
+    this.stateMachine.assertStatus(
+      request,
+      SurgeryRequestStatus.FINALIZED,
+      'A solicitação precisa estar Finalizada para contestar pagamento.',
+    );
     if (!request.billing?.contestedReceivedValue) {
       throw new BadRequestException(
         'Não há divergência de recebimento registrada.',
@@ -188,12 +198,15 @@ export class SurgeryRequestBillingService {
       reason: dto.message,
     });
 
-    const invoiceValue = request.billing?.invoiceValue
-      ? `R$ ${Number(request.billing.invoiceValue).toFixed(2).replace('.', ',')}`
+    emitSurgeryRequestUpdated(this.eventEmitter, {
+      surgeryRequestId: id,
+      actorId: userId,
+    });
+
+    const invoiceValue = request.billing.invoiceValue
+      ? formatBrl(request.billing.invoiceValue)
       : '—';
-    const contestedValue = request.billing?.contestedReceivedValue
-      ? `R$ ${Number(request.billing.contestedReceivedValue).toFixed(2).replace('.', ',')}`
-      : '—';
+    const contestedValue = formatBrl(request.billing.contestedReceivedValue);
 
     await this.mailService.sendPaymentContested(dto.to, dto.subject, {
       patientName: request.patient?.name ?? 'Paciente',
@@ -204,15 +217,17 @@ export class SurgeryRequestBillingService {
     });
   }
 
-  async updateReceipt(id: string, dto: UpdateReceiptDto, _userId: string) {
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+  async updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
+    const request = await this.surgeryRequestRepository.findOneForBilling({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    if (request.status !== SurgeryRequestStatus.FINALIZED) {
-      throw new BadRequestException('A solicitação precisa estar Finalizada.');
-    }
+    this.stateMachine.assertStatus(
+      request,
+      SurgeryRequestStatus.FINALIZED,
+      'A solicitação precisa estar Finalizada.',
+    );
 
     if (!request.billing?.contestedReceivedValue) {
       throw new BadRequestException(
@@ -227,5 +242,14 @@ export class SurgeryRequestBillingService {
         receivedAt: new Date(dto.receivedAt),
       },
     );
+
+    emitSurgeryRequestUpdated(this.eventEmitter, {
+      surgeryRequestId: id,
+      actorId: userId,
+    });
   }
+}
+
+function formatBrl(value: number | string): string {
+  return `R$ ${Number(value).toFixed(2).replace('.', ',')}`;
 }

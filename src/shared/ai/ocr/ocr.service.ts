@@ -258,7 +258,11 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         if (parser && typeof parser.destroy === 'function') {
           await parser.destroy();
         }
-      } catch {}
+      } catch (err) {
+        this.logger.debug(
+          `[AI_DOC_OCR] falha ao liberar pdf-parse: ${(err as Error)?.message}`,
+        );
+      }
     }
   }
 
@@ -372,7 +376,11 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         if (parser && typeof parser.destroy === 'function') {
           await parser.destroy();
         }
-      } catch {}
+      } catch (err) {
+        this.logger.debug(
+          `[AI_DOC_OCR] falha ao liberar pdf-parse: ${(err as Error)?.message}`,
+        );
+      }
     }
 
     const trimmedNative = nativeText.trim();
@@ -515,7 +523,11 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         if (parser && typeof parser.destroy === 'function') {
           await parser.destroy();
         }
-      } catch {}
+      } catch (err) {
+        this.logger.debug(
+          `[AI_DOC_OCR] falha ao liberar pdf-parse: ${(err as Error)?.message}`,
+        );
+      }
     }
     return pages;
   }

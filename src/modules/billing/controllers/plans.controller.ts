@@ -1,7 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Public } from 'src/shared/decorator/is-public.decorator';
+import { Public } from 'src/shared/decorators/is-public.decorator';
 import { SubscriptionPlanRepository } from 'src/database/repositories/subscription-plan.repository';
 
 @ApiTags('Billing')

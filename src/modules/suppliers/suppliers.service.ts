@@ -3,15 +3,20 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
 import { FindManySupplierDto } from './dto/find-many-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { SupplierRepository } from 'src/database/repositories/supplier.repository';
-import { FindOptionsWhere, In } from 'typeorm';
+import { FindOptionsWhere } from 'typeorm';
 import { Supplier } from 'src/database/entities/supplier.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import {
+  bulkDeleteOwned,
+  createOrRestoreByName,
+  findOwnedOrFail,
+  resolveCatalogOwnerId,
+} from 'src/shared/catalog/owned-catalog.helpers';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 
 @Injectable()
@@ -81,54 +86,30 @@ export class SuppliersService {
     data: UpdateSupplierDto,
     userId: string,
   ): Promise<Supplier> {
-    const supplier = await this.supplierRepository.findOne({ id });
-    if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
-    await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
-    this.assertNaoEGenerico(supplier);
+    const registro = await this.findOwned(id, userId);
+    this.assertNaoEGenerico(registro);
     return (await this.supplierRepository.update(id, data))!;
   }
 
   async create(data: CreateSupplierDto, userId: string): Promise<Supplier> {
-    const ownerId = await this.accessControlService.getOwnerId(userId);
-    if (!ownerId) {
-      throw new ForbiddenException('Usuário sem clínica vinculada.');
-    }
+    const ownerId = await resolveCatalogOwnerId(
+      this.accessControlService,
+      userId,
+    );
 
-    const existingIncludingDeleted =
-      await this.supplierRepository.findByNameIncludingDeleted(
-        ownerId,
-        data.name,
-      );
-
-    if (existingIncludingDeleted && !existingIncludingDeleted.deletedAt) {
-      throw new ConflictException(
-        `Já existe um fornecedor com o nome "${data.name.trim()}".`,
-      );
-    }
-
-    if (existingIncludingDeleted?.deletedAt) {
-      await this.supplierRepository.restore(existingIncludingDeleted.id);
-      const restored = await this.supplierRepository.update(
-        existingIncludingDeleted.id,
-        data,
-      );
-      this.logger.log(
-        `Fornecedor restaurado após soft delete: id=${existingIncludingDeleted.id}`,
-      );
-      return restored!;
-    }
-
-    return this.supplierRepository.create({
-      ...data,
+    return createOrRestoreByName({
+      repository: this.supplierRepository,
       ownerId,
+      data,
+      conflictMessage: (nome) =>
+        `Já existe um fornecedor com o nome "${nome}".`,
+      logger: this.logger,
     });
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    const supplier = await this.supplierRepository.findOne({ id });
-    if (!supplier) throw new NotFoundException('Fornecedor não encontrado');
-    await this.accessControlService.assertSameOwner(userId, supplier.ownerId);
-    this.assertNaoEGenerico(supplier);
+    const registro = await this.findOwned(id, userId);
+    this.assertNaoEGenerico(registro);
     await this.supplierRepository.softDelete(id);
     this.logger.log(`Fornecedor soft-deleted: id=${id}`);
   }
@@ -137,31 +118,30 @@ export class SuppliersService {
     ids: string[],
     userId: string,
   ): Promise<{ deleted: number }> {
-    const ownerId = await this.accessControlService.getOwnerId(userId);
-
-    if (!ownerId) {
-      throw new ForbiddenException('Usuário sem clínica vinculada.');
-    }
-
-    const uniqueIds = [...new Set(ids)];
-    const suppliers = await this.supplierRepository.findMany({
-      id: In(uniqueIds),
-      ownerId,
-    });
-
-    if (suppliers.length !== uniqueIds.length) {
-      throw new NotFoundException(
-        'Um ou mais fornecedores não foram encontrados.',
-      );
-    }
-
-    suppliers.forEach((registro) => this.assertNaoEGenerico(registro));
-
-    await this.supplierRepository.bulkSoftDelete(uniqueIds);
-    this.logger.log(
-      `Fornecedores soft-deleted em lote: total=${uniqueIds.length}`,
+    const ownerId = await resolveCatalogOwnerId(
+      this.accessControlService,
+      userId,
     );
+    const result = await bulkDeleteOwned({
+      repository: this.supplierRepository,
+      ids,
+      ownerId,
+      notFoundMessage: 'Um ou mais fornecedores não foram encontrados.',
+      guard: (registro) => this.assertNaoEGenerico(registro),
+    });
+    this.logger.log(
+      `Fornecedores soft-deleted em lote: total=${result.deleted}`,
+    );
+    return result;
+  }
 
-    return { deleted: uniqueIds.length };
+  private findOwned(id: string, userId: string): Promise<Supplier> {
+    return findOwnedOrFail(
+      this.supplierRepository,
+      this.accessControlService,
+      id,
+      userId,
+      'Fornecedor não encontrado',
+    );
   }
 }

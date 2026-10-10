@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Injectable, Logger } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { Patient } from 'src/database/entities/patient.entity';
 import { Hospital } from 'src/database/entities/hospital.entity';
@@ -26,6 +26,7 @@ export interface ResolvedCandidates {
 }
 
 const MAX_CANDIDATES = 5;
+const MAX_PROCEDURE_NAME_LENGTH = 255;
 
 function normalizeCpf(raw?: string): string | null {
   if (!raw) return null;
@@ -66,6 +67,8 @@ function buildSearchTerms(raw: string): string[] {
 
 @Injectable()
 export class DocumentEntityResolverService {
+  private readonly logger = new Logger(DocumentEntityResolverService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly accessControlService: AccessControlService,
@@ -209,8 +212,93 @@ export class DocumentEntityResolverService {
       }
 
       return Array.from(unique.values()).slice(0, MAX_CANDIDATES);
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        `[resolveByName] Falha ao buscar candidatos de ${entity.name}: ${(err as Error)?.message}`,
+      );
       return [];
     }
+  }
+
+  resolveOrCreateHospitalId(
+    name: string | undefined,
+    ownerId: string,
+    manager?: EntityManager,
+  ): Promise<string | undefined> {
+    return this.resolveOrCreateByName(
+      Hospital,
+      (name ?? '').trim(),
+      ownerId,
+      { active: true },
+      manager,
+    );
+  }
+
+  resolveOrCreateHealthPlanId(
+    name: string | undefined,
+    ownerId: string,
+    manager?: EntityManager,
+  ): Promise<string | undefined> {
+    return this.resolveOrCreateByName(
+      HealthPlan,
+      (name ?? '').trim(),
+      ownerId,
+      { active: true },
+      manager,
+    );
+  }
+
+  resolveOrCreateProcedureId(
+    name: string | undefined,
+    ownerId: string,
+    manager?: EntityManager,
+  ): Promise<string | undefined> {
+    return this.resolveOrCreateByName(
+      Procedure,
+      this.normalizeProcedureName(name),
+      ownerId,
+      {},
+      manager,
+    );
+  }
+
+  private async resolveOrCreateByName<
+    T extends { id: string; name: string; ownerId: string },
+  >(
+    entity: new () => T,
+    name: string | undefined,
+    ownerId: string,
+    defaults: Partial<T>,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<string | undefined> {
+    if (!name) return undefined;
+
+    const repo = manager.getRepository(entity);
+    const existing = await repo
+      .createQueryBuilder('e')
+      .where('e.owner_id = :ownerId', { ownerId })
+      .andWhere('unaccent(lower(e.name)) = unaccent(lower(:name))', { name })
+      .select(['e.id'])
+      .getOne();
+    if (existing?.id) return existing.id;
+
+    const saved = await repo.save(
+      repo.create({ ...defaults, name, ownerId } as T),
+    );
+    return saved.id;
+  }
+
+  private normalizeProcedureName(raw: string | undefined): string | undefined {
+    const name = (raw ?? '').replace(/\s+/g, ' ').trim();
+    if (!name) return undefined;
+
+    if (name.length > MAX_PROCEDURE_NAME_LENGTH) {
+      this.logger.warn(
+        `[SC_FROM_DOC] procedure_name_too_long len=${name.length} max=${MAX_PROCEDURE_NAME_LENGTH} dropping_auto_create`,
+      );
+      return undefined;
+    }
+
+    return name;
   }
 }

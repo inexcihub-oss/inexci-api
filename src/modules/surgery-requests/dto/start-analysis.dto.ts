@@ -1,9 +1,5 @@
 import { IsBoolean, IsDateString, IsOptional, IsString } from 'class-validator';
 
-/**
- * POST /surgery-requests/:id/start-analysis
- * Transição: SENT → IN_ANALYSIS
- */
 export class StartAnalysisDto {
   @IsOptional()
   @IsBoolean()

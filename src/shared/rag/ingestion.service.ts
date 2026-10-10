@@ -45,19 +45,6 @@ export class IngestionService {
     );
   }
 
-  async ingestFaq(
-    items: Array<{ question: string; answer: string }>,
-  ): Promise<void> {
-    for (const item of items) {
-      const text = `Pergunta: ${item.question}\nResposta: ${item.answer}`;
-      await this.ingest({
-        category: 'faq',
-        title: item.question,
-        content: text,
-      });
-    }
-  }
-
   async replaceCategory(
     category: string,
     items: Array<{

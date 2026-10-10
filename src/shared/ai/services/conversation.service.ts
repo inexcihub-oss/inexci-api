@@ -43,6 +43,10 @@ export class ConversationService {
     });
   }
 
+  findById(conversationId: string): Promise<WhatsappConversation | null> {
+    return this.conversationRepo.findOne({ id: conversationId });
+  }
+
   async appendMessage(
     conversationId: string,
     role: ConversationMessage['role'],

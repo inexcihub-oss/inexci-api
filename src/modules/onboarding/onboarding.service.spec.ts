@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { User } from '../../database/entities/user.entity';
 import { OnboardingService } from './onboarding.service';
+import { UserRepository } from '../../database/repositories/user.repository';
 
 describe('OnboardingService', () => {
   const userRepoMock = {
@@ -21,49 +22,9 @@ describe('OnboardingService', () => {
         update: userRepoMock.update,
       }),
     );
-    service = new OnboardingService(userRepoMock as never);
-  });
-
-  describe('get', () => {
-    it('devolve o estado vazio quando a coluna é null', async () => {
-      userRepoMock.findOne.mockResolvedValue({
-        id: 'u1',
-        onboardingState: null,
-      });
-
-      const estado = await service.get('u1');
-
-      expect(estado.status).toBe('not_started');
-      expect(estado.completedSteps).toEqual({});
-    });
-
-    it('devolve o estado gravado', async () => {
-      userRepoMock.findOne.mockResolvedValue({
-        id: 'u1',
-        onboardingState: {
-          version: 1,
-          status: 'in_progress',
-          welcomeSeenAt: '2026-08-01T00:00:00.000Z',
-          checklistDismissedAt: null,
-          completedSteps: { 'criar-solicitacao': '2026-08-01T00:00:00.000Z' },
-          toursSeen: {},
-          restartedAt: null,
-        },
-      });
-
-      const estado = await service.get('u1');
-
-      expect(estado.status).toBe('in_progress');
-      expect(estado.completedSteps['criar-solicitacao']).toBe(
-        '2026-08-01T00:00:00.000Z',
-      );
-    });
-
-    it('lança NotFound para usuário inexistente', async () => {
-      userRepoMock.findOne.mockResolvedValue(null);
-
-      await expect(service.get('u1')).rejects.toBeInstanceOf(NotFoundException);
-    });
+    service = new OnboardingService(
+      new UserRepository({ manager: userRepoMock.manager } as never),
+    );
   });
 
   describe('patch', () => {
@@ -100,6 +61,15 @@ describe('OnboardingService', () => {
         }),
       );
     });
+  });
+
+  it('lança NotFound para usuário inexistente', async () => {
+    userRepoMock.findOne.mockResolvedValue(null);
+
+    await expect(service.patch('u1', {})).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(userRepoMock.update).not.toHaveBeenCalled();
   });
 
   describe('reset', () => {

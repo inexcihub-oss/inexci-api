@@ -12,8 +12,10 @@ import { AppointmentRepository } from 'src/database/repositories/appointment.rep
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { auditProntuarioAccess } from 'src/shared/logging/audit';
+import { DataSource, IsNull } from 'typeorm';
 import { ClinicalRecord } from 'src/database/entities/clinical-record.entity';
 import {
+  Appointment,
   AppointmentStatus,
   isActiveAppointmentStatus,
 } from 'src/database/entities/appointment.entity';
@@ -25,6 +27,10 @@ import { AppointmentActivityType } from 'src/database/entities/appointment-activ
 import { registrarNoHistorico } from 'src/modules/appointments/appointment-history';
 
 const ATENDIMENTO_INICIADO = 'Atendimento iniciado';
+
+const MENSAGEM_INDICACAO =
+  'Indicação cirúrgica só pode ser feita por médico (CRM).';
+const MENSAGEM_INDICACAO_AO_FINALIZAR = `${MENSAGEM_INDICACAO} Desmarque a indicação cirúrgica para finalizar o atendimento.`;
 
 const STATUS_ANTES_DO_ATENDIMENTO: readonly AppointmentStatus[] = [
   AppointmentStatus.SCHEDULED,
@@ -44,6 +50,7 @@ export class ClinicalRecordsService {
     private readonly surgicalIndicationService: SurgicalIndicationService,
     private readonly appointmentActivityRepository: AppointmentActivityRepository,
     private readonly procedureRepository: ProcedureRepository,
+    private readonly dataSource: DataSource,
   ) {}
 
   async findByPatient(
@@ -238,25 +245,51 @@ export class ClinicalRecordsService {
     const record = await this.getEditable(id, userId);
 
     if (record.surgicalIndication) {
-      await this.accessControlService.assertIsPhysicianWithRegistry(
-        record.doctorId,
-        'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
-        'finalizar um atendimento com indicação cirúrgica',
+      await this.assertIndicacaoCirurgicaPermitida(record.doctorId, userId, {
+        mensagem: MENSAGEM_INDICACAO_AO_FINALIZAR,
+        acao: 'finalizar um atendimento com indicação cirúrgica',
+      });
+    }
+
+    const appointment = record.appointmentId
+      ? await this.findAppointmentToComplete(record.appointmentId)
+      : null;
+
+    await this.dataSource.transaction(async (manager) => {
+      const result = await manager.getRepository(ClinicalRecord).update(
+        { id: record.id, finalizedAt: IsNull() },
+        {
+          finalizedAt: new Date(),
+        },
       );
-      await this.assertQuemAgeEhMedico(
-        record.doctorId,
-        userId,
-        'Indicação cirúrgica só pode ser feita por médico (CRM). Desmarque a indicação cirúrgica para finalizar o atendimento.',
+      if (!result.affected) {
+        throw new ConflictException('Este atendimento já foi finalizado.');
+      }
+      if (appointment) {
+        await manager.getRepository(Appointment).update(appointment.id, {
+          status: AppointmentStatus.COMPLETED,
+        });
+      }
+    });
+
+    if (appointment) {
+      await registrarNoHistorico(
+        this.appointmentActivityRepository,
+        this.logger,
+        {
+          appointmentId: appointment.id,
+          userId,
+          type: AppointmentActivityType.STATUS_CHANGE,
+          fromStatus: appointment.status,
+          toStatus: AppointmentStatus.COMPLETED,
+          content: 'Atendimento finalizado',
+        },
       );
     }
 
-    const finalized = (await this.clinicalRecordRepository.update(record.id, {
-      finalizedAt: new Date(),
+    const finalized = (await this.clinicalRecordRepository.findOne({
+      id: record.id,
     }))!;
-
-    if (record.appointmentId) {
-      await this.completeLinkedAppointment(record.appointmentId, userId);
-    }
 
     if (record.surgicalIndication) {
       try {
@@ -268,9 +301,9 @@ export class ClinicalRecordsService {
         if (surgeryRequest) {
           finalized.surgeryRequestId = surgeryRequest.id;
         }
-      } catch (err: any) {
+      } catch (err) {
         this.logger.error(
-          `Ficha ${record.id} finalizada, mas a SC falhou; o sweeper vai retomar: ${err?.message}`,
+          `Ficha ${record.id} finalizada, mas a SC falhou; o sweeper vai retomar: ${(err as Error)?.message}`,
         );
       }
     }
@@ -278,20 +311,37 @@ export class ClinicalRecordsService {
     return finalized;
   }
 
+  private async findAppointmentToComplete(
+    appointmentId: string,
+  ): Promise<Appointment | null> {
+    const appointment = await this.appointmentRepository.findOne({
+      id: appointmentId,
+    });
+    if (!appointment) return null;
+
+    if (!isActiveAppointmentStatus(appointment.status)) {
+      this.logger.warn(
+        `Ficha do atendimento finalizada com a consulta ${appointmentId} em "${appointment.status}"; status da agenda preservado.`,
+      );
+      return null;
+    }
+    return appointment;
+  }
+
   private async assertIndicacaoCirurgicaPermitida(
     doctorId: string,
     userId: string,
+    contexto: { mensagem: string; acao: string } = {
+      mensagem: MENSAGEM_INDICACAO,
+      acao: 'indicar cirurgia',
+    },
   ): Promise<void> {
     await this.accessControlService.assertIsPhysicianWithRegistry(
       doctorId,
-      'Indicação cirúrgica só pode ser feita por médico (CRM).',
-      'indicar cirurgia',
+      contexto.mensagem,
+      contexto.acao,
     );
-    await this.assertQuemAgeEhMedico(
-      doctorId,
-      userId,
-      'Indicação cirúrgica só pode ser feita por médico (CRM).',
-    );
+    await this.assertQuemAgeEhMedico(doctorId, userId, contexto.mensagem);
   }
 
   private async assertQuemAgeEhMedico(
@@ -301,41 +351,6 @@ export class ClinicalRecordsService {
   ): Promise<void> {
     if (userId === doctorId) return;
     await this.accessControlService.assertIsPhysician(userId, mensagem);
-  }
-
-  private async completeLinkedAppointment(
-    appointmentId: string,
-    userId: string,
-  ) {
-    const appointment = await this.appointmentRepository.findOne({
-      id: appointmentId,
-    });
-    if (!appointment) return;
-
-    const isActive = isActiveAppointmentStatus(appointment.status);
-
-    if (!isActive) {
-      this.logger.warn(
-        `Ficha do atendimento finalizada com a consulta ${appointmentId} em "${appointment.status}"; status da agenda preservado.`,
-      );
-      return;
-    }
-
-    await this.appointmentRepository.update(appointmentId, {
-      status: AppointmentStatus.COMPLETED,
-    });
-    await registrarNoHistorico(
-      this.appointmentActivityRepository,
-      this.logger,
-      {
-        appointmentId,
-        userId,
-        type: AppointmentActivityType.STATUS_CHANGE,
-        fromStatus: appointment.status,
-        toStatus: AppointmentStatus.COMPLETED,
-        content: 'Atendimento finalizado',
-      },
-    );
   }
 
   async delete(id: string, userId: string): Promise<void> {

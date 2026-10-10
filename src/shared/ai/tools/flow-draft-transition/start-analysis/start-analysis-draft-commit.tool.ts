@@ -2,13 +2,13 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
 import {
   assertCurrentStatusIs,
   extractTransitionErrorMessage,
 } from '../_helpers';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildStartAnalysisDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -18,6 +18,7 @@ export function buildStartAnalysisDraftCommitTool(
   return {
     name: 'start_analysis_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -82,18 +83,19 @@ export function buildStartAnalysisDraftCommitTool(
           } as any,
           context.userId,
         );
-        await activityRepo.create({
+        await recordAiActivity(
+          activityRepo,
+          context,
           surgeryRequestId,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Análise iniciada. Nº operadora: ${f.requestNumber}.`,
-        });
+          `Análise iniciada. Nº operadora: ${f.requestNumber}.`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Análise da solicitação ${f.surgeryRequestLabel ?? surgeryRequestId} iniciada com sucesso.`,
         });
       } catch (err: any) {

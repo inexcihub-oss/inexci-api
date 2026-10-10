@@ -1,22 +1,23 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { MailService } from 'src/shared/mail/mail.service';
-import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
-import { PatientNotificationService } from 'src/modules/notifications/patient-notification.service';
+import {
+  PatientNotificationService,
+  type PatientNotificationContext,
+  type PatientSchedulingNotificationContext,
+} from 'src/modules/notifications/patient-notification.service';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
+import { SchedulingSelectionStore } from './workflow/scheduling-selection.store';
 
 @Injectable()
 export class SurgeryRequestNotificationService {
-  private readonly logger = new Logger(SurgeryRequestNotificationService.name);
-
   private readonly STATUS_TEMPLATE_MAP: Record<number, string[]> = {
     [SurgeryRequestStatus.SENT]: ['surgery-request-sent'],
     [SurgeryRequestStatus.IN_SCHEDULING]: ['surgery-authorized'],
@@ -29,13 +30,13 @@ export class SurgeryRequestNotificationService {
   constructor(
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly mailService: MailService,
-    private readonly whatsappService: WhatsappService,
     private readonly notificationsService: NotificationsService,
     private readonly patientNotificationService: PatientNotificationService,
+    private readonly schedulingSelectionStore: SchedulingSelectionStore,
   ) {}
 
   async notifyPatientIfRequested(
-    request: any,
+    request: PatientNotificationContext['request'],
     prevStatus: SurgeryRequestStatus,
     newStatus: SurgeryRequestStatus,
     notifyPatient?: boolean,
@@ -51,13 +52,18 @@ export class SurgeryRequestNotificationService {
   }
 
   async notifyPatientSchedulingOptions(
-    request: any,
+    request: PatientSchedulingNotificationContext['request'],
     dateOptions: string[],
   ): Promise<void> {
     await this.patientNotificationService.notifyPatientSchedulingOptions({
       request,
       dateOptions,
     });
+
+    const patientPhone = request.patient?.phone;
+    if (patientPhone) {
+      await this.schedulingSelectionStore.remember(patientPhone, request.id);
+    }
   }
 
   async notify(

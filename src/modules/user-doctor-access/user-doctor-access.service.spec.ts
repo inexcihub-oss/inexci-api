@@ -4,7 +4,6 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 
 import { UserDoctorAccessService } from './user-doctor-access.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -12,7 +11,6 @@ import { UserDoctorAccessRepository } from 'src/database/repositories/user-docto
 import { DoctorProfileRepository } from 'src/database/repositories/doctor-profile.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { UserRole } from 'src/database/entities/user.entity';
-import { UserDoctorAccessStatus } from 'src/database/entities/user-doctor-access.entity';
 import { Permission } from 'src/shared/permissions';
 
 const ADMIN_ID = 'admin-id';
@@ -45,7 +43,6 @@ describe('UserDoctorAccessService', () => {
     Partial<UserDoctorAccessRepository>
   >;
   let doctorProfileRepository: jest.Mocked<Partial<DoctorProfileRepository>>;
-  let dataSource: jest.Mocked<Partial<DataSource>>;
   let accessControlService: jest.Mocked<Partial<AccessControlService>>;
 
   beforeEach(async () => {
@@ -60,16 +57,11 @@ describe('UserDoctorAccessService', () => {
 
     userDoctorAccessRepository = {
       findAllByUserId: jest.fn(),
-      upsert: jest.fn(),
-      deactivate: jest.fn(),
+      replaceDoctorsForUser: jest.fn(),
     };
 
     doctorProfileRepository = {
       existsByUserId: jest.fn(),
-    };
-
-    dataSource = {
-      transaction: jest.fn().mockImplementation((cb) => cb({})),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -81,7 +73,6 @@ describe('UserDoctorAccessService', () => {
           useValue: userDoctorAccessRepository,
         },
         { provide: DoctorProfileRepository, useValue: doctorProfileRepository },
-        { provide: DataSource, useValue: dataSource },
         { provide: AccessControlService, useValue: accessControlService },
       ],
     }).compile();
@@ -183,11 +174,10 @@ describe('UserDoctorAccessService', () => {
   });
 
   describe('setAccess', () => {
-    it('deactivates removed doctors and upserts new ones', async () => {
+    it('redefine os vínculos numa operação só e invalida o cache de acesso', async () => {
       const admin = makeAdmin();
       const user = makeUser();
       const doctorUser = makeUser({ id: DOCTOR_ID });
-      const existingAccess = { doctorUserId: 'old-doctor', id: 'access-1' };
       const updatedAccesses = [{ id: 'access-2', doctorUserId: DOCTOR_ID }];
 
       (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
@@ -196,27 +186,18 @@ describe('UserDoctorAccessService', () => {
       (userRepository.findOne as jest.Mock)
         .mockResolvedValueOnce(user)
         .mockResolvedValueOnce(doctorUser);
-
       (
         doctorProfileRepository.existsByUserId as jest.Mock
       ).mockResolvedValueOnce(true);
-
-      (userDoctorAccessRepository.findAllByUserId as jest.Mock)
-        .mockResolvedValueOnce([existingAccess])
-        .mockResolvedValueOnce(updatedAccesses);
+      (
+        userDoctorAccessRepository.replaceDoctorsForUser as jest.Mock
+      ).mockResolvedValueOnce(updatedAccesses);
 
       const result = await service.setAccess(USER_ID, [DOCTOR_ID], ADMIN_ID);
 
-      expect(userDoctorAccessRepository.deactivate).toHaveBeenCalledWith(
-        USER_ID,
-        'old-doctor',
-      );
-      expect(userDoctorAccessRepository.upsert).toHaveBeenCalledWith({
-        userId: USER_ID,
-        doctorUserId: DOCTOR_ID,
-        status: UserDoctorAccessStatus.ACTIVE,
-        createdById: ADMIN_ID,
-      });
+      expect(
+        userDoctorAccessRepository.replaceDoctorsForUser,
+      ).toHaveBeenCalledWith(USER_ID, [DOCTOR_ID], ADMIN_ID);
       expect(result).toEqual({ records: updatedAccesses });
       expect(
         accessControlService.invalidateAccessibleDoctors,
@@ -242,32 +223,9 @@ describe('UserDoctorAccessService', () => {
       await expect(
         service.setAccess(USER_ID, [DOCTOR_ID], ADMIN_ID),
       ).rejects.toThrow(BadRequestException);
-    });
-
-    it('does not deactivate doctors still in the new list', async () => {
-      const admin = makeAdmin();
-      const user = makeUser();
-      const doctorUser = makeUser({ id: DOCTOR_ID });
-      const existingAccess = { doctorUserId: DOCTOR_ID, id: 'access-1' };
-
-      (userRepository.findOneWithProfile as jest.Mock).mockResolvedValueOnce(
-        admin,
-      );
-      (userRepository.findOne as jest.Mock)
-        .mockResolvedValueOnce(user)
-        .mockResolvedValueOnce(doctorUser);
-
-      (
-        doctorProfileRepository.existsByUserId as jest.Mock
-      ).mockResolvedValueOnce(true);
-
-      (userDoctorAccessRepository.findAllByUserId as jest.Mock)
-        .mockResolvedValueOnce([existingAccess])
-        .mockResolvedValueOnce([existingAccess]);
-
-      await service.setAccess(USER_ID, [DOCTOR_ID], ADMIN_ID);
-
-      expect(userDoctorAccessRepository.deactivate).not.toHaveBeenCalled();
+      expect(
+        userDoctorAccessRepository.replaceDoctorsForUser,
+      ).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import * as sanitizeHtml from 'sanitize-html';
-import { Not, In, QueryFailedError } from 'typeorm';
+import { Not, QueryFailedError } from 'typeorm';
 import {
   BadRequestException,
   Logger,
@@ -16,7 +16,6 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { CreateDoctorProfileDto } from './dto/create-doctor-profile.dto';
 import { CreateCollaboratorDto } from './dto/create-collaborator.dto';
 import { UpdateCollaboratorDto } from './dto/update-collaborator.dto';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
@@ -27,6 +26,8 @@ import { DoctorProfileRepository } from 'src/database/repositories/doctor-profil
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import {
   Permission,
+  canAdministrate,
+  permissionsOf,
   resolveEffectivePermissions,
 } from 'src/shared/permissions';
 import { MailService } from 'src/shared/mail/mail.service';
@@ -50,10 +51,15 @@ import {
   PASTAS_DE_ASSINATURA,
   PASTAS_DE_AVATAR,
 } from './arquivo-da-conta';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export const AVATAR_INVALIDO = 'Avatar inválido: envie a imagem novamente.';
 export const ASSINATURA_INVALIDA =
   'Assinatura inválida: envie a imagem novamente.';
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+const INVITE_TOKEN_TTL_MS = 24 * MS_PER_HOUR;
+const INVITE_CODE_TTL_MS = 72 * MS_PER_HOUR;
 
 @Injectable()
 export class UsersService {
@@ -82,12 +88,7 @@ export class UsersService {
     });
     if (!usuario) throw new NotFoundException('Usuário não encontrado');
 
-    const permissoes = resolveEffectivePermissions({
-      role: usuario.role,
-      permissions: usuario.permissions,
-      isDoctor: !!usuario.doctorProfile,
-      isPhysician: isPhysicianProfile(usuario.doctorProfile),
-    });
+    const permissoes = permissionsOf(usuario);
 
     if (!permissoes.includes(Permission.ADMINISTRACAO)) {
       throw new ForbiddenException(
@@ -120,18 +121,21 @@ export class UsersService {
         profile.signatureUrl = await this.storageService.getSignedUrl(
           profile.signatureUrl,
         );
-      } catch {}
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Falha ao assinar a URL da assinatura do perfil ${userId}: ${errorMessage(err)}`,
+        );
+      }
     }
 
     return {
       ...userWithoutPassword,
       isDoctor: !!userWithoutPassword.doctorProfile,
       isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
-      permissions: resolveEffectivePermissions({
+      permissions: permissionsOf({
         role: userWithoutPassword.role,
         permissions,
-        isDoctor: !!userWithoutPassword.doctorProfile,
-        isPhysician: isPhysicianProfile(userWithoutPassword.doctorProfile),
+        doctorProfile: userWithoutPassword.doctorProfile,
       }),
     };
   }
@@ -357,7 +361,7 @@ export class UsersService {
       userId: newUser.id,
       used: false,
       code: inviteToken,
-      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
@@ -408,82 +412,31 @@ export class UsersService {
     return { message: 'Senha alterada com sucesso' };
   }
 
-  async createDoctorProfile(dto: CreateDoctorProfileDto, userId: string) {
-    const existing = await this.doctorProfileRepository.findByUserId(userId);
-    if (existing)
-      throw new BadRequestException(
-        'Perfil de médico já existe para este usuário',
-      );
-
-    return this.doctorProfileRepository.create({
-      userId: userId,
-      specialty: dto.specialty,
-      crm: dto.crm,
-      crmState: dto.crmState,
-      clinicName: dto.clinicName,
-      clinicCnpj: dto.clinicCnpj,
-      clinicAddress: dto.clinicAddress,
-    });
-  }
-
   async updateDoctorProfileById(
     targetId: string,
     data: UpdateDoctorProfileDto,
     requestingUserId: string,
   ) {
-    const requesting = await this.userRepository.findOneWithProfile({
-      id: requestingUserId,
-    });
+    const [requesting, target] = await Promise.all([
+      this.userRepository.findOneWithProfile({ id: requestingUserId }),
+      this.userRepository.findOneWithProfile({ id: targetId }),
+    ]);
     if (!requesting) throw new NotFoundException('Usuário não encontrado');
-
-    const target = await this.userRepository.findOneWithProfile({
-      id: targetId,
-    });
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
-    const isSelf = requestingUserId === targetId;
-    const permissoesRequesting = resolveEffectivePermissions({
-      role: requesting.role,
-      permissions: requesting.permissions,
-      isDoctor: !!requesting.doctorProfile,
-      isPhysician: isPhysicianProfile(requesting.doctorProfile),
-    });
-    const isAdmin =
-      permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
-      target.ownerId === requesting.ownerId;
+    const { isSelf, isAdmin } = await this.assertPodeEditarPerfilMedico(
+      requesting,
+      target,
+      data,
+    );
 
-    const onlySignature =
-      data.council === undefined &&
-      data.crm === undefined &&
-      data.crmState === undefined &&
-      data.specialty === undefined;
-    const alvoEhDono = target.id === target.ownerId;
-    let isLinkedCollaborator = false;
-    if (!isSelf && onlySignature && (!isAdmin || alvoEhDono)) {
-      const accesses =
-        await this.userDoctorAccessRepository.findActiveByUserId(
-          requestingUserId,
-        );
-      isLinkedCollaborator = accesses.some((a) => a.doctorUserId === targetId);
-    }
-
-    if (!isSelf && !isAdmin && !isLinkedCollaborator) {
-      throw new ForbiddenException(
-        'Sem permissão para atualizar este perfil médico',
-      );
-    }
-
-    if (!isSelf && !(onlySignature && isLinkedCollaborator)) {
-      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
-    }
-
-    if (!target.doctorProfile) {
+    const doctorProfile = target.doctorProfile;
+    if (!doctorProfile) {
       throw new BadRequestException('Este usuário não é médico');
     }
 
     const mudaConselho =
-      data.council !== undefined &&
-      data.council !== target.doctorProfile.council;
+      data.council !== undefined && data.council !== doctorProfile.council;
     const ehDonoDaConta = target.id === target.ownerId;
     if (mudaConselho && (!isAdmin || (isSelf && !ehDonoDaConta))) {
       throw new ForbiddenException(
@@ -491,37 +444,9 @@ export class UsersService {
       );
     }
 
-    const profileUpdates: Partial<DoctorProfile> = {};
-    if (data.council !== undefined) profileUpdates.council = data.council;
-    if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
-    if (data.crmState !== undefined)
-      profileUpdates.crmState = data.crmState?.trim() || null;
-    if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
-
-    if (
-      data.council !== undefined ||
-      data.crm !== undefined ||
-      data.crmState !== undefined
-    )
-      UsersService.assertRegistroDoConselho(
-        profileUpdates.council ?? target.doctorProfile.council,
-        'crm' in profileUpdates ? profileUpdates.crm : target.doctorProfile.crm,
-        'crmState' in profileUpdates
-          ? profileUpdates.crmState
-          : target.doctorProfile.crmState,
-      );
-    if (data.signatureImageUrl !== undefined)
-      profileUpdates.signatureUrl = this.validarCaminhoDeArquivo(
-        data.signatureImageUrl,
-        target.doctorProfile.signatureUrl,
-        PASTAS_DE_ASSINATURA,
-        target.ownerId,
-        ASSINATURA_INVALIDA,
-      );
-
     await this.doctorProfileRepository.update(
-      target.doctorProfile.id,
-      profileUpdates,
+      doctorProfile.id,
+      this.montarAtualizacaoDoPerfilMedico(data, target, doctorProfile),
     );
     if (mudaConselho) {
       this.emitAccessChanged(targetId, target.phone);
@@ -539,6 +464,75 @@ export class UsersService {
       ...updatedWithoutInternalFields
     } = updated;
     return updatedWithoutInternalFields;
+  }
+
+  private async assertPodeEditarPerfilMedico(
+    requesting: User,
+    target: User,
+    data: UpdateDoctorProfileDto,
+  ): Promise<{ isSelf: boolean; isAdmin: boolean }> {
+    const isSelf = requesting.id === target.id;
+    const isAdmin =
+      canAdministrate(requesting) && target.ownerId === requesting.ownerId;
+
+    const onlySignature =
+      data.council === undefined &&
+      data.crm === undefined &&
+      data.crmState === undefined &&
+      data.specialty === undefined;
+    const alvoEhDono = target.id === target.ownerId;
+    let isLinkedCollaborator = false;
+    if (!isSelf && onlySignature && (!isAdmin || alvoEhDono)) {
+      const accesses = await this.userDoctorAccessRepository.findActiveByUserId(
+        requesting.id,
+      );
+      isLinkedCollaborator = accesses.some((a) => a.doctorUserId === target.id);
+    }
+
+    if (!isSelf && !isAdmin && !isLinkedCollaborator) {
+      throw new ForbiddenException(
+        'Sem permissão para atualizar este perfil médico',
+      );
+    }
+
+    if (!isSelf && !(onlySignature && isLinkedCollaborator)) {
+      this.assertAlvoNaoEhDono({ id: target.id, ownerId: target.ownerId });
+    }
+
+    return { isSelf, isAdmin };
+  }
+
+  private montarAtualizacaoDoPerfilMedico(
+    data: UpdateDoctorProfileDto,
+    target: User,
+    atual: DoctorProfile,
+  ): Partial<DoctorProfile> {
+    const profileUpdates: Partial<DoctorProfile> = {};
+    if (data.council !== undefined) profileUpdates.council = data.council;
+    if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
+    if (data.crmState !== undefined)
+      profileUpdates.crmState = data.crmState?.trim() || null;
+    if (data.specialty !== undefined) profileUpdates.specialty = data.specialty;
+
+    if (
+      data.council !== undefined ||
+      data.crm !== undefined ||
+      data.crmState !== undefined
+    )
+      UsersService.assertRegistroDoConselho(
+        profileUpdates.council ?? atual.council,
+        'crm' in profileUpdates ? profileUpdates.crm : atual.crm,
+        'crmState' in profileUpdates ? profileUpdates.crmState : atual.crmState,
+      );
+    if (data.signatureImageUrl !== undefined)
+      profileUpdates.signatureUrl = this.validarCaminhoDeArquivo(
+        data.signatureImageUrl,
+        atual.signatureUrl,
+        PASTAS_DE_ASSINATURA,
+        target.ownerId,
+        ASSINATURA_INVALIDA,
+      );
+    return profileUpdates;
   }
 
   async findCollaborators(userId: string, skip = 0, take = 50) {
@@ -569,12 +563,7 @@ export class UsersService {
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         avatarUrl: await this.resolveStorageUrl(c.avatarUrl),
-        permissions: resolveEffectivePermissions({
-          role: c.role,
-          permissions: c.permissions,
-          isDoctor: !!c.doctorProfile,
-          isPhysician: isPhysicianProfile(c.doctorProfile),
-        }),
+        permissions: permissionsOf(c),
       })),
     );
 
@@ -583,7 +572,47 @@ export class UsersService {
 
   async createCollaborator(data: CreateCollaboratorDto, adminId: string) {
     const admin = await this.assertPodeGerirEquipe(adminId);
+    await this.liberarContatoParaConvite(data);
 
+    const council = data.council ?? ProfessionalCouncil.CRM;
+    const hasDoctorCredentials = Boolean(data.crm && data.crmState);
+    const isDoctor = data.isDoctor ?? hasDoctorCredentials;
+    if (isDoctor) {
+      UsersService.assertRegistroDoConselho(council, data.crm, data.crmState);
+    }
+
+    const newUser = await this.criarUsuarioColaborador(data, admin);
+
+    if (isDoctor) {
+      await this.doctorProfileRepository.create({
+        userId: newUser.id,
+        council,
+        crm: data.crm?.trim() || null,
+        crmState: data.crmState?.trim() || null,
+        specialty: data.specialty || null,
+      });
+    }
+
+    await this.vincularAoMedicoQueConvidou(newUser.id, admin);
+    await this.enviarConviteDeColaborador(newUser, admin);
+
+    const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
+      newUser;
+
+    return {
+      ...omitUserSecrets(newUserWithoutInternalFields),
+      permissions: resolveEffectivePermissions({
+        role: newUser.role,
+        permissions,
+        isDoctor,
+        isPhysician: isDoctor && council === ProfessionalCouncil.CRM,
+      }),
+    };
+  }
+
+  private async liberarContatoParaConvite(
+    data: Pick<CreateCollaboratorDto, 'email' | 'phone'>,
+  ): Promise<void> {
     const emailFound = await this.userRepository.findOneWithDeleted({
       email: data.email,
     });
@@ -602,19 +631,15 @@ export class UsersService {
       });
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
+  }
 
-    const council = data.council ?? ProfessionalCouncil.CRM;
-    const hasDoctorCredentials = Boolean(data.crm && data.crmState);
-    const isDoctor = data.isDoctor ?? hasDoctorCredentials;
-    if (isDoctor) {
-      UsersService.assertRegistroDoConselho(council, data.crm, data.crmState);
-    }
-
+  private async criarUsuarioColaborador(
+    data: CreateCollaboratorDto,
+    admin: User,
+  ): Promise<User> {
     const placeholderPassword = generateValidationCode(16);
-
-    let newUser: Awaited<ReturnType<typeof this.userRepository.create>>;
     try {
-      newUser = await this.userRepository.create({
+      return await this.userRepository.create({
         email: data.email,
         name: data.name,
         phone: data.phone,
@@ -622,12 +647,13 @@ export class UsersService {
         status: UserStatus.PENDING,
         password: await bcrypt.hash(placeholderPassword, BCRYPT_ROUNDS),
         ownerId: admin.ownerId,
-        adminId: adminId,
+        adminId: admin.id,
         permissions: data.permissions ?? [],
       });
     } catch (err) {
       if (err instanceof QueryFailedError) {
-        const msg = (err as any).detail ?? err.message;
+        const detalhe = (err as QueryFailedError & { detail?: string }).detail;
+        const msg = detalhe ?? err.message;
         if (msg.includes('email')) {
           throw new BadRequestException('Email já está em uso');
         }
@@ -637,29 +663,28 @@ export class UsersService {
       }
       throw err;
     }
+  }
 
-    if (isDoctor) {
-      await this.doctorProfileRepository.create({
-        userId: newUser.id,
-        council,
-        crm: data.crm?.trim() || null,
-        crmState: data.crmState?.trim() || null,
-        specialty: data.specialty || null,
-      });
-    }
-
+  private async vincularAoMedicoQueConvidou(
+    newUserId: string,
+    admin: User,
+  ): Promise<void> {
     const adminDoctorProfile = await this.doctorProfileRepository.findByUserId(
       admin.id,
     );
-    if (adminDoctorProfile) {
-      await this.userDoctorAccessRepository.upsert({
-        userId: newUser.id,
-        doctorUserId: admin.id,
-        status: UserDoctorAccessStatus.ACTIVE,
-        createdById: adminId,
-      });
-    }
+    if (!adminDoctorProfile) return;
+    await this.userDoctorAccessRepository.upsert({
+      userId: newUserId,
+      doctorUserId: admin.id,
+      status: UserDoctorAccessStatus.ACTIVE,
+      createdById: admin.id,
+    });
+  }
 
+  private async enviarConviteDeColaborador(
+    newUser: User,
+    admin: User,
+  ): Promise<void> {
     await this.recoveryCodeRepository.deleteMany({
       userId: newUser.id,
       used: false,
@@ -669,7 +694,7 @@ export class UsersService {
       userId: newUser.id,
       used: false,
       code: inviteToken,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
@@ -690,19 +715,6 @@ export class UsersService {
     if (newUser.phone) {
       void this.whatsappService.sendUserWelcome(newUser.phone, newUser.name);
     }
-
-    const { permissions, isPlatformAdmin, ...newUserWithoutInternalFields } =
-      newUser;
-
-    return {
-      ...omitUserSecrets(newUserWithoutInternalFields),
-      permissions: resolveEffectivePermissions({
-        role: newUser.role,
-        permissions,
-        isDoctor,
-        isPhysician: isDoctor && council === ProfessionalCouncil.CRM,
-      }),
-    };
   }
 
   async updateCollaborator(
@@ -711,7 +723,58 @@ export class UsersService {
     adminId: string,
   ) {
     const admin = await this.assertPodeGerirEquipe(adminId);
+    const collaborator = await this.carregarColaboradorDaConta(
+      collaboratorId,
+      admin,
+    );
 
+    if (collaboratorId === adminId) {
+      this.assertNaoMudaProprioVinculo(collaborator, data);
+    }
+    await this.assertContatoDisponivel(data, collaboratorId);
+
+    const { terPerfil, councilFinal } =
+      await this.sincronizarPerfilProfissional(
+        collaboratorId,
+        collaborator.doctorProfile ?? null,
+        data,
+      );
+
+    const updated = await this.userRepository.update(
+      collaboratorId,
+      UsersService.montarAtualizacaoDoColaborador(data),
+    );
+    if (!updated) throw new NotFoundException('Colaborador não encontrado');
+
+    if (
+      data.permissions !== undefined ||
+      data.isDoctor !== undefined ||
+      data.council !== undefined
+    ) {
+      this.emitAccessChanged(collaboratorId, collaborator.phone);
+    }
+
+    const grantedPermissionsAfterUpdate =
+      data.permissions !== undefined
+        ? data.permissions
+        : (collaborator.permissions ?? []);
+
+    return {
+      ...omitUserSecrets(updated),
+      permissions: resolveEffectivePermissions({
+        role: collaborator.role,
+        permissions: grantedPermissionsAfterUpdate,
+        isDoctor: terPerfil,
+        isPhysician: terPerfil && councilFinal === ProfessionalCouncil.CRM,
+      }),
+      grantedPermissions: grantedPermissionsAfterUpdate,
+    };
+  }
+
+  private async carregarColaboradorDaConta(
+    collaboratorId: string,
+    admin: User,
+  ): Promise<User> {
     const collaborator = await this.userRepository.findOneWithProfile({
       id: collaboratorId,
     });
@@ -723,22 +786,31 @@ export class UsersService {
       id: collaborator.id,
       ownerId: collaborator.ownerId,
     });
+    return collaborator;
+  }
 
-    if (collaboratorId === adminId) {
-      const mudaVinculo =
-        data.isDoctor !== undefined &&
-        data.isDoctor !== !!collaborator.doctorProfile;
-      const mudaConselho =
-        data.council !== undefined &&
-        !!collaborator.doctorProfile &&
-        data.council !== collaborator.doctorProfile.council;
-      if (mudaVinculo || mudaConselho) {
-        throw new ForbiddenException(
-          'Somente o dono da conta ou outro administrador altera o seu próprio vínculo profissional.',
-        );
-      }
+  private assertNaoMudaProprioVinculo(
+    collaborator: User,
+    data: UpdateCollaboratorDto,
+  ): void {
+    const mudaVinculo =
+      data.isDoctor !== undefined &&
+      data.isDoctor !== !!collaborator.doctorProfile;
+    const mudaConselho =
+      data.council !== undefined &&
+      !!collaborator.doctorProfile &&
+      data.council !== collaborator.doctorProfile.council;
+    if (mudaVinculo || mudaConselho) {
+      throw new ForbiddenException(
+        'Somente o dono da conta ou outro administrador altera o seu próprio vínculo profissional.',
+      );
     }
+  }
 
+  private async assertContatoDisponivel(
+    data: Pick<UpdateCollaboratorDto, 'email' | 'phone'>,
+    collaboratorId: string,
+  ): Promise<void> {
     if (data.email) {
       const emailFound = await this.userRepository.findOne({
         email: data.email,
@@ -754,9 +826,11 @@ export class UsersService {
       });
       if (phoneFound) throw new BadRequestException('Telefone já está em uso');
     }
+  }
 
-    const hasProfile = !!collaborator.doctorProfile;
-
+  private static montarAtualizacaoDoColaborador(
+    data: UpdateCollaboratorDto,
+  ): Partial<User> {
     const updates: Partial<User> = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.email !== undefined) updates.email = data.email;
@@ -772,8 +846,15 @@ export class UsersService {
     if (data.permissions !== undefined) {
       updates.permissions = data.permissions;
     }
+    return updates;
+  }
 
-    const perfilAtual = collaborator.doctorProfile ?? null;
+  private async sincronizarPerfilProfissional(
+    collaboratorId: string,
+    perfilAtual: DoctorProfile | null,
+    data: UpdateCollaboratorDto,
+  ): Promise<{ terPerfil: boolean; councilFinal: ProfessionalCouncil }> {
+    const hasProfile = !!perfilAtual;
     const profileUpdates: Partial<DoctorProfile> = {};
     if (data.council !== undefined) profileUpdates.council = data.council;
     if (data.crm !== undefined) profileUpdates.crm = data.crm?.trim() || null;
@@ -799,7 +880,7 @@ export class UsersService {
       UsersService.assertRegistroDoConselho(councilFinal, crmFinal, ufFinal);
     }
 
-    if (terPerfil && !hasProfile) {
+    if (terPerfil && !perfilAtual) {
       await this.doctorProfileRepository.create({
         userId: collaboratorId,
         council: councilFinal,
@@ -807,45 +888,17 @@ export class UsersService {
         crmState: profileUpdates.crmState ?? null,
         specialty: profileUpdates.specialty ?? null,
       });
-    } else if (!terPerfil && hasProfile) {
-      await this.doctorProfileRepository.delete(perfilAtual!.id);
-    } else if (terPerfil && Object.keys(profileUpdates).length > 0) {
-      await this.doctorProfileRepository.update(
-        perfilAtual!.id,
-        profileUpdates,
-      );
-    }
-
-    const updated = await this.userRepository.update(collaboratorId, updates);
-    if (!updated) throw new NotFoundException('Colaborador não encontrado');
-
-    const isDoctorAfterUpdate = terPerfil;
-    const isPhysicianAfterUpdate =
-      terPerfil && councilFinal === ProfessionalCouncil.CRM;
-
-    if (
-      data.permissions !== undefined ||
-      data.isDoctor !== undefined ||
-      data.council !== undefined
+    } else if (!terPerfil && perfilAtual) {
+      await this.doctorProfileRepository.delete(perfilAtual.id);
+    } else if (
+      terPerfil &&
+      perfilAtual &&
+      Object.keys(profileUpdates).length > 0
     ) {
-      this.emitAccessChanged(collaboratorId, collaborator.phone);
+      await this.doctorProfileRepository.update(perfilAtual.id, profileUpdates);
     }
 
-    const grantedPermissionsAfterUpdate =
-      data.permissions !== undefined
-        ? data.permissions
-        : (collaborator.permissions ?? []);
-
-    return {
-      ...omitUserSecrets(updated),
-      permissions: resolveEffectivePermissions({
-        role: collaborator.role,
-        permissions: grantedPermissionsAfterUpdate,
-        isDoctor: isDoctorAfterUpdate,
-        isPhysician: isPhysicianAfterUpdate,
-      }),
-      grantedPermissions: grantedPermissionsAfterUpdate,
-    };
+    return { terPerfil, councilFinal };
   }
 
   async deleteCollaborator(collaboratorId: string, adminId: string) {
@@ -883,19 +936,10 @@ export class UsersService {
     const admin = await this.assertPodeGerirEquipe(adminId);
 
     const uniqueIds = [...new Set(collaboratorIds)];
-    const collaborators = await this.userRepository.getRepository().find({
-      where: {
-        id: In(uniqueIds),
-        ownerId: admin.ownerId,
-        role: UserRole.COLLABORATOR,
-      },
-      select: {
-        id: true,
-        email: true,
-        ownerId: true,
-        phone: true,
-      },
-    });
+    const collaborators = await this.userRepository.findCollaboratorsByIds(
+      uniqueIds,
+      admin.ownerId,
+    );
 
     if (collaborators.length !== uniqueIds.length) {
       throw new NotFoundException(
@@ -917,7 +961,7 @@ export class UsersService {
       });
     }
 
-    await this.userRepository.getRepository().softDelete(uniqueIds);
+    await this.userRepository.bulkSoftDelete(uniqueIds);
 
     for (const collaborator of collaborators) {
       this.emitAccessChanged(collaborator.id, collaborator.phone);
@@ -1040,7 +1084,7 @@ export class UsersService {
       userId: collaborator.id,
       used: false,
       code: inviteToken,
-      expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + INVITE_CODE_TTL_MS),
     });
 
     const dashboardUrl = this.configService.get<string>('DASHBOARD_URL');
@@ -1096,11 +1140,10 @@ export class UsersService {
       isDoctor: !!collaborator.doctorProfile,
       isPhysician: isPhysicianProfile(collaborator.doctorProfile),
       doctorAccesses: accesses,
-      permissions: resolveEffectivePermissions({
+      permissions: permissionsOf({
         role: collaborator.role,
         permissions,
-        isDoctor: !!collaborator.doctorProfile,
-        isPhysician: isPhysicianProfile(collaborator.doctorProfile),
+        doctorProfile: collaborator.doctorProfile,
       }),
       grantedPermissions: permissions ?? [],
     };
@@ -1149,12 +1192,7 @@ export class UsersService {
     if (!target) throw new NotFoundException('Usuário alvo não encontrado');
 
     const isSelf = requestingUserId === targetUserId;
-    const permissoesRequesting = resolveEffectivePermissions({
-      role: requesting.role,
-      permissions: requesting.permissions,
-      isDoctor: !!requesting.doctorProfile,
-      isPhysician: isPhysicianProfile(requesting.doctorProfile),
-    });
+    const permissoesRequesting = permissionsOf(requesting);
     const isAccountAdmin =
       permissoesRequesting.includes(Permission.ADMINISTRACAO) &&
       target.ownerId === requesting.ownerId;
@@ -1292,7 +1330,8 @@ export class UsersService {
     if (path.startsWith('http://') || path.startsWith('https://')) return path;
     try {
       return await this.storageService.getSignedUrl(path);
-    } catch {
+    } catch (err: unknown) {
+      this.logger.warn(`Falha ao assinar URL do storage: ${errorMessage(err)}`);
       return null;
     }
   }

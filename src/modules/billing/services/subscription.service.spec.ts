@@ -3,7 +3,10 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { SubscriptionService } from './subscription.service';
+import {
+  PAST_DUE_GRACE_DAYS,
+  SubscriptionService,
+} from './subscription.service';
 import { SubscriptionStatus } from 'src/database/entities/subscription.entity';
 
 describe('SubscriptionService', () => {
@@ -29,6 +32,7 @@ describe('SubscriptionService', () => {
       findOne: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      findPastDue: jest.fn().mockResolvedValue([]),
     };
     planRepo = {
       findOne: jest.fn(),
@@ -44,7 +48,6 @@ describe('SubscriptionService', () => {
     config = {
       get: jest.fn((key: string, def: unknown) => {
         if (key === 'BILLING_TRIAL_DAYS') return 30;
-        if (key === 'BILLING_GRACE_PERIOD_DAYS') return 7;
         return def;
       }),
     };
@@ -181,38 +184,6 @@ describe('SubscriptionService', () => {
     });
   });
 
-  describe('advanceBillingPeriod', () => {
-    it('cria novo período de cota e ativa status', async () => {
-      subscriptionRepo.findOne.mockResolvedValue({
-        id: 'sub-1',
-        planId: 'plan-1',
-        currentPeriodEnd: new Date('2026-02-01'),
-      });
-      planRepo.findOne.mockResolvedValue({
-        id: 'plan-1',
-        billingPeriod: 'MONTHLY',
-        surgeryRequestQuota: 100,
-      });
-
-      await service.advanceBillingPeriod('sub-1');
-
-      expect(subscriptionRepo.update).toHaveBeenCalledWith(
-        'sub-1',
-        expect.objectContaining({
-          status: SubscriptionStatus.ACTIVE,
-          pastDueSince: null,
-        }),
-      );
-      expect(quotaPeriodRepo.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          subscriptionId: 'sub-1',
-          surgeryRequestsLimit: 100,
-          surgeryRequestsUsed: 0,
-        }),
-      );
-    });
-  });
-
   describe('markPastDue / markActive', () => {
     it('markPastDue atualiza status e pastDueSince', async () => {
       subscriptionRepo.findOne.mockResolvedValue({
@@ -229,6 +200,17 @@ describe('SubscriptionService', () => {
       });
     });
 
+    it.each([SubscriptionStatus.PAST_DUE, SubscriptionStatus.SUSPENDED])(
+      'markPastDue não reinicia o prazo nem tira de %s',
+      async (status) => {
+        subscriptionRepo.findOne.mockResolvedValue({ id: 'sub-1', status });
+
+        await service.markPastDue('sub-1', new Date());
+
+        expect(subscriptionRepo.update).not.toHaveBeenCalled();
+      },
+    );
+
     it('markActive limpa pastDueSince e suspendedAt', async () => {
       subscriptionRepo.findOne.mockResolvedValue({ id: 'sub-1' });
 
@@ -239,6 +221,84 @@ describe('SubscriptionService', () => {
         pastDueSince: null,
         suspendedAt: null,
       });
+    });
+  });
+
+  describe('suspendOverduePastDue (cron de suspensão — B4)', () => {
+    const now = new Date('2026-10-09T12:00:00Z');
+    const diasAtras = (dias: number) =>
+      new Date(now.getTime() - dias * 24 * 60 * 60 * 1000);
+
+    it(`suspende quem está PAST_DUE há mais de ${PAST_DUE_GRACE_DAYS} dias`, async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        {
+          id: 'vencida',
+          status: SubscriptionStatus.PAST_DUE,
+          pastDueSince: diasAtras(PAST_DUE_GRACE_DAYS + 1),
+        },
+        {
+          id: 'no-prazo',
+          status: SubscriptionStatus.PAST_DUE,
+          pastDueSince: diasAtras(PAST_DUE_GRACE_DAYS - 1),
+        },
+      ]);
+      subscriptionRepo.findOne.mockImplementation(({ id }: { id: string }) =>
+        Promise.resolve({ id, status: SubscriptionStatus.PAST_DUE }),
+      );
+
+      const total = await service.suspendOverduePastDue(now);
+
+      expect(total).toBe(1);
+      expect(subscriptionRepo.update).toHaveBeenCalledTimes(1);
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('vencida', {
+        status: SubscriptionStatus.SUSPENDED,
+        suspendedAt: now,
+      });
+    });
+
+    it('suspende exatamente no fim do prazo exibido em daysUntilSuspension', async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        {
+          id: 'limite',
+          status: SubscriptionStatus.PAST_DUE,
+          pastDueSince: diasAtras(PAST_DUE_GRACE_DAYS),
+        },
+      ]);
+      subscriptionRepo.findOne.mockResolvedValue({ id: 'limite' });
+
+      await expect(service.suspendOverduePastDue(now)).resolves.toBe(1);
+    });
+
+    it('PAST_DUE sem pastDueSince começa a contar o prazo agora (não suspende)', async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        {
+          id: 'legado',
+          status: SubscriptionStatus.PAST_DUE,
+          pastDueSince: null,
+        },
+      ]);
+
+      await expect(service.suspendOverduePastDue(now)).resolves.toBe(0);
+      expect(subscriptionRepo.update).toHaveBeenCalledWith('legado', {
+        pastDueSince: now,
+      });
+    });
+
+    it('falha numa assinatura não interrompe as demais', async () => {
+      subscriptionRepo.findPastDue.mockResolvedValue([
+        { id: 'a', pastDueSince: diasAtras(30) },
+        { id: 'b', pastDueSince: diasAtras(30) },
+      ]);
+      subscriptionRepo.findOne
+        .mockRejectedValueOnce(new Error('db'))
+        .mockResolvedValueOnce({ id: 'b' });
+
+      await expect(service.suspendOverduePastDue(now)).resolves.toBe(1);
+    });
+
+    it('o cron nunca propaga erro', async () => {
+      subscriptionRepo.findPastDue.mockRejectedValue(new Error('down'));
+      await expect(service.handleSuspensionCron()).resolves.toBeUndefined();
     });
   });
 
@@ -975,6 +1035,85 @@ describe('SubscriptionService', () => {
       expect(quotaPeriodRepo.update).toHaveBeenCalledWith('quota-1', {
         surgeryRequestsLimit: 10,
       });
+    });
+
+    it('grava pastDueSince quando o gateway passa a dizer past_due', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        planId: 'plan-1',
+        status: SubscriptionStatus.ACTIVE,
+        pastDueSince: null,
+        currentPeriodStart: new Date('2026-02-01'),
+      });
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.syncFromGatewaySubscription(
+        buildGatewaySub({ status: 'past_due' }),
+      );
+
+      const [, data] = subscriptionRepo.update.mock.calls[0];
+      expect(data.status).toBe(SubscriptionStatus.PAST_DUE);
+      expect(data.pastDueSince).toBeInstanceOf(Date);
+    });
+
+    it('não reinicia pastDueSince já gravado', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        planId: 'plan-1',
+        status: SubscriptionStatus.PAST_DUE,
+        pastDueSince: new Date('2026-01-01'),
+        currentPeriodStart: new Date('2026-02-01'),
+      });
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.syncFromGatewaySubscription(
+        buildGatewaySub({ status: 'past_due' }),
+      );
+
+      const [, data] = subscriptionRepo.update.mock.calls[0];
+      expect(data).not.toHaveProperty('pastDueSince');
+    });
+
+    it('mantém SUSPENDED enquanto o gateway disser past_due', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        planId: 'plan-1',
+        status: SubscriptionStatus.SUSPENDED,
+        pastDueSince: new Date('2026-01-01'),
+        currentPeriodStart: new Date('2026-02-01'),
+      });
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.syncFromGatewaySubscription(
+        buildGatewaySub({ status: 'past_due' }),
+      );
+
+      expect(subscriptionRepo.update).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({ status: SubscriptionStatus.SUSPENDED }),
+      );
+    });
+
+    it('reativação no gateway tira de SUSPENDED e limpa as datas', async () => {
+      subscriptionRepo.findByGatewaySubscriptionId.mockResolvedValue({
+        id: 'sub-1',
+        planId: 'plan-1',
+        status: SubscriptionStatus.SUSPENDED,
+        pastDueSince: new Date('2026-01-01'),
+        currentPeriodStart: new Date('2026-02-01'),
+      });
+      planRepo.findOne.mockResolvedValue(null);
+
+      await service.syncFromGatewaySubscription(buildGatewaySub());
+
+      expect(subscriptionRepo.update).toHaveBeenCalledWith(
+        'sub-1',
+        expect.objectContaining({
+          status: SubscriptionStatus.ACTIVE,
+          pastDueSince: null,
+          suspendedAt: null,
+        }),
+      );
     });
 
     it('ignora silenciosamente quando subscription local não é encontrada', async () => {

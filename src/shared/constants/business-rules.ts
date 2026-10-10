@@ -1,4 +1,0 @@
-export const BUSINESS_RULES = {
-  MIN_QUOTATIONS_FOR_ANALYSIS: 3,
-  PENDING_ALERT_DAYS: 21,
-} as const;

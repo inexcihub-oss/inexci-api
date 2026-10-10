@@ -1,17 +1,21 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { ManageToolDeps } from './_types';
+import { buildToolResult } from '../tool-result';
+import { UpdateOpmeDto } from '../../../../modules/surgery-requests/opme/dto/update-opme.dto';
 import {
   asNonEmptyString,
   asPositiveInt,
+  parseStringList,
+} from '../helpers/arg-parsers';
+import {
   ensurePendingForMutation,
   getAuthorizedRequest,
-  parseStringList,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
   const {
@@ -24,6 +28,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_opme_items',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -82,14 +87,23 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
         args.surgeryRequestId,
         context,
       );
-      if (!auth.ok) return auth.message;
+      if (!auth.ok) {
+        return buildToolResult({ status: 'blocked', message: auth.message });
+      }
+      const requestId = auth.request.id;
+      const userId = context.userId as string;
 
       const operation = asNonEmptyString(args.operation)?.toLowerCase();
       if (
         !operation ||
         !['list', 'add', 'update', 'remove'].includes(operation)
       ) {
-        return 'Parâmetro inválido: `operation` deve ser list, add, update ou remove.';
+        return buildToolResult({
+          status: 'needs_input',
+          message:
+            'Parâmetro inválido: `operation` deve ser list, add, update ou remove.',
+          nextRequiredFields: ['operation'],
+        });
       }
 
       const protocolToken = tokenizePii(
@@ -101,21 +115,25 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
 
       if (operation === 'list') {
         const items = await opmeItemRepo.getRepository().find({
-          where: { surgeryRequestId: auth.request.id } as any,
+          where: { surgeryRequestId: requestId },
           relations: ['suppliers', 'manufacturers'],
         });
 
         if (!items.length) {
-          return `Nenhum item OPME cadastrado para a solicitação SC-${protocolToken}.`;
+          return buildToolResult({
+            status: 'ok',
+            message: `Nenhum item OPME cadastrado para a solicitação SC-${protocolToken}.`,
+            data: [],
+          });
         }
 
-        const lines = items.map((item: any, index: number) => {
+        const lines = items.map((item, index) => {
           const suppliers = (item.suppliers || [])
-            .map((s: any) => s.name)
+            .map((s) => s.name)
             .filter(Boolean)
             .join(', ');
           const manufacturers = (item.manufacturers || [])
-            .map((m: any) => m.name)
+            .map((m) => m.name)
             .filter(Boolean)
             .join(', ');
           return [
@@ -126,93 +144,134 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
           ].join('\n');
         });
 
-        return [
-          `Itens OPME da solicitação SC-${protocolToken}:`,
-          ...lines,
-        ].join('\n');
+        return buildToolResult({
+          status: 'ok',
+          message: [
+            `Itens OPME da solicitação SC-${protocolToken}:`,
+            ...lines,
+          ].join('\n'),
+        });
       }
 
-      if (operation === 'add') {
-        const blockedAdd = ensurePendingForMutation(auth.request);
-        if (blockedAdd) return blockedAdd;
+      const blocked = ensurePendingForMutation(auth.request);
+      if (blocked) {
+        return buildToolResult({ status: 'blocked', message: blocked });
+      }
 
+      const pendingConfirmation = (message: string, description: string) =>
+        buildToolResult({
+          status: 'pending_confirmation',
+          message,
+          pendingConfirmation: {
+            tool: 'manage_opme_items',
+            args: { ...args, confirm: true },
+            description,
+          },
+        });
+
+      if (operation === 'add') {
         const name = asNonEmptyString(args.name);
         const manufacturerNames = parseStringList(args.manufacturerNames);
         const supplierNames = parseStringList(args.supplierNames);
         const quantity = asPositiveInt(args.quantity, 1);
 
         if (!name) {
-          return 'Para adicionar OPME, informe `name`.';
+          return buildToolResult({
+            status: 'needs_input',
+            message: 'Para adicionar OPME, informe `name`.',
+            nextRequiredFields: ['name'],
+          });
         }
         if (manufacturerNames.length < 3) {
-          return 'Para adicionar OPME, informe ao menos 3 fabricantes em `manufacturerNames`.';
+          return buildToolResult({
+            status: 'needs_input',
+            message:
+              'Para adicionar OPME, informe ao menos 3 fabricantes em `manufacturerNames`.',
+            nextRequiredFields: ['manufacturerNames'],
+          });
         }
         if (supplierNames.length < 3) {
-          return 'Para adicionar OPME, informe ao menos 3 fornecedores em `supplierNames`.';
+          return buildToolResult({
+            status: 'needs_input',
+            message:
+              'Para adicionar OPME, informe ao menos 3 fornecedores em `supplierNames`.',
+            nextRequiredFields: ['supplierNames'],
+          });
         }
 
         if (!args.confirm) {
-          return `A solicitação SC-${protocolToken} receberá item OPME ${name}, quantidade ${quantity}, com ${manufacturerNames.length} fabricantes e ${supplierNames.length} fornecedores. Confirme com "sim" para executar.`;
+          return pendingConfirmation(
+            `A solicitação SC-${protocolToken} receberá item OPME ${name}, quantidade ${quantity}, com ${manufacturerNames.length} fabricantes e ${supplierNames.length} fornecedores. Confirme com "sim" para executar.`,
+            'adicionar item OPME',
+          );
         }
 
-        let saved: any;
+        let savedId: string;
         try {
-          saved = await opmeService!.create(
+          const saved = await opmeService.create(
             {
-              surgeryRequestId: auth.request.id,
+              surgeryRequestId: requestId,
               name,
               manufacturerNames,
               quantity,
               supplierNames,
             },
-            context.userId as string,
+            userId,
           );
+          savedId = saved.id;
         } catch (err) {
-          return `Erro ao adicionar item OPME: ${translateServiceError(err)}`;
+          return buildToolResult({
+            status: 'error',
+            message: `Erro ao adicionar item OPME: ${translateServiceError(err)}`,
+          });
         }
 
-        await surgeryRequestsService.setHasOpme(
-          auth.request.id,
-          true,
-          context.userId as string,
+        await surgeryRequestsService.setHasOpme(requestId, true, userId);
+        await recordAiActivity(
+          activityRepo,
+          context,
+          requestId,
+          `Item OPME adicionado: ${name}, qtd ${quantity}, ${manufacturerNames.length} fabricantes, ${supplierNames.length} fornecedores.`,
         );
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Item OPME adicionado: ${name}, qtd ${quantity}, ${manufacturerNames.length} fabricantes, ${supplierNames.length} fornecedores.`,
+        return buildToolResult({
+          status: 'ok',
+          message: `Item OPME ${name} adicionado com sucesso (id: ${savedId}).`,
+          affected: [{ kind: 'opme_item', id: savedId }],
         });
-
-        return `Item OPME ${name} adicionado com sucesso (id: ${saved.id}).`;
       }
 
       const opmeItemId = asNonEmptyString(args.opmeItemId);
       if (!opmeItemId) {
-        return `Para ${operation}, informe \`opmeItemId\`.`;
+        return buildToolResult({
+          status: 'needs_input',
+          message: `Para ${operation}, informe \`opmeItemId\`.`,
+          nextRequiredFields: ['opmeItemId'],
+        });
       }
 
       const item = await opmeItemRepo.findByIdWithSuppliers(opmeItemId);
-      if (!item || item.surgeryRequestId !== auth.request.id) {
-        return 'Item OPME não encontrado para essa solicitação.';
+      if (!item || item.surgeryRequestId !== requestId) {
+        return buildToolResult({
+          status: 'blocked',
+          message: 'Item OPME não encontrado para essa solicitação.',
+        });
       }
 
       if (operation === 'update') {
-        const blockedUpdate = ensurePendingForMutation(auth.request);
-        if (blockedUpdate) return blockedUpdate;
-
+        const updateDto: UpdateOpmeDto = { id: opmeItemId };
         const changes: string[] = [];
 
         const newName = asNonEmptyString(args.name);
         if (newName && newName !== item.name) {
-          item.name = newName;
+          updateDto.name = newName;
           changes.push(`nome: ${newName}`);
         }
 
         if (args.quantity !== undefined) {
           const q = asPositiveInt(args.quantity, item.quantity);
           if (q !== item.quantity) {
-            item.quantity = q;
+            updateDto.quantity = q;
             changes.push(`quantidade: ${q}`);
           }
         }
@@ -220,78 +279,97 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
         if (args.manufacturerNames !== undefined) {
           const manufacturers = parseStringList(args.manufacturerNames);
           if (manufacturers.length < 3) {
-            return 'Para atualizar fabricantes, informe ao menos 3 em `manufacturerNames`.';
+            return buildToolResult({
+              status: 'needs_input',
+              message:
+                'Para atualizar fabricantes, informe ao menos 3 em `manufacturerNames`.',
+              nextRequiredFields: ['manufacturerNames'],
+            });
           }
+          updateDto.manufacturerNames = manufacturers;
           changes.push(`fabricantes: ${manufacturers.length} itens`);
         }
 
         if (args.supplierNames !== undefined) {
-          const supplierNames = parseStringList(args.supplierNames);
-          if (supplierNames.length < 3) {
-            return 'Para atualizar fornecedores, informe ao menos 3 em `supplierNames`.';
+          const suppliers = parseStringList(args.supplierNames);
+          if (suppliers.length < 3) {
+            return buildToolResult({
+              status: 'needs_input',
+              message:
+                'Para atualizar fornecedores, informe ao menos 3 em `supplierNames`.',
+              nextRequiredFields: ['supplierNames'],
+            });
           }
-          changes.push(`fornecedores: ${supplierNames.length} itens`);
+          updateDto.supplierNames = suppliers;
+          changes.push(`fornecedores: ${suppliers.length} itens`);
         }
 
         if (!changes.length) {
-          return 'Nenhuma alteração informada.';
+          return buildToolResult({
+            status: 'needs_input',
+            message: 'Nenhuma alteração informada.',
+          });
         }
 
         if (!args.confirm) {
-          return `O item OPME ${item.name} terá: ${changes.join(', ')}. Confirme com "sim" para executar.`;
-        }
-
-        const updateDto: any = { id: opmeItemId };
-        if (newName && newName !== item.name) updateDto.name = newName;
-        if (args.quantity !== undefined) {
-          const q = asPositiveInt(args.quantity, item.quantity);
-          if (q !== item.quantity) updateDto.quantity = q;
-        }
-        if (args.manufacturerNames !== undefined) {
-          updateDto.manufacturerNames = parseStringList(args.manufacturerNames);
-        }
-        if (args.supplierNames !== undefined) {
-          updateDto.supplierNames = parseStringList(args.supplierNames);
+          return pendingConfirmation(
+            `O item OPME ${item.name} terá: ${changes.join(', ')}. Confirme com "sim" para executar.`,
+            'atualizar item OPME',
+          );
         }
 
         try {
-          await opmeService!.update(updateDto, context.userId as string);
+          await opmeService.update(updateDto, userId);
         } catch (err) {
-          return `Erro ao atualizar item OPME: ${translateServiceError(err)}`;
+          return buildToolResult({
+            status: 'error',
+            message: `Erro ao atualizar item OPME: ${translateServiceError(err)}`,
+          });
         }
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Item OPME ${item.name} atualizado (${changes.join(', ')}).`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          requestId,
+          `Item OPME ${item.name} atualizado (${changes.join(', ')}).`,
+        );
 
-        return `Item OPME atualizado com sucesso.`;
+        return buildToolResult({
+          status: 'ok',
+          message: 'Item OPME atualizado com sucesso.',
+          affected: [{ kind: 'opme_item', id: opmeItemId }],
+        });
       }
 
-      const blocked = ensurePendingForMutation(auth.request);
-      if (blocked) return blocked;
-
       if (!args.confirm) {
-        return `O item OPME ${item.name} será removido da solicitação SC-${protocolToken}. Confirme com "sim" para executar.`;
+        return pendingConfirmation(
+          `O item OPME ${item.name} será removido da solicitação SC-${protocolToken}. Confirme com "sim" para executar.`,
+          'remover item OPME',
+        );
       }
 
       const removedName = item.name;
       try {
-        await opmeService!.delete(opmeItemId, context.userId as string);
+        await opmeService.delete(opmeItemId, userId);
       } catch (err) {
-        return `Erro ao remover item OPME: ${translateServiceError(err)}`;
+        return buildToolResult({
+          status: 'error',
+          message: `Erro ao remover item OPME: ${translateServiceError(err)}`,
+        });
       }
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Item OPME removido: ${removedName}.`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        requestId,
+        `Item OPME removido: ${removedName}.`,
+      );
 
-      return `Item OPME ${removedName} removido com sucesso.`;
+      return buildToolResult({
+        status: 'ok',
+        message: `Item OPME ${removedName} removido com sucesso.`,
+        affected: [{ kind: 'opme_item', id: opmeItemId }],
+      });
     },
   };
 }

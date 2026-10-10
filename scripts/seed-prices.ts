@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { Client } from 'pg';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- SDK Stripe usa namespace CJS com errors.StripeError
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import StripeLib = require('stripe');
 
 import {
@@ -102,7 +102,9 @@ async function main(): Promise<void> {
     }
 
     for (const slug of semPriceId) {
-      console.log(`${TAG} · ${slug}: sem price ID (não assinável pelo checkout)`);
+      console.log(
+        `${TAG} · ${slug}: sem price ID (não assinável pelo checkout)`,
+      );
     }
 
     console.log(

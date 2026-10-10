@@ -3,11 +3,14 @@ import { AiTool } from '../../tool.interface';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { CadastroDraftDeps } from '../_types';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 
 export function buildPatientDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   const { draftService, patientRepo, userRepo, patientsService } = deps;
   return {
     name: 'patient_draft_commit',
+    requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
     definition: {
       type: 'function',
       function: {

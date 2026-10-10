@@ -2,10 +2,10 @@ import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { formatScProtocolForDisplay } from '../protocol.helpers';
 import { ScDraftToolDeps } from './_types';
 import { autoFillDoctorIfSingle, enumKeyToPriority } from './_helpers';
+import { recordAiActivity } from '../helpers/surgery-request-access';
 
 export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
   const {
@@ -19,6 +19,7 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
   return {
     name: 'sc_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -91,46 +92,22 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           },
           context.userId,
         );
-        await activityRepo.create({
-          surgeryRequestId: created.id,
+        await recordAiActivity(
+          activityRepo,
+          context,
+          created.id,
+          'Solicitação criada via rascunho estruturado (sc_draft).',
+        );
+
+        const { warnings } = await assemblyService.assembleFromExtracted({
+          scId: created.id,
+          notes: typeof fields.notes === 'string' ? fields.notes : undefined,
+          tussItems: Array.isArray(fields.tussItems) ? fields.tussItems : [],
+          opmeItems: Array.isArray(fields.opmeItems) ? fields.opmeItems : [],
           userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content:
-            '[WhatsApp IA] Solicitação criada via rascunho estruturado (sc_draft).',
         });
 
-        const { warnings } = assemblyService
-          ? await assemblyService.assembleFromExtracted({
-              scId: created.id,
-              notes:
-                typeof fields.notes === 'string' ? fields.notes : undefined,
-              tussItems: Array.isArray(fields.tussItems)
-                ? fields.tussItems
-                : [],
-              opmeItems: Array.isArray(fields.opmeItems)
-                ? fields.opmeItems
-                : [],
-              userId: context.userId,
-            })
-          : { warnings: [] as string[] };
-
-        const repoWithRelations = surgeryRequestRepo as unknown as {
-          findOneWithRelations(
-            where: { id: string },
-            relations: string[],
-          ): Promise<{
-            id: string;
-            protocol?: string | null;
-            patient?: { id?: string; name?: string } | null;
-            procedure?: { id?: string; name?: string } | null;
-            hospital?: { id?: string; name?: string } | null;
-            healthPlan?: { id?: string; name?: string } | null;
-            tussItems?: unknown[];
-            opmeItems?: unknown[];
-            reportSections?: unknown[];
-          } | null>;
-        };
-        const persisted = await repoWithRelations.findOneWithRelations(
+        const persisted = await surgeryRequestRepo.findOneWithRelations(
           { id: created.id },
           [
             'patient',
@@ -203,6 +180,7 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
 
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: created.id }],
           data: {
             id: created.id,
             protocol,

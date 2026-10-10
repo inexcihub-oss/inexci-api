@@ -53,7 +53,7 @@ describe('PiiVaultService', () => {
         'patient_name',
       );
       expect(token).toBe('{{patient_name_1}}');
-      expect(service.hasSession('lazy-session')).toBe(true);
+      expect(service.snapshot('lazy-session')).toHaveLength(1);
     });
 
     it('sem sessionId (string vazia) não tokeniza e devolve o valor', () => {
@@ -194,7 +194,7 @@ describe('PiiVaultService', () => {
     it('endSession remove bindings da sessão', () => {
       service.tokenize(sid, 'João', 'patient_name');
       service.endSession(sid);
-      expect(service.hasSession(sid)).toBe(false);
+      expect(service.snapshot(sid)).toHaveLength(0);
     });
 
     it('sessões diferentes não compartilham bindings', () => {

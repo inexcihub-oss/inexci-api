@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, FindOptionsWhere } from 'typeorm';
+import {
+  DataSource,
+  FindOptionsWhere,
+  Not,
+  QueryDeepPartialEntity,
+} from 'typeorm';
 import { Patient } from '../entities/patient.entity';
 import { BaseRepository } from './base.repository';
 
@@ -31,13 +36,6 @@ export class PatientRepository extends BaseRepository<Patient> {
       where,
       skip,
       take,
-      order: { name: 'ASC' },
-    });
-  }
-
-  findByDoctorId(doctorId: string): Promise<Patient[]> {
-    return this.repository.find({
-      where: { doctorId },
       order: { name: 'ASC' },
     });
   }
@@ -103,5 +101,29 @@ export class PatientRepository extends BaseRepository<Patient> {
     }
 
     return qb.getManyAndCount();
+  }
+
+  countByPhotoPath(photoPath: string, exceptId?: string): Promise<number> {
+    return this.repository.count({
+      where: exceptId ? { photoPath, id: Not(exceptId) } : { photoPath },
+      withDeleted: true,
+    });
+  }
+
+  updateReturningPreviousPhoto(
+    id: string,
+    updateData: Partial<Patient>,
+  ): Promise<string | null> {
+    return this.repository.manager.transaction(async (em) => {
+      const repo = em.getRepository(Patient);
+      const atual = await repo.findOne({
+        where: { id },
+        select: { id: true, photoPath: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      await repo.update(id, updateData as QueryDeepPartialEntity<Patient>);
+      const antiga = atual?.photoPath ?? null;
+      return antiga && antiga !== updateData.photoPath ? antiga : null;
+    });
   }
 }

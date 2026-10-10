@@ -11,5 +11,5 @@ export interface ScDraftToolDeps {
   surgeryRequestRepo: SurgeryRequestRepository;
   surgeryRequestsService: SurgeryRequestsService;
   activityRepo: SurgeryRequestActivityRepository;
-  assemblyService?: SurgeryRequestAssemblyService;
+  assemblyService: SurgeryRequestAssemblyService;
 }

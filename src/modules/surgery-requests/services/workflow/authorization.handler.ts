@@ -1,15 +1,8 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, In, IsNull } from 'typeorm';
 
-import {
-  SurgeryRequest,
-  SurgeryRequestStatus,
-} from 'src/database/entities/surgery-request.entity';
+import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import {
   Contestation,
   ContestationTypeEnum,
@@ -20,12 +13,15 @@ import {
 } from 'src/database/entities/surgery-request-activity.entity';
 import { Document } from 'src/database/entities/document.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { ContestationRepository } from 'src/database/repositories/contestation.repository';
+import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
-import { SurgeryRequestStateMachine } from 'src/shared/state-machine/surgery-request-state-machine';
+import {
+  SurgeryRequestStateMachine,
+  assertTransitionApplied,
+} from 'src/shared/state-machine/surgery-request-state-machine';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 
@@ -34,6 +30,10 @@ import { SurgeryRequestPdfAssemblyService } from '../surgery-request-pdf-assembl
 import { AcceptAuthorizationDto } from '../../dto/accept-authorization.dto';
 import { ContestAuthorizationDto } from '../../dto/contest-authorization.dto';
 import { PendencyValidatorService } from '../../pendencies/pendency-validator.service';
+import {
+  emitSurgeryRequestStatusChanged,
+  emitSurgeryRequestUpdated,
+} from '../../events/surgery-request.events';
 
 @Injectable()
 export class AuthorizationHandler {
@@ -45,10 +45,11 @@ export class AuthorizationHandler {
     private readonly mailService: MailService,
     private readonly storageService: StorageService,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly contestationRepository: ContestationRepository,
+    private readonly activityRepository: SurgeryRequestActivityRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
     private readonly pendencyValidator: PendencyValidatorService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async acceptAuthorization(
@@ -59,9 +60,9 @@ export class AuthorizationHandler {
     this.logger.log(
       `[acceptAuthorization] Aceitando autorização da solicitação ${id}`,
     );
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+    const request = await this.surgeryRequestRepository.findOneForWorkflow({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     this.stateMachine.assertCanTransition(
@@ -73,10 +74,17 @@ export class AuthorizationHandler {
     await executeInTransaction(
       this.dataSource,
       async (manager) => {
-        const repo = manager.getRepository(SurgeryRequest);
-        const contestRepo = manager.getRepository(Contestation);
+        const applied =
+          await this.surgeryRequestRepository.applyStatusTransition(manager, {
+            id,
+            from: request.status,
+            to: SurgeryRequestStatus.IN_SCHEDULING,
+            data: { dateOptions: dto.dateOptions },
+            userId,
+          });
+        assertTransitionApplied(applied);
 
-        await contestRepo.update(
+        await manager.getRepository(Contestation).update(
           {
             surgeryRequestId: id,
             type: ContestationTypeEnum.AUTHORIZATION,
@@ -84,24 +92,16 @@ export class AuthorizationHandler {
           },
           { resolvedAt: new Date() },
         );
-
-        await repo.update(
-          { id },
-          {
-            status: SurgeryRequestStatus.IN_SCHEDULING,
-            dateOptions: dto.dateOptions,
-          },
-        );
-        await this.surgeryRequestRepository.recordStatusChange(
-          manager,
-          id,
-          request.status,
-          SurgeryRequestStatus.IN_SCHEDULING,
-          userId,
-        );
       },
       { logger: this.logger, operationName: 'acceptAuthorization' },
     );
+
+    emitSurgeryRequestStatusChanged(this.eventEmitter, {
+      surgeryRequestId: id,
+      from: request.status,
+      to: SurgeryRequestStatus.IN_SCHEDULING,
+      actorId: userId,
+    });
 
     if (dto.notifyPatient === true && (dto.dateOptions?.length ?? 0) > 0) {
       this.logger.log(
@@ -134,38 +134,63 @@ export class AuthorizationHandler {
     this.logger.log(
       `[contestAuthorization] Contestando autorização da solicitação ${id}`,
     );
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
+    const request = await this.surgeryRequestRepository.findOneForWorkflow({
+      id,
+    });
     if (!request)
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    if (request.status !== SurgeryRequestStatus.IN_ANALYSIS) {
-      throw new BadRequestException(
-        'A solicitação precisa estar Em Análise para ser contestada.',
-      );
-    }
-
-    const contestation = await this.contestationRepository.create({
-      surgeryRequestId: id,
-      createdById: userId,
-      type: ContestationTypeEnum.AUTHORIZATION,
-      reason: dto.reason,
-    });
+    this.stateMachine.assertStatus(
+      request,
+      SurgeryRequestStatus.IN_ANALYSIS,
+      'A solicitação precisa estar Em Análise para ser contestada.',
+    );
 
     const attachmentPaths = (dto.attachments ?? [])
       .map((path) => path?.trim())
       .filter((path): path is string => !!path);
 
-    if (attachmentPaths.length > 0) {
-      const documentRepo = this.dataSource.getRepository(Document);
-      await documentRepo.update(
-        {
+    await executeInTransaction(
+      this.dataSource,
+      async (manager) => {
+        const contestation = await manager.getRepository(Contestation).save({
           surgeryRequestId: id,
-          uri: In(attachmentPaths),
-        },
-        { contestationId: contestation.id },
-      );
-    }
+          createdById: userId,
+          type: ContestationTypeEnum.AUTHORIZATION,
+          reason: dto.reason,
+        });
+
+        if (attachmentPaths.length > 0) {
+          await manager
+            .getRepository(Document)
+            .update(
+              { surgeryRequestId: id, uri: In(attachmentPaths) },
+              { contestationId: contestation.id },
+            );
+        }
+
+        const activityRepo = manager.getRepository(SurgeryRequestActivity);
+        await activityRepo.save({
+          surgeryRequestId: id,
+          userId,
+          type: ActivityType.SYSTEM,
+          content: 'Autorização contestada.',
+        });
+        if (dto.message?.trim()) {
+          await activityRepo.save({
+            surgeryRequestId: id,
+            userId,
+            type: ActivityType.SYSTEM,
+            content: `Mensagem da contestação: ${dto.message.trim()}`,
+          });
+        }
+      },
+      { logger: this.logger, operationName: 'contestAuthorization' },
+    );
+
+    emitSurgeryRequestUpdated(this.eventEmitter, {
+      surgeryRequestId: id,
+      actorId: userId,
+    });
 
     const patientName = request.patient?.name ?? 'Paciente';
     const requestId = request.protocol ?? id;
@@ -177,23 +202,6 @@ export class AuthorizationHandler {
       'Autorização contestada',
       `/solicitacao/${id}`,
     );
-
-    const activityRepo = this.dataSource.getRepository(SurgeryRequestActivity);
-    await activityRepo.save({
-      surgeryRequestId: id,
-      userId: userId,
-      type: ActivityType.SYSTEM,
-      content: 'Autorização contestada.',
-    });
-
-    if (dto.message?.trim()) {
-      await activityRepo.save({
-        surgeryRequestId: id,
-        userId: userId,
-        type: ActivityType.SYSTEM,
-        content: `Mensagem da contestação: ${dto.message.trim()}`,
-      });
-    }
 
     if (dto.method === SendMethod.EMAIL && dto.to) {
       let pdfAttachment:
@@ -268,10 +276,7 @@ export class AuthorizationHandler {
         request.ownerId,
       );
 
-      const activityRepo = this.dataSource.getRepository(
-        SurgeryRequestActivity,
-      );
-      await activityRepo.save({
+      await this.activityRepository.create({
         surgeryRequestId: id,
         userId: null,
         type: ActivityType.PDF_GENERATED,
@@ -282,9 +287,9 @@ export class AuthorizationHandler {
       });
 
       this.logger.log(`[contestPDF] PDF de contestação salvo: ${storagePath}`);
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[contestPDF] Não foi possível salvar atividade do PDF de contestação: ${err?.message}`,
+        `[contestPDF] Não foi possível salvar atividade do PDF de contestação: ${(err as Error)?.message}`,
       );
     }
 

@@ -1,4 +1,3 @@
-import { Injectable, PipeTransform } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { Mask } from '@tboerc/maskfy';
 
@@ -19,11 +18,4 @@ export function stripObjectPhoneMask<T extends { phone?: string }>(
 
 export function PhoneTransform() {
   return Transform(({ value }) => stripPhoneMask(value));
-}
-
-@Injectable()
-export class PhoneMaskPipe implements PipeTransform<string, string> {
-  transform(value: string): string {
-    return stripPhoneMask(value) as string;
-  }
 }

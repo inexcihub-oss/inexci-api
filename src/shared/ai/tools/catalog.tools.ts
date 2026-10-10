@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
 import { normalizeNameForCompare } from './catalog.helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
@@ -12,6 +12,7 @@ export function buildCatalogTools(
 
   const searchProcedures: AiTool = {
     name: 'search_procedures',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {

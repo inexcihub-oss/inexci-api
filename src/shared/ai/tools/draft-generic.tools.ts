@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { buildToolResult } from './tool-result';
 import {
@@ -7,9 +7,10 @@ import {
   REQUIRED_FIELDS_BY_TYPE,
   OperationDraftType,
 } from '../drafts/operation-draft.types';
-import { detokenizeArg } from '../pii/tool-pii-helpers';
+import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
+import { PiiCategory } from '../services/pii-vault.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
-import { resolveAuthorizedRequest } from './_helpers/resolve-surgery-request';
+import { resolveAuthorizedRequest } from './helpers/surgery-request-access';
 
 const VALID_FIELDS_BY_TYPE: Record<
   OperationDraftType,
@@ -120,6 +121,47 @@ const VALID_FIELDS_BY_TYPE: Record<
 
 const DRAFT_TYPES = Object.keys(VALID_FIELDS_BY_TYPE) as OperationDraftType[];
 
+const PII_FIELD_CATEGORY: Record<string, PiiCategory> = {
+  cpf: 'cpf',
+  phone: 'phone',
+  email: 'email',
+  birthDate: 'birth_date',
+  to: 'email',
+};
+
+function tokenizeFieldValue(
+  context: ToolContext,
+  toolName: 'draft_update' | 'draft_status',
+  field: string,
+  value: unknown,
+): unknown {
+  const category = PII_FIELD_CATEGORY[field];
+  if (!category || value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      typeof item === 'string'
+        ? tokenizePii(context, toolName, category, item)
+        : item,
+    );
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    return tokenizePii(context, toolName, category, value);
+  }
+  return value;
+}
+
+function tokenizeDraftFields(
+  context: ToolContext,
+  fields: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([field, value]) => [
+      field,
+      tokenizeFieldValue(context, 'draft_status', field, value),
+    ]),
+  );
+}
+
 function coerceValue(
   raw: unknown,
   expectedType: string,
@@ -163,13 +205,13 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
 
   const draftUpdate: AiTool = {
     name: 'draft_update',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {
         name: 'draft_update',
         description: [
           'Atualiza um campo de qualquer rascunho ativo.',
-          'Substitui as tools `*_draft_set_*` individuais.',
           'Exemplos:',
           '  • draft_update(create_sc, priority, "HIGH")',
           '  • draft_update(invoice, invoiceValue, 1500.00)',
@@ -206,7 +248,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
 
-      const draftType = (args as any).draft_type as OperationDraftType;
+      const draftType = args.draft_type as OperationDraftType;
       if (!DRAFT_TYPES.includes(draftType)) {
         return buildToolResult({
           status: 'error',
@@ -214,7 +256,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
         });
       }
 
-      const fieldName = String((args as any).field ?? '').trim();
+      const fieldName = String(args.field ?? '').trim();
       const fieldMeta = VALID_FIELDS_BY_TYPE[draftType];
       if (!fieldMeta[fieldName]) {
         const validFields = Object.keys(fieldMeta).join(', ');
@@ -225,7 +267,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
       }
 
       const expectedType = fieldMeta[fieldName];
-      const rawValue = (args as any).value;
+      const rawValue = args.value;
       const value =
         rawValue === null || rawValue === undefined
           ? null
@@ -270,7 +312,10 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
 
       return buildToolResult({
         status: validation.isReady ? 'ok' : 'needs_input',
-        data: { field: fieldName, value },
+        data: {
+          field: fieldName,
+          value: tokenizeFieldValue(context, 'draft_update', fieldName, value),
+        },
         message: `Campo "${fieldName}" atualizado.`,
         nextRequiredFields: validation.missing,
       });
@@ -279,12 +324,13 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
 
   const draftStatus: AiTool = {
     name: 'draft_status',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {
         name: 'draft_status',
         description:
-          'Retorna o estado atual do rascunho ativo (tipo, campos preenchidos, campos obrigatórios pendentes). Substitui todas as tools `*_draft_status` individuais.',
+          'Retorna o estado atual do rascunho ativo (tipo, campos preenchidos, campos obrigatórios pendentes).',
         parameters: {
           type: 'object',
           properties: {
@@ -310,9 +356,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
         });
       }
 
-      const expectedType = (args as any).draft_type as
-        | OperationDraftType
-        | undefined;
+      const expectedType = args.draft_type as OperationDraftType | undefined;
       if (expectedType && draft.type !== expectedType) {
         return buildToolResult({
           status: 'blocked',
@@ -334,7 +378,10 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
           type: draft.type,
           label,
           status: draft.status,
-          fields: draft.fields,
+          fields: tokenizeDraftFields(
+            context,
+            draft.fields as Record<string, unknown>,
+          ),
           requiredFields,
           missingFields: validation.missing,
           isReady: validation.isReady,
@@ -349,12 +396,13 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
 
   const draftCancel: AiTool = {
     name: 'draft_cancel',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {
         name: 'draft_cancel',
         description:
-          'Cancela o rascunho ativo sem persistir nada. Substitui todas as tools `*_draft_cancel` individuais. Use quando o usuário desistir do fluxo.',
+          'Cancela o rascunho ativo sem persistir nada. Use quando o usuário desistir do fluxo.',
         parameters: {
           type: 'object',
           properties: {
@@ -379,9 +427,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
         });
       }
 
-      const expectedType = (args as any).draft_type as
-        | OperationDraftType
-        | undefined;
+      const expectedType = args.draft_type as OperationDraftType | undefined;
       if (expectedType && draft.type !== expectedType) {
         return buildToolResult({
           status: 'blocked',

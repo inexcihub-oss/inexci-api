@@ -1,3 +1,4 @@
+import { EntityResolverService } from '../services/entity-resolver.service';
 import { buildManageTools } from './manage.tools';
 import { ToolContext } from './tool.interface';
 import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
@@ -54,7 +55,10 @@ const mockDocumentRepo = {
   getRepository: () => mockDocumentRepository,
 };
 const mockSupplierRepo = { findMany: jest.fn(), create: jest.fn() };
-const mockHealthPlanRepo = { findOne: jest.fn() };
+const mockHealthPlanRepo = {
+  findOne: jest.fn(),
+  findMany: jest.fn().mockResolvedValue([]),
+};
 const mockStorageService = { create: jest.fn() };
 const mockConfigService = { get: jest.fn() };
 const mockTussService = {
@@ -88,22 +92,22 @@ const sentRequest = {
 };
 
 describe('ManageTools', () => {
-  const tools = buildManageTools(
-    mockSurgeryRequestRepo as any,
-    mockSurgeryRequestsService as any,
-    mockActivityRepo as any,
-    mockTussItemRepo as any,
-    mockOpmeItemRepo as any,
-    mockDocumentRepo as any,
-    mockSupplierRepo as any,
-    mockHealthPlanRepo as any,
-    mockStorageService as any,
-    mockConfigService as any,
-    mockOpmeService as any,
-    mockDocumentsService as any,
-    undefined,
-    mockTussService as any,
-  );
+  const tools = buildManageTools({
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    surgeryRequestsService: mockSurgeryRequestsService as any,
+    activityRepo: mockActivityRepo as any,
+    tussItemRepo: mockTussItemRepo as any,
+    opmeItemRepo: mockOpmeItemRepo as any,
+    documentRepo: mockDocumentRepo as any,
+    supplierRepo: mockSupplierRepo as any,
+    healthPlanRepo: mockHealthPlanRepo as any,
+    storageService: mockStorageService as any,
+    configService: mockConfigService as any,
+    opmeService: mockOpmeService as any,
+    documentsService: mockDocumentsService as any,
+    entityResolver: new EntityResolverService(),
+    tussService: mockTussService as any,
+  });
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
@@ -526,6 +530,52 @@ describe('ManageTools', () => {
 
       expect(mockOpmeService.delete).toHaveBeenCalledWith('o1', 'user-1');
       expect(result).toContain('removido');
+    });
+    it('preview (sem confirm) devolve envelope pending_confirmation para o ConfirmationManager', async () => {
+      const raw = await getTool('manage_opme_items').execute(
+        {
+          surgeryRequestId: 'req-1',
+          operation: 'add',
+          name: 'Parafuso',
+          manufacturerNames: ['Fab 1', 'Fab 2', 'Fab 3'],
+          supplierNames: ['F1', 'F2', 'F3'],
+        },
+        baseContext,
+      );
+      const parsed = parseToolResult(raw);
+
+      expect(parsed?.status).toBe('pending_confirmation');
+      expect(parsed?.pending_confirmation?.tool).toBe('manage_opme_items');
+      expect(parsed?.pending_confirmation?.args).toEqual(
+        expect.objectContaining({ operation: 'add', confirm: true }),
+      );
+      expect(mockOpmeService.create).not.toHaveBeenCalled();
+    });
+
+    it('regressão: renomear item envia o novo nome no DTO de update', async () => {
+      mockOpmeItemRepo.findByIdWithSuppliers.mockResolvedValue({
+        id: 'o1',
+        surgeryRequestId: 'req-1',
+        name: 'Parafuso',
+        quantity: 1,
+        suppliers: [],
+      });
+
+      await getTool('manage_opme_items').execute(
+        {
+          surgeryRequestId: 'req-1',
+          operation: 'update',
+          opmeItemId: 'o1',
+          name: 'Placa',
+          confirm: true,
+        },
+        baseContext,
+      );
+
+      expect(mockOpmeService.update).toHaveBeenCalledWith(
+        { id: 'o1', name: 'Placa' },
+        'user-1',
+      );
     });
   });
 

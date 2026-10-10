@@ -23,14 +23,9 @@ export type MailTemplateName =
   | 'invoice-sent'
   | 'payment-received'
   | 'payment-contested'
-  | 'status-change-stakeholder'
   | 'status-change-patient'
-  | 'stale-reminder'
-  | 'stale-critical'
-  | 'action-admin-alert'
   | 'appointment-reminder'
   | 'welcome-patient'
-  | 'welcome-doctor'
   | 'invite-collaborator'
   | 'password-recovery'
   | 'email-verification'
@@ -45,14 +40,9 @@ export const MAIL_TEMPLATES: MailTemplateName[] = [
   'invoice-sent',
   'payment-received',
   'payment-contested',
-  'status-change-stakeholder',
   'status-change-patient',
-  'stale-reminder',
-  'stale-critical',
-  'action-admin-alert',
   'appointment-reminder',
   'welcome-patient',
-  'welcome-doctor',
   'invite-collaborator',
   'password-recovery',
   'email-verification',

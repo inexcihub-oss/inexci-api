@@ -13,7 +13,6 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-/** Opcional, mas sem aceitar `null` (ausente passa; `null` é recusado). */
 const SeInformado = () => ValidateIf((_, v: unknown) => v !== undefined);
 
 export class CreateHolidayDto {
@@ -22,7 +21,6 @@ export class CreateHolidayDto {
   @MaxLength(100)
   name: string;
 
-  /** `YYYY-MM-DD`. */
   @IsDateString()
   date: string;
 
@@ -35,7 +33,6 @@ export class CreateHolidayDto {
   blocksAgenda?: boolean;
 }
 
-/** `null` em qualquer campo é recusado (nenhum deles é anulável). */
 export class UpdateHolidayDto extends PartialType(CreateHolidayDto, {
   skipNullProperties: false,
 }) {}

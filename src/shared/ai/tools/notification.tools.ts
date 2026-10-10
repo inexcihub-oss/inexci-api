@@ -4,14 +4,24 @@ import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from '../../../database/repositories/surgery-request-activity.repository';
 import { SurgeryRequestNotificationService } from '../../../modules/surgery-requests/services/surgery-request-notification.service';
-import { ActivityType } from '../../../database/entities/surgery-request-activity.entity';
-import { detokenizeArg } from '../pii/tool-pii-helpers';
-import { buildProtocolCandidates } from './protocol.helpers';
+import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
+import { getStatusLabel } from '../../utils/status';
+import {
+  recordAiActivity,
+  resolveAuthorizedRequest,
+} from './helpers/surgery-request-access';
+import { buildToolResult } from './tool-result';
 
-function sanitizeIdentifier(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
+type NotifyDto = Parameters<SurgeryRequestNotificationService['notify']>[1];
+
+const STATUS_UPDATE_TEMPLATE: Partial<Record<SurgeryRequestStatus, string>> = {
+  [SurgeryRequestStatus.SENT]: 'surgery-request-sent',
+  [SurgeryRequestStatus.IN_ANALYSIS]: 'surgery-contested',
+  [SurgeryRequestStatus.IN_SCHEDULING]: 'surgery-authorized',
+  [SurgeryRequestStatus.SCHEDULED]: 'surgery-scheduled',
+  [SurgeryRequestStatus.INVOICED]: 'invoice-sent',
+  [SurgeryRequestStatus.FINALIZED]: 'payment-received',
+};
 
 export function buildNotificationTools(
   surgeryRequestRepo: SurgeryRequestRepository,
@@ -21,6 +31,7 @@ export function buildNotificationTools(
   const sendNotification: AiTool = {
     name: 'send_notification',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -44,47 +55,62 @@ export function buildNotificationTools(
       },
     } as OpenAI.ChatCompletionTool,
     async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
+      if (!context.userId) {
+        return buildToolResult({
+          status: 'blocked',
+          message: 'Acesso negado.',
+        });
+      }
 
-      const detokenized = detokenizeArg(context, args.surgeryRequestId as any);
-      const identifier = sanitizeIdentifier(
-        detokenized ?? (args.surgeryRequestId as any),
+      const auth = await resolveAuthorizedRequest(
+        surgeryRequestRepo,
+        args.surgeryRequestId,
+        context,
       );
-      if (!identifier) return 'Parâmetro inválido: informe a solicitação.';
-
-      let request: any | null = null;
-      if (identifier.match(/^[0-9a-f-]{36}$/i)) {
-        request = await surgeryRequestRepo.findOneSimple({ id: identifier });
+      if (!auth.request) {
+        return buildToolResult({ status: 'blocked', message: auth.error });
       }
-      if (!request) {
-        for (const candidate of buildProtocolCandidates(identifier)) {
-          request = await surgeryRequestRepo.findOneSimple({
-            protocol: candidate,
-          });
-          if (request) break;
-        }
-      }
+      const request = auth.request;
 
-      if (!request) return 'Solicitação não encontrada.';
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return 'Você não tem permissão para acessar essa solicitação.';
+      const template = STATUS_UPDATE_TEMPLATE[request.status];
+      if (!template) {
+        return buildToolResult({
+          status: 'blocked',
+          message: `Não há notificação de atualização para solicitações em "${getStatusLabel(request.status)}".`,
+        });
       }
 
       if (!args.confirm) {
-        return `Deseja enviar uma notificação de atualização para a solicitação ${request.protocol}? Confirme com "sim".`;
+        return buildToolResult({
+          status: 'pending_confirmation',
+          message: `Deseja enviar uma notificação de atualização para a solicitação ${request.protocol}? Confirme com "sim".`,
+          pendingConfirmation: {
+            tool: 'send_notification',
+            args: { ...args, confirm: true },
+            description: 'enviar a notificação da solicitação',
+          },
+        });
       }
 
       try {
-        await notificationService.notify(request.id, {} as any, context.userId);
-        await activityRepo.create({
-          surgeryRequestId: request.id,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Notificação de status enviada.`,
+        const dto: NotifyDto = { template };
+        await notificationService.notify(request.id, dto, context.userId);
+        await recordAiActivity(
+          activityRepo,
+          context,
+          request.id,
+          'Notificação de status enviada.',
+        );
+        return buildToolResult({
+          status: 'ok',
+          message: `Notificação enviada para a solicitação ${request.protocol}.`,
+          affected: [{ kind: 'surgery_request', id: request.id }],
         });
-        return `Notificação enviada para a solicitação ${request.protocol}.`;
-      } catch (err: any) {
-        return `Erro ao enviar notificação: ${err?.message || 'erro desconhecido'}`;
+      } catch (err: unknown) {
+        return buildToolResult({
+          status: 'error',
+          message: `Erro ao enviar notificação: ${(err as Error)?.message || 'erro desconhecido'}`,
+        });
       }
     },
   };

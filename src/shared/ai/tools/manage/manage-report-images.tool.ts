@@ -1,20 +1,22 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { STORAGE_FOLDERS } from '../../../../config/storage.config';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   downloadInboundMedia,
-  ensurePendingForMutation,
-  getAuthorizedRequest,
   REPORT_IMAGE_KEY,
   REPORT_IMAGE_TYPE,
-} from './_helpers';
+} from '../helpers/documents';
+import {
+  ensurePendingForMutation,
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
   const {
@@ -28,6 +30,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_report_images',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -213,12 +216,12 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
             });
           }
 
-          await activityRepo.create({
-            surgeryRequestId: auth.request.id,
-            userId: context.userId as string,
-            type: ActivityType.SYSTEM,
-            content: `[WhatsApp IA] Imagem anexada ao laudo: ${computedName}.`,
-          });
+          await recordAiActivity(
+            activityRepo,
+            context,
+            auth.request.id,
+            `Imagem anexada ao laudo: ${computedName}.`,
+          );
 
           return buildToolResult({
             status: 'ok',
@@ -277,12 +280,12 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
         surgeryRequestId: auth.request.id,
       });
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Imagem removida do laudo: ${doc.name}.`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Imagem removida do laudo: ${doc.name}.`,
+      );
 
       return buildToolResult({
         status: 'ok',

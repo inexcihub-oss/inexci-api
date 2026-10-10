@@ -13,5 +13,5 @@ export interface FlowDraftTransitionDeps {
   activityRepo: SurgeryRequestActivityRepository;
   documentRepo: DocumentRepository;
   pendencyValidator: PendencyValidatorService;
-  storageService?: StorageService;
+  storageService: StorageService;
 }

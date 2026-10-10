@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import {
   CidService,
   CidResponse,
@@ -28,6 +28,7 @@ function formatLines(items: CidResponse[]): string[] {
 export function buildCidTools(cidService: CidService): AiTool[] {
   const searchCidCodes: AiTool = {
     name: 'search_cid_codes',
+    requiredPermission: ANY_AUTHENTICATED,
     cacheable: { ttlSeconds: 3600 },
     definition: {
       type: 'function',

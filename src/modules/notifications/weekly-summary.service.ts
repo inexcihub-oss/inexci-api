@@ -10,7 +10,7 @@ import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.enti
 
 import { MailService } from 'src/shared/mail/mail.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
-import { getStatusLabel } from 'src/shared/utils';
+import { errorMessage, getStatusLabel } from 'src/shared/utils';
 
 import { PendencyValidatorService } from 'src/modules/surgery-requests/pendencies/pendency-validator.service';
 
@@ -69,9 +69,9 @@ export class WeeklySummaryService {
         try {
           const sent = await this.dispatchForUser(user, start, end);
           if (sent) dispatched++;
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao enviar resumo semanal para userId=${user.id}: ${err?.message ?? err}`,
+            `Falha ao enviar resumo semanal para userId=${user.id}: ${errorMessage(err)}`,
           );
         }
       }),
@@ -175,9 +175,9 @@ export class WeeklySummaryService {
                 : `${summary.pending} pendências bloqueantes`,
           });
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.logger.debug(
-          `Falha ao calcular pendências para SC ${request.id}: ${err?.message ?? err}`,
+          `Falha ao calcular pendências para SC ${request.id}: ${errorMessage(err)}`,
         );
       }
     }

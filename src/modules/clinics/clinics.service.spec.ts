@@ -12,7 +12,7 @@ describe('ClinicsService', () => {
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
-    getRepository: jest.fn(),
+    bulkSoftDelete: jest.fn(),
   };
 
   const mockAccessControlService = {
@@ -22,7 +22,7 @@ describe('ClinicsService', () => {
 
   const ownerId = 'owner-1';
   const userId = 'user-1';
-  const softDelete = jest.fn();
+  const softDelete = mockClinicRepository.bulkSoftDelete;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -37,7 +37,6 @@ describe('ClinicsService', () => {
     mockClinicRepository.update.mockImplementation((id: string, d: unknown) =>
       Promise.resolve({ id, ...(d as object) }),
     );
-    mockClinicRepository.getRepository.mockReturnValue({ softDelete });
 
     service = new ClinicsService(
       mockClinicRepository as any,

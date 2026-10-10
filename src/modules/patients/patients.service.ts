@@ -9,7 +9,7 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
-import { In, Not, QueryDeepPartialEntity } from 'typeorm';
+
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
@@ -19,6 +19,7 @@ import { auditProntuarioAccess } from 'src/shared/logging/audit';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
+import { bulkDeleteOwned } from 'src/shared/catalog/owned-catalog.helpers';
 
 export const UQ_PATIENTS_PHOTO_PATH = 'UQ_patients_photo_path';
 
@@ -241,25 +242,14 @@ export class PatientsService {
     userId: string,
   ): Promise<{ deleted: number }> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const uniqueIds = [...new Set(ids)];
-
-    const patients = await this.patientRepository.findMany({
-      id: In(uniqueIds),
+    const result = await bulkDeleteOwned({
+      repository: this.patientRepository,
+      ids,
       ownerId,
+      notFoundMessage: 'Um ou mais pacientes não foram encontrados.',
     });
-
-    if (patients.length !== uniqueIds.length) {
-      throw new NotFoundException(
-        'Um ou mais pacientes não foram encontrados.',
-      );
-    }
-
-    await this.patientRepository.getRepository().softDelete(uniqueIds);
-    this.logger.log(
-      `Pacientes soft-deleted em lote: total=${uniqueIds.length}`,
-    );
-
-    return { deleted: uniqueIds.length };
+    this.logger.log(`Pacientes soft-deleted em lote: total=${result.deleted}`);
+    return result;
   }
 
   private async validarFoto(
@@ -335,10 +325,10 @@ export class PatientsService {
     photoPath: string,
     excetoId?: string,
   ): Promise<boolean> {
-    const total = await this.patientRepository.getRepository().count({
-      where: excetoId ? { photoPath, id: Not(excetoId) } : { photoPath },
-      withDeleted: true,
-    });
+    const total = await this.patientRepository.countByPhotoPath(
+      photoPath,
+      excetoId,
+    );
     return total > 0;
   }
 
@@ -346,19 +336,7 @@ export class PatientsService {
     id: string,
     updateData: Partial<Patient>,
   ): Promise<string | null> {
-    return this.patientRepository
-      .getRepository()
-      .manager.transaction(async (em) => {
-        const repo = em.getRepository(Patient);
-        const atual = await repo.findOne({
-          where: { id },
-          select: { id: true, photoPath: true },
-          lock: { mode: 'pessimistic_write' },
-        });
-        await repo.update(id, updateData as QueryDeepPartialEntity<Patient>);
-        const antiga = atual?.photoPath ?? null;
-        return antiga && antiga !== updateData.photoPath ? antiga : null;
-      });
+    return this.patientRepository.updateReturningPreviousPhoto(id, updateData);
   }
 
   private async urlDaFoto(photoPath: string | null): Promise<string | null> {

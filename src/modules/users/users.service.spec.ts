@@ -24,10 +24,11 @@ describe('UsersService — Colaboradores e Permissões', () => {
     delete: jest.fn(),
     total: jest.fn(),
     findMany: jest.fn(),
+    findCollaboratorsByIds: jest.fn(),
+    bulkSoftDelete: jest.fn(),
     getRepository: jest.fn(),
   };
   const mockMailService = {
-    sendRaw: jest.fn(),
     send: jest.fn().mockResolvedValue(undefined),
   };
   const mockUserDoctorAccessRepository = {
@@ -48,7 +49,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
   };
   const mockStorageService = {
     uploadFile: jest.fn(),
-    deleteFile: jest.fn(),
     getSignedUrl: jest.fn(),
     delete: jest.fn(),
   };
@@ -2059,12 +2059,11 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
   describe('bulkDeleteCollaborators', () => {
     const getRepositoryMock = {
-      find: jest.fn(),
-      softDelete: jest.fn(),
+      find: mockUserRepository.findCollaboratorsByIds,
+      softDelete: mockUserRepository.bulkSoftDelete,
     };
 
     beforeEach(() => {
-      mockUserRepository.getRepository.mockReturnValue(getRepositoryMock);
       getRepositoryMock.find.mockReset();
       getRepositoryMock.softDelete.mockReset();
     });
@@ -2090,12 +2089,8 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       expect(result).toEqual({ deleted: 2 });
       expect(getRepositoryMock.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            ownerId: 'dono-1',
-            role: UserRole.COLLABORATOR,
-          }),
-        }),
+        ['collab-1', 'collab-2'],
+        'dono-1',
       );
     });
 
@@ -2128,11 +2123,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         'delegado-1',
       );
 
-      expect(getRepositoryMock.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          select: expect.objectContaining({ phone: true }),
-        }),
-      );
       expect(mockEventEmitter.emit).toHaveBeenCalledWith(
         'user.access_changed',
         { userId: 'collab-1', phone: '+5511900000001' },

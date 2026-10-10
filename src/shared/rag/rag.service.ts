@@ -36,37 +36,12 @@ export class RagService {
 
   async search(
     query: string,
-    opts?: RagSearchOptions,
-  ): Promise<RagSearchResult[]>;
-
-  async search(
-    query: string,
-    topK?: number,
-    minScore?: number,
-  ): Promise<RagSearchResult[]>;
-  async search(
-    query: string,
-    optsOrTopK?: RagSearchOptions | number,
-    legacyMinScore?: number,
+    opts: RagSearchOptions = {},
   ): Promise<RagSearchResult[]> {
-    const defaultTopK = this.configService.get<number>('AI_RAG_TOP_K', 3);
-    const defaultMinScore = this.configService.get<number>(
-      'AI_RAG_MIN_SCORE',
-      0.65,
-    );
-
-    let topK: number;
-    let minScore: number;
-    let category: string | undefined;
-
-    if (typeof optsOrTopK === 'object' && optsOrTopK !== null) {
-      topK = optsOrTopK.topK ?? defaultTopK;
-      minScore = optsOrTopK.minScore ?? defaultMinScore;
-      category = optsOrTopK.category;
-    } else {
-      topK = optsOrTopK ?? defaultTopK;
-      minScore = legacyMinScore ?? defaultMinScore;
-    }
+    const topK = opts.topK ?? this.configService.get<number>('AI_RAG_TOP_K', 3);
+    const minScore =
+      opts.minScore ?? this.configService.get<number>('AI_RAG_MIN_SCORE', 0.65);
+    const category = opts.category;
 
     return inexciTracer.startActiveSpan('rag.search', async (span) => {
       span.setAttribute('rag.topK', topK);

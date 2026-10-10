@@ -1,20 +1,20 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asValidDateString, formatDatePtBr } from '../helpers/arg-parsers';
 import {
-  asValidDateString,
-  formatDatePtBr,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
   const { surgeryRequestRepo, workflowService, activityRepo } = deps;
   return {
     name: 'reschedule_surgery',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -81,12 +81,12 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
           context.userId as string,
         );
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Cirurgia reagendada para ${newDate}.`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Cirurgia reagendada para ${newDate}.`,
+        );
 
         return buildToolResult({
           status: 'ok',

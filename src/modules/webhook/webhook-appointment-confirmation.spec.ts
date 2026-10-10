@@ -1,13 +1,11 @@
 import { WebhookService } from './webhook.service';
 import { AppointmentStatus } from 'src/database/entities/appointment.entity';
+import { PhoneNormalizerService } from 'src/shared/ai/services/orchestrator/phone-normalizer.service';
 
 describe('WebhookService — confirmação de consulta', () => {
   const configService = { get: jest.fn().mockReturnValue('') };
-  const surgeryRequestRepository = {
-    getRepository: jest.fn(),
-    update: jest.fn(),
-  };
-  const activityRepository = { create: jest.fn() };
+  const schedulingHandler = { registerPatientDateSelection: jest.fn() };
+  const phoneNormalizer = new PhoneNormalizerService({} as any);
   const appointmentActivityRepository = { create: jest.fn() };
   let whatsappService: { sendMessage: jest.Mock; sendTemplate: jest.Mock };
   let appointmentRepository: {
@@ -49,8 +47,8 @@ describe('WebhookService — confirmação de consulta', () => {
     };
     service = new WebhookService(
       configService as any,
-      surgeryRequestRepository as any,
-      activityRepository as any,
+      schedulingHandler as any,
+      phoneNormalizer,
       whatsappService as any,
       appointmentRepository as any,
       notificationsService as any,

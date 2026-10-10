@@ -1,31 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, FindOptionsWhere } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { Hospital } from '../entities/hospital.entity';
-import { BaseRepository } from './base.repository';
+import { OwnedCatalogRepository } from './owned-catalog.repository';
 
 @Injectable()
-export class HospitalRepository extends BaseRepository<Hospital> {
+export class HospitalRepository extends OwnedCatalogRepository<Hospital> {
   constructor(private readonly dataSource: DataSource) {
     super(dataSource.getRepository(Hospital));
-  }
-
-  findMany(
-    where: FindOptionsWhere<Hospital> | FindOptionsWhere<Hospital>[],
-    skip?: number,
-    take?: number,
-  ): Promise<Hospital[]> {
-    return this.repository.find({
-      where,
-      skip,
-      take,
-      order: { name: 'ASC' },
-    });
-  }
-
-  findByOwnerId(ownerId: string): Promise<Hospital[]> {
-    return this.repository.find({
-      where: { ownerId },
-      order: { name: 'ASC' },
-    });
   }
 }

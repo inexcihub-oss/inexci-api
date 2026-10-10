@@ -73,12 +73,9 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
       accessControlService as never,
       {} as never,
       surgeryRequestRepository as never,
-      {} as never,
       opmeItemRepository as never,
       {} as never,
       pendencyValidatorService as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -118,7 +115,7 @@ describe('SurgeryRequestsService.findAllForKanban', () => {
 
     expect(pendencyValidatorService.getBatchSummary).toHaveBeenCalledWith(
       'sr-1',
-      'owner-1',
+      ['d-1'],
     );
     expect(result.total).toBe(1);
     const card = result.records[0] as Record<string, unknown>;
@@ -257,10 +254,7 @@ describe('SurgeryRequestsService.findAgenda', () => {
       accessControlService as never,
       {} as never,
       surgeryRequestRepository as never,
-      {} as never,
       opmeItemRepository as never,
-      {} as never,
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

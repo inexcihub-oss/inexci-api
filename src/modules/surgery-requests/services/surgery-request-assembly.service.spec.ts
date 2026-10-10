@@ -23,6 +23,7 @@ describe('SurgeryRequestAssemblyService', () => {
 
     service = new SurgeryRequestAssemblyService(
       surgeryRequestsService,
+      surgeryRequestsService,
       opmeService,
       tussService,
     );
@@ -286,23 +287,6 @@ describe('SurgeryRequestAssemblyService', () => {
     });
 
     expect(surgeryRequestsService.setHasOpme).not.toHaveBeenCalled();
-  });
-
-  it('acumula warning quando opmeService está ausente (undefined)', async () => {
-    const serviceWithoutOpme = new SurgeryRequestAssemblyService(
-      surgeryRequestsService,
-      undefined,
-      tussService,
-    );
-
-    const result = await serviceWithoutOpme.assembleFromExtracted({
-      scId: 'sc-9',
-      opmeItems: [{ description: 'Implante' }],
-      userId: 'user-9',
-    });
-
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain('serviço indisponível');
   });
 
   it('best-effort: acumula warnings mas completa parcialmente quando laudo falha', async () => {

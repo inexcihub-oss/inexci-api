@@ -274,7 +274,11 @@ export class DocumentIntakeService {
           );
           return true;
         }
-      } catch {}
+      } catch (err) {
+        this.logger.debug(
+          `[AI_DOC] sid=${opts.messageSid} falha ao ler espera de mídia: ${(err as Error)?.message}`,
+        );
+      }
     }
 
     if (otherDocRe.test(caption)) return false;
@@ -316,7 +320,11 @@ export class DocumentIntakeService {
         );
         return true;
       }
-    } catch {}
+    } catch (err) {
+      this.logger.debug(
+        `[AI_DOC] sid=${opts.messageSid} falha ao ler última mensagem do assistente: ${(err as Error)?.message}`,
+      );
+    }
     return false;
   }
 

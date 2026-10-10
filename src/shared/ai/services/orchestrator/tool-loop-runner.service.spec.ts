@@ -74,6 +74,7 @@ describe('ToolLoopRunnerService', () => {
     confirmationManager = new ConfirmationManagerService(
       { findOne: jest.fn(), update: jest.fn() } as any,
       { loadRecentForLlm: jest.fn() } as any,
+      { getTool: jest.fn() } as any,
     );
     jest
       .spyOn(confirmationManager, 'trackPendingConfirmation')

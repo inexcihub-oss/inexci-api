@@ -138,7 +138,6 @@ export const envValidationSchema = Joi.object({
 
   PUPPETEER_EXECUTABLE_PATH: Joi.string().allow('').optional(),
 
-  PAYMENT_GATEWAY_PROVIDER: Joi.string().valid('stripe').default('stripe'),
   STRIPE_SECRET_KEY: Joi.string().allow('').default(''),
   STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   STRIPE_REQUEST_TIMEOUT_MS: Joi.number().default(15000),
@@ -173,5 +172,6 @@ export const envValidationSchema = Joi.object({
   LOG_RETENTION_AI_USAGE_DAYS: Joi.number().default(365),
   LOG_RETENTION_PII_DAYS: Joi.number().default(180),
   LOG_RETENTION_STALE_DAYS: Joi.number().default(60),
+  LOG_RETENTION_READ_NOTIFICATION_DAYS: Joi.number().default(90),
   SLOW_REQUEST_THRESHOLD_MS: Joi.number().positive().default(1500),
 }).options({ allowUnknown: true });

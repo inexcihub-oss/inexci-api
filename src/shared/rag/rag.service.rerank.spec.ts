@@ -207,11 +207,11 @@ describe('RagService — rerank (Fase 7)', () => {
       expect(sql).not.toContain('category =');
     });
 
-    it('aceita interface legada (query, topK, minScore) sem quebrar', async () => {
+    it('respeita topK e minScore informados nas opções', async () => {
       mockConfigService.get.mockReturnValue(3);
       mockDataSource.query.mockResolvedValue([]);
 
-      await service.search('query legada', 7, 0.55);
+      await service.search('query legada', { topK: 7, minScore: 0.55 });
 
       const [, params] = mockDataSource.query.mock.calls[0];
       expect(params[2]).toBe(7);

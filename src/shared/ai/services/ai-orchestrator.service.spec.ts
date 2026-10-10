@@ -1,4 +1,6 @@
 import OpenAI from 'openai';
+import { ToolRegistryService } from './tool-registry.service';
+import { TOOL_DISPLAY_LABELS } from './orchestrator/confirmation-manager.service';
 import { AiOrchestratorService } from './ai-orchestrator.service';
 import { PiiVaultService } from './pii-vault.service';
 import { WHATSAPP_TEMPLATES } from '../../whatsapp/whatsapp-templates.constants';
@@ -18,11 +20,19 @@ import { PendencyValidatorService } from '../../../modules/surgery-requests/pend
 import { UserRole, UserStatus } from '../../../database/entities/user.entity';
 import { Permission } from '../../permissions';
 
+const mutationRegistryStub = {
+  getTool: (name: string) =>
+    Object.prototype.hasOwnProperty.call(TOOL_DISPLAY_LABELS, name)
+      ? { name, mutates: true }
+      : undefined,
+} as unknown as ToolRegistryService;
+
 describe('AiOrchestratorService (tool-calls integration)', () => {
   const queueMock = { add: jest.fn() };
   const openaiServiceMock = { chatCompletion: jest.fn() };
   const conversationServiceMock = {
     getOrCreateConversation: jest.fn(),
+    findById: jest.fn(),
     appendMessage: jest.fn(),
     resetConversationHistory: jest.fn(),
     loadRecentForLlm: jest.fn(),
@@ -58,6 +68,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
   const nextStepAdvisorService = new NextStepAdvisorService(
     surgeryRequestRepoMock as unknown as SurgeryRequestRepository,
     pendencyValidatorMock as unknown as PendencyValidatorService,
+    mutationRegistryStub,
   );
   const aiTokenUsageLogRepoMock = { create: jest.fn() };
   const transcriptionServiceMock = { transcribe: jest.fn() };
@@ -154,8 +165,6 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     cacheGet: jest.fn().mockResolvedValue(null),
     cacheSet: jest.fn().mockResolvedValue(undefined),
     cacheDelete: jest.fn().mockResolvedValue(undefined),
-    setFlag: jest.fn().mockResolvedValue(undefined),
-    hasFlag: jest.fn().mockResolvedValue(false),
   };
   let piiVault: PiiVaultService;
 
@@ -180,25 +189,20 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     service = new AiOrchestratorService(
       openaiServiceMock as any,
       conversationServiceMock as any,
-      toolRegistryMock as any,
-      toolExecutorMock as any,
       ragServiceMock as any,
       whatsappServiceMock as any,
-      userRepositoryMock as any,
       accessControlMock as any,
       configServiceMock as any,
       whatsappMediaServiceMock as any,
       piiVault,
-      piiRedactionLogRepoMock as any,
-      aiRedisMock as any,
       defaultContextServiceMock as any,
-      whatsappConversationRepoMock as any,
       new ResponseNormalizerService(),
       new PhoneNormalizerService(userRepositoryMock as any),
       new ClearContextDetectorService(),
       new ConfirmationManagerService(
         whatsappConversationRepoMock as any,
         conversationServiceMock as any,
+        mutationRegistryStub,
       ),
       new OrchestratorTelemetryService(
         aiTokenUsageLogRepoMock as any,
@@ -213,6 +217,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         new ConfirmationManagerService(
           whatsappConversationRepoMock as any,
           conversationServiceMock as any,
+          mutationRegistryStub,
         ),
         new OrchestratorTelemetryService(
           aiTokenUsageLogRepoMock as any,
@@ -938,14 +943,14 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       conversationServiceMock.appendMessage.mockImplementation(
         async (_id: string, role: string, content: string) => {
           capturedHistory.push({ role, content });
-          (
-            conversationServiceMock.getOrCreateConversation as jest.Mock
-          ).mockResolvedValueOnce({
-            id: 'conv-1',
-            phone: '+5511999999999',
-            userId: 'user-1',
-            messagesHistory: capturedHistory,
-          });
+          (conversationServiceMock.findById as jest.Mock).mockResolvedValueOnce(
+            {
+              id: 'conv-1',
+              phone: '+5511999999999',
+              userId: 'user-1',
+              messagesHistory: capturedHistory,
+            },
+          );
         },
       );
 
@@ -978,6 +983,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         .calls[0][1];
       expect(sentToWhatsapp).toContain('123.456.789-00');
       expect(sentToWhatsapp).not.toContain('{{cpf_1}}');
+      expect(
+        conversationServiceMock.getOrCreateConversation,
+      ).toHaveBeenCalledTimes(1);
     });
 
     it('redige PII residual in-place antes de chamar a OpenAI sem incomodar o usuário', async () => {
@@ -1045,25 +1053,20 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       service = new AiOrchestratorService(
         openaiServiceMock as any,
         conversationServiceMock as any,
-        toolRegistryMock as any,
-        toolExecutorMock as any,
         ragServiceMock as any,
         whatsappServiceMock as any,
-        userRepositoryMock as any,
         accessControlMock as any,
         configServiceMock as any,
         whatsappMediaServiceMock as any,
         piiVaultStore,
-        piiRedactionLogRepoMock as any,
-        aiRedisMock as any,
         defaultContextServiceMock as any,
-        whatsappConversationRepoMock as any,
         new ResponseNormalizerService(),
         new PhoneNormalizerService(userRepositoryMock as any),
         new ClearContextDetectorService(),
         new ConfirmationManagerService(
           whatsappConversationRepoMock as any,
           conversationServiceMock as any,
+          mutationRegistryStub,
         ),
         new OrchestratorTelemetryService(
           aiTokenUsageLogRepoMock as any,
@@ -1078,6 +1081,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           new ConfirmationManagerService(
             whatsappConversationRepoMock as any,
             conversationServiceMock as any,
+            mutationRegistryStub,
           ),
           new OrchestratorTelemetryService(
             aiTokenUsageLogRepoMock as any,
@@ -1235,25 +1239,20 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       service = new AiOrchestratorService(
         openaiServiceMock as any,
         conversationServiceMock as any,
-        toolRegistryMock as any,
-        toolExecutorMock as any,
         ragServiceMock as any,
         whatsappServiceMock as any,
-        userRepositoryMock as any,
         accessControlMock as any,
         configServiceMock as any,
         whatsappMediaServiceMock as any,
         piiVaultStore,
-        piiRedactionLogRepoMock as any,
-        redisAvailableMock as any,
         defaultContextServiceMock as any,
-        whatsappConversationRepoMock as any,
         new ResponseNormalizerService(),
         new PhoneNormalizerService(userRepositoryMock as any),
         new ClearContextDetectorService(),
         new ConfirmationManagerService(
           whatsappConversationRepoMock as any,
           conversationServiceMock as any,
+          mutationRegistryStub,
         ),
         new OrchestratorTelemetryService(
           aiTokenUsageLogRepoMock as any,
@@ -1268,6 +1267,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           new ConfirmationManagerService(
             whatsappConversationRepoMock as any,
             conversationServiceMock as any,
+            mutationRegistryStub,
           ),
           new OrchestratorTelemetryService(
             aiTokenUsageLogRepoMock as any,

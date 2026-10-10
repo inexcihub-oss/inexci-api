@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, FindOptionsWhere, ILike } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { Supplier } from '../entities/supplier.entity';
-import { BaseRepository } from './base.repository';
+import { OwnedCatalogRepository } from './owned-catalog.repository';
 import { GENERIC_OPTION_NAME } from '../../shared/constants/generic-option';
 import {
   mensagemDeGenericoBloqueado,
@@ -11,29 +11,9 @@ import {
 const INDICE_DO_GENERICO = 'uq_suppliers_owner_generic';
 
 @Injectable()
-export class SupplierRepository extends BaseRepository<Supplier> {
+export class SupplierRepository extends OwnedCatalogRepository<Supplier> {
   constructor(private readonly dataSource: DataSource) {
     super(dataSource.getRepository(Supplier));
-  }
-
-  findMany(
-    where: FindOptionsWhere<Supplier> | FindOptionsWhere<Supplier>[],
-    skip?: number,
-    take?: number,
-  ): Promise<Supplier[]> {
-    return this.repository.find({
-      where,
-      skip,
-      take,
-      order: { name: 'ASC' },
-    });
-  }
-
-  findByOwnerId(ownerId: string): Promise<Supplier[]> {
-    return this.repository.find({
-      where: { ownerId },
-      order: { name: 'ASC' },
-    });
   }
 
   findByIdWithQuotations(id: string): Promise<Supplier | null> {
@@ -82,18 +62,5 @@ export class SupplierRepository extends BaseRepository<Supplier> {
       if (!criadoPelaOutra) throw erro;
       return criadoPelaOutra;
     }
-  }
-
-  findByNameIncludingDeleted(
-    ownerId: string,
-    name: string,
-  ): Promise<Supplier | null> {
-    const trimmed = name.trim();
-    if (!trimmed) return Promise.resolve(null);
-
-    return this.repository.findOne({
-      where: { ownerId, name: ILike(trimmed) },
-      withDeleted: true,
-    });
   }
 }

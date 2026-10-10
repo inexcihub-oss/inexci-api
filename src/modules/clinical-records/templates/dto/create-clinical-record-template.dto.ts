@@ -16,7 +16,6 @@ export class CreateClinicalRecordTemplateDto {
   @MaxLength(100)
   name: string;
 
-  /** Médico dono do modelo. Default: o médico padrão do usuário. */
   @IsUUID()
   @IsOptional()
   doctorId?: string;

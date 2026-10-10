@@ -245,12 +245,8 @@ describe('ActionTools', () => {
       expect(mockWorkflowService.markPerformed).not.toHaveBeenCalled();
     });
 
-    it('deve exigir dados no avanço 6->7 quando faltarem', async () => {
+    it('para status PERFORMED (6) não fatura direto: direciona para o draft de invoice', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
-        ...mockRequest,
-        status: 6,
-      });
-      mockSurgeryRequestRepo.findOne.mockResolvedValue({
         ...mockRequest,
         status: 6,
       });
@@ -258,26 +254,73 @@ describe('ActionTools', () => {
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
-        { surgeryRequestId: 'req-1', confirm: true },
+        {
+          surgeryRequestId: 'req-1',
+          confirm: true,
+          invoiceProtocol: 'F-1',
+          invoiceValue: 100,
+        },
         baseContext,
       );
 
-      expect(result).toContain('invoiceProtocol');
+      expect(result).toContain('intent=\\"invoice\\"');
       expect(mockWorkflowService.invoiceRequest).not.toHaveBeenCalled();
     });
 
-    it('deve avançar de Faturada para Finalizada (7->8)', async () => {
+    it('para status INVOICED (7) não confirma recebimento direto: direciona para confirm_receipt', async () => {
       mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
         ...mockRequest,
         status: 7,
       });
+      mockPendencyValidator.canAdvance.mockResolvedValue(true);
+
+      const tool = getTool('advance_surgery_request');
+      const result = await tool.execute(
+        { surgeryRequestId: 'req-1', confirm: true, receivedValue: 1200 },
+        baseContext,
+      );
+
+      expect(result).toContain('confirm_receipt');
+      expect(mockWorkflowService.confirmReceipt).not.toHaveBeenCalled();
+    });
+
+    it('sem confirm, devolve envelope pending_confirmation para o ConfirmationManager registrar', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        ...mockRequest,
+        status: 4,
+      });
       mockSurgeryRequestRepo.findOne.mockResolvedValue({
         ...mockRequest,
-        status: 7,
-        billing: { invoiceValue: 1200 },
+        status: 4,
+        selectedDateIndex: 0,
       });
       mockPendencyValidator.canAdvance.mockResolvedValue(true);
-      mockWorkflowService.confirmReceipt.mockResolvedValue(undefined);
+
+      const tool = getTool('advance_surgery_request');
+      const parsed = parseToolResult(
+        await tool.execute({ surgeryRequestId: 'req-1' }, baseContext),
+      );
+
+      expect(parsed?.status).toBe('pending_confirmation');
+      expect(parsed?.pending_confirmation).toEqual(
+        expect.objectContaining({
+          tool: 'advance_surgery_request',
+          args: expect.objectContaining({ confirm: true }),
+        }),
+      );
+      expect(mockWorkflowService.confirmDate).not.toHaveBeenCalled();
+    });
+
+    it('não cita a tool inexistente confirm_date', async () => {
+      mockSurgeryRequestRepo.findOneSimple.mockResolvedValue({
+        ...mockRequest,
+        status: 4,
+      });
+      mockSurgeryRequestRepo.findOne.mockResolvedValue({
+        ...mockRequest,
+        status: 4,
+      });
+      mockPendencyValidator.canAdvance.mockResolvedValue(true);
 
       const tool = getTool('advance_surgery_request');
       const result = await tool.execute(
@@ -285,8 +328,8 @@ describe('ActionTools', () => {
         baseContext,
       );
 
-      expect(mockWorkflowService.confirmReceipt).toHaveBeenCalled();
-      expect(result).toContain('Finalizada');
+      expect(result).not.toContain('`confirm_date`');
+      expect(result).toContain('selectedDateIndex');
     });
   });
 

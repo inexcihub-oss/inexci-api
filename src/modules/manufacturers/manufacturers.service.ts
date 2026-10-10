@@ -1,14 +1,14 @@
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
-import { FindOptionsWhere, In } from 'typeorm';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { FindOptionsWhere } from 'typeorm';
 import { Manufacturer } from 'src/database/entities/manufacturer.entity';
 import { ManufacturerRepository } from 'src/database/repositories/manufacturer.repository';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import {
+  bulkDeleteOwned,
+  createOrRestoreByName,
+  findOwnedOrFail,
+  resolveCatalogOwnerId,
+} from 'src/shared/catalog/owned-catalog.helpers';
 import { FindManyManufacturerDto } from './dto/find-many-manufacturer.dto';
 import { UpdateManufacturerDto } from './dto/update-manufacturer.dto';
 import { CreateManufacturerDto } from './dto/create-manufacturer.dto';
@@ -37,15 +37,8 @@ export class ManufacturersService {
     return { total, records };
   }
 
-  async findById(id: string, userId: string): Promise<Manufacturer> {
-    const manufacturer = await this.manufacturerRepository.findOne({ id });
-    if (!manufacturer) throw new NotFoundException('Fabricante não encontrado');
-
-    await this.accessControlService.assertSameOwner(
-      userId,
-      manufacturer.ownerId,
-    );
-    return manufacturer;
+  findById(id: string, userId: string): Promise<Manufacturer> {
+    return this.findOwned(id, userId);
   }
 
   private assertNaoEGenerico(registro: { isGeneric?: boolean }): void {
@@ -61,14 +54,8 @@ export class ManufacturersService {
     data: UpdateManufacturerDto,
     userId: string,
   ): Promise<Manufacturer> {
-    const manufacturer = await this.manufacturerRepository.findOne({ id });
-    if (!manufacturer) throw new NotFoundException('Fabricante não encontrado');
-
-    await this.accessControlService.assertSameOwner(
-      userId,
-      manufacturer.ownerId,
-    );
-    this.assertNaoEGenerico(manufacturer);
+    const registro = await this.findOwned(id, userId);
+    this.assertNaoEGenerico(registro);
     return (await this.manufacturerRepository.update(id, data))!;
   }
 
@@ -76,50 +63,24 @@ export class ManufacturersService {
     data: CreateManufacturerDto,
     userId: string,
   ): Promise<Manufacturer> {
-    const ownerId = await this.accessControlService.getOwnerId(userId);
-    if (!ownerId) {
-      throw new ForbiddenException('Usuário sem clínica vinculada.');
-    }
+    const ownerId = await resolveCatalogOwnerId(
+      this.accessControlService,
+      userId,
+    );
 
-    const existingIncludingDeleted =
-      await this.manufacturerRepository.findByNameIncludingDeleted(
-        ownerId,
-        data.name,
-      );
-
-    if (existingIncludingDeleted && !existingIncludingDeleted.deletedAt) {
-      throw new ConflictException(
-        `Já existe um fabricante com o nome "${data.name.trim()}".`,
-      );
-    }
-
-    if (existingIncludingDeleted?.deletedAt) {
-      await this.manufacturerRepository.restore(existingIncludingDeleted.id);
-      const restored = await this.manufacturerRepository.update(
-        existingIncludingDeleted.id,
-        data,
-      );
-      this.logger.log(
-        `Fabricante restaurado após soft delete: id=${existingIncludingDeleted.id}`,
-      );
-      return restored!;
-    }
-
-    return this.manufacturerRepository.create({
-      ...data,
+    return createOrRestoreByName({
+      repository: this.manufacturerRepository,
       ownerId,
+      data,
+      conflictMessage: (nome) =>
+        `Já existe um fabricante com o nome "${nome}".`,
+      logger: this.logger,
     });
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    const manufacturer = await this.manufacturerRepository.findOne({ id });
-    if (!manufacturer) throw new NotFoundException('Fabricante não encontrado');
-
-    await this.accessControlService.assertSameOwner(
-      userId,
-      manufacturer.ownerId,
-    );
-    this.assertNaoEGenerico(manufacturer);
+    const registro = await this.findOwned(id, userId);
+    this.assertNaoEGenerico(registro);
     await this.manufacturerRepository.softDelete(id);
     this.logger.log(`Fabricante soft-deleted: id=${id}`);
   }
@@ -128,31 +89,30 @@ export class ManufacturersService {
     ids: string[],
     userId: string,
   ): Promise<{ deleted: number }> {
-    const ownerId = await this.accessControlService.getOwnerId(userId);
-
-    if (!ownerId) {
-      throw new ForbiddenException('Usuário sem clínica vinculada.');
-    }
-
-    const uniqueIds = [...new Set(ids)];
-    const manufacturers = await this.manufacturerRepository.findMany({
-      id: In(uniqueIds),
-      ownerId,
-    });
-
-    if (manufacturers.length !== uniqueIds.length) {
-      throw new NotFoundException(
-        'Um ou mais fabricantes não foram encontrados.',
-      );
-    }
-
-    manufacturers.forEach((registro) => this.assertNaoEGenerico(registro));
-
-    await this.manufacturerRepository.bulkSoftDelete(uniqueIds);
-    this.logger.log(
-      `Fabricantes soft-deleted em lote: total=${uniqueIds.length}`,
+    const ownerId = await resolveCatalogOwnerId(
+      this.accessControlService,
+      userId,
     );
+    const result = await bulkDeleteOwned({
+      repository: this.manufacturerRepository,
+      ids,
+      ownerId,
+      notFoundMessage: 'Um ou mais fabricantes não foram encontrados.',
+      guard: (registro) => this.assertNaoEGenerico(registro),
+    });
+    this.logger.log(
+      `Fabricantes soft-deleted em lote: total=${result.deleted}`,
+    );
+    return result;
+  }
 
-    return { deleted: uniqueIds.length };
+  private findOwned(id: string, userId: string): Promise<Manufacturer> {
+    return findOwnedOrFail(
+      this.manufacturerRepository,
+      this.accessControlService,
+      id,
+      userId,
+      'Fabricante não encontrado',
+    );
   }
 }

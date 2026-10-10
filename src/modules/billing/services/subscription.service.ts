@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 
 import { SubscriptionRepository } from 'src/database/repositories/subscription.repository';
 import { SubscriptionPlanRepository } from 'src/database/repositories/subscription-plan.repository';
@@ -28,6 +29,9 @@ import {
 } from 'src/shared/payment-gateway/payment-gateway.types';
 
 const TRIAL_END_ANTECEDENCIA_MINIMA_MS = 48 * 60 * 60 * 1000;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export const PAST_DUE_GRACE_DAYS = 7;
 
 @Injectable()
 export class SubscriptionService {
@@ -132,8 +136,7 @@ export class SubscriptionService {
       daysLeftInTrial = Math.max(
         0,
         Math.ceil(
-          (subscription.trialEndsAt.getTime() - now.getTime()) /
-            (1000 * 60 * 60 * 24),
+          (subscription.trialEndsAt.getTime() - now.getTime()) / MS_PER_DAY,
         ),
       );
     }
@@ -143,12 +146,10 @@ export class SubscriptionService {
       subscription.status === SubscriptionStatus.PAST_DUE &&
       subscription.pastDueSince
     ) {
-      const suspensionDate = this.addDays(subscription.pastDueSince, 7);
+      const suspensionDate = this.suspensionDateFor(subscription.pastDueSince);
       daysUntilSuspension = Math.max(
         0,
-        Math.ceil(
-          (suspensionDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
-        ),
+        Math.ceil((suspensionDate.getTime() - now.getTime()) / MS_PER_DAY),
       );
     }
 
@@ -249,7 +250,12 @@ export class SubscriptionService {
   async markPastDue(subscriptionId: string, at: Date): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
     if (!sub) return;
-    if (sub.status === SubscriptionStatus.PAST_DUE) return;
+    if (
+      sub.status === SubscriptionStatus.PAST_DUE ||
+      sub.status === SubscriptionStatus.SUSPENDED
+    ) {
+      return;
+    }
     await this.subscriptionRepo.update(subscriptionId, {
       status: SubscriptionStatus.PAST_DUE,
       pastDueSince: at,
@@ -275,6 +281,54 @@ export class SubscriptionService {
     });
   }
 
+  @Cron('0 5 * * *', { timeZone: 'America/Sao_Paulo' })
+  async handleSuspensionCron(): Promise<void> {
+    try {
+      const suspended = await this.suspendOverduePastDue();
+      if (suspended > 0) {
+        this.logger.log(
+          `[suspension] ${suspended} assinatura(s) suspensa(s) por inadimplência`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `[suspension] falha no cron de suspensão: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  async suspendOverduePastDue(now: Date = new Date()): Promise<number> {
+    const pastDue = await this.subscriptionRepo.findPastDue();
+    let suspended = 0;
+
+    for (const sub of pastDue) {
+      try {
+        if (!sub.pastDueSince) {
+          await this.subscriptionRepo.update(sub.id, { pastDueSince: now });
+          continue;
+        }
+        if (this.suspensionDateFor(sub.pastDueSince) > now) continue;
+
+        await this.suspend(sub.id, now);
+        suspended++;
+      } catch (err) {
+        this.logger.warn(
+          `[suspension] falha ao suspender subscription=${sub.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    return suspended;
+  }
+
+  private suspensionDateFor(pastDueSince: Date): Date {
+    return this.addDays(pastDueSince, PAST_DUE_GRACE_DAYS);
+  }
+
   async cancelImmediately(subscriptionId: string): Promise<void> {
     const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
     if (!sub) return;
@@ -282,32 +336,6 @@ export class SubscriptionService {
       status: SubscriptionStatus.CANCELED,
       canceledAt: new Date(),
       cancelAtPeriodEnd: false,
-    });
-  }
-
-  async advanceBillingPeriod(subscriptionId: string): Promise<void> {
-    const sub = await this.subscriptionRepo.findOne({ id: subscriptionId });
-    if (!sub) return;
-
-    const plan = await this.planRepo.findOne({ id: sub.planId });
-    if (!plan) return;
-
-    const periodStart = sub.currentPeriodEnd;
-    const periodEnd = this.addBillingPeriod(periodStart, plan.billingPeriod);
-
-    await this.subscriptionRepo.update(subscriptionId, {
-      status: SubscriptionStatus.ACTIVE,
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-      pastDueSince: null,
-    });
-
-    await this.quotaPeriodRepo.create({
-      subscriptionId,
-      periodStart,
-      periodEnd,
-      surgeryRequestsLimit: plan.surgeryRequestQuota,
-      surgeryRequestsUsed: 0,
     });
   }
 
@@ -426,8 +454,13 @@ export class SubscriptionService {
       expired: SubscriptionStatus.CANCELED,
       incomplete: SubscriptionStatus.PAST_DUE,
     };
-    const newStatus =
+    const gatewayStatus =
       statusMap[gatewaySub.status] ?? SubscriptionStatus.PAST_DUE;
+    const newStatus =
+      gatewayStatus === SubscriptionStatus.PAST_DUE &&
+      local.status === SubscriptionStatus.SUSPENDED
+        ? SubscriptionStatus.SUSPENDED
+        : gatewayStatus;
 
     let newPlanId: string | undefined;
     if (gatewaySub.priceId) {
@@ -453,6 +486,9 @@ export class SubscriptionService {
       ...(gatewaySub.canceledAt ? { canceledAt: gatewaySub.canceledAt } : {}),
       ...(newStatus === SubscriptionStatus.ACTIVE
         ? { pastDueSince: null, suspendedAt: null }
+        : {}),
+      ...(newStatus === SubscriptionStatus.PAST_DUE && !local.pastDueSince
+        ? { pastDueSince: new Date() }
         : {}),
     });
 
@@ -522,16 +558,6 @@ export class SubscriptionService {
     return d;
   }
 
-  private addBillingPeriod(
-    date: Date,
-    period: SubscriptionPlan['billingPeriod'],
-  ): Date {
-    const d = new Date(date);
-    if (period === 'YEARLY') d.setUTCFullYear(d.getUTCFullYear() + 1);
-    else d.setUTCMonth(d.getUTCMonth() + 1);
-    return d;
-  }
-
   async ensureGatewayCustomer(ownerId: string): Promise<string> {
     const sub = await this.subscriptionRepo.findByOwnerId(ownerId);
     if (!sub) throw new NotFoundException('Assinatura não encontrada');
@@ -564,10 +590,6 @@ export class SubscriptionService {
     });
 
     return customer.id;
-  }
-
-  async assertIsOwner(userId: string) {
-    return this.assertOwner(userId);
   }
 
   async findByOwnerId(ownerId: string): Promise<Subscription | null> {

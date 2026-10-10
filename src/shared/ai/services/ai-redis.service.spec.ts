@@ -125,17 +125,6 @@ describe('AiRedisService', () => {
     });
   });
 
-  describe('setFlag / hasFlag', () => {
-    it('deve retornar false quando flag não existe', async () => {
-      expect(await service.hasFlag('clear:phone')).toBe(false);
-    });
-
-    it('deve setar e verificar flag', async () => {
-      await service.setFlag('clear:phone', 300);
-      expect(await service.hasFlag('clear:phone')).toBe(true);
-    });
-  });
-
   describe('fallback quando Redis indisponível', () => {
     beforeEach(() => {
       (service as any).redis = null;
@@ -155,14 +144,6 @@ describe('AiRedisService', () => {
 
     it('cacheDelete não deve lançar erro', async () => {
       await expect(service.cacheDelete('k')).resolves.toBeUndefined();
-    });
-
-    it('hasFlag deve retornar false', async () => {
-      expect(await service.hasFlag('any')).toBe(false);
-    });
-
-    it('setFlag não deve lançar erro', async () => {
-      await expect(service.setFlag('k', 60)).resolves.toBeUndefined();
     });
   });
 });

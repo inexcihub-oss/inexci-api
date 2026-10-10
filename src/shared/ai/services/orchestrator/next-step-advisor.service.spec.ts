@@ -2,6 +2,8 @@ import { NextStepAdvisorService } from './next-step-advisor.service';
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { PendencyValidatorService } from '../../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { ToolContext } from '../../tools/tool.interface';
+import { ToolRegistryService } from '../tool-registry.service';
+import { buildToolResult } from '../../tools/tool-result';
 
 const makeContext = (doctorIds: string[] = ['doctor-1']): ToolContext =>
   ({
@@ -18,6 +20,7 @@ describe('NextStepAdvisorService', () => {
   let pendencyValidator: jest.Mocked<
     Pick<PendencyValidatorService, 'validateForStatus'>
   >;
+  let toolRegistry: { getTool: jest.Mock };
 
   beforeEach(() => {
     surgeryRequestRepo = {
@@ -26,9 +29,22 @@ describe('NextStepAdvisorService', () => {
     pendencyValidator = {
       validateForStatus: jest.fn(),
     };
+    const mutating = new Set([
+      'set_hospital',
+      'manage_tuss_items',
+      'update_sc_draft_commit',
+    ]);
+    toolRegistry = {
+      getTool: jest.fn((name: string) =>
+        name === 'list_patients' || mutating.has(name)
+          ? { name, mutates: mutating.has(name) }
+          : undefined,
+      ),
+    };
     service = new NextStepAdvisorService(
       surgeryRequestRepo as unknown as SurgeryRequestRepository,
       pendencyValidator as unknown as PendencyValidatorService,
+      toolRegistry as unknown as ToolRegistryService,
     );
   });
 
@@ -150,6 +166,85 @@ describe('NextStepAdvisorService', () => {
 
       expect(result).toBe('Hospital vinculado com sucesso.');
       expect(pendencyValidator.validateForStatus).not.toHaveBeenCalled();
+    });
+
+    it('reconhece mutação pelo metadado `mutates` (manage_tuss_items, antes ausente da lista)', async () => {
+      surgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: 'req-1',
+        doctorId: 'doctor-1',
+      } as any);
+      pendencyValidator.validateForStatus.mockResolvedValue({
+        pendencies: [
+          {
+            isComplete: false,
+            isOptional: false,
+            key: 'opme_items',
+            name: 'OPME',
+            checkItems: [{ label: 'Cadastrar item OPME', done: false }],
+          },
+        ],
+      } as any);
+
+      const result = await service.appendNextStep(
+        'manage_tuss_items',
+        { confirm: true, surgeryRequestId: 'req-1' },
+        buildToolResult({ status: 'ok', message: 'Item TUSS adicionado.' }),
+        makeContext(),
+      );
+
+      expect(result).toContain('Pendência atual: OPME');
+      expect(result).toContain('manage_opme_items');
+      expect(result).not.toContain('add_opme_item');
+    });
+
+    it('usa o `affected` do envelope em commits de draft (args só têm confirm)', async () => {
+      surgeryRequestRepo.findOneSimple.mockResolvedValue({
+        id: '11111111-1111-1111-1111-111111111111',
+        doctorId: 'doctor-1',
+      } as any);
+      pendencyValidator.validateForStatus.mockResolvedValue({
+        pendencies: [
+          {
+            isComplete: false,
+            isOptional: false,
+            key: 'tuss_procedures',
+            name: 'Procedimentos TUSS',
+          },
+        ],
+      } as any);
+
+      const result = await service.appendNextStep(
+        'update_sc_draft_commit',
+        { confirm: true },
+        buildToolResult({
+          status: 'ok',
+          message: 'Atualização aplicada.',
+          affected: [
+            {
+              kind: 'surgery_request',
+              id: '11111111-1111-1111-1111-111111111111',
+            },
+          ],
+        }),
+        makeContext(),
+      );
+
+      expect(result).toContain('manage_tuss_items');
+      expect(result).not.toContain('add_tuss_item');
+    });
+
+    it('ignora envelope com status diferente de ok', async () => {
+      const output = buildToolResult({
+        status: 'pending_confirmation',
+        message: 'Confirme com "sim".',
+      });
+      const result = await service.appendNextStep(
+        'manage_tuss_items',
+        { confirm: true, surgeryRequestId: 'req-1' },
+        output,
+        makeContext(),
+      );
+      expect(result).toBe(output);
     });
   });
 });

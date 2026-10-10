@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
@@ -117,4 +117,23 @@ export class SurgeryRequestStateMachine {
       });
     }
   }
+
+  assertStatus(
+    request: Pick<SurgeryRequest, 'status'>,
+    expected: SurgeryRequestStatus,
+    message: string,
+  ): void {
+    if (request.status === expected) return;
+    throw new BadRequestException({
+      message,
+      pendencies: [message],
+    });
+  }
+}
+
+export const STALE_TRANSITION_MESSAGE =
+  'A solicitação foi alterada por outra ação enquanto esta era processada. Atualize a página e tente novamente.';
+
+export function assertTransitionApplied(applied: boolean): void {
+  if (!applied) throw new ConflictException(STALE_TRANSITION_MESSAGE);
 }

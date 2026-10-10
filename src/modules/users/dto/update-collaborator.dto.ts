@@ -34,12 +34,6 @@ export class UpdateCollaboratorDto {
   @IsEnum(ProfessionalCouncil)
   council?: ProfessionalCouncil;
 
-  /**
-   * Número/UF no conselho. Opcionais aqui: quem valida é o
-   * `UsersService.updateCollaborator`, sobre o estado FINAL do perfil (o que
-   * já está gravado + o que veio no corpo) — CRM exige os dois, os demais
-   * conselhos não.
-   */
   @IsOptional()
   @IsString()
   crm?: string;
@@ -76,17 +70,6 @@ export class UpdateCollaboratorDto {
   @IsOptional()
   state?: string;
 
-  /**
-   * Áreas concedidas ao colaborador. `undefined` = não mexer no que já está
-   * gravado; `[]` = retirar todas. `role` não é aceito por este DTO.
-   *
-   * `@ValidateIf` (não `@IsOptional`) de propósito: `IsOptional` também
-   * pula a validação para `null`, e o service trata `null` como "mexeu"
-   * (`!== undefined`) — um `permissions: null` explícito no corpo iria
-   * direto para a coluna `text[] NOT NULL` e estouraria a constraint do
-   * banco (500). Com `ValidateIf`, só `undefined` pula a validação; `null`
-   * cai em `@IsArray()` e vira 400 pela `ValidationPipe` global.
-   */
   @IsArray()
   @IsEnum(Permission, { each: true })
   @ValidateIf((o) => o.permissions !== undefined)

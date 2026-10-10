@@ -14,7 +14,6 @@ export class CreateDocumentDto {
   @IsNotEmpty()
   name: string;
 
-  /** Pasta de destino no bucket. */
   @IsString()
   @IsNotEmpty()
   @IsIn(Object.values(STORAGE_FOLDERS))

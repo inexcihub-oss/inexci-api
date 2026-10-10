@@ -11,7 +11,7 @@ describe('ConsentService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    service = new ConsentService(userRepoMock as any);
+    service = new ConsentService(userRepoMock as never);
   });
 
   describe('getStatus', () => {

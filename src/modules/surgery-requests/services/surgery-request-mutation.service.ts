@@ -1,4 +1,4 @@
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import {
@@ -10,30 +10,54 @@ import {
 
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { DoctorResolutionService } from 'src/shared/services/doctor-resolution.service';
-import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
-import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
+import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import {
   SurgeryRequest,
-  SurgeryRequestPriority,
   SurgeryRequestStatus,
 } from 'src/database/entities/surgery-request.entity';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { Hospital } from 'src/database/entities/hospital.entity';
 import { Patient } from 'src/database/entities/patient.entity';
+import { Procedure } from 'src/database/entities/procedure.entity';
 import {
   SurgeryRequestActivity,
   ActivityType,
 } from 'src/database/entities/surgery-request-activity.entity';
-import { CreateSurgeryRequestDto } from '../dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from '../dto/create-surgery-request-simple.dto';
 import { UpdateSurgeryRequestDto } from '../dto/update-surgery-request.dto';
 import { UpdateSurgeryRequestBasicDto } from '../dto/update-surgery-request-basic.dto';
 import { SurgeryRequestRealtimeService } from '../realtime/surgery-request-realtime.service';
+
+export interface SurgeryRequestReferences {
+  patientId?: string | null;
+  hospitalId?: string | null;
+  healthPlanId?: string | null;
+  procedureId?: string | null;
+}
+
+const REFERENCE_CHECKS: Array<{
+  key: keyof SurgeryRequestReferences;
+  entity: new () => { id: string; ownerId: string };
+  notFound: string;
+}> = [
+  { key: 'patientId', entity: Patient, notFound: 'Paciente não encontrado' },
+  { key: 'hospitalId', entity: Hospital, notFound: 'Hospital não encontrado' },
+  {
+    key: 'healthPlanId',
+    entity: HealthPlan,
+    notFound: 'Convênio não encontrado',
+  },
+  {
+    key: 'procedureId',
+    entity: Procedure,
+    notFound: 'Procedimento não encontrado',
+  },
+];
 
 @Injectable()
 export class SurgeryRequestMutationService {
@@ -43,14 +67,13 @@ export class SurgeryRequestMutationService {
     private readonly dataSource: DataSource,
     private readonly accessControlService: AccessControlService,
     private readonly doctorResolutionService: DoctorResolutionService,
-    private readonly whatsappService: WhatsappService,
     private readonly userRepository: UserRepository,
     private readonly patientRepository: PatientRepository,
     private readonly hospitalRepository: HospitalRepository,
     private readonly healthPlanRepository: HealthPlanRepository,
-    private readonly procedureRepository: ProcedureRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly realtimeService: SurgeryRequestRealtimeService,
+    private readonly tussItemRepository: SurgeryRequestTussItemRepository,
   ) {}
 
   resolveDoctorId(
@@ -63,172 +86,103 @@ export class SurgeryRequestMutationService {
     );
   }
 
-  async create(data: CreateSurgeryRequestDto, userId: string) {
-    this.logger.log(
-      `[create] Criando solicitação cirúrgica completa por usuário ${userId}`,
-    );
-    const doctorId = await this.resolveDoctorId(userId);
-    const ownerId = await this.accessControlService.getOwnerId(userId);
-
-    if (!data.isIndication && data.procedureId) {
-      await this.assertProcedureBelongsToOwner(data.procedureId, ownerId);
+  async assertBelongsToOwner(
+    refs: SurgeryRequestReferences,
+    ownerId: string,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<void> {
+    for (const check of REFERENCE_CHECKS) {
+      const id = refs[check.key];
+      if (!id) continue;
+      const found = await manager.getRepository(check.entity).findOne({
+        where: { id },
+        select: ['id', 'ownerId'],
+      });
+      if (!found || found.ownerId !== ownerId) {
+        throw new NotFoundException(check.notFound);
+      }
     }
-
-    const result = await executeInTransaction(
-      this.dataSource,
-      async (manager) => {
-        const patientRepo = manager.getRepository(Patient);
-        const healthPlanRepo = manager.getRepository(HealthPlan);
-        const hospitalRepo = manager.getRepository(Hospital);
-        const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-
-        let patient = await patientRepo.findOne({
-          where: { email: data.patient.email, doctorId: doctorId },
-        });
-        if (!patient) {
-          patient = await patientRepo.save({
-            doctorId: doctorId,
-            ownerId,
-            name: data.patient.name,
-            email: data.patient.email,
-            phone: data.patient.phone,
-          });
-        }
-
-        const healthPlan = await this.resolveHealthPlan(
-          data.healthPlan,
-          doctorId,
-          {
-            findOne: (w) => healthPlanRepo.findOne({ where: w }),
-            save: (d) => healthPlanRepo.save(d),
-          },
-          ownerId,
-        );
-
-        let hospital = null;
-        if (data.hospital?.name) {
-          hospital = await this.resolveHospital(
-            data.hospital,
-            doctorId,
-            {
-              findOne: (w) => hospitalRepo.findOne({ where: w }),
-              save: (d) => hospitalRepo.save(d),
-            },
-            ownerId,
-          );
-        }
-
-        const newRequest = await surgeryRequestRepo.save({
-          doctorId: doctorId,
-          ownerId,
-          createdById: userId,
-          patientId: patient.id,
-          hospitalId: hospital?.id || null,
-          status: SurgeryRequestStatus.PENDING,
-          isIndication: data.isIndication,
-          indicationName: data.indicationName,
-          healthPlanId: healthPlan.id,
-          priority: data.priority || SurgeryRequestPriority.MEDIUM,
-          procedureId:
-            !data.isIndication && data.procedureId ? data.procedureId : null,
-          lastStatusChangedAt: new Date(),
-        });
-
-        const activityRepo = manager.getRepository(SurgeryRequestActivity);
-        await activityRepo.save({
-          surgeryRequestId: newRequest.id,
-          userId: userId,
-          type: ActivityType.SYSTEM,
-          content: 'Solicitação cirúrgica criada',
-        });
-
-        return { request: newRequest, patient };
-      },
-      { logger: this.logger, operationName: 'create' },
-    );
-
-    this.logger.log(
-      `[create] Solicitação ${result.request.id} criada com sucesso`,
-    );
-    await this.realtimeService.broadcastChange(
-      result.request.id,
-      'created',
-      userId,
-    );
-    return result.request;
   }
 
   async createSurgeryRequest(
     data: CreateSurgeryRequestSimpleDto,
     userId: string,
-  ) {
+    options: { manager?: EntityManager } = {},
+  ): Promise<SurgeryRequest> {
     this.logger.log(
       `[createSurgeryRequest] Criando solicitação simplificada por usuário ${userId}`,
     );
     const doctorId = await this.resolveDoctorId(userId, data.doctorId);
     const ownerId = await this.accessControlService.getOwnerId(userId);
 
-    if (data.procedureId) {
-      await this.assertProcedureBelongsToOwner(data.procedureId, ownerId);
-    }
-
-    const newRequest = await executeInTransaction(
-      this.dataSource,
-      async (manager) => {
-        const surgeryRequestRepo = manager.getRepository(SurgeryRequest);
-
-        const request = await surgeryRequestRepo.save({
-          doctorId: doctorId,
-          ownerId,
-          createdById: userId,
+    const persist = async (manager: EntityManager) => {
+      await this.assertBelongsToOwner(
+        {
           patientId: data.patientId,
-          hospitalId: data.hospitalId || null,
-          status: SurgeryRequestStatus.PENDING,
-          isIndication: false,
-          healthPlanId: data.healthPlanId || null,
-          healthPlanRegistration: data.healthPlanRegistration?.trim() || null,
-          priority: data.priority,
-          procedureId: data.procedureId || null,
-          requiredDocuments: data.requiredDocuments?.length
-            ? data.requiredDocuments
-            : null,
-          lastStatusChangedAt: new Date(),
-        });
+          hospitalId: data.hospitalId,
+          healthPlanId: data.healthPlanId,
+          procedureId: data.procedureId,
+        },
+        ownerId,
+        manager,
+      );
 
-        const activityRepo = manager.getRepository(SurgeryRequestActivity);
-        await activityRepo.save({
-          surgeryRequestId: request.id,
-          userId: userId,
-          type: ActivityType.SYSTEM,
-          content: 'Solicitação cirúrgica criada',
-        });
+      const request = await manager.getRepository(SurgeryRequest).save({
+        doctorId,
+        ownerId,
+        createdById: userId,
+        patientId: data.patientId,
+        hospitalId: data.hospitalId || null,
+        status: SurgeryRequestStatus.PENDING,
+        isIndication: false,
+        healthPlanId: data.healthPlanId || null,
+        healthPlanRegistration: data.healthPlanRegistration?.trim() || null,
+        priority: data.priority,
+        procedureId: data.procedureId || null,
+        requiredDocuments: data.requiredDocuments?.length
+          ? data.requiredDocuments
+          : null,
+        lastStatusChangedAt: new Date(),
+      });
 
-        return request;
-      },
-      { logger: this.logger, operationName: 'createSurgeryRequest' },
-    );
+      await manager.getRepository(SurgeryRequestActivity).save({
+        surgeryRequestId: request.id,
+        userId,
+        type: ActivityType.SYSTEM,
+        content: 'Solicitação cirúrgica criada',
+      });
 
-    await this.realtimeService.broadcastChange(
-      newRequest.id,
+      return request;
+    };
+
+    if (options.manager) return persist(options.manager);
+
+    const newRequest = await executeInTransaction(this.dataSource, persist, {
+      logger: this.logger,
+      operationName: 'createSurgeryRequest',
+    });
+    await this.broadcastCreated(newRequest.id, userId);
+    return newRequest;
+  }
+
+  broadcastCreated(surgeryRequestId: string, userId: string): Promise<void> {
+    return this.realtimeService.broadcastChange(
+      surgeryRequestId,
       'created',
       userId,
     );
-    return newRequest;
   }
 
   async update(data: UpdateSurgeryRequestDto, userId: string) {
     const surgeryRequest = await this.findWithAccess(data.id, userId);
 
-    const doctorId = surgeryRequest.doctorId;
     let hospitalId: string | null = surgeryRequest.hospitalId;
 
     if (data.hospital === null) {
       hospitalId = null;
     } else if (data.hospital?.name) {
-      const hospital = await this.resolveHospital(
+      const hospital = await this.findOrCreateHospitalByName(
         data.hospital,
-        doctorId,
-        this.hospitalRepository,
         surgeryRequest.ownerId,
       );
       hospitalId = hospital.id;
@@ -238,23 +192,19 @@ export class SurgeryRequestMutationService {
     if (data.healthPlan === null) {
       healthPlanId = null;
     } else if (data.healthPlan?.name) {
-      const healthPlan = await this.resolveHealthPlan(
+      const healthPlan = await this.findOrCreateHealthPlanByName(
         data.healthPlan,
-        doctorId,
-        this.healthPlanRepository,
         surgeryRequest.ownerId,
       );
       healthPlanId = healthPlan.id;
     }
 
-    if (data.procedureId) {
-      await this.assertProcedureBelongsToOwner(
-        data.procedureId,
-        surgeryRequest.ownerId,
-      );
-    }
+    await this.assertBelongsToOwner(
+      { procedureId: data.procedureId },
+      surgeryRequest.ownerId,
+    );
 
-    const { id, hospital: _h, healthPlan, cid, ...validData } = data;
+    const { id: _id, hospital: _h, healthPlan: _hp, cid, ...validData } = data;
     const cidData: { cidCode?: string | null } = {};
     if (cid === null) {
       cidData.cidCode = null;
@@ -264,8 +214,8 @@ export class SurgeryRequestMutationService {
 
     await this.surgeryRequestRepository.update(data.id, {
       ...validData,
-      hospitalId: hospitalId,
-      healthPlanId: healthPlanId,
+      hospitalId,
+      healthPlanId,
       ...cidData,
     });
 
@@ -273,14 +223,13 @@ export class SurgeryRequestMutationService {
       data.healthPlanRegistration !== undefined ||
       data.healthPlan !== undefined;
     if (shouldSyncPatientInsurance && surgeryRequest.patientId) {
-      const ownerId = await this.accessControlService.getOwnerId(userId);
       const registration =
         data.healthPlanRegistration !== undefined
           ? data.healthPlanRegistration?.trim() || null
           : surgeryRequest.healthPlanRegistration?.trim() || null;
       await this.syncPatientInsuranceFromSc({
         patientId: surgeryRequest.patientId,
-        ownerId,
+        ownerId: surgeryRequest.ownerId,
         healthPlanId,
         healthPlanNumber: registration,
       });
@@ -296,14 +245,7 @@ export class SurgeryRequestMutationService {
     healthPlanId: string | null;
     healthPlanNumber: string | null;
   }): Promise<void> {
-    const updateData: Partial<Patient> = {};
-    if (input.healthPlanId) {
-      updateData.healthPlanId = input.healthPlanId;
-    }
-    if (input.healthPlanNumber) {
-      updateData.healthPlanNumber = input.healthPlanNumber;
-    }
-    if (Object.keys(updateData).length === 0) return;
+    if (!input.healthPlanId && !input.healthPlanNumber) return;
 
     const patient = await this.patientRepository.findOne({
       id: input.patientId,
@@ -312,17 +254,14 @@ export class SurgeryRequestMutationService {
     if (!patient) return;
 
     const patch: Partial<Patient> = {};
-    if (
-      updateData.healthPlanId &&
-      patient.healthPlanId !== updateData.healthPlanId
-    ) {
-      patch.healthPlanId = updateData.healthPlanId;
+    if (input.healthPlanId && patient.healthPlanId !== input.healthPlanId) {
+      patch.healthPlanId = input.healthPlanId;
     }
     if (
-      updateData.healthPlanNumber &&
-      patient.healthPlanNumber !== updateData.healthPlanNumber
+      input.healthPlanNumber &&
+      patient.healthPlanNumber !== input.healthPlanNumber
     ) {
-      patch.healthPlanNumber = updateData.healthPlanNumber;
+      patch.healthPlanNumber = input.healthPlanNumber;
     }
     if (Object.keys(patch).length === 0) return;
 
@@ -337,6 +276,11 @@ export class SurgeryRequestMutationService {
     }
 
     const surgeryRequest = await this.findWithAccess(data.id, userId);
+
+    await this.assertBelongsToOwner(
+      { hospitalId: data.hospitalId, healthPlanId: data.healthPlanId },
+      surgeryRequest.ownerId,
+    );
 
     const updateData: Partial<SurgeryRequest> = {};
     if (data.priority !== undefined) updateData.priority = data.priority;
@@ -368,23 +312,43 @@ export class SurgeryRequestMutationService {
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
-    const _surgeryRequest = await this.findWithAccess(id, userId);
+    await this.findWithAccess(id, userId);
 
-    await this.surgeryRequestRepository.update(id, { hasOpme: hasOpme });
+    await this.surgeryRequestRepository.update(id, { hasOpme });
     await this.realtimeService.broadcastChange(id, 'updated', userId);
     return this.surgeryRequestRepository.findOneSimple({ id });
   }
 
-  private async assertProcedureBelongsToOwner(
-    procedureId: string,
-    ownerId: string,
-  ): Promise<void> {
-    const procedure = await this.procedureRepository.findOne({
-      id: procedureId,
+  async addTussItem(
+    surgeryRequestId: string,
+    data: { tussCode: string; name: string; quantity: number },
+    userId: string,
+  ) {
+    await this.findWithAccess(surgeryRequestId, userId);
+    return this.tussItemRepository.create({
+      surgeryRequestId,
+      tussCode: data.tussCode,
+      name: data.name,
+      quantity: data.quantity,
     });
-    if (!procedure || procedure.ownerId !== ownerId) {
-      throw new NotFoundException('Procedimento não encontrado');
-    }
+  }
+
+  async updateTussItem(
+    tussItemId: string,
+    data: { tussCode?: string; name?: string; quantity?: number },
+    userId: string,
+  ) {
+    const item = await this.tussItemRepository.findOne({ id: tussItemId });
+    if (!item) throw new NotFoundException('Item TUSS não encontrado.');
+    await this.findWithAccess(item.surgeryRequestId, userId);
+    return this.tussItemRepository.update(tussItemId, data);
+  }
+
+  async removeTussItem(tussItemId: string, userId: string) {
+    const item = await this.tussItemRepository.findOne({ id: tussItemId });
+    if (!item) throw new NotFoundException('Item TUSS não encontrado.');
+    await this.findWithAccess(item.surgeryRequestId, userId);
+    return this.tussItemRepository.deleteById(tussItemId);
   }
 
   private async findWithAccess(
@@ -402,54 +366,36 @@ export class SurgeryRequestMutationService {
     return surgeryRequest;
   }
 
-  private async resolveHealthPlan(
+  private async findOrCreateHealthPlanByName(
     data: { name: string; email?: string; phone?: string },
-    doctorId: string,
-    repo: {
-      findOne: (w: any) => Promise<HealthPlan | null>;
-      save?: (d: any) => Promise<HealthPlan>;
-      create?: (d: any) => Promise<HealthPlan>;
-    },
     ownerId: string,
   ): Promise<HealthPlan> {
-    let entity = await repo.findOne({ name: data.name, ownerId });
-    if (!entity) {
-      const payload = {
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        doctorId: doctorId,
-        ownerId,
-      };
-      entity = repo.save
-        ? await repo.save(payload)
-        : await repo.create!(payload);
-    }
-    return entity!;
+    const existing = await this.healthPlanRepository.findOne({
+      name: data.name,
+      ownerId,
+    });
+    if (existing) return existing;
+    return this.healthPlanRepository.create({
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+      ownerId,
+    });
   }
 
-  private async resolveHospital(
+  private async findOrCreateHospitalByName(
     data: { name: string; email?: string },
-    doctorId: string,
-    repo: {
-      findOne: (w: any) => Promise<Hospital | null>;
-      save?: (d: any) => Promise<Hospital>;
-      create?: (d: any) => Promise<Hospital>;
-    },
     ownerId: string,
   ): Promise<Hospital> {
-    let entity = await repo.findOne({ name: data.name, ownerId });
-    if (!entity) {
-      const payload = {
-        name: data.name,
-        email: data.email,
-        doctorId: doctorId,
-        ownerId,
-      };
-      entity = repo.save
-        ? await repo.save(payload)
-        : await repo.create!(payload);
-    }
-    return entity!;
+    const existing = await this.hospitalRepository.findOne({
+      name: data.name,
+      ownerId,
+    });
+    if (existing) return existing;
+    return this.hospitalRepository.create({
+      name: data.name,
+      email: data.email,
+      ownerId,
+    });
   }
 }

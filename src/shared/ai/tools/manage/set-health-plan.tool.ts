@@ -1,15 +1,15 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   ensurePendingForMutation,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
   const {
@@ -22,6 +22,7 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'set_health_plan',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -103,12 +104,12 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
             message: `Erro ao remover convênio: ${err instanceof Error ? err.message : 'erro desconhecido'}.`,
           });
         }
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: '[WhatsApp IA] Convênio removido da solicitação.',
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          'Convênio removido da solicitação.',
+        );
         return buildToolResult({
           status: 'ok',
           message: `Convênio removido com sucesso da solicitação SC-${protocolToken}.`,
@@ -148,7 +149,7 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
           name: healthPlanName,
           ownerId: auth.request.ownerId,
         } as any);
-        if (!selected && entityResolver) {
+        if (!selected) {
           const candidates = await healthPlanRepo.findMany(
             { ownerId: auth.request.ownerId } as any,
             0,
@@ -209,12 +210,12 @@ export function buildSetHealthPlanTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Convênio definido para ${selected.name}.`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Convênio definido para ${selected.name}.`,
+      );
 
       return buildToolResult({
         status: 'ok',

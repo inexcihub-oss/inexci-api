@@ -1,7 +1,6 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bull';
-import { AI_TOOL } from './tools/tool.interface';
-import { aiToolsFactory, AI_TOOLS_INJECT } from './tools/ai-tools.module';
+import { aiToolsProvider } from './tools/ai-tools.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WhatsappConversation } from '../../database/entities/whatsapp-conversation.entity';
 import { WhatsappConversationMessage } from '../../database/entities/whatsapp-conversation-message.entity';
@@ -28,14 +27,13 @@ import { ProceduresModule } from '../../modules/procedures/procedures.module';
 import { OpmeModule } from '../../modules/surgery-requests/opme/opme.module';
 import { UsersModule } from '../../modules/users/users.module';
 import { DocumentsModule } from '../../modules/surgery-requests/documents/documents.module';
+import { OcrModule } from './ocr/ocr.module';
 import { AiOrchestratorService } from './services/ai-orchestrator.service';
-import { OpenaiService } from './services/openai.service';
 import { ConversationService } from './services/conversation.service';
 import { ConversationContextService } from './services/conversation-context.service';
 import { ConversationCleanupService } from './services/conversation-cleanup.service';
 import { ToolRegistryService } from './services/tool-registry.service';
 import { ToolExecutorService } from './services/tool-executor.service';
-import { PiiVaultService } from './services/pii-vault.service';
 import { UserAnonymizationService } from './services/user-anonymization.service';
 import { AiRedisService } from './services/ai-redis.service';
 import { EntityResolverService } from './services/entity-resolver.service';
@@ -46,10 +44,6 @@ import { AiMessageProcessor } from './ai-message.processor';
 import { TranscriptionService } from './transcription/transcription.service';
 import { FasterWhisperProvider } from './transcription/providers/faster-whisper.provider';
 import { OpenaiWhisperProvider } from './transcription/providers/openai-whisper.provider';
-import { OcrService } from './ocr/ocr.service';
-import { DocumentClassifierService } from './ocr/document-classifier.service';
-import { DocumentVisionFallbackService } from './ocr/document-vision-fallback.service';
-import { DocumentExtractionService } from './ocr/document-extraction.service';
 import { ResponseNormalizerService } from './services/orchestrator/response-normalizer.service';
 import { PhoneNormalizerService } from './services/orchestrator/phone-normalizer.service';
 import { ClearContextDetectorService } from './services/orchestrator/clear-context-detector.service';
@@ -77,7 +71,8 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     RagModule,
     WhatsappModule,
     AccessControlModule,
-    forwardRef(() => SurgeryRequestsModule),
+    OcrModule,
+    SurgeryRequestsModule,
     PendenciesModule,
     TussModule,
     CidModule,
@@ -96,18 +91,12 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     AiPiiRedactionLogRepository,
     AiTokenUsageLogRepository,
     WhatsappConversationMessageRepository,
-    {
-      provide: AI_TOOL,
-      useFactory: aiToolsFactory,
-      inject: AI_TOOLS_INJECT,
-    },
-    OpenaiService,
+    aiToolsProvider,
     ConversationService,
     ConversationContextService,
     ConversationCleanupService,
     ToolRegistryService,
     ToolExecutorService,
-    PiiVaultService,
     TranscriptionService,
     FasterWhisperProvider,
     OpenaiWhisperProvider,
@@ -118,10 +107,6 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     OperationDraftService,
     WhatsappDocumentDispatcherService,
     WhatsappDocumentProcessorService,
-    OcrService,
-    DocumentClassifierService,
-    DocumentVisionFallbackService,
-    DocumentExtractionService,
     ResponseNormalizerService,
     PhoneNormalizerService,
     ClearContextDetectorService,
@@ -137,6 +122,6 @@ import { DraftContextService } from './services/orchestrator/draft-context.servi
     DraftContextService,
     AiMessageProcessor,
   ],
-  exports: [AiOrchestratorService, DocumentExtractionService],
+  exports: [AiOrchestratorService],
 })
 export class AiModule {}

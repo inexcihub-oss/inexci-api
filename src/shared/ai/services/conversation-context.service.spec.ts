@@ -487,24 +487,4 @@ describe('ConversationContextService', () => {
       expect(trimmed[0].content).toBe('msg 15');
     });
   });
-
-  describe('enforceTokenBudget', () => {
-    it('corta na ordem rag → recent → summary', () => {
-      const blocks = [
-        { kind: 'system' as const, content: 's'.repeat(40) },
-        { kind: 'memory' as const, content: 'm'.repeat(40) },
-        { kind: 'summary' as const, content: 'r'.repeat(80) },
-        { kind: 'rag' as const, content: 'g'.repeat(200) },
-        { kind: 'recent' as const, content: 'a'.repeat(80) },
-        { kind: 'recent' as const, content: 'b'.repeat(80) },
-      ];
-      const { blocks: out, droppedKinds } = service.enforceTokenBudget(
-        blocks,
-        50,
-      );
-      expect(droppedKinds[0]).toBe('rag');
-      expect(out.find((b) => b.kind === 'system')).toBeDefined();
-      expect(out.find((b) => b.kind === 'memory')).toBeDefined();
-    });
-  });
 });

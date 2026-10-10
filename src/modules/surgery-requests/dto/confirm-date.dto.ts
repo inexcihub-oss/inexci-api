@@ -1,9 +1,5 @@
 import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 
-/**
- * POST /surgery-requests/:id/confirm-date
- * Transição: IN_SCHEDULING → SCHEDULED
- */
 export class ConfirmDateDto {
   @IsOptional()
   @IsBoolean()

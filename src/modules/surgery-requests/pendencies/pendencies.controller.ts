@@ -9,6 +9,7 @@ import { SurgeryRequestOwnerGuard } from 'src/shared/guards/surgery-request-owne
 import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
 import { Permission } from 'src/shared/permissions';
 import { PENDENCIES_CONFIG } from 'src/config/pendencies.config';
+import { AccessControlService } from 'src/shared/services/access-control.service';
 
 @ApiTags('Pendências')
 @ApiBearerAuth()
@@ -18,19 +19,9 @@ import { PENDENCIES_CONFIG } from 'src/config/pendencies.config';
 export class PendenciesController {
   constructor(
     private readonly pendencyValidatorService: PendencyValidatorService,
+    private readonly accessControlService: AccessControlService,
   ) {}
 
-  /**
-   * Requisitos ESTÁTICOS por status, direto do `pendencies.config.ts`.
-   *
-   * As demais rotas deste controller calculam pendências de UMA solicitação e
-   * exigem o id dela. O onboarding precisa da lista antes de existir
-   * solicitação alguma — e lê daqui em vez de repetir os rótulos na copy, para
-   * que mudar uma pendência no config mude o tour junto.
-   *
-   * O `SurgeryRequestOwnerGuard` de classe não interfere: sem `:id` nem
-   * `:surgeryRequestId` nos params, ele devolve `true` sem consultar nada.
-   */
   @Get('requirements')
   @ApiOperation({ summary: 'Requisitos estáticos por status (onboarding).' })
   getRequirements() {
@@ -46,35 +37,26 @@ export class PendenciesController {
     }));
   }
 
-  /**
-   * Resumo em lote para múltiplas solicitações (para Kanban)
-   * GET /surgery-requests/pendencies/batch-summary?ids=id1,id2,id3
-   */
   @Get('batch-summary')
   @ApiOperation({ summary: 'Resumo de pendências em lote (Kanban)' })
-  getBatchSummary(
+  async getBatchSummary(
     @Query('ids') ids: string,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<
     Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
-    return this.pendencyValidatorService.getBatchSummary(ids, user.ownerId);
+    const doctorIds = await this.accessControlService.getAccessibleDoctorIds(
+      user.userId,
+    );
+    return this.pendencyValidatorService.getBatchSummary(ids, doctorIds);
   }
 
-  /**
-   * Resumo de pendências de uma solicitação
-   * GET /surgery-requests/pendencies/summary/:id
-   */
   @Get('summary/:surgeryRequestId')
   @ApiOperation({ summary: 'Resumo de pendências' })
   getSummary(@Param('surgeryRequestId') surgeryRequestId: string) {
     return this.pendencyValidatorService.getSummary(surgeryRequestId);
   }
 
-  /**
-   * Lista de pendências detalhada com flag resolved
-   * GET /surgery-requests/pendencies/validate/:id
-   */
   @Get('validate/:surgeryRequestId')
   @ApiOperation({ summary: 'Validar pendências para avanço de status' })
   validatePendencies(@Param('surgeryRequestId') surgeryRequestId: string) {

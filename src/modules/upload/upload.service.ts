@@ -172,10 +172,6 @@ export class UploadService {
     return { url };
   }
 
-  async deleteFile(filePath: string): Promise<void> {
-    await this.storageService.delete(filePath);
-  }
-
   uploadMultipleFiles(
     files: Express.Multer.File[],
     folder: string = STORAGE_FOLDERS.DOCUMENTS,

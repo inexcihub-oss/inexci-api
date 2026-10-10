@@ -10,11 +10,6 @@ import {
 } from 'class-validator';
 import { PhoneTransform } from 'src/shared/pipes/phone-mask.pipe';
 
-/**
- * Assinatura/carimbo: caminho no bucket, nas pastas `signatures/` ou
- * `stamps/`. URL absoluta não é mais aceita — o perfil guarda o caminho e o
- * backend assina na leitura.
- */
 export const SIGNATURE_PATH_REGEX = /^(signatures|stamps)\/[^/]+\/[^/]+$/;
 export const SIGNATURE_PATH_MESSAGE =
   'a assinatura deve ser um caminho da pasta de assinaturas';
@@ -86,10 +81,6 @@ export class UpdateProfileDto {
   ])
   crmState?: string;
 
-  /**
-   * Caminho devolvido pelo `POST /upload/single` (pasta `avatars`). A pasta
-   * da conta (`avatars/<ownerId>/`) é conferida no service.
-   */
   @IsOptional()
   @Transform(({ value }) => value ?? null)
   @IsString()
@@ -98,10 +89,6 @@ export class UpdateProfileDto {
   })
   avatarUrl?: string | null;
 
-  /**
-   * Caminho devolvido pelo `POST /upload/single` (pasta `signatures` ou
-   * `stamps`). A pasta da conta é conferida no service.
-   */
   @IsOptional()
   @Transform(({ value }) => value ?? null)
   @IsString()

@@ -6,8 +6,14 @@ import {
   QueryDeepPartialEntity,
   In,
 } from 'typeorm';
-import { User } from '../entities/user.entity';
+import { User, UserRole } from '../entities/user.entity';
 import { BaseRepository } from './base.repository';
+import { OnboardingState } from '../../modules/onboarding/onboarding.types';
+import {
+  PatientNotificationKind,
+  PatientNotificationSettings,
+  resolvePatientNotificationSettings,
+} from '../../common/patient-notification-settings';
 
 @Global()
 @Injectable()
@@ -194,5 +200,66 @@ export class UserRepository extends BaseRepository<User> {
     where: FindOptionsWhere<User>,
   ): Promise<User | null> {
     return await this.repository.findOne({ where, withDeleted: true });
+  }
+
+  async getPatientNotificationSettings(
+    ownerId: string,
+  ): Promise<PatientNotificationSettings> {
+    const owner = await this.repository.findOne({
+      where: { id: ownerId },
+      select: { id: true, patientNotificationSettings: true },
+    });
+    return resolvePatientNotificationSettings(
+      owner?.patientNotificationSettings,
+    );
+  }
+
+  async isPatientNotificationEnabled(
+    ownerId: string,
+    kind: PatientNotificationKind,
+  ): Promise<boolean> {
+    const settings = await this.getPatientNotificationSettings(ownerId);
+    return settings[kind];
+  }
+
+  async updatePatientNotificationSettings(
+    ownerId: string,
+    patch: Partial<PatientNotificationSettings>,
+  ): Promise<PatientNotificationSettings> {
+    const atual = await this.getPatientNotificationSettings(ownerId);
+    const proximo = resolvePatientNotificationSettings({ ...atual, ...patch });
+    await this.repository.update(ownerId, {
+      patientNotificationSettings: proximo,
+    } as QueryDeepPartialEntity<User>);
+    return proximo;
+  }
+
+  async mutateOnboardingStateLocked(
+    userId: string,
+    mutate: (atual: OnboardingState | null) => OnboardingState,
+  ): Promise<OnboardingState | null> {
+    return this.repository.manager.transaction(async (manager) => {
+      const user = await manager.findOne(User, {
+        where: { id: userId },
+        select: ['id', 'onboardingState'],
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) return null;
+
+      const proximo = mutate(user.onboardingState);
+      await manager.update(User, userId, { onboardingState: proximo });
+      return proximo;
+    });
+  }
+
+  findCollaboratorsByIds(
+    ids: string[],
+    ownerId: string,
+  ): Promise<Array<Pick<User, 'id' | 'email' | 'ownerId' | 'phone'>>> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.repository.find({
+      where: { id: In(ids), ownerId, role: UserRole.COLLABORATOR },
+      select: { id: true, email: true, ownerId: true, phone: true },
+    });
   }
 }

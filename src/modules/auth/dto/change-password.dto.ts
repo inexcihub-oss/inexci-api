@@ -7,10 +7,6 @@ export class changePasswordDto {
   @IsEmail()
   email: string;
 
-  /**
-   * Reset token de uso único devolvido por `validateRecoveryPasswordCode`.
-   * Amarra a troca de senha à validação prévia do código.
-   */
   @IsString()
   @IsNotEmpty()
   resetToken: string;

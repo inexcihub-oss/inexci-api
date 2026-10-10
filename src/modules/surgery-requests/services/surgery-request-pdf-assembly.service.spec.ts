@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource } from 'typeorm';
 
 import { SurgeryRequestPdfAssemblyService } from './surgery-request-pdf-assembly.service';
 import { PdfService } from 'src/shared/pdf/pdf.service';
@@ -7,6 +6,7 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { DoctorPdfContextService } from 'src/shared/pdf/doctor-pdf-context.service';
+import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 
 describe('SurgeryRequestPdfAssemblyService', () => {
   let service: SurgeryRequestPdfAssemblyService;
@@ -43,7 +43,7 @@ describe('SurgeryRequestPdfAssemblyService', () => {
     },
   };
 
-  const baseRequest = {
+  const baseRequest: any = {
     id: 'sc-1',
     doctorId: 'doctor-carlos-id',
     doctor: assignedDoctor,
@@ -73,17 +73,15 @@ describe('SurgeryRequestPdfAssemblyService', () => {
     activities: [],
   };
 
-  const mockDataSource = {
-    getRepository: jest.fn().mockReturnValue({
-      find: jest.fn().mockResolvedValue([
-        {
-          name: 'Consulta em domicílio',
-          tussCode: '00.10.10.102-0',
-          quantity: 2,
-          authorizedQuantity: 0,
-        },
-      ]),
-    }),
+  const mockTussItemRepository = {
+    findMany: jest.fn().mockResolvedValue([
+      {
+        name: 'Consulta em domicílio',
+        tussCode: '00.10.10.102-0',
+        quantity: 2,
+        authorizedQuantity: 0,
+      },
+    ]),
   };
 
   const mockUserRepository = {
@@ -110,7 +108,10 @@ describe('SurgeryRequestPdfAssemblyService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SurgeryRequestPdfAssemblyService,
-        { provide: DataSource, useValue: mockDataSource },
+        {
+          provide: SurgeryRequestTussItemRepository,
+          useValue: mockTussItemRepository,
+        },
         { provide: PdfService, useValue: mockPdfService },
         { provide: UserRepository, useValue: mockUserRepository },
         { provide: StorageService, useValue: mockStorageService },

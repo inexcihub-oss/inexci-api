@@ -57,7 +57,6 @@ describe('AuthService', () => {
   };
 
   const mockMailService = {
-    sendRaw: jest.fn(),
     sendPasswordRecovery: jest.fn(),
     sendEmailVerification: jest.fn().mockResolvedValue(undefined),
   };

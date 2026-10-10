@@ -20,14 +20,20 @@ export interface ToolContext {
 
 export interface AiToolCacheConfig {
   ttlSeconds: number;
-  invalidatesOn?: string[];
 }
+
+export const ANY_AUTHENTICATED = 'any_authenticated' as const;
+
+export type ToolPermissionRequirement =
+  | Permission
+  | readonly Permission[]
+  | typeof ANY_AUTHENTICATED;
 
 export interface AiTool {
   name: string;
   definition: OpenAI.ChatCompletionTool;
   cacheable?: AiToolCacheConfig;
-  bypassesService?: boolean;
-  requiredPermission?: Permission | readonly Permission[];
+  requiredPermission: ToolPermissionRequirement;
+  mutates?: boolean;
   execute(args: Record<string, any>, context: ToolContext): Promise<string>;
 }

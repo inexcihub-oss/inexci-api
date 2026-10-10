@@ -111,9 +111,13 @@ describe('cadastro draft tools (preview + commit)', () => {
     expect(getTool(tool).requiredPermission).toEqual(ALL_PERMISSIONS);
   });
 
-  it('paciente é cadastro transversal (sem requiredPermission)', () => {
-    expect(getTool('patient_draft_preview').requiredPermission).toBeUndefined();
-    expect(getTool('patient_draft_commit').requiredPermission).toBeUndefined();
+  it('paciente é cadastro transversal (qualquer área, como os demais cadastros)', () => {
+    expect(getTool('patient_draft_preview').requiredPermission).toEqual(
+      ALL_PERMISSIONS,
+    );
+    expect(getTool('patient_draft_commit').requiredPermission).toEqual(
+      ALL_PERMISSIONS,
+    );
   });
 
   describe('create_patient', () => {

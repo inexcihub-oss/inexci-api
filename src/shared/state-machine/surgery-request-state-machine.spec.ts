@@ -1,5 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
-import { SurgeryRequestStateMachine } from './surgery-request-state-machine';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  SurgeryRequestStateMachine,
+  assertTransitionApplied,
+} from './surgery-request-state-machine';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
@@ -238,5 +241,43 @@ describe('SurgeryRequestStateMachine', () => {
       const pendencies = sm.getBlockingPendencies(req, 999 as any);
       expect(pendencies[0]).toContain('não reconhecida');
     });
+  });
+});
+
+describe('SurgeryRequestStateMachine.assertStatus', () => {
+  const sm = new SurgeryRequestStateMachine();
+
+  it('passa quando o status é o esperado', () => {
+    expect(() =>
+      sm.assertStatus(
+        makeRequest({ status: SurgeryRequestStatus.SCHEDULED }),
+        SurgeryRequestStatus.SCHEDULED,
+        'precisa estar Agendada',
+      ),
+    ).not.toThrow();
+  });
+
+  it('recusa com a mensagem específica e pendencies[] (mesmo formato da transição)', () => {
+    try {
+      sm.assertStatus(
+        makeRequest({ status: SurgeryRequestStatus.PENDING }),
+        SurgeryRequestStatus.SCHEDULED,
+        'precisa estar Agendada',
+      );
+      fail('deveria lançar');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect((err as BadRequestException).getResponse()).toEqual({
+        message: 'precisa estar Agendada',
+        pendencies: ['precisa estar Agendada'],
+      });
+    }
+  });
+});
+
+describe('assertTransitionApplied', () => {
+  it('UPDATE condicional sem linha afetada vira 409', () => {
+    expect(() => assertTransitionApplied(false)).toThrow(ConflictException);
+    expect(() => assertTransitionApplied(true)).not.toThrow();
   });
 });

@@ -13,13 +13,9 @@ import { FindOptionsWhere, In } from 'typeorm';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
-import {
-  User,
-  UserRole,
-  UserStatus,
-} from '../../database/entities/user.entity';
+import { User, UserStatus } from '../../database/entities/user.entity';
 import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
-import { Permission, resolveEffectivePermissions } from '../permissions';
+import { Permission, canAdministrate, permissionsOf } from '../permissions';
 
 export function resolverOwnerIdDoUsuario(
   user: Pick<User, 'id' | 'ownerId' | 'adminId'>,
@@ -64,9 +60,9 @@ export class AccessControlService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
 
-    if (user.role === UserRole.ADMIN) {
+    if (canAdministrate(user)) {
       const doctors = await this.userRepository.findDoctorsByOwnerId(
-        user.ownerId,
+        resolverOwnerIdDoUsuario(user),
       );
       return doctors.map((d) => d.id);
     }
@@ -88,8 +84,10 @@ export class AccessControlService {
     const user = await this.userRepository.findOneWithProfile({ id: userId });
     if (!user) return [];
 
-    if (user.role === UserRole.ADMIN) {
-      return this.userRepository.findDoctorsByOwnerId(user.ownerId);
+    if (canAdministrate(user)) {
+      return this.userRepository.findDoctorsByOwnerId(
+        resolverOwnerIdDoUsuario(user),
+      );
     }
 
     const doctors: User[] = [];
@@ -127,18 +125,12 @@ export class AccessControlService {
     return usuariosDaConta.filter((usuario) => {
       if (usuario.status !== UserStatus.ACTIVE) return false;
 
+      const permissoes = permissionsOf(usuario);
       const temAcesso =
         usuario.id === doctorUserId ||
-        usuario.role === UserRole.ADMIN ||
+        permissoes.includes(Permission.ADMINISTRACAO) ||
         vinculados.has(usuario.id);
       if (!temAcesso) return false;
-
-      const permissoes = resolveEffectivePermissions({
-        role: usuario.role,
-        permissions: usuario.permissions,
-        isDoctor: Boolean(usuario.doctorProfile),
-        isPhysician: isPhysicianProfile(usuario.doctorProfile),
-      });
 
       return permissoes.includes(Permission.SOLICITACOES);
     });
@@ -262,18 +254,6 @@ export class AccessControlService {
     );
   }
 
-  async getEffectivePermissions(userId: string): Promise<Permission[]> {
-    const user = await this.userRepository.findOneWithProfile({ id: userId });
-    if (!user) return [];
-
-    return resolveEffectivePermissions({
-      role: user.role,
-      permissions: user.permissions,
-      isDoctor: !!user.doctorProfile,
-      isPhysician: isPhysicianProfile(user.doctorProfile),
-    });
-  }
-
   async resolveDefaultDoctorId(userId: string): Promise<string> {
     const accessibleIds = await this.getAccessibleDoctorIds(userId);
     if (accessibleIds.includes(userId)) return userId;
@@ -283,9 +263,5 @@ export class AccessControlService {
       );
     }
     return accessibleIds[0];
-  }
-
-  async getAccountId(userId: string): Promise<string> {
-    return this.getOwnerId(userId);
   }
 }

@@ -15,6 +15,17 @@ import {
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { withActiveSpan } from 'src/shared/observability/span.util';
 
+const MS_PER_DAY = 86_400_000;
+const PENDING_ALERT_DAYS = 5;
+
+type RawTotalRow = { total: string | number } & Record<string, unknown>;
+
+function withNumericTotal<T extends RawTotalRow>(
+  row: T,
+): Omit<T, 'total'> & { total: number } {
+  return { ...row, total: parseInt(String(row.total), 10) };
+}
+
 export interface ReportFilters {
   hospitalId?: string;
   healthPlanId?: string;
@@ -71,9 +82,9 @@ export class ReportsService {
     const [counts, totalInvoiced, rawHealthPlan, rawStatus, rawHospital]: [
       { total: number; scheduled: number; performed: number; invoiced: number },
       { invoicedValue: number; receivedValue: number },
-      any,
-      any,
-      any,
+      RawTotalRow[],
+      RawTotalRow[],
+      RawTotalRow[],
     ] = await Promise.all([
       this.surgeryRequestRepository.countsByStatus(doctorIds, filters),
       this.surgeryRequestRepository.sumInvoiced({ doctorIds }),
@@ -87,24 +98,9 @@ export class ReportsService {
     const respPerformed = counts.performed;
     const respInvoiced = counts.invoiced;
 
-    let totalByHealthPlan = rawHealthPlan;
-    let totalByStatus = rawStatus;
-    let totalByHospital = rawHospital;
-
-    totalByHealthPlan = totalByHealthPlan.map((item: any) => {
-      item.total = parseInt(item.total);
-      return item;
-    });
-
-    totalByStatus = totalByStatus.map((item: any) => {
-      item.total = parseInt(item.total);
-      return item;
-    });
-
-    totalByHospital = totalByHospital.map((item: any) => {
-      item.total = parseInt(item.total);
-      return item;
-    });
+    const totalByHealthPlan = rawHealthPlan.map(withNumericTotal);
+    const totalByStatus = rawStatus.map(withNumericTotal);
+    const totalByHospital = rawHospital.map(withNumericTotal);
 
     return {
       surgeryRequest: {
@@ -147,7 +143,7 @@ export class ReportsService {
 
     const endDate = filters?.endDate || new Date();
     const startDate =
-      filters?.startDate || new Date(endDate.getTime() - days * 86400000);
+      filters?.startDate || new Date(endDate.getTime() - days * MS_PER_DAY);
 
     const results = await this.surgeryRequestRepository.getTemporalEvolution(
       where,
@@ -173,7 +169,7 @@ export class ReportsService {
     const { where } = await this.getWhereConditions(userId, filters);
 
     const fiveDaysAgo = new Date();
-    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - PENDING_ALERT_DAYS);
 
     const pendingAnalysis = await this.surgeryRequestRepository.total({
       ...where,

@@ -326,7 +326,12 @@ export class AppointmentsService {
       content: `Consulta agendada para ${formatAppointmentWhen(start)}${isWalkIn ? ' (encaixe)' : ''}`,
     });
 
-    await this.avisarPacienteDoAgendamento(patient, data.doctorId, start);
+    await this.avisarPacienteDoAgendamento(
+      patient,
+      ownerId,
+      data.doctorId,
+      start,
+    );
 
     return this.comAvisos(
       criada,
@@ -448,6 +453,7 @@ export class AppointmentsService {
       });
       await this.avisarPacienteDoAgendamento(
         patient,
+        appointment.ownerId,
         appointment.doctorId,
         start,
       );
@@ -562,6 +568,7 @@ export class AppointmentsService {
       });
       await this.avisarPacienteDoAgendamento(
         patient,
+        appointment.ownerId,
         appointment.doctorId,
         new Date(appointment.scheduledAt),
       );
@@ -572,12 +579,19 @@ export class AppointmentsService {
 
   private async avisarPacienteDoAgendamento(
     patient: { name: string; phone: string | null } | null,
+    ownerId: string,
     doctorId: string,
     scheduledAt: Date,
   ): Promise<void> {
     if (!patient?.phone) return;
 
     try {
+      const habilitado = await this.userRepository.isPatientNotificationEnabled(
+        ownerId,
+        'appointmentScheduled',
+      );
+      if (!habilitado) return;
+
       const doctor = await this.userRepository.findOne({ id: doctorId });
       await this.whatsappService.sendAppointmentScheduled(patient.phone, {
         patientName: patient.name,
@@ -595,6 +609,12 @@ export class AppointmentsService {
     appointment: Appointment,
   ): Promise<void> {
     try {
+      const habilitado = await this.userRepository.isPatientNotificationEnabled(
+        appointment.ownerId,
+        'appointmentCancelled',
+      );
+      if (!habilitado) return;
+
       const [patient, doctor] = await Promise.all([
         this.patientRepository.findOne({ id: appointment.patientId }),
         this.userRepository.findOne({ id: appointment.doctorId }),

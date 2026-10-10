@@ -36,6 +36,28 @@ describe('ClinicalRecordsService', () => {
     findByAppointment: jest.fn().mockResolvedValue([]),
   };
   const mockProcedureRepo = { findOne: jest.fn() };
+  const txClinicalUpdate = jest.fn(
+    async (where: { id: string }, data: unknown) => {
+      await mockClinicalRepo.update(where.id, data);
+      return { affected: 1 };
+    },
+  );
+  const txAppointmentUpdate = jest.fn(async (id: string, data: unknown) => {
+    await mockAppointmentRepo.update(id, data);
+    return { affected: 1 };
+  });
+  const mockManager = {
+    getRepository: jest.fn((entity: { name: string }) =>
+      entity.name === 'ClinicalRecord'
+        ? { update: txClinicalUpdate }
+        : { update: txAppointmentUpdate },
+    ),
+  };
+  const mockDataSource = {
+    transaction: jest.fn(async (cb: (m: unknown) => unknown) =>
+      cb(mockManager),
+    ),
+  };
 
   const ownerId = 'owner-1';
   const userId = 'user-1';
@@ -76,6 +98,7 @@ describe('ClinicalRecordsService', () => {
       mockSurgicalIndication as any,
       mockActivityRepo as any,
       mockProcedureRepo as any,
+      mockDataSource as any,
     );
   });
 
@@ -664,6 +687,53 @@ describe('ClinicalRecordsService', () => {
       expect(mockAppointmentRepo.update).toHaveBeenCalledWith('a1', {
         status: AppointmentStatus.COMPLETED,
       });
+    });
+  });
+
+  describe('finalize — atomicidade (ficha + consulta)', () => {
+    beforeEach(() => {
+      mockClinicalRepo.findOne.mockResolvedValue({
+        id: 'cr-1',
+        ownerId,
+        doctorId,
+        finalizedAt: null,
+        appointmentId: 'a1',
+        surgicalIndication: true,
+      });
+      mockClinicalRepo.update.mockResolvedValue({ id: 'cr-1' });
+    });
+
+    it('ficha e consulta são gravadas na mesma transação, com UPDATE condicional na ficha', async () => {
+      await service.finalize('cr-1', userId);
+
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(txClinicalUpdate).toHaveBeenCalledWith(
+        { id: 'cr-1', finalizedAt: expect.anything() },
+        { finalizedAt: expect.any(Date) },
+      );
+      expect(txAppointmentUpdate).toHaveBeenCalledWith('a1', {
+        status: AppointmentStatus.COMPLETED,
+      });
+    });
+
+    it('falha ao concluir a consulta derruba a finalização inteira (sem SC, sem histórico)', async () => {
+      txAppointmentUpdate.mockRejectedValueOnce(new Error('deadlock'));
+
+      await expect(service.finalize('cr-1', userId)).rejects.toThrow(
+        'deadlock',
+      );
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
+      expect(mockActivityRepo.create).not.toHaveBeenCalled();
+    });
+
+    it('clique duplo: ficha já finalizada por outra requisição vira 409 e não abre SC', async () => {
+      txClinicalUpdate.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.finalize('cr-1', userId)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(txAppointmentUpdate).not.toHaveBeenCalled();
+      expect(mockSurgicalIndication.createForRecord).not.toHaveBeenCalled();
     });
   });
 

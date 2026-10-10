@@ -1,15 +1,15 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asNonEmptyString } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   ensurePendingForMutation,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
   const {
@@ -22,6 +22,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
   return {
     name: 'set_hospital',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -52,12 +53,6 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
       );
       if (!auth.ok) {
         return buildToolResult({ status: 'blocked', message: auth.message });
-      }
-      if (!hospitalRepo) {
-        return buildToolResult({
-          status: 'blocked',
-          message: 'Ferramenta indisponível no momento.',
-        });
       }
 
       const protocolToken = tokenizePii(
@@ -96,12 +91,12 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
             message: `Erro ao remover hospital: ${err instanceof Error ? err.message : 'erro desconhecido'}.`,
           });
         }
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: '[WhatsApp IA] Hospital removido da solicitação.',
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          'Hospital removido da solicitação.',
+        );
         return buildToolResult({
           status: 'ok',
           message: `Hospital removido com sucesso da solicitação ${protocolToken}.`,
@@ -142,7 +137,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
           name: hospitalName,
           ownerId: auth.request.ownerId,
         } as any);
-        if (!selectedHospital && entityResolver) {
+        if (!selectedHospital) {
           const candidates = await hospitalRepo.findMany(
             { ownerId: auth.request.ownerId } as any,
             0,

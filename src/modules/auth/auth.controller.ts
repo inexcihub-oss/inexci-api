@@ -26,7 +26,7 @@ import { RegisterDto } from './dto/register.dto';
 import { CheckEmailDto } from './dto/check-email.dto';
 import { CheckPhoneDto } from './dto/check-phone.dto';
 import { AuthService } from './auth.service';
-import { Public } from 'src/shared/decorator/is-public.decorator';
+import { Public } from 'src/shared/decorators/is-public.decorator';
 import { SkipConsentCheck } from 'src/shared/decorators/skip-consent-check.decorator';
 import { validationCodeDto } from './dto/validation-code.dto';
 import { changePasswordDto } from './dto/change-password.dto';
@@ -43,7 +43,6 @@ import {
 @SkipConsentCheck()
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
-  /** Cookie httpOnly para refresh token */
   private readonly REFRESH_COOKIE = 'refresh_token';
   private readonly REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 

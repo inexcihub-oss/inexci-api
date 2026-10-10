@@ -4,179 +4,24 @@ import { Permission } from 'src/shared/permissions';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { DocumentRepository } from '../../../database/repositories/document.repository';
-import { In } from 'typeorm';
+import { FindOptionsWhere, In } from 'typeorm';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
-import { buildProtocolCandidates, stripScPrefix } from './protocol.helpers';
+import { stripScPrefix } from './protocol.helpers';
 import {
   PENDENCIES_CONFIG,
   getPendenciesForStatus,
 } from '../../../config/pendencies.config';
 import { POST_SURGERY_REQUIRED_DOCS } from '../../../config/post-surgery-documents.config';
-import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
-
-function sanitizeIdentifier(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-function mapPendencyToRecommendedAction(
-  key: string,
-  undoneItems: Array<{ label: string; done: boolean }> = [],
-): {
-  action: string;
-  minParams: string[];
-} {
-  const undoneLabels = new Set(
-    undoneItems.map((i) => i.label.toLowerCase().trim()),
-  );
-
-  switch (key) {
-    case 'patient_data':
-      return {
-        action:
-          'plan_actions(intent="update_sc") + update_sc_draft_set_request + update_sc_draft_set_scope(scope="patient") + update_sc_draft_set_field + update_sc_draft_commit',
-        minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
-      };
-    case 'hospital_data':
-      return {
-        action: 'set_hospital',
-        minParams: ['surgeryRequestId', 'hospital_name'],
-      };
-    case 'tuss_procedures':
-      return {
-        action: 'add_tuss_item',
-        minParams: ['surgeryRequestId', 'tussCode', 'name'],
-      };
-    case 'opme_items': {
-      const onlyMissingFlag =
-        undoneLabels.size === 1 &&
-        Array.from(undoneLabels).some((l) =>
-          l.includes('indicar se há ou não opme'),
-        );
-      if (onlyMissingFlag) {
-        return {
-          action: 'set_has_opme',
-          minParams: ['surgeryRequestId', 'hasOpme=true|false'],
-        };
-      }
-      return {
-        action: 'add_opme_item (ou set_has_opme=false)',
-        minParams: [
-          'surgeryRequestId',
-          'opme_name',
-          'quantity',
-          'supplier_name?',
-        ],
-      };
-    }
-    case 'medical_report': {
-      const missingSignature = Array.from(undoneLabels).some((l) =>
-        l.includes('assinatura'),
-      );
-      const missingSections = Array.from(undoneLabels).some((l) =>
-        l.includes('seção de laudo'),
-      );
-      const missingPatient = Array.from(undoneLabels).some((l) =>
-        ['nome do paciente', 'cpf'].includes(l),
-      );
-
-      if (missingSignature && !missingSections && !missingPatient) {
-        return {
-          action: 'upload_doctor_signature',
-          minParams: [
-            'imagem da assinatura enviada pelo WhatsApp do MÉDICO',
-            'confirm=true',
-          ],
-        };
-      }
-      if (missingSections && !missingSignature && !missingPatient) {
-        return {
-          action: 'manage_report_sections',
-          minParams: ['surgeryRequestId', 'operation=create', 'title'],
-        };
-      }
-      if (missingPatient && !missingSections && !missingSignature) {
-        return {
-          action:
-            'plan_actions(intent="update_sc") + update_sc_draft_set_request + update_sc_draft_set_scope(scope="patient") + update_sc_draft_set_field + update_sc_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
-        };
-      }
-      const actions: string[] = [];
-      if (missingPatient) {
-        actions.push('completar dados do paciente via update_sc_draft_*');
-      }
-      if (missingSections) actions.push('manage_report_sections');
-      if (missingSignature) actions.push('upload_doctor_signature');
-      return {
-        action:
-          actions.length > 0 ? actions.join(' + ') : 'manage_report_sections',
-        minParams: ['surgeryRequestId', 'ver sub-itens pendentes acima'],
-      };
-    }
-    case 'schedule_dates':
-      return {
-        action:
-          'plan_actions(intent="scheduling") + scheduling_draft_set_request + scheduling_draft_set_date_options + scheduling_draft_commit',
-        minParams: ['surgery_request_id_or_protocol', 'date_options[]'],
-      };
-    case 'confirm_date':
-      return {
-        action:
-          'plan_actions(intent="scheduling") + scheduling_draft_set_request + scheduling_draft_set_confirmed_date + scheduling_draft_commit',
-        minParams: ['surgery_request_id_or_protocol', 'confirmed_date_index'],
-      };
-    case 'confirm_receipt':
-      return {
-        action: 'confirm_receipt',
-        minParams: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
-      };
-    default:
-      if (key.startsWith('doc_')) {
-        return {
-          action: 'attach_document_from_whatsapp',
-          minParams: ['surgeryRequestId', 'document_type?', 'confirm=true'],
-        };
-      }
-      return {
-        action: 'get_pendencies',
-        minParams: ['surgeryRequestId'],
-      };
-  }
-}
-
-async function resolveRequestByIdentifier(
-  surgeryRequestRepo: SurgeryRequestRepository,
-  identifierRaw: string,
-  context: ToolContext,
-): Promise<any | null> {
-  const detokenized = detokenizeArg(context, identifierRaw);
-  const identifier = sanitizeIdentifier(detokenized ?? identifierRaw);
-  if (!identifier) return null;
-
-  let request = null;
-
-  if (identifier.match(/^[0-9a-f-]{36}$/i)) {
-    request = await surgeryRequestRepo.findOneSimple({ id: identifier });
-    if (request) return request;
-  }
-
-  for (const candidate of buildProtocolCandidates(identifier)) {
-    request = await surgeryRequestRepo.findOneSimple({ protocol: candidate });
-    if (request) return request;
-  }
-
-  const byName = await surgeryRequestRepo.findMany(
-    { doctorId: In(context.accessibleDoctorIds) as any },
-    0,
-    50,
-  );
-  const found = byName.find((r: any) =>
-    r.patient?.name?.toLowerCase().includes(identifier.toLowerCase()),
-  );
-
-  return found || null;
-}
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from '../../../database/entities/surgery-request.entity';
+import { getStatusLabel } from '../../utils/status';
+import {
+  resolveRequestByIdentifierOrPatientName,
+  sanitizeIdentifier,
+} from './helpers/surgery-request-access';
+import { recommendActionForPendency } from './helpers/pendency-actions';
 
 function resolveStatusFromHint(hint: string): SurgeryRequestStatus | null {
   const normalize = (s: string) =>
@@ -198,18 +43,6 @@ function resolveStatusFromHint(hint: string): SurgeryRequestStatus | null {
   if (/encerrada|fechada|cancelada/.test(n)) return SurgeryRequestStatus.CLOSED;
   return null;
 }
-
-const STATUS_LABEL: Record<SurgeryRequestStatus, string> = {
-  [SurgeryRequestStatus.PENDING]: 'Pendente',
-  [SurgeryRequestStatus.SENT]: 'Enviada',
-  [SurgeryRequestStatus.IN_ANALYSIS]: 'Em Análise',
-  [SurgeryRequestStatus.IN_SCHEDULING]: 'Em Agendamento',
-  [SurgeryRequestStatus.SCHEDULED]: 'Agendada',
-  [SurgeryRequestStatus.PERFORMED]: 'Realizada',
-  [SurgeryRequestStatus.INVOICED]: 'Faturada',
-  [SurgeryRequestStatus.FINALIZED]: 'Finalizada',
-  [SurgeryRequestStatus.CLOSED]: 'Encerrada',
-};
 
 export function buildPendencyTools(
   pendencyValidator: PendencyValidatorService,
@@ -260,7 +93,7 @@ export function buildPendencyTools(
           detokenizeArg(context, args.identifier) ?? args.identifier,
         );
 
-      let request: any = null;
+      let request: SurgeryRequest | null = null;
 
       const identifierAsStatus = identifier
         ? resolveStatusFromHint(identifier)
@@ -276,8 +109,8 @@ export function buildPendencyTools(
             ? resolveStatusFromHint(String(args.statusHint))
             : null);
 
-        const filterWhere: Record<string, any> = {
-          doctorId: In(context.accessibleDoctorIds) as any,
+        const filterWhere: FindOptionsWhere<SurgeryRequest> = {
+          doctorId: In(context.accessibleDoctorIds),
         };
         if (statusFromHint !== null) {
           filterWhere.status = statusFromHint;
@@ -288,7 +121,7 @@ export function buildPendencyTools(
 
         if (accessible.length === 0) {
           const statusLabel = statusFromHint
-            ? ` com status "${STATUS_LABEL[statusFromHint]}"`
+            ? ` com status "${getStatusLabel(statusFromHint)}"`
             : '';
           return `Nenhuma solicitação cirúrgica${statusLabel} encontrada.`;
         }
@@ -297,13 +130,13 @@ export function buildPendencyTools(
           request = accessible[0];
         } else {
           const statusLabel = statusFromHint
-            ? ` com status "${STATUS_LABEL[statusFromHint]}"`
+            ? ` com status "${getStatusLabel(statusFromHint)}"`
             : '';
           const listing = accessible
             .slice(0, 10)
             .map(
-              (r: any) =>
-                `SC-${r.protocol} — ${r.patient?.name ?? 'paciente'} (${STATUS_LABEL[r.status as SurgeryRequestStatus] ?? r.status})`,
+              (r) =>
+                `SC-${r.protocol} — ${r.patient?.name ?? 'paciente'} (${getStatusLabel(r.status)})`,
             )
             .join('\n');
           return [
@@ -312,7 +145,7 @@ export function buildPendencyTools(
           ].join('\n');
         }
       } else {
-        request = await resolveRequestByIdentifier(
+        request = await resolveRequestByIdentifierOrPatientName(
           surgeryRequestRepo,
           effectiveIdentifier,
           context,
@@ -363,10 +196,7 @@ export function buildPendencyTools(
 
       const pendingLines = pending.flatMap((p) => {
         const undoneItems = (p.checkItems || []).filter((i) => !i.done);
-        const recommendation = mapPendencyToRecommendedAction(
-          p.key,
-          undoneItems,
-        );
+        const recommendation = recommendActionForPendency(p.key, undoneItems);
 
         const actionLines = [
           `  Ação recomendada agora: ${recommendation.action}`,
@@ -570,7 +400,7 @@ export function buildPendencyTools(
         );
       if (!identifier) return 'Parâmetro inválido: informe a solicitação.';
 
-      const request = await resolveRequestByIdentifier(
+      const request = await resolveRequestByIdentifierOrPatientName(
         surgeryRequestRepo,
         identifier,
         context,
@@ -591,9 +421,9 @@ export function buildPendencyTools(
 
       const attached = await documentRepo.findMany({
         surgeryRequestId: request.id,
-      } as any);
+      });
       const attachedTypes = new Set(
-        (attached || []).map((d: any) => d?.type).filter(Boolean),
+        (attached || []).map((d) => d?.type).filter(Boolean),
       );
 
       const lines: string[] = [

@@ -17,6 +17,9 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { NotificationsService } from './notifications.service';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import { UpdatePatientNotificationSettingsDto } from './dto/update-patient-notification-settings.dto';
+import { RequirePermission } from 'src/shared/decorators/require-permission.decorator';
+import { Permission } from 'src/shared/permissions';
 import {
   CurrentUser,
   AuthenticatedUser,
@@ -42,6 +45,33 @@ export class NotificationsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return await this.notificationsService.updateSettings(user.userId, data);
+  }
+
+  @Get('patient-settings')
+  @RequirePermission(Permission.ADMINISTRACAO)
+  @ApiOperation({
+    summary: 'Obter os avisos automáticos ao paciente (configuração da conta)',
+  })
+  async getPatientSettings(@CurrentUser() user: AuthenticatedUser) {
+    return await this.notificationsService.getPatientSettings(
+      user.ownerId ?? user.userId,
+    );
+  }
+
+  @Put('patient-settings')
+  @RequirePermission(Permission.ADMINISTRACAO)
+  @ApiOperation({
+    summary:
+      'Atualizar os avisos automáticos ao paciente (configuração da conta)',
+  })
+  async updatePatientSettings(
+    @Body() data: UpdatePatientNotificationSettingsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return await this.notificationsService.updatePatientSettings(
+      user.ownerId ?? user.userId,
+      data,
+    );
   }
 
   @Get()

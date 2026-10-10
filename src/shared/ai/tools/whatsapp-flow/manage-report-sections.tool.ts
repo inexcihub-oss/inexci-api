@@ -1,15 +1,15 @@
 import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { detokenizeArg } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
+import { asNonEmptyString } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   ensurePendingForMutation,
   getAuthorizedRequest,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildManageReportSectionsTool(
   deps: WhatsappFlowToolDeps,
@@ -18,6 +18,7 @@ export function buildManageReportSectionsTool(
   return {
     name: 'manage_report_sections',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -239,12 +240,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seção de laudo criada (${section.id}).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seção de laudo criada (${section.id}).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -288,12 +289,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seção de laudo atualizada (${updated.id}).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seção de laudo atualizada (${updated.id}).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -318,12 +319,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seção de laudo removida (${sectionId}).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seção de laudo removida (${sectionId}).`,
+            );
 
             return buildToolResult({
               status: 'ok',
@@ -360,12 +361,12 @@ export function buildManageReportSectionsTool(
               context.userId as string,
             );
 
-            await activityRepo.create({
-              surgeryRequestId: auth.request.id,
-              userId: context.userId as string,
-              type: ActivityType.SYSTEM,
-              content: `[WhatsApp IA] Seções de laudo reordenadas (${args.ids.length} itens).`,
-            });
+            await recordAiActivity(
+              activityRepo,
+              context,
+              auth.request.id,
+              `Seções de laudo reordenadas (${args.ids.length} itens).`,
+            );
 
             return buildToolResult({
               status: 'ok',

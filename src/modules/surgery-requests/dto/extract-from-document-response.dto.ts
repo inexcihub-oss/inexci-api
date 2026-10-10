@@ -20,14 +20,8 @@ export class ExtractFromDocumentResponseDto {
   extracted: DocumentClassificationExtracted;
   suggestedDocumentType: string;
   ambiguity?: string;
-  /** true quando o documento trouxe nome de paciente mas não o CPF. */
   patientCpfMissing: boolean;
-  /** true quando há match exato de CPF na base. */
   patientMatchedByCpf: boolean;
   candidates: ExtractFromDocumentCandidates;
-  /**
-   * Caminho temporário do arquivo no storage (usado ao criar a SC
-   * via `POST /surgery-requests/from-document`).
-   */
   tempStoragePath: string;
 }

@@ -223,4 +223,97 @@ describe('DocumentEntityResolverService', () => {
     expect(result.hospital).toHaveLength(1);
     expect(result.hospital[0].name).toBe("Hospital Caxias D'Or");
   });
+
+  describe('resolveOrCreate*', () => {
+    const buildRepo = (existing: { id: string } | null) => {
+      const qb = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existing),
+      };
+      return {
+        qb,
+        createQueryBuilder: jest.fn(() => qb),
+        create: jest.fn((v: unknown) => v),
+        save: jest.fn(async (v: Record<string, unknown>) => ({
+          id: 'novo',
+          ...v,
+        })),
+      };
+    };
+
+    it('reaproveita o cadastro de mesmo nome (sem acento/caixa) da clínica', async () => {
+      const repo = buildRepo({ id: 'h-1' });
+      const manager = { getRepository: jest.fn(() => repo) };
+
+      await expect(
+        service.resolveOrCreateHospitalId(
+          '  Hospital São Luiz ',
+          'owner-1',
+          manager as any,
+        ),
+      ).resolves.toBe('h-1');
+      expect(repo.qb.where).toHaveBeenCalledWith('e.owner_id = :ownerId', {
+        ownerId: 'owner-1',
+      });
+      expect(repo.qb.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('unaccent'),
+        { name: 'Hospital São Luiz' },
+      );
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it('cria ativo e na clínica quando não existe', async () => {
+      const repo = buildRepo(null);
+      dataSource.manager = { getRepository: jest.fn(() => repo) };
+
+      await expect(
+        service.resolveOrCreateHealthPlanId('SULAMERICA', 'owner-1'),
+      ).resolves.toBe('novo');
+      expect(repo.save).toHaveBeenCalledWith({
+        active: true,
+        name: 'SULAMERICA',
+        ownerId: 'owner-1',
+      });
+    });
+
+    it('nome vazio não cria nada', async () => {
+      await expect(
+        service.resolveOrCreateHospitalId('   ', 'owner-1'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('não cria procedimento com nome acima de 255 caracteres', async () => {
+      const repo = buildRepo(null);
+      dataSource.manager = { getRepository: jest.fn(() => repo) };
+
+      await expect(
+        service.resolveOrCreateProcedureId('A'.repeat(256), 'owner-1'),
+      ).resolves.toBeUndefined();
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  it('erro de SQL na busca de candidatos não some em silêncio (log de warn)', async () => {
+    const warn = jest
+      .spyOn((service as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+    dataSource.getRepository.mockReturnValue({
+      createQueryBuilder: () => {
+        throw new Error('function unaccent does not exist');
+      },
+    });
+
+    const result = await service.resolveCandidates(
+      { hospital: 'Hospital X' },
+      'user-1',
+    );
+
+    expect(result.hospital).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('unaccent does not exist'),
+    );
+  });
 });

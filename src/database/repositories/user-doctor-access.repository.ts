@@ -67,21 +67,52 @@ export class UserDoctorAccessRepository extends BaseRepository<UserDoctorAccess>
     return this.repository.save(access);
   }
 
-  async deactivate(
-    userId: string,
-    doctorUserId: string,
-  ): Promise<UserDoctorAccess | null> {
-    const access = await this.findByUserAndDoctor(userId, doctorUserId);
-    if (!access) return null;
-
-    access.status = UserDoctorAccessStatus.INACTIVE;
-    return this.repository.save(access);
-  }
-
   findAllByUserId(userId: string): Promise<UserDoctorAccess[]> {
     return this.repository.find({
       where: { userId },
       relations: ['doctor'],
+    });
+  }
+
+  replaceDoctorsForUser(
+    userId: string,
+    doctorUserIds: string[],
+    createdById: string,
+  ): Promise<UserDoctorAccess[]> {
+    return this.repository.manager.transaction(async (em) => {
+      const repo = em.getRepository(UserDoctorAccess);
+      const existentes = await repo.find({ where: { userId } });
+      const porMedico = new Map(existentes.map((a) => [a.doctorUserId, a]));
+      const desejados = new Set(doctorUserIds);
+
+      for (const acesso of existentes) {
+        if (
+          !desejados.has(acesso.doctorUserId) &&
+          acesso.status !== UserDoctorAccessStatus.INACTIVE
+        ) {
+          acesso.status = UserDoctorAccessStatus.INACTIVE;
+          await repo.save(acesso);
+        }
+      }
+
+      for (const doctorUserId of desejados) {
+        const atual = porMedico.get(doctorUserId);
+        await repo.save(
+          atual
+            ? Object.assign(atual, {
+                status: UserDoctorAccessStatus.ACTIVE,
+                createdById,
+              })
+            : repo.create({
+                userId,
+                doctorUserId,
+                status: UserDoctorAccessStatus.ACTIVE,
+                createdById,
+              }),
+        );
+      }
+
+      return repo.find({ where: { userId }, relations: ['doctor'] });
     });
   }
 }

@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { SurgeryRequestWorkflowService } from './surgery-request-workflow.service';
@@ -19,6 +23,10 @@ import { MailService } from 'src/shared/mail/mail.service';
 import { PdfGenerationService } from 'src/shared/pdf/pdf-generation.service';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { PendencyValidatorService } from 'src/modules/surgery-requests/pendencies/pendency-validator.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
+import { SchedulingSelectionStore } from './workflow/scheduling-selection.store';
+import { SURGERY_REQUEST_EVENTS } from '../events/surgery-request.events';
 
 import {
   SurgeryRequest,
@@ -81,6 +89,11 @@ describe('SurgeryRequestWorkflowService', () => {
   let pendencyValidator: { [K: string]: jest.Mock };
   let contestationRepository: { [K: string]: jest.Mock };
   let dataSource: { transaction: jest.Mock };
+  let eventEmitter: { emit: jest.Mock };
+  let activityRepository: { create: jest.Mock };
+  let selectionStore: { find: jest.Mock; remember: jest.Mock };
+  let quotaService: { consumeSurgeryRequest: jest.Mock };
+  let documentRepository: { findMany: jest.Mock; findOne: jest.Mock };
   let storageService: {
     download: jest.Mock;
     getSignedUrl: jest.Mock;
@@ -95,6 +108,30 @@ describe('SurgeryRequestWorkflowService', () => {
       update: jest.fn(),
       findMany: jest.fn(),
       recordStatusChange: jest.fn().mockResolvedValue(undefined),
+      applyStatusTransition: jest.fn().mockResolvedValue(true),
+      updateIfStatus: jest.fn().mockResolvedValue(true),
+      findInSchedulingByPatientPhones: jest.fn().mockResolvedValue([]),
+    };
+    surgeryRequestRepository.findOneForWorkflow = jest.fn((where) =>
+      surgeryRequestRepository.findOneWithAllRelations(where),
+    );
+    surgeryRequestRepository.findOneForBilling = jest.fn((where) =>
+      surgeryRequestRepository.findOneWithAllRelations(where),
+    );
+    eventEmitter = { emit: jest.fn() };
+    documentRepository = {
+      findMany: jest
+        .fn()
+        .mockResolvedValue([
+          { key: 'surgery_room' },
+          { key: 'surgery_auth_document' },
+        ]),
+      findOne: jest.fn().mockResolvedValue(null),
+    };
+    activityRepository = { create: jest.fn().mockResolvedValue({}) };
+    selectionStore = {
+      find: jest.fn().mockResolvedValue(null),
+      remember: jest.fn().mockResolvedValue(undefined),
     };
 
     mailService = {
@@ -194,15 +231,14 @@ describe('SurgeryRequestWorkflowService', () => {
         },
         {
           provide: DocumentRepository,
-          useValue: {
-            findMany: jest
-              .fn()
-              .mockResolvedValue([
-                { key: 'surgery_room' },
-                { key: 'surgery_auth_document' },
-              ]),
-          },
+          useValue: documentRepository,
         },
+        { provide: EventEmitter2, useValue: eventEmitter },
+        {
+          provide: SurgeryRequestActivityRepository,
+          useValue: activityRepository,
+        },
+        { provide: SchedulingSelectionStore, useValue: selectionStore },
         {
           provide: QuotaService,
           useValue: {
@@ -222,6 +258,7 @@ describe('SurgeryRequestWorkflowService', () => {
     }).compile();
 
     service = module.get(SurgeryRequestWorkflowService);
+    quotaService = module.get(QuotaService);
   });
 
   describe('sendRequest', () => {
@@ -326,15 +363,6 @@ describe('SurgeryRequestWorkflowService', () => {
         request,
       );
 
-      let capturedRepos: Record<string, any> | null = null;
-      dataSource.transaction.mockImplementationOnce(
-        async (cb: (manager: any) => Promise<any>) => {
-          const mockManager = createMockManager();
-          capturedRepos = mockManager.repos;
-          return cb(mockManager);
-        },
-      );
-
       await service.sendRequest(
         'req-1',
         { method: SendMethod.DOCUMENT, sentAt: '2026-01-10' },
@@ -342,18 +370,16 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       const expectedDate = new Date(Date.UTC(2026, 0, 10, 12, 0, 0));
-      expect(capturedRepos!.SurgeryRequest.update).toHaveBeenCalledWith(
-        { id: 'req-1' },
-        expect.objectContaining({ sentAt: expectedDate }),
-      );
-      expect(surgeryRequestRepository.recordStatusChange).toHaveBeenCalledWith(
-        expect.anything(),
-        'req-1',
-        request.status,
-        SurgeryRequestStatus.SENT,
-        'user-1',
-        expectedDate,
-      );
+      expect(
+        surgeryRequestRepository.applyStatusTransition,
+      ).toHaveBeenCalledWith(expect.anything(), {
+        id: 'req-1',
+        from: request.status,
+        to: SurgeryRequestStatus.SENT,
+        data: expect.objectContaining({ sentAt: expectedDate }),
+        userId: 'user-1',
+        statusChangedAt: expectedDate,
+      });
     });
 
     it('rejeita sentAt no futuro', async () => {
@@ -403,15 +429,6 @@ describe('SurgeryRequestWorkflowService', () => {
         request,
       );
 
-      let capturedRepos: Record<string, any> | null = null;
-      dataSource.transaction.mockImplementationOnce(
-        async (cb: (manager: any) => Promise<any>) => {
-          const mockManager = createMockManager();
-          capturedRepos = mockManager.repos;
-          return cb(mockManager);
-        },
-      );
-
       const before = Date.now();
       await service.sendRequest(
         'req-1',
@@ -419,8 +436,9 @@ describe('SurgeryRequestWorkflowService', () => {
         'user-1',
       );
 
-      const [, fields] = capturedRepos!.SurgeryRequest.update.mock.calls[0];
-      expect(fields.sentAt.getTime()).toBeGreaterThanOrEqual(before);
+      const [, params] =
+        surgeryRequestRepository.applyStatusTransition.mock.calls[0];
+      expect(params.data.sentAt.getTime()).toBeGreaterThanOrEqual(before);
     });
 
     it('rejeita sentAt inválido', async () => {
@@ -637,6 +655,13 @@ describe('SurgeryRequestWorkflowService', () => {
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
       );
+      let capturedManager: ReturnType<typeof createMockManager> | null = null;
+      dataSource.transaction.mockImplementationOnce(
+        async (cb: (manager: any) => Promise<any>) => {
+          capturedManager = createMockManager();
+          return cb(capturedManager);
+        },
+      );
 
       const result = await service.contestAuthorization(
         'req-1',
@@ -648,12 +673,23 @@ describe('SurgeryRequestWorkflowService', () => {
         'user-1',
       );
 
-      expect(contestationRepository.create).toHaveBeenCalledWith(
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      const contestationRepo = capturedManager!.repos.Contestation;
+      expect(contestationRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           surgeryRequestId: 'req-1',
           type: 'authorization',
           reason: 'Negado pelo plano',
         }),
+      );
+      expect(
+        capturedManager!.repos.SurgeryRequestActivity.save,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'Autorização contestada.' }),
+      );
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        SURGERY_REQUEST_EVENTS.UPDATED,
+        { surgeryRequestId: 'req-1', actorId: 'user-1' },
       );
       expect(mailService.sendSurgeryContested).toHaveBeenCalled();
       expect(result).toEqual({ sent: true, method: SendMethod.EMAIL });
@@ -730,9 +766,11 @@ describe('SurgeryRequestWorkflowService', () => {
         'user-1',
       );
 
-      expect(surgeryRequestRepository.update).toHaveBeenCalledWith('req-1', {
-        dateOptions: ['2026-04-01', '2026-04-10'],
-      });
+      expect(surgeryRequestRepository.updateIfStatus).toHaveBeenCalledWith(
+        'req-1',
+        SurgeryRequestStatus.IN_SCHEDULING,
+        { dateOptions: ['2026-04-01', '2026-04-10'] },
+      );
       expect(
         notificationService.notifyPatientSchedulingOptions,
       ).not.toHaveBeenCalled();
@@ -781,8 +819,9 @@ describe('SurgeryRequestWorkflowService', () => {
 
       await service.reschedule('req-1', { newDate: '2026-05-01' }, 'user-1');
 
-      expect(surgeryRequestRepository.update).toHaveBeenCalledWith(
+      expect(surgeryRequestRepository.updateIfStatus).toHaveBeenCalledWith(
         'req-1',
+        SurgeryRequestStatus.SCHEDULED,
         expect.objectContaining({ surgeryDate: expect.any(Date) }),
       );
     });
@@ -919,14 +958,17 @@ describe('SurgeryRequestWorkflowService', () => {
       );
 
       expect(dataSource.transaction).toHaveBeenCalled();
-      expect(surgeryRequestRepository.recordStatusChange).toHaveBeenCalledWith(
+      expect(
+        surgeryRequestRepository.applyStatusTransition,
+      ).toHaveBeenCalledWith(
         expect.anything(),
-        'req-1',
-        SurgeryRequestStatus.PENDING,
-        SurgeryRequestStatus.CLOSED,
-        'user-1',
-        undefined,
-        'Desistiu',
+        expect.objectContaining({
+          id: 'req-1',
+          from: SurgeryRequestStatus.PENDING,
+          to: SurgeryRequestStatus.CLOSED,
+          userId: 'user-1',
+          note: 'Desistiu',
+        }),
       );
     });
 
@@ -951,14 +993,15 @@ describe('SurgeryRequestWorkflowService', () => {
 
       await service.closeSurgeryRequest('req-1', {}, 'user-1');
 
-      expect(surgeryRequestRepository.recordStatusChange).toHaveBeenCalledWith(
+      expect(
+        surgeryRequestRepository.applyStatusTransition,
+      ).toHaveBeenCalledWith(
         expect.anything(),
-        'req-1',
-        SurgeryRequestStatus.PENDING,
-        SurgeryRequestStatus.CLOSED,
-        'user-1',
-        undefined,
-        undefined,
+        expect.objectContaining({
+          from: SurgeryRequestStatus.PENDING,
+          to: SurgeryRequestStatus.CLOSED,
+          note: undefined,
+        }),
       );
     });
   });
@@ -976,6 +1019,223 @@ describe('SurgeryRequestWorkflowService', () => {
         { template: 'surgery-scheduled' },
         'user-1',
       );
+    });
+  });
+
+  describe('B8 — envio: validação antes da escrita, cota na transação, UPDATE condicional', () => {
+    it('recusa anexo de outra SC antes de qualquer escrita (sem transação, sem cota)', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest(),
+      );
+      documentRepository.findOne.mockResolvedValue({
+        id: 'doc-x',
+        uri: 'documents/x.pdf',
+        surgeryRequestId: 'outra-sc',
+      });
+
+      await expect(
+        service.sendRequest(
+          'req-1',
+          {
+            method: SendMethod.EMAIL,
+            to: 'plano@test.com',
+            attachments: ['doc-x'],
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(quotaService.consumeSurgeryRequest).not.toHaveBeenCalled();
+    });
+
+    it('recusa documento de origem ausente antes de mudar o status', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest({ documents: [] }),
+      );
+
+      await expect(
+        service.sendRequest(
+          'req-1',
+          {
+            method: SendMethod.EMAIL,
+            to: 'plano@test.com',
+            useSourceDocument: true,
+          },
+          'user-1',
+        ),
+      ).rejects.toThrow('Documento de origem não encontrado');
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(quotaService.consumeSurgeryRequest).not.toHaveBeenCalled();
+    });
+
+    it('consome a cota DENTRO da transação, depois da troca de status', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest(),
+      );
+      const order: string[] = [];
+      surgeryRequestRepository.applyStatusTransition.mockImplementation(
+        async () => {
+          order.push('status');
+          return true;
+        },
+      );
+      quotaService.consumeSurgeryRequest.mockImplementation(async () => {
+        order.push('quota');
+        return {};
+      });
+      dataSource.transaction.mockImplementationOnce(async (cb: any) => {
+        order.push('begin');
+        const result = await cb(createMockManager());
+        order.push('commit');
+        return result;
+      });
+
+      await service.sendRequest(
+        'req-1',
+        { method: SendMethod.DOWNLOAD },
+        'user-1',
+      );
+
+      expect(order).toEqual(['begin', 'status', 'quota', 'commit']);
+    });
+
+    it('cota recusada desfaz o envio: sem evento nem notificação', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest(),
+      );
+      quotaService.consumeSurgeryRequest.mockRejectedValue(
+        new BadRequestException('limite'),
+      );
+
+      await expect(
+        service.sendRequest('req-1', { method: SendMethod.DOWNLOAD }, 'user-1'),
+      ).rejects.toThrow('limite');
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(
+        notificationService.notifyStakeholdersOfStatusChange,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('clique duplo: UPDATE condicional sem linha afetada vira 409 e não consome cota', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest(),
+      );
+      surgeryRequestRepository.applyStatusTransition.mockResolvedValue(false);
+
+      await expect(
+        service.sendRequest('req-1', { method: SendMethod.DOWNLOAD }, 'user-1'),
+      ).rejects.toThrow(ConflictException);
+
+      expect(quotaService.consumeSurgeryRequest).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it('emite surgery-request.status_changed depois do commit', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest(),
+      );
+
+      await service.sendRequest(
+        'req-1',
+        { method: SendMethod.DOWNLOAD },
+        'user-1',
+      );
+
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        SURGERY_REQUEST_EVENTS.STATUS_CHANGED,
+        {
+          surgeryRequestId: 'req-1',
+          from: SurgeryRequestStatus.PENDING,
+          to: SurgeryRequestStatus.SENT,
+          actorId: 'user-1',
+        },
+      );
+    });
+  });
+
+  describe('UPDATE condicional nos demais handlers', () => {
+    it.each([
+      [
+        'startAnalysis',
+        SurgeryRequestStatus.SENT,
+        (svc: SurgeryRequestWorkflowService) =>
+          svc.startAnalysis(
+            'req-1',
+            { requestNumber: '1', receivedAt: '2026-01-01' } as any,
+            'user-1',
+          ),
+      ],
+      [
+        'acceptAuthorization',
+        SurgeryRequestStatus.IN_ANALYSIS,
+        (svc: SurgeryRequestWorkflowService) =>
+          svc.acceptAuthorization(
+            'req-1',
+            { dateOptions: ['2026-04-01'] } as any,
+            'user-1',
+          ),
+      ],
+      [
+        'markPerformed',
+        SurgeryRequestStatus.SCHEDULED,
+        (svc: SurgeryRequestWorkflowService) =>
+          svc.markPerformed(
+            'req-1',
+            { surgeryPerformedAt: '2026-01-01' } as any,
+            'user-1',
+          ),
+      ],
+    ])(
+      '%s recusa com 409 quando outra ação já moveu a SC',
+      async (_n, status, run) => {
+        surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+          makeRequest({ status, dateOptions: ['2026-04-01'] } as any),
+        );
+        surgeryRequestRepository.applyStatusTransition.mockResolvedValue(false);
+
+        await expect(run(service)).rejects.toThrow(ConflictException);
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+        expect(
+          notificationService.notifyStakeholdersOfStatusChange,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('updateDateOptions recusa com 409 quando a SC saiu de Em Agendamento', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest({ status: SurgeryRequestStatus.IN_SCHEDULING }),
+      );
+      surgeryRequestRepository.updateIfStatus.mockResolvedValue(false);
+
+      await expect(
+        service.updateDateOptions(
+          'req-1',
+          { dateOptions: ['2026-04-01'], notifyPatient: true },
+          'user-1',
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(
+        notificationService.notifyPatientSchedulingOptions,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('startAnalysis passa pela máquina de estados (erro com pendencies)', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest({ status: SurgeryRequestStatus.PENDING }),
+      );
+
+      await expect(
+        service.startAnalysis(
+          'req-1',
+          { requestNumber: '1', receivedAt: '2026-01-01' } as any,
+          'user-1',
+        ),
+      ).rejects.toMatchObject({
+        response: { pendencies: expect.any(Array) },
+      });
     });
   });
 });

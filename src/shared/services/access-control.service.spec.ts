@@ -76,6 +76,48 @@ describe('AccessControlService', () => {
       );
     });
 
+    it('admin delegado (colaborador com ADMINISTRACAO) enxerga todos os médicos da conta', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'delegado',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'account-1',
+        permissions: [Permission.ADMINISTRACAO],
+        doctorProfile: null,
+      });
+      userRepository.findDoctorsByOwnerId.mockResolvedValue([
+        { id: 'doc-1' },
+        { id: 'doc-2' },
+      ]);
+
+      const result = await service.getAccessibleDoctorIds('delegado');
+
+      expect(result).toEqual(['doc-1', 'doc-2']);
+      expect(userRepository.findDoctorsByOwnerId).toHaveBeenCalledWith(
+        'account-1',
+      );
+      expect(
+        userDoctorAccessRepository.findActiveByUserId,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('colaborador sem ADMINISTRACAO continua restrito aos vínculos', async () => {
+      userRepository.findOneWithProfile.mockResolvedValue({
+        id: 'secretaria',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'account-1',
+        permissions: [Permission.AGENDA, Permission.SOLICITACOES],
+        doctorProfile: null,
+      });
+      userDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
+        { doctorUserId: 'doc-9' },
+      ]);
+
+      await expect(
+        service.getAccessibleDoctorIds('secretaria'),
+      ).resolves.toEqual(['doc-9']);
+      expect(userRepository.findDoctorsByOwnerId).not.toHaveBeenCalled();
+    });
+
     it('should include own user ID when user has doctorProfile', async () => {
       const doctorUser = {
         id: 'doctor-user-id',
@@ -331,28 +373,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  describe('getAccountId', () => {
-    it('should return ownerId when user is found', async () => {
-      userRepository.findOne.mockResolvedValue({
-        id: 'user-id',
-        ownerId: 'account-42',
-      } as any);
-
-      const result = await service.getAccountId('user-id');
-
-      expect(result).toBe('account-42');
-      expect(userRepository.findOne).toHaveBeenCalledWith({ id: 'user-id' });
-    });
-
-    it('should throw Error when user is not found', async () => {
-      userRepository.findOne.mockResolvedValue(null);
-
-      await expect(service.getAccountId('missing-id')).rejects.toThrow(
-        'Usuário missing-id não encontrado',
-      );
-    });
-  });
-
   describe('assertIsPhysicianWithRegistry', () => {
     const comPerfil = (doctorProfile: object | null) =>
       userRepository.findOneWithProfile.mockResolvedValue({
@@ -585,29 +605,6 @@ describe('AccessControlService', () => {
     });
   });
 
-  describe('getEffectivePermissions', () => {
-    it('deriva a permissão efetiva do usuário', async () => {
-      userRepository.findOneWithProfile.mockResolvedValue({
-        id: 'u-1',
-        role: UserRole.COLLABORATOR,
-        permissions: [Permission.AGENDA],
-        doctorProfile: null,
-      });
-
-      await expect(service.getEffectivePermissions('u-1')).resolves.toEqual([
-        Permission.AGENDA,
-      ]);
-    });
-
-    it('devolve lista vazia para usuário inexistente', async () => {
-      userRepository.findOneWithProfile.mockResolvedValue(null);
-
-      await expect(service.getEffectivePermissions('sumiu')).resolves.toEqual(
-        [],
-      );
-    });
-  });
-
   describe('getUsersWithAccessToDoctor', () => {
     const medico = {
       id: 'doc-1',
@@ -732,6 +729,29 @@ describe('AccessControlService', () => {
       );
 
       expect(result.map((u) => u.id)).toEqual(['doc-1']);
+    });
+
+    it('inclui o admin delegado (ADMINISTRACAO + SOLICITACOES) mesmo sem vínculo', async () => {
+      userRepository.findByOwnerId = jest.fn().mockResolvedValue([
+        medico,
+        {
+          id: 'delegado',
+          name: 'Gerente',
+          ownerId: 'owner-1',
+          role: UserRole.COLLABORATOR,
+          status: UserStatus.ACTIVE,
+          permissions: [Permission.ADMINISTRACAO, Permission.SOLICITACOES],
+          doctorProfile: null,
+        },
+      ] as any);
+      userDoctorAccessRepository.findActiveByDoctorUserId.mockResolvedValue([]);
+
+      const result = await service.getUsersWithAccessToDoctor(
+        'doc-1',
+        'owner-1',
+      );
+
+      expect(result.map((u) => u.id).sort()).toEqual(['delegado', 'doc-1']);
     });
 
     it('exclui usuários inativos', async () => {

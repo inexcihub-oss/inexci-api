@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import {
   COMPLEX_INTENTS,
@@ -47,6 +47,7 @@ const PLAN_INTENTS = [
 export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
   const planActions: AiTool = {
     name: 'plan_actions',
+    requiredPermission: ANY_AUTHENTICATED,
     definition: {
       type: 'function',
       function: {

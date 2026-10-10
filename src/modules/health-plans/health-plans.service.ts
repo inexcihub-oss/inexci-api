@@ -1,16 +1,19 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { FindManyHealthPlanDto } from './dto/find-many-health-plan.dto';
 import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
 import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
-import { FindOptionsWhere, In } from 'typeorm';
+import { FindOptionsWhere } from 'typeorm';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
 import { HealthPlan } from 'src/database/entities/health-plan.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import {
+  bulkDeleteOwned,
+  createOrRestoreByName,
+  findOwnedOrFail,
+  resolveCatalogOwnerId,
+} from 'src/shared/catalog/owned-catalog.helpers';
+
+const NAO_ENCONTRADO = 'Convênio não encontrado';
 
 @Injectable()
 export class HealthPlansService {
@@ -36,30 +39,18 @@ export class HealthPlansService {
     return { total, records };
   }
 
-  async findOne(id: string, userId: string): Promise<HealthPlan> {
-    const healthPlan = await this.healthPlanRepository.findOne({ id });
-    if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
-    await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
-    return healthPlan;
-  }
-
   async create(data: CreateHealthPlanDto, userId: string): Promise<HealthPlan> {
-    const ownerId = await this.accessControlService.getOwnerId(userId);
+    const ownerId = await resolveCatalogOwnerId(
+      this.accessControlService,
+      userId,
+    );
 
-    const existing = await this.healthPlanRepository.findOne({
-      name: data.name,
+    const healthPlan = await createOrRestoreByName({
+      repository: this.healthPlanRepository,
       ownerId,
-    });
-    if (existing) {
-      throw new ConflictException(
-        `Já existe um convênio com o nome "${data.name}"`,
-      );
-    }
-
-    const healthPlan = await this.healthPlanRepository.create({
-      ...data,
-      ownerId,
-      active: true,
+      data: { ...data, active: true },
+      conflictMessage: (nome) => `Já existe um convênio com o nome "${nome}"`,
+      logger: this.logger,
     });
     this.logger.log(
       `Convênio criado: id=${healthPlan.id}, name=${healthPlan.name}`,
@@ -72,17 +63,13 @@ export class HealthPlansService {
     data: UpdateHealthPlanDto,
     userId: string,
   ): Promise<HealthPlan> {
-    const healthPlan = await this.healthPlanRepository.findOne({ id });
-    if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
-    await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
+    await this.findOwned(id, userId);
     this.logger.log(`Convênio atualizado: id=${id}`);
     return (await this.healthPlanRepository.update(id, data))!;
   }
 
   async delete(id: string, userId: string): Promise<void> {
-    const healthPlan = await this.healthPlanRepository.findOne({ id });
-    if (!healthPlan) throw new NotFoundException('Convênio não encontrado');
-    await this.accessControlService.assertSameOwner(userId, healthPlan.ownerId);
+    await this.findOwned(id, userId);
     await this.healthPlanRepository.delete(id);
     this.logger.log(`Convênio soft-deleted: id=${id}`);
   }
@@ -92,24 +79,23 @@ export class HealthPlansService {
     userId: string,
   ): Promise<{ deleted: number }> {
     const ownerId = await this.accessControlService.getOwnerId(userId);
-    const uniqueIds = [...new Set(ids)];
-
-    const plans = await this.healthPlanRepository.findMany({
-      id: In(uniqueIds),
+    const result = await bulkDeleteOwned({
+      repository: this.healthPlanRepository,
+      ids,
       ownerId,
+      notFoundMessage: 'Um ou mais convênios não foram encontrados.',
     });
+    this.logger.log(`Convênios soft-deleted em lote: total=${result.deleted}`);
+    return result;
+  }
 
-    if (plans.length !== uniqueIds.length) {
-      throw new NotFoundException(
-        'Um ou mais convênios não foram encontrados.',
-      );
-    }
-
-    await this.healthPlanRepository.getRepository().softDelete(uniqueIds);
-    this.logger.log(
-      `Convênios soft-deleted em lote: total=${uniqueIds.length}`,
+  private findOwned(id: string, userId: string): Promise<HealthPlan> {
+    return findOwnedOrFail(
+      this.healthPlanRepository,
+      this.accessControlService,
+      id,
+      userId,
+      NAO_ENCONTRADO,
     );
-
-    return { deleted: uniqueIds.length };
   }
 }

@@ -63,14 +63,14 @@ describe('Reports (e2e)', () => {
     await closeTestApp(app);
   });
 
-  describe('/reports/dashboard (GET)', () => {
+  describe('/reports/dashboard-full (GET) — KPIs', () => {
     it('deve devolver os totais zerados quando a clínica não tem médicos', async () => {
       const response = await request(app.getHttpServer())
-        .get('/reports/dashboard')
+        .get('/reports/dashboard-full')
         .set(getAuthHeader(tokenAdminSemMedicos))
         .expect(200);
 
-      expect(response.body).toEqual({
+      expect(response.body).toMatchObject({
         surgeryRequest: {
           total: 0,
           totalScheduled: 0,
@@ -87,7 +87,7 @@ describe('Reports (e2e)', () => {
 
     it('deve agregar a única SC da clínica do médico', async () => {
       const response = await request(app.getHttpServer())
-        .get('/reports/dashboard')
+        .get('/reports/dashboard-full')
         .set(getAuthHeader(tokenMedico))
         .expect(200);
 
@@ -112,32 +112,34 @@ describe('Reports (e2e)', () => {
     it('deve responder dentro do orçamento de tempo', async () => {
       const inicio = Date.now();
       await request(app.getHttpServer())
-        .get('/reports/dashboard')
+        .get('/reports/dashboard-full')
         .set(getAuthHeader(tokenMedico))
         .expect(200);
       expect(Date.now() - inicio).toBeLessThan(10000);
     });
 
     it('deve recusar sem autenticação', async () => {
-      await request(app.getHttpServer()).get('/reports/dashboard').expect(401);
+      await request(app.getHttpServer())
+        .get('/reports/dashboard-full')
+        .expect(401);
     });
 
     it('deve recusar com token inválido', async () => {
       await request(app.getHttpServer())
-        .get('/reports/dashboard')
+        .get('/reports/dashboard-full')
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
     });
   });
 
-  describe('/reports/pending-notifications (GET)', () => {
+  describe('/reports/dashboard-full (GET) — pendências', () => {
     it('deve devolver zero pendências para uma SC recém-criada', async () => {
       const response = await request(app.getHttpServer())
-        .get('/reports/pending-notifications')
+        .get('/reports/dashboard-full')
         .set(getAuthHeader(tokenMedico))
         .expect(200);
 
-      expect(response.body).toEqual({
+      expect(response.body.pendingNotifications).toEqual({
         total: 0,
         pendingAnalysis: 0,
         pendingScheduling: 0,
@@ -146,13 +148,13 @@ describe('Reports (e2e)', () => {
 
     it('deve recusar sem autenticação', async () => {
       await request(app.getHttpServer())
-        .get('/reports/pending-notifications')
+        .get('/reports/dashboard-full')
         .expect(401);
     });
 
     it('deve recusar com token inválido', async () => {
       await request(app.getHttpServer())
-        .get('/reports/pending-notifications')
+        .get('/reports/dashboard-full')
         .set('Authorization', 'Bearer invalid-token')
         .expect(401);
     });

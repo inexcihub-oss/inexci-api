@@ -2,14 +2,15 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { FlowDraftDeps } from '../_types';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const { draftService, workflowService, activityRepo } = deps;
   return {
     name: 'scheduling_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -65,22 +66,23 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
             context.userId,
           );
         }
-        await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Agendamento: ${hasOptions ? 'opções definidas' : ''}${
+        await recordAiActivity(
+          activityRepo,
+          context,
+          f.surgeryRequestId!,
+          `Agendamento: ${hasOptions ? 'opções definidas' : ''}${
             f.confirmedDateIndex !== undefined
               ? `${hasOptions ? '; ' : ''}data confirmada (opção #${f.confirmedDateIndex + 1})`
               : ''
           }.`,
-        });
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: f.surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: f.surgeryRequestId! }],
           message: `Agendamento aplicado para a solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId}.`,
         });
       } catch (err: any) {

@@ -10,6 +10,7 @@ import { MailService } from 'src/shared/mail/mail.service';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { UserRole } from 'src/database/entities/user.entity';
+import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 
 describe('NotificationsService', () => {
@@ -32,11 +33,11 @@ describe('NotificationsService', () => {
   let mockUserRepository: {
     findOne: jest.Mock;
     findByOwnerId: jest.Mock;
+    getPatientNotificationSettings: jest.Mock;
+    updatePatientNotificationSettings: jest.Mock;
   };
   let mockMailService: {
-    sendRaw: jest.Mock;
     sendGenericNotification: jest.Mock;
-    sendStatusChangeStakeholder: jest.Mock;
   };
   let mockWhatsappService: {
     sendTemplate: jest.Mock;
@@ -105,12 +106,12 @@ describe('NotificationsService', () => {
     mockUserRepository = {
       findOne: jest.fn(),
       findByOwnerId: jest.fn(),
+      getPatientNotificationSettings: jest.fn(),
+      updatePatientNotificationSettings: jest.fn(),
     };
 
     mockMailService = {
-      sendRaw: jest.fn().mockResolvedValue(undefined),
       sendGenericNotification: jest.fn().mockResolvedValue(undefined),
-      sendStatusChangeStakeholder: jest.fn().mockResolvedValue(undefined),
     };
     mockWhatsappService = {
       sendTemplate: jest.fn().mockResolvedValue(undefined),
@@ -164,6 +165,43 @@ describe('NotificationsService', () => {
       expect(mockSettingsRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ mentionEmails: true }),
       );
+    });
+  });
+
+  describe('patient settings (avisos ao paciente)', () => {
+    it('lê a configuração da conta pelo ownerId', async () => {
+      const settings = {
+        appointmentScheduled: true,
+        appointmentReminder: false,
+        appointmentCancelled: true,
+      };
+      mockUserRepository.getPatientNotificationSettings.mockResolvedValue(
+        settings,
+      );
+
+      await expect(service.getPatientSettings('acc-1')).resolves.toEqual(
+        settings,
+      );
+      expect(
+        mockUserRepository.getPatientNotificationSettings,
+      ).toHaveBeenCalledWith('acc-1');
+    });
+
+    it('grava só as chaves booleanas conhecidas', async () => {
+      mockUserRepository.updatePatientNotificationSettings.mockResolvedValue({
+        appointmentScheduled: false,
+        appointmentReminder: true,
+        appointmentCancelled: true,
+      });
+
+      await service.updatePatientSettings('acc-1', {
+        appointmentScheduled: false,
+        intrusa: true,
+      } as never);
+
+      expect(
+        mockUserRepository.updatePatientNotificationSettings,
+      ).toHaveBeenCalledWith('acc-1', { appointmentScheduled: false });
     });
   });
 
@@ -453,6 +491,28 @@ describe('NotificationsService', () => {
       expect(items.some((n: any) => n.userId === 'admin-2')).toBe(true);
     });
 
+    it('admin delegado (colaborador com ADMINISTRACAO) também recebe o alerta', async () => {
+      const delegado = {
+        id: 'delegado-1',
+        role: UserRole.COLLABORATOR,
+        ownerId: 'acc-1',
+        permissions: [Permission.ADMINISTRACAO],
+        name: 'Gerente',
+      };
+      mockUserRepository.findOne.mockResolvedValue(collaboratorUser);
+      mockUserRepository.findByOwnerId.mockResolvedValue([
+        adminUser,
+        delegado,
+        collaboratorUser,
+      ]);
+
+      await service.notifyAdminsOfAction('collab-1', 'Ação', 'Mensagem');
+
+      const [items] = mockNotificationRepository.createBulk.mock.calls[0];
+      const ids = items.map((n: { userId: string }) => n.userId).sort();
+      expect(ids).toEqual(['admin-1', 'delegado-1']);
+    });
+
     it('não chama createBulk se não há admins outros que o ator', async () => {
       mockUserRepository.findOne.mockResolvedValue(adminUser);
       mockUserRepository.findByOwnerId.mockResolvedValue([adminUser]);
@@ -641,9 +701,6 @@ describe('NotificationsService', () => {
         actorId,
       );
 
-      expect(
-        mockMailService.sendStatusChangeStakeholder,
-      ).not.toHaveBeenCalled();
       expect(mockMailService.sendGenericNotification).not.toHaveBeenCalled();
     });
 

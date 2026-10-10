@@ -25,13 +25,3 @@ export function maskEmail(value: string | null | undefined): string {
   if (local.length <= 1) return `${local}${domain}`;
   return `${local[0]}****${domain}`;
 }
-
-export function maskCpf(value: string | null | undefined): string {
-  if (!value) return '';
-  return '***.***.***-**';
-}
-
-export function maskCnpj(value: string | null | undefined): string {
-  if (!value) return '';
-  return '**.***.***/****-**';
-}

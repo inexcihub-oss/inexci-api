@@ -16,6 +16,7 @@ import {
   JWT_DEFAULT_AUDIENCE,
   JWT_DEFAULT_ISSUER,
 } from 'src/modules/auth/jwt-payload.interface';
+import { errorMessage } from 'src/shared/utils';
 
 export interface NotificationPayload {
   id: string;
@@ -23,7 +24,7 @@ export interface NotificationPayload {
   title: string;
   message: string;
   link?: string | null;
-  metadata?: Record<string, any> | null;
+  metadata?: Record<string, unknown> | null;
   createdAt: Date;
 }
 
@@ -95,9 +96,9 @@ export class NotificationsGateway
         try {
           const count = await this.notificationRepository.countUnread(userId);
           client.emit('notification:unread-count', { count });
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao enviar unread-count inicial para user:${userId}: ${err?.message}`,
+            `Falha ao enviar unread-count inicial para user:${userId}: ${errorMessage(err)}`,
           );
         }
       }

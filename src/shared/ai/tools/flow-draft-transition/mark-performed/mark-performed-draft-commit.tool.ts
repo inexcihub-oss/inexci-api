@@ -2,7 +2,6 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
 import {
@@ -10,6 +9,7 @@ import {
   checkPostSurgeryDocuments,
   extractTransitionErrorMessage,
 } from '../_helpers';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildMarkPerformedDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -24,6 +24,7 @@ export function buildMarkPerformedDraftCommitTool(
   return {
     name: 'mark_performed_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -91,18 +92,19 @@ export function buildMarkPerformedDraftCommitTool(
           } as any,
           context.userId,
         );
-        await activityRepo.create({
+        await recordAiActivity(
+          activityRepo,
+          context,
           surgeryRequestId,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Cirurgia marcada como realizada em ${f.surgeryPerformedAt}.`,
-        });
+          `Cirurgia marcada como realizada em ${f.surgeryPerformedAt}.`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Solicitação ${f.surgeryRequestLabel ?? surgeryRequestId} marcada como realizada com sucesso.`,
         });
       } catch (err: any) {

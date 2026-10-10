@@ -12,10 +12,6 @@ export class CreatePatientDto {
   @IsNotEmpty()
   name: string;
 
-  /**
-   * Opcional: estrangeiros, menores e pacientes migrados de outros sistemas
-   * podem não ter. A Solicitação Cirúrgica continua exigindo CPF para avançar.
-   */
   @IsOptional()
   @IsString()
   cpf?: string;
@@ -24,16 +20,11 @@ export class CreatePatientDto {
   @IsString()
   phone?: string;
 
-  /** Telefone adicional (fixo, recado). */
   @IsOptional()
   @IsString()
   @MaxLength(15)
   secondaryPhone?: string;
 
-  /**
-   * Caminho no storage devolvido por `POST /upload/single` com
-   * `folder=patient-photos`. `null` remove a foto.
-   */
   @IsOptional()
   @IsString()
   @MaxLength(255)

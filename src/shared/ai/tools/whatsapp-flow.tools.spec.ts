@@ -47,6 +47,11 @@ const mockHealthPlanRepo = {
 };
 const mockProcedureRepo = { findOne: jest.fn(), findMany: jest.fn() };
 const mockUserRepo = { findMany: jest.fn() };
+const mockTussService = {
+  search: jest.fn().mockReturnValue([]),
+  findByExactCode: jest.fn(),
+  lookup: jest.fn().mockReturnValue([]),
+};
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -66,24 +71,25 @@ const mockRequest = {
 const mockSentRequest = { ...mockRequest, status: 2 };
 
 describe('WhatsappFlowTools', () => {
-  const tools = buildWhatsappFlowTools(
-    mockSurgeryRequestRepo as any,
-    mockWorkflowService as any,
-    mockSurgeryRequestsService as any,
-    mockActivityRepo as any,
-    {
-      documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
-    },
-    mockPendencyValidator as any,
-    mockPatientRepo as any,
-    mockHospitalRepo as any,
-    mockHealthPlanRepo as any,
-    mockProcedureRepo as any,
-    mockUserRepo as any,
-    undefined,
-    new EntityResolverService(),
-    mockPatientsService as any,
-  );
+  const tools = buildWhatsappFlowTools({
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    workflowService: mockWorkflowService as any,
+    surgeryRequestsService: mockSurgeryRequestsService as any,
+    activityRepo: mockActivityRepo as any,
+    pendencyValidator: mockPendencyValidator as any,
+    patientRepo: mockPatientRepo as any,
+    hospitalRepo: mockHospitalRepo as any,
+    healthPlanRepo: mockHealthPlanRepo as any,
+    procedureRepo: mockProcedureRepo as any,
+    userRepo: mockUserRepo as any,
+    tussService: mockTussService as any,
+    entityResolver: new EntityResolverService(),
+    patientsService: mockPatientsService as any,
+    documentsService: { createFromPath: jest.fn(), delete: jest.fn() } as any,
+    documentDispatcher: {} as any,
+    storageService: {} as any,
+    documentRepo: {} as any,
+  });
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
@@ -595,27 +601,25 @@ describe('WhatsappFlowTools', () => {
       delete: jest.fn().mockResolvedValue(undefined),
     };
 
-    const ocrTools = buildWhatsappFlowTools(
-      mockSurgeryRequestRepo as any,
-      mockWorkflowService as any,
-      mockSurgeryRequestsService as any,
-      mockActivityRepo as any,
-      {
-        documentDispatcher: documentDispatcher as any,
-        storageService: storageService as any,
-        documentRepo: documentRepo as any,
-        documentsService: documentsService as any,
-      },
-      mockPendencyValidator as any,
-      mockPatientRepo as any,
-      mockHospitalRepo as any,
-      mockHealthPlanRepo as any,
-      mockProcedureRepo as any,
-      mockUserRepo as any,
-      undefined,
-      new EntityResolverService(),
-      mockPatientsService as any,
-    );
+    const ocrTools = buildWhatsappFlowTools({
+      surgeryRequestRepo: mockSurgeryRequestRepo as any,
+      workflowService: mockWorkflowService as any,
+      surgeryRequestsService: mockSurgeryRequestsService as any,
+      activityRepo: mockActivityRepo as any,
+      pendencyValidator: mockPendencyValidator as any,
+      patientRepo: mockPatientRepo as any,
+      hospitalRepo: mockHospitalRepo as any,
+      healthPlanRepo: mockHealthPlanRepo as any,
+      procedureRepo: mockProcedureRepo as any,
+      userRepo: mockUserRepo as any,
+      tussService: mockTussService as any,
+      entityResolver: new EntityResolverService(),
+      patientsService: mockPatientsService as any,
+      documentDispatcher: documentDispatcher as any,
+      storageService: storageService as any,
+      documentRepo: documentRepo as any,
+      documentsService: documentsService as any,
+    });
 
     const attach = ocrTools.find(
       (t) => t.name === 'attach_document_from_whatsapp',
@@ -739,44 +743,6 @@ describe('WhatsappFlowTools', () => {
       expect(storageService.move).not.toHaveBeenCalled();
     });
 
-    it('retorna mensagem de indisponibilidade quando deps de documento ausentes', async () => {
-      const noDepsTools = buildWhatsappFlowTools(
-        mockSurgeryRequestRepo as any,
-        mockWorkflowService as any,
-        mockSurgeryRequestsService as any,
-        mockActivityRepo as any,
-        {
-          documentsService: {
-            createFromPath: jest.fn(),
-            delete: jest.fn(),
-          } as any,
-        },
-        mockPendencyValidator as any,
-        mockPatientRepo as any,
-        mockHospitalRepo as any,
-        mockHealthPlanRepo as any,
-        mockProcedureRepo as any,
-        mockUserRepo as any,
-        undefined,
-        new EntityResolverService(),
-        mockPatientsService as any,
-      );
-      const tool = noDepsTools.find(
-        (t) => t.name === 'attach_document_from_whatsapp',
-      )!;
-
-      const result = await tool.execute(
-        {
-          surgeryRequestId: 'req-1',
-          documentType: 'medical_report',
-          confirm: true,
-        },
-        baseContext,
-      );
-
-      expect(result).toContain('finalizado');
-    });
-
     it('envelope: status=pending_confirmation para preview', async () => {
       const result = await attach.execute(
         {
@@ -832,28 +798,28 @@ describe('WhatsappFlowTools', () => {
       }),
     };
 
-    const ocrTools = buildWhatsappFlowTools(
-      mockSurgeryRequestRepo as any,
-      mockWorkflowService as any,
-      mockSurgeryRequestsService as any,
-      mockActivityRepo as any,
-      {
-        documentDispatcher: documentDispatcher as any,
-        documentsService: {
-          createFromPath: jest.fn(),
-          delete: jest.fn(),
-        } as any,
-      },
-      mockPendencyValidator as any,
-      mockPatientRepo as any,
-      mockHospitalRepo as any,
-      mockHealthPlanRepo as any,
-      mockProcedureRepo as any,
-      mockUserRepo as any,
-      undefined,
-      new EntityResolverService(),
-      mockOcrPatientsService as any,
-    );
+    const ocrTools = buildWhatsappFlowTools({
+      surgeryRequestRepo: mockSurgeryRequestRepo as any,
+      workflowService: mockWorkflowService as any,
+      surgeryRequestsService: mockSurgeryRequestsService as any,
+      activityRepo: mockActivityRepo as any,
+      pendencyValidator: mockPendencyValidator as any,
+      patientRepo: mockPatientRepo as any,
+      hospitalRepo: mockHospitalRepo as any,
+      healthPlanRepo: mockHealthPlanRepo as any,
+      procedureRepo: mockProcedureRepo as any,
+      userRepo: mockUserRepo as any,
+      tussService: mockTussService as any,
+      entityResolver: new EntityResolverService(),
+      patientsService: mockOcrPatientsService as any,
+      documentDispatcher: documentDispatcher as any,
+      documentsService: {
+        createFromPath: jest.fn(),
+        delete: jest.fn(),
+      } as any,
+      storageService: {} as any,
+      documentRepo: {} as any,
+    });
     const createPatient = ocrTools.find(
       (t) => t.name === 'create_patient_from_document',
     )!;

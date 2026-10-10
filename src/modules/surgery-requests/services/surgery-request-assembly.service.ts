@@ -1,5 +1,6 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { SurgeryRequestsService } from '../surgery-requests.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { SurgeryRequestReportService } from './surgery-request-report.service';
+import { SurgeryRequestMutationService } from './surgery-request-mutation.service';
 import { OpmeService } from '../opme/opme.service';
 import { TussService } from '../../tuss/tuss.service';
 
@@ -85,9 +86,10 @@ export class SurgeryRequestAssemblyService {
   private readonly logger = new Logger(SurgeryRequestAssemblyService.name);
 
   constructor(
-    private readonly surgeryRequestsService: SurgeryRequestsService,
-    @Optional() private readonly opmeService?: OpmeService,
-    @Optional() private readonly tussService?: TussService,
+    private readonly reportService: SurgeryRequestReportService,
+    private readonly mutationService: SurgeryRequestMutationService,
+    private readonly opmeService: OpmeService,
+    private readonly tussService: TussService,
   ) {}
 
   async assembleFromExtracted(
@@ -110,7 +112,7 @@ export class SurgeryRequestAssemblyService {
           continue;
         }
         try {
-          await this.surgeryRequestsService.createReportSection(
+          await this.reportService.createReportSection(
             scId,
             { title: section.title, description: section.description ?? '' },
             userId,
@@ -124,7 +126,7 @@ export class SurgeryRequestAssemblyService {
       }
     } else if (notes && typeof notes === 'string') {
       try {
-        await this.surgeryRequestsService.createReportSection(
+        await this.reportService.createReportSection(
           scId,
           { title: 'Laudo', description: notes },
           userId,
@@ -141,18 +143,22 @@ export class SurgeryRequestAssemblyService {
       const code = item?.code;
       if (!code) continue;
       let name = item.description;
-      if (!name && this.tussService) {
+      if (!name) {
         try {
           const matches = this.tussService.lookup(code, 1);
           if (matches?.[0]?.name) name = matches[0].name;
-        } catch {}
+        } catch (err) {
+          this.logger.warn(
+            `[SC_ASSEMBLY] scId=${scId} lookup TUSS ${code} falhou: ${(err as Error)?.message}`,
+          );
+        }
       }
       if (!name) {
         warnings.push(`TUSS ${code} (descrição não resolvida)`);
         continue;
       }
       try {
-        await this.surgeryRequestsService.addTussItem(
+        await this.mutationService.addTussItem(
           scId,
           {
             tussCode: code,
@@ -185,10 +191,6 @@ export class SurgeryRequestAssemblyService {
         FALLBACK_OPME_NAME,
       );
 
-      if (!this.opmeService) {
-        warnings.push(`OPME ${name} (serviço indisponível)`);
-        continue;
-      }
       try {
         await this.opmeService.create(
           {
@@ -208,8 +210,12 @@ export class SurgeryRequestAssemblyService {
 
     if (opmeAdded > 0) {
       try {
-        await this.surgeryRequestsService.setHasOpme(scId, true, userId);
-      } catch {}
+        await this.mutationService.setHasOpme(scId, true, userId);
+      } catch (err) {
+        this.logger.warn(
+          `[SC_ASSEMBLY] scId=${scId} setHasOpme falhou: ${(err as Error)?.message}`,
+        );
+      }
     }
 
     return { warnings };

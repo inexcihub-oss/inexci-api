@@ -11,12 +11,22 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto';
+import { UpdatePatientNotificationSettingsDto } from './dto/update-patient-notification-settings.dto';
+import {
+  PATIENT_NOTIFICATION_KINDS,
+  PatientNotificationSettings,
+} from 'src/common/patient-notification-settings';
+import { UserNotificationSettings } from 'src/database/entities/user-notification-settings.entity';
 import { NotificationType } from 'src/database/entities/notification.entity';
-import { UserRole } from 'src/database/entities/user.entity';
+import { canAdministrate } from 'src/shared/permissions';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
-import { getStatusLabel, getStalePendencyMessage } from 'src/shared/utils';
+import {
+  errorMessage,
+  getStatusLabel,
+  getStalePendencyMessage,
+} from 'src/shared/utils';
 import { NotificationsGateway } from './notifications.gateway';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
@@ -56,6 +66,24 @@ export class NotificationsService {
 
   async updateSettings(userId: string, data: UpdateNotificationSettingsDto) {
     return await this.settingsRepository.upsert(userId, data);
+  }
+
+  getPatientSettings(ownerId: string): Promise<PatientNotificationSettings> {
+    return this.userRepository.getPatientNotificationSettings(ownerId);
+  }
+
+  updatePatientSettings(
+    ownerId: string,
+    data: UpdatePatientNotificationSettingsDto,
+  ): Promise<PatientNotificationSettings> {
+    const patch: Partial<PatientNotificationSettings> = {};
+    for (const kind of PATIENT_NOTIFICATION_KINDS) {
+      if (typeof data[kind] === 'boolean') patch[kind] = data[kind];
+    }
+    return this.userRepository.updatePatientNotificationSettings(
+      ownerId,
+      patch,
+    );
   }
 
   async getNotifications(
@@ -118,9 +146,9 @@ export class NotificationsService {
     try {
       const count = await this.notificationRepository.countUnread(userId);
       this.notificationsGateway.emitUnreadCount(userId, count);
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao emitir unread-count para ${userId}: ${err?.message}`,
+        `Falha ao emitir unread-count para ${userId}: ${errorMessage(err)}`,
       );
     }
   }
@@ -218,7 +246,7 @@ export class NotificationsService {
   }
 
   private isNotificationTypeEnabled(
-    settings: any,
+    settings: UserNotificationSettings | null,
     type: NotificationType,
   ): boolean {
     if (!settings) return true;
@@ -234,50 +262,6 @@ export class NotificationsService {
       default:
         return true;
     }
-  }
-
-  notifyStatusUpdate(
-    userId: string,
-    surgeryRequestId: string,
-    newStatus: string,
-  ) {
-    return this.createNotification({
-      userId: userId,
-      type: NotificationType.STATUS_UPDATE,
-      title: 'Status Atualizado',
-      message: `A solicitação cirúrgica foi atualizada para: ${newStatus}`,
-      link: `/solicitacao/${surgeryRequestId}`,
-      metadata: { surgeryRequestId, newStatus },
-    });
-  }
-
-  notifyNewPendency(
-    userId: string,
-    surgeryRequestId: string,
-    pendencyType: string,
-  ) {
-    return this.createNotification({
-      userId: userId,
-      type: NotificationType.PENDENCY,
-      title: 'Nova Pendência',
-      message: `Uma nova pendência foi criada: ${pendencyType}`,
-      link: `/solicitacao/${surgeryRequestId}`,
-      metadata: { surgeryRequestId, pendencyType },
-    });
-  }
-
-  notifyExpiringDocument(
-    userId: string,
-    documentName: string,
-    daysUntilExpiry: number,
-  ) {
-    return this.createNotification({
-      userId: userId,
-      type: NotificationType.EXPIRING_DOCUMENT,
-      title: 'Documento Expirando',
-      message: `O documento "${documentName}" expira em ${daysUntilExpiry} dias`,
-      metadata: { documentName, daysUntilExpiry },
-    });
   }
 
   async notifyStatusChange(
@@ -320,7 +304,7 @@ export class NotificationsService {
           .map((c) => c.userId);
       } else {
         const adminIds = allUsersInAccount
-          .filter((u) => u.role === UserRole.ADMIN)
+          .filter((u) => canAdministrate(u))
           .map((u) => u.id);
         accessibleUserIds = [...new Set([doctorId, createdById, ...adminIds])];
       }
@@ -380,23 +364,23 @@ export class NotificationsService {
                       '5': patientName,
                     },
                   );
-                } catch (waErr: any) {
+                } catch (waErr: unknown) {
                   this.logger.warn(
-                    `Falha ao enviar WhatsApp de status para ${uid}: ${waErr?.message}`,
+                    `Falha ao enviar WhatsApp de status para ${uid}: ${errorMessage(waErr)}`,
                   );
                 }
               }
-            } catch (notifyErr: any) {
+            } catch (notifyErr: unknown) {
               this.logger.warn(
-                `Falha ao notificar stakeholder ${uid}: ${notifyErr?.message}`,
+                `Falha ao notificar stakeholder ${uid}: ${errorMessage(notifyErr)}`,
               );
             }
           }),
         );
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao notificar envolvidos sobre mudança de status: ${err?.message}`,
+        `Falha ao notificar envolvidos sobre mudança de status: ${errorMessage(err)}`,
       );
     }
   }
@@ -453,9 +437,9 @@ export class NotificationsService {
           response: params.response,
         },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Falha ao notificar resposta do paciente à consulta ${params.appointmentId}: ${err?.message}`,
+        `Falha ao notificar resposta do paciente à consulta ${params.appointmentId}: ${errorMessage(err)}`,
       );
     }
   }
@@ -465,7 +449,7 @@ export class NotificationsService {
     title: string,
     message: string,
     link?: string,
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
     try {
       const actor = await this.userRepository.findOne({ id: actorId });
@@ -476,7 +460,7 @@ export class NotificationsService {
       );
 
       const adminIds = allUsersInAccount
-        .filter((u) => u.role === UserRole.ADMIN && u.id !== actorId)
+        .filter((u) => canAdministrate(u) && u.id !== actorId)
         .map((u) => u.id);
 
       if (!adminIds.length) return;
@@ -497,8 +481,8 @@ export class NotificationsService {
           ...actorMetadata,
         },
       });
-    } catch (err: any) {
-      this.logger.warn(`Falha ao notificar admins: ${err?.message}`);
+    } catch (err: unknown) {
+      this.logger.warn(`Falha ao notificar admins: ${errorMessage(err)}`);
     }
   }
 }

@@ -1,5 +1,8 @@
+import { Logger } from '@nestjs/common';
 import { ToolContext } from './tool.interface';
 import { UserRepository } from '../../../database/repositories/user.repository';
+
+const logger = new Logger('CatalogHelpers');
 
 export function normalizeNameForCompare(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -18,9 +21,12 @@ export async function resolveOwnerIdFromContext(
   if (context.ownerId) return context.ownerId;
   if (!context.userId || !userRepo) return null;
   try {
-    const user = await userRepo.findOne({ id: context.userId } as any);
+    const user = await userRepo.findOne({ id: context.userId });
     return user?.ownerId ?? null;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      `[CATALOG] falha ao resolver ownerId user=${context.userId}: ${(err as Error)?.message}`,
+    );
     return null;
   }
 }
@@ -54,70 +60,4 @@ export function isFuzzyMatch(a: string, b: string, threshold = 0.3): boolean {
   if (longest <= 3) return a === b;
   const distance = levenshteinDistance(a, b);
   return distance / longest <= threshold;
-}
-
-export async function findOwnedByNormalizedName<
-  T extends { id: string; name: string },
->(
-  repo: {
-    findOne: (where: any) => Promise<T | null>;
-    findMany: (where: any, skip?: number, take?: number) => Promise<T[]>;
-  },
-  rawName: string,
-  ownerId: string | null,
-): Promise<T | null> {
-  const trimmed = String(rawName || '').trim();
-  if (!trimmed) return null;
-  const exact = await repo.findOne({
-    name: trimmed,
-    ...(ownerId ? { ownerId } : {}),
-  });
-  if (exact) return exact;
-
-  const candidates = await repo.findMany(
-    ownerId ? ({ ownerId } as any) : ({} as any),
-    0,
-    200,
-  );
-  const target = normalizeNameForCompare(trimmed);
-
-  const equalMatch = candidates.find(
-    (item) => normalizeNameForCompare(item.name) === target,
-  );
-  if (equalMatch) return equalMatch;
-
-  const partialMatch = candidates.find((item) => {
-    const itemName = normalizeNameForCompare(item.name);
-    return (
-      !!itemName && (itemName.includes(target) || target.includes(itemName))
-    );
-  });
-  if (partialMatch) return partialMatch;
-
-  let bestScore = Number.POSITIVE_INFINITY;
-  let bestItem: T | null = null;
-  for (const item of candidates) {
-    const itemName = normalizeNameForCompare(item.name);
-    if (!itemName) continue;
-
-    const fullScore =
-      levenshteinDistance(itemName, target) /
-      Math.max(itemName.length, target.length);
-    if (isFuzzyMatch(itemName, target) && fullScore < bestScore) {
-      bestScore = fullScore;
-      bestItem = item;
-      continue;
-    }
-    for (const token of itemName.split(/\s+/)) {
-      if (token.length < 4) continue;
-      const tokenScore =
-        levenshteinDistance(token, target) /
-        Math.max(token.length, target.length);
-      if (isFuzzyMatch(token, target) && tokenScore < bestScore) {
-        bestScore = tokenScore;
-        bestItem = item;
-      }
-    }
-  }
-  return bestItem;
 }

@@ -7,7 +7,3 @@ export function generateValidationCode(length = 6): string {
     .map((byte) => DIGITS[byte % DIGITS.length])
     .join('');
 }
-
-export function generateTemporaryPassword(length = 6): string {
-  return generateValidationCode(length);
-}

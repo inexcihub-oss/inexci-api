@@ -6,93 +6,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as http from 'http';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface CustomHeaderData {
   logoUrl?: string | null;
   logoPosition: 'left' | 'center' | 'right';
   contentHtml?: string | null;
-}
-
-export interface SurgeryRequestPdfData {
-  id: string;
-  protocol?: string;
-  status: string;
-  createdAt: string;
-  sentAt?: string;
-
-  doctorName: string;
-  doctorCrm?: string;
-
-  patientName: string;
-  patientBirthDate?: string;
-  patientCpf?: string;
-  patientPhone?: string;
-
-  healthPlanName?: string;
-  healthPlanRegistration?: string;
-  healthPlanType?: string;
-  healthPlanProtocol?: string;
-
-  hospitalName?: string;
-
-  cid?: string;
-  cidDescription?: string;
-  diagnosis?: string;
-  medicalReport?: string;
-
-  procedures?: Array<{
-    tussCode: string;
-    description: string;
-    quantity: number;
-    authorizedQuantity?: number;
-  }>;
-
-  opmeItems?: Array<{
-    name: string;
-    quantity: number;
-    authorizedQuantity?: number;
-    fabricantesText?: string;
-    fornecedoresText?: string;
-  }>;
-
-  surgeryDate?: string;
-  surgeryPerformedAt?: string;
-
-  analysis?: {
-    requestNumber?: string;
-    receivedAt?: string;
-    notes?: string;
-  };
-
-  billing?: {
-    invoiceProtocol?: string;
-    invoiceValue?: string;
-    invoiceSentAt?: string;
-    paymentDeadline?: string;
-    receivedValue?: string;
-    receivedAt?: string;
-  };
-
-  customHeader?: CustomHeaderData | null;
-}
-
-export interface InvoicePdfData {
-  id: string;
-  protocol?: string;
-  patientName: string;
-  healthPlanName?: string;
-  hospitalName?: string;
-  doctorName: string;
-  surgeryDate?: string;
-  invoiceProtocol: string;
-  invoiceValue: string;
-  invoiceSentAt: string;
-  paymentDeadline?: string;
-  procedures?: Array<{
-    tussCode: string;
-    description: string;
-    quantity: number;
-  }>;
 }
 
 export interface MedicalReportPdfData {
@@ -527,7 +446,11 @@ export class PdfService {
         const copied = await merged.copyPages(doc, doc.getPageIndices());
         copied.forEach((p) => merged.addPage(p));
         continue;
-      } catch {}
+      } catch (err: unknown) {
+        this.logger.debug(
+          `[mergePdfs] anexo não é PDF, tentando como imagem: ${errorMessage(err)}`,
+        );
+      }
 
       const a4W = 595.28;
       const a4H = 841.89;
@@ -607,28 +530,6 @@ export class PdfService {
     });
   }
 
-  async generateSurgeryRequestSummary(
-    data: SurgeryRequestPdfData,
-  ): Promise<Buffer> {
-    let customHeader = data.customHeader ?? null;
-    if (customHeader?.logoUrl) {
-      const dataUri = await this.fetchAsDataUri(customHeader.logoUrl);
-      customHeader = {
-        ...customHeader,
-        logoUrl: dataUri ?? customHeader.logoUrl,
-      };
-    }
-
-    const templateData = { ...data, customHeader: customHeader || undefined };
-    const html = await this.renderTemplate('surgery-request', templateData);
-    return this.htmlToPdf(html);
-  }
-
-  async generateInvoiceReport(data: InvoicePdfData): Promise<Buffer> {
-    const html = await this.renderTemplate('invoice-report', data);
-    return this.htmlToPdf(html);
-  }
-
   async generateContestAuthorizationPdf(
     data: ContestAuthorizationPdfData,
   ): Promise<Buffer> {
@@ -687,7 +588,11 @@ export class PdfService {
       try {
         await fs.promises.access(candidate);
         return candidate;
-      } catch {}
+      } catch (err: unknown) {
+        this.logger.debug(
+          `[findTemplatePath] ${candidate} indisponível: ${errorMessage(err)}`,
+        );
+      }
     }
     return null;
   }
@@ -800,7 +705,11 @@ export class PdfService {
         }
 
         return candidate;
-      } catch {}
+      } catch (err: unknown) {
+        this.logger.debug(
+          `[puppeteer] executável ${candidate} indisponível: ${errorMessage(err)}`,
+        );
+      }
     }
 
     if (configuredPath) {

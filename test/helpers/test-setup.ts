@@ -151,7 +151,7 @@ export async function createUserWithRole(
   account_id: string;
 }> {
   const dataSource = app.get(DataSource);
-  const bcrypt = require('bcrypt');
+  const bcrypt = require('bcryptjs');
 
   const hashedPassword = await bcrypt.hash(options.password || 'Test@1234', 10);
   const role = options.role || 'admin';

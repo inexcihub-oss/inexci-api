@@ -3,6 +3,7 @@ import { AiTool, ToolContext } from './tool.interface';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { PatientsService } from '../../../modules/patients/patients.service';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 
 export function buildGeneralTools(
   patientsService: PatientsService,
@@ -12,6 +13,7 @@ export function buildGeneralTools(
 
   const queryPatients: AiTool = {
     name: 'query_patients',
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {

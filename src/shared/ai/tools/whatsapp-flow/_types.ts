@@ -16,26 +16,22 @@ import { DocumentRepository } from '../../../../database/repositories/document.r
 import { PatientsService } from '../../../../modules/patients/patients.service';
 import { DocumentsService } from '../../../../modules/surgery-requests/documents/documents.service';
 
-export interface WhatsappFlowDocumentDeps {
-  documentDispatcher?: WhatsappDocumentDispatcherService;
-  storageService?: StorageService;
-  documentRepo?: DocumentRepository;
-  documentsService: DocumentsService;
-}
-
 export interface WhatsappFlowToolDeps {
   surgeryRequestRepo: SurgeryRequestRepository;
   workflowService: SurgeryRequestWorkflowService;
   surgeryRequestsService: SurgeryRequestsService;
   activityRepo: SurgeryRequestActivityRepository;
-  pendencyValidator?: PendencyValidatorService;
-  patientRepo?: PatientRepository;
-  hospitalRepo?: HospitalRepository;
-  healthPlanRepo?: HealthPlanRepository;
-  procedureRepo?: ProcedureRepository;
-  userRepo?: UserRepository;
-  tussService?: TussService;
-  entityResolver?: EntityResolverService;
-  documentDeps: WhatsappFlowDocumentDeps;
-  patientsService?: PatientsService;
+  pendencyValidator: PendencyValidatorService;
+  patientRepo: PatientRepository;
+  hospitalRepo: HospitalRepository;
+  healthPlanRepo: HealthPlanRepository;
+  procedureRepo: ProcedureRepository;
+  userRepo: UserRepository;
+  tussService: TussService;
+  entityResolver: EntityResolverService;
+  patientsService: PatientsService;
+  documentDispatcher: WhatsappDocumentDispatcherService;
+  storageService: StorageService;
+  documentRepo: DocumentRepository;
+  documentsService: DocumentsService;
 }

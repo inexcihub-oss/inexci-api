@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AiTool, ToolContext } from './tool.interface';
+import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { TussService, TussResponse } from '../../../modules/tuss/tuss.service';
 
 function asNonEmptyString(value: unknown): string | null {
@@ -24,6 +24,7 @@ function formatLines(items: TussResponse[]): string[] {
 export function buildTussTools(tussService: TussService): AiTool[] {
   const searchTussCodes: AiTool = {
     name: 'search_tuss_codes',
+    requiredPermission: ANY_AUTHENTICATED,
     cacheable: { ttlSeconds: 3600 },
     definition: {
       type: 'function',

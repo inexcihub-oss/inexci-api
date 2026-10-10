@@ -6,7 +6,6 @@ import { Between, FindOptionsWhere, In } from 'typeorm';
 import {
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Permission } from 'src/shared/permissions';
@@ -16,16 +15,15 @@ import { FindManyKanbanDto, KANBAN_MAX_TAKE } from './dto/find-many-kanban.dto';
 import { AGENDA_MAX_TAKE, FindAgendaDto } from './dto/find-agenda.dto';
 import {
   mapDetailDoctor,
+  mapReceipt,
   mapSurgeryRequestDetail,
   type SurgeryRequestDetailInput,
 } from './mappers/surgery-request-detail.mapper';
 import { PendencyValidatorService } from './pendencies/pendency-validator.service';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { CreateSurgeryRequestDto } from './dto/create-surgery-request.dto';
 import { CreateSurgeryRequestSimpleDto } from './dto/create-surgery-request-simple.dto';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
-import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { OpmeItemRepository } from 'src/database/repositories/opme-item.repository';
 import { ClinicalRecordRepository } from 'src/database/repositories/clinical-record.repository';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
@@ -35,19 +33,6 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { withActiveSpan } from 'src/shared/observability/span.util';
 import { trace } from '@opentelemetry/api';
 
-import { SendRequestDto } from './dto/send-request.dto';
-import { StartAnalysisDto } from './dto/start-analysis.dto';
-import { AcceptAuthorizationDto } from './dto/accept-authorization.dto';
-import { ContestAuthorizationDto } from './dto/contest-authorization.dto';
-import { ConfirmDateDto } from './dto/confirm-date.dto';
-import { UpdateDateOptionsDto } from './dto/update-date-options.dto';
-import { RescheduleDto } from './dto/reschedule.dto';
-import { MarkPerformedDto } from './dto/mark-performed.dto';
-import { InvoiceRequestDto } from './dto/invoice-request.dto';
-import { ConfirmReceiptDto } from './dto/confirm-receipt.dto';
-import { ContestPaymentDto } from './dto/contest-payment.dto';
-import { UpdateReceiptDto } from './dto/update-receipt.dto';
-import { CloseSurgeryRequestDto } from './dto/close-surgery-request.dto';
 import { CreateReportSectionDto } from './dto/create-report-section.dto';
 import { UpdateReportSectionDto } from './dto/update-report-section.dto';
 import { ReorderReportSectionsDto } from './dto/reorder-report-sections.dto';
@@ -55,43 +40,30 @@ import {
   transformDocumentUrls,
   transformDoctorSignatureUrl,
 } from 'src/shared/transformers/signed-url.transformer';
-import { SurgeryRequestBilling } from 'src/database/entities/surgery-request-billing.entity';
 import { UserDoctorAccessRepository } from 'src/database/repositories/user-doctor-access.repository';
 
-import { SurgeryRequestWorkflowService } from './services/surgery-request-workflow.service';
 import { SurgeryRequestReportService } from './services/surgery-request-report.service';
 import { SurgeryRequestTemplateService } from './services/surgery-request-template.service';
 import { SurgeryRequestMutationService } from './services/surgery-request-mutation.service';
-import { SurgeryRequestRealtimeService } from './realtime/surgery-request-realtime.service';
-import { SendMethod } from 'src/shared/constants/send-method';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
 import { CidService } from './cid/cid.service';
 
 @Injectable()
 export class SurgeryRequestsService {
-  private readonly logger = new Logger(SurgeryRequestsService.name);
-
   constructor(
     private readonly storageService: StorageService,
     private readonly accessControlService: AccessControlService,
     private readonly userRepository: UserRepository,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
-    private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly userDoctorAccessRepository: UserDoctorAccessRepository,
     private readonly pendencyValidatorService: PendencyValidatorService,
     private readonly mutationService: SurgeryRequestMutationService,
-    private readonly workflowService: SurgeryRequestWorkflowService,
     private readonly reportService: SurgeryRequestReportService,
     private readonly templateService: SurgeryRequestTemplateService,
-    private readonly realtimeService: SurgeryRequestRealtimeService,
     private readonly cidService: CidService,
     private readonly clinicalRecordRepository: ClinicalRecordRepository,
   ) {}
-
-  create(data: CreateSurgeryRequestDto, userId: string) {
-    return this.mutationService.create(data, userId);
-  }
 
   createSurgeryRequest(data: CreateSurgeryRequestSimpleDto, userId: string) {
     return this.mutationService.createSurgeryRequest(data, userId);
@@ -167,12 +139,11 @@ export class SurgeryRequestsService {
         ]);
 
         const ids = records.map((record) => String(record.id));
-        const ownerId = await this.accessControlService.getOwnerId(userId);
         const [summaries, suppliersById, clinicsById] = await Promise.all([
           ids.length
             ? this.pendencyValidatorService.getBatchSummary(
                 ids.join(','),
-                ownerId,
+                doctorIds,
               )
             : Promise.resolve(
                 {} as Record<
@@ -357,20 +328,11 @@ export class SurgeryRequestsService {
         return mapSurgeryRequestDetail(
           surgeryRequest as SurgeryRequestDetailInput,
           mapDetailDoctor(doctor),
-          this.buildReceipt(surgeryRequest.billing),
+          mapReceipt(surgeryRequest.billing),
           resolvedCid,
         );
       },
     );
-  }
-
-  async findOneSimple(id: string, userId: string) {
-    const where = await this.buildAccessWhere({ id }, userId);
-    const surgeryRequest =
-      await this.surgeryRequestRepository.findOneSimple(where);
-    if (!surgeryRequest)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-    return surgeryRequest;
   }
 
   update(data: UpdateSurgeryRequestDto, userId: string) {
@@ -385,56 +347,24 @@ export class SurgeryRequestsService {
     return this.mutationService.setHasOpme(id, hasOpme, userId);
   }
 
-  async addTussItem(
+  addTussItem(
     surgeryRequestId: string,
     data: { tussCode: string; name: string; quantity: number },
     userId: string,
   ) {
-    const where = await this.buildAccessWhere({ id: surgeryRequestId }, userId);
-    const request = await this.surgeryRequestRepository.findOneSimple(where);
-    if (!request)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-
-    return this.tussItemRepository.create({
-      surgeryRequestId,
-      tussCode: data.tussCode,
-      name: data.name,
-      quantity: data.quantity,
-    });
+    return this.mutationService.addTussItem(surgeryRequestId, data, userId);
   }
 
-  async updateTussItem(
+  updateTussItem(
     tussItemId: string,
     data: { tussCode?: string; name?: string; quantity?: number },
     userId: string,
   ) {
-    const item = await this.tussItemRepository.findOne({ id: tussItemId });
-    if (!item) throw new NotFoundException('Item TUSS não encontrado.');
-
-    const where = await this.buildAccessWhere(
-      { id: item.surgeryRequestId },
-      userId,
-    );
-    const request = await this.surgeryRequestRepository.findOneSimple(where);
-    if (!request)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-
-    return this.tussItemRepository.update(tussItemId, data);
+    return this.mutationService.updateTussItem(tussItemId, data, userId);
   }
 
-  async removeTussItem(tussItemId: string, userId: string) {
-    const item = await this.tussItemRepository.findOne({ id: tussItemId });
-    if (!item) throw new NotFoundException('Item TUSS não encontrado.');
-
-    const where = await this.buildAccessWhere(
-      { id: item.surgeryRequestId },
-      userId,
-    );
-    const request = await this.surgeryRequestRepository.findOneSimple(where);
-    if (!request)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-
-    return this.tussItemRepository.deleteById(tussItemId);
+  removeTussItem(tussItemId: string, userId: string) {
+    return this.mutationService.removeTussItem(tussItemId, userId);
   }
 
   async getAvailableDoctors(userId: string) {
@@ -452,161 +382,6 @@ export class SurgeryRequestsService {
         d.doctorProfile,
       ),
     }));
-  }
-
-  async sendRequest(id: string, dto: SendRequestDto, userId: string) {
-    const result = await this.workflowService.sendRequest(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async startAnalysis(id: string, dto: StartAnalysisDto, userId: string) {
-    const result = await this.workflowService.startAnalysis(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async acceptAuthorization(
-    id: string,
-    dto: AcceptAuthorizationDto,
-    userId: string,
-  ) {
-    const result = await this.workflowService.acceptAuthorization(
-      id,
-      dto,
-      userId,
-    );
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async contestAuthorization(
-    id: string,
-    dto: ContestAuthorizationDto,
-    userId: string,
-  ) {
-    const result = await this.workflowService.contestAuthorization(
-      id,
-      dto,
-      userId,
-    );
-    await this.realtimeService.broadcastChange(id, 'updated', userId);
-    return result;
-  }
-
-  generateContestAuthorizationPdf(id: string, userId: string) {
-    return this.workflowService.generateContestAuthorizationPdf(id, userId);
-  }
-
-  async confirmDate(id: string, dto: ConfirmDateDto, userId: string) {
-    const result = await this.workflowService.confirmDate(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async updateDateOptions(
-    id: string,
-    dto: UpdateDateOptionsDto,
-    userId: string,
-  ) {
-    const result = await this.workflowService.updateDateOptions(
-      id,
-      dto,
-      userId,
-    );
-    await this.realtimeService.broadcastChange(id, 'updated', userId);
-    return result;
-  }
-
-  async reschedule(id: string, dto: RescheduleDto, userId: string) {
-    const result = await this.workflowService.reschedule(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'updated', userId);
-    return result;
-  }
-
-  async markPerformed(id: string, dto: MarkPerformedDto, userId: string) {
-    const result = await this.workflowService.markPerformed(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async invoiceRequest(id: string, dto: InvoiceRequestDto, userId: string) {
-    const result = await this.workflowService.invoiceRequest(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async confirmReceipt(id: string, dto: ConfirmReceiptDto, userId: string) {
-    const result = await this.workflowService.confirmReceipt(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  async contestPayment(id: string, dto: ContestPaymentDto, userId: string) {
-    const result = await this.workflowService.contestPayment(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'updated', userId);
-    return result;
-  }
-
-  async updateReceipt(id: string, dto: UpdateReceiptDto, userId: string) {
-    const result = await this.workflowService.updateReceipt(id, dto, userId);
-    await this.realtimeService.broadcastChange(id, 'updated', userId);
-    return result;
-  }
-
-  async closeSurgeryRequest(
-    id: string,
-    dto: CloseSurgeryRequestDto,
-    userId: string,
-  ) {
-    const result = await this.workflowService.closeSurgeryRequest(
-      id,
-      dto,
-      userId,
-    );
-    await this.realtimeService.broadcastChange(id, 'status-updated', userId);
-    return result;
-  }
-
-  notify(
-    id: string,
-    dto: {
-      template: string;
-      to?: string;
-      channels?: { email?: boolean; whatsapp?: boolean };
-      oldStatus?: number;
-    },
-    userId: string,
-  ) {
-    return this.workflowService.notify(id, dto, userId);
-  }
-
-  async send(data: { id: string }, userId: string) {
-    const result = await this.workflowService.sendRequest(
-      data.id,
-      { method: SendMethod.DOWNLOAD },
-      userId,
-    );
-    await this.realtimeService.broadcastChange(
-      data.id,
-      'status-updated',
-      userId,
-    );
-    return result;
-  }
-
-  async cancel(data: { id: string; reason?: string }, userId: string) {
-    const result = await this.workflowService.closeSurgeryRequest(
-      data.id,
-      { reason: data.reason },
-      userId,
-    );
-    await this.realtimeService.broadcastChange(
-      data.id,
-      'status-updated',
-      userId,
-    );
-    return result;
   }
 
   getReportSections(id: string, userId: string) {
@@ -652,10 +427,6 @@ export class SurgeryRequestsService {
 
   generateMedicalReportPdf(id: string, userId: string) {
     return this.reportService.generateMedicalReportPdf(id, userId);
-  }
-
-  exportSurgeryRequestPdf(id: string, userId: string): Promise<Buffer> {
-    return this.workflowService.exportSurgeryRequestPdf(id, userId);
   }
 
   createTemplate(
@@ -733,19 +504,5 @@ export class SurgeryRequestsService {
     userId: string,
   ): Promise<FindOptionsWhere<SurgeryRequest>> {
     return this.accessControlService.buildSurgeryAccessWhere(base, userId);
-  }
-
-  private buildReceipt(billing: SurgeryRequestBilling | null | undefined) {
-    if (billing?.receivedValue == null) return null;
-    return {
-      receivedValue: Number(billing.receivedValue),
-      receivedAt: billing.receivedAt,
-      receiptNotes: billing.receiptNotes ?? null,
-      is_contested: billing.contestedReceivedValue != null,
-      contestedReceivedValue: billing.contestedReceivedValue
-        ? Number(billing.contestedReceivedValue)
-        : null,
-      contestedReceivedAt: billing.contestedReceivedAt ?? null,
-    };
   }
 }

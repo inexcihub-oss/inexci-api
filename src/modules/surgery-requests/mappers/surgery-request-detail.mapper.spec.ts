@@ -1,6 +1,8 @@
 import {
   mapDetailDoctor,
   mapSurgeryRequestDetail,
+  mapReceipt,
+  type DetailReceipt,
 } from './surgery-request-detail.mapper';
 
 describe('mapDetailDoctor', () => {
@@ -160,7 +162,7 @@ describe('mapSurgeryRequestDetail', () => {
         contestations: [{ id: 'c-1', type: 'AUTHORIZATION' }],
       } as any,
       doctor,
-      { receivedValue: 500, is_contested: false },
+      { receivedValue: 500, isContested: false } as DetailReceipt,
     );
 
     expect(result).toMatchObject({
@@ -202,7 +204,7 @@ describe('mapSurgeryRequestDetail', () => {
       analysis: { authorized: true, extra: 'ok' },
       contestations: [{ id: 'c-1', type: 'AUTHORIZATION' }],
       doctor,
-      receipt: { receivedValue: 500, is_contested: false },
+      receipt: { receivedValue: 500, isContested: false },
     });
 
     expect(result).not.toHaveProperty('surgeryDescription');
@@ -300,5 +302,38 @@ describe('mapSurgeryRequestDetail', () => {
       zipCode: '01310100',
     });
     expect(result.patient).not.toHaveProperty('medicalNotes');
+  });
+});
+
+describe('mapReceipt', () => {
+  const base = {
+    receivedValue: '500.00' as unknown as number,
+    receivedAt: new Date('2026-02-01'),
+    receiptNotes: null,
+    contestedReceivedValue: null,
+    contestedReceivedAt: null,
+  };
+
+  it('expõe isContested em camelCase (sem is_contested)', () => {
+    const receipt = mapReceipt(base as never);
+    expect(receipt).toMatchObject({ receivedValue: 500, isContested: false });
+    expect(receipt).not.toHaveProperty('is_contested');
+  });
+
+  it('valor contestado 0 conta como contestação', () => {
+    const receipt = mapReceipt({
+      ...base,
+      contestedReceivedValue: 0,
+      contestedReceivedAt: new Date('2026-02-02'),
+    } as never);
+    expect(receipt).toMatchObject({
+      isContested: true,
+      contestedReceivedValue: 0,
+    });
+  });
+
+  it('sem recebimento devolve null', () => {
+    expect(mapReceipt({ ...base, receivedValue: null } as never)).toBeNull();
+    expect(mapReceipt(null)).toBeNull();
   });
 });

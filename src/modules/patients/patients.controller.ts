@@ -42,11 +42,6 @@ export class PatientsController {
     return this.patientsService.findAll(query, user.userId);
   }
 
-  /**
-   * Descarta uma foto enviada que não chegou a ser usada (troca/cadastro que
-   * falhou). Só aceita caminho da própria conta e não referenciado por nenhum
-   * paciente — ver `PatientsService.descartarFotoNaoUsada`.
-   */
   @Post('photos/discard')
   @HttpCode(204)
   @ApiOperation({ summary: 'Descartar foto de paciente enviada e não usada' })

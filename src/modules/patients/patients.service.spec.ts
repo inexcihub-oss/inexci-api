@@ -40,6 +40,11 @@ describe('PatientsService', () => {
     findOne: jest.Mock;
     findAndCountWithSearch: jest.Mock;
     getRepository: jest.Mock;
+    countByPhotoPath?: (photoPath: string, id?: string) => Promise<number>;
+    updateReturningPreviousPhoto?: (
+      id: string,
+      dados: Partial<Patient>,
+    ) => Promise<string | null>;
   };
   let contagemDeUso: jest.Mock;
   let lidoNaTransacao: jest.Mock;
@@ -71,10 +76,15 @@ describe('PatientsService', () => {
           }),
         }),
     );
-    patientRepository.getRepository.mockReturnValue({
-      count: contagemDeUso,
-      manager: { transaction },
-    });
+    const repositorioReal = new PatientRepository({
+      getRepository: () => ({ count: contagemDeUso, manager: { transaction } }),
+    } as never);
+    patientRepository.countByPhotoPath = (photoPath: string, id?: string) =>
+      repositorioReal.countByPhotoPath(photoPath, id);
+    patientRepository.updateReturningPreviousPhoto = (
+      id: string,
+      dados: Partial<Patient>,
+    ) => repositorioReal.updateReturningPreviousPhoto(id, dados);
     storageService = {
       getSignedUrl: jest.fn((p: string) => Promise.resolve(`https://r2/${p}`)),
       delete: jest.fn().mockResolvedValue(undefined),

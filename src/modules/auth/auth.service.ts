@@ -38,11 +38,13 @@ import { LogTrace } from 'src/shared/logging/trace.decorator';
 import { ProcedureRepository } from 'src/database/repositories/procedure.repository';
 import { DEFAULT_PROCEDURE_NAMES } from '../procedures/default-procedures.constants';
 import { RefreshTokenStore } from './refresh-token.store';
-import { resolveEffectivePermissions } from 'src/shared/permissions';
+import { permissionsOf } from 'src/shared/permissions';
 import {
   assertCodigoUtilizavel,
   consumirTentativa,
 } from './recovery-code-attempts.util';
+import { violouIndice } from 'src/database/repositories/unique-violation.util';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export const PHONE_ALREADY_IN_USE_MESSAGE =
   'Este telefone já está sendo utilizado por outra conta.';
@@ -54,24 +56,7 @@ function normalizePhone(phone: string): string {
 }
 
 function isPhoneUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-
-  const erro = err as {
-    code?: string;
-    constraint?: string;
-    message?: string;
-    driverError?: { code?: string; constraint?: string; message?: string };
-  };
-  const driver = erro.driverError ?? {};
-
-  if ((erro.code ?? driver.code) !== '23505') return false;
-
-  return (
-    erro.constraint === PHONE_UNIQUE_INDEX ||
-    driver.constraint === PHONE_UNIQUE_INDEX ||
-    (erro.message ?? '').includes(PHONE_UNIQUE_INDEX) ||
-    (driver.message ?? '').includes(PHONE_UNIQUE_INDEX)
-  );
+  return violouIndice(err, PHONE_UNIQUE_INDEX);
 }
 
 @Injectable()
@@ -94,6 +79,7 @@ export class AuthService {
   ) {}
 
   private readonly EMAIL_VERIFICATION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+  private readonly RECOVERY_CODE_EXPIRY_MS = 15 * 60 * 1000;
 
   private async createRefreshToken(userId: string): Promise<string> {
     return this.refreshTokenStore.issue(userId);
@@ -161,10 +147,67 @@ export class AuthService {
   }
 
   async register(data: RegisterDto) {
-    const existingUser = await this.userRepository.findOne({
-      email: data.email,
-    });
+    const phoneDigits = await this.assertCadastroDisponivel(
+      data.email,
+      data.phone,
+    );
 
+    const user = await this.criarDonoDaConta(data, phoneDigits);
+    await this.provisionarConta(user.id, data.planSlug);
+
+    const doctorProfile = data.isDoctor
+      ? await this.doctorProfileRepository.create({
+          userId: user.id,
+          crm: data.crm || '',
+          crmState: data.crmState || '',
+          specialty: data.specialty || null,
+        })
+      : null;
+
+    this.enviarBoasVindas(user);
+
+    return {
+      user: {
+        id: user.id.toString(),
+        role: user.role,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        cpf: user.cpf,
+        status: user.status,
+        ownerId: user.ownerId,
+        isDoctor: !!doctorProfile,
+        isPhysician: isPhysicianProfile(doctorProfile),
+        canIssueClinicalDocuments:
+          isClinicalDocumentIssuerProfile(doctorProfile),
+        emailVerified: user.emailVerified ?? false,
+        permissions: permissionsOf({
+          role: user.role,
+          permissions: user.permissions,
+          doctorProfile,
+        }),
+        doctorProfile: doctorProfile
+          ? {
+              id: doctorProfile.id,
+              crm: doctorProfile.crm,
+              crmState: doctorProfile.crmState,
+              council: doctorProfile.council,
+              specialty: doctorProfile.specialty,
+              signatureUrl: doctorProfile.signatureUrl,
+              clinicName: doctorProfile.clinicName,
+            }
+          : null,
+        createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
+        updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
+      },
+    };
+  }
+
+  private async assertCadastroDisponivel(
+    email: string,
+    phone: string,
+  ): Promise<string> {
+    const existingUser = await this.userRepository.findOne({ email });
     if (existingUser) {
       if (existingUser.status === UserStatus.PENDING) {
         throw new HttpException(
@@ -178,26 +221,27 @@ export class AuthService {
       );
     }
 
-    const phoneDigits = normalizePhone(data.phone);
-
+    const phoneDigits = normalizePhone(phone);
     const phoneOwner = await this.userRepository.findOne({
       phone: phoneDigits,
     });
-
     if (phoneOwner) {
       throw new HttpException(
         PHONE_ALREADY_IN_USE_MESSAGE,
         HttpStatus.BAD_REQUEST,
       );
     }
+    return phoneDigits;
+  }
 
+  private async criarDonoDaConta(
+    data: RegisterDto,
+    phoneDigits: string,
+  ): Promise<User> {
     const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
-
-    const isDoctor = data.isDoctor || false;
-
     const userId = uuidv4();
 
-    const user = await this.userRepository
+    return this.userRepository
       .create({
         id: userId,
         name: data.name,
@@ -217,82 +261,42 @@ export class AuthService {
         }
         throw err;
       });
+  }
 
+  private async provisionarConta(
+    ownerId: string,
+    planSlug?: string,
+  ): Promise<void> {
     await Promise.all(
       DEFAULT_PROCEDURE_NAMES.map((name) =>
-        this.procedureRepository.create({ name, ownerId: user.id }),
+        this.procedureRepository.create({ name, ownerId }),
       ),
     );
 
     try {
       await this.subscriptionService.createInitialSubscription(
-        user.id,
-        data.planSlug,
+        ownerId,
+        planSlug,
       );
     } catch (err) {
       this.logger.error(
-        `Falha ao criar subscription para userId=${user.id}: ${err instanceof Error ? err.message : err}`,
+        `Falha ao criar subscription para userId=${ownerId}: ${err instanceof Error ? err.message : err}`,
       );
     }
+  }
 
-    let doctorProfile = null;
-    if (isDoctor) {
-      doctorProfile = await this.doctorProfileRepository.create({
-        userId: user.id,
-        crm: data.crm || '',
-        crmState: data.crmState || '',
-        specialty: data.specialty || null,
-      });
-    }
-
+  private enviarBoasVindas(user: User): void {
     void this.dispatchEmailVerification(user.id, user.name, user.email);
 
     if (user.phone) {
       void this.whatsappService
         .sendUserWelcome(user.phone, user.name)
-        .catch((err) => {
+        .catch((err: unknown) => {
           this.logger.warn(
-            `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${err?.message ?? err}`,
+            `Falha ao enfileirar WhatsApp de boas-vindas para userId=${user.id}: ${errorMessage(err)}`,
           );
         });
     }
-
-    return {
-      user: {
-        id: user.id.toString(),
-        role: user.role,
-        name: user.name,
-        phone: user.phone,
-        email: user.email,
-        cpf: user.cpf,
-        status: user.status,
-        ownerId: user.ownerId,
-        isDoctor: !!doctorProfile,
-        isPhysician: isPhysicianProfile(doctorProfile),
-        canIssueClinicalDocuments:
-          isClinicalDocumentIssuerProfile(doctorProfile),
-        emailVerified: user.emailVerified ?? false,
-        permissions: resolveEffectivePermissions({
-          role: user.role,
-          permissions: user.permissions,
-          isDoctor: !!doctorProfile,
-          isPhysician: isPhysicianProfile(doctorProfile),
-        }),
-        doctorProfile: doctorProfile
-          ? {
-              id: doctorProfile.id,
-              crm: doctorProfile.crm,
-              crmState: doctorProfile.crmState,
-              council: doctorProfile.council,
-              specialty: doctorProfile.specialty,
-              signatureUrl: doctorProfile.signatureUrl,
-              clinicName: doctorProfile.clinicName,
-            }
-          : null,
-        createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
-        updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
-      },
-    };
   }
 
   async login(user: AuthDto) {
@@ -335,11 +339,10 @@ export class AuthService {
           canIssueClinicalDocuments:
             isClinicalDocumentIssuerProfile(doctorProfile),
           emailVerified: fullUser?.emailVerified ?? false,
-          permissions: resolveEffectivePermissions({
+          permissions: permissionsOf({
             role: result.role,
             permissions: fullUser?.permissions,
-            isDoctor: !!doctorProfile,
-            isPhysician: isPhysicianProfile(doctorProfile),
+            doctorProfile,
           }),
           doctorProfile: doctorProfile
             ? {
@@ -390,11 +393,10 @@ export class AuthService {
       isPhysician: isPhysicianProfile(doctorProfile),
       canIssueClinicalDocuments: isClinicalDocumentIssuerProfile(doctorProfile),
       emailVerified: user.emailVerified ?? false,
-      permissions: resolveEffectivePermissions({
+      permissions: permissionsOf({
         role: user.role,
         permissions: user.permissions,
-        isDoctor: !!doctorProfile,
-        isPhysician: isPhysicianProfile(doctorProfile),
+        doctorProfile,
       }),
       doctorProfile: doctorProfile
         ? {
@@ -456,7 +458,7 @@ export class AuthService {
       userId: user.id,
       used: false,
       code: validationCode,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      expiresAt: new Date(Date.now() + this.RECOVERY_CODE_EXPIRY_MS),
     });
 
     void this.mailService.sendPasswordRecovery(user.email, {

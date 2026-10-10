@@ -92,17 +92,4 @@ export class AiRedisService implements OnModuleDestroy {
     if (!client) return;
     await client.del(`${KEY_PREFIX}${key}`);
   }
-
-  async setFlag(key: string, ttlSeconds: number): Promise<void> {
-    const client = this.getClient();
-    if (!client) return;
-    await client.set(`${KEY_PREFIX}${key}`, '1', 'EX', ttlSeconds);
-  }
-
-  async hasFlag(key: string): Promise<boolean> {
-    const client = this.getClient();
-    if (!client) return false;
-    const val = await client.get(`${KEY_PREFIX}${key}`);
-    return val !== null;
-  }
 }

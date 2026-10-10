@@ -37,6 +37,7 @@ describe('AppointmentsService', () => {
 
   const mockUserRepository = {
     findOne: jest.fn(),
+    isPatientNotificationEnabled: jest.fn(),
   };
 
   const mockClinicRoomRepository = {
@@ -98,6 +99,7 @@ describe('AppointmentsService', () => {
     });
     mockWhatsappService.sendAppointmentCancelled.mockResolvedValue(undefined);
     mockWhatsappService.sendAppointmentScheduled.mockResolvedValue(undefined);
+    mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(true);
     mockAppointmentRepository.create.mockImplementation((d) =>
       Promise.resolve({ id: 'appt-1', ...d }),
     );
@@ -947,6 +949,25 @@ describe('AppointmentsService', () => {
       );
     });
 
+    it('não avisa quando a clínica desligou o aviso de cancelamento', async () => {
+      mockUserRepository.isPatientNotificationEnabled.mockImplementation(
+        async (_owner: string, kind: string) => kind !== 'appointmentCancelled',
+      );
+
+      await service.updateStatus(
+        'appt-1',
+        { status: AppointmentStatus.CANCELLED },
+        userId,
+      );
+
+      expect(
+        mockUserRepository.isPatientNotificationEnabled,
+      ).toHaveBeenCalledWith(ownerId, 'appointmentCancelled');
+      expect(
+        mockWhatsappService.sendAppointmentCancelled,
+      ).not.toHaveBeenCalled();
+    });
+
     it('não avisa em mudança de status que não é cancelamento', async () => {
       await service.updateStatus(
         'appt-1',
@@ -1023,6 +1044,24 @@ describe('AppointmentsService', () => {
         name: 'Ana Souza',
         phone: '5511998877665',
       });
+    });
+
+    it('não avisa quando a clínica desligou o aviso de consulta marcada', async () => {
+      mockUserRepository.isPatientNotificationEnabled.mockResolvedValue(false);
+
+      await expect(
+        service.create(
+          { ...baseCreate, scheduledAt: '2026-08-01T17:00:00.000Z' },
+          userId,
+        ),
+      ).resolves.toBeDefined();
+
+      expect(
+        mockUserRepository.isPatientNotificationEnabled,
+      ).toHaveBeenCalledWith(ownerId, 'appointmentScheduled');
+      expect(
+        mockWhatsappService.sendAppointmentScheduled,
+      ).not.toHaveBeenCalled();
     });
 
     it('avisa o paciente ao marcar a consulta', async () => {

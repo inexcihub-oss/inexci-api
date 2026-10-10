@@ -63,6 +63,7 @@ describe('Permissões declaradas no módulo de SC', () => {
 
 describe('SurgeryRequestsController', () => {
   let surgeryRequestsService: any;
+  let workflowService: any;
   let fromDocumentService: any;
   let documentExtractionJobsService: any;
   let controller: SurgeryRequestsController;
@@ -70,6 +71,10 @@ describe('SurgeryRequestsController', () => {
   beforeEach(() => {
     surgeryRequestsService = {
       createSurgeryRequest: jest.fn(),
+    };
+    workflowService = {
+      sendRequest: jest.fn().mockResolvedValue({ sent: true }),
+      closeSurgeryRequest: jest.fn().mockResolvedValue(undefined),
     };
     fromDocumentService = {
       createFromDocument: jest.fn(),
@@ -83,6 +88,7 @@ describe('SurgeryRequestsController', () => {
 
     controller = new SurgeryRequestsController(
       surgeryRequestsService,
+      workflowService,
       fromDocumentService,
       documentExtractionJobsService,
     );
@@ -139,5 +145,22 @@ describe('SurgeryRequestsController', () => {
       'user-1',
     );
     expect(result).toEqual({ status: 'processing' });
+  });
+
+  it('ações de workflow vão direto ao SurgeryRequestWorkflowService (rotas inalteradas)', async () => {
+    const user = { userId: 'user-1' } as any;
+    await controller.sendRequest('sc-1', { method: 'download' } as any, user);
+    await controller.closeSurgeryRequest('sc-1', { reason: 'x' }, user);
+
+    expect(workflowService.sendRequest).toHaveBeenCalledWith(
+      'sc-1',
+      { method: 'download' },
+      'user-1',
+    );
+    expect(workflowService.closeSurgeryRequest).toHaveBeenCalledWith(
+      'sc-1',
+      { reason: 'x' },
+      'user-1',
+    );
   });
 });

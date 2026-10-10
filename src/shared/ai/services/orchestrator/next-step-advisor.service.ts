@@ -2,21 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SurgeryRequestRepository } from '../../../../database/repositories/surgery-request.repository';
 import { PendencyValidatorService } from '../../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { ToolContext } from '../../tools/tool.interface';
-
-const MUTATION_TOOL_NAMES = new Set<string>([
-  'advance_surgery_request',
-  'set_has_opme',
-  'close_surgery_request',
-  'reschedule_surgery',
-  'confirm_receipt',
-  'update_receipt',
-  'manage_report_sections',
-  'set_hospital',
-  'add_tuss_item',
-  'add_opme_item',
-  'attach_document_from_whatsapp',
-  'create_patient_from_document',
-]);
+import { parseToolResult } from '../../tools/tool-result';
+import { recommendActionForPendency } from '../../tools/helpers/pendency-actions';
+import { resolveAuthorizedRequest } from '../../tools/helpers/surgery-request-access';
+import { ToolRegistryService } from '../tool-registry.service';
 
 @Injectable()
 export class NextStepAdvisorService {
@@ -25,6 +14,7 @@ export class NextStepAdvisorService {
   constructor(
     private readonly surgeryRequestRepo: SurgeryRequestRepository,
     private readonly pendencyValidator: PendencyValidatorService,
+    private readonly toolRegistry: ToolRegistryService,
   ) {}
 
   async appendNextStep(
@@ -33,30 +23,24 @@ export class NextStepAdvisorService {
     toolOutput: string,
     context: ToolContext,
   ): Promise<string> {
-    if (!MUTATION_TOOL_NAMES.has(toolName)) return toolOutput;
+    if (!this.toolRegistry.getTool(toolName)?.mutates) return toolOutput;
     if (args.confirm !== true) return toolOutput;
     if (!this.isSuccessfulMutation(toolOutput)) return toolOutput;
 
-    const requestId =
-      typeof args.surgeryRequestId === 'string'
-        ? args.surgeryRequestId
-        : typeof args.id === 'string'
-          ? args.id
-          : '';
-
-    if (!requestId) return toolOutput;
+    const identifier = this.extractRequestIdentifier(args, toolOutput);
+    if (!identifier) return toolOutput;
 
     try {
-      const request = await this.surgeryRequestRepo.findOneSimple({
-        id: requestId,
-      });
+      const { request } = await resolveAuthorizedRequest(
+        this.surgeryRequestRepo,
+        identifier,
+        context,
+      );
       if (!request) return toolOutput;
-      if (!context.accessibleDoctorIds.includes(request.doctorId)) {
-        return toolOutput;
-      }
 
-      const validation =
-        await this.pendencyValidator.validateForStatus(requestId);
+      const validation = await this.pendencyValidator.validateForStatus(
+        request.id,
+      );
       const pending = validation.pendencies.filter(
         (item) => !item.isComplete && !item.isOptional,
       );
@@ -66,14 +50,35 @@ export class NextStepAdvisorService {
       }
 
       const next = pending[0];
-      const recommendation = this.mapPendencyToAction(next.key);
+      const recommendation = recommendActionForPendency(
+        next.key,
+        (next.checkItems || []).filter((item) => !item.done),
+      );
       return `${toolOutput}\n\nPróximo passo recomendado:\nPendência atual: ${next.name}.\nAção recomendada: ${recommendation.action}.\nParâmetros mínimos: ${recommendation.minParams.join(', ')}.\nDeseja que eu execute essa ação agora?`;
-    } catch {
+    } catch (err) {
+      this.logger.debug(
+        `[NEXT_STEP] falhou tool=${toolName} err=${(err as Error)?.message}`,
+      );
       return toolOutput;
     }
   }
 
+  private extractRequestIdentifier(
+    args: Record<string, unknown>,
+    toolOutput: string,
+  ): string | null {
+    if (typeof args.surgeryRequestId === 'string' && args.surgeryRequestId) {
+      return args.surgeryRequestId;
+    }
+    if (typeof args.id === 'string' && args.id) return args.id;
+    const affected = parseToolResult(toolOutput)?.affected ?? [];
+    return affected.find((a) => a.kind === 'surgery_request')?.id ?? null;
+  }
+
   private isSuccessfulMutation(output: string): boolean {
+    const envelope = parseToolResult(output);
+    if (envelope) return envelope.status === 'ok';
+
     const text = (output || '').toLowerCase();
     if (!text.trim()) return false;
 
@@ -98,67 +103,5 @@ export class NextStepAdvisorService {
       text.includes('avançad') ||
       text.includes('marcada')
     );
-  }
-
-  private mapPendencyToAction(key: string): {
-    action: string;
-    minParams: string[];
-  } {
-    switch (key) {
-      case 'patient_data':
-        return {
-          action:
-            'plan_actions(intent="update_sc") + draft_update(update_sc, surgeryRequestId, ...) + draft_update(update_sc, scope, "patient") + draft_update(update_sc, changes, {...}) + update_sc_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'field', 'value'],
-        };
-      case 'hospital_data':
-        return {
-          action: 'set_hospital',
-          minParams: ['surgeryRequestId', 'hospital_name'],
-        };
-      case 'tuss_procedures':
-        return {
-          action: 'add_tuss_item',
-          minParams: ['surgeryRequestId', 'tussCode', 'name'],
-        };
-      case 'opme_items':
-        return {
-          action: 'set_has_opme ou add_opme_item',
-          minParams: ['surgeryRequestId', 'hasOpme=true|false'],
-        };
-      case 'medical_report':
-        return {
-          action: 'manage_report_sections',
-          minParams: ['surgeryRequestId', 'operation=create', 'title'],
-        };
-      case 'schedule_dates':
-        return {
-          action:
-            'plan_actions(intent="scheduling") + draft_update(scheduling, surgeryRequestId, ...) + draft_update(scheduling, dateOptions, [...]) + scheduling_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'date_options[]'],
-        };
-      case 'confirm_date':
-        return {
-          action:
-            'plan_actions(intent="scheduling") + draft_update(scheduling, surgeryRequestId, ...) + draft_update(scheduling, confirmedDate, ...) + scheduling_draft_commit',
-          minParams: ['surgery_request_id_or_protocol', 'confirmed_date_index'],
-        };
-      case 'confirm_receipt':
-        return {
-          action: 'confirm_receipt',
-          minParams: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
-        };
-      default:
-        if (key.startsWith('doc_')) {
-          return {
-            action: 'attach_document_from_whatsapp',
-            minParams: ['surgeryRequestId', 'document_type?', 'confirm=true'],
-          };
-        }
-        return {
-          action: 'get_pendencies',
-          minParams: ['surgeryRequestId'],
-        };
-    }
   }
 }

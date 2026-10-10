@@ -2,14 +2,15 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { FlowDraftDeps } from '../_types';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildContestationDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const { draftService, workflowService, activityRepo } = deps;
   return {
     name: 'contestation_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -74,18 +75,19 @@ export function buildContestationDraftCommitTool(deps: FlowDraftDeps): AiTool {
             context.userId,
           );
         }
-        await activityRepo.create({
-          surgeryRequestId: f.surgeryRequestId!,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Contestação (${f.contestationType}) registrada.`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          f.surgeryRequestId!,
+          `Contestação (${f.contestationType}) registrada.`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: f.surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: f.surgeryRequestId! }],
           message: `Contestação registrada com sucesso para a solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId}.`,
         });
       } catch (err: any) {

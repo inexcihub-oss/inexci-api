@@ -287,6 +287,9 @@ describe('WhatsApp tool execution — create_sc', () => {
 
     tools = buildScDraftTools({
       draftService,
+      assemblyService: {
+        assembleFromExtracted: jest.fn().mockResolvedValue({ warnings: [] }),
+      } as any,
       userRepo: {
         findOne: jest.fn().mockResolvedValue({
           id: 'user-1',
@@ -357,6 +360,10 @@ describe('WhatsApp tool execution — mark_performed', () => {
 
     tools = buildFlowDraftTransitionTools({
       draftService,
+      storageService: {
+        uploadBuffer: jest.fn(),
+        getSignedUrl: jest.fn(),
+      } as any,
       surgeryRequestRepo: {
         findOne: jest.fn().mockResolvedValue({
           id: 'sc-1',

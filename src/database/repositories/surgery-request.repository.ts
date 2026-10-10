@@ -5,6 +5,7 @@ import {
   FindOptionsWhere,
   DataSource,
   EntityManager,
+  In,
   QueryDeepPartialEntity,
 } from 'typeorm';
 import { DOCUMENT_KEYS } from 'src/shared/constants/document-keys';
@@ -680,6 +681,109 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
       content,
       createdAt: effectiveChangedAt,
     });
+  }
+
+  findOneForPendencies(id: string): Promise<SurgeryRequest | null> {
+    return this.repository.findOne({
+      where: { id },
+      relationLoadStrategy: 'query',
+      relations: {
+        patient: true,
+        doctor: { doctorProfile: true },
+        tussItems: true,
+        opmeItems: true,
+        documents: true,
+        billing: true,
+        reportSections: true,
+      },
+    });
+  }
+
+  findManyForPendencies(
+    ids: string[],
+    doctorIds: string[],
+  ): Promise<SurgeryRequest[]> {
+    if (ids.length === 0 || doctorIds.length === 0) return Promise.resolve([]);
+    return this.repository.find({
+      where: { id: In(ids), doctorId: In(doctorIds) },
+      relationLoadStrategy: 'join',
+      relations: {
+        patient: true,
+        billing: true,
+        doctor: { doctorProfile: true },
+      },
+    });
+  }
+
+  async applyStatusTransition(
+    manager: EntityManager,
+    params: {
+      id: string;
+      from: SurgeryRequestStatus;
+      to: SurgeryRequestStatus;
+      data?: QueryDeepPartialEntity<SurgeryRequest>;
+      userId?: string | null;
+      statusChangedAt?: Date;
+      note?: string | null;
+    },
+  ): Promise<boolean> {
+    const applied = await this.updateIfStatus(
+      params.id,
+      params.from,
+      { ...(params.data ?? {}), status: params.to },
+      manager,
+    );
+    if (!applied) return false;
+
+    await this.recordStatusChange(
+      manager,
+      params.id,
+      params.from,
+      params.to,
+      params.userId ?? null,
+      params.statusChangedAt,
+      params.note,
+    );
+    return true;
+  }
+
+  async updateIfStatus(
+    id: string,
+    expectedStatus: SurgeryRequestStatus,
+    data: QueryDeepPartialEntity<SurgeryRequest>,
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const repo = manager
+      ? manager.getRepository(SurgeryRequest)
+      : this.repository;
+    const result = await repo.update({ id, status: expectedStatus }, data);
+    return (result.affected ?? 0) > 0;
+  }
+
+  findInSchedulingByPatientPhones(
+    phoneDigitCandidates: string[],
+    options: { id?: string; limit?: number } = {},
+  ): Promise<SurgeryRequest[]> {
+    if (phoneDigitCandidates.length === 0) return Promise.resolve([]);
+
+    const query = this.repository
+      .createQueryBuilder('sr')
+      .innerJoinAndSelect('sr.patient', 'patient')
+      .leftJoinAndSelect('sr.doctor', 'doctor')
+      .where('sr.status = :status', {
+        status: SurgeryRequestStatus.IN_SCHEDULING,
+      })
+      .andWhere(
+        "regexp_replace(patient.phone, '[^0-9]', '', 'g') IN (:...phones)",
+        { phones: phoneDigitCandidates },
+      );
+    if (options.id) query.andWhere('sr.id = :id', { id: options.id });
+
+    return query
+      .orderBy('sr.updatedAt', 'DESC')
+      .addOrderBy('sr.createdAt', 'DESC')
+      .take(options.limit ?? 2)
+      .getMany();
   }
 
   async getTemporalEvolution(

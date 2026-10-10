@@ -2,75 +2,55 @@ import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
-import { SurgeryRequestStatus } from '../../../database/entities/surgery-request.entity';
-import { In } from 'typeorm';
+import {
+  SurgeryRequest,
+  SurgeryRequestPriority,
+  SurgeryRequestStatus,
+} from '../../../database/entities/surgery-request.entity';
+import { FindOptionsWhere, In } from 'typeorm';
+import { getStatusLabel } from '../../utils/status';
+import { resolveRequestByIdentifierOrPatientName } from './helpers/surgery-request-access';
+import { Logger } from '@nestjs/common';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
-import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
-import { buildProtocolCandidates, stripScPrefix } from './protocol.helpers';
+import { tokenizePii } from '../pii/tool-pii-helpers';
+import { stripScPrefix } from './protocol.helpers';
 
-const STATUS_LABELS: Record<number, string> = {
-  1: 'Pendente',
-  2: 'Enviada',
-  3: 'Em Análise',
-  4: 'Em Agendamento',
-  5: 'Agendada',
-  6: 'Realizada',
-  7: 'Faturada',
-  8: 'Finalizada',
-  9: 'Encerrada',
+const logger = new Logger('SurgeryRequestTools');
+
+const PRIORITY_LABELS: Record<SurgeryRequestPriority, string> = {
+  [SurgeryRequestPriority.LOW]: 'Baixa',
+  [SurgeryRequestPriority.MEDIUM]: 'Média',
+  [SurgeryRequestPriority.HIGH]: 'Alta',
+  [SurgeryRequestPriority.URGENT]: 'Urgente',
 };
 
-const PRIORITY_LABELS: Record<number, string> = {
-  1: 'Baixa',
-  2: 'Média',
-  3: 'Alta',
-  4: 'Urgente',
+const STATUS_FILTER: Record<string, SurgeryRequestStatus> = {
+  pendente: SurgeryRequestStatus.PENDING,
+  enviada: SurgeryRequestStatus.SENT,
+  em_analise: SurgeryRequestStatus.IN_ANALYSIS,
+  em_agendamento: SurgeryRequestStatus.IN_SCHEDULING,
+  agendada: SurgeryRequestStatus.SCHEDULED,
+  realizada: SurgeryRequestStatus.PERFORMED,
+  faturada: SurgeryRequestStatus.INVOICED,
+  finalizada: SurgeryRequestStatus.FINALIZED,
+  encerrada: SurgeryRequestStatus.CLOSED,
 };
 
-function sanitizeIdentifier(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().replace(/[\s.,;:!?]+$/g, '');
-}
-
-async function resolveRequestByIdentifier(
-  surgeryRequestRepo: SurgeryRequestRepository,
-  identifierRaw: string,
-  context: ToolContext,
-): Promise<any | null> {
-  const detokenized = detokenizeArg(context, identifierRaw);
-  const identifier = sanitizeIdentifier(detokenized ?? identifierRaw);
-  if (!identifier) return null;
-
-  let request = null;
-
-  const protocolCandidates = buildProtocolCandidates(identifier);
-  for (const candidate of protocolCandidates) {
-    request = await surgeryRequestRepo.findOneSimple({ protocol: candidate });
-    if (request) break;
-  }
-
-  if (!request && identifier.match(/^[0-9a-f-]{36}$/i)) {
-    request = await surgeryRequestRepo.findOneSimple({ id: identifier });
-  }
-
-  if (!request) {
-    const all = await surgeryRequestRepo.findMany(
-      { doctorId: In(context.accessibleDoctorIds) as any },
-      0,
-      50,
-    );
-    const found = all.find((r: any) =>
-      r.patient?.name?.toLowerCase().includes(identifier.toLowerCase()),
-    );
-    if (found) request = found;
-  }
-
-  return request;
-}
+const ORDERED_STATUSES: SurgeryRequestStatus[] = [
+  SurgeryRequestStatus.PENDING,
+  SurgeryRequestStatus.SENT,
+  SurgeryRequestStatus.IN_ANALYSIS,
+  SurgeryRequestStatus.IN_SCHEDULING,
+  SurgeryRequestStatus.SCHEDULED,
+  SurgeryRequestStatus.PERFORMED,
+  SurgeryRequestStatus.INVOICED,
+  SurgeryRequestStatus.FINALIZED,
+  SurgeryRequestStatus.CLOSED,
+];
 
 export function buildSurgeryRequestTools(
   surgeryRequestRepo: SurgeryRequestRepository,
-  pendencyValidator?: PendencyValidatorService,
+  pendencyValidator: PendencyValidatorService,
 ): AiTool[] {
   const querySurgeryRequests: AiTool = {
     name: 'query_surgery_requests',
@@ -108,21 +88,21 @@ export function buildSurgeryRequestTools(
       if (!context.userId)
         return 'Você precisa estar cadastrado para consultar solicitações.';
 
-      const identifierRaw = (args as any).identifier;
+      const identifierRaw = args.identifier;
 
       if (identifierRaw) {
-        const resolvedRequest = await resolveRequestByIdentifier(
+        const resolvedRequest = await resolveRequestByIdentifierOrPatientName(
           surgeryRequestRepo,
-          identifierRaw,
+          String(identifierRaw),
           context,
         );
 
-        let request = resolvedRequest;
+        let request: SurgeryRequest | null = resolvedRequest;
         if (resolvedRequest?.id) {
           const fullRequest = await surgeryRequestRepo.findOne({
             id: resolvedRequest.id,
           });
-          if (fullRequest) request = fullRequest as any;
+          if (fullRequest) request = fullRequest;
         }
 
         if (!request) {
@@ -133,10 +113,9 @@ export function buildSurgeryRequestTools(
           return 'Você não tem permissão para acessar essa solicitação.';
         }
 
-        const statusLabel =
-          STATUS_LABELS[request.status] || String(request.status);
+        const statusLabel = getStatusLabel(request.status);
         const priority =
-          PRIORITY_LABELS[request.priority as any] || String(request.priority);
+          PRIORITY_LABELS[request.priority] || String(request.priority);
         const TOOL = 'query_surgery_requests';
         const protocolToken = tokenizePii(
           context,
@@ -146,15 +125,13 @@ export function buildSurgeryRequestTools(
         );
         const protocolDisplay = `SC-${protocolToken}`;
         const patientLabel = String(
-          (request as any).patient?.name ||
-            request.patientId ||
-            'Não informado',
+          request.patient?.name || request.patientId || 'Não informado',
         );
-        const hospitalLabel = (request as any).hospital?.name
-          ? String((request as any).hospital.name)
+        const hospitalLabel = request.hospital?.name
+          ? String(request.hospital.name)
           : 'Não definido';
-        const healthPlanLabel = (request as any).healthPlan?.name
-          ? String((request as any).healthPlan.name)
+        const healthPlanLabel = request.healthPlan?.name
+          ? String(request.healthPlan.name)
           : 'Não definido';
         const surgeryDateRaw = request.surgeryDate || request.dateCall;
         const surgeryDateToken = surgeryDateRaw
@@ -165,18 +142,18 @@ export function buildSurgeryRequestTools(
               new Date(surgeryDateRaw).toLocaleDateString('pt-BR'),
             )
           : 'Não agendada';
-        const cidLabel = (request as any).cidCode
-          ? String((request as any).cidCode)
+        const cidLabel = request.cidCode
+          ? String(request.cidCode)
           : 'Não informado';
-        const registrationLabel = (request as any).healthPlanRegistration
-          ? String((request as any).healthPlanRegistration)
+        const registrationLabel = request.healthPlanRegistration
+          ? String(request.healthPlanRegistration)
           : 'Não informada';
-        const planTypeLabel = (request as any).healthPlanType
-          ? String((request as any).healthPlanType)
+        const planTypeLabel = request.healthPlanType
+          ? String(request.healthPlanType)
           : 'Não informado';
 
         let pendencyLines: string[] = [];
-        if (pendencyValidator && request.id) {
+        if (request.id) {
           try {
             const validation = await pendencyValidator.validateForStatus(
               request.id,
@@ -201,7 +178,10 @@ export function buildSurgeryRequestTools(
               });
               pendencyLines = ['Para avançar de etapa, faça:', ...actions];
             }
-          } catch {
+          } catch (err) {
+            logger.warn(
+              `[QUERY_SC] falha ao calcular pendências sc=${request.id}: ${(err as Error)?.message}`,
+            );
             pendencyLines = [
               'Próximo passo: consulte as pendências para avançar a etapa.',
             ];
@@ -223,32 +203,22 @@ export function buildSurgeryRequestTools(
         ].join('\n');
       }
 
-      const STATUS_MAP: Record<string, number> = {
-        pendente: 1,
-        enviada: 2,
-        em_analise: 3,
-        em_agendamento: 4,
-        agendada: 5,
-        realizada: 6,
-        faturada: 7,
-        finalizada: 8,
-        encerrada: 9,
-      };
-
       const requestedLimit = Number.isFinite(Number(args.limit))
         ? Number(args.limit)
         : 50;
       const limit = Math.min(Math.max(requestedLimit, 1), 200);
-      const statusNum = args.status
-        ? STATUS_MAP[String(args.status).toLowerCase()]
+      const statusFilter = args.status
+        ? STATUS_FILTER[String(args.status).toLowerCase()]
         : undefined;
 
       if (!context.accessibleDoctorIds.length) {
         return 'Nenhum médico acessível encontrado.';
       }
 
-      const where: any = { doctorId: In(context.accessibleDoctorIds) as any };
-      if (statusNum) where.status = statusNum as SurgeryRequestStatus;
+      const where: FindOptionsWhere<SurgeryRequest> = {
+        doctorId: In(context.accessibleDoctorIds),
+      };
+      if (statusFilter) where.status = statusFilter;
 
       const requests = await surgeryRequestRepo.findMany(where, 0, limit);
 
@@ -259,7 +229,7 @@ export function buildSurgeryRequestTools(
       }
 
       const TOOL = 'query_surgery_requests';
-      const groups = new Map<number, any[]>();
+      const groups = new Map<number, SurgeryRequest[]>();
       for (const request of requests) {
         const status = Number(request?.status) || 0;
         const bucket = groups.get(status) ?? [];
@@ -267,7 +237,7 @@ export function buildSurgeryRequestTools(
         groups.set(status, bucket);
       }
       for (const items of groups.values()) {
-        items.sort((a: any, b: any) => {
+        items.sort((a, b) => {
           const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
           const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
           return db - da;
@@ -275,12 +245,11 @@ export function buildSurgeryRequestTools(
       }
 
       const sections: string[] = [];
-      const ORDERED_STATUSES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
       for (const statusCode of ORDERED_STATUSES) {
         const items = groups.get(statusCode);
         if (!items?.length) continue;
-        const label = STATUS_LABELS[statusCode] || `Status ${statusCode}`;
-        const itemLines = items.map((r: any) => {
+        const label = getStatusLabel(statusCode);
+        const itemLines = items.map((r) => {
           const protocolToken = tokenizePii(
             context,
             TOOL,

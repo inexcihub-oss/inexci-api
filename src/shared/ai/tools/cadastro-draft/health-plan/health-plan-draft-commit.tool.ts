@@ -12,6 +12,7 @@ export function buildHealthPlanDraftCommitTool(
   return {
     name: 'health_plan_draft_commit',
     requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
     definition: {
       type: 'function',
       function: {

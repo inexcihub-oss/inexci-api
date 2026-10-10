@@ -16,7 +16,12 @@ const baseContext: ToolContext = {
 };
 
 describe('SurgeryRequestTools', () => {
-  const tools = buildSurgeryRequestTools(mockSurgeryRequestRepo as any);
+  const tools = buildSurgeryRequestTools(
+    mockSurgeryRequestRepo as any,
+    {
+      validateForStatus: jest.fn().mockResolvedValue({ pendencies: [] }),
+    } as any,
+  );
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());

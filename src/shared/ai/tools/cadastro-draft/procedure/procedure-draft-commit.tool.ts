@@ -11,6 +11,7 @@ export function buildProcedureDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   return {
     name: 'procedure_draft_commit',
     requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
     definition: {
       type: 'function',
       function: {

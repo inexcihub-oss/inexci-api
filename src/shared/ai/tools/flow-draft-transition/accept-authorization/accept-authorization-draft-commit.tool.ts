@@ -2,13 +2,13 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { SurgeryRequestStatus } from '../../../../../database/entities/surgery-request.entity';
 import { FlowDraftTransitionDeps } from '../_types';
 import {
   assertCurrentStatusIs,
   extractTransitionErrorMessage,
 } from '../_helpers';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildAcceptAuthorizationDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -18,6 +18,7 @@ export function buildAcceptAuthorizationDraftCommitTool(
   return {
     name: 'accept_authorization_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -74,18 +75,19 @@ export function buildAcceptAuthorizationDraftCommitTool(
           } as any,
           context.userId,
         );
-        await activityRepo.create({
+        await recordAiActivity(
+          activityRepo,
+          context,
           surgeryRequestId,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Autorização aceita. ${f.dateOptions!.length} data(s) proposta(s).`,
-        });
+          `Autorização aceita. ${f.dateOptions!.length} data(s) proposta(s).`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: surgeryRequestId,
           label: f.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Autorização aceita para a solicitação ${f.surgeryRequestLabel ?? surgeryRequestId}.`,
         });
       } catch (err: any) {

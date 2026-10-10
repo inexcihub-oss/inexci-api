@@ -17,6 +17,8 @@ const mockDocumentDispatcher = {
   getPending: jest.fn(),
   clearPending: jest.fn(),
 };
+const mockUsersService = { updateSignatureUrl: jest.fn() };
+const mockConversationMemory = { setAwaitingMedia: jest.fn() };
 
 const baseContext: ToolContext = {
   userId: 'user-1',
@@ -26,14 +28,15 @@ const baseContext: ToolContext = {
 };
 
 describe('DoctorProfileTools — upload_doctor_signature', () => {
-  const tools = buildDoctorProfileTools(
-    mockUserRepo as any,
-    mockDoctorProfileRepo as any,
-    mockStorageService as any,
-    mockConfigService as any,
-    undefined,
-    mockDocumentDispatcher as any,
-  );
+  const tools = buildDoctorProfileTools({
+    userRepo: mockUserRepo as any,
+    doctorProfileRepo: mockDoctorProfileRepo as any,
+    storageService: mockStorageService as any,
+    configService: mockConfigService as any,
+    usersService: mockUsersService as any,
+    documentDispatcher: mockDocumentDispatcher as any,
+    conversationMemory: mockConversationMemory as any,
+  });
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());
@@ -117,7 +120,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     );
     expect(parsed!.display_text).toMatch(/pe[çc]a ao m[ée]dico/i);
     expect(mockStorageService.create).not.toHaveBeenCalled();
-    expect(mockDoctorProfileRepo.update).not.toHaveBeenCalled();
+    expect(mockUsersService.updateSignatureUrl).not.toHaveBeenCalled();
   });
 
   it('médico sem mídia anexada devolve envelope needs_input', async () => {
@@ -188,7 +191,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       description: 'atualizar sua assinatura digital',
     });
     expect(mockStorageService.create).not.toHaveBeenCalled();
-    expect(mockDoctorProfileRepo.update).not.toHaveBeenCalled();
+    expect(mockUsersService.updateSignatureUrl).not.toHaveBeenCalled();
   });
 
   it('preview com mediaIndex explícito propaga o índice no pendingConfirmation', async () => {
@@ -247,9 +250,10 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(mockStorageService.delete).toHaveBeenCalledWith(
       'signatures/old.png',
     );
-    expect(mockDoctorProfileRepo.update).toHaveBeenCalledWith('dp-1', {
-      signatureUrl: 'signatures/new.png',
-    });
+    expect(mockUsersService.updateSignatureUrl).toHaveBeenCalledWith(
+      'user-1',
+      'signatures/new.png',
+    );
 
     const parsed = parseToolResult<{ signatureUrl: string }>(raw);
     expect(parsed).not.toBeNull();
@@ -342,9 +346,10 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       'whatsapp-tmp/abc-signature.png',
       expect.stringContaining('signatures'),
     );
-    expect(mockDoctorProfileRepo.update).toHaveBeenCalledWith('dp-1', {
-      signatureUrl: 'signatures/abc-signature.png',
-    });
+    expect(mockUsersService.updateSignatureUrl).toHaveBeenCalledWith(
+      'user-1',
+      'signatures/abc-signature.png',
+    );
     expect(mockDocumentDispatcher.clearPending).toHaveBeenCalledWith(
       baseContext.phone,
     );
@@ -383,5 +388,52 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
     expect(parsed!.errors?.[0]?.code).toBe('SIGNATURE_UPLOAD_FAILED');
 
     fetchMock.mockRestore();
+  });
+
+  it('regressão: apaga a assinatura antiga só DEPOIS de gravar a nova no perfil', async () => {
+    mockDoctorProfileRepo.findByUserId.mockResolvedValue({
+      id: 'dp-1',
+      signatureUrl: 'signatures/old.png',
+    });
+    mockDocumentDispatcher.getPending.mockResolvedValue({
+      kind: 'image',
+      storagePath: 'whatsapp-tmp/x.png',
+      contentType: 'image/png',
+    });
+    mockStorageService.move.mockResolvedValue('signatures/new.png');
+    const ordem: string[] = [];
+    mockUsersService.updateSignatureUrl.mockImplementation(async () => {
+      ordem.push('update');
+    });
+    mockStorageService.delete.mockImplementation(async () => {
+      ordem.push('delete');
+    });
+
+    const tool = getTool('upload_doctor_signature');
+    await tool.execute({ confirm: true }, baseContext);
+
+    expect(ordem).toEqual(['update', 'delete']);
+  });
+
+  it('regressão: se gravar no perfil falhar, NÃO apaga a assinatura antiga', async () => {
+    mockDoctorProfileRepo.findByUserId.mockResolvedValue({
+      id: 'dp-1',
+      signatureUrl: 'signatures/old.png',
+    });
+    mockDocumentDispatcher.getPending.mockResolvedValue({
+      kind: 'image',
+      storagePath: 'whatsapp-tmp/x.png',
+      contentType: 'image/png',
+    });
+    mockStorageService.move.mockResolvedValue('signatures/new.png');
+    mockUsersService.updateSignatureUrl.mockRejectedValue(new Error('db fora'));
+
+    const tool = getTool('upload_doctor_signature');
+    const parsed = parseToolResult(
+      await tool.execute({ confirm: true }, baseContext),
+    );
+
+    expect(parsed?.status).toBe('error');
+    expect(mockStorageService.delete).not.toHaveBeenCalled();
   });
 });

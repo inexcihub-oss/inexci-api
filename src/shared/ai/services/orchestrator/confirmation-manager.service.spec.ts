@@ -4,6 +4,14 @@ import {
   TOOL_DISPLAY_LABELS,
 } from './confirmation-manager.service';
 import { buildToolResult } from '../../tools/tool-result';
+import { ToolRegistryService } from '../tool-registry.service';
+
+const mutationRegistryStub = {
+  getTool: (name: string) =>
+    Object.prototype.hasOwnProperty.call(TOOL_DISPLAY_LABELS, name)
+      ? { name, mutates: true }
+      : undefined,
+} as unknown as ToolRegistryService;
 
 describe('ConfirmationManagerService', () => {
   const conversationRepoMock = {
@@ -21,6 +29,7 @@ describe('ConfirmationManagerService', () => {
     service = new ConfirmationManagerService(
       conversationRepoMock as any,
       conversationServiceMock as any,
+      mutationRegistryStub,
     );
   });
 
@@ -128,7 +137,7 @@ describe('ConfirmationManagerService', () => {
       );
     });
 
-    it('aceita tools mapeadas em TOOL_DISPLAY_LABELS (ex.: upload_doctor_signature)', () => {
+    it('aceita tools marcadas com mutates no registro (ex.: upload_doctor_signature)', () => {
       expect(service.isMutationConfirmableTool('upload_doctor_signature')).toBe(
         true,
       );

@@ -2,13 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StaleNotificationLog } from '../entities/stale-notification-log.entity';
+import { BaseRepository } from './base.repository';
 
 @Injectable()
-export class StaleNotificationLogRepository {
+export class StaleNotificationLogRepository extends BaseRepository<StaleNotificationLog> {
   constructor(
     @InjectRepository(StaleNotificationLog)
-    private readonly repository: Repository<StaleNotificationLog>,
-  ) {}
+    repository: Repository<StaleNotificationLog>,
+  ) {
+    super(repository);
+  }
 
   async hasBeenNotified(
     surgeryRequestId: string,
@@ -30,9 +33,5 @@ export class StaleNotificationLogRepository {
       staleDays,
       channel,
     });
-  }
-
-  async deleteByRequest(surgeryRequestId: string): Promise<void> {
-    await this.repository.delete({ surgeryRequestId });
   }
 }

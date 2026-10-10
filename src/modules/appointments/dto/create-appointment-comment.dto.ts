@@ -1,7 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
-/** Comentário livre no histórico da consulta. */
 export class CreateAppointmentCommentDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()

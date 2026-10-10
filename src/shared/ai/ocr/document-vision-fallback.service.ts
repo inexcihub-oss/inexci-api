@@ -7,28 +7,25 @@ import {
   DocumentClassification,
   DocumentClassificationIntent,
 } from './document-classifier.types';
-
-const SUPPORTED_KINDS = [
-  'surgery_request',
-  'medical_report',
-  'identity_document',
-  'authorization_guide',
-  'exam_report',
-  'invoice',
-  'receipt',
-  'unknown',
-] as const;
-
-const SUPPORTED_DOCUMENT_TYPES = [
-  'personal_document',
-  'exam_report',
-  'medical_report',
-  'authorization_guide',
-  'invoice_protocol',
-  'receipt_document',
-  'contest_file',
-  'additional_document',
-] as const;
+import {
+  DOCUMENT_VISION_RESPONSE_SCHEMA,
+  DOCUMENT_VISION_SYSTEM_PROMPT,
+  VISION_SUPPORTED_DOCUMENT_TYPES,
+  VISION_SUPPORTED_KINDS,
+} from '../prompts/document-vision.prompt';
+import {
+  asRecord,
+  coalesceStringFields,
+  optionalTrimmed,
+  parseCidItems,
+  parseConfidence,
+  parseKind,
+  parseOpmeItems,
+  parseStringItems,
+  parseSuggestedDocumentType,
+  parseTussItems,
+  RawRecord,
+} from './classification-parsing';
 
 const VISION_INPUT_MIMES = new Set([
   'image/jpeg',
@@ -36,186 +33,6 @@ const VISION_INPUT_MIMES = new Set([
   'image/png',
   'image/webp',
 ]);
-
-const DOCUMENT_RESPONSE_SCHEMA = {
-  name: 'DocumentClassificationVision',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      kind: { type: 'string', enum: SUPPORTED_KINDS as unknown as string[] },
-      confidence: { type: 'number', minimum: 0, maximum: 1 },
-      suggestedDocumentType: {
-        type: 'string',
-        enum: SUPPORTED_DOCUMENT_TYPES as unknown as string[],
-      },
-      ambiguity: { type: ['string', 'null'] },
-      extracted: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          patient: {
-            type: ['object', 'null'],
-            additionalProperties: false,
-            properties: {
-              name: { type: ['string', 'null'] },
-              cpf: { type: ['string', 'null'] },
-              birthDate: { type: ['string', 'null'] },
-              rg: { type: ['string', 'null'] },
-              motherName: { type: ['string', 'null'] },
-              address: { type: ['string', 'null'] },
-              phone: { type: ['string', 'null'] },
-            },
-            required: [
-              'name',
-              'cpf',
-              'birthDate',
-              'rg',
-              'motherName',
-              'address',
-              'phone',
-            ],
-          },
-          hospital: { type: ['string', 'null'] },
-          healthPlan: {
-            type: ['object', 'null'],
-            additionalProperties: false,
-            properties: {
-              name: { type: ['string', 'null'] },
-              planId: { type: ['string', 'null'] },
-              validity: { type: ['string', 'null'] },
-            },
-            required: ['name', 'planId', 'validity'],
-          },
-          tuss: {
-            type: ['array', 'null'],
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                code: { type: 'string' },
-                description: { type: 'string' },
-              },
-              required: ['code', 'description'],
-            },
-          },
-          cid: {
-            type: ['array', 'null'],
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                code: { type: 'string' },
-              },
-              required: ['code'],
-            },
-          },
-          opme: {
-            type: ['array', 'null'],
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                description: { type: 'string' },
-                qty: { type: 'number', minimum: 1 },
-                supplier: { type: ['string', 'null'] },
-                manufacturer: { type: ['string', 'null'] },
-              },
-              required: ['description', 'qty', 'supplier', 'manufacturer'],
-            },
-          },
-          suggestedSuppliers: {
-            type: ['array', 'null'],
-            items: { type: 'string' },
-          },
-          diagnosis: { type: ['string', 'null'] },
-          suggestedProcedureName: { type: ['string', 'null'] },
-          laudoText: { type: ['string', 'null'] },
-          notes: { type: ['string', 'null'] },
-        },
-        required: [
-          'patient',
-          'hospital',
-          'healthPlan',
-          'tuss',
-          'cid',
-          'opme',
-          'suggestedSuppliers',
-          'diagnosis',
-          'suggestedProcedureName',
-          'laudoText',
-          'notes',
-        ],
-      },
-    },
-    required: [
-      'kind',
-      'confidence',
-      'suggestedDocumentType',
-      'ambiguity',
-      'extracted',
-    ],
-  },
-} as const;
-
-const SYSTEM_PROMPT = [
-  'Você é um classificador VISUAL de documentos médicos brasileiros. Você',
-  'recebe UMA imagem (laudo médico, RG/CPF, guia, exame, fatura, comprovante).',
-  'Seu papel é EXTRAIR O MÁXIMO POSSÍVEL para preencher uma solicitação',
-  'cirúrgica — quanto mais campos completos, menos perguntas o sistema fará',
-  'ao médico depois.',
-  '',
-  'REGRAS GERAIS:',
-  '1. Identifique `kind` entre as categorias permitidas.',
-  '2. Extraia TODO campo visivelmente legível. Se está escrito, registre.',
-  '3. NÃO INVENTAR — devolva `null` em vez de chutar.',
-  '4. CPF/telefones/e-mails: devolva o valor cru, o backend tokeniza.',
-  '5. Confiança < 0.75 → preencha `ambiguity`.',
-  '',
-  'COMO LER UM LAUDO/SOLICITAÇÃO CIRÚRGICA TÍPICO BR:',
-  '',
-  'Cabeçalho: clínica + médicos. NÃO precisa extrair CRM (o sistema já sabe',
-  'quem é o médico solicitante).',
-  '',
-  '"Paciente: <NOME>" → `patient.name`. "Plano:" / "Convênio:" →',
-  '`healthPlan.name`. "Hospital:" → `hospital`.',
-  '',
-  'DIAGNÓSTICO: "Diagnóstico:", "DH:", "Hipótese:" → `diagnosis` (texto',
-  'livre, ex.: "Hérnia discal cervical C5-C6 com compressão radicular"). Só',
-  'preencha `cid` se houver código CID escrito (ex.: "M50.1") — não invente.',
-  '',
-  'PROCEDIMENTO SUGERIDO: "Indicado procedimento cirúrgico com X" /',
-  '"Procedimento proposto:" → `suggestedProcedureName` (nome da cirurgia,',
-  'ex.: "Artrodese cervical anterior C5-C6 e C4-C5"). É o NOME, não o TUSS.',
-  '',
-  'TUSS: "Códigos solicitados:" / "TUSS:" — cada linha vira um item de',
-  '`tuss` com `code` + `description`.',
-  '',
-  'OPME: "MATERIAL:" / "OPME:" — cada linha tem qty + descrição.',
-  '"02 CAGES STAND ALONE" vira `{description: "CAGES STAND ALONE", qty: 2}`.',
-  '',
-  'FORNECEDORES: "SUGIRO AS EMPRESAS:" / "Fornecedores:" — liste nomes em',
-  '`suggestedSuppliers` (ex.: ["SINTEX", "VITALITY"]). Quando houver marca',
-  'entre parênteses (ex.: "SINTEX (DIVA/NOVA SPINE)"), use `opme[].manufacturer`.',
-  '',
-  'LAUDO CLÍNICO COMPLETO: o texto narrativo entre "Diagnóstico" e "Códigos',
-  'solicitados" (queixa, exame, RNM, indicação) vai em `laudoText`, de forma',
-  'objetiva e útil, limitado a ~2000 caracteres.',
-  '',
-  'Mapeamento `kind` → `suggestedDocumentType`:',
-  '- `medical_report` / `surgery_request` → `medical_report`',
-  '- `exam_report` → `exam_report`',
-  '- `identity_document` → `personal_document`',
-  '- `authorization_guide` → `authorization_guide`',
-  '- `invoice` → `invoice_protocol`',
-  '- `receipt` → `receipt_document`',
-  '- `unknown` → `additional_document`',
-  '',
-  'IMPORTANTE: laudos cirúrgicos brasileiros (com diagnóstico + procedimento',
-  'sugerido + códigos TUSS + OPME + assinatura) → classifique como',
-  '`surgery_request`.',
-].join('\n');
 
 export interface VisionFallbackInput {
   imageBuffer: Buffer;
@@ -286,7 +103,7 @@ export class DocumentVisionFallbackService {
       {
         type: 'image_url',
         image_url: { url: dataUrl, detail: visionDetail },
-      } as any,
+      },
     ];
 
     const response = await this.openai.chatCompletion({
@@ -295,12 +112,12 @@ export class DocumentVisionFallbackService {
       maxTokens: this.getMaxTokens(),
       timeoutMs: 45000,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: DOCUMENT_VISION_SYSTEM_PROMPT },
         { role: 'user', content: userContent },
       ],
       responseFormat: {
         type: 'json_schema',
-        json_schema: DOCUMENT_RESPONSE_SCHEMA as any,
+        json_schema: DOCUMENT_VISION_RESPONSE_SCHEMA,
       } as OpenAI.ChatCompletionCreateParams['response_format'],
       stage: 'doc_vision_fallback',
     });
@@ -312,12 +129,12 @@ export class DocumentVisionFallbackService {
         ? choice.message.content
         : '';
 
-    let parsed: any;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(rawContent);
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `[AI_DOC_FALLBACK] sid=${input.messageSid ?? '-'} model=${model} parse_failed=${err?.message || 'erro'} content_len=${rawContent.length}`,
+        `[AI_DOC_FALLBACK] sid=${input.messageSid ?? '-'} model=${model} parse_failed=${(err as Error)?.message || 'erro'} content_len=${rawContent.length}`,
       );
       throw new Error(
         `Resposta do Vision fallback não é JSON válido (model=${model}).`,
@@ -388,57 +205,36 @@ export class DocumentVisionFallbackService {
   }
 
   private normalizeAndTokenize(
-    raw: any,
+    rawValue: unknown,
     latencyMs: number,
     model: string,
     conversationId: string,
   ): DocumentClassification {
-    const kind = (SUPPORTED_KINDS as readonly string[]).includes(raw?.kind)
-      ? raw.kind
-      : 'unknown';
-    const confidenceNumeric = Number(raw?.confidence);
-    const confidence = Number.isFinite(confidenceNumeric)
-      ? Math.max(0, Math.min(1, confidenceNumeric))
-      : 0;
-
-    const suggestedRaw =
-      typeof raw?.suggestedDocumentType === 'string'
-        ? raw.suggestedDocumentType
-        : '';
-    const suggestedDocumentType = (
-      SUPPORTED_DOCUMENT_TYPES as readonly string[]
-    ).includes(suggestedRaw)
-      ? suggestedRaw
-      : 'additional_document';
-
-    const ambiguity =
-      typeof raw?.ambiguity === 'string' && raw.ambiguity.trim()
-        ? raw.ambiguity.trim()
-        : undefined;
-
-    const extracted = this.normalizeExtracted(
-      raw?.extracted ?? {},
-      conversationId,
-    );
-
+    const raw = asRecord(rawValue);
     return {
-      kind: kind as DocumentClassification['kind'],
-      confidence,
-      suggestedDocumentType,
-      ambiguity,
-      extracted,
+      kind: parseKind(raw.kind, VISION_SUPPORTED_KINDS),
+      confidence: parseConfidence(raw.confidence),
+      suggestedDocumentType: parseSuggestedDocumentType(
+        raw.suggestedDocumentType,
+        VISION_SUPPORTED_DOCUMENT_TYPES,
+      ),
+      ambiguity: optionalTrimmed(raw.ambiguity),
+      extracted: this.normalizeExtracted(
+        asRecord(raw.extracted),
+        conversationId,
+      ),
       durationMs: latencyMs,
       model,
     };
   }
 
   private normalizeExtracted(
-    raw: any,
+    raw: RawRecord,
     conversationId: string,
   ): DocumentClassification['extracted'] {
     const out: DocumentClassification['extracted'] = {};
 
-    const patient = this.coalesceObject(raw?.patient, [
+    const patient = coalesceStringFields(raw.patient, [
       'name',
       'cpf',
       'birthDate',
@@ -448,7 +244,7 @@ export class DocumentVisionFallbackService {
       'phone',
     ]);
     if (patient) {
-      const tokenized: any = { ...patient };
+      const tokenized = { ...patient };
       if (tokenized.cpf) {
         tokenized.cpf = this.piiVault.preprocessUserInput(
           conversationId,
@@ -464,109 +260,42 @@ export class DocumentVisionFallbackService {
       out.patient = tokenized;
     }
 
-    if (typeof raw?.hospital === 'string' && raw.hospital.trim()) {
-      out.hospital = raw.hospital.trim();
-    }
+    const hospital = optionalTrimmed(raw.hospital);
+    if (hospital) out.hospital = hospital;
 
-    const healthPlan = this.coalesceObject(raw?.healthPlan, [
+    const healthPlan = coalesceStringFields(raw.healthPlan, [
       'name',
       'planId',
       'validity',
     ]);
     if (healthPlan) out.healthPlan = healthPlan;
 
-    if (Array.isArray(raw?.tuss) && raw.tuss.length) {
-      const tuss = raw.tuss
-        .map((item: any) => ({
-          code: typeof item?.code === 'string' ? item.code.trim() : '',
-          description:
-            typeof item?.description === 'string'
-              ? item.description.trim()
-              : '',
-        }))
-        .filter((item: any) => item.code);
-      if (tuss.length) out.tuss = tuss;
+    const tuss = parseTussItems(raw.tuss, { withQty: false });
+    if (tuss.length) out.tuss = tuss;
+
+    const cid = parseCidItems(raw.cid);
+    if (cid.length) out.cid = cid;
+
+    const opme = parseOpmeItems(raw.opme);
+    if (opme.length) out.opme = opme;
+
+    const suppliers = parseStringItems(raw.suggestedSuppliers);
+    if (suppliers.length) out.suggestedSuppliers = suppliers;
+
+    const diagnosis = optionalTrimmed(raw.diagnosis);
+    if (diagnosis) out.diagnosis = diagnosis;
+
+    const suggestedProcedureName = optionalTrimmed(raw.suggestedProcedureName);
+    if (suggestedProcedureName) {
+      out.suggestedProcedureName = suggestedProcedureName;
     }
 
-    if (Array.isArray(raw?.cid) && raw.cid.length) {
-      const cid = raw.cid
-        .map((item: any) => ({
-          code: typeof item?.code === 'string' ? item.code.trim() : '',
-        }))
-        .filter((item: any) => item.code);
-      if (cid.length) out.cid = cid;
-    }
+    const laudoText = optionalTrimmed(raw.laudoText);
+    if (laudoText) out.laudoText = laudoText;
 
-    if (Array.isArray(raw?.opme) && raw.opme.length) {
-      const opme = raw.opme
-        .map((item: any) => {
-          const entry: any = {
-            description:
-              typeof item?.description === 'string'
-                ? item.description.trim()
-                : '',
-            qty: Number.isFinite(Number(item?.qty))
-              ? Math.max(1, Math.floor(Number(item?.qty)))
-              : 1,
-          };
-          if (typeof item?.supplier === 'string' && item.supplier.trim()) {
-            entry.supplier = item.supplier.trim();
-          }
-          if (
-            typeof item?.manufacturer === 'string' &&
-            item.manufacturer.trim()
-          ) {
-            entry.manufacturer = item.manufacturer.trim();
-          }
-          return entry;
-        })
-        .filter((item: any) => item.description);
-      if (opme.length) out.opme = opme;
-    }
-
-    if (
-      Array.isArray(raw?.suggestedSuppliers) &&
-      raw.suggestedSuppliers.length
-    ) {
-      const suppliers = raw.suggestedSuppliers
-        .map((s: any) => (typeof s === 'string' ? s.trim() : ''))
-        .filter((s: string) => s.length > 0);
-      if (suppliers.length) out.suggestedSuppliers = suppliers;
-    }
-
-    if (typeof raw?.diagnosis === 'string' && raw.diagnosis.trim()) {
-      out.diagnosis = raw.diagnosis.trim();
-    }
-    if (
-      typeof raw?.suggestedProcedureName === 'string' &&
-      raw.suggestedProcedureName.trim()
-    ) {
-      out.suggestedProcedureName = raw.suggestedProcedureName.trim();
-    }
-    if (typeof raw?.laudoText === 'string' && raw.laudoText.trim()) {
-      out.laudoText = raw.laudoText.trim();
-    }
-    if (typeof raw?.notes === 'string' && raw.notes.trim()) {
-      out.notes = raw.notes.trim();
-    }
+    const notes = optionalTrimmed(raw.notes);
+    if (notes) out.notes = notes;
 
     return out;
-  }
-
-  private coalesceObject<T extends Record<string, any>>(
-    raw: any,
-    keys: string[],
-  ): T | undefined {
-    if (!raw || typeof raw !== 'object') return undefined;
-    const obj: any = {};
-    let hasValue = false;
-    for (const key of keys) {
-      const value = raw[key];
-      if (typeof value === 'string' && value.trim()) {
-        obj[key] = value.trim();
-        hasValue = true;
-      }
-    }
-    return hasValue ? (obj as T) : undefined;
   }
 }

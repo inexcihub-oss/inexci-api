@@ -6,6 +6,7 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { PatientNotificationService } from 'src/modules/notifications/patient-notification.service';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
+import { SchedulingSelectionStore } from './workflow/scheduling-selection.store';
 
 jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
@@ -19,7 +20,11 @@ describe('SurgeryRequestNotificationService', () => {
   let mockWhatsappService: { sendTemplate: jest.Mock };
   let mockNotificationsService: { notifyAdminsOfAction: jest.Mock };
   let mockRepository: { findOneWithRelations: jest.Mock };
-  let mockPatientNotificationService: { notifyPatientStatusChange: jest.Mock };
+  let mockPatientNotificationService: {
+    notifyPatientStatusChange: jest.Mock;
+    notifyPatientSchedulingOptions: jest.Mock;
+  };
+  let mockSelectionStore: { remember: jest.Mock };
 
   const baseRequest = {
     id: 'req-1',
@@ -44,7 +49,9 @@ describe('SurgeryRequestNotificationService', () => {
     mockRepository = { findOneWithRelations: jest.fn() };
     mockPatientNotificationService = {
       notifyPatientStatusChange: jest.fn().mockResolvedValue(undefined),
+      notifyPatientSchedulingOptions: jest.fn().mockResolvedValue(undefined),
     };
+    mockSelectionStore = { remember: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -57,6 +64,7 @@ describe('SurgeryRequestNotificationService', () => {
           provide: PatientNotificationService,
           useValue: mockPatientNotificationService,
         },
+        { provide: SchedulingSelectionStore, useValue: mockSelectionStore },
       ],
     }).compile();
 
@@ -109,6 +117,31 @@ describe('SurgeryRequestNotificationService', () => {
       expect(ctx.request).toBe(request);
       expect(ctx.oldStatus).toBe(prev);
       expect(ctx.newStatus).toBe(next);
+    });
+  });
+
+  describe('notifyPatientSchedulingOptions', () => {
+    it('grava o marcador telefone → SC para o webhook desambiguar a resposta', async () => {
+      await service.notifyPatientSchedulingOptions(baseRequest, [
+        '2026-11-10T13:00:00.000Z',
+      ]);
+
+      expect(
+        mockPatientNotificationService.notifyPatientSchedulingOptions,
+      ).toHaveBeenCalled();
+      expect(mockSelectionStore.remember).toHaveBeenCalledWith(
+        '+5511999999999',
+        'req-1',
+      );
+    });
+
+    it('não grava marcador para paciente sem telefone', async () => {
+      await service.notifyPatientSchedulingOptions(
+        { ...baseRequest, patient: { name: 'Sem Fone' } },
+        ['2026-11-10T13:00:00.000Z'],
+      );
+
+      expect(mockSelectionStore.remember).not.toHaveBeenCalled();
     });
   });
 });

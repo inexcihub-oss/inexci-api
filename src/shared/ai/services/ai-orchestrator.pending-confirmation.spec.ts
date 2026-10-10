@@ -1,4 +1,6 @@
 import { AiOrchestratorService } from './ai-orchestrator.service';
+import { ToolRegistryService } from './tool-registry.service';
+import { TOOL_DISPLAY_LABELS } from './orchestrator/confirmation-manager.service';
 import { PiiVaultService } from './pii-vault.service';
 import { ResponseNormalizerService } from './orchestrator/response-normalizer.service';
 import { PhoneNormalizerService } from './orchestrator/phone-normalizer.service';
@@ -7,6 +9,13 @@ import { ConfirmationManagerService } from './orchestrator/confirmation-manager.
 import { OrchestratorTelemetryService } from './orchestrator/orchestrator-telemetry.service';
 import { MessageProcessorService } from './orchestrator/message-processor.service';
 import { AudioIntakeService } from './orchestrator/audio-intake.service';
+
+const mutationRegistryStub = {
+  getTool: (name: string) =>
+    Object.prototype.hasOwnProperty.call(TOOL_DISPLAY_LABELS, name)
+      ? { name, mutates: true }
+      : undefined,
+} as unknown as ToolRegistryService;
 
 describe('AiOrchestratorService — pending_confirmation', () => {
   let service: AiOrchestratorService;
@@ -21,40 +30,25 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       { chatCompletion: jest.fn() } as any,
       {
         getOrCreateConversation: jest.fn(),
+        findById: jest.fn(),
         appendMessage: jest.fn(),
         resetConversationHistory: jest.fn(),
         loadRecentForLlm: jest.fn(),
       } as any,
-      {
-        getToolDefinitions: jest.fn().mockReturnValue([]),
-        getToolDefinitionsForDraft: jest.fn().mockReturnValue([]),
-      } as any,
-      { executeMany: jest.fn() } as any,
       { search: jest.fn(), formatContext: jest.fn() } as any,
       { sendMessage: jest.fn(), sendTemplate: jest.fn() } as any,
-      { findOneByPhone: jest.fn() } as any,
       { getAccessibleDoctorIds: jest.fn() } as any,
       { get: jest.fn() } as any,
       { isAudioMime: jest.fn(), downloadInboundAudio: jest.fn() } as any,
       new PiiVaultService() as any,
-      { create: jest.fn() } as any,
-      {
-        isAvailable: false,
-        checkRateLimit: jest.fn(),
-        cacheGet: jest.fn(),
-        cacheSet: jest.fn(),
-        cacheDelete: jest.fn(),
-        setFlag: jest.fn(),
-        hasFlag: jest.fn(),
-      } as any,
       { buildContext: jest.fn() } as any,
-      whatsappConversationRepoMock as any,
       new ResponseNormalizerService(),
       new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),
       new ClearContextDetectorService(),
       new ConfirmationManagerService(
         whatsappConversationRepoMock as any,
         { loadRecentForLlm: jest.fn() } as any,
+        mutationRegistryStub,
       ),
       new OrchestratorTelemetryService(
         { create: jest.fn() } as any,

@@ -1,11 +1,10 @@
-import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UserStatus } from 'src/database/entities/user.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { resolveEffectivePermissions } from 'src/shared/permissions';
+import { permissionsOf } from 'src/shared/permissions';
 import {
   JwtPayload,
   JWT_DEFAULT_AUDIENCE,
@@ -47,12 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ownerId: user.ownerId,
       role: user.role,
       isPlatformAdmin: user.isPlatformAdmin ?? false,
-      permissions: resolveEffectivePermissions({
-        role: user.role,
-        permissions: user.permissions,
-        isDoctor: !!user.doctorProfile,
-        isPhysician: isPhysicianProfile(user.doctorProfile),
-      }),
+      permissions: permissionsOf(user),
       privacyPolicyAcceptedAt: user.privacyPolicyAcceptedAt ?? null,
       termsOfUseAcceptedAt: user.termsOfUseAcceptedAt ?? null,
       aiConsentAcceptedAt: user.aiConsentAcceptedAt ?? null,

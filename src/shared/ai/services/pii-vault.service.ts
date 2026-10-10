@@ -83,10 +83,6 @@ export class PiiVaultService {
     this.bindings.delete(sessionId);
   }
 
-  hasSession(sessionId: string): boolean {
-    return this.bindings.has(sessionId);
-  }
-
   restoreSession(
     sessionId: string,
     bindings: SerializedPiiBindings | null | undefined,

@@ -45,6 +45,10 @@ export class ConversationCleanupService {
          VALUES ($1, $2, NOW())`,
         [deletedCount, cutoffDate],
       );
-    } catch {}
+    } catch (err) {
+      this.logger.warn(
+        `[CONVERSATION_CLEANUP] falha ao registrar log de limpeza: ${(err as Error)?.message}`,
+      );
+    }
   }
 }

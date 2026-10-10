@@ -2,11 +2,13 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { buildToolResult } from '../../tool-result';
 import { CadastroDraftDeps } from '../_types';
+import { ALL_PERMISSIONS } from 'src/shared/permissions';
 
 export function buildHospitalDraftPreviewTool(deps: CadastroDraftDeps): AiTool {
   const { draftService } = deps;
   return {
     name: 'hospital_draft_preview',
+    requiredPermission: ALL_PERMISSIONS,
     definition: {
       type: 'function',
       function: {

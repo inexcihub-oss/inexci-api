@@ -11,6 +11,7 @@ import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
 import { UserRole } from 'src/database/entities/user.entity';
+import { Permission } from 'src/shared/permissions';
 
 jest.mock('src/shared/whatsapp/whatsapp-templates.constants', () => ({
   WHATSAPP_TEMPLATES: {
@@ -32,7 +33,6 @@ describe('StaleNotificationService', () => {
   const mockStaleLogRepository = {
     hasBeenNotified: jest.fn(),
     record: jest.fn().mockResolvedValue({}),
-    deleteByRequest: jest.fn(),
   };
 
   const mockNotificationsService = {
@@ -43,11 +43,7 @@ describe('StaleNotificationService', () => {
     }),
   };
 
-  const mockMailService = {
-    sendRaw: jest.fn().mockResolvedValue(undefined),
-    sendStaleReminder: jest.fn().mockResolvedValue(undefined),
-    sendStaleCritical: jest.fn().mockResolvedValue(undefined),
-  };
+  const mockMailService = {};
 
   const mockWhatsappService = {
     sendTemplate: jest.fn().mockResolvedValue(undefined),
@@ -196,6 +192,34 @@ describe('StaleNotificationService', () => {
       expect(mockWhatsappService.sendTemplate).not.toHaveBeenCalled();
     });
 
+    it('admin delegado (colaborador com ADMINISTRACAO) entra entre os destinatários', async () => {
+      mockUserRepository.findByOwnerId.mockResolvedValue([
+        {
+          id: 'delegado-1',
+          role: UserRole.COLLABORATOR,
+          permissions: [Permission.ADMINISTRACAO],
+          ownerId: 'acc-1',
+        },
+        {
+          id: 'sem-admin',
+          role: UserRole.COLLABORATOR,
+          permissions: [Permission.SOLICITACOES],
+          ownerId: 'acc-1',
+        },
+      ]);
+      mockSurgeryRequestRepository.findStaleRequests.mockResolvedValue([
+        makeStaleRequest(3),
+      ]);
+      mockStaleLogRepository.hasBeenNotified.mockResolvedValue(false);
+
+      await service.checkAndNotifyStaleRequests();
+
+      const [ids] =
+        mockNotificationsService.createNotificationForUsers.mock.calls[0];
+      expect(ids).toContain('delegado-1');
+      expect(ids).not.toContain('sem-admin');
+    });
+
     it('solicitação parada há 7 dias → notificação de atenção (6.3.1)', async () => {
       const request = makeStaleRequest(7);
       mockSurgeryRequestRepository.findStaleRequests.mockResolvedValue([
@@ -300,9 +324,6 @@ describe('StaleNotificationService', () => {
       mockStaleLogRepository.hasBeenNotified.mockResolvedValue(false);
 
       await service.checkAndNotifyStaleRequests();
-
-      expect(mockMailService.sendStaleReminder).not.toHaveBeenCalled();
-      expect(mockMailService.sendStaleCritical).not.toHaveBeenCalled();
     });
 
     it('nunca envia e-mail mesmo em tier crítico (30 dias)', async () => {
@@ -317,9 +338,6 @@ describe('StaleNotificationService', () => {
       });
 
       await service.checkAndNotifyStaleRequests();
-
-      expect(mockMailService.sendStaleReminder).not.toHaveBeenCalled();
-      expect(mockMailService.sendStaleCritical).not.toHaveBeenCalled();
     });
 
     it('não envia WhatsApp stale se destinatário desativou whatsappNotifications', async () => {

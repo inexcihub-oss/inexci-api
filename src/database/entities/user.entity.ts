@@ -14,6 +14,7 @@ import {
 import { Exclude } from 'class-transformer';
 import { Permission } from 'src/shared/permissions';
 import { OnboardingState } from '../../modules/onboarding/onboarding.types';
+import { PatientNotificationSettings } from '../../common/patient-notification-settings';
 import { DoctorProfile } from './doctor-profile.entity';
 import { UserDoctorAccess } from './user-doctor-access.entity';
 import { RecoveryCode } from './recovery-code.entity';
@@ -169,6 +170,14 @@ export class User {
 
   @Column({ name: 'onboarding_state', type: 'jsonb', nullable: true })
   onboardingState: OnboardingState | null;
+
+  @Column({
+    name: 'patient_notification_settings',
+    type: 'jsonb',
+    nullable: true,
+    select: false,
+  })
+  patientNotificationSettings: Partial<PatientNotificationSettings> | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

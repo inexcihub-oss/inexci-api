@@ -14,7 +14,7 @@ const buildCollectionRepoMocks = () => ({
 
 describe('PendencyValidatorService — patient_data', () => {
   const mockRepository = {
-    findOne: jest.fn(),
+    findOneForPendencies: jest.fn(),
   };
 
   const {
@@ -49,7 +49,7 @@ describe('PendencyValidatorService — patient_data', () => {
   });
 
   it('considera patient_data completo com apenas nome e CPF', async () => {
-    mockRepository.findOne.mockResolvedValue(baseRequest);
+    mockRepository.findOneForPendencies.mockResolvedValue(baseRequest);
 
     const result = await service.validateForStatus('req-1');
 
@@ -62,7 +62,7 @@ describe('PendencyValidatorService — patient_data', () => {
   });
 
   it('considera patient_data incompleto sem CPF', async () => {
-    mockRepository.findOne.mockResolvedValue({
+    mockRepository.findOneForPendencies.mockResolvedValue({
       ...baseRequest,
       patient: { name: 'João Silva' },
     });
@@ -78,7 +78,7 @@ describe('PendencyValidatorService — patient_data', () => {
   });
 
   it('considera patient_data incompleto com CPF null (paciente sem CPF no cadastro)', async () => {
-    mockRepository.findOne.mockResolvedValue({
+    mockRepository.findOneForPendencies.mockResolvedValue({
       ...baseRequest,
       patient: { name: 'João Silva', cpf: null },
     });
@@ -94,7 +94,7 @@ describe('PendencyValidatorService — patient_data', () => {
   });
 
   it('considera medical_report completo com nome, CPF, seção e assinatura', async () => {
-    mockRepository.findOne.mockResolvedValue(baseRequest);
+    mockRepository.findOneForPendencies.mockResolvedValue(baseRequest);
 
     const result = await service.validateForStatus('req-1');
 
@@ -111,7 +111,7 @@ describe('PendencyValidatorService — patient_data', () => {
   });
 
   it('considera medical_report incompleto sem CPF mesmo com demais dados opcionais', async () => {
-    mockRepository.findOne.mockResolvedValue({
+    mockRepository.findOneForPendencies.mockResolvedValue({
       ...baseRequest,
       patient: {
         name: 'João Silva',
@@ -132,7 +132,7 @@ describe('PendencyValidatorService — patient_data', () => {
 });
 
 describe('PendencyValidatorService — assertCanAdvance', () => {
-  const mockRepository = { findOne: jest.fn() };
+  const mockRepository = { findOneForPendencies: jest.fn() };
   const {
     opmeItemRepository,
     documentRepository,
@@ -176,19 +176,19 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('não lança quando todas as pendências bloqueantes estão resolvidas', async () => {
-    mockRepository.findOne.mockResolvedValue(completeRequest);
+    mockRepository.findOneForPendencies.mockResolvedValue(completeRequest);
     await expect(service.assertCanAdvance('req-ok')).resolves.toBeUndefined();
   });
 
   it('lança BadRequestException com pendencies[] quando há bloqueantes não resolvidas', async () => {
-    mockRepository.findOne.mockResolvedValue(incompleteRequest);
+    mockRepository.findOneForPendencies.mockResolvedValue(incompleteRequest);
     await expect(service.assertCanAdvance('req-bad')).rejects.toThrow(
       BadRequestException,
     );
   });
 
   it('payload de erro contém message e pendencies[] com keys corretas', async () => {
-    mockRepository.findOne.mockResolvedValue(incompleteRequest);
+    mockRepository.findOneForPendencies.mockResolvedValue(incompleteRequest);
     try {
       await service.assertCanAdvance('req-bad');
       fail('deveria ter lançado');
@@ -209,7 +209,7 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
   });
 
   it('não lança quando SC está em status sem pendências bloqueantes (SENT)', async () => {
-    mockRepository.findOne.mockResolvedValue({
+    mockRepository.findOneForPendencies.mockResolvedValue({
       ...completeRequest,
       status: SurgeryRequestStatus.SENT,
     });
@@ -218,7 +218,7 @@ describe('PendencyValidatorService — assertCanAdvance', () => {
 });
 
 describe('PendencyValidatorService — SC inexistente (fail-closed)', () => {
-  const mockRepository = { findOne: jest.fn() };
+  const mockRepository = { findOneForPendencies: jest.fn() };
   const {
     opmeItemRepository,
     documentRepository,
@@ -235,7 +235,7 @@ describe('PendencyValidatorService — SC inexistente (fail-closed)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRepository.findOne.mockResolvedValue(null);
+    mockRepository.findOneForPendencies.mockResolvedValue(null);
   });
 
   it('validateForStatus lança NotFoundException em vez de liberar o avanço', async () => {
@@ -264,7 +264,7 @@ describe('PendencyValidatorService — SC inexistente (fail-closed)', () => {
 });
 
 describe('PendencyValidatorService — consent_term (IN_SCHEDULING)', () => {
-  const mockRepository = { findOne: jest.fn() };
+  const mockRepository = { findOneForPendencies: jest.fn() };
   const {
     opmeItemRepository,
     documentRepository,
@@ -292,7 +292,7 @@ describe('PendencyValidatorService — consent_term (IN_SCHEDULING)', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('consent_term é opcional e não bloqueia o avanço quando ausente', async () => {
-    mockRepository.findOne.mockResolvedValue(schedulingRequest);
+    mockRepository.findOneForPendencies.mockResolvedValue(schedulingRequest);
 
     const result = await service.validateForStatus('req-sched');
     const consent = result.pendencies.find((p) => p.key === 'consent_term');
@@ -306,7 +306,7 @@ describe('PendencyValidatorService — consent_term (IN_SCHEDULING)', () => {
   });
 
   it('consent_term é resolvida quando o termo já foi anexado', async () => {
-    mockRepository.findOne.mockResolvedValue({
+    mockRepository.findOneForPendencies.mockResolvedValue({
       ...schedulingRequest,
       documents: [{ key: 'consent_term', name: 'Termo' }],
     });
@@ -319,7 +319,10 @@ describe('PendencyValidatorService — consent_term (IN_SCHEDULING)', () => {
 });
 
 describe('PendencyValidatorService — getBatchSummary', () => {
-  const mockRepository = { findOne: jest.fn(), find: jest.fn() };
+  const mockRepository = {
+    findOneForPendencies: jest.fn(),
+    findManyForPendencies: jest.fn(),
+  };
   const opmeItemRepository = { findMany: jest.fn() };
   const documentRepository = { findMany: jest.fn() };
   const tussItemRepository = { findMany: jest.fn() };
@@ -359,7 +362,7 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   });
 
   it('carrega o lote em paralelo (join to-one + 4 coleções, sem N+1 sequencial) e resume cada SC', async () => {
-    mockRepository.find.mockResolvedValue([
+    mockRepository.findManyForPendencies.mockResolvedValue([
       completeRequestBase,
       incompleteRequestBase,
     ]);
@@ -370,14 +373,16 @@ describe('PendencyValidatorService — getBatchSummary', () => {
       { id: 's-1', surgeryRequestId: 'req-ok' },
     ]);
 
-    const result = await service.getBatchSummary('req-ok, req-bad', 'owner-1');
+    const result = await service.getBatchSummary('req-ok, req-bad', [
+      'doctor-1',
+    ]);
 
-    expect(mockRepository.find).toHaveBeenCalledTimes(1);
+    expect(mockRepository.findManyForPendencies).toHaveBeenCalledTimes(1);
     expect(tussItemRepository.findMany).toHaveBeenCalledTimes(1);
     expect(opmeItemRepository.findMany).toHaveBeenCalledTimes(1);
     expect(documentRepository.findMany).toHaveBeenCalledTimes(1);
     expect(reportSectionRepository.find).toHaveBeenCalledTimes(1);
-    expect(mockRepository.findOne).not.toHaveBeenCalled();
+    expect(mockRepository.findOneForPendencies).not.toHaveBeenCalled();
 
     expect(result['req-ok'].canAdvance).toBe(true);
     expect(result['req-bad'].canAdvance).toBe(false);
@@ -385,7 +390,9 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   });
 
   it('devolve default fail-closed para ids não encontrados', async () => {
-    mockRepository.find.mockResolvedValue([completeRequestBase]);
+    mockRepository.findManyForPendencies.mockResolvedValue([
+      completeRequestBase,
+    ]);
     tussItemRepository.findMany.mockResolvedValue([
       { id: 't-1', surgeryRequestId: 'req-ok' },
     ]);
@@ -393,10 +400,9 @@ describe('PendencyValidatorService — getBatchSummary', () => {
       { id: 's-1', surgeryRequestId: 'req-ok' },
     ]);
 
-    const result = await service.getBatchSummary(
-      'req-ok,missing-id',
-      'owner-1',
-    );
+    const result = await service.getBatchSummary('req-ok,missing-id', [
+      'doctor-1',
+    ]);
 
     expect(result['req-ok'].canAdvance).toBe(true);
     expect(result['missing-id']).toEqual({
@@ -407,9 +413,11 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   });
 
   it('não libera o lote inteiro quando a carga em lote falha', async () => {
-    mockRepository.find.mockRejectedValue(new Error('db down'));
+    mockRepository.findManyForPendencies.mockRejectedValue(
+      new Error('db down'),
+    );
 
-    const result = await service.getBatchSummary('a,b', 'owner-1');
+    const result = await service.getBatchSummary('a,b', ['doctor-1']);
 
     expect(result).toEqual({
       a: { pending: 0, total: 0, canAdvance: false },
@@ -418,8 +426,8 @@ describe('PendencyValidatorService — getBatchSummary', () => {
   });
 
   it('devolve objeto vazio para lista de ids vazia', async () => {
-    const result = await service.getBatchSummary('  ,  ', 'owner-1');
+    const result = await service.getBatchSummary('  ,  ', ['doctor-1']);
     expect(result).toEqual({});
-    expect(mockRepository.find).not.toHaveBeenCalled();
+    expect(mockRepository.findManyForPendencies).not.toHaveBeenCalled();
   });
 });

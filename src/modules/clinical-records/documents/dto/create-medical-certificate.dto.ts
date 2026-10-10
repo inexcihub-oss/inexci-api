@@ -14,55 +14,32 @@ import {
 } from 'class-validator';
 import { CidCodeDto } from '../../dto/cid-code.dto';
 
-/**
- * Teto dos textos livres que podem vir de um modelo (texto do atestado,
- * indicação clínica do pedido de exame). O dobro do corpo do modelo
- * (`DOCUMENT_TEMPLATE_BODY_MAX`): os placeholders crescem ao serem
- * preenchidos (nome, CPF, registro), e um modelo no limite não pode virar 400
- * na emissão. Não há coluna por trás — o texto só vai para o PDF.
- */
 export const CLINICAL_DOCUMENT_TEXT_MAX = 4000;
 
 export class CreateMedicalCertificateDto {
-  /** Ficha de atendimento que origina o atestado. */
   @IsUUID()
   @IsNotEmpty()
   clinicalRecordId: string;
 
-  /** Dias de afastamento. Ausente = atestado de comparecimento. */
   @IsInt()
   @Min(1)
   @Max(365)
   @IsOptional()
   restDays?: number;
 
-  /** Início do afastamento (ISO). Default de leitura: a data de emissão. */
   @IsDateString()
   @IsOptional()
   startDate?: string;
 
-  /**
-   * Reaproveita o CID da ficha quando nenhum é informado em `cid`. Exige
-   * autorização do paciente — o CID revela o diagnóstico a quem receber o
-   * documento.
-   */
   @IsBoolean()
   @IsOptional()
   includeCid?: boolean;
 
-  /**
-   * CID escolhido para este atestado. Tem precedência sobre `includeCid`: o
-   * motivo do afastamento nem sempre é a hipótese registrada na ficha.
-   */
   @IsOptional()
   @ValidateNested()
   @Type(() => CidCodeDto)
   cid?: CidCodeDto;
 
-  /**
-   * Texto do atestado. Substitui a declaração padrão ("Atesto, para os
-   * devidos fins…"); ausente = declaração padrão.
-   */
   @IsString()
   @IsOptional()
   @MaxLength(CLINICAL_DOCUMENT_TEXT_MAX)
@@ -73,11 +50,6 @@ export class CreateMedicalCertificateDto {
   @MaxLength(2000)
   observations?: string;
 
-  /**
-   * Modelo de texto (MIG-06) para o texto do atestado, com os placeholders
-   * preenchidos no servidor. Só vale quando `text` não veio: o texto enviado
-   * sempre vence.
-   */
   @IsUUID()
   @IsOptional()
   templateId?: string;

@@ -1,20 +1,21 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { STORAGE_FOLDERS } from '../../../../config/storage.config';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString, sanitizeAlphaNumKey } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
   classifyDocumentType,
   downloadInboundMedia,
-  getAuthorizedRequest,
   REPORT_IMAGE_KEY,
-  sanitizeAlphaNumKey,
-} from './_helpers';
+} from '../helpers/documents';
+import {
+  getAuthorizedRequest,
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
 
 export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
   const {
@@ -28,6 +29,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_documents',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -219,12 +221,12 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
             });
           }
 
-          await activityRepo.create({
-            surgeryRequestId: auth.request.id,
-            userId: context.userId as string,
-            type: ActivityType.SYSTEM,
-            content: `[WhatsApp IA] Documento anexado: ${computedName} (tipo: ${detectedType}).`,
-          });
+          await recordAiActivity(
+            activityRepo,
+            context,
+            auth.request.id,
+            `Documento anexado: ${computedName} (tipo: ${detectedType}).`,
+          );
 
           return buildToolResult({
             status: 'ok',
@@ -286,12 +288,12 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
         surgeryRequestId: auth.request.id,
       });
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Documento removido: ${doc.name} (tipo: ${doc.type}).`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Documento removido: ${doc.name} (tipo: ${doc.type}).`,
+      );
 
       return buildToolResult({
         status: 'ok',

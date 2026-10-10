@@ -5,16 +5,30 @@ const CHAVE_DUPLICADA = '23505';
 interface DetalheDoDriver {
   code?: string;
   constraint?: string;
+  message?: string;
 }
 
 export function violacaoDeUnicidade(
   erro: unknown,
 ): { constraint?: string } | null {
+  if (!erro || typeof erro !== 'object') return null;
   const falha = erro as DetalheDoDriver & { driverError?: DetalheDoDriver };
-  const code = falha?.code ?? falha?.driverError?.code;
+  const code = falha.code ?? falha.driverError?.code;
   if (code !== CHAVE_DUPLICADA) return null;
 
-  return { constraint: falha?.constraint ?? falha?.driverError?.constraint };
+  return { constraint: falha.constraint ?? falha.driverError?.constraint };
+}
+
+export function violouIndice(erro: unknown, indice: string): boolean {
+  const violacao = violacaoDeUnicidade(erro);
+  if (!violacao) return false;
+  if (violacao.constraint === indice) return true;
+
+  const falha = erro as DetalheDoDriver & { driverError?: DetalheDoDriver };
+  return (
+    (falha.message ?? '').includes(indice) ||
+    (falha.driverError?.message ?? '').includes(indice)
+  );
 }
 
 export function mensagemDeGenericoBloqueado(

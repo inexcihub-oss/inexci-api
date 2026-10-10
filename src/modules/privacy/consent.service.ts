@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { User } from '../../database/entities/user.entity';
+import { UserRepository } from '../../database/repositories/user.repository';
 import { ConsentType, REQUIRED_CONSENTS } from '../../config/consent.config';
 
 export interface ConsentStatus {
@@ -16,10 +15,7 @@ export interface ConsentStatus {
 export class ConsentService {
   private readonly logger = new Logger(ConsentService.name);
 
-  constructor(
-    @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
-  ) {}
+  constructor(private readonly userRepo: UserRepository) {}
 
   async getStatus(userId: string): Promise<ConsentStatus> {
     const user = await this.findUserOrThrow(userId);
@@ -61,7 +57,7 @@ export class ConsentService {
   }
 
   private async findUserOrThrow(userId: string): Promise<User> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const user = await this.userRepo.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
     return user;
   }

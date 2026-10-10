@@ -13,37 +13,11 @@ import { PhoneNormalizerService } from './phone-normalizer.service';
 import { ResponseNormalizerService } from './response-normalizer.service';
 import { PROMPT_VERSION, SYSTEM_PROMPT } from '../../prompts/system-prompt';
 import { User, UserStatus } from '../../../../database/entities/user.entity';
+import { SimpleCache } from '../../utils/simple-cache';
 
 const AI_CONSENT_NOTICE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AI_CONSENT_PORTAL_PATH = '/configuracoes/privacidade';
 const AI_CONSENT_DEFAULT_PORTAL_URL = `https://app.inexci.com${AI_CONSENT_PORTAL_PATH}`;
-
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-class SimpleUserCache {
-  private store = new Map<string, CacheEntry<any>>();
-
-  get(key: string): any {
-    const entry = this.store.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      this.store.delete(key);
-      return undefined;
-    }
-    return entry.value;
-  }
-
-  set(key: string, value: any, ttlMs: number): void {
-    this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
-  }
-
-  delete(key: string): void {
-    this.store.delete(key);
-  }
-}
 
 export interface InboundMessageData {
   from: string;
@@ -85,7 +59,7 @@ export type PreflightOutcome =
 @Injectable()
 export class MessageProcessorService {
   private readonly logger = new Logger(MessageProcessorService.name);
-  private readonly userCache = new SimpleUserCache();
+  private readonly userCache = new SimpleCache<User>();
   private readonly rateLimitCounts = new Map<
     string,
     { count: number; resetAt: number }
@@ -145,9 +119,7 @@ export class MessageProcessorService {
       this.userCache.set(phone, user, 10 * 60 * 1000);
     }
 
-    const userId = user?.id || null;
-
-    if (!userId) {
+    if (!user?.id) {
       await this.handleUnknownUser(
         phone,
         body,
@@ -157,6 +129,7 @@ export class MessageProcessorService {
       );
       return { status: 'unknown_user' };
     }
+    const userId = user.id;
 
     if (user.status !== UserStatus.ACTIVE) {
       this.logger.warn(

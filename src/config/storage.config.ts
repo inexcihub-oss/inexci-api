@@ -4,8 +4,6 @@ export const storageConfig = registerAs('storage', () => ({
   bucket: process.env.R2_BUCKET,
 }));
 
-export const STORAGE_BUCKET_TOKEN = 'STORAGE_BUCKET';
-
 export const STORAGE_FOLDERS = {
   AVATARS: 'avatars',
 

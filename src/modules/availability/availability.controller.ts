@@ -36,11 +36,6 @@ import {
 } from './dto/holiday.dto';
 import { FindSlotsDto } from './dto/find-slots.dto';
 
-/**
- * Disponibilidade da agenda (MIG-05). Ler: quem trabalha com a agenda ou com
- * o atendimento. Escrever: grade = o próprio profissional ou Administração
- * (checado no service); bloqueio = Agenda; feriado = Administração.
- */
 @ApiTags('Disponibilidade da agenda')
 @ApiBearerAuth()
 @Controller('availability')

@@ -76,6 +76,10 @@ describe('flow-draft-transition tools (preview + commit + check_docs)', () => {
       activityRepo: mockActivityRepo,
       documentRepo: mockDocumentRepo,
       pendencyValidator: mockPendencyValidator,
+      storageService: {
+        uploadBuffer: jest.fn(),
+        getSignedUrl: jest.fn(),
+      } as any,
     });
   });
 

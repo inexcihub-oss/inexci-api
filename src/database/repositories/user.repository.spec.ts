@@ -63,4 +63,65 @@ describe('UserRepository', () => {
       status: true,
     });
   });
+
+  describe('avisos ao paciente (patient_notification_settings)', () => {
+    it('conta sem configuração gravada fica com tudo ligado', async () => {
+      const { repo, mockRepository } = buildRepo();
+      mockRepository.findOne.mockResolvedValue({
+        id: 'dono',
+        patientNotificationSettings: null,
+      });
+
+      await expect(
+        repo.getPatientNotificationSettings('dono'),
+      ).resolves.toEqual({
+        appointmentScheduled: true,
+        appointmentReminder: true,
+        appointmentCancelled: true,
+      });
+      const call = mockRepository.findOne.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'dono' });
+      expect(call.select).toMatchObject({ patientNotificationSettings: true });
+    });
+
+    it('isPatientNotificationEnabled respeita o que foi desligado', async () => {
+      const { repo, mockRepository } = buildRepo();
+      mockRepository.findOne.mockResolvedValue({
+        id: 'dono',
+        patientNotificationSettings: { appointmentReminder: false },
+      });
+
+      await expect(
+        repo.isPatientNotificationEnabled('dono', 'appointmentReminder'),
+      ).resolves.toBe(false);
+      await expect(
+        repo.isPatientNotificationEnabled('dono', 'appointmentCancelled'),
+      ).resolves.toBe(true);
+    });
+
+    it('update mescla com o atual e grava o objeto completo', async () => {
+      const mockRepository = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'dono',
+          patientNotificationSettings: { appointmentScheduled: false },
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+      const repo = new UserRepository(mockRepository as never);
+
+      const result = await repo.updatePatientNotificationSettings('dono', {
+        appointmentCancelled: false,
+      });
+
+      const esperado = {
+        appointmentScheduled: false,
+        appointmentReminder: true,
+        appointmentCancelled: false,
+      };
+      expect(result).toEqual(esperado);
+      expect(mockRepository.update).toHaveBeenCalledWith('dono', {
+        patientNotificationSettings: esperado,
+      });
+    });
+  });
 });

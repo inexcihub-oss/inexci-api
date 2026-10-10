@@ -25,12 +25,3 @@ export const POST_SURGERY_REQUIRED_DOCS: PostSurgeryRequiredDoc[] = [
     hint: 'Fotos do procedimento, peça operatória ou achados intraoperatórios (opcional, mas recomendado).',
   },
 ];
-
-export const POST_SURGERY_DOC_TYPES: ReadonlySet<string> = new Set(
-  POST_SURGERY_REQUIRED_DOCS.map((d) => d.type),
-);
-
-export function isPostSurgeryDocType(type: string | null | undefined): boolean {
-  if (!type) return false;
-  return POST_SURGERY_DOC_TYPES.has(type);
-}

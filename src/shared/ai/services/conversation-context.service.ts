@@ -427,50 +427,6 @@ export class ConversationContextService {
     return messages.slice(-max);
   }
 
-  enforceTokenBudget(
-    blocks: {
-      kind: 'system' | 'summary' | 'memory' | 'rag' | 'recent';
-      content: string;
-    }[],
-    budget: number,
-  ): {
-    blocks: typeof blocks;
-    droppedKinds: Array<'rag' | 'recent' | 'summary'>;
-  } {
-    const droppedKinds: Array<'rag' | 'recent' | 'summary'> = [];
-    const totalTokens = (b: typeof blocks) =>
-      b.reduce((acc, item) => acc + estimateTokens(item.content), 0);
-    const current = [...blocks];
-    let tokens = totalTokens(current);
-
-    while (tokens > budget) {
-      const ragIndex = current.findIndex((b) => b.kind === 'rag');
-      if (ragIndex >= 0) {
-        current.splice(ragIndex, 1);
-        droppedKinds.push('rag');
-        tokens = totalTokens(current);
-        continue;
-      }
-      const recentIndex = current.findIndex((b) => b.kind === 'recent');
-      if (recentIndex >= 0) {
-        current.splice(recentIndex, 1);
-        droppedKinds.push('recent');
-        tokens = totalTokens(current);
-        continue;
-      }
-      const summaryIndex = current.findIndex((b) => b.kind === 'summary');
-      if (summaryIndex >= 0) {
-        current.splice(summaryIndex, 1);
-        droppedKinds.push('summary');
-        tokens = totalTokens(current);
-        continue;
-      }
-      break;
-    }
-
-    return { blocks: current, droppedKinds };
-  }
-
   private safeParseSummary(
     raw: string,
   ): { summary: string; memory: ConversationMemory } | null {

@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiExcludeController } from '@nestjs/swagger';
-import { Public } from '../../shared/decorator/is-public.decorator';
+import { Public } from '../../shared/decorators/is-public.decorator';
 import { WebhookService } from './webhook.service';
 import { AiOrchestratorService } from '../../shared/ai/services/ai-orchestrator.service';
 import { maskPhone } from '../../shared/utils';

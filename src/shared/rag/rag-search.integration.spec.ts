@@ -44,7 +44,10 @@ describeOrSkip('RAG search (integração)', () => {
   it.each(QUERIES)(
     'retorna ao menos 1 chunk com score >= 0.65 para "%s"',
     async (query) => {
-      const results = await ragService.search(query, 5, 0.65);
+      const results = await ragService.search(query, {
+        topK: 5,
+        minScore: 0.65,
+      });
       expect(results.length).toBeGreaterThanOrEqual(1);
       expect(results[0].score).toBeGreaterThanOrEqual(0.65);
     },

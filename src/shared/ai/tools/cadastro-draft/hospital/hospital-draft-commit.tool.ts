@@ -10,6 +10,7 @@ export function buildHospitalDraftCommitTool(deps: CadastroDraftDeps): AiTool {
   return {
     name: 'hospital_draft_commit',
     requiredPermission: ALL_PERMISSIONS,
+    mutates: true,
     definition: {
       type: 'function',
       function: {

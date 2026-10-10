@@ -1,18 +1,17 @@
 import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
-import { ActivityType } from '../../../../database/entities/surgery-request-activity.entity';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
 import { translateServiceError } from '../helpers/service-error-translator';
 import { buildToolResult } from '../tool-result';
 import { ManageToolDeps } from './_types';
+import { asNonEmptyString, asPositiveInt } from '../helpers/arg-parsers';
 import {
-  asNonEmptyString,
-  asPositiveInt,
   ensurePendingForMutation,
   getAuthorizedRequest,
-  resolveTussFromCatalog,
-} from './_helpers';
+  recordAiActivity,
+} from '../helpers/surgery-request-access';
+import { resolveTussFromCatalog } from '../helpers/tuss-catalog';
 
 export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
   const {
@@ -25,6 +24,7 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
   return {
     name: 'manage_tuss_items',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -175,12 +175,12 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Item TUSS adicionado: ${tussCode} - ${name} (qtd: ${quantity}).`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Item TUSS adicionado: ${tussCode} - ${name} (qtd: ${quantity}).`,
+        );
 
         return buildToolResult({
           status: 'ok',
@@ -274,12 +274,12 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
           });
         }
 
-        await activityRepo.create({
-          surgeryRequestId: auth.request.id,
-          userId: context.userId as string,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Item TUSS ${item.tussCode} atualizado (${changes.join(', ')}).`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          auth.request.id,
+          `Item TUSS ${item.tussCode} atualizado (${changes.join(', ')}).`,
+        );
 
         return buildToolResult({
           status: 'ok',
@@ -318,12 +318,12 @@ export function buildManageTussItemsTool(deps: ManageToolDeps): AiTool {
         });
       }
 
-      await activityRepo.create({
-        surgeryRequestId: auth.request.id,
-        userId: context.userId as string,
-        type: ActivityType.SYSTEM,
-        content: `[WhatsApp IA] Item TUSS removido: ${item.tussCode} (${item.name}).`,
-      });
+      await recordAiActivity(
+        activityRepo,
+        context,
+        auth.request.id,
+        `Item TUSS removido: ${item.tussCode} (${item.name}).`,
+      );
 
       return buildToolResult({
         status: 'ok',

@@ -68,17 +68,12 @@ export class NotificationRepository extends BaseRepository<Notification> {
     return result.affected ?? 0;
   }
 
-  async deleteOldNotifications(
-    userId: string,
-    olderThanDays: number,
-  ): Promise<void> {
-    const date = new Date();
-    date.setDate(date.getDate() - olderThanDays);
-
-    await this.repository.delete({
-      userId,
-      createdAt: LessThan(date),
+  async deleteReadOlderThan(cutoff: Date): Promise<number> {
+    const result = await this.repository.delete({
+      read: true,
+      createdAt: LessThan(cutoff),
     });
+    return result.affected ?? 0;
   }
 
   async createBulk(

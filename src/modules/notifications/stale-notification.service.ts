@@ -5,10 +5,14 @@ import { NotificationsService } from 'src/modules/notifications/notifications.se
 import { WhatsappService } from 'src/shared/whatsapp/whatsapp.service';
 import { WHATSAPP_TEMPLATES } from 'src/shared/whatsapp/whatsapp-templates.constants';
 import { UserRepository } from 'src/database/repositories/user.repository';
-import { UserRole } from 'src/database/entities/user.entity';
+import { canAdministrate } from 'src/shared/permissions';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
-import { getStatusLabel, getStalePendencyMessage } from 'src/shared/utils';
+import {
+  errorMessage,
+  getStatusLabel,
+  getStalePendencyMessage,
+} from 'src/shared/utils';
 
 export interface StaleTier {
   days: number;
@@ -58,9 +62,9 @@ export class StaleNotificationService {
         await this.sendStaleNotifications(request, tier, staleDays);
         await this.staleLogRepository.record(request.id, tier.days, 'in_app');
         notifiedCount++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         this.logger.error(
-          `Erro ao processar stale para solicitação ${request.id}: ${err?.message}`,
+          `Erro ao processar stale para solicitação ${request.id}: ${errorMessage(err)}`,
         );
       }
     }
@@ -139,7 +143,7 @@ export class StaleNotificationService {
     );
 
     const adminIds = allUsersInAccount
-      .filter((u) => u.role === UserRole.ADMIN)
+      .filter((u) => canAdministrate(u))
       .map((u) => u.id);
 
     const activityUserIds =
@@ -202,9 +206,9 @@ export class StaleNotificationService {
               '5': context.pendencyMessage,
             },
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
           this.logger.warn(
-            `Falha ao enviar WhatsApp stale para ${uid}: ${err?.message}`,
+            `Falha ao enviar WhatsApp stale para ${uid}: ${errorMessage(err)}`,
           );
         }
       }),

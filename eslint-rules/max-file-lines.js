@@ -1,16 +1,3 @@
-/**
- * Regra ESLint local: `inexci/max-file-lines`
- * Fase 9 do `PLANO-SANITIZACAO-CLEAN-CODE-IA.md`.
- *
- * Limita o tamanho máximo de arquivos. Configurável via opções:
- *   { "max": 600 }
- *
- * Aplicada com `error` em `src/shared/ai/**` para 600 linhas (excluindo specs),
- * e `warn` em todos os arquivos de produção para 400 linhas.
- *
- * A contagem inclui comentários e linhas em branco para simplicidade —
- * equivalente à opção default do ESLint built-in `max-lines`.
- */
 'use strict';
 
 module.exports = {

@@ -1,12 +1,30 @@
 import {
   TOOL_PII_ALLOWLIST,
-  assertCategoryAllowed,
-  getAllowedCategoriesForTool,
   isCategoryAllowedForTool,
   PiiAllowlistViolationError,
 } from './tool-pii-allowlist';
+import { tokenizePii } from './tool-pii-helpers';
+import { registeredToolNames } from '../tools/registered-tools.fixture-spec';
 
 describe('tool-pii-allowlist', () => {
+  describe('sincronia com o registro de tools', () => {
+    const registradas = registeredToolNames();
+
+    it('não tem chave órfã (toda chave é uma tool registrada)', () => {
+      const orfas = Object.keys(TOOL_PII_ALLOWLIST).filter(
+        (nome) => !registradas.has(nome),
+      );
+      expect(orfas).toEqual([]);
+    });
+
+    it('toda tool registrada tem entrada (mesmo que vazia)', () => {
+      const semEntrada = [...registradas].filter(
+        (nome) => !(nome in TOOL_PII_ALLOWLIST),
+      );
+      expect(semEntrada).toEqual([]);
+    });
+  });
+
   describe('TOOL_PII_ALLOWLIST', () => {
     it('query_surgery_requests NÃO tokeniza patient_name/hospital_name (PII de negócio fica em claro após refatoração de draft)', () => {
       expect(TOOL_PII_ALLOWLIST.query_surgery_requests).not.toContain(
@@ -16,15 +34,6 @@ describe('tool-pii-allowlist', () => {
         'hospital_name',
       );
       expect(TOOL_PII_ALLOWLIST.query_surgery_requests).toContain('protocol');
-    });
-
-    it('update_request_clinical_data, update_request_admin_data, update_patient_data e update_surgery_request_data não têm entrada na allowlist', () => {
-      expect(
-        TOOL_PII_ALLOWLIST['update_request_clinical_data'],
-      ).toBeUndefined();
-      expect(TOOL_PII_ALLOWLIST['update_request_admin_data']).toBeUndefined();
-      expect(TOOL_PII_ALLOWLIST['update_patient_data']).toBeUndefined();
-      expect(TOOL_PII_ALLOWLIST['update_surgery_request_data']).toBeUndefined();
     });
 
     it('manage_documents só pode tokenizar protocol (sem nome de paciente)', () => {
@@ -42,12 +51,18 @@ describe('tool-pii-allowlist', () => {
       expect(TOOL_PII_ALLOWLIST.set_hospital).toEqual(['protocol']);
     });
 
-    it('search_tuss_codes não tokeniza nada (catálogo público)', () => {
+    it('search_tuss_codes e search_cid_codes não tokenizam nada (catálogo público)', () => {
       expect(TOOL_PII_ALLOWLIST.search_tuss_codes).toEqual([]);
+      expect(TOOL_PII_ALLOWLIST.search_cid_codes).toEqual([]);
     });
 
-    it('search_cid_codes não tokeniza nada (catálogo público)', () => {
-      expect(TOOL_PII_ALLOWLIST.search_cid_codes).toEqual([]);
+    it('draft_update e draft_status tokenizam CPF/telefone/e-mail/nascimento; draft_cancel nada', () => {
+      for (const tool of ['draft_update', 'draft_status']) {
+        expect(TOOL_PII_ALLOWLIST[tool]).toEqual(
+          expect.arrayContaining(['cpf', 'phone', 'email', 'birth_date']),
+        );
+      }
+      expect(TOOL_PII_ALLOWLIST.draft_cancel).toEqual([]);
     });
   });
 
@@ -69,28 +84,17 @@ describe('tool-pii-allowlist', () => {
     });
   });
 
-  describe('getAllowedCategoriesForTool', () => {
-    it('retorna lista vazia para tool não cadastrada', () => {
-      expect(getAllowedCategoriesForTool('inexistente')).toEqual([]);
-    });
-  });
+  describe('tokenizePii', () => {
+    const context = {
+      userId: 'u',
+      phone: 'p',
+      accessibleDoctorIds: [],
+      conversationId: 'c',
+    };
 
-  describe('assertCategoryAllowed', () => {
-    it('não lança quando categoria é permitida', () => {
-      expect(() =>
-        assertCategoryAllowed('query_surgery_requests', 'protocol'),
-      ).not.toThrow();
-    });
-
-    it('lança PiiAllowlistViolationError quando categoria é proibida', () => {
-      expect(() =>
-        assertCategoryAllowed('manage_documents', 'patient_name'),
-      ).toThrow(PiiAllowlistViolationError);
-    });
-
-    it('error inclui toolName e category', () => {
+    it('lança PiiAllowlistViolationError com toolName e category quando a categoria é proibida', () => {
       try {
-        assertCategoryAllowed('manage_documents', 'cpf');
+        tokenizePii(context, 'manage_documents', 'cpf', '12345678901');
         fail('deveria ter lançado');
       } catch (err) {
         expect(err).toBeInstanceOf(PiiAllowlistViolationError);

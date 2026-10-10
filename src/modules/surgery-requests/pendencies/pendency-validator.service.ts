@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import {
   SurgeryRequest,
   SurgeryRequestStatus,
@@ -72,8 +73,7 @@ export class PendencyValidatorService {
   };
 
   constructor(
-    @InjectRepository(SurgeryRequest)
-    private readonly surgeryRequestRepository: Repository<SurgeryRequest>,
+    private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly opmeItemRepository: OpmeItemRepository,
     private readonly documentRepository: DocumentRepository,
     private readonly tussItemRepository: SurgeryRequestTussItemRepository,
@@ -81,41 +81,22 @@ export class PendencyValidatorService {
     private readonly reportSectionRepository: Repository<ReportSection>,
   ) {}
 
-  private static readonly PENDENCY_RELATIONS = {
-    patient: true,
-    doctor: { doctorProfile: true },
-    tussItems: true,
-    opmeItems: true,
-    documents: true,
-    billing: true,
-    reportSections: true,
-  } as const;
-
   private loadRequest(id: string): Promise<SurgeryRequest | null> {
-    return this.surgeryRequestRepository.findOne({
-      where: { id },
-      relationLoadStrategy: 'query',
-      relations: PendencyValidatorService.PENDENCY_RELATIONS,
-    });
+    return this.surgeryRequestRepository.findOneForPendencies(id);
   }
 
   private async loadRequestsBatch(
     ids: string[],
-    ownerId: string | null,
+    accessibleDoctorIds: string[],
   ): Promise<SurgeryRequest[]> {
-    if (ids.length === 0) return [];
+    if (ids.length === 0 || accessibleDoctorIds.length === 0) return [];
 
     const [base, tussItems, opmeItems, documents, reportSections] =
       await Promise.all([
-        this.surgeryRequestRepository.find({
-          where: { id: In(ids), ownerId: In(ownerId ? [ownerId] : []) },
-          relationLoadStrategy: 'join',
-          relations: {
-            patient: true,
-            billing: true,
-            doctor: { doctorProfile: true },
-          },
-        }),
+        this.surgeryRequestRepository.findManyForPendencies(
+          ids,
+          accessibleDoctorIds,
+        ),
         this.tussItemRepository.findMany({ surgeryRequestId: In(ids) }),
         this.opmeItemRepository.findMany({ surgeryRequestId: In(ids) }),
         this.documentRepository.findMany({ surgeryRequestId: In(ids) }),
@@ -154,8 +135,7 @@ export class PendencyValidatorService {
   }
 
   private buildDocumentPendencies(request: SurgeryRequest): PendencyConfig[] {
-    const requiredDocs: Array<{ type: string; name: string }> =
-      (request as any).requiredDocuments ?? [];
+    const requiredDocs = request.requiredDocuments ?? [];
     return requiredDocs.map((doc) => ({
       key: `doc_${doc.name}`,
       label: `Documento: ${doc.name}`,
@@ -363,45 +343,41 @@ export class PendencyValidatorService {
     }
   }
 
-  async validateForStatus(
-    requestId: string,
-    targetStatus?: SurgeryRequestStatus,
-  ): Promise<ValidationResultDto> {
+  private evaluate(request: SurgeryRequest): {
+    status: SurgeryRequestStatus;
+    label: string;
+    items: ResolvedPendency[];
+  } {
+    const config = getPendenciesForStatus(request.status);
+    if (!config || config.pendencies.length === 0) {
+      return { status: request.status, label: config?.label ?? '', items: [] };
+    }
+
+    const documentPendencies =
+      request.status === SurgeryRequestStatus.PENDING
+        ? this.buildDocumentPendencies(request)
+        : [];
+
+    const items = [...config.pendencies, ...documentPendencies].map((p) => ({
+      ...p,
+      resolved: this.checkResolved(request, p),
+    }));
+    return { status: request.status, label: config.label, items };
+  }
+
+  async validateForStatus(requestId: string): Promise<ValidationResultDto> {
     const request = await this.loadRequest(requestId);
     if (!request) {
       throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
     }
 
-    const status = targetStatus ?? request.status;
-    const config = getPendenciesForStatus(status);
+    const { status, label, items } = this.evaluate(request);
 
-    if (!config || config.pendencies.length === 0) {
-      return {
-        currentStatus: status,
-        statusLabel: config?.label ?? '',
-        pendencies: [],
-        canAdvance: true,
-        nextStatus: this.nextStatusMap[status] ?? null,
-        completedCount: 0,
-        pendingCount: 0,
-        totalCount: 0,
-      };
-    }
-
-    const documentPendencies =
-      status === SurgeryRequestStatus.PENDING
-        ? this.buildDocumentPendencies(request)
-        : [];
-    const allPendencies: PendencyConfig[] = [
-      ...config.pendencies,
-      ...documentPendencies,
-    ];
-
-    const pendencies: CalculatedPendencyDto[] = allPendencies.map((p) => ({
+    const pendencies: CalculatedPendencyDto[] = items.map((p) => ({
       key: p.key,
       name: p.label,
       description: '',
-      isComplete: this.checkResolved(request, p),
+      isComplete: p.resolved,
       isOptional: !p.blocking,
       isWaiting: false,
       responsible: p.responsibleRole,
@@ -413,13 +389,12 @@ export class PendencyValidatorService {
     const pendingCount = pendencies.filter(
       (p) => !p.isComplete && !p.isOptional,
     ).length;
-    const canAdvance = pendingCount === 0;
 
     return {
       currentStatus: status,
-      statusLabel: config.label,
+      statusLabel: label,
       pendencies,
-      canAdvance,
+      canAdvance: pendingCount === 0,
       nextStatus: this.nextStatusMap[status] ?? null,
       completedCount,
       pendingCount,
@@ -441,32 +416,14 @@ export class PendencyValidatorService {
   }
 
   private computeSummary(request: SurgeryRequest): PendencySummary {
-    const config = getPendenciesForStatus(request.status);
-    if (!config || config.pendencies.length === 0) {
-      return { pending: 0, total: 0, canAdvance: true, items: [] };
-    }
-
-    const documentPendencies =
-      request.status === SurgeryRequestStatus.PENDING
-        ? this.buildDocumentPendencies(request)
-        : [];
-    const allPendencies: PendencyConfig[] = [
-      ...config.pendencies,
-      ...documentPendencies,
-    ];
-
-    const items: ResolvedPendency[] = allPendencies.map((p) => ({
-      ...p,
-      resolved: this.checkResolved(request, p),
-    }));
-
+    const { items } = this.evaluate(request);
     const blockingPending = items.filter(
       (p) => p.blocking && !p.resolved,
     ).length;
 
     return {
       pending: blockingPending,
-      total: allPendencies.length,
+      total: items.length,
       canAdvance: blockingPending === 0,
       items,
     };
@@ -474,7 +431,7 @@ export class PendencyValidatorService {
 
   async getBatchSummary(
     rawIds: string,
-    ownerId: string | null,
+    accessibleDoctorIds: string[],
   ): Promise<
     Record<string, { pending: number; total: number; canAdvance: boolean }>
   > {
@@ -494,7 +451,7 @@ export class PendencyValidatorService {
     if (ids.length === 0) return result;
 
     try {
-      const requests = await this.loadRequestsBatch(ids, ownerId);
+      const requests = await this.loadRequestsBatch(ids, accessibleDoctorIds);
       for (const request of requests) {
         const summary = this.computeSummary(request);
         result[request.id] = {
@@ -528,39 +485,5 @@ export class PendencyValidatorService {
         pendencies: blocking,
       });
     }
-  }
-
-  calculatePendenciesSync(request: SurgeryRequest): {
-    pendingCount: number;
-    completedCount: number;
-    totalCount: number;
-  } {
-    const config = getPendenciesForStatus(request.status);
-    if (!config || config.pendencies.length === 0) {
-      return { pendingCount: 0, completedCount: 0, totalCount: 0 };
-    }
-
-    const allPendencies: PendencyConfig[] = [
-      ...config.pendencies,
-      ...this.buildDocumentPendencies(request),
-    ];
-
-    let pendingCount = 0;
-    let completedCount = 0;
-
-    for (const p of allPendencies) {
-      const resolved = this.checkResolved(request, p);
-      if (resolved) {
-        completedCount++;
-      } else if (p.blocking) {
-        pendingCount++;
-      }
-    }
-
-    return {
-      pendingCount,
-      completedCount,
-      totalCount: allPendencies.length,
-    };
   }
 }

@@ -1,12 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  MAX_RESPONSE_LENGTH as _MAX_RESPONSE_LENGTH,
-  WHATSAPP_TARGET_LENGTH as _WHATSAPP_TARGET_LENGTH,
-} from '../../constants/ai.constants';
+import { WHATSAPP_TARGET_LENGTH } from '../../constants/ai.constants';
 import { collapseDuplicatedScPrefixes } from '../../tools/protocol.helpers';
-
-export const MAX_RESPONSE_LENGTH = _MAX_RESPONSE_LENGTH;
-export const WHATSAPP_TARGET_LENGTH = _WHATSAPP_TARGET_LENGTH;
 
 export const MAX_EMOJIS_PER_RESPONSE = 0;
 

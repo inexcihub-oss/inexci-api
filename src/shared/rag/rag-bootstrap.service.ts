@@ -55,18 +55,6 @@ interface StructuredKnowledgeFile {
   };
 }
 
-const STATUS_LABEL_PT: Record<string, string> = {
-  Pendente: 'Pendente',
-  Enviada: 'Enviada',
-  'Em Análise': 'Em Análise',
-  'Em Agendamento': 'Em Agendamento',
-  Agendada: 'Agendada',
-  Realizada: 'Realizada',
-  Faturada: 'Faturada',
-  Finalizada: 'Finalizada',
-  Encerrada: 'Encerrada',
-};
-
 @Injectable()
 export class RagBootstrapService implements OnModuleInit {
   private readonly logger = new Logger(RagBootstrapService.name);
@@ -252,7 +240,7 @@ export class RagBootstrapService implements OnModuleInit {
     }));
 
     const pendencies = (data.categories?.pendencies || []).map((item) => {
-      const labelPt = STATUS_LABEL_PT[item.status] ?? item.status;
+      const statusLabel = item.status;
       const blocking = item.blocking_items?.length
         ? item.blocking_items.map((b) => `- ${b}`).join('\n')
         : '- (nenhum)';
@@ -261,9 +249,9 @@ export class RagBootstrapService implements OnModuleInit {
         : '- (nenhum)';
       const noteLine = item.note ? `\nObservação: ${item.note}` : '';
       return {
-        title: `Pendências para status: ${labelPt}`,
+        title: `Pendências para status: ${statusLabel}`,
         content:
-          `Status: ${labelPt}\n` +
+          `Status: ${statusLabel}\n` +
           `Pendências bloqueantes:\n${blocking}\n` +
           `Pendências não bloqueantes:\n${nonBlocking}` +
           noteLine,

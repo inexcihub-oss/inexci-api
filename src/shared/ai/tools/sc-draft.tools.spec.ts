@@ -69,6 +69,9 @@ describe('sc-draft tools (preview + commit)', () => {
       surgeryRequestRepo: mockSurgeryRequestRepo,
       surgeryRequestsService: mockSurgeryRequestsService,
       activityRepo: mockActivityRepo,
+      assemblyService: {
+        assembleFromExtracted: jest.fn().mockResolvedValue({ warnings: [] }),
+      } as any,
     });
   });
 

@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
-import { InjectionToken } from '@nestjs/common';
+import { FactoryProvider, Type } from '@nestjs/common';
 
-import { AiTool } from './tool.interface';
+import { AI_TOOL, AiTool } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { WhatsappDocumentDispatcherService } from '../services/whatsapp-document-dispatcher.service';
@@ -55,185 +55,7 @@ import { buildWhatsappFlowTools } from './whatsapp-flow.tools';
 import { buildManageTools } from './manage.tools';
 import { buildDraftGenericTools } from './draft-generic.tools';
 
-export interface AllToolsDeps {
-  draftService: OperationDraftService;
-  userRepo: UserRepository;
-  surgeryRequestRepo: SurgeryRequestRepository;
-  surgeryRequestsService: SurgeryRequestsService;
-  activityRepo: SurgeryRequestActivityRepository;
-  patientRepo: PatientRepository;
-  procedureRepo: ProcedureRepository;
-  patientsService: PatientsService;
-  hospitalsService: HospitalsService;
-  healthPlansService: HealthPlansService;
-  proceduresService: ProceduresService;
-  workflowService: SurgeryRequestWorkflowService;
-  documentRepo: DocumentRepository;
-  pendencyValidator: PendencyValidatorService;
-  doctorProfileRepo: DoctorProfileRepository;
-  storageService: StorageService;
-  configService: ConfigService;
-  usersService: UsersService;
-  entityResolver: EntityResolverService;
-  hospitalRepo: HospitalRepository;
-  healthPlanRepo: HealthPlanRepository;
-  tussService: TussService;
-  cidService: CidService;
-  mutationService: SurgeryRequestMutationService;
-  notificationService: SurgeryRequestNotificationService;
-  tussItemRepo: SurgeryRequestTussItemRepository;
-  opmeItemRepo: OpmeItemRepository;
-  supplierRepo: SupplierRepository;
-  opmeService: OpmeService;
-  documentsService: DocumentsService;
-  documentDispatcher: WhatsappDocumentDispatcherService;
-  conversationMemory: ConversationMemoryService;
-  assemblyService: SurgeryRequestAssemblyService;
-}
-
-export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
-  const {
-    draftService,
-    userRepo,
-    surgeryRequestRepo,
-    surgeryRequestsService,
-    activityRepo,
-    patientRepo,
-    procedureRepo,
-    patientsService,
-    hospitalsService,
-    healthPlansService,
-    proceduresService,
-    workflowService,
-    documentRepo,
-    pendencyValidator,
-    doctorProfileRepo,
-    storageService,
-    configService,
-    usersService,
-    entityResolver,
-    hospitalRepo,
-    healthPlanRepo,
-    tussService,
-    cidService,
-    mutationService,
-    notificationService,
-    tussItemRepo,
-    opmeItemRepo,
-    supplierRepo,
-    opmeService,
-    documentsService,
-    documentDispatcher,
-    conversationMemory,
-    assemblyService,
-  } = deps;
-
-  return [
-    ...buildPlanTools(draftService),
-    ...buildScDraftTools({
-      draftService,
-      userRepo,
-      surgeryRequestRepo,
-      surgeryRequestsService,
-      activityRepo,
-      assemblyService,
-    }),
-    ...buildCadastroDraftTools({
-      draftService,
-      patientRepo,
-      procedureRepo,
-      userRepo,
-      patientsService,
-      hospitalsService,
-      healthPlansService,
-      proceduresService,
-    }),
-    ...buildFlowDraftTools({
-      draftService,
-      surgeryRequestRepo,
-      workflowService,
-      activityRepo,
-      patientsService,
-      surgeryRequestsService,
-    }),
-    ...buildFlowDraftTransitionTools({
-      draftService,
-      surgeryRequestRepo,
-      workflowService,
-      activityRepo,
-      documentRepo,
-      pendencyValidator,
-      storageService,
-    }),
-    ...buildSurgeryRequestTools(surgeryRequestRepo, pendencyValidator),
-    ...buildPendencyTools(pendencyValidator, surgeryRequestRepo, documentRepo),
-    ...buildDoctorProfileTools(
-      userRepo,
-      doctorProfileRepo,
-      storageService,
-      configService,
-      usersService,
-      documentDispatcher,
-      conversationMemory,
-    ),
-    ...buildGeneralTools(patientsService, entityResolver),
-    ...buildCatalogTools(procedureRepo, entityResolver),
-    ...buildTussTools(tussService),
-    ...buildCidTools(cidService),
-    ...buildActionTools(
-      surgeryRequestRepo,
-      workflowService,
-      mutationService,
-      pendencyValidator,
-      activityRepo,
-    ),
-    ...buildNotificationTools(
-      surgeryRequestRepo,
-      notificationService,
-      activityRepo,
-    ),
-    ...buildWhatsappFlowTools(
-      surgeryRequestRepo,
-      workflowService,
-      surgeryRequestsService,
-      activityRepo,
-      {
-        documentDispatcher,
-        storageService,
-        documentRepo,
-        documentsService,
-      },
-      pendencyValidator,
-      patientRepo,
-      hospitalRepo,
-      healthPlanRepo,
-      procedureRepo,
-      userRepo,
-      tussService,
-      entityResolver,
-      patientsService,
-    ),
-    ...buildManageTools(
-      surgeryRequestRepo,
-      surgeryRequestsService,
-      activityRepo,
-      tussItemRepo,
-      opmeItemRepo,
-      documentRepo,
-      supplierRepo,
-      healthPlanRepo,
-      storageService,
-      configService,
-      opmeService,
-      documentsService,
-      entityResolver,
-      tussService,
-    ),
-    ...buildDraftGenericTools({ draftService, surgeryRequestRepo }),
-  ];
-}
-
-export function aiToolsFactory(
+const AI_TOOL_DEP_TOKENS = {
   draftService: OperationDraftService,
   userRepo: UserRepository,
   surgeryRequestRepo: SurgeryRequestRepository,
@@ -267,76 +89,66 @@ export function aiToolsFactory(
   documentDispatcher: WhatsappDocumentDispatcherService,
   conversationMemory: ConversationMemoryService,
   assemblyService: SurgeryRequestAssemblyService,
-): AiTool[] {
-  return buildAllAiTools({
-    draftService,
-    userRepo,
-    surgeryRequestRepo,
-    surgeryRequestsService,
-    activityRepo,
-    patientRepo,
-    procedureRepo,
-    patientsService,
-    hospitalsService,
-    healthPlansService,
-    proceduresService,
-    workflowService,
-    documentRepo,
-    pendencyValidator,
-    doctorProfileRepo,
-    storageService,
-    configService,
-    usersService,
-    entityResolver,
-    hospitalRepo,
-    healthPlanRepo,
-    tussService,
-    cidService,
-    mutationService,
-    notificationService,
-    tussItemRepo,
-    opmeItemRepo,
-    supplierRepo,
-    opmeService,
-    documentsService,
-    documentDispatcher,
-    conversationMemory,
-    assemblyService,
-  });
+};
+
+export type AllToolsDeps = {
+  [K in keyof typeof AI_TOOL_DEP_TOKENS]: InstanceType<
+    (typeof AI_TOOL_DEP_TOKENS)[K]
+  >;
+};
+
+const AI_TOOL_DEP_KEYS = Object.keys(AI_TOOL_DEP_TOKENS) as Array<
+  keyof AllToolsDeps
+>;
+
+export function buildAllAiTools(deps: AllToolsDeps): AiTool[] {
+  return [
+    ...buildPlanTools(deps.draftService),
+    ...buildScDraftTools(deps),
+    ...buildCadastroDraftTools(deps),
+    ...buildFlowDraftTools(deps),
+    ...buildFlowDraftTransitionTools(deps),
+    ...buildSurgeryRequestTools(
+      deps.surgeryRequestRepo,
+      deps.pendencyValidator,
+    ),
+    ...buildPendencyTools(
+      deps.pendencyValidator,
+      deps.surgeryRequestRepo,
+      deps.documentRepo,
+    ),
+    ...buildDoctorProfileTools(deps),
+    ...buildGeneralTools(deps.patientsService, deps.entityResolver),
+    ...buildCatalogTools(deps.procedureRepo, deps.entityResolver),
+    ...buildTussTools(deps.tussService),
+    ...buildCidTools(deps.cidService),
+    ...buildActionTools(
+      deps.surgeryRequestRepo,
+      deps.workflowService,
+      deps.mutationService,
+      deps.pendencyValidator,
+      deps.activityRepo,
+    ),
+    ...buildNotificationTools(
+      deps.surgeryRequestRepo,
+      deps.notificationService,
+      deps.activityRepo,
+    ),
+    ...buildWhatsappFlowTools(deps),
+    ...buildManageTools(deps),
+    ...buildDraftGenericTools(deps),
+  ];
 }
 
-export const AI_TOOLS_INJECT: InjectionToken[] = [
-  OperationDraftService,
-  UserRepository,
-  SurgeryRequestRepository,
-  SurgeryRequestsService,
-  SurgeryRequestActivityRepository,
-  PatientRepository,
-  ProcedureRepository,
-  PatientsService,
-  HospitalsService,
-  HealthPlansService,
-  ProceduresService,
-  SurgeryRequestWorkflowService,
-  DocumentRepository,
-  PendencyValidatorService,
-  DoctorProfileRepository,
-  StorageService,
-  ConfigService,
-  UsersService,
-  EntityResolverService,
-  HospitalRepository,
-  HealthPlanRepository,
-  TussService,
-  CidService,
-  SurgeryRequestMutationService,
-  SurgeryRequestNotificationService,
-  SurgeryRequestTussItemRepository,
-  OpmeItemRepository,
-  SupplierRepository,
-  OpmeService,
-  DocumentsService,
-  WhatsappDocumentDispatcherService,
-  ConversationMemoryService,
-  SurgeryRequestAssemblyService,
-];
+export const aiToolsProvider: FactoryProvider<AiTool[]> = {
+  provide: AI_TOOL,
+  inject: AI_TOOL_DEP_KEYS.map(
+    (key) => AI_TOOL_DEP_TOKENS[key] as Type<unknown>,
+  ),
+  useFactory: (...instances: unknown[]): AiTool[] => {
+    const deps = Object.fromEntries(
+      AI_TOOL_DEP_KEYS.map((key, i) => [key, instances[i]]),
+    ) as AllToolsDeps;
+    return buildAllAiTools(deps);
+  },
+};

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AiTool, ToolContext } from './tool.interface';
@@ -12,25 +13,59 @@ import { ConversationMemoryService } from '../services/orchestrator/conversation
 import { translateServiceError } from './helpers/service-error-translator';
 import { downloadTwilioInboundMedia } from './helpers/twilio-media-download';
 import { buildToolResult } from './tool-result';
+import { Permission } from 'src/shared/permissions';
+
+const logger = new Logger('DoctorProfileTools');
 
 async function downloadInboundMedia(
   url: string,
-  configService?: ConfigService,
+  configService: ConfigService,
 ): Promise<{ buffer: Buffer; contentType: string | null; fileName: string }> {
   return downloadTwilioInboundMedia(url, configService, 'signature');
 }
 
-export function buildDoctorProfileTools(
-  userRepo: UserRepository,
-  doctorProfileRepo: DoctorProfileRepository,
-  storageService: StorageService,
-  configService: ConfigService,
-  usersService?: UsersService,
-  documentDispatcher?: WhatsappDocumentDispatcherService,
-  conversationMemory?: ConversationMemoryService,
-): AiTool[] {
+export interface DoctorProfileToolDeps {
+  userRepo: UserRepository;
+  doctorProfileRepo: DoctorProfileRepository;
+  storageService: StorageService;
+  configService: ConfigService;
+  usersService: UsersService;
+  documentDispatcher: WhatsappDocumentDispatcherService;
+  conversationMemory: ConversationMemoryService;
+}
+
+async function markAwaitingSignature(
+  conversationMemory: ConversationMemoryService,
+  conversationId: string,
+): Promise<void> {
+  if (!conversationId) return;
+  try {
+    await conversationMemory.setAwaitingMedia(conversationId, 'signature');
+  } catch (err) {
+    logger.warn(
+      `[SIGNATURE] falha ao marcar espera de mídia conv=${conversationId}: ${(err as Error)?.message}`,
+    );
+  }
+}
+
+export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
+  const {
+    userRepo,
+    doctorProfileRepo,
+    storageService,
+    configService,
+    usersService,
+    documentDispatcher,
+    conversationMemory,
+  } = deps;
   const uploadDoctorSignature: AiTool = {
     name: 'upload_doctor_signature',
+    requiredPermission: [
+      Permission.ADMINISTRACAO,
+      Permission.SOLICITACOES,
+      Permission.ATENDIMENTO,
+    ],
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -130,7 +165,7 @@ export function buildDoctorProfileTools(
           contentType: m.contentType ?? null,
           index: idx,
         };
-      } else if (documentDispatcher && context.phone) {
+      } else if (context.phone) {
         const pending = await documentDispatcher.getPending(context.phone);
         if (pending && pending.kind === 'image') {
           resolvedMedia = {
@@ -143,14 +178,7 @@ export function buildDoctorProfileTools(
       }
 
       if (!resolvedMedia) {
-        if (conversationMemory && context.conversationId) {
-          try {
-            await conversationMemory.setAwaitingMedia(
-              context.conversationId,
-              'signature',
-            );
-          } catch {}
-        }
+        await markAwaitingSignature(conversationMemory, context.conversationId);
         return buildToolResult({
           status: 'needs_input',
           message: 'Imagem da assinatura não foi enviada.',
@@ -178,14 +206,7 @@ export function buildDoctorProfileTools(
       }
 
       if (!args.confirm) {
-        if (conversationMemory && context.conversationId) {
-          try {
-            await conversationMemory.setAwaitingMedia(
-              context.conversationId,
-              'signature',
-            );
-          } catch {}
-        }
+        await markAwaitingSignature(conversationMemory, context.conversationId);
         const replacing = doctorProfile.signatureUrl
           ? ' Isso substitui a assinatura cadastrada anteriormente.'
           : '';
@@ -232,7 +253,7 @@ export function buildDoctorProfileTools(
                 downloaded.contentType ||
                 'image/png',
               buffer: downloaded.buffer,
-            } as any,
+            },
             STORAGE_FOLDERS.SIGNATURES,
             context.userId as string,
           );
@@ -244,20 +265,9 @@ export function buildDoctorProfileTools(
         }
 
         const oldPath: string | null = doctorProfile.signatureUrl ?? null;
-        if (oldPath && !oldPath.startsWith('http') && oldPath !== newPath) {
-          try {
-            await storageService.delete(oldPath);
-          } catch {}
-        }
 
         try {
-          if (usersService) {
-            await usersService.updateSignatureUrl(context.userId, newPath);
-          } else {
-            await doctorProfileRepo.update(doctorProfile.id, {
-              signatureUrl: newPath,
-            } as any);
-          }
+          await usersService.updateSignatureUrl(context.userId, newPath);
         } catch (err) {
           return buildToolResult({
             status: 'error',
@@ -272,10 +282,24 @@ export function buildDoctorProfileTools(
           });
         }
 
-        if (resolvedMedia.source === 'staging' && documentDispatcher) {
+        if (oldPath && !oldPath.startsWith('http') && oldPath !== newPath) {
+          try {
+            await storageService.delete(oldPath);
+          } catch (err) {
+            logger.warn(
+              `[SIGNATURE] assinatura antiga não removida path=${oldPath}: ${(err as Error)?.message}`,
+            );
+          }
+        }
+
+        if (resolvedMedia.source === 'staging') {
           try {
             await documentDispatcher.clearPending(context.phone);
-          } catch {}
+          } catch (err) {
+            logger.warn(
+              `[SIGNATURE] falha ao limpar staging phone=${context.phone}: ${(err as Error)?.message}`,
+            );
+          }
         }
 
         const successText = [

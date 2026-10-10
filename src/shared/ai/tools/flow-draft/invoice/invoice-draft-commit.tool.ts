@@ -2,14 +2,15 @@ import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
-import { ActivityType } from '../../../../../database/entities/surgery-request-activity.entity';
 import { FlowDraftDeps } from '../_types';
+import { recordAiActivity } from '../../helpers/surgery-request-access';
 
 export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const { draftService, workflowService, activityRepo } = deps;
   return {
     name: 'invoice_draft_commit',
     requiredPermission: Permission.SOLICITACOES,
+    mutates: true,
     definition: {
       type: 'function',
       function: {
@@ -58,18 +59,19 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
           },
           context.userId,
         );
-        await activityRepo.create({
-          surgeryRequestId: fields.surgeryRequestId!,
-          userId: context.userId,
-          type: ActivityType.SYSTEM,
-          content: `[WhatsApp IA] Faturamento registrado. Protocolo: ${fields.invoiceProtocol}, valor: ${fields.invoiceValue?.toFixed(2)}.`,
-        });
+        await recordAiActivity(
+          activityRepo,
+          context,
+          fields.surgeryRequestId!,
+          `Faturamento registrado. Protocolo: ${fields.invoiceProtocol}, valor: ${fields.invoiceValue?.toFixed(2)}.`,
+        );
         await draftService.finalizeCommit(context.conversationId, {
           id: fields.surgeryRequestId,
           label: fields.surgeryRequestLabel,
         });
         return buildToolResult({
           status: 'ok',
+          affected: [{ kind: 'surgery_request', id: fields.surgeryRequestId! }],
           data: { surgeryRequestId: fields.surgeryRequestId },
           message: `Faturamento registrado com sucesso para a solicitação ${fields.surgeryRequestLabel ?? fields.surgeryRequestId}.`,
         });

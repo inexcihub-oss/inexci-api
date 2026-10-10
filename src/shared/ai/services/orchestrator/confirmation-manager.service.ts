@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { WhatsappConversationRepository } from '../../../../database/repositories/whatsapp-conversation.repository';
 import { ConversationService } from '../conversation.service';
 import { parseToolResult } from '../../tools/tool-result';
+import { ToolRegistryService } from '../tool-registry.service';
 
 export const TOOL_DISPLAY_LABELS: Record<string, string> = {
   upload_doctor_signature: 'atualizar sua assinatura digital',
@@ -43,6 +44,10 @@ export const TOOL_DISPLAY_LABELS: Record<string, string> = {
   manage_documents: 'gerenciar documentos',
   manage_report_images: 'gerenciar imagens do laudo',
   manage_report_sections: 'gerenciar seções do laudo',
+  manage_opme_items: 'gerenciar itens OPME',
+  advance_surgery_request: 'avançar a solicitação',
+  set_has_opme: 'definir se a solicitação possui OPME',
+  send_notification: 'enviar a notificação da solicitação',
 };
 
 export function inferDraftPendingTarget(
@@ -160,6 +165,7 @@ export class ConfirmationManagerService {
   constructor(
     private readonly whatsappConversationRepo: WhatsappConversationRepository,
     private readonly conversationService: ConversationService,
+    private readonly toolRegistry: ToolRegistryService,
   ) {}
 
   async setPendingConfirmation(
@@ -194,7 +200,7 @@ export class ConfirmationManagerService {
     ) {
       return true;
     }
-    return Object.prototype.hasOwnProperty.call(TOOL_DISPLAY_LABELS, toolName);
+    return this.toolRegistry.getTool(toolName)?.mutates === true;
   }
 
   async trackPendingConfirmation(opts: {
@@ -218,9 +224,7 @@ export class ConfirmationManagerService {
     }
 
     if (parsed.status === 'ok') {
-      if (this.isMutationConfirmableTool(toolName)) {
-        await this.clearPendingConfirmation(conversationId);
-      }
+      await this.clearPendingConfirmation(conversationId);
       return;
     }
 

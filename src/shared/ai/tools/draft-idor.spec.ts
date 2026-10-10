@@ -1,4 +1,4 @@
-import { resolveAuthorizedRequest } from './_helpers/resolve-surgery-request';
+import { resolveAuthorizedRequest } from './helpers/surgery-request-access';
 
 describe('Tools de draft — IDOR cross-tenant', () => {
   const scDaVitima = {

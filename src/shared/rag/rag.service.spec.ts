@@ -66,7 +66,10 @@ describe('RagService', () => {
     mockEmbeddingService.toSqlVector.mockReturnValue('[]');
     mockDataSource.query.mockResolvedValue([]);
 
-    const results = await service.search('Pergunta sem resultado', 3, 0.9);
+    const results = await service.search('Pergunta sem resultado', {
+      topK: 3,
+      minScore: 0.9,
+    });
 
     expect(results).toHaveLength(0);
   });

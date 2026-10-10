@@ -78,6 +78,12 @@ export class AppointmentReminderService {
   }
 
   private async notify(appt: Appointment): Promise<ReminderOutcome> {
+    const habilitado = await this.userRepository.isPatientNotificationEnabled(
+      appt.ownerId,
+      'appointmentReminder',
+    );
+    if (!habilitado) return { attempted: false, delivered: false };
+
     const patient = await this.patientRepository.findOne({
       id: appt.patientId,
     });

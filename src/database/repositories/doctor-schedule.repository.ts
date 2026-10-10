@@ -56,10 +56,4 @@ export class DoctorScheduleRepository extends BaseRepository<DoctorSchedule> {
       });
     });
   }
-
-  async hasAny(doctorId: string): Promise<boolean> {
-    return (
-      (await this.repository.count({ where: { doctorId, active: true } })) > 0
-    );
-  }
 }

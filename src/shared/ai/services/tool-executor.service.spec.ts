@@ -2,7 +2,7 @@ import {
   ToolExecutorService,
   temPermissaoParaTool,
 } from './tool-executor.service';
-import { AiTool } from '../tools/tool.interface';
+import { AiTool, ANY_AUTHENTICATED } from '../tools/tool.interface';
 import { ALL_PERMISSIONS, Permission } from '../../permissions';
 
 function makeCall(name: string, args: Record<string, any> = {}) {
@@ -22,6 +22,7 @@ function buildTool(
     name,
     definition: { type: 'function', function: { name, parameters: {} } } as any,
     cacheable,
+    requiredPermission: ANY_AUTHENTICATED,
     execute: executeFn,
   };
 }
@@ -197,118 +198,6 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
     });
   });
 
-  describe('invalidação por mutation', () => {
-    it('invalida cache de list_sc_creation_catalog após patient_draft_commit', async () => {
-      const catalogFn = jest
-        .fn()
-        .mockResolvedValueOnce('catalogo v1')
-        .mockResolvedValueOnce('catalogo v2');
-      const commitFn = jest.fn().mockResolvedValue('commit ok');
-
-      const catalogTool = buildTool('list_sc_creation_catalog', catalogFn, {
-        ttlSeconds: 30,
-        invalidatesOn: ['patient_draft_commit'],
-      });
-      const commitTool = buildTool('patient_draft_commit', commitFn);
-
-      const svc = new ToolExecutorService(
-        buildRegistryMock([catalogTool, commitTool]) as any,
-        buildRedisOffline() as any,
-      );
-
-      await svc.executeMany(
-        [makeCall('list_sc_creation_catalog', {})],
-        CONTEXT,
-      );
-
-      await svc.executeMany(
-        [makeCall('patient_draft_commit', { confirm: true })],
-        CONTEXT,
-      );
-
-      const results = await svc.executeMany(
-        [makeCall('list_sc_creation_catalog', {})],
-        CONTEXT,
-      );
-
-      expect(catalogFn).toHaveBeenCalledTimes(2);
-      expect(results[0].output).toBe('catalogo v2');
-    });
-
-    it('NÃO invalida cache de tool que não lista o trigger em invalidatesOn', async () => {
-      const tussFn = jest.fn().mockResolvedValue('resultado TUSS');
-      const unrelatedCommitFn = jest.fn().mockResolvedValue('ok');
-
-      const tussToolMock = buildTool('search_tuss_codes', tussFn, {
-        ttlSeconds: 3600,
-      });
-      const unrelatedTool = buildTool(
-        'some_unrelated_commit',
-        unrelatedCommitFn,
-      );
-
-      const svc = new ToolExecutorService(
-        buildRegistryMock([tussToolMock, unrelatedTool]) as any,
-        buildRedisOffline() as any,
-      );
-
-      await svc.executeMany(
-        [makeCall('search_tuss_codes', { query: 'joelho' })],
-        CONTEXT,
-      );
-      await svc.executeMany([makeCall('some_unrelated_commit', {})], CONTEXT);
-      await svc.executeMany(
-        [makeCall('search_tuss_codes', { query: 'joelho' })],
-        CONTEXT,
-      );
-
-      expect(tussFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('invalida apenas o owner correto: caches de outros owners permanecem', async () => {
-      const executeFn = jest.fn().mockResolvedValue('catalogo');
-      const commitFn = jest.fn().mockResolvedValue('ok');
-
-      const catalogTool = buildTool('list_sc_creation_catalog', executeFn, {
-        ttlSeconds: 30,
-        invalidatesOn: ['patient_draft_commit'],
-      });
-      const commitTool = buildTool('patient_draft_commit', commitFn);
-
-      const svc = new ToolExecutorService(
-        buildRegistryMock([catalogTool, commitTool]) as any,
-        buildRedisOffline() as any,
-      );
-
-      const ctxOwner1 = { ...CONTEXT, ownerId: 'owner-1' };
-      const ctxOwner2 = { ...CONTEXT, ownerId: 'owner-2' };
-
-      await svc.executeMany(
-        [makeCall('list_sc_creation_catalog', {})],
-        ctxOwner1,
-      );
-      await svc.executeMany(
-        [makeCall('list_sc_creation_catalog', {})],
-        ctxOwner2,
-      );
-      expect(executeFn).toHaveBeenCalledTimes(2);
-
-      await svc.executeMany([makeCall('patient_draft_commit', {})], ctxOwner1);
-
-      await svc.executeMany(
-        [makeCall('list_sc_creation_catalog', {})],
-        ctxOwner1,
-      );
-      expect(executeFn).toHaveBeenCalledTimes(3);
-
-      await svc.executeMany(
-        [makeCall('list_sc_creation_catalog', {})],
-        ctxOwner2,
-      );
-      expect(executeFn).toHaveBeenCalledTimes(3);
-    });
-  });
-
   describe('Redis online: usa Redis como primário', () => {
     it('armazena no Redis quando disponível e retorna no hit', async () => {
       const executeFn = jest.fn().mockResolvedValue('resultado TUSS');
@@ -380,7 +269,43 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
       expect(execute).toHaveBeenCalled();
     });
 
-    it('executa tool sem requiredPermission independentemente do contexto', async () => {
+    it('recusa tool sem declaração de permissão em runtime (fail-closed)', async () => {
+      const execute = jest.fn();
+      const semDeclaracao = {
+        ...buildTool('legacy_tool', execute),
+        requiredPermission: undefined,
+      } as unknown as AiTool;
+      const svc = new ToolExecutorService(
+        buildRegistryMock([semDeclaracao]) as any,
+        buildRedisOffline() as any,
+      );
+
+      const [resultado] = await svc.executeMany([makeCall('legacy_tool', {})], {
+        userId: 'u-1',
+        permissions: [Permission.ADMINISTRACAO],
+      } as never);
+
+      expect(resultado.output).toContain('não tem permissão');
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('responde "não encontrada" para tool fora do registro', async () => {
+      const svc = new ToolExecutorService(
+        buildRegistryMock([]) as any,
+        buildRedisOffline() as any,
+      );
+
+      const [resultado] = await svc.executeMany(
+        [makeCall('tool_fantasma', {})],
+        { userId: 'u-1', permissions: [] } as never,
+      );
+
+      expect(resultado.output).toBe(
+        'Ferramenta "tool_fantasma" não encontrada.',
+      );
+    });
+
+    it('executa tool ANY_AUTHENTICATED independentemente das áreas', async () => {
       const execute = jest.fn().mockResolvedValue('ok');
       const svc = new ToolExecutorService(
         buildRegistryMock([buildTool('list_patients', execute)]) as any,
@@ -454,8 +379,21 @@ describe('ToolExecutorService (Fase 7 — cache de leitura)', () => {
   });
 
   describe('temPermissaoParaTool', () => {
-    it('libera quando a tool não exige nada', () => {
-      expect(temPermissaoParaTool(undefined, { permissions: [] })).toBe(true);
+    it('libera ANY_AUTHENTICATED mesmo sem área', () => {
+      expect(temPermissaoParaTool(ANY_AUTHENTICATED, { permissions: [] })).toBe(
+        true,
+      );
+    });
+
+    it('recusa declaração ausente ou lista vazia (fail-closed)', () => {
+      expect(
+        temPermissaoParaTool(undefined, {
+          permissions: [Permission.ADMINISTRACAO],
+        }),
+      ).toBe(false);
+      expect(
+        temPermissaoParaTool([], { permissions: [Permission.ADMINISTRACAO] }),
+      ).toBe(false);
     });
 
     it('exige a permissão única declarada', () => {

@@ -1,4 +1,5 @@
 import { UserRole } from 'src/database/entities/user.entity';
+import { isPhysicianProfile } from 'src/database/entities/doctor-profile.entity';
 import { ALL_PERMISSIONS, Permission } from './permission.enum';
 
 export interface PermissionSubject {
@@ -23,4 +24,23 @@ export function resolveEffectivePermissions(
   }
 
   return ALL_PERMISSIONS.filter((p) => concedidas.has(p));
+}
+
+export interface UserWithProfileLike {
+  role: UserRole;
+  permissions?: Permission[] | null;
+  doctorProfile?: { council?: string | null } | null;
+}
+
+export function permissionsOf(user: UserWithProfileLike): Permission[] {
+  return resolveEffectivePermissions({
+    role: user.role,
+    permissions: user.permissions,
+    isDoctor: !!user.doctorProfile,
+    isPhysician: isPhysicianProfile(user.doctorProfile),
+  });
+}
+
+export function canAdministrate(user: UserWithProfileLike): boolean {
+  return permissionsOf(user).includes(Permission.ADMINISTRACAO);
 }

@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
 
 import {
   PdfService,
@@ -8,11 +7,21 @@ import {
   ContestAuthorizationPdfData,
 } from 'src/shared/pdf/pdf.service';
 import { UserRepository } from 'src/database/repositories/user.repository';
+import { SurgeryRequestTussItemRepository } from 'src/database/repositories/surgery-request-tuss-item.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
-import { DoctorPdfContextService } from 'src/shared/pdf/doctor-pdf-context.service';
-import { SurgeryRequestTussItem } from 'src/database/entities/surgery-request-tuss-item.entity';
+import {
+  DoctorPdfContext,
+  DoctorPdfContextService,
+} from 'src/shared/pdf/doctor-pdf-context.service';
+import { SurgeryRequest } from 'src/database/entities/surgery-request.entity';
+import { Document } from 'src/database/entities/document.entity';
+import { OpmeItem } from 'src/database/entities/opme-item.entity';
+import { ContestationTypeEnum } from 'src/database/entities/contestation.entity';
 import { formatPhone, todayBR } from 'src/shared/utils';
-import { buildLaudoPatientFields } from '../utils/laudo-patient-fields.util';
+import {
+  buildLaudoPatientFields,
+  type LaudoPatientFields,
+} from '../utils/laudo-patient-fields.util';
 import {
   DOCUMENT_KEYS,
   PDF_EXCLUDED_DOCUMENT_KEYS,
@@ -27,46 +36,51 @@ function extractOpmeManufacturerNames(item: {
     .filter((name): name is string => Boolean(name));
 }
 
+function extractSupplierNames(item: Pick<OpmeItem, 'suppliers'>): string[] {
+  return (item.suppliers ?? [])
+    .map((supplier) => supplier?.name)
+    .filter((name): name is string => Boolean(name));
+}
+
+function uniqueNormalized(values: string[]): string[] {
+  return Array.from(
+    new Map(
+      values
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+        .map((value) => [value.toLowerCase(), value] as const),
+    ).values(),
+  );
+}
+
+interface ReportPdfContext {
+  doctorContext: DoctorPdfContext;
+  patientFields: LaudoPatientFields;
+  sections?: Array<{ title: string; description: string }>;
+  examImages?: string[];
+}
+
+type AssignedDoctorSource = {
+  doctorId?: string;
+  doctor?: SurgeryRequest['doctor'] | null;
+};
+
 @Injectable()
 export class SurgeryRequestPdfAssemblyService {
   private readonly logger = new Logger(SurgeryRequestPdfAssemblyService.name);
 
   constructor(
-    private readonly dataSource: DataSource,
     private readonly pdfService: PdfService,
     private readonly userRepository: UserRepository,
+    private readonly tussItemRepository: SurgeryRequestTussItemRepository,
     private readonly storageService: StorageService,
     private readonly doctorPdfContextService: DoctorPdfContextService,
   ) {}
 
-  async resolveDoctorSignatureUrl(profile: any): Promise<string | undefined> {
-    return this.doctorPdfContextService.resolveSignatureUrl(profile);
-  }
-
-  resolveAssignedDoctorId(request: {
-    doctorId?: string;
-    doctor?: { id?: string };
-  }): string | undefined {
-    return request.doctorId ?? request.doctor?.id;
-  }
-
-  async loadDoctorData(userId: string) {
-    const doctor = await this.userRepository.findOneWithProfile({ id: userId });
-    return this.buildDoctorPdfContext(doctor);
-  }
-
-  private buildDoctorPdfContext(doctor: any) {
-    return this.doctorPdfContextService.buildForDoctor(doctor);
-  }
-
-  async loadAssignedDoctorData(request: {
-    doctorId?: string;
-    doctor?: {
-      id?: string;
-      doctorProfile?: { id?: string } | null;
-    };
-  }) {
-    const doctorId = this.resolveAssignedDoctorId(request);
+  async loadAssignedDoctorData(
+    request: AssignedDoctorSource,
+  ): Promise<DoctorPdfContext> {
+    const doctorId = request.doctorId ?? request.doctor?.id;
     if (!doctorId) {
       throw new Error('Solicitação sem médico atribuído para geração de PDF');
     }
@@ -81,123 +95,101 @@ export class SurgeryRequestPdfAssemblyService {
       throw new Error(`Médico atribuído não encontrado: ${doctorId}`);
     }
 
-    return this.buildDoctorPdfContext(doctor);
+    return this.doctorPdfContextService.buildForDoctor(doctor);
+  }
+
+  private async buildReportContext(
+    request: SurgeryRequest,
+  ): Promise<ReportPdfContext> {
+    const doctorContext = await this.loadAssignedDoctorData(request);
+
+    const examDocs = (request.documents ?? []).filter(
+      (doc) => doc.key === DOCUMENT_KEYS.REPORT_IMAGES,
+    );
+    const examImages = (
+      await Promise.all(examDocs.map((doc) => this.resolveImageUrl(doc)))
+    ).filter((url): url is string => !!url);
+
+    const sections = [...(request.reportSections ?? [])]
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((section) => ({
+        title: section.title,
+        description: section.description ?? '',
+      }));
+
+    return {
+      doctorContext,
+      patientFields: buildLaudoPatientFields(request),
+      sections: sections.length ? sections : undefined,
+      examImages: examImages.length ? examImages : undefined,
+    };
+  }
+
+  private async resolveImageUrl(doc: Document): Promise<string | null> {
+    const raw = doc.uri;
+    if (!raw) return null;
+    if (raw.startsWith('http')) return raw;
+    try {
+      return await this.storageService.getSignedUrl(raw);
+    } catch (err) {
+      this.logger.warn(
+        `[pdf] Não foi possível assinar a imagem de exame "${raw}": ${(err as Error)?.message}`,
+      );
+      return null;
+    }
   }
 
   async generateLaudoPdf(
-    request: any,
+    request: SurgeryRequest,
     _userId: string,
     options?: { includeInfoDocuments?: boolean },
   ): Promise<{ pdf: string; method: SendMethod.DOWNLOAD }> {
+    const { doctorContext, patientFields, sections, examImages } =
+      await this.buildReportContext(request);
     const { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader } =
-      await this.loadAssignedDoctorData(request);
+      doctorContext;
 
     const doctorEmail = doctor?.email ?? '';
-    const doctorPhoneRaw = doctor?.phone ?? '';
-    const doctorPhoneFormatted = formatPhone(doctorPhoneRaw);
+    const doctorPhoneFormatted = formatPhone(doctor?.phone ?? '');
 
-    const patientFields = buildLaudoPatientFields(request);
-
-    const allDocs = request.documents ?? [];
-    const examDocs = allDocs.filter(
-      (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
-    );
-    const examImages: string[] = (
-      await Promise.all(
-        examDocs.map(async (doc: any) => {
-          const raw: string = doc.uri;
-          if (!raw) return null;
-          if (raw.startsWith('http')) return raw;
-          try {
-            return await this.storageService.getSignedUrl(raw);
-          } catch {
-            return null;
-          }
-        }),
-      )
-    ).filter((u): u is string => !!u);
-
-    const tussItems = request.tussItems ?? [];
-    const procedures = tussItems.map((item: any) => ({
+    const procedures = (request.tussItems ?? []).map((item) => ({
       name: item.name,
       tussCode: item.tussCode,
       quantity: item.quantity ?? 1,
     }));
 
     const opmeItemsRaw = request.opmeItems ?? [];
-
-    const extractNames = (value: unknown): string[] => {
-      if (typeof value !== 'string') return [];
-      return value
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0);
-    };
-
-    const extractManufacturerNames = extractOpmeManufacturerNames;
-
-    const uniqueNormalized = (arr: string[]) =>
-      Array.from(
-        new Map(
-          arr
-            .map((value) => value.trim())
-            .filter((value) => value.length > 0)
-            .map((value) => [value.toLowerCase(), value] as const),
-        ).values(),
-      );
-
-    const opmeItems = opmeItemsRaw.map((item: any) => ({
+    const opmeItems = opmeItemsRaw.map((item) => ({
       name: item.name,
       quantity: item.quantity ?? 1,
-      fabricantesText: uniqueNormalized(extractManufacturerNames(item)).join(
-        ', ',
-      ),
-      fornecedoresText: uniqueNormalized(
-        (item.suppliers ?? []).map((s: any) => s?.name).filter(Boolean),
+      fabricantesText: uniqueNormalized(
+        extractOpmeManufacturerNames(item),
       ).join(', '),
+      fornecedoresText: uniqueNormalized(extractSupplierNames(item)).join(', '),
     }));
 
     const fabricantes = uniqueNormalized(
-      opmeItemsRaw.flatMap((i: any) => extractManufacturerNames(i)),
+      opmeItemsRaw.flatMap((item) => extractOpmeManufacturerNames(item)),
     );
     const fornecedores = uniqueNormalized(
-      opmeItemsRaw.flatMap((i: any) => [
-        ...extractNames(i.distributor),
-        ...((i.suppliers ?? [])
-          .map((s: any) => s?.name)
-          .filter(Boolean) as string[]),
-      ]),
+      opmeItemsRaw.flatMap((item) => extractSupplierNames(item)),
     );
-    const fabricantesText =
-      fabricantes.length > 0 ? fabricantes.join(', ') : '';
-    const fornecedoresText =
-      fornecedores.length > 0 ? fornecedores.join(', ') : '';
-    const hasSeparator = fabricantes.length > 0 || fornecedores.length > 0;
 
     const hospital = request.hospital;
     const localText = [hospital?.name, hospital?.address]
       .filter(Boolean)
       .join(' – ');
 
-    const reportSections = ((request.reportSections ?? []) as any[]).sort(
-      (a, b) => (a.order ?? 0) - (b.order ?? 0),
-    );
-
     const laudoData: SurgeryRequestLaudoPdfData = {
       today: todayBR(),
       ...patientFields,
-      sections: reportSections.length
-        ? reportSections.map((s: any) => ({
-            title: s.title,
-            description: s.description,
-          }))
-        : undefined,
-      examImages: examImages.length ? examImages : undefined,
+      sections,
+      examImages,
       procedures: procedures.length ? procedures : undefined,
       opmeItems: opmeItems.length ? opmeItems : undefined,
-      fabricantesText: fabricantesText || undefined,
-      fornecedoresText: fornecedoresText || undefined,
-      hasSeparator,
+      fabricantesText: fabricantes.join(', ') || undefined,
+      fornecedoresText: fornecedores.join(', ') || undefined,
+      hasSeparator: fabricantes.length > 0 || fornecedores.length > 0,
       localText: localText || undefined,
       doctorName: doctor?.name ?? 'Médico',
       doctorEmail: doctorEmail || undefined,
@@ -214,85 +206,59 @@ export class SurgeryRequestPdfAssemblyService {
       await this.pdfService.generateSurgeryRequestLaudoPdf(laudoData);
 
     const includeInfoDocuments = options?.includeInfoDocuments ?? true;
-
-    let finalBuffer = summaryBuffer;
-    if (includeInfoDocuments) {
-      const infoDocs = allDocs.filter(
-        (d: any) =>
-          d.uri &&
-          String(d.uri).startsWith('documents/') &&
-          !PDF_EXCLUDED_DOCUMENT_KEYS.includes(d.key),
-      );
-
-      const docBuffers: Buffer[] = [];
-      for (const doc of infoDocs) {
-        try {
-          const signedUrl = await this.storageService.getSignedUrl(doc.uri);
-          const buf = await this.pdfService.fetchBuffer(signedUrl);
-          if (buf) docBuffers.push(buf);
-        } catch (err: any) {
-          this.logger.warn(
-            `[generateLaudoPdf] Não foi possível buscar documento "${doc.uri}": ${err?.message}`,
-          );
-        }
-      }
-
-      if (docBuffers.length > 0) {
-        this.logger.log(
-          `[generateLaudoPdf] Mesclando PDF com ${docBuffers.length} documento(s) anexo(s)`,
-        );
-        finalBuffer = await this.pdfService.mergePdfs([
-          summaryBuffer,
-          ...docBuffers,
-        ]);
-      }
-    }
+    const finalBuffer = includeInfoDocuments
+      ? await this.appendInfoDocuments(summaryBuffer, request.documents ?? [])
+      : summaryBuffer;
 
     return { pdf: finalBuffer.toString('base64'), method: SendMethod.DOWNLOAD };
   }
 
+  private async appendInfoDocuments(
+    summaryBuffer: Buffer,
+    documents: Document[],
+  ): Promise<Buffer> {
+    const infoDocs = documents.filter(
+      (doc) =>
+        doc.uri &&
+        String(doc.uri).startsWith('documents/') &&
+        !PDF_EXCLUDED_DOCUMENT_KEYS.includes(doc.key as string),
+    );
+
+    const docBuffers: Buffer[] = [];
+    for (const doc of infoDocs) {
+      if (!doc.uri) continue;
+      try {
+        const signedUrl = await this.storageService.getSignedUrl(doc.uri);
+        const buf = await this.pdfService.fetchBuffer(signedUrl);
+        if (buf) docBuffers.push(buf);
+      } catch (err) {
+        this.logger.warn(
+          `[generateLaudoPdf] Não foi possível buscar documento "${doc.uri}": ${(err as Error)?.message}`,
+        );
+      }
+    }
+
+    if (docBuffers.length === 0) return summaryBuffer;
+
+    this.logger.log(
+      `[generateLaudoPdf] Mesclando PDF com ${docBuffers.length} documento(s) anexo(s)`,
+    );
+    return this.pdfService.mergePdfs([summaryBuffer, ...docBuffers]);
+  }
+
   async generateMedicalReportPdf(
-    request: any,
+    request: SurgeryRequest,
     _userId: string,
   ): Promise<Buffer> {
-    const { doctor, profile, doctorSignatureUrl, customHeader } =
-      await this.loadAssignedDoctorData(request);
-
-    const patientFields = buildLaudoPatientFields(request);
-
-    const allDocs = request.documents ?? [];
-    const examDocs = allDocs.filter(
-      (d: any) => d.key === DOCUMENT_KEYS.REPORT_IMAGES,
-    );
-    const examImages: string[] = (
-      await Promise.all(
-        examDocs.map(async (doc: any) => {
-          const raw: string = doc.uri;
-          if (!raw) return null;
-          if (raw.startsWith('http')) return raw;
-          try {
-            return await this.storageService.getSignedUrl(raw);
-          } catch {
-            return null;
-          }
-        }),
-      )
-    ).filter((u): u is string => !!u);
-
-    const reportSections = ((request.reportSections ?? []) as any[]).sort(
-      (a, b) => (a.order ?? 0) - (b.order ?? 0),
-    );
+    const { doctorContext, patientFields, sections, examImages } =
+      await this.buildReportContext(request);
+    const { doctor, profile, doctorSignatureUrl, customHeader } = doctorContext;
 
     const medicalData: MedicalReportPdfData = {
       today: todayBR(),
       ...patientFields,
-      sections: reportSections.length
-        ? reportSections.map((s: any) => ({
-            title: s.title,
-            description: s.description,
-          }))
-        : undefined,
-      examImages: examImages.length ? examImages : undefined,
+      sections,
+      examImages,
       doctorName: doctor?.name ?? 'Médico',
       doctorSpecialty: profile?.specialty || undefined,
       doctorCrm: profile?.crm || undefined,
@@ -305,15 +271,15 @@ export class SurgeryRequestPdfAssemblyService {
   }
 
   async generateContestAuthorizationPdf(
-    request: any,
+    request: SurgeryRequest,
     id: string,
     _userId: string,
   ): Promise<Buffer> {
     const contestations = request.contestations ?? [];
     const latestContestation = contestations
-      .filter((c: any) => c.type === 'authorization')
+      .filter((c) => c.type === ContestationTypeEnum.AUTHORIZATION)
       .sort(
-        (a: any, b: any) =>
+        (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       )[0];
 
@@ -328,24 +294,24 @@ export class SurgeryRequestPdfAssemblyService {
     const messageActivityPrefix = 'Mensagem da contestação:';
     const message = (request.activities ?? [])
       .filter(
-        (activity: any) =>
+        (activity) =>
           typeof activity?.content === 'string' &&
           activity.content.startsWith(messageActivityPrefix),
       )
       .sort(
-        (a: any, b: any) =>
+        (a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       )
-      .find((activity: any) => {
+      .find((activity) => {
         if (!latestContestationTime) return true;
         return new Date(activity.createdAt).getTime() >= latestContestationTime;
       })
       ?.content?.replace(messageActivityPrefix, '')
       ?.trim();
 
-    const tussItems = await this.dataSource
-      .getRepository(SurgeryRequestTussItem)
-      .find({ where: { surgeryRequestId: id } });
+    const tussItems = await this.tussItemRepository.findMany({
+      surgeryRequestId: id,
+    });
 
     const procedures = tussItems.map((item) => ({
       description: item.name,
@@ -357,12 +323,12 @@ export class SurgeryRequestPdfAssemblyService {
     const unique = (values: string[]): string[] =>
       Array.from(new Set(values.filter(Boolean)));
 
-    const opmeItems = (request.opmeItems ?? []).map((item: any) => {
+    const opmeItems = (request.opmeItems ?? []).map((item) => {
       const selectedSupplierName =
         item.selectedSupplier?.name ||
         (item.selectedSupplierId
           ? (item.suppliers ?? []).find(
-              (supplier: any) =>
+              (supplier) =>
                 String(supplier?.id) === String(item.selectedSupplierId),
             )?.name
           : undefined);
@@ -386,7 +352,7 @@ export class SurgeryRequestPdfAssemblyService {
     });
 
     const contestationDocuments = (request.documents ?? []).filter(
-      (doc: any) =>
+      (doc) =>
         !!doc?.uri &&
         (latestContestation?.id
           ? doc.contestationId === latestContestation.id
@@ -397,6 +363,7 @@ export class SurgeryRequestPdfAssemblyService {
     const pdfAttachmentBuffers: Buffer[] = [];
 
     for (const doc of contestationDocuments) {
+      if (!doc.uri) continue;
       try {
         const signedUrl = await this.storageService.getSignedUrl(doc.uri);
         const lowerName = String(doc.name ?? doc.uri).toLowerCase();
@@ -415,9 +382,9 @@ export class SurgeryRequestPdfAssemblyService {
         ) {
           imageAttachments.push(signedUrl);
         }
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `[generateContestAuthorizationPdf] Não foi possível processar anexo "${doc.uri}": ${err?.message}`,
+          `[generateContestAuthorizationPdf] Não foi possível processar anexo "${doc.uri}": ${(err as Error)?.message}`,
         );
       }
     }

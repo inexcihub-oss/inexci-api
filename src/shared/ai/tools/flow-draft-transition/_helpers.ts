@@ -9,19 +9,8 @@ import {
 } from '../../../../config/post-surgery-documents.config';
 import { buildToolResult } from '../tool-result';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
-import { resolveAuthorizedRequest } from '../_helpers/resolve-surgery-request';
-
-const STATUS_LABELS: Record<number, string> = {
-  1: 'Pendente',
-  2: 'Enviada',
-  3: 'Em Análise',
-  4: 'Em Agendamento',
-  5: 'Agendada',
-  6: 'Realizada',
-  7: 'Faturada',
-  8: 'Finalizada',
-  9: 'Encerrada',
-};
+import { resolveAuthorizedRequest } from '../helpers/surgery-request-access';
+import { getStatusLabel } from '../../../utils/status';
 
 export async function guardDraft(
   draftService: OperationDraftService,
@@ -60,7 +49,7 @@ export async function assertCurrentStatusIs(
     surgeryRequestId,
     context,
   );
-  if (erroDeAcesso) {
+  if (!sc) {
     return {
       error: buildToolResult({
         status: 'error',
@@ -73,7 +62,7 @@ export async function assertCurrentStatusIs(
     return {
       error: buildToolResult({
         status: 'blocked',
-        message: `A solicitação ${sc.protocol ?? sc.id} está no status "${STATUS_LABELS[sc.status] ?? sc.status}", não em "${STATUS_LABELS[expected]}". Essa transição não é mais válida.`,
+        message: `A solicitação ${sc.protocol ?? sc.id} está no status "${getStatusLabel(sc.status)}", não em "${getStatusLabel(expected)}". Essa transição não é mais válida.`,
       }),
       resolvedId: sc.id,
     };

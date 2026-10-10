@@ -29,11 +29,6 @@ import { MAX_STORAGE_FILE_SIZE } from '../../config/storage.config';
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
-  /**
-   * Upload de um único arquivo
-   * POST /upload/single
-   * Body: folder (obrigatório) — deve ser um dos valores de STORAGE_FOLDERS
-   */
   @Post('single')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_STORAGE_FILE_SIZE } }),
@@ -57,10 +52,6 @@ export class UploadController {
     };
   }
 
-  /**
-   * Gera URL assinada para um arquivo existente
-   * GET /upload/signed-url?path=avatars/uuid.png
-   */
   @Get('signed-url')
   @ApiOperation({ summary: 'Gerar URL assinada para arquivo armazenado' })
   async getSignedUrl(
