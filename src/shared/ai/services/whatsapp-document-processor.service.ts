@@ -15,6 +15,7 @@ import {
   WhatsappDocumentDispatcherService,
 } from './whatsapp-document-dispatcher.service';
 import { OperationDraftService } from './operation-draft.service';
+import { errorMessage } from '../../utils/error-message.util';
 
 export interface ProcessPendingDocumentInput {
   phone: string;
@@ -137,9 +138,9 @@ export class WhatsappDocumentProcessorService {
           messageSid,
           phoneMasked,
         });
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `[AI_DOC_PREFILL] sid=${messageSid} phone=${phoneMasked} status=failed reason=${err?.message || 'erro'}`,
+          `[AI_DOC_PREFILL] sid=${messageSid} phone=${phoneMasked} status=failed reason=${errorMessage(err) || 'erro'}`,
         );
       }
     }
@@ -178,7 +179,7 @@ export class WhatsappDocumentProcessorService {
       !['null', 'undefined', 'n/a'].includes(v.trim().toLowerCase());
 
     if (isUsable(extracted.patient?.name)) {
-      patch.patientLabel = extracted.patient!.name;
+      patch.patientLabel = extracted.patient.name;
     }
     if (isUsable(extracted.suggestedProcedureName)) {
       patch.procedureLabel = extracted.suggestedProcedureName;
@@ -187,23 +188,23 @@ export class WhatsappDocumentProcessorService {
       patch.hospitalLabel = extracted.hospital;
     }
     if (isUsable(extracted.healthPlan?.name)) {
-      patch.healthPlanLabel = extracted.healthPlan!.name;
+      patch.healthPlanLabel = extracted.healthPlan.name;
     }
     if (isUsable(extracted.laudoText)) {
       patch.notes = extracted.laudoText;
     }
     if (Array.isArray(extracted.tuss) && extracted.tuss.length > 0) {
       patch.tussItems = extracted.tuss
-        .filter((t: any) => t?.code)
-        .map((t: any) => ({
+        .filter((t) => t?.code)
+        .map((t) => ({
           code: String(t.code),
           description: isUsable(t.description) ? t.description : undefined,
         }));
     }
     if (Array.isArray(extracted.opme) && extracted.opme.length > 0) {
       patch.opmeItems = extracted.opme
-        .filter((o: any) => o?.description)
-        .map((o: any) => ({
+        .filter((o) => o?.description)
+        .map((o) => ({
           description: String(o.description),
           qty: typeof o.qty === 'number' && o.qty > 0 ? o.qty : 1,
           supplier: isUsable(o.supplier) ? o.supplier : undefined,
@@ -266,9 +267,9 @@ export class WhatsappDocumentProcessorService {
         costEstimateCents: null,
         breakdown: snapshots,
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao persistir AI_TOKEN_USAGE doc sid=${messageSid}: ${err?.message || 'erro desconhecido'}`,
+        `Falha ao persistir AI_TOKEN_USAGE doc sid=${messageSid}: ${errorMessage(err) || 'erro desconhecido'}`,
       );
     }
   }
@@ -300,13 +301,13 @@ export class WhatsappDocumentProcessorService {
     };
 
     if (isUsable(extracted.patient?.name))
-      datapoints.push(`Paciente: ${extracted.patient!.name}`);
+      datapoints.push(`Paciente: ${extracted.patient.name}`);
     if (isUsable(extracted.patient?.birthDate))
-      datapoints.push(`Nascimento: ${extracted.patient!.birthDate}`);
+      datapoints.push(`Nascimento: ${extracted.patient.birthDate}`);
     if (isUsable(extracted.hospital))
       datapoints.push(`Hospital: ${extracted.hospital}`);
     if (isUsable(extracted.healthPlan?.name))
-      datapoints.push(`Convênio: ${extracted.healthPlan!.name}`);
+      datapoints.push(`Convênio: ${extracted.healthPlan.name}`);
     if (isUsable(extracted.diagnosis))
       datapoints.push(`Diagnóstico: ${extracted.diagnosis}`);
     if (isUsable(extracted.suggestedProcedureName))

@@ -40,6 +40,7 @@ import {
   APPOINTMENTS_MAX_TAKE,
   FindAppointmentsDto,
 } from './dto/find-appointments.dto';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export type AppointmentComFicha = Appointment & {
   clinicalRecordStatus: ClinicalRecordStatus | null;
@@ -598,9 +599,9 @@ export class AppointmentsService {
         doctorName: formatDoctorName(doctor?.name),
         when: formatAppointmentWhen(scheduledAt),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao avisar paciente do agendamento da consulta: ${err?.message}`,
+        `Falha ao avisar paciente do agendamento da consulta: ${errorMessage(err)}`,
       );
     }
   }
@@ -626,9 +627,9 @@ export class AppointmentsService {
         doctorName: formatDoctorName(doctor?.name),
         when: formatAppointmentWhen(appointment.scheduledAt),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao avisar paciente do cancelamento da consulta ${appointment.id}: ${err?.message}`,
+        `Falha ao avisar paciente do cancelamento da consulta ${appointment.id}: ${errorMessage(err)}`,
       );
     }
   }
@@ -653,7 +654,7 @@ export class AppointmentsService {
     mudancas: Partial<Appointment>,
     userId: string,
   ): Promise<void> {
-    const mudou = <K extends keyof Appointment>(campo: K) =>
+    const mudou = (campo: CampoComparavel) =>
       campo in mudancas &&
       String(mudancas[campo] ?? '') !== String(antes[campo] ?? '');
 
@@ -681,7 +682,7 @@ export class AppointmentsService {
       );
     }
 
-    const rotulos: [keyof Appointment, string][] = [
+    const rotulos: [CampoComparavel, string][] = [
       ['type', 'tipo'],
       ['clinicId', 'clínica'],
       ['roomId', 'sala'],
@@ -708,8 +709,8 @@ export class AppointmentsService {
   private async traduzirConflitoDeHorario<T>(operacao: Promise<T>): Promise<T> {
     try {
       return await operacao;
-    } catch (err: any) {
-      const code = err?.code ?? err?.driverError?.code;
+    } catch (err) {
+      const code = codigoDoErroDoBanco(err);
       if (code === PG_EXCLUSION_VIOLATION) {
         throw new ConflictException(MENSAGEM_CONFLITO_DE_HORARIO);
       }
@@ -755,3 +756,23 @@ export class AppointmentsService {
     }
   }
 }
+
+function codigoDoErroDoBanco(err: unknown): unknown {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const { code, driverError } = err as {
+    code?: unknown;
+    driverError?: { code?: unknown } | null;
+  };
+  return code ?? driverError?.code;
+}
+
+type CampoComparavel = keyof Pick<
+  Appointment,
+  | 'durationMinutes'
+  | 'type'
+  | 'clinicId'
+  | 'roomId'
+  | 'healthPlanId'
+  | 'isWalkIn'
+  | 'notes'
+>;

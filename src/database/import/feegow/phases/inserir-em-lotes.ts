@@ -14,7 +14,7 @@ export async function inserirEmLotes<T extends ObjectLiteral>(
       .createQueryBuilder()
       .insert()
       .into(entidade)
-      .values(linhas.slice(i, i + lote) as never);
+      .values(linhas.slice(i, i + lote));
     if (ignorarConflito) qb.orIgnore();
     await qb.execute();
   }

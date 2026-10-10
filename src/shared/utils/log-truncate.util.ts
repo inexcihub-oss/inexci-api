@@ -26,7 +26,9 @@ export function truncateErrorForLog(
             try {
               return JSON.stringify(err);
             } catch {
-              return String(err);
+              return typeof err === 'bigint'
+                ? err.toString()
+                : Object.prototype.toString.call(err);
             }
           })();
   return truncateForLog(message, maxChars);

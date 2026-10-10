@@ -43,6 +43,7 @@ import { Permission, permissionsOf } from '../../permissions';
 import { MAX_RESPONSE_LENGTH } from '../constants/ai.constants';
 import { User } from '../../../database/entities/user.entity';
 import { WhatsappConversation } from '../../../database/entities/whatsapp-conversation.entity';
+import { errorMessage } from '../../utils/error-message.util';
 
 interface TurnTiming {
   startedAt: number;
@@ -257,21 +258,24 @@ export class AiOrchestratorService {
             usageSnapshots,
             timing,
           );
-        } catch (error: any) {
-          span.recordException(error);
+        } catch (error) {
+          span.recordException(error instanceof Error ? error : String(error));
           span.setStatus({
             code: SpanStatusCode.ERROR,
-            message: error?.message,
+            message: errorMessage(error),
           });
           this.logger.error(
-            `Erro ao processar mensagem de ${maskedPhone}: ${error.message}`,
-            error.stack,
+            `Erro ao processar mensagem de ${maskedPhone}: ${errorMessage(error)}`,
+            error instanceof Error ? error.stack : undefined,
           );
+          const { code, name } = (
+            typeof error === 'object' && error !== null ? error : {}
+          ) as { code?: unknown; name?: unknown };
           const isTimeout =
-            error?.code === 'AI_PROCESS_TIMEOUT' ||
-            error?.code === 'ETIMEDOUT' ||
-            error?.code === 'ECONNABORTED' ||
-            error?.name === 'AbortError';
+            code === 'AI_PROCESS_TIMEOUT' ||
+            code === 'ETIMEDOUT' ||
+            code === 'ECONNABORTED' ||
+            name === 'AbortError';
 
           let userFacingMessage =
             'Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em alguns minutos ou acesse a plataforma web.';
@@ -287,19 +291,21 @@ export class AiOrchestratorService {
               await this.piiBindingService.persistPiiBindings(
                 activeConversationId,
               );
-            } catch (err: any) {
+            } catch (err) {
               this.logger.debug(
-                `[PII_VAULT_PERSIST] finally_failed conv=${activeConversationId} err=${err?.message || err}`,
+                `[PII_VAULT_PERSIST] finally_failed conv=${activeConversationId} err=${errorMessage(err)}`,
               );
             }
             this.piiVault.endSession(activeConversationId);
           }
         }
-      } catch (outerError: any) {
-        span.recordException(outerError);
+      } catch (outerError) {
+        span.recordException(
+          outerError instanceof Error ? outerError : String(outerError),
+        );
         span.setStatus({
           code: SpanStatusCode.ERROR,
-          message: outerError?.message,
+          message: errorMessage(outerError),
         });
         throw outerError;
       } finally {
@@ -818,7 +824,7 @@ export class AiOrchestratorService {
       })
       .catch((err) => {
         this.logger.warn(
-          `[CONTEXT_SUMMARY] background_failed conv=${convId} err=${err?.message || err}`,
+          `[CONTEXT_SUMMARY] background_failed conv=${convId} err=${errorMessage(err)}`,
         );
       });
   }
@@ -830,7 +836,7 @@ export class AiOrchestratorService {
     const elapsed = Date.now() - startedAt;
     const remaining = totalTimeoutMs - elapsed;
     if (remaining <= 0) {
-      const err: any = new Error(
+      const err: Error & { code?: string } = new Error(
         `AI processing timeout after ${totalTimeoutMs}ms`,
       );
       err.code = 'AI_PROCESS_TIMEOUT';
@@ -858,9 +864,9 @@ export class AiOrchestratorService {
         '1': finalText,
       });
       return true;
-    } catch (error: any) {
+    } catch (error) {
       this.logger.warn(
-        `Falha ao enfileirar template interativo de confirmação para ${this.phoneNormalizer.maskPhone(phone)}: ${error?.message || 'erro desconhecido'}`,
+        `Falha ao enfileirar template interativo de confirmação para ${this.phoneNormalizer.maskPhone(phone)}: ${errorMessage(error) || 'erro desconhecido'}`,
       );
       return false;
     }

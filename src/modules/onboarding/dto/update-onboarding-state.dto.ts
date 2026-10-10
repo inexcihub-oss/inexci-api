@@ -20,7 +20,7 @@ export class UpdateOnboardingStateDto {
 
   @ApiPropertyOptional({ enum: ONBOARDING_STATUSES as unknown as string[] })
   @IsOptional()
-  @IsIn(ONBOARDING_STATUSES as unknown as string[])
+  @IsIn(ONBOARDING_STATUSES)
   status?: OnboardingStatus;
 
   @ApiPropertyOptional({ example: '2026-08-21T14:02:11.000Z' })

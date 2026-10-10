@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
@@ -15,6 +14,8 @@ import {
   getAuthorizedRequest,
   recordAiActivity,
 } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
+import { Document } from '../../../../database/entities/document.entity';
 
 export function buildAttachDocumentFromWhatsappTool(
   deps: WhatsappFlowToolDeps,
@@ -63,7 +64,7 @@ export function buildAttachDocumentFromWhatsappTool(
           required: ['surgeryRequestId', 'documentType'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       if (!context.userId || !context.phone) {
         return buildToolResult({
@@ -139,25 +140,25 @@ export function buildAttachDocumentFromWhatsappTool(
           pending.storagePath,
           STORAGE_FOLDERS.DOCUMENTS,
         );
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao mover o arquivo para o storage definitivo: ${err?.message || 'erro desconhecido'}.`,
+          message: `Erro ao mover o arquivo para o storage definitivo: ${errorMessage(err) || 'erro desconhecido'}.`,
         });
       }
 
-      let document: any;
+      let document: Document;
       try {
         document = await documentsService.createFromPath({
           surgeryRequestId: auth.request.id,
-          createdById: context.userId as string,
+          createdById: context.userId,
           type: documentType,
           key: documentType,
           name: documentName,
           storagePath: finalPath,
           contentType: pending.contentType,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: `Anexei o arquivo, mas não consegui registrá-lo no histórico: ${translateServiceError(err)}.`,

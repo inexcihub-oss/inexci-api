@@ -22,7 +22,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Erro interno do servidor';
-    let details: any = undefined;
+    let details: unknown = undefined;
     let extra: Record<string, unknown> = {};
 
     if (exception instanceof HttpException) {
@@ -58,7 +58,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.warn(`Payload too large: ${request.method} ${request.url}`);
     } else {
       this.logger.error(
-        `Unhandled exception: ${exception}`,
+        `Unhandled exception: ${String(exception)}`,
         (exception as Error)?.stack,
       );
     }
@@ -69,7 +69,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       ...extra,
       statusCode: status,
       message,
-      ...(details && { details }),
+      ...(details ? { details } : {}),
       ...(requestId && { requestId }),
       timestamp: new Date().toISOString(),
       path: request.url,

@@ -92,7 +92,7 @@ export class SurgeryRequestNotificationService {
 
     if (dto.template === 'status-change-patient') {
       const previousStatus =
-        (dto.oldStatus as SurgeryRequestStatus | undefined) ??
+        dto.oldStatus ??
         (await this.surgeryRequestRepository.findPreviousStatus(id)) ??
         request.status;
 

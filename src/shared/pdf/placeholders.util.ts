@@ -38,7 +38,7 @@ function chaveConhecida(chave: string): DocumentPlaceholder | null {
     : null;
 }
 
-const semValor = (valor: unknown): boolean =>
+const semValor = (valor: string | number | null | undefined): boolean =>
   valor === null || valor === undefined || String(valor).trim() === '';
 
 export interface PlaceholdersAplicados {

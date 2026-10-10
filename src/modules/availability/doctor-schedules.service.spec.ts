@@ -105,11 +105,11 @@ describe('DoctorSchedulesService (MIG-05)', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('resolve a conta do profissional pela mesma regra do AccessControlService (ownerId ?? adminId ?? id)', async () => {
+  it('resolve a conta do profissional pelo ownerId, sem fallback para admin_id', async () => {
     users.findOneWithProfile.mockResolvedValue({
       id: 'doc-legado',
-      ownerId: null,
-      adminId: OWNER,
+      ownerId: OWNER,
+      adminId: 'outro-admin',
       doctorProfile: { id: 'p' },
     });
     await expect(

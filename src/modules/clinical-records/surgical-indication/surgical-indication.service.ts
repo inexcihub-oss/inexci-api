@@ -9,6 +9,7 @@ import { SurgeryRequestRealtimeService } from 'src/modules/surgery-requests/real
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { IndicationDocumentsJobsService } from './indication-documents-jobs.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const SWEEP_BATCH_SIZE = 50;
 
@@ -96,9 +97,9 @@ export class SurgicalIndicationService {
           ownerId,
           createdById: doctorId,
         });
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `SC ${created.id} criada, mas a cópia dos documentos não foi agendada: ${err?.message}`,
+          `SC ${created.id} criada, mas a cópia dos documentos não foi agendada: ${errorMessage(err)}`,
         );
       }
 
@@ -108,9 +109,9 @@ export class SurgicalIndicationService {
           'created',
           actorUserId,
         );
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `SC ${created.id} criada, mas o broadcast falhou: ${err?.message}`,
+          `SC ${created.id} criada, mas o broadcast falhou: ${errorMessage(err)}`,
         );
       }
     }
@@ -127,9 +128,9 @@ export class SurgicalIndicationService {
           `SCs criadas a partir de atendimentos pendentes: ${created}`,
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       this.logger.error(
-        `Erro no cron de indicações cirúrgicas: ${err?.message}`,
+        `Erro no cron de indicações cirúrgicas: ${errorMessage(err)}`,
       );
     }
   }
@@ -144,9 +145,9 @@ export class SurgicalIndicationService {
     for (const record of pending) {
       try {
         if (await this.createForRecord(record.id)) created++;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao criar SC da ficha ${record.id}: ${err?.message}`,
+          `Falha ao criar SC da ficha ${record.id}: ${errorMessage(err)}`,
         );
       }
     }

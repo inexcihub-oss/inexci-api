@@ -80,6 +80,7 @@ describe('SurgeryRequestFromDocumentService', () => {
     };
     patientsService = {
       create: jest.fn().mockResolvedValue({ id: 'patient-new' }),
+      sendWelcome: jest.fn().mockResolvedValue(undefined),
     };
     mutationService = {
       createSurgeryRequest: jest
@@ -280,7 +281,11 @@ describe('SurgeryRequestFromDocumentService', () => {
     expect(patientsService.create).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Joao Silva', cpf: '12345678901' }),
       'user-1',
+      { manager },
     );
+    expect(patientsService.sendWelcome).toHaveBeenCalledWith({
+      id: 'patient-new',
+    });
     expect(mutationService.createSurgeryRequest).toHaveBeenCalledWith(
       expect.objectContaining({ patientId: 'patient-new' }),
       'user-1',
@@ -320,7 +325,7 @@ describe('SurgeryRequestFromDocumentService', () => {
 
   it('cria a SC sem procedimento (via documento só exige paciente válido)', async () => {
     const result = await service.createFromDocument(
-      { doctorId: 'doctor-1', patientId: 'patient-1' } as any,
+      { doctorId: 'doctor-1', patientId: 'patient-1' },
       'user-1',
     );
 
@@ -389,6 +394,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         healthPlanNumber: '88888 0167 4659 0018',
       }),
       'user-1',
+      { manager },
     );
     expect(patientRepo.update).toHaveBeenCalledWith(
       'patient-new',
@@ -427,6 +433,7 @@ describe('SurgeryRequestFromDocumentService', () => {
         zipCode: '25220290',
       }),
       'user-1',
+      { manager },
     );
   });
 
@@ -665,6 +672,59 @@ describe('SurgeryRequestFromDocumentService', () => {
     );
     expect(mutationService.broadcastCreated).not.toHaveBeenCalled();
     expect(assemblyService.assembleFromExtracted).not.toHaveBeenCalled();
+  });
+
+  it('falha na criação da SC: novo paciente é gravado pelo manager da transação e não recebe boas-vindas', async () => {
+    const order: string[] = [];
+    patientsService.create.mockImplementation(async () => {
+      order.push('patient');
+      return { id: 'patient-new', phone: '11999999999' };
+    });
+    mutationService.createSurgeryRequest.mockRejectedValue(new Error('boom'));
+    dataSource.transaction.mockImplementationOnce(async (cb: any) => {
+      order.push('begin');
+      try {
+        return await cb(manager);
+      } catch (err) {
+        order.push('rollback');
+        throw err;
+      }
+    });
+
+    await expect(
+      service.createFromDocument(
+        {
+          doctorId: 'doctor-1',
+          newPatient: { name: 'Novo', cpf: '12345678901' },
+          procedureId: 'proc-1',
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow('boom');
+
+    expect(order).toEqual(['begin', 'patient', 'rollback']);
+    expect(patientsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Novo' }),
+      'user-1',
+      { manager },
+    );
+    expect(patientsService.sendWelcome).not.toHaveBeenCalled();
+    expect(mutationService.broadcastCreated).not.toHaveBeenCalled();
+  });
+
+  it('CPF inválido do novo paciente é recusado antes de abrir a transação', async () => {
+    await expect(
+      service.createFromDocument(
+        {
+          doctorId: 'doctor-1',
+          newPatient: { name: 'Novo', cpf: '123' },
+        } as any,
+        'user-1',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(patientsService.create).not.toHaveBeenCalled();
   });
 
   describe('applyDocumentExtraction', () => {

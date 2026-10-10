@@ -25,7 +25,7 @@ describe('JwtStrategy — permissões', () => {
       doctorProfile: null,
     });
 
-    const resultado = await strategy.validate({ userId: 'u-1' } as never);
+    const resultado = await strategy.validate({ userId: 'u-1' });
 
     expect(resultado.permissions).toEqual([Permission.AGENDA]);
   });
@@ -40,7 +40,7 @@ describe('JwtStrategy — permissões', () => {
       doctorProfile: { id: 'dp-1', council: 'CRM' },
     });
 
-    const resultado = await strategy.validate({ userId: 'u-2' } as never);
+    const resultado = await strategy.validate({ userId: 'u-2' });
 
     expect(resultado.permissions).toEqual([
       Permission.AGENDA,
@@ -59,7 +59,7 @@ describe('JwtStrategy — permissões', () => {
       doctorProfile: null,
     });
 
-    const resultado = await strategy.validate({ userId: 'o-1' } as never);
+    const resultado = await strategy.validate({ userId: 'o-1' });
 
     expect(resultado.permissions).toHaveLength(4);
   });

@@ -18,9 +18,9 @@ import { SurgeryRequest } from '../../database/entities/surgery-request.entity';
 import { Permission, canAdministrate, permissionsOf } from '../permissions';
 
 export function resolverOwnerIdDoUsuario(
-  user: Pick<User, 'id' | 'ownerId' | 'adminId'>,
+  user: Pick<User, 'id' | 'ownerId'>,
 ): string {
-  return user.ownerId ?? user.adminId ?? user.id;
+  return user.ownerId ?? user.id;
 }
 
 const ACCESSIBLE_DOCTORS_CACHE_TTL_MS = 90_000;

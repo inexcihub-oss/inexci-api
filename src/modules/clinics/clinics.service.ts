@@ -83,7 +83,7 @@ export class ClinicsService {
     if (!clinic) throw new NotFoundException('Clínica não encontrada');
     await this.accessControlService.assertSameOwner(userId, clinic.ownerId);
 
-    const dados: Partial<Clinic> = { ...data } as Partial<Clinic>;
+    const dados: Partial<Clinic> = { ...data };
     if (data.businessHours !== undefined) {
       dados.businessHours = normalizeBusinessHours(data.businessHours);
     }

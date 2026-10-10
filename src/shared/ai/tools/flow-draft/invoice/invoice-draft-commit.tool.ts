@@ -1,9 +1,9 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftDeps } from '../_types';
 import { recordAiActivity } from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
 
 export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const { draftService, workflowService, activityRepo } = deps;
@@ -23,12 +23,12 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -75,10 +75,10 @@ export function buildInvoiceDraftCommitTool(deps: FlowDraftDeps): AiTool {
           data: { surgeryRequestId: fields.surgeryRequestId },
           message: `Faturamento registrado com sucesso para a solicitação ${fields.surgeryRequestLabel ?? fields.surgeryRequestId}.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao faturar: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao faturar: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

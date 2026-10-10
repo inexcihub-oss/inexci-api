@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import {
@@ -7,6 +6,7 @@ import {
   OperationDraftType,
 } from '../drafts/operation-draft.types';
 import { buildToolResult } from './tool-result';
+import { argToString } from './helpers/arg-parsers';
 
 export interface PlanActionsData {
   intent: string;
@@ -16,6 +16,7 @@ export interface PlanActionsData {
   next_required_fields: string[];
   plan_steps: string[];
   mentioned_entities: Record<string, unknown>;
+  protected_create_sc_active?: boolean;
 }
 
 const SUBDRAFT_RETURN_FIELD: Record<string, string> = {
@@ -44,7 +45,11 @@ const PLAN_INTENTS = [
   'unknown',
 ] as const;
 
-export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
+export interface PlanToolDeps {
+  draftService: OperationDraftService;
+}
+
+export function buildPlanTools({ draftService }: PlanToolDeps): AiTool[] {
   const planActions: AiTool = {
     name: 'plan_actions',
     requiredPermission: ANY_AUTHENTICATED,
@@ -103,19 +108,18 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
           required: ['intent', 'plan_steps'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
-      const intentRaw = String((args as any).intent ?? '').trim();
+      const intentRaw = argToString(args.intent ?? '').trim();
       const intent = (PLAN_INTENTS as readonly string[]).includes(intentRaw)
         ? intentRaw
         : 'unknown';
-      const plan_steps: string[] = Array.isArray((args as any).plan_steps)
-        ? (args as any).plan_steps.map((s: unknown) => String(s ?? ''))
+      const plan_steps: string[] = Array.isArray(args.plan_steps)
+        ? args.plan_steps.map((s: unknown) => argToString(s ?? ''))
         : [];
       const mentioned_entities: Record<string, unknown> =
-        (args as any).mentioned_entities &&
-        typeof (args as any).mentioned_entities === 'object'
-          ? ((args as any).mentioned_entities as Record<string, unknown>)
+        args.mentioned_entities && typeof args.mentioned_entities === 'object'
+          ? (args.mentioned_entities as Record<string, unknown>)
           : {};
 
       const draftType = intentToDraftType(intent);
@@ -170,7 +174,7 @@ export function buildPlanTools(draftService: OperationDraftService): AiTool[] {
         mentioned_entities,
       };
       if (protectedCreateScActive) {
-        (data as any).protected_create_sc_active = true;
+        data.protected_create_sc_active = true;
       }
 
       const message = protectedCreateScActive

@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
 
 import { SubscriptionRepository } from 'src/database/repositories/subscription.repository';
 import { SubscriptionQuotaPeriodRepository } from 'src/database/repositories/subscription-quota-period.repository';
@@ -13,6 +14,10 @@ export interface QuotaSnapshot {
   remaining: number;
   periodStart: Date;
   periodEnd: Date;
+}
+
+export interface ConsumeQuotaOptions {
+  manager?: EntityManager;
 }
 
 export interface QuotaStatus {
@@ -74,7 +79,11 @@ export class QuotaService {
     }
   }
 
-  async consumeSurgeryRequest(ownerId: string): Promise<QuotaSnapshot> {
+  async consumeSurgeryRequest(
+    ownerId: string,
+    options: ConsumeQuotaOptions = {},
+  ): Promise<QuotaSnapshot> {
+    const { manager } = options;
     await this.assertCanSendSurgeryRequest(ownerId);
 
     const subscription = await this.subscriptionRepo.findByOwnerId(ownerId);
@@ -85,6 +94,7 @@ export class QuotaService {
     const period = await this.quotaPeriodRepo.findCurrentForSubscription(
       subscription.id,
       new Date(),
+      manager,
     );
     if (!period) {
       throw new BillingRequiredException(
@@ -94,7 +104,7 @@ export class QuotaService {
     }
 
     if (period.surgeryRequestsLimit !== -1) {
-      const ok = await this.quotaPeriodRepo.tryConsume(period.id);
+      const ok = await this.quotaPeriodRepo.tryConsume(period.id, manager);
       if (!ok) {
         throw new BillingRequiredException(
           `Voc\u00ea atingiu o limite de ${period.surgeryRequestsLimit} solicita\u00e7\u00f5es do seu plano neste ciclo.`,
@@ -103,7 +113,7 @@ export class QuotaService {
       }
     }
 
-    const refreshed = await this.quotaPeriodRepo.findOne({ id: period.id });
+    const refreshed = await this.quotaPeriodRepo.findById(period.id, manager);
     return this.toSnapshot(refreshed!);
   }
 

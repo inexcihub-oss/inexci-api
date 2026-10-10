@@ -21,6 +21,7 @@ import { NotificationsGateway } from 'src/modules/notifications/notifications.ga
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { getRequestContext } from 'src/shared/logging/request-context';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const DOCUMENT_EXTRACTION_QUEUE = 'document-extraction';
 const DOCUMENT_EXTRACTION_JOB = 'extract-from-document';
@@ -122,10 +123,10 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
           removeOnFail: false,
         },
       );
-    } catch (err: any) {
+    } catch (err) {
       await this.deleteState(jobId);
       this.logger.warn(
-        `Falha ao enfileirar extração de documento (userId=${userId}): ${err?.message}`,
+        `Falha ao enfileirar extração de documento (userId=${userId}): ${errorMessage(err)}`,
       );
       throw new ServiceUnavailableException(
         'Não foi possível iniciar o processamento do documento no momento. Tente novamente.',
@@ -359,7 +360,7 @@ export class SurgeryRequestDocumentExtractionJobsService implements OnModuleDest
 
     client.connect().catch((err) => {
       this.logger.warn(
-        `Redis indisponível para estado de extração de documentos: ${err.message}`,
+        `Redis indisponível para estado de extração de documentos: ${errorMessage(err)}`,
       );
     });
 

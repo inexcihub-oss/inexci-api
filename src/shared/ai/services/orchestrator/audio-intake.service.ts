@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TranscriptionService } from '../../transcription/transcription.service';
 import {
-  InboundWhatsappMedia,
   WhatsappMediaService,
   WhatsappMediaValidationError,
 } from '../../../whatsapp/whatsapp-media.service';
@@ -69,9 +68,8 @@ export class AudioIntakeService {
     }
 
     try {
-      const downloaded = await this.whatsappMediaService.downloadInboundAudio(
-        audioMedia as InboundWhatsappMedia,
-      );
+      const downloaded =
+        await this.whatsappMediaService.downloadInboundAudio(audioMedia);
 
       const transcription = await this.transcriptionService.transcribe({
         audioBuffer: downloaded.buffer,

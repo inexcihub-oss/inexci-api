@@ -74,8 +74,8 @@ describe('planejarCadastro (export sintético)', () => {
           status: UserStatus.PENDING,
           password: null,
           ownerId: OWNER,
-          adminId: OWNER,
         });
+        expect(u).not.toHaveProperty('adminId');
       }
     });
 

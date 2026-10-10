@@ -8,15 +8,16 @@ import * as dayjs from 'dayjs';
 import * as compression from 'compression';
 import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import type { Response } from 'express';
 import { AppModule } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as customParse from 'dayjs/plugin/customParseFormat';
 import { applyGlobalAppConfig } from './shared/bootstrap/global-app-config';
+import { setupSwagger } from './shared/bootstrap/swagger-config';
 import { InexciLogger } from './shared/logging/inexci-logger.service';
 import { requestContextMiddleware } from './shared/logging/request-context.middleware';
 
@@ -66,30 +67,13 @@ async function bootstrap() {
       basicAuth({ users: { [bullBoardUser]: bullBoardPass }, challenge: true }),
     );
   } else {
-    app.use('/admin/queues', (_req: unknown, res: any) => {
+    app.use('/admin/queues', (_req: unknown, res: Response) => {
       res.status(404).end();
     });
   }
 
   if (configService.get<string>('NODE_ENV') !== 'production') {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('Inexci API')
-      .setDescription(
-        'Documentação completa da API Inexci — gestão de solicitações cirúrgicas',
-      )
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build();
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-    SwaggerModule.setup('api/docs', app, document, {
-      swaggerOptions: {
-        persistAuthorization: true,
-        docExpansion: 'none',
-        filter: true,
-        tagsSorter: 'alpha',
-        operationsSorter: 'alpha',
-      },
-    });
+    setupSwagger(app);
   }
 
   const corsOrigins = configService.get<string>('CORS_ORIGINS');
@@ -137,4 +121,4 @@ async function bootstrap() {
 
   new Logger('Bootstrap').log(`Aplicação iniciada na porta ${port}`);
 }
-bootstrap();
+void bootstrap();

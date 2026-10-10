@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -16,7 +15,7 @@ export function buildInvoiceDraftPreviewTool(deps: FlowDraftDeps): AiTool {
         description: 'Gera o preview do rascunho de faturamento.',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context) {
       const v = await draftService.validate(context.conversationId, 'invoice');
       if (!v.draft) {

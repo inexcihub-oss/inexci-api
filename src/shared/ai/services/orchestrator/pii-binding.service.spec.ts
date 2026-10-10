@@ -27,9 +27,9 @@ describe('PiiBindingService', () => {
     it('retorna null quando Redis não está disponível e não há fallback in-memory', async () => {
       const deps = makeDeps();
       const svc = new PiiBindingService(
-        deps.piiVault as any,
-        deps.aiRedis as any,
-        deps.piiRedactionLogRepo as any,
+        deps.piiVault,
+        deps.aiRedis,
+        deps.piiRedactionLogRepo,
       );
       const result = await svc.loadPersistedPiiBindings('conv-1');
       expect(result).toBeNull();
@@ -44,9 +44,9 @@ describe('PiiBindingService', () => {
         },
       });
       const svc = new PiiBindingService(
-        deps.piiVault as any,
-        deps.aiRedis as any,
-        deps.piiRedactionLogRepo as any,
+        deps.piiVault,
+        deps.aiRedis,
+        deps.piiRedactionLogRepo,
       );
       const result = await svc.loadPersistedPiiBindings('conv-1');
       expect(result).toBe(stored);
@@ -65,9 +65,9 @@ describe('PiiBindingService', () => {
         },
       });
       const svc = new PiiBindingService(
-        deps.piiVault as any,
-        deps.aiRedis as any,
-        deps.piiRedactionLogRepo as any,
+        deps.piiVault,
+        deps.aiRedis,
+        deps.piiRedactionLogRepo,
       );
       await svc.persistPiiBindings('conv-1');
       const result = await svc.loadPersistedPiiBindings('conv-1');
@@ -83,9 +83,9 @@ describe('PiiBindingService', () => {
         },
       });
       const svc = new PiiBindingService(
-        deps.piiVault as any,
-        deps.aiRedis as any,
-        deps.piiRedactionLogRepo as any,
+        deps.piiVault,
+        deps.aiRedis,
+        deps.piiRedactionLogRepo,
       );
       const messages: any[] = [{ role: 'user', content: 'olá tudo bem' }];
       await svc.redactResidualPii(messages, {
@@ -110,9 +110,9 @@ describe('PiiBindingService', () => {
         },
       });
       const svc = new PiiBindingService(
-        deps.piiVault as any,
-        deps.aiRedis as any,
-        deps.piiRedactionLogRepo as any,
+        deps.piiVault,
+        deps.aiRedis,
+        deps.piiRedactionLogRepo,
       );
       const messages: any[] = [
         { role: 'user', content: 'CPF: 123.456.789-09' },

@@ -48,14 +48,14 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(opts.conversationId, {
       operationDraft: draft,
-    } as any);
+    });
     return draft;
   }
 
   async getCurrent(conversationId: string): Promise<OperationDraft | null> {
     const conversation = await this.conversationRepo.findOne({
       id: conversationId,
-    } as any);
+    });
     return (conversation?.operationDraft as OperationDraft | undefined) ?? null;
   }
 
@@ -75,12 +75,7 @@ export class OperationDraftService {
     field: string,
     value: unknown,
   ): Promise<void> {
-    await this.setField(
-      conversationId,
-      type,
-      field as keyof DraftFieldsByType[typeof type] & string,
-      value,
-    );
+    await this.setField(conversationId, type, field as never, value);
   }
 
   async setField<T extends OperationDraftType>(
@@ -94,7 +89,7 @@ export class OperationDraftService {
       draft = await this.start({ conversationId, type });
     }
     const updatedFields = {
-      ...(draft.fields as object),
+      ...draft.fields,
       [field]: value,
     } as DraftFieldsByType[T];
     const updated: OperationDraft<T> = {
@@ -105,7 +100,7 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(conversationId, {
       operationDraft: updated,
-    } as any);
+    });
     return updated;
   }
 
@@ -119,9 +114,9 @@ export class OperationDraftService {
       draft = await this.start({ conversationId, type });
     }
     const updatedFields = {
-      ...(draft.fields as object),
+      ...draft.fields,
       ...(patch as object),
-    } as DraftFieldsByType[T];
+    };
     const updated: OperationDraft<T> = {
       ...draft,
       fields: updatedFields,
@@ -130,7 +125,7 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(conversationId, {
       operationDraft: updated,
-    } as any);
+    });
     return updated;
   }
 
@@ -148,7 +143,7 @@ export class OperationDraftService {
     };
     await this.conversationRepo.update(conversationId, {
       operationDraft: updated,
-    } as any);
+    });
     return updated;
   }
 
@@ -171,7 +166,7 @@ export class OperationDraftService {
       if (v === undefined || v === null) return true;
       if (typeof v === 'string' && v.trim() === '') return true;
       if (Array.isArray(v) && v.length === 0) return true;
-      if (typeof v === 'object' && Object.keys(v as object).length === 0) {
+      if (typeof v === 'object' && Object.keys(v).length === 0) {
         return true;
       }
       return false;
@@ -218,7 +213,7 @@ export class OperationDraftService {
   async cancel(conversationId: string): Promise<void> {
     await this.conversationRepo.update(conversationId, {
       operationDraft: null,
-    } as any);
+    });
   }
 
   async finalizeCommit(
@@ -234,7 +229,7 @@ export class OperationDraftService {
         const updatedParent: OperationDraft = {
           ...parentSnapshot,
           fields: {
-            ...(parentSnapshot.fields as object),
+            ...parentSnapshot.fields,
             [draft.parent.returnField]: commitResult.id,
             ...(commitResult.label
               ? {
@@ -242,20 +237,20 @@ export class OperationDraftService {
                     commitResult.label,
                 }
               : {}),
-          } as any,
+          },
           status: 'collecting',
           updatedAt: new Date().toISOString(),
         };
         await this.conversationRepo.update(conversationId, {
           operationDraft: updatedParent,
-        } as any);
+        });
         return updatedParent;
       }
     }
 
     await this.conversationRepo.update(conversationId, {
       operationDraft: null,
-    } as any);
+    });
     return null;
   }
 }

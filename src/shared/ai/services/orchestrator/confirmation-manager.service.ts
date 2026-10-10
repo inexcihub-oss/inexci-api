@@ -312,7 +312,7 @@ export class ConfirmationManagerService {
         try {
           safeArgs[k] = JSON.parse(JSON.stringify(v));
         } catch {
-          safeArgs[k] = String(v);
+          safeArgs[k] = Object.prototype.toString.call(v);
         }
         continue;
       }
@@ -459,7 +459,7 @@ export class ConfirmationManagerService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as never);
+      });
       return (conv?.conversationMemory as Record<string, unknown>) || null;
     } catch (err) {
       this.logger.debug(
@@ -476,7 +476,7 @@ export class ConfirmationManagerService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as never);
+      });
       if (!conv) return;
       const memory = (conv.conversationMemory as Record<string, unknown>) || {};
       await this.whatsappConversationRepo.update(conversationId, {

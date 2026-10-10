@@ -118,7 +118,7 @@ export class DocumentVisionFallbackService {
       responseFormat: {
         type: 'json_schema',
         json_schema: DOCUMENT_VISION_RESPONSE_SCHEMA,
-      } as OpenAI.ChatCompletionCreateParams['response_format'],
+      },
       stage: 'doc_vision_fallback',
     });
 

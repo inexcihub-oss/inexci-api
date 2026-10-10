@@ -40,7 +40,7 @@ export async function autoFillDoctorIfSingle(
     return;
   }
 
-  const doctor = await userRepo.findOne({ id: pick } as any);
+  const doctor = await userRepo.findOne({ id: pick });
   await draftService.setFields(context.conversationId, 'create_sc', {
     doctorId: pick,
     doctorLabel: doctor?.name ?? undefined,

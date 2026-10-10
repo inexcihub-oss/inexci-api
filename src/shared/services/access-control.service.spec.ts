@@ -1,6 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { AccessControlService } from './access-control.service';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  AccessControlService,
+  resolverOwnerIdDoUsuario,
+} from './access-control.service';
 import { UserRepository } from '../../database/repositories/user.repository';
 import { DoctorProfileRepository } from '../../database/repositories/doctor-profile.repository';
 import { UserDoctorAccessRepository } from '../../database/repositories/user-doctor-access.repository';
@@ -336,6 +343,50 @@ describe('AccessControlService', () => {
       const result = await service.getAvailableDoctorsForCreation('doctor-id');
 
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('getOwnerId', () => {
+    it('devolve o ownerId e ignora admin_id legado', async () => {
+      userRepository.findOne.mockResolvedValue({
+        id: 'colab-1',
+        ownerId: 'dono-1',
+        adminId: 'delegado-1',
+      });
+
+      await expect(service.getOwnerId('colab-1')).resolves.toBe('dono-1');
+    });
+
+    it('cai no próprio id quando não há ownerId, sem consultar admin_id', async () => {
+      userRepository.findOne.mockResolvedValue({
+        id: 'legado-1',
+        ownerId: null,
+        adminId: 'dono-1',
+      });
+
+      await expect(service.getOwnerId('legado-1')).resolves.toBe('legado-1');
+    });
+
+    it('lança NotFoundException quando o usuário não existe', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.getOwnerId('nao-existe')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('resolverOwnerIdDoUsuario', () => {
+    it('usa ownerId quando presente e id como fallback', () => {
+      expect(resolverOwnerIdDoUsuario({ id: 'u', ownerId: 'dono' })).toBe(
+        'dono',
+      );
+      expect(
+        resolverOwnerIdDoUsuario({
+          id: 'u',
+          ownerId: null as unknown as string,
+        }),
+      ).toBe('u');
     });
   });
 

@@ -203,8 +203,8 @@ describe('Status Change Notifications E2E', () => {
     const hashedPassword = await bcrypt.hash('Senha@12345', 10);
 
     await dataSource.query(
-      `INSERT INTO users (id, name, email, password, phone, role, status, owner_id, admin_id)
-       VALUES ($1, $2, $3, $4, $5, 'collaborator', 'active', $6, $6)`,
+      `INSERT INTO users (id, name, email, password, phone, role, status, owner_id)
+       VALUES ($1, $2, $3, $4, $5, 'collaborator', 'active', $6)`,
       [
         collabId,
         'Colaborador Status E2E',

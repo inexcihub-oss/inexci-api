@@ -30,7 +30,7 @@ export default tseslint.config(
     ],
   },
   eslint.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
   prettierConfig,
   {
     plugins: {
@@ -52,7 +52,12 @@ export default tseslint.config(
       '@typescript-eslint/interface-name-prefix': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {
@@ -91,6 +96,9 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/unbound-method': 'off',
+      '@typescript-eslint/require-await': 'off',
     },
   },
 );

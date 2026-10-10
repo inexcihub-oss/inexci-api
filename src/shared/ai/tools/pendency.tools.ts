@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
@@ -7,6 +6,7 @@ import { DocumentRepository } from '../../../database/repositories/document.repo
 import { FindOptionsWhere, In } from 'typeorm';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 import { stripScPrefix } from './protocol.helpers';
+import { argToString, asScalarArg } from './helpers/arg-parsers';
 import {
   PENDENCIES_CONFIG,
   getPendenciesForStatus,
@@ -44,11 +44,17 @@ function resolveStatusFromHint(hint: string): SurgeryRequestStatus | null {
   return null;
 }
 
-export function buildPendencyTools(
-  pendencyValidator: PendencyValidatorService,
-  surgeryRequestRepo: SurgeryRequestRepository,
-  documentRepo: DocumentRepository,
-): AiTool[] {
+export interface PendencyToolDeps {
+  pendencyValidator: PendencyValidatorService;
+  surgeryRequestRepo: SurgeryRequestRepository;
+  documentRepo: DocumentRepository;
+}
+
+export function buildPendencyTools({
+  pendencyValidator,
+  surgeryRequestRepo,
+  documentRepo,
+}: PendencyToolDeps): AiTool[] {
   const getPendencies: AiTool = {
     name: 'get_pendencies',
     requiredPermission: Permission.SOLICITACOES,
@@ -80,17 +86,18 @@ export function buildPendencyTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
       const identifier =
         sanitizeIdentifier(
-          detokenizeArg(context, args.surgeryRequestId) ??
+          detokenizeArg(context, asScalarArg(args.surgeryRequestId)) ??
             args.surgeryRequestId,
         ) ||
         sanitizeIdentifier(
-          detokenizeArg(context, args.identifier) ?? args.identifier,
+          detokenizeArg(context, asScalarArg(args.identifier)) ??
+            args.identifier,
         );
 
       let request: SurgeryRequest | null = null;
@@ -106,7 +113,7 @@ export function buildPendencyTools(
         const statusFromHint =
           statusHintOverride ??
           (args.statusHint
-            ? resolveStatusFromHint(String(args.statusHint))
+            ? resolveStatusFromHint(argToString(args.statusHint))
             : null);
 
         const filterWhere: FindOptionsWhere<SurgeryRequest> = {
@@ -297,6 +304,48 @@ export function buildPendencyTools(
     return lines;
   }
 
+  const runGetWorkflowRequirements = (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): string => {
+    if (!context.userId) return 'Acesso negado.';
+
+    const stageRaw =
+      typeof args?.stage === 'string'
+        ? args.stage.trim().toLowerCase()
+        : 'create';
+    const stage = ['create', 'send', 'schedule', 'invoice', 'all'].includes(
+      stageRaw,
+    )
+      ? stageRaw
+      : 'create';
+
+    if (stage === 'create') {
+      return buildCreationRequirementsBlock(context).join('\n');
+    }
+
+    if (stage === 'all') {
+      const blocks: string[] = [];
+      blocks.push(buildCreationRequirementsBlock(context).join('\n'));
+      for (const cfg of PENDENCIES_CONFIG) {
+        if (!cfg.pendencies.length) continue;
+        blocks.push(
+          buildStatusPendenciesBlock(
+            cfg.status,
+            `Etapa: ${cfg.label} → próxima`,
+          ).join('\n'),
+        );
+      }
+      return blocks.join('\n\n');
+    }
+
+    const status = STAGE_TO_STATUS[stage];
+    if (status === null || status === undefined) {
+      return 'Parâmetro inválido: `stage` deve ser create, send, schedule, invoice ou all.';
+    }
+    return buildStatusPendenciesBlock(status, STAGE_LABEL[stage]).join('\n');
+  };
+
   const getWorkflowRequirements: AiTool = {
     name: 'get_workflow_requirements',
     requiredPermission: Permission.SOLICITACOES,
@@ -319,44 +368,11 @@ export function buildPendencyTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const stageRaw =
-        typeof args?.stage === 'string'
-          ? args.stage.trim().toLowerCase()
-          : 'create';
-      const stage = ['create', 'send', 'schedule', 'invoice', 'all'].includes(
-        stageRaw,
-      )
-        ? stageRaw
-        : 'create';
-
-      if (stage === 'create') {
-        return buildCreationRequirementsBlock(context).join('\n');
-      }
-
-      if (stage === 'all') {
-        const blocks: string[] = [];
-        blocks.push(buildCreationRequirementsBlock(context).join('\n'));
-        for (const cfg of PENDENCIES_CONFIG) {
-          if (!cfg.pendencies.length) continue;
-          blocks.push(
-            buildStatusPendenciesBlock(
-              cfg.status,
-              `Etapa: ${cfg.label} → próxima`,
-            ).join('\n'),
-          );
-        }
-        return blocks.join('\n\n');
-      }
-
-      const status = STAGE_TO_STATUS[stage];
-      if (status === null || status === undefined) {
-        return 'Parâmetro inválido: `stage` deve ser create, send, schedule, invoice ou all.';
-      }
-      return buildStatusPendenciesBlock(status, STAGE_LABEL[stage]).join('\n');
+    },
+    execute(args, context: ToolContext): Promise<string> {
+      return new Promise<string>((resolve) =>
+        resolve(runGetWorkflowRequirements(args, context)),
+      );
     },
   };
 
@@ -386,17 +402,18 @@ export function buildPendencyTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
       const identifier =
         sanitizeIdentifier(
-          detokenizeArg(context, args.surgeryRequestId) ??
+          detokenizeArg(context, asScalarArg(args.surgeryRequestId)) ??
             args.surgeryRequestId,
         ) ||
         sanitizeIdentifier(
-          detokenizeArg(context, args.identifier) ?? args.identifier,
+          detokenizeArg(context, asScalarArg(args.identifier)) ??
+            args.identifier,
         );
       if (!identifier) return 'Parâmetro inválido: informe a solicitação.';
 

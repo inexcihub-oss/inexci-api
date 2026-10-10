@@ -324,6 +324,6 @@ export class PiiVaultService {
     for (const binding of this.bindings.get(sessionId) ?? []) {
       counts[binding.category] = (counts[binding.category] ?? 0) + 1;
     }
-    return counts as Record<PiiCategory, number>;
+    return counts;
   }
 }

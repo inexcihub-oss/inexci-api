@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
@@ -23,11 +22,17 @@ const STATUS_UPDATE_TEMPLATE: Partial<Record<SurgeryRequestStatus, string>> = {
   [SurgeryRequestStatus.FINALIZED]: 'payment-received',
 };
 
-export function buildNotificationTools(
-  surgeryRequestRepo: SurgeryRequestRepository,
-  notificationService: SurgeryRequestNotificationService,
-  activityRepo: SurgeryRequestActivityRepository,
-): AiTool[] {
+export interface NotificationToolDeps {
+  surgeryRequestRepo: SurgeryRequestRepository;
+  notificationService: SurgeryRequestNotificationService;
+  activityRepo: SurgeryRequestActivityRepository;
+}
+
+export function buildNotificationTools({
+  surgeryRequestRepo,
+  notificationService,
+  activityRepo,
+}: NotificationToolDeps): AiTool[] {
   const sendNotification: AiTool = {
     name: 'send_notification',
     requiredPermission: Permission.SOLICITACOES,
@@ -53,7 +58,7 @@ export function buildNotificationTools(
           required: ['surgeryRequestId'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) {
         return buildToolResult({

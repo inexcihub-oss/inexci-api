@@ -22,6 +22,7 @@ import {
 } from 'src/shared/utils';
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 @Injectable()
 @Processor('mail')
@@ -157,7 +158,9 @@ export class MailProcessor implements OnModuleInit {
           } else if (typeof a.content === 'string') {
             content = Buffer.from(a.content, 'base64');
           } else {
-            const raw = a.content as any;
+            const raw = a.content as {
+              data?: readonly number[];
+            } & readonly number[];
             content = Buffer.from(raw.data ?? raw);
           }
           return {
@@ -201,9 +204,9 @@ export class MailProcessor implements OnModuleInit {
     } finally {
       try {
         await this.sendLogRepository.save(sendLog);
-      } catch (logErr: any) {
+      } catch (logErr) {
         this.logger.error(
-          `Falha ao salvar send log de email: ${logErr?.message}`,
+          `Falha ao salvar send log de email: ${errorMessage(logErr)}`,
         );
       }
     }
@@ -211,7 +214,7 @@ export class MailProcessor implements OnModuleInit {
 
   private async renderTemplate(
     templateName: string,
-    context: Record<string, any>,
+    context: Record<string, unknown>,
   ): Promise<string> {
     const templatePath = await this.findTemplatePath(`${templateName}.hbs`);
     if (!templatePath) {

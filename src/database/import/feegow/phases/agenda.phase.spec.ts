@@ -24,7 +24,7 @@ function planejar(
   extras: Record<string, unknown[]> = {},
   ctxParcial: Partial<ContextoImportacao> = {},
 ) {
-  const exp = exportSintetico({ agendamentos, ...extras } as never);
+  const exp = exportSintetico({ agendamentos, ...extras });
   const donoExistente = new Map([
     [
       'dono@exemplo.com',
@@ -326,7 +326,7 @@ describe('planejarAgenda (export sintético)', () => {
     const { ctx } = planejar([ag('10', '1', '2025-01-10', '0')]);
     const exp = exportSintetico({
       agendamentos: [ag('10', '1', '2025-01-10', '0')],
-    } as never);
+    });
     const segunda = contextoDeTeste({ ledger: ctx.ledger });
     const plano = planejarAgenda(exp, segunda);
 
@@ -338,7 +338,7 @@ describe('planejarAgenda (export sintético)', () => {
   it('sem a clínica no ledger: consulta sem clínica nem sala, com aviso', () => {
     const exp = exportSintetico({
       agendamentos: [ag('10', '1', '2025-01-10', '0')],
-    } as never);
+    });
     const ctxCadastro = contextoDeTeste();
     planejarCadastro(exp, ctxCadastro);
     const dados = ctxCadastro.ledger.paraObjeto();

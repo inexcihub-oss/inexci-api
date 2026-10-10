@@ -34,7 +34,6 @@ export interface NovoUsuario {
   birthDate: Date | null;
   password: null;
   ownerId: string;
-  adminId: string;
   permissions: Permission[];
 }
 
@@ -291,7 +290,6 @@ export function planejarEquipe(
       birthDate: p.nascimento ? new Date(`${p.nascimento}T12:00:00Z`) : null,
       password: null,
       ownerId: ctx.ownerId,
-      adminId: ctx.ownerId,
       permissions: p.permissoes,
     });
     if (p.perfil) {

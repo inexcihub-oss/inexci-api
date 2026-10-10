@@ -3,6 +3,7 @@ import {
   bulkDeleteOwned,
   createOrRestoreByName,
   findOwnedOrFail,
+  updateWithUniqueName,
 } from './owned-catalog.helpers';
 import { escapeLikePattern } from 'src/database/repositories/owned-catalog.repository';
 
@@ -48,7 +49,7 @@ describe('owned-catalog helpers', () => {
       };
       await expect(
         bulkDeleteOwned({
-          repository: repo as never,
+          repository: repo,
           ids: ['a', 'b'],
           ownerId: 'o',
           notFoundMessage: 'faltou',
@@ -132,6 +133,130 @@ describe('owned-catalog helpers', () => {
       });
       expect(repo.create).not.toHaveBeenCalled();
       expect(result).toEqual({ id: 'velho', name: 'Santa Casa' });
+    });
+  });
+
+  describe('corrida com o índice único de nome', () => {
+    const INDICE = 'uq_hospitals_owner_name_active';
+    const violacao = (constraint: string) =>
+      Object.assign(new Error('duplicate key'), {
+        driverError: { code: '23505', constraint },
+      });
+
+    it('create que perde a corrida vira 409 em vez de 500', async () => {
+      const repo = {
+        findByNameIncludingDeleted: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue(violacao(INDICE)),
+      };
+      await expect(
+        createOrRestoreByName({
+          repository: repo as never,
+          ownerId: 'o',
+          data: { name: ' Santa Casa ' } as never,
+          conflictMessage: (n) => `Já existe um hospital com o nome "${n}"`,
+          uniqueIndex: INDICE,
+        }),
+      ).rejects.toThrow(
+        new ConflictException('Já existe um hospital com o nome "Santa Casa"'),
+      );
+    });
+
+    it('restore que colide com um homônimo vivo vira 409', async () => {
+      const repo = {
+        findByNameIncludingDeleted: jest
+          .fn()
+          .mockResolvedValue({ id: 'velho', deletedAt: new Date() }),
+        restore: jest.fn().mockRejectedValue(violacao(INDICE)),
+        update: jest.fn(),
+      };
+      await expect(
+        createOrRestoreByName({
+          repository: repo as never,
+          ownerId: 'o',
+          data: { name: 'Santa Casa' } as never,
+          conflictMessage: (n) => `dup ${n}`,
+          uniqueIndex: INDICE,
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('violação de outro índice não é mascarada', async () => {
+      const erro = violacao('outro_indice');
+      const repo = {
+        findByNameIncludingDeleted: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue(erro),
+      };
+      await expect(
+        createOrRestoreByName({
+          repository: repo as never,
+          ownerId: 'o',
+          data: { name: 'X' } as never,
+          conflictMessage: (n) => n,
+          uniqueIndex: INDICE,
+        }),
+      ).rejects.toBe(erro);
+    });
+
+    it('sem índice informado, a violação sobe como veio', async () => {
+      const erro = violacao(INDICE);
+      const repo = {
+        findByNameIncludingDeleted: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue(erro),
+      };
+      await expect(
+        createOrRestoreByName({
+          repository: repo as never,
+          ownerId: 'o',
+          data: { name: 'X' } as never,
+          conflictMessage: (n) => n,
+        }),
+      ).rejects.toBe(erro);
+    });
+
+    it('update que renomeia para um nome já usado devolve 409', async () => {
+      const repo = { update: jest.fn().mockRejectedValue(violacao(INDICE)) };
+      await expect(
+        updateWithUniqueName({
+          repository: repo,
+          id: 'h1',
+          data: { name: ' Santa Casa ' } as never,
+          uniqueIndex: INDICE,
+          conflictMessage: (n) => `Já existe um hospital com o nome "${n}"`,
+        }),
+      ).rejects.toThrow(
+        new ConflictException('Já existe um hospital com o nome "Santa Casa"'),
+      );
+    });
+
+    it('update sem colisão devolve o registro atualizado', async () => {
+      const repo = {
+        update: jest.fn().mockResolvedValue({ id: 'h1', name: 'Nova' }),
+      };
+      await expect(
+        updateWithUniqueName({
+          repository: repo,
+          id: 'h1',
+          data: { name: 'Nova' } as never,
+          uniqueIndex: INDICE,
+          conflictMessage: (n) => n,
+        }),
+      ).resolves.toEqual({ id: 'h1', name: 'Nova' });
+      expect(repo.update).toHaveBeenCalledWith('h1', { name: 'Nova' });
+    });
+
+    it('update com outro erro não vira 409', async () => {
+      const erro = new Error('boom');
+      const repo = { update: jest.fn().mockRejectedValue(erro) };
+      await expect(
+        updateWithUniqueName({
+          repository: repo,
+          id: 'h1',
+          data: { name: 'Nova' } as never,
+          uniqueIndex: INDICE,
+          conflictMessage: (n) => n,
+        }),
+      ).rejects.toBe(erro);
     });
   });
 

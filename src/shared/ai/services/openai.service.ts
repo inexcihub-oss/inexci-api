@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { errorMessage } from '../../utils/error-message.util';
 import {
   inexciTracer,
   SpanStatusCode,
@@ -84,19 +85,21 @@ export class OpenaiService {
               stage,
               type: 'completion',
             });
-            const cached =
-              (usage as any).prompt_tokens_details?.cached_tokens ?? 0;
+            const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
             if (cached) span.setAttribute('ai.usage.cached_tokens', cached);
           }
           span.setStatus({ code: SpanStatusCode.OK });
           return result;
-        } catch (e: any) {
+        } catch (e) {
           recordOpenaiRequestDuration(Date.now() - startedAt, {
             model,
             stage,
           });
-          span.recordException(e);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+          span.recordException(e instanceof Error ? e : String(e));
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: errorMessage(e),
+          });
           throw e;
         } finally {
           span.end();
@@ -131,7 +134,9 @@ export class OpenaiService {
     const maxTokens = params.maxTokens ?? this.defaultMaxTokens;
     const isNewGenModel = /^(o\d|gpt-5)/.test(effectiveModel);
 
-    const requestBody: OpenAI.ChatCompletionCreateParams = {
+    const requestBody: OpenAI.ChatCompletionCreateParams & {
+      prompt_cache_key?: string;
+    } = {
       model: effectiveModel,
       messages: params.messages,
       tools: params.tools?.length ? params.tools : undefined,
@@ -145,29 +150,34 @@ export class OpenaiService {
 
     const trimmedCacheKey = params.cacheKey?.trim();
     if (trimmedCacheKey) {
-      (requestBody as any).prompt_cache_key = trimmedCacheKey;
+      requestBody.prompt_cache_key = trimmedCacheKey;
     }
 
     try {
       return await this.client.chat.completions.create(requestBody, {
         timeout: effectiveTimeoutMs,
       });
-    } catch (error: any) {
+    } catch (error) {
+      const { status, code, name } = (
+        typeof error === 'object' && error !== null ? error : {}
+      ) as { status?: unknown; code?: unknown; name?: unknown };
       const isRetryable =
-        error?.status === 500 ||
-        error?.status === 503 ||
-        error?.code === 'ETIMEDOUT' ||
-        error?.code === 'ECONNABORTED' ||
-        error?.name === 'AbortError';
+        status === 500 ||
+        status === 503 ||
+        code === 'ETIMEDOUT' ||
+        code === 'ECONNABORTED' ||
+        name === 'AbortError';
 
-      if (error?.code === 'ETIMEDOUT' || error?.code === 'ECONNABORTED') {
+      if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
         this.logger.warn(
           `Timeout na chamada OpenAI após ${effectiveTimeoutMs}ms`,
         );
       }
 
       if (retries > 0 && isRetryable) {
-        this.logger.warn(`OpenAI erro ${error?.status}, tentando novamente...`);
+        this.logger.warn(
+          `OpenAI erro ${String(status)}, tentando novamente...`,
+        );
         await new Promise((r) => setTimeout(r, 3000));
         return this.chatCompletionWithRetry(params, retries - 1);
       }

@@ -6,6 +6,7 @@ import { WeeklySummaryService } from 'src/modules/notifications/weekly-summary.s
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import { FotosPacienteOrfasService } from './fotos-paciente-orfas.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 @Injectable()
 export class CronService {
@@ -26,8 +27,8 @@ export class CronService {
       const count =
         await this.staleNotificationService.checkAndNotifyStaleRequests();
       this.logger.log(`Stale check finalizado: ${count} notificações enviadas`);
-    } catch (err: any) {
-      this.logger.error(`Erro no cron de stale: ${err?.message}`);
+    } catch (err) {
+      this.logger.error(`Erro no cron de stale: ${errorMessage(err)}`);
     }
   }
 
@@ -40,8 +41,8 @@ export class CronService {
       this.logger.log(
         `Resumo semanal finalizado: ${count} e-mails enfileirados`,
       );
-    } catch (err: any) {
-      this.logger.error(`Erro no cron de resumo semanal: ${err?.message}`);
+    } catch (err) {
+      this.logger.error(`Erro no cron de resumo semanal: ${errorMessage(err)}`);
     }
   }
 
@@ -73,10 +74,8 @@ export class CronService {
       this.logger.log(
         `[AI_DOC_TMP_CLEANUP] removed=${paths.length} retentionHours=${retentionHours}`,
       );
-    } catch (err: any) {
-      this.logger.warn(
-        `[AI_DOC_TMP_CLEANUP] erro: ${err?.message ?? String(err)}`,
-      );
+    } catch (err) {
+      this.logger.warn(`[AI_DOC_TMP_CLEANUP] erro: ${errorMessage(err)}`);
     }
   }
 
@@ -90,10 +89,8 @@ export class CronService {
           `[PATIENT_PHOTOS_CLEANUP] removed=${removidas} failed=${falhas}`,
         );
       }
-    } catch (err: any) {
-      this.logger.warn(
-        `[PATIENT_PHOTOS_CLEANUP] erro: ${err?.message ?? String(err)}`,
-      );
+    } catch (err) {
+      this.logger.warn(`[PATIENT_PHOTOS_CLEANUP] erro: ${errorMessage(err)}`);
     }
   }
 }

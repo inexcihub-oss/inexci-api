@@ -77,7 +77,7 @@ describe('AddMissingForeignKeyIndexes1755800800000', () => {
     const finais = renomeadasPara(primeira.query);
     const porChave = new Map<string, string>();
     primeira.query.mock.calls
-      .filter(([sql]) => RE_LOOKUP.test(sql as string))
+      .filter(([sql]) => RE_LOOKUP.test(sql))
       .forEach(([, params], i) => {
         const [tabela, tipo, coluna] = params as string[];
         porChave.set(

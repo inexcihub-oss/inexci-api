@@ -14,8 +14,11 @@ import { User } from './user.entity';
 import { Patient } from './patient.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 
+export const HEALTH_PLAN_NOME_UNICO = 'uq_health_plans_owner_name_active';
+
 @Entity('health_plans')
 @Index('idx_health_plans_owner_id', ['ownerId'])
+@Index(HEALTH_PLAN_NOME_UNICO, { synchronize: false })
 export class HealthPlan {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -10,6 +10,7 @@ import {
   AppointmentType,
 } from 'src/database/entities/appointment.entity';
 import { formatAppointmentWhen, formatDoctorName } from 'src/shared/utils';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -43,8 +44,8 @@ export class AppointmentReminderService {
       if (sent > 0) {
         this.logger.log(`Lembretes de consulta enviados: ${sent}`);
       }
-    } catch (err: any) {
-      this.logger.error(`Erro no cron de lembretes: ${err?.message}`);
+    } catch (err) {
+      this.logger.error(`Erro no cron de lembretes: ${errorMessage(err)}`);
     }
   }
 
@@ -68,9 +69,9 @@ export class AppointmentReminderService {
           reminderSentAt: new Date(),
         });
         if (outcome.delivered) sent++;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao enviar lembrete da consulta ${appt.id}: ${err?.message}`,
+          `Falha ao enviar lembrete da consulta ${appt.id}: ${errorMessage(err)}`,
         );
       }
     }
@@ -107,9 +108,9 @@ export class AppointmentReminderService {
           durationLabel: `${appt.durationMinutes} min`,
         });
         delivered = true;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao enfileirar e-mail do lembrete da consulta ${appt.id}: ${err?.message}`,
+          `Falha ao enfileirar e-mail do lembrete da consulta ${appt.id}: ${errorMessage(err)}`,
         );
       }
     }
@@ -123,9 +124,9 @@ export class AppointmentReminderService {
           when,
         });
         delivered = true;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.warn(
-          `Falha ao enfileirar WhatsApp do lembrete da consulta ${appt.id}: ${err?.message}`,
+          `Falha ao enfileirar WhatsApp do lembrete da consulta ${appt.id}: ${errorMessage(err)}`,
         );
       }
     }

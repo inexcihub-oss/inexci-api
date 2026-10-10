@@ -75,7 +75,7 @@ function planejar(
   tabelas: Record<string, unknown[]>,
   opcoes: Partial<ContextoImportacao['opcoes']> = {},
 ) {
-  const exp = exportSintetico({ grade_fixa: [], ...tabelas } as never);
+  const exp = exportSintetico({ grade_fixa: [], ...tabelas });
   const ctx0 = contextoDeTeste({
     usuariosPorEmail: new Map([
       [
@@ -307,7 +307,7 @@ describe('disponibilidade — idempotência e gravação', () => {
       feriados: [feriado('1', 'Natal', '2026-12-25')],
     };
     const primeira = planejar(tabelas);
-    const exp = exportSintetico(tabelas as never);
+    const exp = exportSintetico(tabelas);
     const segunda = planejarDisponibilidade(
       exp,
       contextoDeTeste({ ledger: primeira.ctx.ledger, hoje: '2026-10-02' }),

@@ -1,5 +1,18 @@
 import { maskPhone } from '../../../shared/utils/mask.util';
 
+function texto(valor: unknown): string {
+  if (typeof valor === 'string') return valor;
+  if (
+    typeof valor === 'number' ||
+    typeof valor === 'bigint' ||
+    typeof valor === 'boolean'
+  ) {
+    return String(valor);
+  }
+  if (valor instanceof Date) return String(valor);
+  return valor == null ? '' : JSON.stringify(valor);
+}
+
 export interface ConflitoDeDado {
   chave: string;
   ids: string;
@@ -29,8 +42,8 @@ export const TELEFONE_DUPLICADO: VerificacaoPreMigration = {
     'Escolha qual conta mantém o número e troque o telefone da(s) outra(s) — ou desative-a(s) — antes de repetir o deploy.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: maskPhone(String(linha.phone ?? '')),
-      ids: String(linha.ids ?? ''),
+      chave: maskPhone(texto(linha.phone)),
+      ids: texto(linha.ids),
     })),
 };
 
@@ -76,8 +89,8 @@ export const ORFAOS_ANTES_DA_CASCATA: VerificacaoPreMigration = {
     'Aponte cada linha para um pai existente ou apague-a. As colunas nulas aceitam NULL, exceto surgery_requests.created_by_id — nesse caso a solicitação precisa de um usuário válido ou de ser removida.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.relacao ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.relacao),
+      ids: texto(linha.ids),
     })),
 };
 
@@ -106,8 +119,8 @@ export const OUTRO_NAO_UNIFICADO: VerificacaoPreMigration = {
     'Rode scripts/sql/outro-generico-aplicar.sql neste banco antes de repetir o deploy — ele funde as linhas numa só e marca a genérica. Confira antes com scripts/sql/outro-generico-conferencia.sql.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `${String(linha.tipo ?? '')}: ${String(linha.nome ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `${texto(linha.tipo)}: ${texto(linha.nome)}`,
+      ids: texto(linha.ids),
     })),
 };
 
@@ -124,8 +137,8 @@ export const PACIENTE_SEM_CPF: VerificacaoPreMigration = {
     'Preencha o CPF desses pacientes (ou exclua-os definitivamente) antes de reverter a migration.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `conta ${String(linha.owner_id ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `conta ${texto(linha.owner_id)}`,
+      ids: texto(linha.ids),
     })),
 };
 
@@ -143,8 +156,8 @@ export const PERFIL_SEM_REGISTRO: VerificacaoPreMigration = {
     'Preencha número e UF do conselho desses profissionais (ou remova o perfil) antes de reverter a migration.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `conselho ${String(linha.council ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `conselho ${texto(linha.council)}`,
+      ids: texto(linha.ids),
     })),
 };
 
@@ -162,8 +175,8 @@ export const PERFIL_DE_OUTRO_CONSELHO: VerificacaoPreMigration = {
     'Remova o perfil profissional desses usuários (ou confirme que são médicos e troque o conselho para CRM) antes de reverter a migration.',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: `conselho ${String(linha.council ?? '')}`,
-      ids: String(linha.ids ?? ''),
+      chave: `conselho ${texto(linha.council)}`,
+      ids: texto(linha.ids),
     })),
 };
 
@@ -219,8 +232,8 @@ export const CONSULTAS_SOBREPOSTAS: VerificacaoPreMigration = {
     'Para cada par, remarque, cancele ou marque como encaixe uma das consultas (ou corrija a duração negativa) antes de repetir o deploy. Inspecione com: SELECT id, doctor_id, patient_id, status, scheduled_at, duration_minutes FROM appointments WHERE id IN (...);',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.chave ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.chave),
+      ids: texto(linha.ids),
     })),
 };
 
@@ -260,8 +273,8 @@ export const EXTENSAO_BTREE_GIST: VerificacaoPreMigration = {
     "SELECT current_user, current_database(), has_database_privilege(current_user, current_database(), 'CREATE') AS pode_criar, (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS superusuario, (SELECT trusted FROM pg_available_extension_versions v JOIN pg_available_extensions e USING (name) WHERE name = 'btree_gist' AND v.version = e.default_version) AS trusted;",
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.chave ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.chave),
+      ids: texto(linha.ids),
     })),
 };
 
@@ -280,8 +293,8 @@ export const SALAS_COM_NOME_REPETIDO: VerificacaoPreMigration = {
     'Renomeie ou exclua as salas repetidas de cada clínica antes de repetir o deploy. Inspecione com: SELECT id, clinic_id, name, active FROM clinic_rooms WHERE id IN (...);',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.chave ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.chave),
+      ids: texto(linha.ids),
     })),
 };
 
@@ -299,8 +312,41 @@ export const FOTO_DE_PACIENTE_REPETIDA: VerificacaoPreMigration = {
     'Para cada caminho, mantenha a foto em um paciente e limpe o photo_path dos outros (UPDATE patients SET photo_path = NULL WHERE id IN (...)) antes de repetir o deploy. Inspecione com: SELECT id, owner_id, name, deleted_at FROM patients WHERE id IN (...);',
   mapear: (linhas) =>
     linhas.map((linha) => ({
-      chave: String(linha.photo_path ?? ''),
-      ids: String(linha.ids ?? ''),
+      chave: texto(linha.photo_path),
+      ids: texto(linha.ids),
+    })),
+};
+
+export const HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO: VerificacaoPreMigration = {
+  migration: 'AddUniqueHospitalAndHealthPlanName1755801700000',
+  descricao:
+    'hospitais ou convênios vivos da mesma conta com o mesmo nome (sem diferenciar maiúsculas) em "hospitals"/"health_plans"',
+  sql: `SELECT 'hospital' AS tipo,
+               h."owner_id" AS owner_id,
+               lower(h."name") AS nome,
+               string_agg(h."id"::text, ', ' ORDER BY h."created_at") AS ids
+          FROM "hospitals" h
+         WHERE h."deleted_at" IS NULL
+         GROUP BY h."owner_id", lower(h."name")
+        HAVING count(*) > 1
+         UNION ALL
+        SELECT 'convênio' AS tipo,
+               hp."owner_id" AS owner_id,
+               lower(hp."name") AS nome,
+               string_agg(hp."id"::text, ', ' ORDER BY hp."created_at") AS ids
+          FROM "health_plans" hp
+         WHERE hp."deleted_at" IS NULL
+         GROUP BY hp."owner_id", lower(hp."name")
+        HAVING count(*) > 1
+         ORDER BY 1, 2, 3`,
+  comoResolver:
+    'Para cada grupo, escolha o registro que fica, aponte as solicitações cirúrgicas e os pacientes dos demais para ele (surgery_requests.hospital_id / health_plan_id, patients.health_plan_id) e exclua ou renomeie os outros antes de repetir o deploy.',
+  inspecionar:
+    'SELECT id, owner_id, name, active, created_at FROM hospitals WHERE id IN (...); SELECT id, owner_id, name, active, created_at FROM health_plans WHERE id IN (...);',
+  mapear: (linhas) =>
+    linhas.map((linha) => ({
+      chave: `${texto(linha.tipo)} da conta ${texto(linha.owner_id)}: ${texto(linha.nome)}`,
+      ids: texto(linha.ids),
     })),
 };
 
@@ -312,6 +358,7 @@ export const VERIFICACOES_PRE_MIGRATION: VerificacaoPreMigration[] = [
   EXTENSAO_BTREE_GIST,
   SALAS_COM_NOME_REPETIDO,
   FOTO_DE_PACIENTE_REPETIDA,
+  HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
 ];
 
 export function montarDiagnostico(

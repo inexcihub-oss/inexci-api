@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { OperationDraftService } from '../services/operation-draft.service';
 import { buildToolResult } from './tool-result';
@@ -11,6 +10,7 @@ import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 import { PiiCategory } from '../services/pii-vault.service';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
 import { resolveAuthorizedRequest } from './helpers/surgery-request-access';
+import { argToString } from './helpers/arg-parsers';
 
 const VALID_FIELDS_BY_TYPE: Record<
   OperationDraftType,
@@ -169,7 +169,7 @@ function coerceValue(
 ): unknown {
   if (raw === null || raw === undefined) return null;
 
-  const detokenized = detokenizeArg(context, raw as any) ?? raw;
+  const detokenized = detokenizeArg(context, argToString(raw)) ?? raw;
 
   if (expectedType === 'number') {
     const n = Number(detokenized);
@@ -190,7 +190,7 @@ function coerceValue(
         .map((s) => s.trim())
         .filter(Boolean);
     }
-    return [String(detokenized)];
+    return [argToString(detokenized)];
   }
   return detokenized;
 }
@@ -241,7 +241,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
           required: ['draft_type', 'field', 'value'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
 
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) {
@@ -256,7 +256,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
         });
       }
 
-      const fieldName = String(args.field ?? '').trim();
+      const fieldName = argToString(args.field ?? '').trim();
       const fieldMeta = VALID_FIELDS_BY_TYPE[draftType];
       if (!fieldMeta[fieldName]) {
         const validFields = Object.keys(fieldMeta).join(', ');
@@ -343,7 +343,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
           },
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
 
     async execute(args, context: ToolContext): Promise<string> {
       const draft = await draftService.getCurrent(context.conversationId);
@@ -415,7 +415,7 @@ export function buildDraftGenericTools(deps: DraftGenericDeps): AiTool[] {
           },
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
 
     async execute(args, context: ToolContext): Promise<string> {
       const draft = await draftService.getCurrent(context.conversationId);

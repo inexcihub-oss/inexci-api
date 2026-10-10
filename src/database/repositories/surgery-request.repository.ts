@@ -509,7 +509,8 @@ export class SurgeryRequestRepository extends BaseRepository<SurgeryRequest> {
         row.surgeryRequest_id ??
         row.surgery_request_id ??
         row.surgeryrequest_id;
-      return value != null ? String(value) : null;
+      if (value == null) return null;
+      return typeof value === 'string' ? value : JSON.stringify(value);
     };
 
     const hasIncompletePaymentById = new Map<string, boolean>();

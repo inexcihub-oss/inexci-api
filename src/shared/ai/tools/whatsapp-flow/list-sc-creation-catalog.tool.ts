@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { In } from 'typeorm';
 import { AiTool } from '../tool.interface';
 import { ALL_PERMISSIONS, Permission } from 'src/shared/permissions';
@@ -50,7 +49,7 @@ export function buildListScCreationCatalogTool(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 

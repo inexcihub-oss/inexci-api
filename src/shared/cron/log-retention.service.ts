@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { FindOptionsWhere, LessThan, Repository } from 'typeorm';
 import { NotificationSendLog } from 'src/database/entities/notification-send-log.entity';
 import { AiTokenUsageLog } from 'src/database/entities/ai-token-usage-log.entity';
 import { AiPiiRedactionLog } from 'src/database/entities/ai-pii-redaction-log.entity';
@@ -113,7 +113,7 @@ export class LogRetentionService {
     try {
       const result = await repo.delete({
         [timestampColumn]: LessThan(cutoff),
-      } as any);
+      } as FindOptionsWhere<T>);
       const affected = result.affected ?? 0;
       if (affected > 0) {
         this.logger.log(

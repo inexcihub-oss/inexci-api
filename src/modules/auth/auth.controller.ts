@@ -280,7 +280,7 @@ export class AuthController {
   @Get('health')
   @ApiOperation({ summary: 'Health check da API' })
   @ApiResponse({ status: 200, description: 'API operacional' })
-  async health() {
+  health() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }
 

@@ -40,7 +40,7 @@ describe('AiOrchestratorService — pending_confirmation', () => {
       { getAccessibleDoctorIds: jest.fn() } as any,
       { get: jest.fn() } as any,
       { isAudioMime: jest.fn(), downloadInboundAudio: jest.fn() } as any,
-      new PiiVaultService() as any,
+      new PiiVaultService(),
       { buildContext: jest.fn() } as any,
       new ResponseNormalizerService(),
       new PhoneNormalizerService({ findOneByPhone: jest.fn() } as any),

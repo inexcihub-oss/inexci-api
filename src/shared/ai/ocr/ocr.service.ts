@@ -15,8 +15,19 @@ import {
   OcrUnsupportedMimeError,
 } from './ocr.types';
 import { inexciTracer, SpanStatusCode } from '../../observability/tracer';
+import { errorMessage } from '../../utils/error-message.util';
 
 const MIN_NATIVE_PDF_TEXT_CHARS = 100;
+
+type SharpFactory = (
+  input: Buffer,
+  options?: sharp.SharpOptions,
+) => sharp.Sharp;
+
+function resolveSharpFactory(): SharpFactory {
+  const interop = sharp as unknown as { default?: SharpFactory };
+  return interop.default || (sharp as unknown as SharpFactory);
+}
 
 interface PdfParseTextResult {
   text: string;
@@ -125,9 +136,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `[AI_DOC_OCR] pool Tesseract pré-carregado workers=${this.parallelWorkers}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[AI_DOC_OCR] warmup do pool falhou: ${err?.message || 'erro desconhecido'}`,
+        `[AI_DOC_OCR] warmup do pool falhou: ${errorMessage(err) || 'erro desconhecido'}`,
       );
     }
   }
@@ -142,9 +153,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         try {
           const worker = await workerPromise;
           await worker.terminate();
-        } catch (err: any) {
+        } catch (err) {
           this.logger.debug(
-            `[AI_DOC_OCR] terminate falhou: ${err?.message || 'erro desconhecido'}`,
+            `[AI_DOC_OCR] terminate falhou: ${errorMessage(err) || 'erro desconhecido'}`,
           );
         }
       }),
@@ -203,9 +214,12 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
           );
           span.setStatus({ code: SpanStatusCode.OK });
           return { ...result, tokenizedText };
-        } catch (e: any) {
-          span.recordException(e);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+        } catch (e) {
+          span.recordException(e instanceof Error ? e : String(e));
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: errorMessage(e),
+          });
           throw e;
         } finally {
           span.end();
@@ -236,10 +250,8 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       if (!data) return null;
 
       try {
-        const sharpFactory =
-          (sharp as unknown as { default?: typeof sharp }).default ||
-          (sharp as unknown as typeof sharp);
-        return await (sharpFactory as any)(data, {
+        const sharpFactory = resolveSharpFactory();
+        return await sharpFactory(data, {
           limitInputPixels: MAX_PIXELS_POR_PAGINA,
         })
           .rotate()
@@ -248,9 +260,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       } catch {
         return data;
       }
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[AI_DOC_OCR] rasterizeFirstPdfPage falhou: ${err?.message || 'erro desconhecido'}`,
+        `[AI_DOC_OCR] rasterizeFirstPdfPage falhou: ${errorMessage(err) || 'erro desconhecido'}`,
       );
       return null;
     } finally {
@@ -287,9 +299,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         if (escala < menorEscala) menorEscala = escala;
       }
       return menorEscala;
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[AI_DOC_OCR] falha ao ler dimensões da página antes de rasterizar: ${err?.message || 'erro desconhecido'}`,
+        `[AI_DOC_OCR] falha ao ler dimensões da página antes de rasterizar: ${errorMessage(err) || 'erro desconhecido'}`,
       );
       return PDF_RASTER_SCALE;
     }
@@ -329,11 +341,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     warnings: string[],
   ): Promise<Buffer> {
     try {
-      const sharpFactory =
-        (sharp as unknown as { default?: typeof sharp }).default ||
-        (sharp as unknown as typeof sharp);
+      const sharpFactory = resolveSharpFactory();
 
-      return await (sharpFactory as any)(buffer, {
+      return await sharpFactory(buffer, {
         limitInputPixels: MAX_PIXELS_POR_PAGINA,
       })
         .rotate()
@@ -342,8 +352,10 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
         .resize({ width: 2000, withoutEnlargement: true })
         .png()
         .toBuffer();
-    } catch (err: any) {
-      warnings.push(`preprocess_failed:${err?.message || 'erro desconhecido'}`);
+    } catch (err) {
+      warnings.push(
+        `preprocess_failed:${errorMessage(err) || 'erro desconhecido'}`,
+      );
       return buffer;
     }
   }
@@ -369,8 +381,8 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       const textResult = await parser.getText();
       nativeText = (textResult?.text || '').toString();
       pageCount = Number(textResult?.total ?? textResult?.numpages ?? 0) || 0;
-    } catch (err: any) {
-      warnings.push(`pdf_parse_text_failed:${err?.message || 'erro'}`);
+    } catch (err) {
+      warnings.push(`pdf_parse_text_failed:${errorMessage(err) || 'erro'}`);
     } finally {
       try {
         if (parser && typeof parser.destroy === 'function') {
@@ -516,8 +528,8 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
       }
 
       pages.sort((a, b) => a.pageNumber - b.pageNumber);
-    } catch (err: any) {
-      warnings.push(`pdf_screenshot_failed:${err?.message || 'erro'}`);
+    } catch (err) {
+      warnings.push(`pdf_screenshot_failed:${errorMessage(err) || 'erro'}`);
     } finally {
       try {
         if (parser && typeof parser.destroy === 'function') {
@@ -560,9 +572,9 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
           ?.PDFParse ??
         null;
       return ctor;
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[AI_DOC_OCR] pdf-parse indisponível: ${err?.message || 'erro'}`,
+        `[AI_DOC_OCR] pdf-parse indisponível: ${errorMessage(err) || 'erro'}`,
       );
       return null;
     }
@@ -596,10 +608,10 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
             worker,
             buffers[index],
           );
-        } catch (err: any) {
+        } catch (err) {
           results[index] = null;
           this.logger.warn(
-            `[AI_DOC_OCR] page_ocr_failed index=${index} reason=${err?.message || 'erro'}`,
+            `[AI_DOC_OCR] page_ocr_failed index=${index} reason=${errorMessage(err) || 'erro'}`,
           );
         }
       }
@@ -613,7 +625,7 @@ export class OcrService implements OnModuleInit, OnModuleDestroy {
     worker: TesseractWorker,
     buffer: Buffer,
   ): Promise<{ text: string; confidence: number }> {
-    const result: any = await worker.recognize(buffer);
+    const result = await worker.recognize(buffer);
     const text = (result?.data?.text || '').toString();
     const confidencePercent = Number(result?.data?.confidence ?? 0);
     const confidence = Math.max(

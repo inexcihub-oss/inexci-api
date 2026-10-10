@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bull';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bull';
 import { getRequestContext } from 'src/shared/logging/request-context';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export const MENTION_EMAILS_QUEUE = 'mention-emails';
 export const SEND_MENTION_EMAIL_JOB = 'send-mention-email';
@@ -39,9 +40,9 @@ export class MentionEmailsJobsService {
         } satisfies MentionEmailJobData,
         { delay: minutos * 60 * 1000 },
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[MENCAO] Fila indisponível para o e-mail da menção ${data.mentionId}: ${err?.message}`,
+        `[MENCAO] Fila indisponível para o e-mail da menção ${data.mentionId}: ${errorMessage(err)}`,
       );
     }
   }

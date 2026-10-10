@@ -49,7 +49,7 @@ describe('SuppliersService', () => {
       mockSupplierRepository.total.mockResolvedValue(0);
       mockSupplierRepository.findMany.mockResolvedValue([]);
 
-      await service.findAll({} as never, userId);
+      await service.findAll({}, userId);
 
       expect(mockSupplierRepository.findMany.mock.calls[0][0]).toMatchObject({
         ownerId,
@@ -68,7 +68,7 @@ describe('SuppliersService', () => {
       });
 
       await expect(
-        service.update('gen-1', { name: 'Meu Fornecedor' } as never, userId),
+        service.update('gen-1', { name: 'Meu Fornecedor' }, userId),
       ).rejects.toThrow(ForbiddenException);
       expect(mockSupplierRepository.update).not.toHaveBeenCalled();
     });

@@ -70,23 +70,36 @@ export async function assertCurrentStatusIs(
   return { error: null, resolvedId: sc.id };
 }
 
+interface TransitionErrorLike {
+  message?: unknown;
+  response?: unknown;
+  getResponse?: unknown;
+}
+
 export function extractTransitionErrorMessage(
-  err: any,
+  err: unknown,
   defaultPrefix: string,
 ): string {
-  const response =
-    typeof err?.getResponse === 'function' ? err.getResponse() : err?.response;
+  const errLike: TransitionErrorLike | null =
+    typeof err === 'object' && err !== null ? err : null;
+  const errMessage =
+    typeof errLike?.message === 'string' ? errLike.message : undefined;
+  const response: unknown =
+    typeof errLike?.getResponse === 'function'
+      ? (errLike.getResponse as () => unknown).call(err)
+      : errLike?.response;
 
   if (response && typeof response === 'object') {
+    const responseObj = response as { pendencies?: unknown; message?: unknown };
     const pendencies: Array<{ key: string; name: string }> = Array.isArray(
-      response.pendencies,
+      responseObj.pendencies,
     )
-      ? response.pendencies
+      ? (responseObj.pendencies as Array<{ key: string; name: string }>)
       : [];
     const baseMessage: string =
-      typeof response.message === 'string'
-        ? response.message
-        : (err?.message ?? 'erro desconhecido');
+      typeof responseObj.message === 'string'
+        ? responseObj.message
+        : (errMessage ?? 'erro desconhecido');
 
     if (pendencies.length > 0) {
       const list = pendencies.map((p) => p.name).join('; ');
@@ -95,7 +108,7 @@ export function extractTransitionErrorMessage(
     return baseMessage;
   }
 
-  return `${defaultPrefix}: ${err?.message || 'erro desconhecido'}`;
+  return `${defaultPrefix}: ${errMessage || 'erro desconhecido'}`;
 }
 
 export async function checkPostSurgeryDocuments(

@@ -14,9 +14,9 @@ function makeService(overrides: Partial<Record<string, any>> = {}) {
   };
   const configService = { ...baseConfig, ...overrides.configService };
   return new AudioIntakeService(
-    whatsappMediaService as any,
-    transcriptionService as any,
-    configService as any,
+    whatsappMediaService,
+    transcriptionService,
+    configService,
   );
 }
 

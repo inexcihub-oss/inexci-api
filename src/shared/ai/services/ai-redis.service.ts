@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import IORedis from 'ioredis';
+import { errorMessage } from '../../utils/error-message.util';
 
 const KEY_PREFIX = 'ai:';
 
@@ -34,8 +35,8 @@ export class AiRedisService implements OnModuleDestroy {
         );
         this.redis = null;
       });
-    } catch (err: any) {
-      this.logger.warn(`Redis não configurado: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`Redis não configurado: ${errorMessage(err)}`);
     }
   }
 
@@ -76,7 +77,11 @@ export class AiRedisService implements OnModuleDestroy {
     }
   }
 
-  async cacheSet(key: string, value: any, ttlSeconds: number): Promise<void> {
+  async cacheSet(
+    key: string,
+    value: unknown,
+    ttlSeconds: number,
+  ): Promise<void> {
     const client = this.getClient();
     if (!client) return;
     await client.set(

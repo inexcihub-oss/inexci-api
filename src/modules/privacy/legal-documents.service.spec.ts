@@ -13,7 +13,7 @@ describe('LegalDocumentsService', () => {
   it('lê o markdown atual quando o arquivo existe no primeiro candidato', async () => {
     const readSpy = jest
       .spyOn(fs, 'readFile')
-      .mockResolvedValueOnce('# Política' as any);
+      .mockResolvedValueOnce('# Política');
 
     const doc = await service.getCurrent('privacy-policy');
 
@@ -29,7 +29,7 @@ describe('LegalDocumentsService', () => {
     const readSpy = jest
       .spyOn(fs, 'readFile')
       .mockRejectedValueOnce(new Error('ENOENT'))
-      .mockResolvedValueOnce('# Termos' as any);
+      .mockResolvedValueOnce('# Termos');
 
     const doc = await service.getCurrent('terms-of-use');
 

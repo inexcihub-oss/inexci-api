@@ -10,6 +10,7 @@ import {
   OwnedCatalogRecord,
   OwnedCatalogRepository,
 } from 'src/database/repositories/owned-catalog.repository';
+import { violouIndice } from 'src/database/repositories/unique-violation.util';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 
 type OwnedRecord = ObjectLiteral & { id: string; ownerId: string };
@@ -68,26 +69,59 @@ export async function createOrRestoreByName<
   ownerId: string;
   data: DeepPartial<T> & { name: string };
   conflictMessage: (nome: string) => string;
+  uniqueIndex?: string;
   logger?: Logger;
 }): Promise<T> {
   const { repository, ownerId, data } = params;
+  const conflito = () =>
+    new ConflictException(params.conflictMessage(data.name.trim()));
+
   const existente = await repository.findByNameIncludingDeleted(
     ownerId,
     data.name,
   );
 
-  if (existente && !existente.deletedAt) {
-    throw new ConflictException(params.conflictMessage(data.name.trim()));
-  }
+  if (existente && !existente.deletedAt) throw conflito();
 
-  if (existente?.deletedAt) {
-    await repository.restore(existente.id);
-    const restaurado = await repository.update(existente.id, data);
-    params.logger?.log(
-      `Cadastro restaurado após soft delete: id=${existente.id}`,
-    );
-    return restaurado!;
-  }
+  try {
+    if (existente?.deletedAt) {
+      await repository.restore(existente.id);
+      const restaurado = await repository.update(existente.id, data);
+      params.logger?.log(
+        `Cadastro restaurado após soft delete: id=${existente.id}`,
+      );
+      return restaurado!;
+    }
 
-  return repository.create({ ...data, ownerId } as DeepPartial<T>);
+    return await repository.create({ ...data, ownerId });
+  } catch (erro) {
+    if (params.uniqueIndex && violouIndice(erro, params.uniqueIndex)) {
+      params.logger?.warn(
+        `Cadastro concorrente com o mesmo nome barrado por ${params.uniqueIndex}: ownerId=${ownerId}`,
+      );
+      throw conflito();
+    }
+    throw erro;
+  }
+}
+
+export async function updateWithUniqueName<
+  T extends ObjectLiteral & { id: string },
+>(params: {
+  repository: Pick<BaseRepository<T>, 'update'>;
+  id: string;
+  data: DeepPartial<T> & { name?: string };
+  uniqueIndex: string;
+  conflictMessage: (nome: string) => string;
+}): Promise<T> {
+  try {
+    return (await params.repository.update(params.id, params.data))!;
+  } catch (erro) {
+    if (violouIndice(erro, params.uniqueIndex)) {
+      throw new ConflictException(
+        params.conflictMessage((params.data.name ?? '').trim()),
+      );
+    }
+    throw erro;
+  }
 }

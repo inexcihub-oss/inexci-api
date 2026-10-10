@@ -307,7 +307,7 @@ describe('WhatsApp tool execution — create_sc', () => {
           .fn()
           .mockResolvedValue({ id: 'sc-wa-1', protocol: 'SC-0099' }),
       } as any,
-      surgeryRequestsService: mockSurgeryRequestsService as any,
+      surgeryRequestsService: mockSurgeryRequestsService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
     });
   });
@@ -380,7 +380,7 @@ describe('WhatsApp tool execution — mark_performed', () => {
           doctorId: 'doctor-1',
         }),
       } as any,
-      workflowService: mockWorkflowService as any,
+      workflowService: mockWorkflowService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
       documentRepo: {
         findMany: jest.fn().mockResolvedValue([
@@ -442,7 +442,7 @@ describe('WhatsApp tool execution — invoice_request (draft)', () => {
           ownerId: 'owner-1',
         }),
       } as any,
-      workflowService: mockWorkflowService as any,
+      workflowService: mockWorkflowService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
       patientsService: { create: jest.fn() } as any,
       surgeryRequestsService: { createSurgeryRequest: jest.fn() } as any,

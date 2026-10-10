@@ -42,12 +42,9 @@ describe('PatientsController — resposta do cadastro', () => {
     };
     const controller = new PatientsController(service as never);
 
-    const resposta = await controller.create(
-      { name: 'Maria' } as never,
-      {
-        userId: 'user-1',
-      } as never,
-    );
+    const resposta = await controller.create({ name: 'Maria' }, {
+      userId: 'user-1',
+    } as never);
 
     expect(resposta).toBe(criado);
     expect(service.createWithPhoto).toHaveBeenCalledWith(

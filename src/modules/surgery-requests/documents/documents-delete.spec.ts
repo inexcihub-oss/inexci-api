@@ -137,7 +137,7 @@ describe('DocumentsService.delete — exclusao cross-tenant no storage', () => {
       id: 'doc-1',
       key: 'key-correta.pdf',
       surgeryRequestId: 'sc-1',
-    } as any);
+    });
 
     expect(storage.delete).toHaveBeenCalledWith('documents/owner-1/laudo.pdf');
   });

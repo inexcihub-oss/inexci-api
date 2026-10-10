@@ -4,6 +4,7 @@ import { Queue } from 'bull';
 import { MailTemplateName } from 'src/config/mail.config';
 import { getRequestContext } from 'src/shared/logging/request-context';
 import { maskEmail } from 'src/shared/utils';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface MailAttachment {
   filename: string;
@@ -17,7 +18,7 @@ export interface MailJobData {
   to: string;
   cc?: string;
   subject: string;
-  context?: Record<string, any>;
+  context?: Record<string, unknown>;
   attachments?: MailAttachment[];
   requestId?: string;
   userId?: string | null;
@@ -34,7 +35,7 @@ export class MailService {
     template: MailTemplateName,
     to: string,
     subject: string,
-    context: Record<string, any>,
+    context: Record<string, unknown>,
     attachments?: MailAttachment[],
     cc?: string,
   ): Promise<void> {
@@ -63,9 +64,9 @@ export class MailService {
       this.logger.log(
         `E-mail enfileirado: ${data.template ? `template="${data.template}"` : '(raw html)'} to=${masked}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enfileirar e-mail (Redis offline?): to=${masked} — ${err?.message}`,
+        `Falha ao enfileirar e-mail (Redis offline?): to=${masked} — ${errorMessage(err)}`,
       );
     }
   }

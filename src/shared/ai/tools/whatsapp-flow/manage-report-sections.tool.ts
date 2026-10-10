@@ -1,15 +1,15 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { detokenizeArg } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
-import { asNonEmptyString } from '../helpers/arg-parsers';
+import { asNonEmptyString, asScalarArg } from '../helpers/arg-parsers';
 import {
   ensurePendingForMutation,
   getAuthorizedRequest,
   recordAiActivity,
 } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildManageReportSectionsTool(
   deps: WhatsappFlowToolDeps,
@@ -61,7 +61,7 @@ export function buildManageReportSectionsTool(
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -219,7 +219,9 @@ export function buildManageReportSectionsTool(
       try {
         switch (operation) {
           case 'create': {
-            const title = asNonEmptyString(detokenizeArg(context, args.title));
+            const title = asNonEmptyString(
+              detokenizeArg(context, asScalarArg(args.title)),
+            );
             if (!title) {
               return buildToolResult({
                 status: 'needs_input',
@@ -232,7 +234,8 @@ export function buildManageReportSectionsTool(
             const detokenizedDescription =
               args.description == null
                 ? undefined
-                : (detokenizeArg(context, args.description) ?? undefined);
+                : (detokenizeArg(context, asScalarArg(args.description)) ??
+                  undefined);
 
             const section = await surgeryRequestsService.createReportSection(
               auth.request.id,
@@ -280,11 +283,13 @@ export function buildManageReportSectionsTool(
                 title:
                   args.title == null
                     ? undefined
-                    : (detokenizeArg(context, args.title) ?? undefined),
+                    : (detokenizeArg(context, asScalarArg(args.title)) ??
+                      undefined),
                 description:
                   args.description == null
                     ? undefined
-                    : (detokenizeArg(context, args.description) ?? undefined),
+                    : (detokenizeArg(context, asScalarArg(args.description)) ??
+                      undefined),
               },
               context.userId as string,
             );
@@ -379,10 +384,10 @@ export function buildManageReportSectionsTool(
           status: 'needs_input',
           message: 'Operação não suportada.',
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao gerenciar seções do laudo: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao gerenciar seções do laudo: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

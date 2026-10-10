@@ -6,7 +6,7 @@ function criarService(env: Record<string, string>) {
     get: jest.fn((chave: string, padrao = '') => env[chave] ?? padrao),
   };
   const service = Object.create(WebhookService.prototype);
-  (service as any).configService = configService;
+  service.configService = configService;
   return service as WebhookService;
 }
 

@@ -135,7 +135,7 @@ describe('OpmeService', () => {
           quantity: 1,
           surgeryRequestId: 'sr-1',
           ...extras,
-        } as never,
+        },
         'user-1',
       );
 

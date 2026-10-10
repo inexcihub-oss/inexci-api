@@ -10,6 +10,7 @@ import {
   ConversationMemory,
 } from '../../../database/entities/whatsapp-conversation.entity';
 import { SYSTEM_PROMPT } from '../prompts/system-prompt';
+import { stringifyValue } from '../utils/stringify-value.util';
 
 const SUMMARY_FAILURE_LIMIT = 3;
 
@@ -92,20 +93,16 @@ export class ConversationContextService {
   }
 
   private buildSurgeryRequestBuildingBlock(
-    memory: Record<string, unknown> | null | undefined,
+    memory: ConversationMemory | null | undefined,
   ): string | null {
     if (!memory) return null;
-    const filled = (memory as any).filled_slots as
-      | Record<string, unknown>
-      | undefined;
-    const sr = (memory as any).surgeryRequest as
-      | Record<string, unknown>
-      | undefined;
+    const filled = memory.filled_slots;
+    const sr = memory.surgeryRequest;
 
     const items: string[] = [];
     const pushIfPresent = (label: string, value: unknown) => {
       if (value === null || value === undefined) return;
-      const text = String(value).trim();
+      const text = stringifyValue(value).trim();
       if (!text) return;
       items.push(`- ${label}: ${text}`);
     };
@@ -119,7 +116,7 @@ export class ConversationContextService {
       pushIfPresent('Hospital', sr.hospital);
       pushIfPresent('Convênio', sr.healthPlan);
       pushIfPresent('Médico responsável (doctorId)', sr.doctorId);
-      if (sr.id) items.push(`- SC já criada (id): ${String(sr.id)}`);
+      if (sr.id) items.push(`- SC já criada (id): ${sr.id}`);
     }
     if (!items.length) return null;
 
@@ -269,7 +266,9 @@ export class ConversationContextService {
       breakdown.rag_tokens = usage.ragTokens;
     }
     for (const msg of trimmedRecent) {
-      messages.push({ role: msg.role as any, content: msg.content });
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        messages.push({ role: msg.role, content: msg.content });
+      }
     }
     breakdown.recent_tokens = usage.recentTokens;
     breakdown.totalTokens =
@@ -402,7 +401,7 @@ export class ConversationContextService {
 
       await this.conversationRepo.update(conversationId, {
         conversationSummary: parsed.summary || null,
-        conversationMemory: newMemory as any,
+        conversationMemory: newMemory,
         summaryUpdatedAt: new Date(),
       });
 
@@ -454,7 +453,7 @@ export class ConversationContextService {
     const memory = conversation.conversationMemory || {};
     const failures = (memory.summary_failures ?? 0) + 1;
     await this.conversationRepo.update(conversation.id, {
-      conversationMemory: { ...memory, summary_failures: failures } as any,
+      conversationMemory: { ...memory, summary_failures: failures },
     });
   }
 }

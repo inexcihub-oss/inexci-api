@@ -7,7 +7,7 @@ import {
 
 export interface PreflightDeps {
   aplicadas(): Promise<string[]>;
-  consultar(sql: string): Promise<Record<string, unknown>[]>;
+  consultar: (sql: string) => Promise<Record<string, unknown>[]>;
   verificacoes?: VerificacaoPreMigration[];
 }
 

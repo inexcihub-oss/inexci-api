@@ -17,11 +17,11 @@ const baseContext: ToolContext = {
 };
 
 describe('PendencyTools', () => {
-  const tools = buildPendencyTools(
-    mockPendencyValidator as any,
-    mockSurgeryRequestRepo as any,
-    mockDocumentRepo as any,
-  );
+  const tools = buildPendencyTools({
+    pendencyValidator: mockPendencyValidator as any,
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    documentRepo: mockDocumentRepo as any,
+  });
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());

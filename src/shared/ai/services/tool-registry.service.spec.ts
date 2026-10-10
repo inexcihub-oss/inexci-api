@@ -37,7 +37,7 @@ function makeTool(name: string): AiTool {
     definition: {
       type: 'function',
       function: { name, description: name, parameters: { type: 'object' } },
-    } as OpenAI.ChatCompletionTool,
+    },
     requiredPermission: ANY_AUTHENTICATED,
     execute: async () => '',
   };

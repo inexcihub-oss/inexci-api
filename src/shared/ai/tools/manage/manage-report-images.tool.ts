@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
@@ -17,6 +16,8 @@ import {
   getAuthorizedRequest,
   recordAiActivity,
 } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
+import { Document } from '../../../../database/entities/document.entity';
 
 export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
   const {
@@ -71,7 +72,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -102,8 +103,8 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
       if (operation === 'list') {
         const all = await documentRepo.findMany({
           surgeryRequestId: auth.request.id,
-        } as any);
-        const images = all.filter((d: any) => d.key === REPORT_IMAGE_KEY);
+        });
+        const images = all.filter((d) => d.key === REPORT_IMAGE_KEY);
         if (!images.length) {
           return buildToolResult({
             status: 'ok',
@@ -111,7 +112,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
             data: [],
           });
         }
-        const lines = images.map((d: any, index: number) => {
+        const lines = images.map((d, index: number) => {
           const date = d.createdAt
             ? new Date(d.createdAt).toLocaleDateString('pt-BR')
             : '';
@@ -192,12 +193,12 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
               mimetype:
                 media.contentType || downloaded.contentType || 'image/jpeg',
               buffer: downloaded.buffer,
-            } as any,
+            },
             STORAGE_FOLDERS.DOCUMENTS,
             auth.request.ownerId,
           );
 
-          let created: any;
+          let created: Document;
           try {
             created = await documentsService.createFromPath({
               surgeryRequestId: auth.request.id,
@@ -225,13 +226,13 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
 
           return buildToolResult({
             status: 'ok',
-            message: `Imagem "${computedName}" anexada ao laudo com sucesso (id: ${(created as any).id}).`,
-            affected: [{ kind: 'document', id: (created as any).id }],
+            message: `Imagem "${computedName}" anexada ao laudo com sucesso (id: ${created.id}).`,
+            affected: [{ kind: 'document', id: created.id }],
           });
-        } catch (err: any) {
+        } catch (err) {
           return buildToolResult({
             status: 'error',
-            message: `Erro ao anexar imagem: ${err?.message || 'erro desconhecido'}`,
+            message: `Erro ao anexar imagem: ${errorMessage(err) || 'erro desconhecido'}`,
           });
         }
       }
@@ -253,7 +254,7 @@ export function buildManageReportImagesTool(deps: ManageToolDeps): AiTool {
       const doc = await documentRepo.findOne({
         id: imageId,
         surgeryRequestId: auth.request.id,
-      } as any);
+      });
       if (!doc || doc.key !== REPORT_IMAGE_KEY) {
         return buildToolResult({
           status: 'blocked',

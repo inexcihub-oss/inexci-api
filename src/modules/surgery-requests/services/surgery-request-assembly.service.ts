@@ -3,6 +3,7 @@ import { SurgeryRequestReportService } from './surgery-request-report.service';
 import { SurgeryRequestMutationService } from './surgery-request-mutation.service';
 import { OpmeService } from '../opme/opme.service';
 import { TussService } from '../../tuss/tuss.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface AssemblyTussItem {
   code: string;
@@ -117,10 +118,12 @@ export class SurgeryRequestAssemblyService {
             { title: section.title, description: section.description ?? '' },
             userId,
           );
-        } catch (err: any) {
-          warnings.push(`seção "${section.title}" (${err?.message || 'erro'})`);
+        } catch (err) {
+          warnings.push(
+            `seção "${section.title}" (${errorMessage(err) || 'erro'})`,
+          );
           this.logger.warn(
-            `[SC_ASSEMBLY] scId=${scId} section "${section.title}" failed: ${err?.message}`,
+            `[SC_ASSEMBLY] scId=${scId} section "${section.title}" failed: ${errorMessage(err)}`,
           );
         }
       }
@@ -131,10 +134,10 @@ export class SurgeryRequestAssemblyService {
           { title: 'Laudo', description: notes },
           userId,
         );
-      } catch (err: any) {
-        warnings.push(`laudo (${err?.message || 'erro'})`);
+      } catch (err) {
+        warnings.push(`laudo (${errorMessage(err) || 'erro'})`);
         this.logger.warn(
-          `[SC_ASSEMBLY] scId=${scId} laudo failed: ${err?.message}`,
+          `[SC_ASSEMBLY] scId=${scId} laudo failed: ${errorMessage(err)}`,
         );
       }
     }
@@ -167,8 +170,8 @@ export class SurgeryRequestAssemblyService {
           },
           userId,
         );
-      } catch (err: any) {
-        warnings.push(`TUSS ${code} (${err?.message || 'erro'})`);
+      } catch (err) {
+        warnings.push(`TUSS ${code} (${errorMessage(err) || 'erro'})`);
       }
     }
 
@@ -203,8 +206,8 @@ export class SurgeryRequestAssemblyService {
           userId,
         );
         opmeAdded += 1;
-      } catch (err: any) {
-        warnings.push(`OPME ${name} (${err?.message || 'erro'})`);
+      } catch (err) {
+        warnings.push(`OPME ${name} (${errorMessage(err) || 'erro'})`);
       }
     }
 

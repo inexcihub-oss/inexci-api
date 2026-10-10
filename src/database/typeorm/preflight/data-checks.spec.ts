@@ -1,6 +1,7 @@
 import {
   CONSULTAS_SOBREPOSTAS,
   EXTENSAO_BTREE_GIST,
+  HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
   OUTRO_NAO_UNIFICADO,
   SALAS_COM_NOME_REPETIDO,
   TELEFONE_DUPLICADO,
@@ -220,5 +221,46 @@ describe('CONSULTAS_SOBREPOSTAS.sqlAntesDoSchema', () => {
     expect(semEncaixe(CONSULTAS_SOBREPOSTAS.sqlAntesDoSchema!)).toBe(
       semEncaixe(CONSULTAS_SOBREPOSTAS.sql),
     );
+  });
+  describe('HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO', () => {
+    const { sql } = HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO;
+
+    it('é read-only', () => {
+      expect(sql).toMatch(/^\s*SELECT/i);
+      expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i);
+    });
+
+    it('agrupa por conta e nome sem caixa, só entre linhas vivas, nas duas tabelas', () => {
+      expect(sql).toContain('FROM "hospitals" h');
+      expect(sql).toContain('FROM "health_plans" hp');
+      expect(sql).toContain('GROUP BY h."owner_id", lower(h."name")');
+      expect(sql).toContain('GROUP BY hp."owner_id", lower(hp."name")');
+      expect(sql).toContain('h."deleted_at" IS NULL');
+      expect(sql).toContain('hp."deleted_at" IS NULL');
+      expect(sql.match(/HAVING count\(\*\) > 1/g)).toHaveLength(2);
+    });
+
+    it('mapeia tipo, conta, nome e ids', () => {
+      const conflitos = HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO.mapear([
+        { tipo: 'convênio', owner_id: 'o1', nome: 'unimed', ids: 'a, b' },
+      ]);
+      expect(conflitos).toEqual([
+        { chave: 'convênio da conta o1: unimed', ids: 'a, b' },
+      ]);
+    });
+
+    it('está registrada e gera diagnóstico com os ids', () => {
+      expect(VERIFICACOES_PRE_MIGRATION).toContain(
+        HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO,
+      );
+      const texto = montarDiagnostico(HOSPITAL_OU_CONVENIO_COM_NOME_REPETIDO, [
+        { chave: 'hospital da conta o1: santa casa', ids: 'h-1, h-2' },
+      ]);
+      expect(texto).toContain(
+        'AddUniqueHospitalAndHealthPlanName1755801700000',
+      );
+      expect(texto).toContain('hospital da conta o1: santa casa -> h-1, h-2');
+      expect(texto).toContain('FROM hospitals WHERE id IN');
+    });
   });
 });

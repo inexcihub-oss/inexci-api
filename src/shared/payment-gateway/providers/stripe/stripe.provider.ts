@@ -28,12 +28,6 @@ import {
 
 type StripeInstance = StripeLib.Stripe;
 type StripeSubStatus = StripeSubscription['status'];
-type CheckoutSessionCreateParams = NonNullable<
-  Parameters<StripeInstance['checkout']['sessions']['create']>[0]
->;
-type StripeCheckoutSubscriptionData = NonNullable<
-  CheckoutSessionCreateParams['subscription_data']
->;
 type BillingPortalSessionCreateParams = NonNullable<
   Parameters<StripeInstance['billingPortal']['sessions']['create']>[0]
 >;
@@ -108,7 +102,7 @@ export class StripeProvider implements PaymentGateway {
         line_items: [{ price: input.priceId, quantity: 1 }],
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
-        subscription_data: subscriptionData as StripeCheckoutSubscriptionData,
+        subscription_data: subscriptionData,
       });
 
       return { id: session.id, url: session.url ?? '', raw: session };

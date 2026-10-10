@@ -89,7 +89,7 @@ export class NotificationsGateway
       }
 
       client.data.userId = userId;
-      client.join(`user:${userId}`);
+      void client.join(`user:${userId}`);
       this.logger.debug(`Client connected: user:${userId}`);
 
       if (this.notificationRepository) {

@@ -28,7 +28,7 @@ describe('MentionEmailsProcessor', () => {
       authorName: 'Dra. Ana',
       content: 'confere o laudo',
       inAppNotified: true,
-    } as MentionEmailJobData,
+    },
   } as Job<MentionEmailJobData>;
 
   beforeEach(async () => {

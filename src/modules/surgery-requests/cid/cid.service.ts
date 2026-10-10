@@ -28,7 +28,11 @@ const TTL_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class CidService {
-  private readonly cache = new Map<string, CacheEntry<any>>();
+  private readonly findAllCache = new Map<
+    string,
+    CacheEntry<{ total: number; records: CidResponse[] }>
+  >();
+  private readonly lookupCache = new Map<string, CacheEntry<CidResponse[]>>();
   private allRecords: CidRecordInternal[] | null = null;
 
   private loadAll(): CidRecordInternal[] {
@@ -53,7 +57,7 @@ export class CidService {
     const { search, skip = 0, take = 50 } = query;
     const cacheKey = `cid:findAll:${search ?? ''}:${skip}:${take}`;
 
-    const hit = this.cache.get(cacheKey);
+    const hit = this.findAllCache.get(cacheKey);
     if (hit && hit.expiresAt > Date.now()) return hit.value;
 
     const all = this.loadAll();
@@ -69,7 +73,10 @@ export class CidService {
       .map(this.toResponse);
 
     const result = { total, records };
-    this.cache.set(cacheKey, { value: result, expiresAt: Date.now() + TTL_MS });
+    this.findAllCache.set(cacheKey, {
+      value: result,
+      expiresAt: Date.now() + TTL_MS,
+    });
     return result;
   }
 
@@ -78,7 +85,7 @@ export class CidService {
     if (!trimmed) return [];
 
     const cacheKey = `cid:lookup:${trimmed.toLowerCase()}:${limit}`;
-    const hit = this.cache.get(cacheKey);
+    const hit = this.lookupCache.get(cacheKey);
     if (hit && hit.expiresAt > Date.now()) return hit.value;
 
     const all = this.loadAll();
@@ -86,7 +93,10 @@ export class CidService {
       .slice(0, limit)
       .map(this.toResponse);
 
-    this.cache.set(cacheKey, { value: ranked, expiresAt: Date.now() + TTL_MS });
+    this.lookupCache.set(cacheKey, {
+      value: ranked,
+      expiresAt: Date.now() + TTL_MS,
+    });
     return ranked;
   }
 

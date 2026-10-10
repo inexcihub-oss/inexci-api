@@ -11,6 +11,7 @@ import { StorageService } from 'src/shared/storage/storage.service';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { Patient } from 'src/database/entities/patient.entity';
 import { PatientsService } from '../../patients/patients.service';
+import { CreatePatientDto } from '../../patients/dto/create-patient.dto';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { executeInTransaction } from 'src/shared/utils/transaction.util';
 import { ERROR_MESSAGES } from 'src/shared/constants/error-messages';
@@ -178,12 +179,20 @@ export class SurgeryRequestFromDocumentService {
       ownerId,
     );
 
-    const patientId =
-      dto.patientId ?? (await this.createPatient(dto.newPatient!, userId));
+    const newPatientData = dto.patientId
+      ? null
+      : this.buildNewPatientData(dto.newPatient!);
 
-    const sc = await executeInTransaction(
+    const { sc, createdPatient } = await executeInTransaction(
       this.dataSource,
       async (manager) => {
+        const createdPatient: Patient | null = newPatientData
+          ? await this.patientsService.create(newPatientData, userId, {
+              manager,
+            })
+          : null;
+        const patientId = dto.patientId ?? createdPatient!.id;
+
         const [hospitalId, healthPlanId, procedureId] = await Promise.all([
           dto.hospitalId ||
             this.entityResolver.resolveOrCreateHospitalId(
@@ -214,7 +223,7 @@ export class SurgeryRequestFromDocumentService {
             : dto.healthPlanNumber,
         });
 
-        return this.mutationService.createSurgeryRequest(
+        const sc = await this.mutationService.createSurgeryRequest(
           {
             doctorId: dto.doctorId,
             patientId,
@@ -230,9 +239,13 @@ export class SurgeryRequestFromDocumentService {
           userId,
           { manager },
         );
+        return { sc, createdPatient };
       },
       { logger: this.logger, operationName: 'createFromDocument' },
     );
+    if (createdPatient) {
+      await this.patientsService.sendWelcome(createdPatient);
+    }
     await this.mutationService.broadcastCreated(sc.id, userId);
 
     const { warnings } = await this.assemblyService.assembleFromExtracted({
@@ -408,36 +421,31 @@ export class SurgeryRequestFromDocumentService {
     }
   }
 
-  private async createPatient(
+  private buildNewPatientData(
     data: NewPatientFromDocumentDto,
-    userId: string,
-  ): Promise<string> {
+  ): CreatePatientDto {
     const cpf = data.cpf.replace(/\D/g, '');
     if (cpf.length !== 11) {
       throw new BadRequestException(
         'CPF do novo paciente deve ter 11 dígitos.',
       );
     }
-    const patient = await this.patientsService.create(
-      {
-        name: data.name,
-        cpf,
-        birthDate: data.birthDate,
-        gender: data.gender,
-        phone: data.phone,
-        email: data.email,
-        address: data.address,
-        addressNumber: data.addressNumber,
-        addressComplement: data.addressComplement,
-        neighborhood: data.neighborhood,
-        city: data.city,
-        state: data.state,
-        zipCode: data.zipCode,
-        healthPlanNumber: data.healthPlanNumber,
-      },
-      userId,
-    );
-    return patient.id;
+    return {
+      name: data.name,
+      cpf,
+      birthDate: data.birthDate,
+      gender: data.gender,
+      phone: data.phone,
+      email: data.email,
+      address: data.address,
+      addressNumber: data.addressNumber,
+      addressComplement: data.addressComplement,
+      neighborhood: data.neighborhood,
+      city: data.city,
+      state: data.state,
+      zipCode: data.zipCode,
+      healthPlanNumber: data.healthPlanNumber,
+    };
   }
 
   private splitNames(raw?: string): string[] | undefined {

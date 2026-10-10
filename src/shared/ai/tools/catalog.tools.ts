@@ -1,13 +1,17 @@
-import OpenAI from 'openai';
 import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { ProcedureRepository } from '../../../database/repositories/procedure.repository';
 import { normalizeNameForCompare } from './catalog.helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
 
-export function buildCatalogTools(
-  procedureRepo: ProcedureRepository,
-  resolver?: EntityResolverService,
-): AiTool[] {
+export interface CatalogToolDeps {
+  procedureRepo: ProcedureRepository;
+  entityResolver?: EntityResolverService;
+}
+
+export function buildCatalogTools({
+  procedureRepo,
+  entityResolver: resolver,
+}: CatalogToolDeps): AiTool[] {
   const entityResolver = resolver ?? new EntityResolverService();
 
   const searchProcedures: AiTool = {
@@ -36,7 +40,7 @@ export function buildCatalogTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
@@ -49,7 +53,7 @@ export function buildCatalogTools(
         50,
       );
 
-      const all = await procedureRepo.findMany({} as any, 0, 500);
+      const all = await procedureRepo.findMany({}, 0, 500);
       let candidates = all;
       let usedFuzzy = false;
       if (queryRaw) {
@@ -61,11 +65,11 @@ export function buildCatalogTools(
         if (substringMatches.length > 0) {
           candidates = substringMatches;
         } else {
-          const result = entityResolver.resolve<any>({
+          const result = entityResolver.resolve({
             query: queryRaw,
             candidates: all,
-            getName: (p: any) => String(p.name ?? ''),
-            getId: (p: any) => String(p.id),
+            getName: (p) => String(p.name ?? ''),
+            getId: (p) => String(p.id),
             candidateThreshold: 0.55,
             maxCandidates: limit,
           });
@@ -95,7 +99,7 @@ export function buildCatalogTools(
       }
 
       const slice = candidates.slice(0, limit);
-      const lines = slice.map((p: any) => `- ${p.name} (id: ${p.id})`);
+      const lines = slice.map((p) => `- ${p.name} (id: ${p.id})`);
 
       const total = candidates.length;
       const headerVerb = usedFuzzy ? 'se parecem com' : 'contêm';

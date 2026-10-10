@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
@@ -12,6 +11,7 @@ import {
   getAuthorizedRequest,
   recordAiActivity,
 } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildUpdateReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
   const { surgeryRequestRepo, workflowService, activityRepo } = deps;
@@ -49,7 +49,7 @@ export function buildUpdateReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
           required: ['surgeryRequestId', 'receivedValue', 'receivedAt'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -114,10 +114,10 @@ export function buildUpdateReceiptTool(deps: WhatsappFlowToolDeps): AiTool {
           message: `✅ Recebimento atualizado com sucesso para a solicitação ${auth.request.protocol}.`,
           affected: [{ kind: 'surgery_request', id: auth.request.id }],
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao atualizar recebimento: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao atualizar recebimento: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

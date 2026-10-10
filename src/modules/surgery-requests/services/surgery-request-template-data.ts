@@ -101,7 +101,7 @@ export function sanitizeTemplateData(
 
   const priority = Number(input.priority);
   if (PRIORIDADES_VALIDAS.has(priority)) {
-    data.priority = priority as SurgeryRequestPriority;
+    data.priority = priority;
   }
 
   const tussItems = itensTuss(input.tussItems ?? input.procedures);

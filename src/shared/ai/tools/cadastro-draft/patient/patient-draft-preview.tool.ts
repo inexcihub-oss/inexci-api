@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { buildToolResult } from '../../tool-result';
 import { CadastroDraftDeps } from '../_types';
@@ -17,7 +16,7 @@ export function buildPatientDraftPreviewTool(deps: CadastroDraftDeps): AiTool {
           'Gera o preview do rascunho de paciente para confirmar com o usuário.',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context) {
       const v = await draftService.validate(
         context.conversationId,

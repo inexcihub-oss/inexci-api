@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
@@ -8,6 +7,7 @@ import {
   getAuthorizedRequest,
   recordAiActivity,
 } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
   const { surgeryRequestRepo, workflowService, activityRepo } = deps;
@@ -41,7 +41,7 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
           required: ['surgeryRequestId', 'newDate'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -93,10 +93,10 @@ export function buildRescheduleSurgeryTool(deps: WhatsappFlowToolDeps): AiTool {
           message: `✅ Solicitação ${auth.request.protocol} reagendada com sucesso.`,
           affected: [{ kind: 'surgery_request', id: auth.request.id }],
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao reagendar cirurgia: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao reagendar cirurgia: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

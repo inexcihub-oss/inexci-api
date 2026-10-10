@@ -15,7 +15,9 @@ const baseContext: ToolContext = {
 };
 
 describe('GeneralTools — query_patients', () => {
-  const tools = buildGeneralTools(mockPatientsService as any);
+  const tools = buildGeneralTools({
+    patientsService: mockPatientsService as any,
+  });
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());

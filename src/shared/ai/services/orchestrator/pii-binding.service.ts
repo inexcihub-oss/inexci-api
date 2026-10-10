@@ -4,6 +4,7 @@ import { PiiVaultService, SerializedPiiBindings } from '../pii-vault.service';
 import { AiRedisService } from '../ai-redis.service';
 import { AiPiiRedactionLogRepository } from '../../../../database/repositories/ai-pii-redaction-log.repository';
 import { PII_VAULT_PERSIST_TTL_SECONDS } from '../../constants/ai.constants';
+import { errorMessage } from '../../../utils/error-message.util';
 
 const PII_VAULT_REDIS_KEY_PREFIX = 'pii:vault:';
 
@@ -34,9 +35,9 @@ export class PiiBindingService {
       try {
         const stored = await this.aiRedis.cacheGet<SerializedPiiBindings>(key);
         if (Array.isArray(stored)) return stored;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.debug(
-          `[PII_VAULT_PERSIST] redis_load_failed conv=${conversationId} err=${err?.message || err}`,
+          `[PII_VAULT_PERSIST] redis_load_failed conv=${conversationId} err=${errorMessage(err)}`,
         );
       }
     }
@@ -54,9 +55,9 @@ export class PiiBindingService {
     let snapshot: SerializedPiiBindings = [];
     try {
       snapshot = this.piiVault.serializeSession(conversationId);
-    } catch (err: any) {
+    } catch (err) {
       this.logger.debug(
-        `[PII_VAULT_PERSIST] serialize_failed conv=${conversationId} err=${err?.message || err}`,
+        `[PII_VAULT_PERSIST] serialize_failed conv=${conversationId} err=${errorMessage(err)}`,
       );
       return;
     }
@@ -72,9 +73,9 @@ export class PiiBindingService {
           PII_VAULT_PERSIST_TTL_SECONDS,
         );
         return;
-      } catch (err: any) {
+      } catch (err) {
         this.logger.debug(
-          `[PII_VAULT_PERSIST] redis_save_failed conv=${conversationId} err=${err?.message || err}`,
+          `[PII_VAULT_PERSIST] redis_save_failed conv=${conversationId} err=${errorMessage(err)}`,
         );
       }
     }
@@ -110,9 +111,9 @@ export class PiiBindingService {
           toolName: context.toolName ?? null,
           occurrences: findings.length,
         });
-      } catch (logErr: any) {
+      } catch (logErr) {
         this.logger.warn(
-          `Falha ao registrar pii_redaction_log: ${logErr?.message || 'erro desconhecido'}`,
+          `Falha ao registrar pii_redaction_log: ${errorMessage(logErr) || 'erro desconhecido'}`,
         );
       }
 

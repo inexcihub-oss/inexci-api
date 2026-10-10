@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import { TussService, TussResponse } from '../../../modules/tuss/tuss.service';
 
@@ -21,7 +20,50 @@ function formatLines(items: TussResponse[]): string[] {
   return items.map((item) => `${item.tussCode} — ${item.name}`);
 }
 
-export function buildTussTools(tussService: TussService): AiTool[] {
+export interface TussToolDeps {
+  tussService: TussService;
+}
+
+export function buildTussTools({ tussService }: TussToolDeps): AiTool[] {
+  const runSearchTussCodes = (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): string => {
+    if (!context.userId) return 'Acesso negado.';
+
+    const query = asNonEmptyString(args.query);
+    if (!query || query.length < 2) {
+      return 'Parâmetro inválido: `query` deve ter ao menos 2 caracteres (código completo/parcial ou descrição).';
+    }
+
+    const limit = clampLimit(args.limit);
+
+    const numericOnly = isNumericQuery(query);
+    if (numericOnly) {
+      const exact = tussService.findByExactCode(query);
+      if (exact) {
+        return [
+          `Código TUSS encontrado:`,
+          `${exact.tussCode} — ${exact.name}`,
+        ].join('\n');
+      }
+    }
+
+    const results = tussService.lookup(query, limit);
+    if (!results.length) {
+      return [
+        `Nenhum código TUSS encontrado para "${query}".`,
+        'Tente refinar usando outro trecho do nome ou parte do código (apenas dígitos).',
+      ].join(' ');
+    }
+
+    const header = numericOnly
+      ? `Códigos TUSS que combinam com "${query}" (${results.length}):`
+      : `Códigos TUSS para "${query}" (${results.length}):`;
+
+    return [header, ...formatLines(results)].join('\n');
+  };
+
   const searchTussCodes: AiTool = {
     name: 'search_tuss_codes',
     requiredPermission: ANY_AUTHENTICATED,
@@ -49,41 +91,11 @@ export function buildTussTools(tussService: TussService): AiTool[] {
           required: ['query'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const query = asNonEmptyString(args.query);
-      if (!query || query.length < 2) {
-        return 'Parâmetro inválido: `query` deve ter ao menos 2 caracteres (código completo/parcial ou descrição).';
-      }
-
-      const limit = clampLimit(args.limit);
-
-      const numericOnly = isNumericQuery(query);
-      if (numericOnly) {
-        const exact = tussService.findByExactCode(query);
-        if (exact) {
-          return [
-            `Código TUSS encontrado:`,
-            `${exact.tussCode} — ${exact.name}`,
-          ].join('\n');
-        }
-      }
-
-      const results = tussService.lookup(query, limit);
-      if (!results.length) {
-        return [
-          `Nenhum código TUSS encontrado para "${query}".`,
-          'Tente refinar usando outro trecho do nome ou parte do código (apenas dígitos).',
-        ].join(' ');
-      }
-
-      const header = numericOnly
-        ? `Códigos TUSS que combinam com "${query}" (${results.length}):`
-        : `Códigos TUSS para "${query}" (${results.length}):`;
-
-      return [header, ...formatLines(results)].join('\n');
+    },
+    execute(args, context: ToolContext): Promise<string> {
+      return new Promise<string>((resolve) =>
+        resolve(runSearchTussCodes(args, context)),
+      );
     },
   };
 

@@ -25,7 +25,7 @@ function exportCom(tabelas: Record<string, Partial<LinhaCsv>[]>) {
   return new ExportFeegow(null, {
     agendamentos: [{ id: 'ag1', paciente_id: '10', profissional_id: '1' }],
     ...tabelas,
-  } as Record<string, LinhaCsv[]>);
+  });
 }
 
 function atd(extra: Record<string, string | null> = {}) {

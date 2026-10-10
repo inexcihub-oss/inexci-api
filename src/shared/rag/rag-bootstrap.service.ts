@@ -185,7 +185,7 @@ export class RagBootstrapService implements OnModuleInit {
         source: 'faq',
         ...(item.id ? { id: item.id } : {}),
         ...(item.tags && item.tags.length ? { tags: item.tags } : {}),
-      } as Record<string, any>,
+      },
     }));
 
     const workflow = (data.categories?.workflow || []).map((item) => ({
@@ -194,7 +194,7 @@ export class RagBootstrapService implements OnModuleInit {
       metadata: {
         source: item.source ?? 'workflow',
         ...(item.id ? { id: item.id } : {}),
-      } as Record<string, any>,
+      },
     }));
 
     const glossary = (data.categories?.glossary || []).map((item) => ({
@@ -203,7 +203,7 @@ export class RagBootstrapService implements OnModuleInit {
       metadata: {
         source: item.source ?? 'glossary',
         term: item.term,
-      } as Record<string, any>,
+      },
     }));
 
     const whatsappCapabilities = (
@@ -211,7 +211,7 @@ export class RagBootstrapService implements OnModuleInit {
     ).map((item) => ({
       title: 'Capacidade do assistente no WhatsApp',
       content: item,
-      metadata: { source: 'assistant_capabilities' } as Record<string, any>,
+      metadata: { source: 'assistant_capabilities' },
     }));
 
     const faqCandidates = (
@@ -219,10 +219,7 @@ export class RagBootstrapService implements OnModuleInit {
     ).map((item) => ({
       title: 'Pergunta candidata do repositório',
       content: item,
-      metadata: { source: 'faq_candidates_from_repository' } as Record<
-        string,
-        any
-      >,
+      metadata: { source: 'faq_candidates_from_repository' },
     }));
 
     const whatsappGapItems = [
@@ -233,10 +230,7 @@ export class RagBootstrapService implements OnModuleInit {
     const whatsappGaps = whatsappGapItems.map((item) => ({
       title: 'Lacuna para fluxo completo via WhatsApp',
       content: item,
-      metadata: { source: 'whatsapp_full_flow_gap_analysis' } as Record<
-        string,
-        any
-      >,
+      metadata: { source: 'whatsapp_full_flow_gap_analysis' },
     }));
 
     const pendencies = (data.categories?.pendencies || []).map((item) => {
@@ -259,7 +253,7 @@ export class RagBootstrapService implements OnModuleInit {
           source: item.source ?? 'pendencies',
           status: item.status,
           category_internal: 'pendencies',
-        } as Record<string, any>,
+        },
       };
     });
 
@@ -268,7 +262,7 @@ export class RagBootstrapService implements OnModuleInit {
     ).map((item) => ({
       title: 'Limitação do assistente',
       content: item,
-      metadata: { source: 'assistant_limitations' } as Record<string, any>,
+      metadata: { source: 'assistant_limitations' },
     }));
 
     const whatsappIntents = (
@@ -282,7 +276,7 @@ export class RagBootstrapService implements OnModuleInit {
         source: 'whatsapp_intents_examples',
         intent: item.intent,
         category_internal: 'whatsapp-intents',
-      } as Record<string, any>,
+      },
     }));
 
     await this.ingestionService.replaceCategory('faq', faq, {

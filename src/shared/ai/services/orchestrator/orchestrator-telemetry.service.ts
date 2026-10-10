@@ -7,6 +7,7 @@ import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { MODEL_COST_PER_1K } from '../../constants/ai.constants';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { PiiVaultService } from '../pii-vault.service';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export interface CompletionUsageSnapshot {
   stage: string;
@@ -64,8 +65,7 @@ export class OrchestratorTelemetryService {
     if (!completion?.usage) return;
 
     const cachedTokens =
-      (completion.usage as any)?.prompt_tokens_details?.cached_tokens ??
-      undefined;
+      completion.usage.prompt_tokens_details?.cached_tokens ?? undefined;
 
     snapshots.push({
       stage,
@@ -174,9 +174,9 @@ export class OrchestratorTelemetryService {
         costEstimateCents: costCents,
         breakdown: snapshots,
       });
-    } catch (error: any) {
+    } catch (error) {
       this.logger.warn(
-        `Falha ao persistir AI_TOKEN_USAGE sid=${messageSid}: ${error?.message || 'erro desconhecido'}`,
+        `Falha ao persistir AI_TOKEN_USAGE sid=${messageSid}: ${errorMessage(error) || 'erro desconhecido'}`,
       );
     }
   }
@@ -205,9 +205,9 @@ export class OrchestratorTelemetryService {
       this.logger.log(
         `[AI_PII_USAGE] sid=${messageSid} total=${total} ${breakdown}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.debug(
-        `Falha ao calcular métrica de PII: ${err?.message || 'erro desconhecido'}`,
+        `Falha ao calcular métrica de PII: ${errorMessage(err) || 'erro desconhecido'}`,
       );
     }
   }

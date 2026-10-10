@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as http from 'http';
+import type { PDFImage } from 'pdf-lib';
 import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface CustomHeaderData {
@@ -201,7 +202,7 @@ export class PdfService {
   constructor(private readonly configService: ConfigService) {
     Handlebars.registerHelper(
       'isDefined',
-      (value: any) => value !== undefined && value !== null,
+      (value: unknown) => value !== undefined && value !== null,
     );
     Handlebars.registerHelper(
       'sum',
@@ -228,7 +229,7 @@ export class PdfService {
 
   renderClinicalDocumentHtml(
     templateName: string,
-    data: ClinicalDocumentDoctorFields & Record<string, any>,
+    data: ClinicalDocumentDoctorFields,
   ): Promise<string> {
     return this.renderTemplate(templateName, {
       ...data,
@@ -238,7 +239,7 @@ export class PdfService {
 
   private async renderClinicalDocument(
     templateName: string,
-    data: ClinicalDocumentDoctorFields & Record<string, any>,
+    data: ClinicalDocumentDoctorFields,
   ): Promise<string> {
     let doctorSignatureUrl: string | undefined;
     if (data.doctorSignatureUrl) {
@@ -363,12 +364,14 @@ export class PdfService {
             resolve(`data:${contentType};base64,${base64}`);
           });
           res.on('error', (err) => {
-            this.logger.warn(`fetchAsDataUri: erro no stream: ${err.message}`);
+            this.logger.warn(
+              `fetchAsDataUri: erro no stream: ${errorMessage(err)}`,
+            );
             resolve(null);
           });
         });
         req.on('error', (err) => {
-          this.logger.warn(`fetchAsDataUri: req error: ${err.message}`);
+          this.logger.warn(`fetchAsDataUri: req error: ${errorMessage(err)}`);
           resolve(null);
         });
         req.on('timeout', () => {
@@ -378,8 +381,8 @@ export class PdfService {
           req.destroy();
           resolve(null);
         });
-      } catch (err: any) {
-        this.logger.warn(`fetchAsDataUri: exceção: ${err?.message}`);
+      } catch (err) {
+        this.logger.warn(`fetchAsDataUri: exceção: ${errorMessage(err)}`);
         resolve(null);
       }
     });
@@ -455,7 +458,7 @@ export class PdfService {
       const a4W = 595.28;
       const a4H = 841.89;
       try {
-        let embedded: any;
+        let embedded: PDFImage;
         let w: number;
         let h: number;
         try {
@@ -623,7 +626,7 @@ export class PdfService {
 
   private async renderTemplate(
     templateName: string,
-    context: Record<string, any>,
+    context: object,
   ): Promise<string> {
     await this.registerPartials();
 

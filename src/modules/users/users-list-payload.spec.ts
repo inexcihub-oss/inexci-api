@@ -44,7 +44,6 @@ describe('UsersService — listagens de equipe não devolvem dado pessoal', () =
     role: UserRole.COLLABORATOR,
     status: UserStatus.ACTIVE,
     ownerId: 'dono-1',
-    adminId: 'dono-1',
     avatarUrl: null,
     permissions: [],
     isPlatformAdmin: false,

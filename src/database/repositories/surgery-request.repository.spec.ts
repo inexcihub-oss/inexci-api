@@ -228,7 +228,7 @@ describe('SurgeryRequestRepository.applyStatusTransition (UPDATE condicional)', 
       id: 'sr-1',
       from: SurgeryRequestStatus.PENDING,
       to: SurgeryRequestStatus.SENT,
-      data: { sendMethod: 'email' } as any,
+      data: { sendMethod: 'email' },
       userId: 'u-1',
     });
 

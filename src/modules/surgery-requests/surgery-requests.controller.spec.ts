@@ -8,7 +8,7 @@ import { ActivitiesController } from './activities/activities.controller';
 import { DocumentsController } from './documents/documents.controller';
 import { OpmeController } from './opme/opme.controller';
 import { PendenciesController } from './pendencies/pendencies.controller';
-import { ProceduresController } from './procedures/procedures.controller';
+import { SurgeryRequestProceduresController } from './procedures/procedures.controller';
 import { ReportsController } from '../reports/reports.controller';
 
 describe('Permissões declaradas no módulo de SC', () => {
@@ -47,7 +47,7 @@ describe('Permissões declaradas no módulo de SC', () => {
     ['DocumentsController', DocumentsController],
     ['OpmeController', OpmeController],
     ['PendenciesController', PendenciesController],
-    ['ProceduresController', ProceduresController],
+    ['SurgeryRequestProceduresController', SurgeryRequestProceduresController],
     ['ReportsController', ReportsController],
   ];
 

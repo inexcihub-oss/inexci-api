@@ -3,7 +3,6 @@ import {
   FindOptionsWhere,
   DeepPartial,
   ObjectLiteral,
-  QueryDeepPartialEntity,
 } from 'typeorm';
 import { traceInstanceMethods } from '../../shared/logging/trace.decorator';
 
@@ -40,7 +39,7 @@ export abstract class BaseRepository<T extends ObjectLiteral & HasId> {
   }
 
   async update(id: string, data: DeepPartial<T>): Promise<T | null> {
-    await this.repository.update(id, data as QueryDeepPartialEntity<T>);
+    await this.repository.update(id, data);
     return this.findOne({ id } as FindOptionsWhere<T>);
   }
 

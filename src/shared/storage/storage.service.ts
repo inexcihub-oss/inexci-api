@@ -22,6 +22,13 @@ import {
   STORAGE_FOLDER_CACHE_CONTROL,
   STORAGE_FOLDER_TTL,
 } from '../../config/storage.config';
+import { errorMessage } from 'src/shared/utils/error-message.util';
+
+export interface ArquivoParaUpload {
+  originalname: string;
+  mimetype: string;
+  buffer: Buffer;
+}
 
 @Injectable()
 export class StorageService {
@@ -58,7 +65,11 @@ export class StorageService {
     return STORAGE_FOLDER_CACHE_CONTROL[filePath.split('/')[0]];
   }
 
-  async create(file: any, folder: string, tenantId?: string): Promise<string> {
+  async create(
+    file: ArquivoParaUpload,
+    folder: string,
+    tenantId?: string,
+  ): Promise<string> {
     const sanitizedName = this.sanitizeFilename(file.originalname);
     const filename = `${uuid()}-${sanitizedName}`;
     const prefix = tenantId ? `${folder}/${tenantId}` : folder;
@@ -79,10 +90,13 @@ export class StorageService {
         }),
       );
       return filePath;
-    } catch (error: any) {
-      this.logger.error('Storage service error', error.stack);
+    } catch (error) {
+      this.logger.error(
+        'Storage service error',
+        error instanceof Error ? error.stack : undefined,
+      );
       throw new BadRequestException(
-        `Erro ao fazer upload do arquivo: ${error.message}`,
+        `Erro ao fazer upload do arquivo: ${errorMessage(error)}`,
       );
     }
   }
@@ -107,9 +121,9 @@ export class StorageService {
         expiresIn: ttl,
         signingDate: inicioDaJanela,
       });
-    } catch (error: any) {
+    } catch (error) {
       throw new BadRequestException(
-        `Erro ao obter URL do arquivo: ${error.message}`,
+        `Erro ao obter URL do arquivo: ${errorMessage(error)}`,
       );
     }
   }
@@ -137,10 +151,13 @@ export class StorageService {
         }),
       );
       return filePath;
-    } catch (error: any) {
-      this.logger.error('Storage service error', error.stack);
+    } catch (error) {
+      this.logger.error(
+        'Storage service error',
+        error instanceof Error ? error.stack : undefined,
+      );
       throw new BadRequestException(
-        `Erro ao fazer upload do arquivo: ${error.message}`,
+        `Erro ao fazer upload do arquivo: ${errorMessage(error)}`,
       );
     }
   }
@@ -163,9 +180,11 @@ export class StorageService {
         }),
       );
       return toPath;
-    } catch (error: any) {
-      this.logger.error(`R2 copy error: ${error.message}`);
-      throw new BadRequestException(`Erro ao copiar arquivo: ${error.message}`);
+    } catch (error) {
+      this.logger.error(`R2 copy error: ${errorMessage(error)}`);
+      throw new BadRequestException(
+        `Erro ao copiar arquivo: ${errorMessage(error)}`,
+      );
     }
   }
 
@@ -188,9 +207,11 @@ export class StorageService {
         }),
       );
       return toPath;
-    } catch (error: any) {
-      this.logger.error(`R2 move error: ${error.message}`);
-      throw new BadRequestException(`Erro ao mover arquivo: ${error.message}`);
+    } catch (error) {
+      this.logger.error(`R2 move error: ${errorMessage(error)}`);
+      throw new BadRequestException(
+        `Erro ao mover arquivo: ${errorMessage(error)}`,
+      );
     }
   }
 
@@ -213,8 +234,8 @@ export class StorageService {
         name: (obj.Key || '').replace(`${folder}/`, ''),
         createdAt: obj.LastModified?.toISOString() ?? null,
       }));
-    } catch (err: any) {
-      this.logger.warn(`R2 list error em ${folder}: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`R2 list error em ${folder}: ${errorMessage(err)}`);
       return [];
     }
   }
@@ -263,13 +284,13 @@ export class StorageService {
       }
 
       const chunks: Uint8Array[] = [];
-      for await (const chunk of response.Body as any) {
+      for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
         chunks.push(chunk);
       }
       return Buffer.concat(chunks);
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha inesperada ao baixar ${filePath}: ${err?.message || 'erro'}`,
+        `Falha inesperada ao baixar ${filePath}: ${errorMessage(err) || 'erro'}`,
       );
       return null;
     }
@@ -296,8 +317,8 @@ export class StorageService {
         );
       }
       return falhas;
-    } catch (err: any) {
-      this.logger.warn(`R2 deleteMany error: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`R2 deleteMany error: ${errorMessage(err)}`);
       return [...paths];
     }
   }
@@ -308,16 +329,19 @@ export class StorageService {
         new HeadObjectCommand({ Bucket: this.bucket, Key: filePath }),
       );
       return true;
-    } catch (error: any) {
-      const status = error?.$metadata?.httpStatusCode;
+    } catch (error) {
+      const falha = (
+        typeof error === 'object' && error !== null ? error : {}
+      ) as { $metadata?: { httpStatusCode?: number }; name?: unknown };
+      const status = falha.$metadata?.httpStatusCode;
       if (
         status === 404 ||
-        error?.name === 'NotFound' ||
-        error?.name === 'NoSuchKey'
+        falha.name === 'NotFound' ||
+        falha.name === 'NoSuchKey'
       ) {
         return false;
       }
-      this.logger.warn(`R2 head error: ${error?.message || 'erro'}`);
+      this.logger.warn(`R2 head error: ${errorMessage(error) || 'erro'}`);
       throw error;
     }
   }
@@ -330,9 +354,9 @@ export class StorageService {
           Key: filePath,
         }),
       );
-    } catch (error: any) {
+    } catch (error) {
       throw new BadRequestException(
-        `Erro ao deletar arquivo: ${error.message}`,
+        `Erro ao deletar arquivo: ${errorMessage(error)}`,
       );
     }
   }

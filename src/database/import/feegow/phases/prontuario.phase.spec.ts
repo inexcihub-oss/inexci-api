@@ -84,7 +84,7 @@ function planejar(
     agendamentos: AGENDAMENTOS,
     formularios: FORMULARIOS,
     ...tabelas,
-  } as never);
+  });
   const ctx0 = contextoDeTeste({
     usuariosPorEmail: new Map([
       [
@@ -306,7 +306,7 @@ describe('planejarProntuario (export sintético)', () => {
       agendamentos: AGENDAMENTOS,
       formularios: FORMULARIOS,
       ...tabelas,
-    } as never);
+    });
     const segunda = planejarProntuario(
       exp,
       contextoDeTeste({ ledger: primeira.ctx.ledger }),

@@ -6,6 +6,7 @@ import { ConversationService } from '../conversation.service';
 import { PhoneNormalizerService } from './phone-normalizer.service';
 import { ConversationMemoryService } from './conversation-memory.service';
 import { OperationDraftService } from '../operation-draft.service';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function montarBlocoDeDocumento(texto: string): {
   role: 'user';
@@ -65,7 +66,7 @@ export class DocumentIntakeService {
     }
 
     const incomingDocMedia = this.documentDispatcher.pickDocumentMedia(
-      opts.media as any,
+      opts.media,
     );
     if (incomingDocMedia) {
       if (
@@ -364,16 +365,16 @@ export class DocumentIntakeService {
         );
       if (extracted.tuss?.length)
         dataLines.push(
-          `  - TUSS: ${extracted.tuss.map((t: any) => `${t.code}${t.description ? ` (${t.description})` : ''}`).join(', ')}`,
+          `  - TUSS: ${extracted.tuss.map((t) => `${t.code}${t.description ? ` (${t.description})` : ''}`).join(', ')}`,
         );
       if (extracted.cid?.length)
         dataLines.push(
-          `  - CID: ${extracted.cid.map((c: any) => c.code).join(', ')}`,
+          `  - CID: ${extracted.cid.map((c) => c.code).join(', ')}`,
         );
       if (extracted.opme?.length)
         dataLines.push(
           `  - OPME: ${extracted.opme
-            .map((o: any) => {
+            .map((o) => {
               const tag = [o.supplier, o.manufacturer]
                 .filter(Boolean)
                 .join('/');
@@ -477,9 +478,9 @@ export class DocumentIntakeService {
         ...(laudoBlock ? [laudoBlock.content] : []),
         intentInstruction + ambiguityNote,
       ].join('\n');
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[AI_DOC_PENDING_HINT] erro ao montar hint: ${err?.message || 'erro desconhecido'}`,
+        `[AI_DOC_PENDING_HINT] erro ao montar hint: ${errorMessage(err) || 'erro desconhecido'}`,
       );
       return null;
     }
@@ -487,7 +488,7 @@ export class DocumentIntakeService {
 
   buildDocumentReminderMessage(
     intent: 'attach' | 'create_sc' | 'create_patient',
-    pending: any,
+    pending: { classification?: { kind?: string } | null },
   ): string {
     const classification = pending.classification;
     const kindLabel = classification?.kind ?? 'documento';

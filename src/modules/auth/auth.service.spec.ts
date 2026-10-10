@@ -738,7 +738,7 @@ describe('AuthService', () => {
         crm: '12345',
         crmState: 'SP',
         specialty: 'Cardiology',
-      } as any);
+      });
 
       expect(result.user.isDoctor).toBe(true);
       expect(result.user.doctorProfile).toEqual({
@@ -779,7 +779,7 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11999998888',
         isDoctor: false,
-      } as any);
+      });
 
       expect(result.user.isDoctor).toBe(false);
       expect(result.user.doctorProfile).toBeNull();
@@ -812,7 +812,7 @@ describe('AuthService', () => {
         email: 'dono@example.com',
         password: '123456',
         phone: '11999998888',
-      } as any);
+      });
 
       expect(result.user).not.toHaveProperty('isPlatformAdmin');
       expect(
@@ -1210,7 +1210,7 @@ describe('AuthService', () => {
             email: 'alvo@example.com',
             resetToken: 'token-inventado',
             password: 'new',
-          } as any);
+          });
           throw new Error('deveria ter lançado');
         } catch (err: any) {
           return {
@@ -1296,7 +1296,7 @@ describe('AuthService', () => {
         email: 'test@example.com',
         resetToken: 'reset-tok',
         password: 'new-password-123',
-      } as any);
+      });
 
       expect(result).toEqual({ message: 'Senha alterada com sucesso' });
 
@@ -1460,7 +1460,7 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11999998888',
         isDoctor: false,
-      } as any);
+      });
 
       await new Promise((r) => setImmediate(r));
 
@@ -1498,7 +1498,7 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11988887777',
         isDoctor: false,
-      } as any);
+      });
 
       await new Promise((r) => setImmediate(r));
 
@@ -1534,7 +1534,7 @@ describe('AuthService', () => {
         password: '123456',
         phone: '11999990000',
         isDoctor: false,
-      } as any);
+      });
 
       await new Promise((r) => setImmediate(r));
 

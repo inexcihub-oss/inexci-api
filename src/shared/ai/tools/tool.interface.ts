@@ -35,5 +35,5 @@ export interface AiTool {
   cacheable?: AiToolCacheConfig;
   requiredPermission: ToolPermissionRequirement;
   mutates?: boolean;
-  execute(args: Record<string, any>, context: ToolContext): Promise<string>;
+  execute(args: Record<string, unknown>, context: ToolContext): Promise<string>;
 }

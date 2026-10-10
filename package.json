@@ -34,7 +34,8 @@
     "check:pgvector": "ts-node -r tsconfig-paths/register scripts/check-pgvector.ts",
     "predeploy": "yarn check:pgvector",
     "migration:preflight": "ts-node -r tsconfig-paths/register scripts/migration-preflight.ts",
-    "import:feegow": "TZ=UTC ts-node -r tsconfig-paths/register scripts/import-feegow.ts"
+    "import:feegow": "TZ=UTC ts-node -r tsconfig-paths/register scripts/import-feegow.ts",
+    "openapi:generate": "TS_NODE_TRANSPILE_ONLY=true ts-node -r tsconfig-paths/register src/openapi/generate-openapi.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -48,7 +49,6 @@
     "@nestjs/core": "^10.3.9",
     "@nestjs/event-emitter": "^3.1.0",
     "@nestjs/jwt": "^10.2.0",
-    "@nestjs/mapped-types": "^2.0.5",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.3.9",
     "@nestjs/platform-socket.io": "^10.3.9",

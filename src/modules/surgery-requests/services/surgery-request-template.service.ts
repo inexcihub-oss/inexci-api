@@ -39,7 +39,7 @@ export class SurgeryRequestTemplateService {
     dto: { name: string; templateData: object },
     userId: string,
     ownerId: string | null,
-  ): Promise<any> {
+  ): Promise<SurgeryRequestTemplate | null> {
     const tenantOwnerId = this.requireOwnerId(ownerId);
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const template = templateRepo.create({
@@ -118,7 +118,7 @@ export class SurgeryRequestTemplateService {
     dto: { name?: string; templateData?: object },
     userId: string,
     ownerId: string | null,
-  ): Promise<any> {
+  ): Promise<SurgeryRequestTemplate> {
     const tenantOwnerId = this.requireOwnerId(ownerId);
     const templateRepo = this.dataSource.getRepository(SurgeryRequestTemplate);
     const template = await templateRepo.findOne({

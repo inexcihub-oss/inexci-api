@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { getRequestContext } from 'src/shared/logging/request-context';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface PdfGenerationJobData {
   surgeryRequestId: string;
@@ -41,9 +42,9 @@ export class PdfGenerationService {
       this.logger.log(
         `Geração de PDF enfileirada para solicitação: ${surgeryRequestId}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enfileirar geração de PDF (Redis offline?): requestId="${surgeryRequestId}" — ${err?.message}`,
+        `Falha ao enfileirar geração de PDF (Redis offline?): requestId="${surgeryRequestId}" — ${errorMessage(err)}`,
       );
     }
   }

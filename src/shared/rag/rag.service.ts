@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { EmbeddingService } from './embedding.service';
 import { inexciTracer, SpanStatusCode } from '../observability/tracer';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface RagSearchResult {
   id: string;
@@ -85,10 +86,15 @@ export class RagService {
           span.setAttribute('rag.top_score', reranked[0].score);
         span.setStatus({ code: SpanStatusCode.OK });
         return reranked;
-      } catch (error: any) {
-        span.recordException(error);
-        span.setStatus({ code: SpanStatusCode.ERROR, message: error?.message });
-        this.logger.warn(`RAG search falhou: ${error?.message}`);
+      } catch (error) {
+        span.recordException(
+          error instanceof Error ? error : errorMessage(error),
+        );
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: errorMessage(error),
+        });
+        this.logger.warn(`RAG search falhou: ${errorMessage(error)}`);
         return [];
       } finally {
         span.end();
@@ -110,9 +116,11 @@ export class RagService {
     };
   }
 
-  async formatContext(results: RagSearchResult[]): Promise<string | undefined> {
-    if (!results.length) return undefined;
-    return results.map((r) => `[${r.category}] ${r.content}`).join('\n---\n');
+  formatContext(results: RagSearchResult[]): Promise<string | undefined> {
+    if (!results.length) return Promise.resolve(undefined);
+    return Promise.resolve(
+      results.map((r) => `[${r.category}] ${r.content}`).join('\n---\n'),
+    );
   }
 
   rerank(results: RagSearchResult[], query: string): RagSearchResult[] {

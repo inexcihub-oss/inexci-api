@@ -41,7 +41,7 @@ describe('SurgicalIndicationService', () => {
     service = new SurgicalIndicationService(
       dataSource as never,
       clinicalRecordRepository as never,
-      fromIndication as never,
+      fromIndication,
       realtime as never,
       indicationDocuments as never,
       accessControl as never,

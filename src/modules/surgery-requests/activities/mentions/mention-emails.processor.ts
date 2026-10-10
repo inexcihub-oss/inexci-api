@@ -14,6 +14,7 @@ import {
   MentionEmailJobData,
   SEND_MENTION_EMAIL_JOB,
 } from './mention-emails-jobs.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const TAMANHO_PREVIA = 240;
 
@@ -118,9 +119,9 @@ export class MentionEmailsProcessor {
       ].filter((parte): parte is string => Boolean(parte));
 
       return partes.join(' · ');
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[MENCAO] Não consegui identificar a SC ${surgeryRequestId} para o e-mail: ${err?.message}`,
+        `[MENCAO] Não consegui identificar a SC ${surgeryRequestId} para o e-mail: ${errorMessage(err)}`,
       );
       return undefined;
     }

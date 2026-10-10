@@ -13,8 +13,11 @@ import {
 import { User } from './user.entity';
 import { SurgeryRequest } from './surgery-request.entity';
 
+export const HOSPITAL_NOME_UNICO = 'uq_hospitals_owner_name_active';
+
 @Entity('hospitals')
 @Index('idx_hospitals_owner_id', ['ownerId'])
+@Index(HOSPITAL_NOME_UNICO, { synchronize: false })
 export class Hospital {
   @PrimaryGeneratedColumn('uuid')
   id: string;

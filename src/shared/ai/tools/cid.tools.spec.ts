@@ -28,7 +28,7 @@ function fakeMatch(code: string, description: string): CidResponse {
 describe('search_cid_codes', () => {
   it('exige query com pelo menos 2 caracteres', async () => {
     const service = makeCidService({});
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute({ query: 'a' }, baseContext);
     expect(result).toContain('ao menos 2 caracteres');
@@ -37,7 +37,7 @@ describe('search_cid_codes', () => {
 
   it('rejeita usuário sem userId no contexto', async () => {
     const service = makeCidService({});
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute(
       { query: 'M171' },
@@ -52,7 +52,7 @@ describe('search_cid_codes', () => {
     const exactMatch = fakeMatch('M171', 'Outras Gonartroses Primárias');
     const findByExactCode = jest.fn().mockReturnValue(exactMatch);
     const service = makeCidService({ findByExactCode });
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute({ query: 'M171' }, baseContext);
 
@@ -66,7 +66,7 @@ describe('search_cid_codes', () => {
     const exactMatch = fakeMatch('M171', 'Outras Gonartroses Primárias');
     const findByExactCode = jest.fn().mockReturnValue(exactMatch);
     const service = makeCidService({ findByExactCode });
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute({ query: 'M17.1' }, baseContext);
 
@@ -84,7 +84,7 @@ describe('search_cid_codes', () => {
       findByExactCode: jest.fn().mockReturnValue(null),
       lookup,
     });
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute({ query: 'M17' }, baseContext);
 
@@ -98,7 +98,7 @@ describe('search_cid_codes', () => {
     const lookup = jest.fn().mockReturnValue([match]);
     const findByExactCode = jest.fn();
     const service = makeCidService({ lookup, findByExactCode });
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute(
       { query: 'gonartrose primaria', limit: 5 },
@@ -115,7 +115,7 @@ describe('search_cid_codes', () => {
   it('respeita limite máximo de 30 e mínimo de 1', async () => {
     const lookup = jest.fn().mockReturnValue([]);
     const service = makeCidService({ lookup });
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     await tool.execute({ query: 'gonartrose', limit: 999 }, baseContext);
     expect(lookup).toHaveBeenLastCalledWith('gonartrose', 30);
@@ -128,7 +128,7 @@ describe('search_cid_codes', () => {
     const service = makeCidService({
       lookup: jest.fn().mockReturnValue([]),
     });
-    const [tool] = buildCidTools(service);
+    const [tool] = buildCidTools({ cidService: service });
 
     const result = await tool.execute({ query: 'xyzwxyz' }, baseContext);
 

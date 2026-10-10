@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OpenaiService } from '../openai.service';
 import { WhatsappService } from '../../../whatsapp/whatsapp.service';
-import { RagService } from '../../../rag/rag.service';
+import { RagSearchResult, RagService } from '../../../rag/rag.service';
 import { PiiVaultService } from '../pii-vault.service';
 import { AiRedisService } from '../ai-redis.service';
 import { PhoneNormalizerService } from './phone-normalizer.service';
@@ -257,7 +257,7 @@ export class MessageProcessorService {
         return false;
       }
 
-      let ragResults: any[] = [];
+      let ragResults: RagSearchResult[] = [];
       try {
         ragResults =
           (await this.ragService.search(processed, {

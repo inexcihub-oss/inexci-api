@@ -221,7 +221,7 @@ export class SurgeryRequestPdfAssemblyService {
       (doc) =>
         doc.uri &&
         String(doc.uri).startsWith('documents/') &&
-        !PDF_EXCLUDED_DOCUMENT_KEYS.includes(doc.key as string),
+        !PDF_EXCLUDED_DOCUMENT_KEYS.includes(doc.key),
     );
 
     const docBuffers: Buffer[] = [];

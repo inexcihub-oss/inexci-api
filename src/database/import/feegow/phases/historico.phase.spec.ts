@@ -50,7 +50,7 @@ function planejar(
   const exp = exportSintetico({
     agendamentos: AGENDAMENTOS,
     log_marcacoes: logs,
-  } as never);
+  });
   const ctx0 = contextoDeTeste({
     usuariosPorEmail: new Map([
       [

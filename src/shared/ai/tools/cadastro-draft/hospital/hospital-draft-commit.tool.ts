@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { ALL_PERMISSIONS } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -23,12 +22,12 @@ export function buildHospitalDraftCommitTool(deps: CadastroDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:

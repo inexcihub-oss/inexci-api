@@ -466,7 +466,7 @@ export class SubscriptionService {
     if (gatewaySub.priceId) {
       const plan = await this.planRepo.findOne({
         gatewayPriceId: gatewaySub.priceId,
-      } as Parameters<typeof this.planRepo.findOne>[0]);
+      });
       if (plan) newPlanId = plan.id;
     }
 

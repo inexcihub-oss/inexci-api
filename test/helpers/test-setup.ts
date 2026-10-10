@@ -44,8 +44,7 @@ export async function createTestApp(): Promise<INestApplication> {
 export async function cleanDatabase(app: INestApplication): Promise<void> {
   const dataSource = app.get(DataSource);
   await assertBancoDeTeste({
-    query: (sql: string) =>
-      dataSource.query(sql) as Promise<{ current_database: string }[]>,
+    query: (sql: string) => dataSource.query(sql),
   });
 
   if (!cachedTruncateTableNames) {
@@ -169,14 +168,13 @@ export async function createUserWithRole(
         role,
         status,
         owner_id,
-        admin_id,
         phone,
         email_verified,
         email_verified_at,
         privacy_policy_accepted_at,
         terms_of_use_accepted_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $1, NULL, $7, true, NOW(), NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $1, $7, true, NOW(), NOW(), NOW())
       RETURNING id, email, name, role, status, owner_id as account_id
     `,
       [
@@ -204,14 +202,13 @@ export async function createUserWithRole(
         role,
         status,
         owner_id,
-        admin_id,
         phone,
         email_verified,
         email_verified_at,
         privacy_policy_accepted_at,
         terms_of_use_accepted_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $6, $7, true, NOW(), NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW(), NOW(), NOW())
       RETURNING id, email, name, role, status, owner_id as account_id
     `,
       [

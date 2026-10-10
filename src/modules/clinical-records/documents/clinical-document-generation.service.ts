@@ -608,7 +608,7 @@ export class ClinicalDocumentGenerationService {
         originalname: filename,
         mimetype: 'application/pdf',
         buffer: pdf,
-      } as any,
+      },
       STORAGE_FOLDERS.DOCUMENTS,
       record.ownerId,
     );

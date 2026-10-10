@@ -725,7 +725,7 @@ describe('SurgeryRequestWorkflowService', () => {
     it('should succeed with valid date index', async () => {
       const request = makeRequest({
         status: SurgeryRequestStatus.IN_SCHEDULING,
-        dateOptions: ['2026-03-01', '2026-03-10'] as any,
+        dateOptions: ['2026-03-01', '2026-03-10'],
       });
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         request,
@@ -872,7 +872,7 @@ describe('SurgeryRequestWorkflowService', () => {
         invoiceValue: 5000,
       };
 
-      await service.invoiceRequest('req-1', dto as any, 'user-1');
+      await service.invoiceRequest('req-1', dto, 'user-1');
 
       expect(billingService.invoiceRequest).toHaveBeenCalledWith(
         'req-1',
@@ -889,7 +889,7 @@ describe('SurgeryRequestWorkflowService', () => {
         receivedAt: '2026-04-15',
       };
 
-      await service.confirmReceipt('req-1', dto as any, 'user-1');
+      await service.confirmReceipt('req-1', dto, 'user-1');
 
       expect(billingService.confirmReceipt).toHaveBeenCalledWith(
         'req-1',
@@ -907,7 +907,7 @@ describe('SurgeryRequestWorkflowService', () => {
         message: 'Valor divergente',
       };
 
-      await service.contestPayment('req-1', dto as any, 'user-1');
+      await service.contestPayment('req-1', dto, 'user-1');
 
       expect(billingService.contestPayment).toHaveBeenCalledWith(
         'req-1',
@@ -1101,6 +1101,30 @@ describe('SurgeryRequestWorkflowService', () => {
       expect(order).toEqual(['begin', 'status', 'quota', 'commit']);
     });
 
+    it('commit falha depois do consumo: a cota foi gravada pelo manager da transação e nada é disparado', async () => {
+      surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
+        makeRequest(),
+      );
+      const txManager = createMockManager();
+      dataSource.transaction.mockImplementationOnce(async (cb: any) => {
+        await cb(txManager);
+        throw new Error('commit failed');
+      });
+
+      await expect(
+        service.sendRequest('req-1', { method: SendMethod.DOWNLOAD }, 'user-1'),
+      ).rejects.toThrow('commit failed');
+
+      expect(quotaService.consumeSurgeryRequest).toHaveBeenCalledWith(
+        makeRequest().ownerId,
+        { manager: txManager },
+      );
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(
+        notificationService.notifyStakeholdersOfStatusChange,
+      ).not.toHaveBeenCalled();
+    });
+
     it('cota recusada desfaz o envio: sem evento nem notificação', async () => {
       surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
         makeRequest(),
@@ -1192,7 +1216,7 @@ describe('SurgeryRequestWorkflowService', () => {
       '%s recusa com 409 quando outra ação já moveu a SC',
       async (_n, status, run) => {
         surgeryRequestRepository.findOneWithAllRelations.mockResolvedValue(
-          makeRequest({ status, dateOptions: ['2026-04-01'] } as any),
+          makeRequest({ status, dateOptions: ['2026-04-01'] }),
         );
         surgeryRequestRepository.applyStatusTransition.mockResolvedValue(false);
 

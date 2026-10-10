@@ -32,7 +32,7 @@ describe('QuotaService', () => {
     quotaPeriodRepo = {
       findCurrentForSubscription: jest.fn(),
       tryConsume: jest.fn(),
-      findOne: jest.fn(),
+      findById: jest.fn(),
     };
     service = new QuotaService(subscriptionRepo, quotaPeriodRepo);
   });
@@ -94,14 +94,43 @@ describe('QuotaService', () => {
         buildPeriod({ surgeryRequestsUsed: 3 }),
       );
       quotaPeriodRepo.tryConsume.mockResolvedValue(true);
-      quotaPeriodRepo.findOne.mockResolvedValue(
+      quotaPeriodRepo.findById.mockResolvedValue(
         buildPeriod({ surgeryRequestsUsed: 4 }),
       );
 
       const snap = await service.consumeSurgeryRequest('owner-1');
       expect(snap.used).toBe(4);
       expect(snap.remaining).toBe(6);
-      expect(quotaPeriodRepo.tryConsume).toHaveBeenCalledWith('period-1');
+      expect(quotaPeriodRepo.tryConsume).toHaveBeenCalledWith(
+        'period-1',
+        undefined,
+      );
+    });
+
+    it('usa o manager da transação para ler, consumir e reler o período', async () => {
+      const manager = { tag: 'tx' } as any;
+      subscriptionRepo.findByOwnerId.mockResolvedValue(buildSub());
+      quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(
+        buildPeriod({ surgeryRequestsUsed: 3 }),
+      );
+      quotaPeriodRepo.tryConsume.mockResolvedValue(true);
+      quotaPeriodRepo.findById.mockResolvedValue(
+        buildPeriod({ surgeryRequestsUsed: 4 }),
+      );
+
+      await service.consumeSurgeryRequest('owner-1', { manager });
+
+      expect(quotaPeriodRepo.tryConsume).toHaveBeenCalledWith(
+        'period-1',
+        manager,
+      );
+      expect(
+        quotaPeriodRepo.findCurrentForSubscription,
+      ).toHaveBeenLastCalledWith('sub-1', expect.any(Date), manager);
+      expect(quotaPeriodRepo.findById).toHaveBeenCalledWith(
+        'period-1',
+        manager,
+      );
     });
 
     it('lança quando race condition esgota cota entre assert e consume', async () => {
@@ -121,7 +150,7 @@ describe('QuotaService', () => {
       quotaPeriodRepo.findCurrentForSubscription.mockResolvedValue(
         buildPeriod({ surgeryRequestsLimit: -1, surgeryRequestsUsed: 5 }),
       );
-      quotaPeriodRepo.findOne.mockResolvedValue(
+      quotaPeriodRepo.findById.mockResolvedValue(
         buildPeriod({ surgeryRequestsLimit: -1, surgeryRequestsUsed: 5 }),
       );
 

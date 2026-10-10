@@ -56,3 +56,34 @@ export function sanitizeAlphaNumKey(value: string): string {
     .replace(/^_+|_+$/g, '')
     .slice(0, 50);
 }
+
+export function asScalarArg(
+  value: unknown,
+): string | number | null | undefined {
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  if (typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (value === null) return null;
+  return undefined;
+}
+
+export function argToString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value);
+  }
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'symbol') return value.toString();
+  if (Array.isArray(value)) {
+    return value
+      .map((item: unknown) => (item == null ? '' : argToString(item)))
+      .join(',');
+  }
+  return Object.prototype.toString.call(value);
+}

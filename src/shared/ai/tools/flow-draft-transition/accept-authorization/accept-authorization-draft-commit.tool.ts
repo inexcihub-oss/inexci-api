@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -31,12 +30,12 @@ export function buildAcceptAuthorizationDraftCommitTool(
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -72,7 +71,7 @@ export function buildAcceptAuthorizationDraftCommitTool(
           {
             dateOptions: f.dateOptions!,
             notifyPatient: f.notifyPatient,
-          } as any,
+          },
           context.userId,
         );
         await recordAiActivity(
@@ -90,7 +89,7 @@ export function buildAcceptAuthorizationDraftCommitTool(
           affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Autorização aceita para a solicitação ${f.surgeryRequestLabel ?? surgeryRequestId}.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: extractTransitionErrorMessage(

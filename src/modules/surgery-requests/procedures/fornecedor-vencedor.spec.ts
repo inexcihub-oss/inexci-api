@@ -50,7 +50,7 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     const { service, opmeRepo, supplierRepository } = montar();
 
     await service.authorize(
-      autorizar({ selectedSupplierIsGeneric: true }) as never,
+      autorizar({ selectedSupplierIsGeneric: true }),
       'user-1',
     );
 
@@ -65,7 +65,7 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     const { service, opmeRepo } = montar([{ id: 'sup-1' }]);
 
     await service.authorize(
-      autorizar({ selectedSupplierId: 'sup-1' }) as never,
+      autorizar({ selectedSupplierId: 'sup-1' }),
       'user-1',
     );
 
@@ -91,7 +91,7 @@ describe('ProceduresService.authorize — fornecedor vencedor', () => {
     const { service, supplierRepository } = montar([{ id: 'sup-1' }]);
 
     await service.authorize(
-      autorizar({ selectedSupplierId: 'sup-1' }) as never,
+      autorizar({ selectedSupplierId: 'sup-1' }),
       'user-1',
     );
 

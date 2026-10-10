@@ -13,7 +13,8 @@ const STATUS_LABELS: Record<SurgeryRequestStatus, string> = {
 };
 
 export function getStatusLabel(status: number): string {
-  return STATUS_LABELS[status as SurgeryRequestStatus] ?? String(status);
+  const labels: Partial<Record<number, string>> = STATUS_LABELS;
+  return labels[status] ?? String(status);
 }
 
 export function getStatusDescriptionForPatient(

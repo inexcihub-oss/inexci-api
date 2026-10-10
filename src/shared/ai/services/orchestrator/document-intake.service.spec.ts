@@ -58,12 +58,12 @@ describe('DocumentIntakeService', () => {
         documentDispatcher: { isEnabled: jest.fn().mockReturnValue(false) },
       });
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -78,12 +78,12 @@ describe('DocumentIntakeService', () => {
     it('retorna handled=false quando não há mídia nova nem pendência ativa', async () => {
       const deps = makeDeps();
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -116,12 +116,12 @@ describe('DocumentIntakeService', () => {
         },
       });
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -155,12 +155,12 @@ describe('DocumentIntakeService', () => {
         },
       });
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -201,12 +201,12 @@ describe('DocumentIntakeService', () => {
         },
       });
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -257,12 +257,12 @@ describe('DocumentIntakeService', () => {
         },
       });
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const result = await svc.processInboundDocumentIfNeeded({
         phone: '+5511999999999',
@@ -288,12 +288,12 @@ describe('DocumentIntakeService', () => {
           },
         });
         const svc = new DocumentIntakeService(
-          deps.documentDispatcher as any,
-          deps.documentProcessor as any,
-          deps.whatsappService as any,
-          deps.conversationService as any,
-          deps.phoneNormalizer as any,
-          deps.conversationMemory as any,
+          deps.documentDispatcher,
+          deps.documentProcessor,
+          deps.whatsappService,
+          deps.conversationService,
+          deps.phoneNormalizer,
+          deps.conversationMemory,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -333,12 +333,12 @@ describe('DocumentIntakeService', () => {
           },
         });
         const svc = new DocumentIntakeService(
-          deps.documentDispatcher as any,
-          deps.documentProcessor as any,
-          deps.whatsappService as any,
-          deps.conversationService as any,
-          deps.phoneNormalizer as any,
-          deps.conversationMemory as any,
+          deps.documentDispatcher,
+          deps.documentProcessor,
+          deps.whatsappService,
+          deps.conversationService,
+          deps.phoneNormalizer,
+          deps.conversationMemory,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -381,12 +381,12 @@ describe('DocumentIntakeService', () => {
           },
         });
         const svc = new DocumentIntakeService(
-          deps.documentDispatcher as any,
-          deps.documentProcessor as any,
-          deps.whatsappService as any,
-          deps.conversationService as any,
-          deps.phoneNormalizer as any,
-          deps.conversationMemory as any,
+          deps.documentDispatcher,
+          deps.documentProcessor,
+          deps.whatsappService,
+          deps.conversationService,
+          deps.phoneNormalizer,
+          deps.conversationMemory,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -424,12 +424,12 @@ describe('DocumentIntakeService', () => {
           },
         });
         const svc = new DocumentIntakeService(
-          deps.documentDispatcher as any,
-          deps.documentProcessor as any,
-          deps.whatsappService as any,
-          deps.conversationService as any,
-          deps.phoneNormalizer as any,
-          deps.conversationMemory as any,
+          deps.documentDispatcher,
+          deps.documentProcessor,
+          deps.whatsappService,
+          deps.conversationService,
+          deps.phoneNormalizer,
+          deps.conversationMemory,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -462,12 +462,12 @@ describe('DocumentIntakeService', () => {
           },
         });
         const svc = new DocumentIntakeService(
-          deps.documentDispatcher as any,
-          deps.documentProcessor as any,
-          deps.whatsappService as any,
-          deps.conversationService as any,
-          deps.phoneNormalizer as any,
-          deps.conversationMemory as any,
+          deps.documentDispatcher,
+          deps.documentProcessor,
+          deps.whatsappService,
+          deps.conversationService,
+          deps.phoneNormalizer,
+          deps.conversationMemory,
         );
         const result = await svc.processInboundDocumentIfNeeded({
           phone: '+5511999999999',
@@ -487,12 +487,12 @@ describe('DocumentIntakeService', () => {
     it('gera mensagem correta para intent attach', () => {
       const deps = makeDeps();
       const svc = new DocumentIntakeService(
-        deps.documentDispatcher as any,
-        deps.documentProcessor as any,
-        deps.whatsappService as any,
-        deps.conversationService as any,
-        deps.phoneNormalizer as any,
-        deps.conversationMemory as any,
+        deps.documentDispatcher,
+        deps.documentProcessor,
+        deps.whatsappService,
+        deps.conversationService,
+        deps.phoneNormalizer,
+        deps.conversationMemory,
       );
       const msg = svc.buildDocumentReminderMessage('attach', {
         classification: { kind: 'laudo' },

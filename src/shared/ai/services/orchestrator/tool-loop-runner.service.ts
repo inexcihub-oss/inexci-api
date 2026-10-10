@@ -10,6 +10,7 @@ import {
 import { ToolContext } from '../../tools/tool.interface';
 import { OperationDraftType } from '../../drafts/operation-draft.types';
 import { inexciTracer, SpanStatusCode } from '../../../observability/tracer';
+import { errorMessage } from '../../../utils/error-message.util';
 
 const MAX_TOOL_ITERATIONS = 8;
 
@@ -17,12 +18,12 @@ export interface ToolLoopHooks {
   memorizeEntitiesFromToolCall: (input: {
     conversationId: string;
     toolName: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
     output: string;
   }) => Promise<void>;
   appendNextStepIfNeeded: (
     functionName: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
     output: string,
     toolContext: ToolContext,
   ) => Promise<string>;
@@ -99,7 +100,7 @@ export class ToolLoopRunnerService {
       iterations--;
       const iterNum = MAX_TOOL_ITERATIONS - iterations;
 
-      const currentToolCalls = responseMessage.tool_calls!;
+      const currentToolCalls = responseMessage.tool_calls;
       await inexciTracer.startActiveSpan(
         `ai.toolLoop.iteration`,
         async (iterSpan) => {
@@ -123,7 +124,7 @@ export class ToolLoopRunnerService {
                 if (!toolCall) return result;
 
                 const functionName = toolCall.function?.name || '';
-                let args: Record<string, any> = {};
+                let args: Record<string, unknown> = {};
 
                 try {
                   args = toolCall.function?.arguments
@@ -161,7 +162,7 @@ export class ToolLoopRunnerService {
               }),
             );
 
-            messages.push(responseMessage as OpenAI.ChatCompletionMessageParam);
+            messages.push(responseMessage);
             for (const result of patchedToolResults) {
               messages.push({
                 role: 'tool',
@@ -205,11 +206,11 @@ export class ToolLoopRunnerService {
             );
             responseMessage = followUp.choices[0].message;
             iterSpan.setStatus({ code: SpanStatusCode.OK });
-          } catch (e: any) {
-            iterSpan.recordException(e);
+          } catch (e) {
+            iterSpan.recordException(e instanceof Error ? e : String(e));
             iterSpan.setStatus({
               code: SpanStatusCode.ERROR,
-              message: e.message,
+              message: errorMessage(e),
             });
             throw e;
           } finally {

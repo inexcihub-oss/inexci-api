@@ -98,7 +98,7 @@ describe('ClinicalRecordTemplatesService', () => {
   describe('criação', () => {
     it('grava o modelo na clínica do usuário e no médico resolvido', async () => {
       const created = await service.create(
-        { name: 'Retorno', anamnesis: '<p>Evolução:</p>' } as any,
+        { name: 'Retorno', anamnesis: '<p>Evolução:</p>' },
         'user-1',
       );
 
@@ -114,10 +114,7 @@ describe('ClinicalRecordTemplatesService', () => {
     });
 
     it('usa o médico informado quando o usuário tem acesso a ele', async () => {
-      await service.create(
-        { name: 'Retorno', doctorId: 'doctor-2' } as any,
-        'user-1',
-      );
+      await service.create({ name: 'Retorno', doctorId: 'doctor-2' }, 'user-1');
 
       expect(accessControlService.canAccessDoctor).toHaveBeenCalledWith(
         'user-1',
@@ -144,7 +141,7 @@ describe('ClinicalRecordTemplatesService', () => {
 
   describe('edição e exclusão', () => {
     it('atualiza apenas os campos enviados', async () => {
-      await service.update('tpl-1', { name: 'Novo nome' } as any, 'user-1');
+      await service.update('tpl-1', { name: 'Novo nome' }, 'user-1');
 
       expect(repository.update).toHaveBeenCalledWith('tpl-1', {
         name: 'Novo nome',
@@ -152,7 +149,7 @@ describe('ClinicalRecordTemplatesService', () => {
     });
 
     it('permite limpar um campo do modelo', async () => {
-      await service.update('tpl-1', { anamnesis: '' } as any, 'user-1');
+      await service.update('tpl-1', { anamnesis: '' }, 'user-1');
 
       expect(repository.update).toHaveBeenCalledWith('tpl-1', {
         anamnesis: '',

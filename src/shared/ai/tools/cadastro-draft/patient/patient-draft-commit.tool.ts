@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
@@ -23,12 +22,12 @@ export function buildPatientDraftCommitTool(deps: CadastroDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -51,13 +50,13 @@ export function buildPatientDraftCommitTool(deps: CadastroDraftDeps): AiTool {
       const fields = v.draft.fields;
 
       if (fields.cpf) {
-        const requester = await userRepo.findOne({ id: context.userId } as any);
+        const requester = await userRepo.findOne({ id: context.userId });
         if (requester) {
-          const ownerId = (requester as any).ownerId;
+          const ownerId = requester.ownerId;
           const existing = await patientRepo.findMany({
             ownerId,
             cpf: fields.cpf,
-          } as any);
+          });
           if (existing.length > 0) {
             return buildToolResult({
               status: 'blocked',

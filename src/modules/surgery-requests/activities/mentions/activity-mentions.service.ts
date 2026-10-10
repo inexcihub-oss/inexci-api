@@ -4,6 +4,7 @@ import { AccessControlService } from 'src/shared/services/access-control.service
 import { NotificationDispatcherService } from 'src/modules/notifications/notification-dispatcher.service';
 import { NotificationType } from 'src/database/entities/notification.entity';
 import { MentionEmailsJobsService } from './mention-emails-jobs.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface RegisterMentionsParams {
   activityId: string;
@@ -66,9 +67,9 @@ export class ActivityMentionsService {
         id,
         name: porId.get(id)?.name ?? '',
       }));
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[MENCAO] Falha ao registrar menções da atividade ${params.activityId}: ${err?.message}`,
+        `[MENCAO] Falha ao registrar menções da atividade ${params.activityId}: ${errorMessage(err)}`,
       );
       return [];
     }
@@ -108,9 +109,9 @@ export class ActivityMentionsService {
         content: params.content,
         inAppNotified: Boolean(notification),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[MENCAO] Falha ao avisar ${mention.mentionedUserId} da atividade ${params.activityId}: ${err?.message}`,
+        `[MENCAO] Falha ao avisar ${mention.mentionedUserId} da atividade ${params.activityId}: ${errorMessage(err)}`,
       );
     }
   }

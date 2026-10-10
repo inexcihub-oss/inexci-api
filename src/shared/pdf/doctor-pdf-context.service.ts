@@ -3,6 +3,8 @@ import { UserRepository } from 'src/database/repositories/user.repository';
 import { DoctorHeaderRepository } from 'src/database/repositories/doctor-header.repository';
 import { StorageService } from 'src/shared/storage/storage.service';
 import { CustomHeaderData } from './pdf.service';
+import { User } from 'src/database/entities/user.entity';
+import { DoctorProfile } from 'src/database/entities/doctor-profile.entity';
 
 export function formatarRegistroProfissional(
   profile:
@@ -16,8 +18,8 @@ export function formatarRegistroProfissional(
 }
 
 export interface DoctorPdfContext {
-  doctor: any;
-  profile: any;
+  doctor: User;
+  profile: DoctorProfile | null | undefined;
   doctorCrm?: string;
   doctorSignatureUrl?: string;
   customHeader: CustomHeaderData | null;
@@ -41,7 +43,7 @@ export class DoctorPdfContextService {
     return this.buildForDoctor(doctor);
   }
 
-  async buildForDoctor(doctor: any): Promise<DoctorPdfContext> {
+  async buildForDoctor(doctor: User): Promise<DoctorPdfContext> {
     const profile = doctor?.doctorProfile;
 
     const doctorCrm = formatarRegistroProfissional(profile);
@@ -52,7 +54,9 @@ export class DoctorPdfContextService {
     return { doctor, profile, doctorCrm, doctorSignatureUrl, customHeader };
   }
 
-  async resolveSignatureUrl(profile: any): Promise<string | undefined> {
+  async resolveSignatureUrl(
+    profile: DoctorProfile | null | undefined,
+  ): Promise<string | undefined> {
     if (!profile?.signatureUrl) return undefined;
     const raw: string = profile.signatureUrl;
     if (raw.startsWith('http')) return raw;
@@ -63,7 +67,9 @@ export class DoctorPdfContextService {
     }
   }
 
-  async resolveCustomHeader(profile: any): Promise<CustomHeaderData | null> {
+  async resolveCustomHeader(
+    profile: DoctorProfile | null | undefined,
+  ): Promise<CustomHeaderData | null> {
     if (!profile?.id) return null;
 
     const header =

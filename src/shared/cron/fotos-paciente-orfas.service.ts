@@ -46,10 +46,10 @@ export class FotosPacienteOrfasService {
   }
 
   private async referenciados(caminhos: string[]): Promise<Set<string>> {
-    const linhas = (await this.patientRepository.query(
+    const linhas = await this.patientRepository.query<{ photo_path: string }[]>(
       `SELECT "photo_path" FROM "patients" WHERE "photo_path" = ANY($1)`,
       [caminhos],
-    )) as { photo_path: string }[];
+    );
     return new Set(linhas.map((l) => l.photo_path));
   }
 }

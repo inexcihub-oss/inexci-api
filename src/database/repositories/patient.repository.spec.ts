@@ -72,3 +72,37 @@ describe('PatientRepository.findAndCountWithSearch', () => {
     });
   });
 });
+
+describe('PatientRepository.create', () => {
+  it('grava pelo manager da transação quando informado', async () => {
+    const padrao = { create: jest.fn(), save: jest.fn() };
+    const txRepo = {
+      create: jest.fn((d) => d),
+      save: jest.fn((d) => Promise.resolve({ id: 'p-1', ...d })),
+    };
+    const manager = { getRepository: jest.fn().mockReturnValue(txRepo) };
+    const repo = new PatientRepository({
+      getRepository: () => padrao,
+    } as never);
+
+    const criado = await repo.create({ name: 'Maria' }, manager as never);
+
+    expect(criado).toEqual({ id: 'p-1', name: 'Maria' });
+    expect(txRepo.save).toHaveBeenCalled();
+    expect(padrao.save).not.toHaveBeenCalled();
+  });
+
+  it('usa o repositório padrão sem manager', async () => {
+    const padrao = {
+      create: jest.fn((d) => d),
+      save: jest.fn((d) => Promise.resolve(d)),
+    };
+    const repo = new PatientRepository({
+      getRepository: () => padrao,
+    } as never);
+
+    await repo.create({ name: 'Maria' });
+
+    expect(padrao.save).toHaveBeenCalled();
+  });
+});

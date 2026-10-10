@@ -106,7 +106,9 @@ import { ObservabilityModule } from './shared/observability/observability.module
               case 'bclient':
                 return new IORedis(workerRedisOptions);
               default:
-                throw new Error(`Tipo de conexão Redis inesperado: ${type}`);
+                throw new Error(
+                  `Tipo de conexão Redis inesperado: ${String(type)}`,
+                );
             }
           },
         };

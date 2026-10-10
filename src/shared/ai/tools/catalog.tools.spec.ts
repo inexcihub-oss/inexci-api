@@ -17,7 +17,7 @@ function createTools(overrides: Partial<Record<string, any>> = {}) {
     ...overrides.procedureRepo,
   };
 
-  const tools = buildCatalogTools(procedureRepo as any);
+  const tools = buildCatalogTools({ procedureRepo: procedureRepo });
   const map = new Map(tools.map((t) => [t.name, t]));
   return { procedureRepo, tools, map };
 }

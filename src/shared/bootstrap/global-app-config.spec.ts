@@ -19,12 +19,12 @@ describe('applyGlobalAppConfig', () => {
     expect(app.useGlobalPipes).toHaveBeenCalledTimes(1);
     const pipe = app.useGlobalPipes.mock.calls[0][0];
     expect(pipe).toBeInstanceOf(ValidationPipe);
-    expect((pipe as any).validatorOptions).toMatchObject({
+    expect(pipe.validatorOptions).toMatchObject({
       whitelist: true,
       forbidNonWhitelisted: true,
     });
-    expect((pipe as any).transformOptions ?? {}).toBeDefined();
-    expect((pipe as any).isTransformEnabled).toBe(true);
+    expect(pipe.transformOptions ?? {}).toBeDefined();
+    expect(pipe.isTransformEnabled).toBe(true);
   });
 
   it('registra o AllExceptionsFilter', () => {

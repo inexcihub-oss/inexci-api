@@ -34,7 +34,7 @@ export interface Fase<P = unknown> {
   descartados?(plano: P): string[];
 }
 
-export const FASES: Fase<any>[] = [
+export const FASES: Fase<unknown>[] = [
   { nome: 'cadastro', planejar: planejarCadastro, gravar: gravarCadastro },
   { nome: 'agenda', planejar: planejarAgenda, gravar: gravarAgenda },
   {

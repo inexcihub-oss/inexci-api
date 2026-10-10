@@ -50,7 +50,7 @@ function chavesEstrangeiras(): Map<string, ChaveEstrangeira> {
     for (const m of up.matchAll(FK)) {
       const { nome, col, pai, acao } = m.groups!;
       estado.set(nome, {
-        tabelaFilha: tabelaDaConstraint(up, m.index!),
+        tabelaFilha: tabelaDaConstraint(up, m.index),
         coluna: col,
         tabelaPai: pai,
         acao: acao ?? 'NO ACTION',

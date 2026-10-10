@@ -234,7 +234,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         whatsappServiceMock as any,
         openaiServiceMock as any,
         ragServiceMock as any,
-        piiVault as any,
+        piiVault,
         new PhoneNormalizerService(userRepositoryMock as any),
         new ResponseNormalizerService(),
       ),
@@ -595,7 +595,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
     const audioCall = whatsappServiceMock.sendMessage.mock.calls.find(
       (call: unknown[]) =>
         typeof call[1] === 'string' &&
-        (call[1] as string).includes('Não consegui transcrever'),
+        call[1].includes('Não consegui transcrever'),
     );
     expect(audioCall).toBeTruthy();
     expect(audioCall?.[0]).toBe('+5511888888888');
@@ -931,9 +931,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const sentToWhatsapp = (
-        whatsappServiceMock.sendMessage as jest.Mock
-      ).mock.calls.at(-1)?.[1] as string;
+      const sentToWhatsapp = whatsappServiceMock.sendMessage.mock.calls.at(
+        -1,
+      )?.[1] as string;
       expect(sentToWhatsapp).not.toMatch(/\{\{[a-z_]+_\d+\}\}/i);
       expect(sentToWhatsapp).toContain('essa solicitação');
     });
@@ -943,14 +943,12 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       conversationServiceMock.appendMessage.mockImplementation(
         async (_id: string, role: string, content: string) => {
           capturedHistory.push({ role, content });
-          (conversationServiceMock.findById as jest.Mock).mockResolvedValueOnce(
-            {
-              id: 'conv-1',
-              phone: '+5511999999999',
-              userId: 'user-1',
-              messagesHistory: capturedHistory,
-            },
-          );
+          conversationServiceMock.findById.mockResolvedValueOnce({
+            id: 'conv-1',
+            phone: '+5511999999999',
+            userId: 'user-1',
+            messagesHistory: capturedHistory,
+          });
         },
       );
 
@@ -979,8 +977,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(userMessageSentToOpenAi.content).not.toContain('123.456.789-00');
       expect(userMessageSentToOpenAi.content).toContain('{{cpf_1}}');
 
-      const sentToWhatsapp = (whatsappServiceMock.sendMessage as jest.Mock).mock
-        .calls[0][1];
+      const sentToWhatsapp = whatsappServiceMock.sendMessage.mock.calls[0][1];
       expect(sentToWhatsapp).toContain('123.456.789-00');
       expect(sentToWhatsapp).not.toContain('{{cpf_1}}');
       expect(
@@ -1040,9 +1037,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         }),
       );
 
-      const sentMessages = (
-        whatsappServiceMock.sendMessage as jest.Mock
-      ).mock.calls.map((call) => call[1]);
+      const sentMessages = whatsappServiceMock.sendMessage.mock.calls.map(
+        (call) => call[1],
+      );
       for (const sent of sentMessages) {
         expect(sent).not.toContain('dado sensível');
       }
@@ -1098,7 +1095,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           whatsappServiceMock as any,
           openaiServiceMock as any,
           ragServiceMock as any,
-          piiVault as any,
+          piiVault,
           new PhoneNormalizerService(userRepositoryMock as any),
           new ResponseNormalizerService(),
         ),
@@ -1172,9 +1169,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const turn1Sent = (
-        whatsappServiceMock.sendMessage as jest.Mock
-      ).mock.calls.at(-1)?.[1] as string;
+      const turn1Sent = whatsappServiceMock.sendMessage.mock.calls.at(
+        -1,
+      )?.[1] as string;
       expect(turn1Sent).toContain('SC-0042');
       expect(turn1Sent).toContain('João Silva');
       expect(turn1Sent).not.toContain('{{protocol_1}}');
@@ -1212,9 +1209,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const turn2Sent = (
-        whatsappServiceMock.sendMessage as jest.Mock
-      ).mock.calls.at(-1)?.[1] as string;
+      const turn2Sent = whatsappServiceMock.sendMessage.mock.calls.at(
+        -1,
+      )?.[1] as string;
       expect(turn2Sent).toContain('SC-0042');
       expect(turn2Sent).toContain('João Silva');
       expect(turn2Sent).not.toContain('{{protocol_1}}');
@@ -1284,7 +1281,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
           whatsappServiceMock as any,
           openaiServiceMock as any,
           ragServiceMock as any,
-          piiVault as any,
+          piiVault,
           new PhoneNormalizerService(userRepositoryMock as any),
           new ResponseNormalizerService(),
         ),
@@ -1402,16 +1399,17 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const sentText = (
-        whatsappServiceMock.sendMessage as jest.Mock
-      ).mock.calls.at(-1)?.[1] as string;
+      const sentText = whatsappServiceMock.sendMessage.mock.calls.at(
+        -1,
+      )?.[1] as string;
       expect(sentText).toContain('SC-468131');
       expect(sentText).not.toContain('SC-SC-468131');
       expect(sentText).not.toContain('SC-SC-');
 
-      const historyAppendCall = (
-        conversationServiceMock.appendMessage as jest.Mock
-      ).mock.calls.find((call) => call[1] === 'assistant');
+      const historyAppendCall =
+        conversationServiceMock.appendMessage.mock.calls.find(
+          (call) => call[1] === 'assistant',
+        );
       expect(historyAppendCall?.[2]).not.toContain('SC-SC-');
     });
 
@@ -1560,7 +1558,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(
         conversationServiceMock.getOrCreateConversation,
       ).not.toHaveBeenCalled();
-      const sentBody = (whatsappServiceMock.sendMessage as jest.Mock).mock
+      const sentBody = whatsappServiceMock.sendMessage.mock
         .calls[0][1] as string;
       expect(sentBody).toContain('assistente');
       expect(sentBody).toContain('configuracoes/privacidade');
@@ -1643,7 +1641,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(1);
       const completionArgs = openaiServiceMock.chatCompletion.mock.calls[0][0];
       expect(completionArgs.tools).toBeUndefined();
-      const sentBody = (whatsappServiceMock.sendMessage as jest.Mock).mock
+      const sentBody = whatsappServiceMock.sendMessage.mock
         .calls[0][1] as string;
       expect(sentBody).toContain('Solicitações');
       expect(whatsappServiceMock.sendMessage).toHaveBeenCalledTimes(1);
@@ -1665,7 +1663,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
 
       expect(ragServiceMock.search).not.toHaveBeenCalled();
       expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
-      const sentBody = (whatsappServiceMock.sendMessage as jest.Mock).mock
+      const sentBody = whatsappServiceMock.sendMessage.mock
         .calls[0][1] as string;
       expect(sentBody).toContain('configuracoes/privacidade');
     });
@@ -1686,7 +1684,7 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       });
 
       expect(openaiServiceMock.chatCompletion).not.toHaveBeenCalled();
-      const sentBody = (whatsappServiceMock.sendMessage as jest.Mock).mock
+      const sentBody = whatsappServiceMock.sendMessage.mock
         .calls[0][1] as string;
       expect(sentBody).toContain('configuracoes/privacidade');
     });
@@ -1959,10 +1957,9 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
         mediaUrl: null,
       });
 
-      const sendCallsBefore = (whatsappServiceMock.sendMessage as jest.Mock)
-        .mock.calls.length;
-      const openaiCallsBefore = (openaiServiceMock.chatCompletion as jest.Mock)
-        .mock.calls.length;
+      const sendCallsBefore = whatsappServiceMock.sendMessage.mock.calls.length;
+      const openaiCallsBefore =
+        openaiServiceMock.chatCompletion.mock.calls.length;
 
       await service.processMessage({
         from: `whatsapp:${phone}`,
@@ -1974,8 +1971,8 @@ describe('AiOrchestratorService (tool-calls integration)', () => {
       expect(openaiServiceMock.chatCompletion).toHaveBeenCalledTimes(
         openaiCallsBefore,
       );
-      const blockCall = (whatsappServiceMock.sendMessage as jest.Mock).mock
-        .calls[sendCallsBefore];
+      const blockCall =
+        whatsappServiceMock.sendMessage.mock.calls[sendCallsBefore];
       expect(blockCall[0]).toBe(phone);
       expect(blockCall[1]).toContain('ritmo muito alto');
       expect(blockCall[1]).toContain('aguarde alguns instantes');

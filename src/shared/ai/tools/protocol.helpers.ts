@@ -1,5 +1,7 @@
+import { argToString } from './helpers/arg-parsers';
+
 export function stripScPrefix(protocol: unknown): string {
-  let value = String(protocol ?? '').trim();
+  let value = argToString(protocol ?? '').trim();
   if (!value) return '';
   while (/^sc-/i.test(value)) {
     value = value.replace(/^sc-/i, '').trim();

@@ -6,6 +6,7 @@ import {
   CopyPatientDocumentsParams,
   IndicationDocumentsService,
 } from './indication-documents.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export const INDICATION_DOCUMENTS_QUEUE = 'indication-documents';
 export const COPY_PATIENT_DOCUMENTS_JOB = 'copy-patient-documents';
@@ -40,9 +41,9 @@ export class IndicationDocumentsJobsService {
         },
       );
       return;
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[SC_DOCS] Fila indisponível para a SC ${params.surgeryRequestId} (${err?.message}); copiando na hora.`,
+        `[SC_DOCS] Fila indisponível para a SC ${params.surgeryRequestId} (${errorMessage(err)}); copiando na hora.`,
       );
     }
 
@@ -54,9 +55,9 @@ export class IndicationDocumentsJobsService {
           `[SC_DOCS] SC ${params.surgeryRequestId}: ${copied} copiados, ${failed} pendentes e sem fila para retentar.`,
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `[SC_DOCS] Cópia direta falhou para a SC ${params.surgeryRequestId}: ${err?.message}`,
+        `[SC_DOCS] Cópia direta falhou para a SC ${params.surgeryRequestId}: ${errorMessage(err)}`,
       );
     }
   }

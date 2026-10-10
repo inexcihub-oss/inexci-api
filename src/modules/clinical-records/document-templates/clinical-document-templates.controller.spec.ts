@@ -30,7 +30,7 @@ describe('ClinicalDocumentTemplatesController (MIG-06)', () => {
   });
 
   it('lista com filtro de tipo e médico', () => {
-    controller.find(
+    void controller.find(
       ClinicalDocumentTemplateKind.EXAM_REFERRAL,
       undefined,
       user,
@@ -49,7 +49,7 @@ describe('ClinicalDocumentTemplatesController (MIG-06)', () => {
   });
 
   it('aplicar delega à emissão (mesmo contexto do PDF)', () => {
-    controller.apply('tpl-1', { patientId: 'p-1', restDays: 2 }, user);
+    void controller.apply('tpl-1', { patientId: 'p-1', restDays: 2 }, user);
     expect(generation.applyTemplate).toHaveBeenCalledWith(
       'tpl-1',
       { patientId: 'p-1', restDays: 2 },

@@ -12,8 +12,11 @@ import {
 import { User } from './user.entity';
 import { Clinic } from './clinic.entity';
 
+export const CLINIC_ROOM_NOME_UNICO = 'uq_clinic_rooms_clinic_name_active';
+
 @Entity('clinic_rooms')
 @Index('idx_clinic_rooms_clinic_id', ['clinicId'])
+@Index(CLINIC_ROOM_NOME_UNICO, { synchronize: false })
 export class ClinicRoom {
   @PrimaryGeneratedColumn('uuid')
   id: string;

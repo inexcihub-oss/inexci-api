@@ -3,6 +3,7 @@ import { DocumentRepository } from 'src/database/repositories/document.repositor
 import { StorageService } from 'src/shared/storage/storage.service';
 import { STORAGE_FOLDERS } from 'src/config/storage.config';
 import DOCUMENT_TYPES from 'src/common/document-types.common';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 const SKIPPED_KEYS: readonly string[] = [
   DOCUMENT_TYPES.prescription,
@@ -42,9 +43,9 @@ export class IndicationDocumentsService {
         this.documentRepository.findByPatientId(params.patientId),
         this.documentRepository.findBySurgeryRequestId(params.surgeryRequestId),
       ]);
-    } catch (err: any) {
+    } catch (err) {
       this.logger.error(
-        `[SC_DOCS] Falha ao listar documentos do paciente ${params.patientId}: ${err?.message}`,
+        `[SC_DOCS] Falha ao listar documentos do paciente ${params.patientId}: ${errorMessage(err)}`,
       );
       return { copied: 0, failed: 1 };
     }
@@ -80,10 +81,10 @@ export class IndicationDocumentsService {
           uri: storagePath,
         });
         copied += 1;
-      } catch (err: any) {
+      } catch (err) {
         failed += 1;
         this.logger.warn(
-          `[SC_DOCS] Documento ${document.id} não foi copiado para a SC ${params.surgeryRequestId}: ${err?.message}`,
+          `[SC_DOCS] Documento ${document.id} não foi copiado para a SC ${params.surgeryRequestId}: ${errorMessage(err)}`,
         );
       }
     }

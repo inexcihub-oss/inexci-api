@@ -77,7 +77,7 @@ export class WebhookController {
   @Public()
   @HttpCode(200)
   async handleTwilioWebhook(
-    @Body() body: Record<string, any>,
+    @Body() body: Record<string, unknown>,
     @Headers('x-twilio-signature') signature: string,
     @Req() req: Request,
   ): Promise<string> {

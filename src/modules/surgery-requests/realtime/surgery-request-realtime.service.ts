@@ -4,6 +4,7 @@ import { SurgeryRequestRepository } from 'src/database/repositories/surgery-requ
 import { UserRepository } from 'src/database/repositories/user.repository';
 import { UserRole } from 'src/database/entities/user.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export type SurgeryRequestRealtimeAction =
   | 'created'
@@ -96,9 +97,9 @@ export class SurgeryRequestRealtimeService {
         actorId,
         occurredAt: new Date().toISOString(),
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao emitir atualização em tempo real da SC ${surgeryRequestId}: ${err?.message}`,
+        `Falha ao emitir atualização em tempo real da SC ${surgeryRequestId}: ${errorMessage(err)}`,
       );
     }
   }

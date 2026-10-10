@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
@@ -18,7 +17,7 @@ export function buildScDraftPreviewTool(deps: ScDraftToolDeps): AiTool {
           'Gera o preview textual do rascunho de SC para o usuário confirmar. Marca o draft como `pending_confirmation`.',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context: ToolContext): Promise<string> {
       await autoFillDoctorIfSingle(draftService, userRepo, context);
       const validation = await draftService.validate(

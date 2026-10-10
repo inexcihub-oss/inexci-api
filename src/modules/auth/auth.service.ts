@@ -251,7 +251,7 @@ export class AuthService {
         status: UserStatus.ACTIVE,
         phone: phoneDigits,
         ownerId: userId,
-      } as Partial<User>)
+      })
       .catch((err: unknown) => {
         if (isPhoneUniqueViolation(err)) {
           throw new HttpException(
@@ -280,7 +280,7 @@ export class AuthService {
       );
     } catch (err) {
       this.logger.error(
-        `Falha ao criar subscription para userId=${ownerId}: ${err instanceof Error ? err.message : err}`,
+        `Falha ao criar subscription para userId=${ownerId}: ${errorMessage(err)}`,
       );
     }
   }
@@ -648,9 +648,9 @@ export class AuthService {
         email,
         verificationUrl,
       });
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enviar e-mail de verificação para userId=${userId}: ${err?.message}`,
+        `Falha ao enviar e-mail de verificação para userId=${userId}: ${errorMessage(err)}`,
       );
     }
   }

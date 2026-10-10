@@ -9,6 +9,7 @@ import { FindManyPatientDto } from './dto/find-many-patient.dto';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { UpdatePatientDto } from './dto/update-patient.dto';
 import { PatientRepository } from 'src/database/repositories/patient.repository';
+import { EntityManager } from 'typeorm';
 
 import { Patient } from 'src/database/entities/patient.entity';
 import { UserRepository } from 'src/database/repositories/user.repository';
@@ -26,6 +27,10 @@ export const UQ_PATIENTS_PHOTO_PATH = 'UQ_patients_photo_path';
 export const FOTO_EXPIRADA = 'A foto enviada expirou; envie novamente.';
 
 export type PatientWithPhoto = Patient & { photoUrl: string | null };
+
+export interface CreatePatientOptions {
+  manager?: EntityManager;
+}
 
 function textoOuNulo(valor: string | null | undefined): string | null {
   return valor?.trim() || null;
@@ -115,7 +120,12 @@ export class PatientsService {
     return this.comFoto(await this.create(data, userId));
   }
 
-  async create(data: CreatePatientDto, userId: string): Promise<Patient> {
+  async create(
+    data: CreatePatientDto,
+    userId: string,
+    options: CreatePatientOptions = {},
+  ): Promise<Patient> {
+    const { manager } = options;
     const user = await this.userRepository.findOne({ id: userId });
     if (!user) throw new NotFoundException('Usuário não encontrado');
 
@@ -124,45 +134,54 @@ export class PatientsService {
     const photoPath = await this.validarFoto(data.photoPath, ownerId);
 
     const patient = await this.traduzirFotoDuplicada(() =>
-      this.patientRepository.create({
-        doctorId,
-        ownerId,
-        name: data.name,
-        phone: data.phone?.trim() || null,
-        secondaryPhone: textoOuNulo(data.secondaryPhone),
-        cpf: textoOuNulo(data.cpf),
-        photoPath,
-        gender: data.gender,
-        birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
-        healthPlanId: data.healthPlanId,
-        healthPlanNumber: data.healthPlanNumber,
-        healthPlanType: data.healthPlanType,
-        email: data.email?.trim() || null,
-        zipCode: data.zipCode,
-        address: data.address,
-        addressNumber: data.addressNumber,
-        addressComplement: data.addressComplement,
-        neighborhood: data.neighborhood,
-        city: data.city,
-        state: data.state,
-        medicalNotes: data.medicalNotes,
-        active: true,
-      }),
+      this.patientRepository.create(
+        {
+          doctorId,
+          ownerId,
+          name: data.name,
+          phone: data.phone?.trim() || null,
+          secondaryPhone: textoOuNulo(data.secondaryPhone),
+          cpf: textoOuNulo(data.cpf),
+          photoPath,
+          gender: data.gender,
+          birthDate: data.birthDate ? new Date(data.birthDate) : undefined,
+          healthPlanId: data.healthPlanId,
+          healthPlanNumber: data.healthPlanNumber,
+          healthPlanType: data.healthPlanType,
+          email: data.email?.trim() || null,
+          zipCode: data.zipCode,
+          address: data.address,
+          addressNumber: data.addressNumber,
+          addressComplement: data.addressComplement,
+          neighborhood: data.neighborhood,
+          city: data.city,
+          state: data.state,
+          medicalNotes: data.medicalNotes,
+          active: true,
+        },
+        manager,
+      ),
     );
 
+    if (!manager) {
+      await this.sendWelcome(patient);
+    }
+
+    return patient;
+  }
+
+  async sendWelcome(patient: Patient): Promise<void> {
     if (patient.phone) {
       void this.whatsappService.sendPatientWelcome(patient.phone, patient.name);
     }
 
-    const doctor = await this.userRepository.findOne({ id: ownerId });
     if (patient.email) {
+      const doctor = await this.userRepository.findOne({ id: patient.ownerId });
       void this.mailService.sendWelcomePatient(patient.email, {
         patientName: patient.name,
         doctorName: doctor?.name ?? '',
       });
     }
-
-    return patient;
   }
 
   async update(

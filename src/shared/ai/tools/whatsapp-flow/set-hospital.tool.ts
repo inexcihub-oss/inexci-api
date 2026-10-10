@@ -1,10 +1,10 @@
-import OpenAI from 'openai';
 import { AiTool } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { detokenizeArg, tokenizePii } from '../../pii/tool-pii-helpers';
 import { buildToolResult } from '../tool-result';
 import { WhatsappFlowToolDeps } from './_types';
-import { asNonEmptyString } from '../helpers/arg-parsers';
+import { asNonEmptyString, asScalarArg } from '../helpers/arg-parsers';
+import { Hospital } from '../../../../database/entities/hospital.entity';
 import {
   ensurePendingForMutation,
   getAuthorizedRequest,
@@ -44,7 +44,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
           required: ['surgeryRequestId'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -106,7 +106,7 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
 
       const hospitalId = asNonEmptyString(args.hospitalId);
       const hospitalName = asNonEmptyString(
-        detokenizeArg(context, args.hospital_name),
+        detokenizeArg(context, asScalarArg(args.hospital_name)),
       );
 
       if (!hospitalId && !hospitalName) {
@@ -118,13 +118,13 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
         });
       }
 
-      let selectedHospital: any = null;
+      let selectedHospital: Hospital | null = null;
 
       if (hospitalId) {
         selectedHospital = await hospitalRepo.findOne({
           id: hospitalId,
           ownerId: auth.request.ownerId,
-        } as any);
+        });
         if (!selectedHospital) {
           return buildToolResult({
             status: 'blocked',
@@ -136,18 +136,18 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
         selectedHospital = await hospitalRepo.findOne({
           name: hospitalName,
           ownerId: auth.request.ownerId,
-        } as any);
+        });
         if (!selectedHospital) {
           const candidates = await hospitalRepo.findMany(
-            { ownerId: auth.request.ownerId } as any,
+            { ownerId: auth.request.ownerId },
             0,
             200,
           );
-          const result = entityResolver.resolve<any>({
+          const result = entityResolver.resolve({
             query: hospitalName,
             candidates,
-            getName: (h: any) => String(h.name ?? ''),
-            getId: (h: any) => String(h.id),
+            getName: (h) => String(h.name ?? ''),
+            getId: (h) => String(h.id),
           });
           if (result.status === 'resolved' && result.resolved) {
             selectedHospital = result.resolved.data;
@@ -169,6 +169,15 @@ export function buildSetHospitalTool(deps: WhatsappFlowToolDeps): AiTool {
             message: `Hospital "${hospitalName}" não encontrado para essa clínica. Cadastre-o antes ou informe o \`hospitalId\`.`,
           });
         }
+      }
+
+      if (!selectedHospital) {
+        return buildToolResult({
+          status: 'needs_input',
+          message:
+            'Parâmetro inválido: informe `hospitalId` ou `hospital_name`. Para remover, use `clear=true`.',
+          nextRequiredFields: ['hospitalId'],
+        });
       }
 
       const previewName = String(selectedHospital.name);

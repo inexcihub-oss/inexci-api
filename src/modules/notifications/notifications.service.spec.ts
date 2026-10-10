@@ -852,7 +852,7 @@ describe('NotificationsService', () => {
         mockSurgeryRequestRepository as any,
         mockWhatsappService as any,
         mockGateway as any,
-        undefined as any,
+        undefined,
       );
 
       await svc.notifyAppointmentPatientResponse(params);

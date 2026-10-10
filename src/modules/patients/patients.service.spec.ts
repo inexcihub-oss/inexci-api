@@ -47,6 +47,8 @@ describe('PatientsService', () => {
     ) => Promise<string | null>;
   };
   let contagemDeUso: jest.Mock;
+  let whatsappService: { sendPatientWelcome: jest.Mock };
+  let mailService: { sendWelcomePatient: jest.Mock };
   let lidoNaTransacao: jest.Mock;
   let transaction: jest.Mock;
   let storageService: {
@@ -98,18 +100,68 @@ describe('PatientsService', () => {
       getOwnerId: jest.fn().mockResolvedValue(OWNER),
     };
 
+    whatsappService = { sendPatientWelcome: jest.fn() };
+    mailService = { sendWelcomePatient: jest.fn() };
     service = new PatientsService(
       patientRepository as unknown as PatientRepository,
       userRepository as unknown as UserRepository,
-      { sendPatientWelcome: jest.fn() } as unknown as WhatsappService,
+      whatsappService as unknown as WhatsappService,
       accessControlService as unknown as AccessControlService,
-      { sendWelcomePatient: jest.fn() } as unknown as MailService,
+      mailService as unknown as MailService,
       storageService as unknown as StorageService,
     );
   });
 
   const gravadoNoCreate = () => patientRepository.create.mock.calls[0][0];
   const gravadoNoUpdate = () => patientRepository.update.mock.calls[0][1];
+
+  describe('create dentro de transação', () => {
+    const dados = {
+      name: 'Maria',
+      phone: '11999999999',
+      email: 'maria@x.com',
+    };
+
+    it('sem manager grava pelo repositório padrão e envia boas-vindas', async () => {
+      await service.create(dados, 'user-1');
+
+      expect(patientRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Maria' }),
+        undefined,
+      );
+      expect(whatsappService.sendPatientWelcome).toHaveBeenCalled();
+      await Promise.resolve();
+      expect(mailService.sendWelcomePatient).toHaveBeenCalled();
+    });
+
+    it('com manager grava pelo manager e não envia boas-vindas antes do commit', async () => {
+      const manager = { tag: 'tx' } as never;
+
+      await service.create(dados, 'user-1', { manager });
+
+      expect(patientRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Maria' }),
+        manager,
+      );
+      expect(whatsappService.sendPatientWelcome).not.toHaveBeenCalled();
+      expect(mailService.sendWelcomePatient).not.toHaveBeenCalled();
+    });
+
+    it('sendWelcome dispara WhatsApp e e-mail do paciente', async () => {
+      await service.sendWelcome(
+        paciente({ phone: '11999999999', email: 'maria@x.com' }),
+      );
+
+      expect(whatsappService.sendPatientWelcome).toHaveBeenCalledWith(
+        '11999999999',
+        expect.any(String),
+      );
+      expect(mailService.sendWelcomePatient).toHaveBeenCalledWith(
+        'maria@x.com',
+        expect.objectContaining({ doctorName: expect.any(String) }),
+      );
+    });
+  });
 
   describe('CPF opcional', () => {
     it('cria paciente sem CPF gravando null', async () => {

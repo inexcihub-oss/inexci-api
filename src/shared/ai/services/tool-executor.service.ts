@@ -1,4 +1,5 @@
 import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
+import { errorMessage } from '../../utils/error-message.util';
 import OpenAI from 'openai';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ToolRegistryService } from './tool-registry.service';
@@ -116,8 +117,8 @@ export class ToolExecutorService {
           ownerId: context.ownerId,
           durationMs: Date.now() - startMs,
         } satisfies ToolTelemetryEvent);
-      } catch (error: any) {
-        const logMessage = `Erro na tool ${fn.name}: ${error.message}`;
+      } catch (error) {
+        const logMessage = `Erro na tool ${fn.name}: ${errorMessage(error)}`;
         if (error instanceof HttpException && error.getStatus() < 500) {
           this.logger.warn(logMessage);
         } else {
@@ -127,11 +128,11 @@ export class ToolExecutorService {
           toolName: fn.name,
           ownerId: context.ownerId,
           durationMs: Date.now() - startMs,
-          errorMessage: error?.message ?? String(error),
+          errorMessage: errorMessage(error),
         } satisfies ToolTelemetryEvent);
         results.push({
           toolCallId: call.id,
-          output: `Erro ao executar ação: ${error.message}`,
+          output: `Erro ao executar ação: ${errorMessage(error)}`,
         });
       }
     }
@@ -142,7 +143,7 @@ export class ToolExecutorService {
   buildCacheKey(
     ownerId: string | null | undefined,
     toolName: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
   ): string {
     const owner = ownerId ?? 'anon';
     const argsStr = JSON.stringify(args, Object.keys(args).sort());

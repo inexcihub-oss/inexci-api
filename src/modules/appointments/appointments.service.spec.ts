@@ -185,7 +185,7 @@ describe('AppointmentsService', () => {
         total: 3,
       });
 
-      const { records } = await service.findAgenda({} as any, userId);
+      const { records } = await service.findAgenda({}, userId);
 
       expect(records.map((r) => r.clinicalRecordStatus)).toEqual([
         'draft',
@@ -621,14 +621,14 @@ describe('AppointmentsService', () => {
       });
 
       it('passa skip e take, limitando a página ao teto', async () => {
-        await service.findAgenda({ skip: 20, take: 20 } as any, userId);
+        await service.findAgenda({ skip: 20, take: 20 }, userId);
         expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
           ownerId,
           [doctorId, 'doctor-2'],
           expect.objectContaining({ skip: 20, take: 20 }),
         );
 
-        await service.findAgenda({ take: 5000 } as any, userId);
+        await service.findAgenda({ take: 5000 }, userId);
         expect(mockAppointmentRepository.findAgenda.mock.calls[1][2].take).toBe(
           1000,
         );
@@ -636,7 +636,7 @@ describe('AppointmentsService', () => {
 
       it('doctorIds filtra só os acessíveis; nenhum acessível = lista vazia', async () => {
         await service.findAgenda(
-          { doctorIds: ['doctor-2', 'de-outra-conta'] } as any,
+          { doctorIds: ['doctor-2', 'de-outra-conta'] },
           userId,
         );
         expect(mockAppointmentRepository.findAgenda).toHaveBeenCalledWith(
@@ -647,7 +647,7 @@ describe('AppointmentsService', () => {
 
         mockAppointmentRepository.findAgenda.mockClear();
         const vazio = await service.findAgenda(
-          { doctorIds: ['de-outra-conta'] } as any,
+          { doctorIds: ['de-outra-conta'] },
           userId,
         );
         expect(vazio).toEqual({ total: 0, records: [] });
@@ -675,7 +675,7 @@ describe('AppointmentsService', () => {
       });
 
       it('sem withDoctorCounts não conta', async () => {
-        const result = await service.findAgenda({} as any, userId);
+        const result = await service.findAgenda({}, userId);
         expect(mockAppointmentRepository.countByDoctor).not.toHaveBeenCalled();
         expect(result).not.toHaveProperty('countByDoctorId');
       });
@@ -1684,7 +1684,7 @@ describe('AppointmentsService', () => {
 
     it('fora da grade cria a consulta e devolve o aviso', async () => {
       mockAvailabilityService.foraDaGrade.mockResolvedValue(true);
-      const criada = await service.create(baseCreate as any, userId);
+      const criada = await service.create(baseCreate, userId);
       expect(criada).toMatchObject({
         id: 'appt-1',
         warnings: ['fora_da_grade'],
@@ -1692,7 +1692,7 @@ describe('AppointmentsService', () => {
     });
 
     it('dentro da grade (ou sem grade) não tem aviso', async () => {
-      const criada = await service.create(baseCreate as any, userId);
+      const criada = await service.create(baseCreate, userId);
       expect(criada).not.toHaveProperty('warnings');
     });
 
@@ -1722,10 +1722,7 @@ describe('AppointmentsService', () => {
     });
 
     it('a grade é avaliada na clínica da consulta (null sem clínica)', async () => {
-      await service.create(
-        { ...baseCreate, clinicId: 'clinic-1' } as any,
-        userId,
-      );
+      await service.create({ ...baseCreate, clinicId: 'clinic-1' }, userId);
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
         doctorId,
         new Date('2026-08-01T14:00:00.000Z'),
@@ -1733,7 +1730,7 @@ describe('AppointmentsService', () => {
         'clinic-1',
       );
 
-      await service.create(baseCreate as any, userId);
+      await service.create(baseCreate, userId);
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
         doctorId,
         expect.any(Date),
@@ -1746,7 +1743,7 @@ describe('AppointmentsService', () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
       await service.update(
         'appt-9',
-        { scheduledAt: '2026-08-02T14:00:00.000Z' } as any,
+        { scheduledAt: '2026-08-02T14:00:00.000Z' },
         userId,
       );
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
@@ -1760,7 +1757,7 @@ describe('AppointmentsService', () => {
         id: 'clinic-2',
         ownerId,
       });
-      await service.update('appt-9', { clinicId: 'clinic-2' } as any, userId);
+      await service.update('appt-9', { clinicId: 'clinic-2' }, userId);
       expect(mockAvailabilityService.foraDaGrade).toHaveBeenLastCalledWith(
         doctorId,
         existente.scheduledAt,
@@ -1771,7 +1768,7 @@ describe('AppointmentsService', () => {
 
     it('editar só as observações não consulta bloqueio nem grade', async () => {
       mockAppointmentRepository.findOneComRelacoes.mockResolvedValue(existente);
-      await service.update('appt-9', { notes: 'trazer exames' } as any, userId);
+      await service.update('appt-9', { notes: 'trazer exames' }, userId);
       expect(mockAvailabilityService.assertNaoBloqueado).not.toHaveBeenCalled();
       expect(mockAvailabilityService.foraDaGrade).not.toHaveBeenCalled();
     });

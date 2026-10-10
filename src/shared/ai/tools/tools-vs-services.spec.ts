@@ -59,7 +59,7 @@ describe('tools vs services — patient_draft_commit', () => {
 
     tools = buildCadastroDraftTools({
       draftService,
-      patientRepo: mockPatientRepo as any,
+      patientRepo: mockPatientRepo,
       procedureRepo: { findOne: jest.fn(), findMany: jest.fn() } as any,
       userRepo: {
         findOne: jest
@@ -245,7 +245,7 @@ describe('tools vs services — procedure_draft_commit', () => {
     tools = buildCadastroDraftTools({
       draftService,
       patientRepo: { findMany: jest.fn().mockResolvedValue([]) } as any,
-      procedureRepo: mockProcedureRepo as any,
+      procedureRepo: mockProcedureRepo,
       userRepo: {
         findOne: jest
           .fn()
@@ -325,8 +325,8 @@ describe('tools vs services — sc_draft_commit', () => {
         }),
         findMany: jest.fn().mockResolvedValue([]),
       } as any,
-      surgeryRequestRepo: mockSurgeryRequestRepo as any,
-      surgeryRequestsService: mockSurgeryRequestsService as any,
+      surgeryRequestRepo: mockSurgeryRequestRepo,
+      surgeryRequestsService: mockSurgeryRequestsService,
       activityRepo: { create: jest.fn().mockResolvedValue({}) } as any,
       assemblyService: {
         assembleFromExtracted: jest.fn().mockResolvedValue({ warnings: [] }),
@@ -400,7 +400,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         { confirm: true },
         {
           ...ctx,
-          inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+          inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
         },
       );
       expect(parseToolResult(missing)).not.toBeNull();
@@ -415,7 +415,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         { confirm: true },
         {
           ...ctx,
-          inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+          inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
         },
       );
       expect(parseToolResult(collaborator)).not.toBeNull();
@@ -437,9 +437,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         { confirm: true },
         {
           ...ctx,
-          inboundMedia: [
-            { url: 'https://x', contentType: 'application/pdf' },
-          ] as any,
+          inboundMedia: [{ url: 'https://x', contentType: 'application/pdf' }],
         },
       );
       expect(parseToolResult(nonImage)).not.toBeNull();
@@ -453,7 +451,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
         {},
         {
           ...ctx,
-          inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+          inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
         },
       );
       const previewParsed = parseToolResult(preview);
@@ -479,7 +477,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
           ...ctx,
           inboundMedia: [
             { url: 'https://api.twilio.com/m/1', contentType: 'image/png' },
-          ] as any,
+          ],
         },
       );
       expect(parseToolResult(success)).not.toBeNull();
@@ -499,7 +497,7 @@ describe('contrato canônico — toda tool migrada devolve ToolResult válido', 
           ...ctx,
           inboundMedia: [
             { url: 'https://api.twilio.com/m/1', contentType: 'image/png' },
-          ] as any,
+          ],
         },
       );
       expect(parseToolResult(failure)).not.toBeNull();
@@ -683,8 +681,7 @@ describe('Fase 9 — guardrails arquiteturais', () => {
 
       const offenders: string[] = [];
       for (const tool of tools) {
-        const properties = (tool as any)?.definition?.function?.parameters
-          ?.properties;
+        const properties = tool?.definition?.function?.parameters?.properties;
         const hasSurgeryRequestIdParam =
           !!properties &&
           Object.prototype.hasOwnProperty.call(properties, 'surgeryRequestId');

@@ -42,11 +42,7 @@ describe('Vazamentos de tenant em cadastros vinculados', () => {
     const service = Object.create(OpmeService.prototype);
     Object.assign(service, { supplierRepository });
 
-    await (service as any).resolveSuppliers(
-      ['forn-de-outra-clinica'],
-      [],
-      'owner-a',
-    );
+    await service.resolveSuppliers(['forn-de-outra-clinica'], [], 'owner-a');
 
     expect(supplierRepository.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ ownerId: 'owner-a' }),

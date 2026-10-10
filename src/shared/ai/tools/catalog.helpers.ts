@@ -1,12 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { ToolContext } from './tool.interface';
 import { UserRepository } from '../../../database/repositories/user.repository';
+import { argToString } from './helpers/arg-parsers';
 
 const logger = new Logger('CatalogHelpers');
 
 export function normalizeNameForCompare(value: unknown): string {
   if (value === null || value === undefined) return '';
-  return String(value)
+  return argToString(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim()

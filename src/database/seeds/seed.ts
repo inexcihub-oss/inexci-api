@@ -163,7 +163,9 @@ async function linkOpmeManufacturers(
 }
 
 async function createDefaultProceduresForOwner(
-  dataSource: { query: (q: string, params?: unknown[]) => Promise<any[]> },
+  dataSource: {
+    query: (q: string, params?: unknown[]) => Promise<{ id: string }[]>;
+  },
   ownerId: string,
 ): Promise<string[]> {
   const ids: string[] = [];
@@ -237,7 +239,7 @@ async function main() {
        WHERE slug = $2 AND (gateway_price_id IS NULL OR gateway_price_id != $1)`,
       [priceId, slug],
     );
-    if ((result as any).rowCount > 0) priceIdsSet++;
+    if (result.rowCount > 0) priceIdsSet++;
   }
   if (priceIdsSet > 0) {
     logger.log(
@@ -266,8 +268,8 @@ async function main() {
   const adminMedicoId = preGen1[0].id;
 
   await dataSource.query(
-    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, admin_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
-     VALUES ($1,'Dr. Carlos Mendonça','medico@inexci.com',$2,'11987654321','${generateCPF()}','M','1972-04-10','admin','active',$1,NULL,true,NOW(),NOW(),NOW(),NOW())`,
+    `INSERT INTO "users" (id, name, email, password, phone, cpf, gender, birth_date, role, status, owner_id, email_verified, email_verified_at, privacy_policy_accepted_at, terms_of_use_accepted_at, ai_consent_accepted_at)
+     VALUES ($1,'Dr. Carlos Mendonça','medico@inexci.com',$2,'11987654321','${generateCPF()}','M','1972-04-10','admin','active',$1,true,NOW(),NOW(),NOW(),NOW())`,
     [adminMedicoId, hashedPassword],
   );
   await dataSource.query(

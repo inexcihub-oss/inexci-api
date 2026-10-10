@@ -50,7 +50,7 @@ export class AiEfficiencyService {
     const { from, to } = params;
 
     const where: string[] = [];
-    const args: Record<string, any> = {};
+    const args: Record<string, unknown> = {};
     if (from) {
       where.push('log.created_at >= :from');
       args.from = from;
@@ -171,12 +171,12 @@ export class AiEfficiencyService {
 
     const [totals, cache, stages, byDraftRaw, callsRaw, ragRaw] =
       await Promise.all([
-        this.repo.query(totalsQ.sql, totalsQ.params),
-        this.repo.query(cacheQ.sql, cacheQ.params),
-        this.repo.query(stagesQ.sql, stagesQ.params),
-        this.repo.query(byDraftQ.sql, byDraftQ.params),
-        this.repo.query(callsQ.sql, callsQ.params),
-        this.repo.query(ragQ.sql, ragQ.params),
+        this.repo.query<LinhaSql[]>(totalsQ.sql, totalsQ.params),
+        this.repo.query<LinhaSql[]>(cacheQ.sql, cacheQ.params),
+        this.repo.query<LinhaSql[]>(stagesQ.sql, stagesQ.params),
+        this.repo.query<LinhaSql[]>(byDraftQ.sql, byDraftQ.params),
+        this.repo.query<LinhaSql[]>(callsQ.sql, callsQ.params),
+        this.repo.query<LinhaSql[]>(ragQ.sql, ragQ.params),
       ]);
 
     const t = totals[0] || {};
@@ -195,11 +195,14 @@ export class AiEfficiencyService {
         ? Math.round((totalCachedTokens / sumPromptInBreakdown) * 100 * 10) / 10
         : 0;
 
-    const byDraftType = (byDraftRaw as any[]).map((row) => {
+    const byDraftType = byDraftRaw.map((row) => {
       const sumPrompt = Number(row.sumPromptTokens) || 0;
       const cached = Number(row.cachedTokens) || 0;
       return {
-        draftType: String(row.draftType || 'none'),
+        draftType:
+          typeof row.draftType === 'string' && row.draftType
+            ? row.draftType
+            : 'none',
         turns: Number(row.turns) || 0,
         avgPromptTokens: round1(row.avgPromptTokens),
         avgTotalTokens: round1(row.avgTotalTokens),
@@ -207,7 +210,7 @@ export class AiEfficiencyService {
       };
     });
 
-    const callsDistribution = (callsRaw as any[]).map((row) => {
+    const callsDistribution = callsRaw.map((row) => {
       const turns = Number(row.turns) || 0;
       return {
         calls: Number(row.calls) || 0,
@@ -260,7 +263,7 @@ export class AiEfficiencyService {
 
   private bindNamed(
     sql: string,
-    args: Record<string, any>,
+    args: Record<string, unknown>,
   ): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
     const indexByKey = new Map<string, number>();
@@ -277,6 +280,8 @@ export class AiEfficiencyService {
     return { sql: boundSql, params };
   }
 }
+
+type LinhaSql = Record<string, unknown>;
 
 function round1(value: unknown): number {
   const n = Number(value);

@@ -15,7 +15,7 @@ export class IngestionService {
     category: string;
     title: string;
     content: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     maxTokens?: number;
     overlapTokens?: number;
   }): Promise<void> {
@@ -50,7 +50,7 @@ export class IngestionService {
     items: Array<{
       title: string;
       content: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
     }>,
     options?: { maxTokens?: number; overlapTokens?: number },
   ): Promise<void> {

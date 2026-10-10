@@ -10,7 +10,7 @@ describe('OperationDraftService', () => {
     storedConversation = {
       id: 'conv-1',
       operationDraft: null,
-    } as any;
+    };
     mockRepo = {
       findOne: jest
         .fn()
@@ -19,7 +19,7 @@ describe('OperationDraftService', () => {
         storedConversation = { ...storedConversation, ...patch };
       }),
     };
-    service = new OperationDraftService(mockRepo as any);
+    service = new OperationDraftService(mockRepo);
   });
 
   it('start cria um draft do tipo informado em status collecting', async () => {

@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../tool-result';
@@ -6,6 +5,7 @@ import { formatScProtocolForDisplay } from '../protocol.helpers';
 import { ScDraftToolDeps } from './_types';
 import { autoFillDoctorIfSingle, enumKeyToPriority } from './_helpers';
 import { recordAiActivity } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
 
 export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
   const {
@@ -38,11 +38,11 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId)
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -193,13 +193,11 @@ export function buildScDraftCommitTool(deps: ScDraftToolDeps): AiTool {
           message: `Solicitação ${protocol} criada com sucesso.`,
           displayText: linesOk.join('\n') + warningBlock + pendingBlock,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao criar SC: ${err?.message || 'erro desconhecido'}`,
-          errors: [
-            { code: 'CREATE_SC_FAILED', message: String(err?.message ?? err) },
-          ],
+          message: `Erro ao criar SC: ${errorMessage(err) || 'erro desconhecido'}`,
+          errors: [{ code: 'CREATE_SC_FAILED', message: errorMessage(err) }],
         });
       }
     },

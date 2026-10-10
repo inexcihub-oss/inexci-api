@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ANY_AUTHENTICATED, ToolContext } from './tool.interface';
 import {
   CidService,
@@ -25,7 +24,50 @@ function formatLines(items: CidResponse[]): string[] {
   return items.map((item) => `${item.code} — ${item.description}`);
 }
 
-export function buildCidTools(cidService: CidService): AiTool[] {
+export interface CidToolDeps {
+  cidService: CidService;
+}
+
+export function buildCidTools({ cidService }: CidToolDeps): AiTool[] {
+  const runSearchCidCodes = (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): string => {
+    if (!context.userId) return 'Acesso negado.';
+
+    const query = asNonEmptyString(args.query);
+    if (!query || query.length < 2) {
+      return 'Parâmetro inválido: `query` deve ter ao menos 2 caracteres (código completo/parcial ou descrição).';
+    }
+
+    const limit = clampLimit(args.limit);
+
+    const codeLike = looksLikeCidCode(query);
+    if (codeLike) {
+      const exact = cidService.findByExactCode(query);
+      if (exact) {
+        return [
+          `Código CID encontrado:`,
+          `${exact.code} — ${exact.description}`,
+        ].join('\n');
+      }
+    }
+
+    const results = cidService.lookup(query, limit);
+    if (!results.length) {
+      return [
+        `Nenhum CID encontrado para "${query}".`,
+        'Tente outro trecho da descrição ou verifique a grafia do código.',
+      ].join(' ');
+    }
+
+    const header = codeLike
+      ? `Códigos CID que combinam com "${query}" (${results.length}):`
+      : `Códigos CID para "${query}" (${results.length}):`;
+
+    return [header, ...formatLines(results)].join('\n');
+  };
+
   const searchCidCodes: AiTool = {
     name: 'search_cid_codes',
     requiredPermission: ANY_AUTHENTICATED,
@@ -53,41 +95,11 @@ export function buildCidTools(cidService: CidService): AiTool[] {
           required: ['query'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
-    async execute(args, context: ToolContext): Promise<string> {
-      if (!context.userId) return 'Acesso negado.';
-
-      const query = asNonEmptyString(args.query);
-      if (!query || query.length < 2) {
-        return 'Parâmetro inválido: `query` deve ter ao menos 2 caracteres (código completo/parcial ou descrição).';
-      }
-
-      const limit = clampLimit(args.limit);
-
-      const codeLike = looksLikeCidCode(query);
-      if (codeLike) {
-        const exact = cidService.findByExactCode(query);
-        if (exact) {
-          return [
-            `Código CID encontrado:`,
-            `${exact.code} — ${exact.description}`,
-          ].join('\n');
-        }
-      }
-
-      const results = cidService.lookup(query, limit);
-      if (!results.length) {
-        return [
-          `Nenhum CID encontrado para "${query}".`,
-          'Tente outro trecho da descrição ou verifique a grafia do código.',
-        ].join(' ');
-      }
-
-      const header = codeLike
-        ? `Códigos CID que combinam com "${query}" (${results.length}):`
-        : `Códigos CID para "${query}" (${results.length}):`;
-
-      return [header, ...formatLines(results)].join('\n');
+    },
+    execute(args, context: ToolContext): Promise<string> {
+      return new Promise<string>((resolve) =>
+        resolve(runSearchCidCodes(args, context)),
+      );
     },
   };
 

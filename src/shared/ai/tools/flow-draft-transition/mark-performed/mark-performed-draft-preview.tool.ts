@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -20,7 +19,7 @@ export function buildMarkPerformedDraftPreviewTool(
           'Gera o preview da marcação como realizada. Documentos pós-cirúrgicos são opcionais.',
         parameters: { type: 'object', properties: {} },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(_args, context) {
       const v = await draftService.validate(
         context.conversationId,

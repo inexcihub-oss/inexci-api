@@ -13,21 +13,20 @@ const buildCompletion = (
   usage: Partial<OpenAI.CompletionUsage> & {
     prompt_tokens_details?: { cached_tokens?: number };
   } = {},
-): OpenAI.ChatCompletion =>
-  ({
-    id: 'cmpl-1',
-    object: 'chat.completion',
-    created: 0,
-    model: 'gpt-4o',
-    choices: [],
-    usage: {
-      prompt_tokens: 100,
-      completion_tokens: 50,
-      total_tokens: 150,
-      ...usage,
-    } as any,
-    ...overrides,
-  }) as OpenAI.ChatCompletion;
+): OpenAI.ChatCompletion => ({
+  id: 'cmpl-1',
+  object: 'chat.completion',
+  created: 0,
+  model: 'gpt-4o',
+  choices: [],
+  usage: {
+    prompt_tokens: 100,
+    completion_tokens: 50,
+    total_tokens: 150,
+    ...usage,
+  },
+  ...overrides,
+});
 
 describe('OrchestratorTelemetryService', () => {
   let service: OrchestratorTelemetryService;
@@ -125,7 +124,7 @@ describe('OrchestratorTelemetryService', () => {
       service.captureUsageSnapshot(snapshots, 'initial', {
         ...buildCompletion(),
         usage: undefined,
-      } as OpenAI.ChatCompletion);
+      });
       expect(snapshots).toHaveLength(0);
     });
 

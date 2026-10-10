@@ -16,12 +16,12 @@ const baseContext: ToolContext = {
 };
 
 describe('SurgeryRequestTools', () => {
-  const tools = buildSurgeryRequestTools(
-    mockSurgeryRequestRepo as any,
-    {
+  const tools = buildSurgeryRequestTools({
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    pendencyValidator: {
       validateForStatus: jest.fn().mockResolvedValue({ pendencies: [] }),
     } as any,
-  );
+  });
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 
   beforeEach(() => jest.clearAllMocks());
@@ -163,10 +163,10 @@ describe('SurgeryRequestTools', () => {
         }),
       };
 
-      const toolsWithPendency = buildSurgeryRequestTools(
-        mockSurgeryRequestRepo as any,
-        pendencyValidatorMock as any,
-      );
+      const toolsWithPendency = buildSurgeryRequestTools({
+        surgeryRequestRepo: mockSurgeryRequestRepo as any,
+        pendencyValidator: pendencyValidatorMock as any,
+      });
       const tool = toolsWithPendency.find(
         (t) => t.name === 'query_surgery_requests',
       )!;

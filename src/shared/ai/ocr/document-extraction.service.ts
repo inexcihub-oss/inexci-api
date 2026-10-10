@@ -8,6 +8,7 @@ import {
   DocumentClassificationIntent,
 } from './document-classifier.types';
 import { PiiVaultService } from '../services/pii-vault.service';
+import { errorMessage } from '../../utils/error-message.util';
 
 export interface ExtractFromBufferInput {
   buffer: Buffer;
@@ -94,10 +95,10 @@ export class DocumentExtractionService {
         sessionId,
       );
       timing.ocrMs = ocrResult.durationMs ?? Date.now() - ocrStartedAt;
-    } catch (err: any) {
+    } catch (err) {
       ocrResult = null;
       timing.ocrMs = Date.now() - ocrStartedAt;
-      ocrFailureReason = err?.message || 'erro desconhecido no OCR';
+      ocrFailureReason = errorMessage(err) || 'erro desconhecido no OCR';
       this.logger.warn(
         `[DOC_EXTRACT] sid=${sessionId} status=ocr_exception reason=${ocrFailureReason} ocr_ms=${timing.ocrMs}`,
       );
@@ -134,9 +135,9 @@ export class DocumentExtractionService {
         this.logger.log(
           `[DOC_EXTRACT] sid=${sessionId} stage=text_classifier kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} classifier_ms=${timing.classifierMs}`,
         );
-      } catch (err: any) {
+      } catch (err) {
         timing.classifierMs = Date.now() - classifierStartedAt;
-        classifierError = err?.message || 'classifier indisponível';
+        classifierError = errorMessage(err) || 'classifier indisponível';
         this.logger.warn(
           `[DOC_EXTRACT] sid=${sessionId} status=classifier_failed reason=${classifierError} classifier_ms=${timing.classifierMs}`,
         );
@@ -211,10 +212,10 @@ export class DocumentExtractionService {
           this.logger.log(
             `[DOC_EXTRACT] sid=${sessionId} stage=vision_llm kind=${classification.kind} confidence=${classification.confidence.toFixed(2)} vision_ms=${timing.visionMs}`,
           );
-        } catch (err: any) {
+        } catch (err) {
           timing.visionMs = Date.now() - visionStartedAt;
           this.logger.warn(
-            `[DOC_EXTRACT] sid=${sessionId} status=vision_failed reason=${err?.message || 'erro'} vision_ms=${timing.visionMs}`,
+            `[DOC_EXTRACT] sid=${sessionId} status=vision_failed reason=${errorMessage(err) || 'erro'} vision_ms=${timing.visionMs}`,
           );
         }
       }

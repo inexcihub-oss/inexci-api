@@ -4,6 +4,13 @@ import { WhatsappConversationRepository } from '../../../../database/repositorie
 import { UserRepository } from '../../../../database/repositories/user.repository';
 import { parseToolResult } from '../../tools/tool-result';
 import { SimpleCache } from '../../utils/simple-cache';
+import { stringifyValue } from '../../utils/stringify-value.util';
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 const DOCTORS_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -35,7 +42,7 @@ export class ConversationMemoryService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as any);
+      });
       return (conv?.conversationMemory as Record<string, unknown>) || null;
     } catch (err) {
       this.logger.debug(
@@ -52,11 +59,11 @@ export class ConversationMemoryService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as any);
+      });
       if (!conv) return;
       const memory = (conv.conversationMemory as Record<string, unknown>) || {};
       await this.whatsappConversationRepo.update(conversationId, {
-        conversationMemory: { ...memory, ...patch } as any,
+        conversationMemory: { ...memory, ...patch },
       });
     } catch (err) {
       this.logger.debug(
@@ -68,7 +75,7 @@ export class ConversationMemoryService {
   async memorizeEntities(opts: {
     conversationId: string;
     toolName: string;
-    args: Record<string, any>;
+    args: Record<string, unknown>;
     output: string;
   }): Promise<void> {
     const { conversationId, toolName, args, output } = opts;
@@ -78,10 +85,10 @@ export class ConversationMemoryService {
 
     const memory = (await this.readMemory(conversationId)) || {};
     const filled: Record<string, unknown> = {
-      ...((memory as any).filled_slots || {}),
+      ...asRecord(memory.filled_slots),
     };
     const surgeryRequest: Record<string, unknown> = {
-      ...((memory as any).surgeryRequest || {}),
+      ...asRecord(memory.surgeryRequest),
     };
 
     const setIfPresent = (
@@ -90,7 +97,7 @@ export class ConversationMemoryService {
       value: unknown,
     ) => {
       if (value === null || value === undefined) return;
-      const text = String(value).trim();
+      const text = stringifyValue(value).trim();
       if (!text) return;
       target[key] = text;
     };
@@ -157,7 +164,7 @@ export class ConversationMemoryService {
     try {
       const conv = await this.whatsappConversationRepo.findOne({
         id: conversationId,
-      } as any);
+      });
       if (!conv) return;
       const memory = {
         ...((conv.conversationMemory as Record<string, unknown>) || {}),
@@ -165,7 +172,7 @@ export class ConversationMemoryService {
       if (!('awaitingMedia' in memory)) return;
       delete (memory as Record<string, unknown>).awaitingMedia;
       await this.whatsappConversationRepo.update(conversationId, {
-        conversationMemory: memory as any,
+        conversationMemory: memory,
       });
     } catch (err) {
       this.logger.debug(
@@ -183,11 +190,11 @@ export class ConversationMemoryService {
     if (cached) return cached;
     try {
       const doctors = await this.userRepository.findMany(
-        { id: In(accessibleDoctorIds) } as any,
+        { id: In(accessibleDoctorIds) },
         0,
         accessibleDoctorIds.length,
       );
-      const info = doctors.map((d: any) => ({
+      const info = doctors.map((d) => ({
         id: d.id,
         name: d.name ?? null,
       }));

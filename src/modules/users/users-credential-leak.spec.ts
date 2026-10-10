@@ -50,7 +50,6 @@ describe('UsersService — credenciais nunca saem na resposta', () => {
     role: UserRole.COLLABORATOR,
     status: UserStatus.PENDING,
     ownerId: 'dono-1',
-    adminId: 'dono-1',
     password: HASH,
     emailVerificationToken: 'token-de-verificacao',
     emailVerificationExpiresAt: new Date(),
@@ -105,7 +104,7 @@ describe('UsersService — credenciais nunca saem na resposta', () => {
     userRepository.create.mockResolvedValue(comCredenciais());
 
     const resultado = await service.create(
-      { name: 'Novo', email: 'novo@email.com', phone: '11999998888' } as any,
+      { name: 'Novo', email: 'novo@email.com', phone: '11999998888' },
       'dono-1',
     );
 

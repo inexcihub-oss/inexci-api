@@ -78,7 +78,7 @@ export class WhatsappMediaService {
     media: InboundWhatsappMedia,
   ): Promise<DownloadedWhatsappAudio> {
     const downloaded = await this.downloadInboundMedia(media, 'audio');
-    const durationSeconds = await this.resolveAudioDuration(
+    const durationSeconds = this.resolveAudioDuration(
       media,
       downloaded.responseHeaders,
     );
@@ -369,10 +369,10 @@ export class WhatsappMediaService {
     return Buffer.concat(chunks, total);
   }
 
-  private async resolveAudioDuration(
+  private resolveAudioDuration(
     media: InboundWhatsappMedia,
     headers: Headers,
-  ): Promise<number | null> {
+  ): number | null {
     if (
       typeof media.durationSeconds === 'number' &&
       Number.isFinite(media.durationSeconds)

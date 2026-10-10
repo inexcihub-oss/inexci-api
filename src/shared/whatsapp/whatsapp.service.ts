@@ -4,6 +4,7 @@ import { Queue } from 'bull';
 import { WHATSAPP_TEMPLATES } from './whatsapp-templates.constants';
 import { getRequestContext } from '../logging/request-context';
 import { maskPhone } from '../utils';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 export interface WhatsappJobData {
   to: string;
@@ -51,9 +52,9 @@ export class WhatsappService {
         },
       );
       this.logger.log(`Mensagem WhatsApp enfileirada para ${masked}`);
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enfileirar mensagem WhatsApp (Redis offline?): to=${masked} — ${err?.message}`,
+        `Falha ao enfileirar mensagem WhatsApp (Redis offline?): to=${masked} — ${errorMessage(err)}`,
       );
     }
   }
@@ -86,9 +87,9 @@ export class WhatsappService {
       this.logger.log(
         `Template WhatsApp enfileirado para ${masked} (contentSid: ${contentSid})`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao enfileirar template WhatsApp: to=${masked} contentSid="${contentSid}" — ${err?.message}`,
+        `Falha ao enfileirar template WhatsApp: to=${masked} contentSid="${contentSid}" — ${errorMessage(err)}`,
       );
     }
   }

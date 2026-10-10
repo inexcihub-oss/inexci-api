@@ -18,7 +18,10 @@ import {
   LEDGER_GRADE,
 } from './mappers/availability.mapper';
 
-export type Consultar = (sql: string, params?: unknown[]) => Promise<any[]>;
+export type Consultar = <T = Record<string, unknown>>(
+  sql: string,
+  params?: unknown[],
+) => Promise<T[]>;
 
 export const COLUNAS_EXIGIDAS: Record<string, string[]> = {
   patients: ['photo_path', 'secondary_phone'],
@@ -151,7 +154,7 @@ export async function verificarCarga(
   for (const c of CONFERENCIA) {
     const ids = [...new Set(Object.values(mapa[c.entidade] ?? {}))];
     if (!ids.length) continue;
-    const [{ n }] = await consultar(c.sql, [ids, ownerId]);
+    const [{ n }] = await consultar<{ n: number }>(c.sql, [ids, ownerId]);
     linhas.push({ rotulo: c.rotulo, previstos: ids.length, encontrados: n });
   }
   return linhas;

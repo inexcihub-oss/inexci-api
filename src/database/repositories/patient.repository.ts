@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import {
   DataSource,
+  DeepPartial,
+  EntityManager,
   FindOptionsWhere,
   Not,
   QueryDeepPartialEntity,
@@ -25,6 +27,14 @@ const COLUNAS_DA_LISTAGEM = [
 export class PatientRepository extends BaseRepository<Patient> {
   constructor(private readonly dataSource: DataSource) {
     super(dataSource.getRepository(Patient));
+  }
+
+  create(
+    data: DeepPartial<Patient>,
+    manager?: EntityManager,
+  ): Promise<Patient> {
+    const repo = manager ? manager.getRepository(Patient) : this.repository;
+    return repo.save(repo.create(data));
   }
 
   findMany(

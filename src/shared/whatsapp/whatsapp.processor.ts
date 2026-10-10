@@ -20,6 +20,7 @@ import {
 } from 'src/shared/utils';
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
+import { errorMessage as mensagemDoErro } from 'src/shared/utils/error-message.util';
 
 @Injectable()
 @Processor('whatsapp-messages')
@@ -110,7 +111,7 @@ export class WhatsappProcessor {
           to: toFormatted,
           contentSid,
           contentVariables: JSON.stringify(variables ?? {}),
-        } as any);
+        });
         sentAt = new Date();
         messageSid = result?.sid ?? null;
         this.logger.log(
@@ -129,7 +130,7 @@ export class WhatsappProcessor {
           `Mensagem WhatsApp enviada com sucesso para ${maskedTo}`,
         );
       }
-    } catch (error: any) {
+    } catch (error) {
       status = NotificationSendStatus.FAILED;
       errorMessage = truncateErrorForLog(error);
       this.logger.warn(
@@ -154,9 +155,9 @@ export class WhatsappProcessor {
             : NotificationSendType.FREEFORM,
         });
         await this.sendLogRepository.save(sendLog);
-      } catch (logErr: any) {
+      } catch (logErr) {
         this.logger.error(
-          `Falha ao salvar notification_send_log: ${logErr?.message}`,
+          `Falha ao salvar notification_send_log: ${mensagemDoErro(logErr)}`,
         );
       }
     }

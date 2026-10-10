@@ -35,7 +35,6 @@ export enum UserStatus {
 
 @Entity('users')
 @Index('idx_users_owner_id', ['ownerId'])
-@Index('idx_users_admin_id', ['adminId'])
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -133,9 +132,6 @@ export class User {
   @Column({ name: 'owner_id', type: 'uuid' })
   ownerId: string;
 
-  @Column({ name: 'admin_id', type: 'uuid', nullable: true })
-  adminId: string | null;
-
   @Column({ name: 'is_platform_admin', type: 'boolean', default: false })
   isPlatformAdmin: boolean;
 
@@ -191,13 +187,6 @@ export class User {
   @ManyToOne(() => User, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'owner_id' })
   owner: User;
-
-  @ManyToOne(() => User, (user) => user.managedUsers, { nullable: true })
-  @JoinColumn({ name: 'admin_id' })
-  admin: User | null;
-
-  @OneToMany(() => User, (user) => user.admin)
-  managedUsers: User[];
 
   @OneToOne(() => DoctorProfile, (profile) => profile.user, { cascade: true })
   doctorProfile: DoctorProfile | null;

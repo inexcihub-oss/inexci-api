@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -37,12 +36,12 @@ export function buildMarkPerformedDraftCommitTool(
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -89,7 +88,7 @@ export function buildMarkPerformedDraftCommitTool(
           {
             surgeryPerformedAt: f.surgeryPerformedAt!,
             notifyPatient: f.notifyPatient,
-          } as any,
+          },
           context.userId,
         );
         await recordAiActivity(
@@ -107,7 +106,7 @@ export function buildMarkPerformedDraftCommitTool(
           affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Solicitação ${f.surgeryRequestLabel ?? surgeryRequestId} marcada como realizada com sucesso.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: extractTransitionErrorMessage(

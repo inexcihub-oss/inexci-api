@@ -3,7 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ClinicRoom } from 'src/database/entities/clinic-room.entity';
+import {
+  CLINIC_ROOM_NOME_UNICO,
+  ClinicRoom,
+} from 'src/database/entities/clinic-room.entity';
 import { ClinicRepository } from 'src/database/repositories/clinic.repository';
 import { ClinicRoomRepository } from 'src/database/repositories/clinic-room.repository';
 import { violacaoDeUnicidade } from 'src/database/repositories/unique-violation.util';
@@ -12,8 +15,6 @@ import {
   CreateClinicRoomDto,
   UpdateClinicRoomDto,
 } from './dto/clinic-room.dto';
-
-const UQ_NOME_DA_SALA = 'uq_clinic_rooms_clinic_name_active';
 
 @Injectable()
 export class ClinicRoomsService {
@@ -68,7 +69,7 @@ export class ClinicRoomsService {
       return await gravar();
     } catch (erro) {
       const violacao = violacaoDeUnicidade(erro);
-      if (violacao && violacao.constraint === UQ_NOME_DA_SALA) {
+      if (violacao && violacao.constraint === CLINIC_ROOM_NOME_UNICO) {
         throw new ConflictException(`Já existe uma sala chamada "${name}".`);
       }
       throw erro;

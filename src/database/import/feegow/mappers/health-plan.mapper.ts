@@ -24,7 +24,7 @@ export function planejarConvenios(
   }
   for (const pc of exp.tabela('paciente_convenio')) {
     for (const k of ['convenio_id1', 'convenio_id2', 'convenio_id3']) {
-      if (pc[k]) usados.add(pc[k]!);
+      if (pc[k]) usados.add(pc[k]);
     }
   }
 

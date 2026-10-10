@@ -2,7 +2,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, In, IsNull } from 'typeorm';
 
-import { SurgeryRequestStatus } from 'src/database/entities/surgery-request.entity';
+import {
+  SurgeryRequest,
+  SurgeryRequestStatus,
+} from 'src/database/entities/surgery-request.entity';
 import {
   Contestation,
   ContestationTypeEnum,
@@ -14,6 +17,7 @@ import {
 import { Document } from 'src/database/entities/document.entity';
 import { SurgeryRequestRepository } from 'src/database/repositories/surgery-request.repository';
 import { SurgeryRequestActivityRepository } from 'src/database/repositories/surgery-request-activity.repository';
+import { ContestationRepository } from 'src/database/repositories/contestation.repository';
 import { SendMethod } from 'src/shared/constants/send-method';
 import { MailService } from 'src/shared/mail/mail.service';
 import { StorageService } from 'src/shared/storage/storage.service';
@@ -46,6 +50,7 @@ export class AuthorizationHandler {
     private readonly storageService: StorageService,
     private readonly surgeryRequestRepository: SurgeryRequestRepository,
     private readonly activityRepository: SurgeryRequestActivityRepository,
+    private readonly contestationRepository: ContestationRepository,
     private readonly notificationService: SurgeryRequestNotificationService,
     private readonly pdfAssemblyService: SurgeryRequestPdfAssemblyService,
     private readonly pendencyValidator: PendencyValidatorService,
@@ -149,10 +154,10 @@ export class AuthorizationHandler {
       .map((path) => path?.trim())
       .filter((path): path is string => !!path);
 
-    await executeInTransaction(
+    const contestation = await executeInTransaction(
       this.dataSource,
       async (manager) => {
-        const contestation = await manager.getRepository(Contestation).save({
+        const saved = await manager.getRepository(Contestation).save({
           surgeryRequestId: id,
           createdById: userId,
           type: ContestationTypeEnum.AUTHORIZATION,
@@ -164,7 +169,7 @@ export class AuthorizationHandler {
             .getRepository(Document)
             .update(
               { surgeryRequestId: id, uri: In(attachmentPaths) },
-              { contestationId: contestation.id },
+              { contestationId: saved.id },
             );
         }
 
@@ -183,6 +188,7 @@ export class AuthorizationHandler {
             content: `Mensagem da contestação: ${dto.message.trim()}`,
           });
         }
+        return saved;
       },
       { logger: this.logger, operationName: 'contestAuthorization' },
     );
@@ -242,36 +248,39 @@ export class AuthorizationHandler {
       return { sent: true, method: SendMethod.EMAIL };
     }
 
-    return { sent: false, method: SendMethod.DOCUMENT };
-  }
-
-  async generateContestAuthorizationPdf(
-    id: string,
-    userId: string,
-  ): Promise<Buffer> {
-    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
-      { id },
-    );
-    if (!request)
-      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
-
-    const buffer =
-      await this.pdfAssemblyService.generateContestAuthorizationPdf(
+    if (dto.method === SendMethod.DOCUMENT) {
+      await this.storeContestAuthorizationPdf(
         request,
         id,
         userId,
+        contestation.id,
       );
+    }
 
+    return { sent: false, method: SendMethod.DOCUMENT };
+  }
+
+  private async storeContestAuthorizationPdf(
+    request: SurgeryRequest,
+    id: string,
+    userId: string,
+    contestationId: string,
+  ): Promise<void> {
     try {
-      const timestamp = Date.now();
-      const filename = `contestacao-${id}-${timestamp}.pdf`;
-      const mockFile = {
-        originalname: filename,
-        mimetype: 'application/pdf',
-        buffer,
-      };
+      const requestWithLatestData =
+        await this.surgeryRequestRepository.findOneWithAllRelations({ id });
+      const buffer =
+        await this.pdfAssemblyService.generateContestAuthorizationPdf(
+          requestWithLatestData ?? request,
+          id,
+          userId,
+        );
       const storagePath = await this.storageService.create(
-        mockFile,
+        {
+          originalname: `contestacao-${id}-${Date.now()}.pdf`,
+          mimetype: 'application/pdf',
+          buffer,
+        },
         STORAGE_FOLDERS.PDFS,
         request.ownerId,
       );
@@ -283,16 +292,81 @@ export class AuthorizationHandler {
         content: JSON.stringify({
           description: 'PDF de contestação de autorização gerado',
           pdf_path: storagePath,
+          contestation_id: contestationId,
         }),
       });
 
       this.logger.log(`[contestPDF] PDF de contestação salvo: ${storagePath}`);
     } catch (err) {
       this.logger.warn(
-        `[contestPDF] Não foi possível salvar atividade do PDF de contestação: ${(err as Error)?.message}`,
+        `[contestPDF] Não foi possível salvar o PDF da contestação ${contestationId}: ${(err as Error)?.message}`,
       );
     }
+  }
 
-    return buffer;
+  async generateContestAuthorizationPdf(
+    id: string,
+    userId: string,
+  ): Promise<Buffer> {
+    const saved = await this.findSavedContestAuthorizationPdf(id);
+    if (saved) return saved;
+
+    const request = await this.surgeryRequestRepository.findOneWithAllRelations(
+      { id },
+    );
+    if (!request)
+      throw new NotFoundException(ERROR_MESSAGES.SURGERY_REQUEST_NOT_FOUND);
+
+    return this.pdfAssemblyService.generateContestAuthorizationPdf(
+      request,
+      id,
+      userId,
+    );
+  }
+
+  private async findSavedContestAuthorizationPdf(
+    id: string,
+  ): Promise<Buffer | null> {
+    const contestation =
+      await this.contestationRepository.findLatestBySurgeryRequest(
+        id,
+        ContestationTypeEnum.AUTHORIZATION,
+      );
+    if (!contestation) return null;
+
+    const activities = await this.activityRepository.findByTypeSince(
+      id,
+      ActivityType.PDF_GENERATED,
+      contestation.createdAt,
+    );
+    for (const activity of activities) {
+      const pdfPath = this.contestPdfPath(activity.content, contestation.id);
+      if (!pdfPath) continue;
+      const buffer = await this.storageService.download(pdfPath);
+      if (buffer) return buffer;
+    }
+    return null;
+  }
+
+  private contestPdfPath(
+    content: string,
+    contestationId: string,
+  ): string | null {
+    try {
+      const parsed = JSON.parse(content) as {
+        pdf_path?: unknown;
+        contestation_id?: unknown;
+      };
+      if (
+        parsed?.contestation_id === contestationId &&
+        typeof parsed.pdf_path === 'string' &&
+        parsed.pdf_path
+      ) {
+        return parsed.pdf_path;
+      }
+    } catch {
+      return null;
+    }
+    return null;
   }
 }

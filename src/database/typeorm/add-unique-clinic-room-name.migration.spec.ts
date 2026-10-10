@@ -1,4 +1,5 @@
 import { QueryRunner } from 'typeorm';
+import { CLINIC_ROOM_NOME_UNICO } from '../entities/clinic-room.entity';
 import {
   AddUniqueClinicRoomName1755801000000,
   UQ_CLINIC_ROOMS_CLINIC_NAME,
@@ -55,5 +56,9 @@ describe('AddUniqueClinicRoomName1755801000000', () => {
     expect(executadas(query)).toEqual([
       `DROP INDEX IF EXISTS "${UQ_CLINIC_ROOMS_CLINIC_NAME}"`,
     ]);
+  });
+
+  it('a entidade declara o mesmo nome de índice', () => {
+    expect(CLINIC_ROOM_NOME_UNICO).toBe(UQ_CLINIC_ROOMS_CLINIC_NAME);
   });
 });

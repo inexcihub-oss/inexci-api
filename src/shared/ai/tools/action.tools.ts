@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
@@ -15,6 +14,7 @@ import {
 } from './helpers/surgery-request-access';
 import { extractTransitionErrorMessage } from './flow-draft-transition/_helpers';
 import { buildToolResult } from './tool-result';
+import { argToString } from './helpers/arg-parsers';
 
 const NEXT_STATUS: Partial<Record<SurgeryRequestStatus, SurgeryRequestStatus>> =
   {
@@ -62,13 +62,21 @@ const TRANSITIONS_WITH_DEDICATED_FLOW: Partial<
   },
 };
 
-export function buildActionTools(
-  surgeryRequestRepo: SurgeryRequestRepository,
-  workflowService: SurgeryRequestWorkflowService,
-  mutationService: SurgeryRequestMutationService,
-  pendencyValidator: PendencyValidatorService,
-  activityRepo: SurgeryRequestActivityRepository,
-): AiTool[] {
+export interface ActionToolDeps {
+  surgeryRequestRepo: SurgeryRequestRepository;
+  workflowService: SurgeryRequestWorkflowService;
+  mutationService: SurgeryRequestMutationService;
+  pendencyValidator: PendencyValidatorService;
+  activityRepo: SurgeryRequestActivityRepository;
+}
+
+export function buildActionTools({
+  surgeryRequestRepo,
+  workflowService,
+  mutationService,
+  pendencyValidator,
+  activityRepo,
+}: ActionToolDeps): AiTool[] {
   const advanceSurgeryRequest: AiTool = {
     name: 'advance_surgery_request',
     requiredPermission: Permission.SOLICITACOES,
@@ -101,7 +109,7 @@ export function buildActionTools(
           required: ['surgeryRequestId'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) {
         return buildToolResult({
@@ -251,7 +259,7 @@ export function buildActionTools(
           required: ['surgeryRequestId', 'hasOpme'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) {
         return buildToolResult({
@@ -329,7 +337,7 @@ export function buildActionTools(
           required: ['surgeryRequestId', 'reason'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) {
         return buildToolResult({
@@ -353,7 +361,7 @@ export function buildActionTools(
       const requestId = request.id;
 
       if (!args.confirm) {
-        const preview = `Atenção: você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${args.reason}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
+        const preview = `Atenção: você está prestes a *encerrar* a solicitação ${request.protocol}.\nMotivo: "${argToString(args.reason)}"\n\nEssa ação não pode ser desfeita. Confirme com "sim".`;
         return buildToolResult({
           status: 'pending_confirmation',
           message: preview,
@@ -375,7 +383,7 @@ export function buildActionTools(
           activityRepo,
           context,
           requestId,
-          `Solicitação encerrada. Motivo: "${args.reason}".`,
+          `Solicitação encerrada. Motivo: "${argToString(args.reason)}".`,
         );
         return buildToolResult({
           status: 'ok',

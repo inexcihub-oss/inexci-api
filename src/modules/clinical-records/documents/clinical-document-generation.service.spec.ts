@@ -373,7 +373,7 @@ describe('ClinicalDocumentGenerationService', () => {
       const emitir = (data: Record<string, unknown>) =>
         service.generateMedicalCertificate(
           'record-1',
-          { clinicalRecordId: 'record-1', ...data } as any,
+          { clinicalRecordId: 'record-1', ...data },
           'doctor-1',
         );
       const nota = () =>
@@ -577,7 +577,7 @@ describe('ClinicalDocumentGenerationService', () => {
   describe('pré-visualização', () => {
     it('devolve o HTML do documento sem gravar nada', async () => {
       const html = await service.previewPrescription(
-        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto },
         'doctor-1',
       );
 
@@ -588,7 +588,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
     it('não invoca o Puppeteer para pré-visualizar', async () => {
       await service.previewPrescription(
-        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto },
         'doctor-1',
       );
 
@@ -597,7 +597,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
     it('pré-visualiza a partir do mesmo template e dos mesmos dados da emissão', async () => {
       await service.previewPrescription(
-        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto },
         'doctor-1',
       );
       const [template, previewData] =
@@ -617,7 +617,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
     it('pré-visualiza atestado e encaminhamento pelos templates certos', async () => {
       await service.previewMedicalCertificate(
-        { clinicalRecordId: 'record-1', restDays: 1 } as any,
+        { clinicalRecordId: 'record-1', restDays: 1 },
         'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
@@ -626,7 +626,7 @@ describe('ClinicalDocumentGenerationService', () => {
       );
 
       await service.previewExamReferral(
-        { clinicalRecordId: 'record-1', exams: [{ name: 'Hemograma' }] } as any,
+        { clinicalRecordId: 'record-1', exams: [{ name: 'Hemograma' }] },
         'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
@@ -653,7 +653,7 @@ describe('ClinicalDocumentGenerationService', () => {
   describe('pré-visualização sem ficha gravada', () => {
     it('monta a receita a partir do paciente, sem tocar na ficha', async () => {
       const html = await service.previewPrescription(
-        { patientId: 'patient-1', ...prescriptionDto } as any,
+        { patientId: 'patient-1', ...prescriptionDto },
         'doctor-1',
       );
 
@@ -672,7 +672,7 @@ describe('ClinicalDocumentGenerationService', () => {
 
     it('assina com o próprio usuário quando nenhum médico é informado', async () => {
       await service.previewPrescription(
-        { patientId: 'patient-1', ...prescriptionDto } as any,
+        { patientId: 'patient-1', ...prescriptionDto },
         'doctor-1',
       );
 
@@ -710,7 +710,7 @@ describe('ClinicalDocumentGenerationService', () => {
           patientId: 'patient-1',
           doctorId: 'doctor-1',
           ...prescriptionDto,
-        } as any,
+        },
         'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenCalled();
@@ -744,7 +744,7 @@ describe('ClinicalDocumentGenerationService', () => {
           restDays: 2,
           includeCid: true,
           cidCodes,
-        } as any,
+        },
         'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
@@ -757,7 +757,7 @@ describe('ClinicalDocumentGenerationService', () => {
           patientId: 'patient-1',
           exams: [{ name: 'Hemograma' }],
           cidCodes,
-        } as any,
+        },
         'doctor-1',
       );
       expect(pdfService.renderClinicalDocumentHtml).toHaveBeenLastCalledWith(
@@ -794,7 +794,7 @@ describe('ClinicalDocumentGenerationService', () => {
           patientId: 'patient-1',
           doctorId: 'doctor-1',
           ...prescriptionDto,
-        } as any,
+        },
         'doctor-1',
       );
       const [, previewData] =
@@ -1069,7 +1069,7 @@ describe('ClinicalDocumentGenerationService', () => {
       clinicalRecordRepository.findOne.mockResolvedValue(record);
 
       await service.previewPrescription(
-        { clinicalRecordId: 'record-1', ...prescriptionDto } as any,
+        { clinicalRecordId: 'record-1', ...prescriptionDto },
         'doctor-1',
       );
 

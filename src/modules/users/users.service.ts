@@ -349,7 +349,6 @@ export class UsersService {
       status: UserStatus.PENDING,
       password: await bcrypt.hash(placeholderPw, BCRYPT_ROUNDS),
       ownerId: user.ownerId,
-      adminId: userId,
     });
 
     await this.recoveryCodeRepository.deleteMany({
@@ -557,7 +556,6 @@ export class UsersService {
         role: c.role,
         status: c.status,
         ownerId: c.ownerId,
-        adminId: c.adminId,
         emailVerified: c.emailVerified,
         doctorProfile: c.doctorProfile ?? null,
         createdAt: c.createdAt,
@@ -647,7 +645,6 @@ export class UsersService {
         status: UserStatus.PENDING,
         password: await bcrypt.hash(placeholderPassword, BCRYPT_ROUNDS),
         ownerId: admin.ownerId,
-        adminId: admin.id,
         permissions: data.permissions ?? [],
       });
     } catch (err) {

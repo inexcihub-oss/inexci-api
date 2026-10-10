@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { SurgeryRequestRepository } from '../../../database/repositories/surgery-request.repository';
@@ -14,6 +13,7 @@ import { Logger } from '@nestjs/common';
 import { PendencyValidatorService } from '../../../modules/surgery-requests/pendencies/pendency-validator.service';
 import { tokenizePii } from '../pii/tool-pii-helpers';
 import { stripScPrefix } from './protocol.helpers';
+import { argToString } from './helpers/arg-parsers';
 
 const logger = new Logger('SurgeryRequestTools');
 
@@ -48,10 +48,15 @@ const ORDERED_STATUSES: SurgeryRequestStatus[] = [
   SurgeryRequestStatus.CLOSED,
 ];
 
-export function buildSurgeryRequestTools(
-  surgeryRequestRepo: SurgeryRequestRepository,
-  pendencyValidator: PendencyValidatorService,
-): AiTool[] {
+export interface SurgeryRequestToolDeps {
+  surgeryRequestRepo: SurgeryRequestRepository;
+  pendencyValidator: PendencyValidatorService;
+}
+
+export function buildSurgeryRequestTools({
+  surgeryRequestRepo,
+  pendencyValidator,
+}: SurgeryRequestToolDeps): AiTool[] {
   const querySurgeryRequests: AiTool = {
     name: 'query_surgery_requests',
     requiredPermission: Permission.SOLICITACOES,
@@ -83,7 +88,7 @@ export function buildSurgeryRequestTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId)
         return 'Você precisa estar cadastrado para consultar solicitações.';
@@ -93,7 +98,7 @@ export function buildSurgeryRequestTools(
       if (identifierRaw) {
         const resolvedRequest = await resolveRequestByIdentifierOrPatientName(
           surgeryRequestRepo,
-          String(identifierRaw),
+          argToString(identifierRaw),
           context,
         );
 
@@ -208,7 +213,7 @@ export function buildSurgeryRequestTools(
         : 50;
       const limit = Math.min(Math.max(requestedLimit, 1), 200);
       const statusFilter = args.status
-        ? STATUS_FILTER[String(args.status).toLowerCase()]
+        ? STATUS_FILTER[argToString(args.status).toLowerCase()]
         : undefined;
 
       if (!context.accessibleDoctorIds.length) {
@@ -224,7 +229,7 @@ export function buildSurgeryRequestTools(
 
       if (!requests.length) {
         return args.status
-          ? `Nenhuma solicitação com status "${args.status}" encontrada.`
+          ? `Nenhuma solicitação com status "${argToString(args.status)}" encontrada.`
           : 'Nenhuma solicitação encontrada.';
       }
 

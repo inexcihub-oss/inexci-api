@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
@@ -80,7 +79,7 @@ export function buildManageOpmeItemsTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,

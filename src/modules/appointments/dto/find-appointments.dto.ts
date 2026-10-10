@@ -18,7 +18,7 @@ export function listaDaQuery(value: unknown): unknown {
   if (value === undefined || value === null || value === '') return undefined;
   const partes = Array.isArray(value) ? value : [value];
   if (!partes.every((parte) => typeof parte === 'string')) return value;
-  const itens = (partes as string[])
+  const itens = partes
     .flatMap((parte) => parte.split(','))
     .map((item) => item.trim())
     .filter((item) => item.length > 0);

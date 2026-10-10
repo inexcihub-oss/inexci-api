@@ -16,6 +16,7 @@ import { AppointmentActivityRepository } from 'src/database/repositories/appoint
 import { registrarNoHistorico } from 'src/modules/appointments/appointment-history';
 import { NotificationsService } from 'src/modules/notifications/notifications.service';
 import { formatAppointmentWhen, formatClinicAddress } from 'src/shared/utils';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 @Injectable()
 export class WebhookService {
@@ -162,9 +163,9 @@ export class WebhookService {
               this.linhaDoLocal(appointment.clinic)
           : `Tudo bem, ${patientName}. Sua consulta de ${when} foi cancelada. Para remarcar, fale com a clínica.`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Consulta ${appointment.id} ${answer} pelo paciente, mas a confirmação não foi entregue (sid=${params.messageSid}): ${err?.message}`,
+        `Consulta ${appointment.id} ${answer} pelo paciente, mas a confirmação não foi entregue (sid=${params.messageSid}): ${errorMessage(err)}`,
       );
     }
 
@@ -243,9 +244,9 @@ export class WebhookService {
           '5': patientName,
         },
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.warn(
-        `Falha ao notificar médico sobre escolha de data do paciente (solicitação ${request.id}): ${err?.message}`,
+        `Falha ao notificar médico sobre escolha de data do paciente (solicitação ${request.id}): ${errorMessage(err)}`,
       );
     }
   }
@@ -315,7 +316,7 @@ export class WebhookService {
   validateTwilioSignature(
     signature: string,
     urls: string[],
-    body: Record<string, any>,
+    body: Record<string, unknown>,
   ): void {
     const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
     const validateSignatureRaw = this.configService

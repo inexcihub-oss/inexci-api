@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import { OpenaiService } from '../services/openai.service';
 import {
   DocumentClassification,
@@ -154,7 +153,7 @@ export class DocumentClassifierService {
       responseFormat: {
         type: 'json_schema',
         json_schema: DOCUMENT_CLASSIFIER_RESPONSE_SCHEMA,
-      } as OpenAI.ChatCompletionCreateParams['response_format'],
+      },
       stage: 'doc_classifier',
     });
 

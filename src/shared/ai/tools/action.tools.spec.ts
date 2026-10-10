@@ -51,13 +51,13 @@ const mockRequest = {
 };
 
 describe('ActionTools', () => {
-  const tools = buildActionTools(
-    mockSurgeryRequestRepo as any,
-    mockWorkflowService as any,
-    mockMutationService as any,
-    mockPendencyValidator as any,
-    mockActivityRepo as any,
-  );
+  const tools = buildActionTools({
+    surgeryRequestRepo: mockSurgeryRequestRepo as any,
+    workflowService: mockWorkflowService as any,
+    mutationService: mockMutationService as any,
+    pendencyValidator: mockPendencyValidator as any,
+    activityRepo: mockActivityRepo as any,
+  });
 
   const getTool = (name: string) => tools.find((t) => t.name === name)!;
 

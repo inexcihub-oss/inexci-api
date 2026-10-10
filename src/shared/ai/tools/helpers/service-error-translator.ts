@@ -9,7 +9,7 @@ export function translateServiceError(err: unknown): string {
     const response = err.getResponse();
     if (typeof response === 'string') return response;
     if (typeof response === 'object' && response !== null) {
-      const msg = (response as any).message;
+      const msg = (response as { message?: unknown }).message;
       if (typeof msg === 'string') return msg;
     }
     return 'Já existe um registro com esses dados.';
@@ -19,7 +19,7 @@ export function translateServiceError(err: unknown): string {
     const response = err.getResponse();
     if (typeof response === 'string') return response;
     if (typeof response === 'object' && response !== null) {
-      const msg = (response as any).message;
+      const msg = (response as { message?: unknown }).message;
       if (Array.isArray(msg)) return msg.join('; ');
       if (typeof msg === 'string') return msg;
     }
@@ -30,7 +30,7 @@ export function translateServiceError(err: unknown): string {
     const response = err.getResponse();
     if (typeof response === 'string') return response;
     if (typeof response === 'object' && response !== null) {
-      const msg = (response as any).message;
+      const msg = (response as { message?: unknown }).message;
       if (typeof msg === 'string') return msg;
     }
     return 'Registro não encontrado.';

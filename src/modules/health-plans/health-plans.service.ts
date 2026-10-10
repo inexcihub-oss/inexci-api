@@ -4,14 +4,21 @@ import { CreateHealthPlanDto } from './dto/create-health-plan.dto';
 import { UpdateHealthPlanDto } from './dto/update-health-plan.dto';
 import { FindOptionsWhere } from 'typeorm';
 import { HealthPlanRepository } from 'src/database/repositories/health-plan.repository';
-import { HealthPlan } from 'src/database/entities/health-plan.entity';
+import {
+  HEALTH_PLAN_NOME_UNICO,
+  HealthPlan,
+} from 'src/database/entities/health-plan.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import {
   bulkDeleteOwned,
   createOrRestoreByName,
   findOwnedOrFail,
   resolveCatalogOwnerId,
+  updateWithUniqueName,
 } from 'src/shared/catalog/owned-catalog.helpers';
+
+const conflitoDeNome = (nome: string) =>
+  `Já existe um convênio com o nome "${nome}"`;
 
 const NAO_ENCONTRADO = 'Convênio não encontrado';
 
@@ -49,7 +56,8 @@ export class HealthPlansService {
       repository: this.healthPlanRepository,
       ownerId,
       data: { ...data, active: true },
-      conflictMessage: (nome) => `Já existe um convênio com o nome "${nome}"`,
+      conflictMessage: conflitoDeNome,
+      uniqueIndex: HEALTH_PLAN_NOME_UNICO,
       logger: this.logger,
     });
     this.logger.log(
@@ -65,7 +73,13 @@ export class HealthPlansService {
   ): Promise<HealthPlan> {
     await this.findOwned(id, userId);
     this.logger.log(`Convênio atualizado: id=${id}`);
-    return (await this.healthPlanRepository.update(id, data))!;
+    return updateWithUniqueName({
+      repository: this.healthPlanRepository,
+      id,
+      data,
+      uniqueIndex: HEALTH_PLAN_NOME_UNICO,
+      conflictMessage: conflitoDeNome,
+    });
   }
 
   async delete(id: string, userId: string): Promise<void> {

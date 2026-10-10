@@ -124,7 +124,7 @@ describe('ConversationService', () => {
   it('deve gravar mensagem na tabela filha e atualizar lastMessageAt', async () => {
     mockConversationRepo.findOne.mockResolvedValue({
       id: 'conv-1',
-    } as unknown as WhatsappConversation);
+    });
     mockMessageRepo.create.mockResolvedValue({});
     mockConversationRepo.update.mockResolvedValue({});
 
@@ -149,7 +149,7 @@ describe('ConversationService', () => {
       conversationSummary: 'algum resumo',
       conversationMemory: { intent: 'consulta' },
       summaryUpdatedAt: new Date(),
-    } as unknown as WhatsappConversation);
+    });
     mockMessageRepo.deleteByConversation.mockResolvedValue(undefined);
 
     await service.resetConversationHistory('conv-1');

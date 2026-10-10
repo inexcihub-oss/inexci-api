@@ -62,7 +62,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       { confirm: true },
       {
         ...baseContext,
-        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
       },
     );
 
@@ -87,7 +87,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       {},
       {
         ...baseContext,
-        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
       },
     );
 
@@ -108,7 +108,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       { confirm: true },
       {
         ...baseContext,
-        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
       },
     );
 
@@ -152,9 +152,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       { confirm: true },
       {
         ...baseContext,
-        inboundMedia: [
-          { url: 'https://x', contentType: 'application/pdf' },
-        ] as any,
+        inboundMedia: [{ url: 'https://x', contentType: 'application/pdf' }],
       },
     );
 
@@ -177,7 +175,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
       {},
       {
         ...baseContext,
-        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }] as any,
+        inboundMedia: [{ url: 'https://x', contentType: 'image/png' }],
       },
     );
 
@@ -208,7 +206,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
         inboundMedia: [
           { url: 'https://a', contentType: 'image/png' },
           { url: 'https://b', contentType: 'image/png' },
-        ] as any,
+        ],
       },
     );
 
@@ -242,7 +240,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
         ...baseContext,
         inboundMedia: [
           { url: 'https://api.twilio.com/m/1', contentType: 'image/png' },
-        ] as any,
+        ],
       },
     );
 
@@ -286,7 +284,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
         ...baseContext,
         inboundMedia: [
           { url: 'https://api.twilio.com/m/1', contentType: 'image/png' },
-        ] as any,
+        ],
       },
     );
 
@@ -378,7 +376,7 @@ describe('DoctorProfileTools — upload_doctor_signature', () => {
         ...baseContext,
         inboundMedia: [
           { url: 'https://api.twilio.com/m/1', contentType: 'image/png' },
-        ] as any,
+        ],
       },
     );
 

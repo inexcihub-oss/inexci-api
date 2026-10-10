@@ -55,27 +55,27 @@ export class InexciLogger extends ConsoleLogger {
     return (NEST_LEVEL_RANK[level] ?? 99) <= this.minRank;
   }
 
-  log(message: any, context?: string): void {
+  log(message: unknown, context?: string): void {
     if (!this.shouldLog('log')) return;
     this.write('log', message, context);
   }
 
-  error(message: any, stack?: string, context?: string): void {
+  error(message: unknown, stack?: string, context?: string): void {
     if (!this.shouldLog('error')) return;
     this.write('error', message, context, stack);
   }
 
-  warn(message: any, context?: string): void {
+  warn(message: unknown, context?: string): void {
     if (!this.shouldLog('warn')) return;
     this.write('warn', message, context);
   }
 
-  debug(message: any, context?: string): void {
+  debug(message: unknown, context?: string): void {
     if (!this.shouldLog('debug')) return;
     this.write('debug', message, context);
   }
 
-  verbose(message: any, context?: string): void {
+  verbose(message: unknown, context?: string): void {
     if (!this.shouldLog('verbose')) return;
     this.write('verbose', message, context);
   }
@@ -106,7 +106,7 @@ export class InexciLogger extends ConsoleLogger {
     };
 
     if (structured) {
-      Object.assign(payload, rawMessage as Record<string, unknown>);
+      Object.assign(payload, rawMessage);
     } else {
       payload.message = this.normalizeMessage(rawMessage);
     }

@@ -4,14 +4,21 @@ import { CreateHospitalDto } from './dto/create-hospital.dto';
 import { UpdateHospitalDto } from './dto/update-hospital.dto';
 import { HospitalRepository } from 'src/database/repositories/hospital.repository';
 import { FindOptionsWhere } from 'typeorm';
-import { Hospital } from 'src/database/entities/hospital.entity';
+import {
+  HOSPITAL_NOME_UNICO,
+  Hospital,
+} from 'src/database/entities/hospital.entity';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import {
   bulkDeleteOwned,
   createOrRestoreByName,
   findOwnedOrFail,
   resolveCatalogOwnerId,
+  updateWithUniqueName,
 } from 'src/shared/catalog/owned-catalog.helpers';
+
+const conflitoDeNome = (nome: string) =>
+  `Já existe um hospital com o nome "${nome}"`;
 
 const NAO_ENCONTRADO = 'Hospital não encontrado';
 
@@ -46,7 +53,8 @@ export class HospitalsService {
       repository: this.hospitalRepository,
       ownerId,
       data: { ...data, active: true },
-      conflictMessage: (nome) => `Já existe um hospital com o nome "${nome}"`,
+      conflictMessage: conflitoDeNome,
+      uniqueIndex: HOSPITAL_NOME_UNICO,
       logger: this.logger,
     });
   }
@@ -57,7 +65,13 @@ export class HospitalsService {
     userId: string,
   ): Promise<Hospital> {
     await this.findOwned(id, userId);
-    return (await this.hospitalRepository.update(id, data))!;
+    return updateWithUniqueName({
+      repository: this.hospitalRepository,
+      id,
+      data,
+      uniqueIndex: HOSPITAL_NOME_UNICO,
+      conflictMessage: conflitoDeNome,
+    });
   }
 
   async delete(id: string, userId: string): Promise<void> {

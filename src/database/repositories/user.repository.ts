@@ -51,7 +51,6 @@ export class UserRepository extends BaseRepository<User> {
         emailVerifiedAt: true,
         password: selectPassword,
         ownerId: true,
-        adminId: true,
         cep: true,
         address: true,
         addressNumber: true,
@@ -89,7 +88,6 @@ export class UserRepository extends BaseRepository<User> {
         termsOfUseAcceptedAt: true,
         aiConsentAcceptedAt: true,
         ownerId: true,
-        adminId: true,
         isPlatformAdmin: true,
         permissions: true,
         cep: true,
@@ -126,7 +124,6 @@ export class UserRepository extends BaseRepository<User> {
         termsOfUseAcceptedAt: true,
         aiConsentAcceptedAt: true,
         ownerId: true,
-        adminId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -152,7 +149,6 @@ export class UserRepository extends BaseRepository<User> {
         phone: true,
         avatarUrl: true,
         ownerId: true,
-        adminId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -230,7 +226,7 @@ export class UserRepository extends BaseRepository<User> {
     const proximo = resolvePatientNotificationSettings({ ...atual, ...patch });
     await this.repository.update(ownerId, {
       patientNotificationSettings: proximo,
-    } as QueryDeepPartialEntity<User>);
+    });
     return proximo;
   }
 

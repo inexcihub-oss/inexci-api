@@ -45,6 +45,7 @@ export abstract class OwnedCatalogRepository<
         name: ILike(escapeLikePattern(trimmed)),
       } as FindOptionsWhere<T>,
       withDeleted: true,
+      order: { deletedAt: { direction: 'ASC', nulls: 'FIRST' } } as never,
     });
   }
 }

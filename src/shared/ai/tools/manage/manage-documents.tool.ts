@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from '../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { tokenizePii } from '../../pii/tool-pii-helpers';
@@ -16,6 +15,8 @@ import {
   getAuthorizedRequest,
   recordAiActivity,
 } from '../helpers/surgery-request-access';
+import { errorMessage } from '../../../utils/error-message.util';
+import { Document } from '../../../../database/entities/document.entity';
 
 export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
   const {
@@ -80,7 +81,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
           required: ['surgeryRequestId', 'operation'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       const auth = await getAuthorizedRequest(
         surgeryRequestRepo,
@@ -111,8 +112,8 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
       if (operation === 'list') {
         const docs = await documentRepo.findMany({
           surgeryRequestId: auth.request.id,
-        } as any);
-        const filtered = docs.filter((d: any) => d.key !== REPORT_IMAGE_KEY);
+        });
+        const filtered = docs.filter((d) => d.key !== REPORT_IMAGE_KEY);
         if (!filtered.length) {
           return buildToolResult({
             status: 'ok',
@@ -120,7 +121,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
             data: [],
           });
         }
-        const lines = filtered.map((d: any, index: number) => {
+        const lines = filtered.map((d, index: number) => {
           const date = d.createdAt
             ? new Date(d.createdAt).toLocaleDateString('pt-BR')
             : '';
@@ -195,12 +196,12 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
                 downloaded.contentType ||
                 'application/octet-stream',
               buffer: downloaded.buffer,
-            } as any,
+            },
             STORAGE_FOLDERS.DOCUMENTS,
             auth.request.ownerId,
           );
 
-          let created: any;
+          let created: Document;
           try {
             created = await documentsService.createFromPath({
               surgeryRequestId: auth.request.id,
@@ -230,13 +231,13 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
 
           return buildToolResult({
             status: 'ok',
-            message: `Documento ${computedName} anexado com sucesso (id: ${(created as any).id}).`,
-            affected: [{ kind: 'document', id: (created as any).id }],
+            message: `Documento ${computedName} anexado com sucesso (id: ${created.id}).`,
+            affected: [{ kind: 'document', id: created.id }],
           });
-        } catch (err: any) {
+        } catch (err) {
           return buildToolResult({
             status: 'error',
-            message: `Erro ao anexar documento: ${err?.message || 'erro desconhecido'}`,
+            message: `Erro ao anexar documento: ${errorMessage(err) || 'erro desconhecido'}`,
           });
         }
       }
@@ -253,7 +254,7 @@ export function buildManageDocumentsTool(deps: ManageToolDeps): AiTool {
       const doc = await documentRepo.findOne({
         id: documentId,
         surgeryRequestId: auth.request.id,
-      } as any);
+      });
       if (!doc) {
         return buildToolResult({
           status: 'blocked',

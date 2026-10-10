@@ -14,6 +14,7 @@ import { PdfGenerationJobData } from './pdf-generation.service';
 import { SurgeryRequestPdfAssemblyService } from 'src/modules/surgery-requests/services/surgery-request-pdf-assembly.service';
 import { requestContextStorage } from 'src/shared/logging/request-context';
 import { randomUUID } from 'crypto';
+import { errorMessage } from 'src/shared/utils/error-message.util';
 
 @Injectable()
 @Processor('pdf-generation')
@@ -90,10 +91,10 @@ export class PdfGenerationProcessor {
       this.logger.log(
         `[PDF] PDF gerado e registrado com sucesso para solicitação: ${surgeryRequestId} → ${storagePath}`,
       );
-    } catch (err: any) {
+    } catch (err) {
       this.logger.error(
-        `[PDF] Falha ao gerar PDF para solicitação ${surgeryRequestId}: ${err?.message}`,
-        err?.stack,
+        `[PDF] Falha ao gerar PDF para solicitação ${surgeryRequestId}: ${errorMessage(err)}`,
+        err instanceof Error ? err.stack : undefined,
       );
       throw err;
     }

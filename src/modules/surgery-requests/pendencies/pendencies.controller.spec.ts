@@ -13,7 +13,9 @@ describe('PendenciesController.getRequirements', () => {
   });
 
   it('expõe os cinco requisitos bloqueantes de Pendente', () => {
-    const pendente = controller.getRequirements().find((r) => r.status === 1);
+    const pendente = controller
+      .getRequirements()
+      .find((r) => r.status === SurgeryRequestStatus.PENDING);
 
     expect(pendente).toBeDefined();
     expect(pendente!.pendencies.map((p) => p.key)).toEqual([

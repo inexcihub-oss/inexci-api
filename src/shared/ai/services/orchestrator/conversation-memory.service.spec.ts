@@ -31,10 +31,7 @@ describe('ConversationMemoryService', () => {
     jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
     convRepo = makeConvRepo();
     userRepo = makeUserRepo();
-    service = new ConversationMemoryService(
-      convRepo as unknown as WhatsappConversationRepository,
-      userRepo as unknown as UserRepository,
-    );
+    service = new ConversationMemoryService(convRepo, userRepo);
   });
 
   afterEach(() => {

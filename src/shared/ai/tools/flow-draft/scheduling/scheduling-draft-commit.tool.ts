@@ -1,9 +1,11 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { FlowDraftDeps } from '../_types';
 import { recordAiActivity } from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
+import { UpdateDateOptionsDto } from '../../../../../modules/surgery-requests/dto/update-date-options.dto';
+import { ConfirmDateDto } from '../../../../../modules/surgery-requests/dto/confirm-date.dto';
 
 export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
   const { draftService, workflowService, activityRepo } = deps;
@@ -23,12 +25,12 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -55,14 +57,14 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
         if (hasOptions) {
           await workflowService.updateDateOptions(
             f.surgeryRequestId!,
-            { dateOptions: f.dateOptions } as any,
+            { dateOptions: f.dateOptions } as UpdateDateOptionsDto,
             context.userId,
           );
         }
         if (f.confirmedDateIndex !== undefined) {
           await workflowService.confirmDate(
             f.surgeryRequestId!,
-            { selectedDateIndex: f.confirmedDateIndex } as any,
+            { selectedDateIndex: f.confirmedDateIndex } as ConfirmDateDto,
             context.userId,
           );
         }
@@ -85,10 +87,10 @@ export function buildSchedulingDraftCommitTool(deps: FlowDraftDeps): AiTool {
           affected: [{ kind: 'surgery_request', id: f.surgeryRequestId! }],
           message: `Agendamento aplicado para a solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId}.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao agendar: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao agendar: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

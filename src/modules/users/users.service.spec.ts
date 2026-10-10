@@ -297,7 +297,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-do-delegado',
           ownerId: 'dono-1',
-          adminId: 'delegado-1',
           doctorProfile: null,
         });
       mockUserDoctorAccessRepository.findAllByUserId.mockResolvedValue([]);
@@ -331,7 +330,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         role: UserRole.COLLABORATOR,
         status: UserStatus.PENDING,
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
 
       await service.createCollaborator(
@@ -344,7 +342,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           role: UserRole.COLLABORATOR,
           status: UserStatus.PENDING,
           ownerId: 'dono-1',
-          adminId: 'dono-1',
         }),
       );
     });
@@ -538,7 +535,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           crm: '123',
           crmState: 'SP',
           permissions: [Permission.SOLICITACOES],
-        } as never,
+        },
         'dono-1',
       );
 
@@ -584,13 +581,16 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await expect(
         service.createCollaborator(
-          { name: 'Ana', email: 'ana@x.com', phone: '11999999999' } as never,
+          { name: 'Ana', email: 'ana@x.com', phone: '11999999999' },
           'delegado-1',
         ),
       ).resolves.toBeDefined();
 
       expect(mockUserRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ ownerId: 'dono-1', adminId: 'delegado-1' }),
+        expect.objectContaining({ ownerId: 'dono-1' }),
+      );
+      expect(mockUserRepository.create.mock.calls[0][0]).not.toHaveProperty(
+        'adminId',
       );
     });
 
@@ -605,7 +605,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await expect(
         service.createCollaborator(
-          { name: 'Ana', email: 'ana@x.com', phone: '11999999999' } as never,
+          { name: 'Ana', email: 'ana@x.com', phone: '11999999999' },
           'comum-1',
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -635,7 +635,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           email: 'invasor@x.com',
           phone: '11988887777',
           role: UserRole.ADMIN,
-        } as never,
+        },
         'delegado-1',
       );
 
@@ -643,7 +643,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         expect.objectContaining({
           role: UserRole.COLLABORATOR,
           ownerId: 'dono-1',
-          adminId: 'delegado-1',
         }),
       );
       expect(mockUserRepository.create).not.toHaveBeenCalledWith(
@@ -662,7 +661,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       await expect(
         service.create(
-          { name: 'X', email: 'x@x.com', phone: '11999999999' } as never,
+          { name: 'X', email: 'x@x.com', phone: '11999999999' },
           'comum-1',
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -927,11 +926,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.update.mockResolvedValue({ id: 'user-1' });
 
       await expect(
-        service.updateProfileById(
-          'user-1',
-          { name: 'Novo nome' } as never,
-          'user-1',
-        ),
+        service.updateProfileById('user-1', { name: 'Novo nome' }, 'user-1'),
       ).resolves.toBeDefined();
       expect(mockUserRepository.findOneWithProfile).not.toHaveBeenCalled();
     });
@@ -954,7 +949,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(
         service.updateProfileById(
           'collab-1',
-          { name: 'Novo nome' } as never,
+          { name: 'Novo nome' },
           'delegado-1',
         ),
       ).resolves.toBeDefined();
@@ -978,7 +973,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(
         service.updateProfileById(
           'user-de-outra-conta',
-          { name: 'Sequestro' } as never,
+          { name: 'Sequestro' },
           'delegado-1',
         ),
       ).rejects.toThrow('Este usuário não pertence à sua conta');
@@ -999,7 +994,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       await expect(
         service.updateProfileById(
           'dono-1',
-          { phone: '11900000000' } as never,
+          { phone: '11900000000' },
           'delegado-1',
         ),
       ).rejects.toThrow(
@@ -1020,11 +1015,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       });
 
       await expect(
-        service.updateProfileById(
-          'collab-1',
-          { name: 'X' } as never,
-          'comum-1',
-        ),
+        service.updateProfileById('collab-1', { name: 'X' }, 'comum-1'),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -1041,11 +1032,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
     it('grava null quando o gênero vem vazio', async () => {
       prepararSelfEdit();
-      await service.updateProfileById(
-        'user-1',
-        { gender: '' } as never,
-        'user-1',
-      );
+      await service.updateProfileById('user-1', { gender: '' }, 'user-1');
       expect(mockUserRepository.update).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ gender: null }),
@@ -1054,11 +1041,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
     it('grava null quando o gênero vem só com espaço (valor já preenchido pelo char)', async () => {
       prepararSelfEdit();
-      await service.updateProfileById(
-        'user-1',
-        { gender: ' ' } as never,
-        'user-1',
-      );
+      await service.updateProfileById('user-1', { gender: ' ' }, 'user-1');
       expect(mockUserRepository.update).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ gender: null }),
@@ -1067,11 +1050,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
     it('preserva um gênero de verdade', async () => {
       prepararSelfEdit();
-      await service.updateProfileById(
-        'user-1',
-        { gender: 'F' } as never,
-        'user-1',
-      );
+      await service.updateProfileById('user-1', { gender: 'F' }, 'user-1');
       expect(mockUserRepository.update).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({ gender: 'F' }),
@@ -1082,7 +1061,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       prepararSelfEdit();
       await service.updateProfileById(
         'user-1',
-        { name: 'Outro nome' } as never,
+        { name: 'Outro nome' },
         'user-1',
       );
       const [, updates] = mockUserRepository.update.mock.calls.at(-1) as [
@@ -1133,7 +1112,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'dono-1',
           ownerId: 'dono-1',
-          adminId: 'delegado-1',
         });
 
       await expect(
@@ -1153,7 +1131,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-do-delegado',
           ownerId: 'dono-1',
-          adminId: 'delegado-1',
           doctorProfile: null,
         });
       mockUserRepository.update.mockResolvedValue({ id: 'collab-do-delegado' });
@@ -1179,7 +1156,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-do-dono',
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           doctorProfile: null,
         });
       mockUserRepository.update.mockResolvedValue({ id: 'collab-do-dono' });
@@ -1203,7 +1179,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-1',
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           doctorProfile: {
             id: 'dp-1',
             crm: '123',
@@ -1235,7 +1210,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-1',
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           doctorProfile: null,
         });
       mockUserRepository.update.mockResolvedValue({ id: 'collab-1' });
@@ -1256,14 +1230,13 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-1',
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           doctorProfile: null,
         });
       mockUserRepository.update.mockResolvedValue({ id: 'collab-1' });
 
       await service.updateCollaborator(
         'collab-1',
-        { permissions: [] } as never,
+        { permissions: [] },
         'dono-1',
       );
 
@@ -1283,14 +1256,13 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'collab-1',
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           doctorProfile: null,
         });
       mockUserRepository.update.mockResolvedValue({ id: 'collab-1' });
 
       await service.updateCollaborator(
         'collab-1',
-        { permissions: [Permission.SOLICITACOES] } as never,
+        { permissions: [Permission.SOLICITACOES] },
         'dono-1',
       );
 
@@ -1311,7 +1283,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           id: 'collab-1',
           role: UserRole.COLLABORATOR,
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           permissions: [],
           doctorProfile: null,
         });
@@ -1322,7 +1293,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
       const result = await service.updateCollaborator(
         'collab-1',
-        { permissions: [Permission.SOLICITACOES] } as never,
+        { permissions: [Permission.SOLICITACOES] },
         'dono-1',
       );
 
@@ -1340,7 +1311,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           id: 'collab-1',
           role: UserRole.COLLABORATOR,
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           permissions: [Permission.AGENDA],
           doctorProfile: null,
         });
@@ -1369,7 +1339,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           id: 'collab-1',
           role: UserRole.COLLABORATOR,
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           permissions: [],
           doctorProfile: null,
         });
@@ -1405,7 +1374,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
             id: 'collab-1',
             role: UserRole.COLLABORATOR,
             ownerId: 'dono-1',
-            adminId: 'dono-1',
             phone: '+5511999999999',
             permissions: [],
             doctorProfile: null,
@@ -1417,7 +1385,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
 
         await service.updateCollaborator(
           'collab-1',
-          { permissions: [Permission.SOLICITACOES] } as never,
+          { permissions: [Permission.SOLICITACOES] },
           'dono-1',
         );
 
@@ -1438,7 +1406,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
             id: 'collab-1',
             role: UserRole.COLLABORATOR,
             ownerId: 'dono-1',
-            adminId: 'dono-1',
             phone: '+5511999999999',
             permissions: [],
             doctorProfile: null,
@@ -1471,7 +1438,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
             id: 'collab-1',
             role: UserRole.COLLABORATOR,
             ownerId: 'dono-1',
-            adminId: 'dono-1',
             phone: '+5511999999999',
             permissions: [Permission.AGENDA],
             doctorProfile: null,
@@ -1511,7 +1477,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
           email: 'ana@x.com',
           phone: '11999999999',
           permissions: [Permission.AGENDA, Permission.ATENDIMENTO],
-        } as never,
+        },
         'dono-1',
       );
 
@@ -1535,7 +1501,7 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.create.mockResolvedValue({ id: 'novo-2' });
 
       await service.createCollaborator(
-        { name: 'Bia', email: 'bia@x.com', phone: '11988888888' } as never,
+        { name: 'Bia', email: 'bia@x.com', phone: '11988888888' },
         'dono-1',
       );
 
@@ -1577,7 +1543,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         id: 'collab-1',
         email: 'collab@test.com',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
       mockUserRepository.delete.mockResolvedValue(undefined);
 
@@ -1594,7 +1559,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'collab@test.com',
         phone: '+5511999990000',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
       mockUserRepository.update.mockResolvedValue(undefined);
       mockUserRepository.delete.mockResolvedValue(undefined);
@@ -1618,7 +1582,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'collab2@test.com',
         phone: originalPhone,
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
 
       let storedPhone = originalPhone;
@@ -1644,7 +1607,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         email: 'collab3@test.com',
         phone: originalPhone,
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
       mockUserRepository.update.mockResolvedValueOnce({
         id: collaboratorId,
@@ -1707,7 +1669,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'dono-1',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
       });
 
       await expect(
@@ -1729,7 +1690,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         id: 'collab-do-dono',
         email: 'collab@test.com',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
       mockUserRepository.delete.mockResolvedValue(undefined);
 
@@ -1875,7 +1835,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'dono-1',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
         status: UserStatus.PENDING,
       });
 
@@ -1900,7 +1859,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         name: 'Pendente',
         email: 'pendente@example.com',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
         status: UserStatus.PENDING,
       });
       mockRecoveryCodeRepository.deleteMany.mockResolvedValue(undefined);
@@ -1924,7 +1882,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'dono-1',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
         status: UserStatus.ACTIVE,
       });
 
@@ -1946,7 +1903,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'dono-1',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
       });
 
       await expect(
@@ -1965,7 +1921,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'collab-do-delegado',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
         status: UserStatus.ACTIVE,
       });
       mockUserRepository.update.mockResolvedValue(undefined);
@@ -1984,7 +1939,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'collab-do-delegado',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
       });
       mockUserRepository.update.mockResolvedValue(undefined);
 
@@ -2011,7 +1965,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'collab-1',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
         phone: '+5511999998888',
         status: UserStatus.ACTIVE,
       });
@@ -2038,7 +1991,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'collab-1',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
         phone: '+5511999998888',
         status: UserStatus.INACTIVE,
       });
@@ -2208,7 +2160,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'user-2',
           doctorProfile: null,
-          adminId: 'admin-1',
         });
 
       await expect(
@@ -2225,7 +2176,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'doctor-1',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
-          adminId: 'real-admin',
         });
 
       await expect(
@@ -2247,7 +2197,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           id: 'doctor-1',
           ownerId: 'real-admin',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
-          adminId: 'real-admin',
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
@@ -2289,7 +2238,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
           id: 'doctor-1',
           ownerId: 'real-admin',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
-          adminId: 'real-admin',
         })
         .mockResolvedValueOnce({
           id: 'doctor-1',
@@ -2323,7 +2271,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'doctor-1',
           doctorProfile: { id: 'dp-1', council: 'CRM' },
-          adminId: 'real-admin',
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([
         { doctorUserId: 'doctor-1' },
@@ -2350,7 +2297,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'doctor-1',
           ownerId: 'dono-1',
-          adminId: 'dono-1',
           doctorProfile: { id: 'dp-1', crm: '111', crmState: 'RJ' },
         })
         .mockResolvedValueOnce({
@@ -2383,7 +2329,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
         .mockResolvedValueOnce({
           id: 'doctor-de-outro-tenant',
           ownerId: 'outro-dono',
-          adminId: 'outro-dono',
           doctorProfile: { id: 'dp-2', crm: '222', crmState: 'SP' },
         });
       mockUserDoctorAccessRepository.findActiveByUserId.mockResolvedValue([]);
@@ -2682,7 +2627,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'doctor-1',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
       });
       mockDoctorProfileRepository.findByUserId.mockResolvedValue({
         id: 'profile-1',
@@ -2708,7 +2652,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'doctor-1',
         ownerId: 'dono-1',
-        adminId: 'delegado-1',
       });
       mockDoctorProfileRepository.findByUserId.mockResolvedValue({
         id: 'profile-1',
@@ -2736,7 +2679,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       mockUserRepository.findOne.mockResolvedValueOnce({
         id: 'doctor-1',
         ownerId: 'dono-1',
-        adminId: 'outro-admin',
       });
 
       await expect(
@@ -2961,7 +2903,6 @@ describe('UsersService — Colaboradores e Permissões', () => {
       const colaboradorCrm = {
         id: 'collab-1',
         ownerId: 'dono-1',
-        adminId: 'dono-1',
         phone: '11999990000',
         permissions: [],
         doctorProfile: {

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { WhatsappConversation } from '../entities/whatsapp-conversation.entity';
 import { BaseRepository } from './base.repository';
 
@@ -17,7 +17,10 @@ export class WhatsappConversationRepository extends BaseRepository<WhatsappConve
     phone: string,
     ownerId?: string,
   ): Promise<WhatsappConversation | null> {
-    const where: any = { phone, active: true };
+    const where: FindOptionsWhere<WhatsappConversation> = {
+      phone,
+      active: true,
+    };
     if (ownerId) where.ownerId = ownerId;
     return this.repository.findOne({
       where,

@@ -1,14 +1,20 @@
-import OpenAI from 'openai';
 import { AiTool, ToolContext } from './tool.interface';
 import { detokenizeArg, tokenizePii } from '../pii/tool-pii-helpers';
 import { EntityResolverService } from '../services/entity-resolver.service';
 import { PatientsService } from '../../../modules/patients/patients.service';
 import { ALL_PERMISSIONS } from 'src/shared/permissions';
+import { Patient } from '../../../database/entities/patient.entity';
+import { asScalarArg } from './helpers/arg-parsers';
 
-export function buildGeneralTools(
-  patientsService: PatientsService,
-  resolver?: EntityResolverService,
-): AiTool[] {
+export interface GeneralToolDeps {
+  patientsService: PatientsService;
+  entityResolver?: EntityResolverService;
+}
+
+export function buildGeneralTools({
+  patientsService,
+  entityResolver: resolver,
+}: GeneralToolDeps): AiTool[] {
   const entityResolver = resolver ?? new EntityResolverService();
 
   const queryPatients: AiTool = {
@@ -42,13 +48,13 @@ export function buildGeneralTools(
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) return 'Acesso negado.';
 
       const TOOL = 'query_patients';
       const rawInput = String(
-        detokenizeArg(context, (args as any).patient_name_or_id) ?? '',
+        detokenizeArg(context, asScalarArg(args.patient_name_or_id)) ?? '',
       ).trim();
 
       const limit = Math.min(
@@ -68,11 +74,11 @@ export function buildGeneralTools(
         matchModeRaw === 'exact' ||
         matchModeRaw === 'contains' ||
         matchModeRaw === 'fuzzy'
-          ? (matchModeRaw as 'fuzzy' | 'contains' | 'prefix' | 'exact')
+          ? matchModeRaw
           : 'fuzzy';
 
       if (rawInput.match(/^[0-9a-f-]{36}$/i)) {
-        let patient: any;
+        let patient: Patient;
         try {
           patient = await patientsService.findOne(rawInput, context.userId);
         } catch {
@@ -121,13 +127,13 @@ export function buildGeneralTools(
         return 'Nenhum paciente cadastrado nesta clínica ainda.';
       }
 
-      let filtered: any[];
+      let filtered: Patient[];
       if (rawInput && matchMode === 'fuzzy') {
-        const resolverResult = entityResolver.resolve<any>({
+        const resolverResult = entityResolver.resolve({
           query: rawInput,
           candidates: patients,
-          getName: (p: any) => String(p.name ?? ''),
-          getId: (p: any) => String(p.id),
+          getName: (p) => String(p.name ?? ''),
+          getId: (p) => String(p.id),
           candidateThreshold: 0.5,
           maxCandidates: limit,
         });
@@ -168,7 +174,7 @@ export function buildGeneralTools(
       }
 
       const slice = filtered.slice(0, limit);
-      const lines = slice.map((p: any) => {
+      const lines = slice.map((p) => {
         const phoneToken = p.phone
           ? tokenizePii(context, TOOL, 'phone', p.phone)
           : 'sem telefone';

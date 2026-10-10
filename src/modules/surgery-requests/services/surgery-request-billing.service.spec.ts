@@ -53,7 +53,7 @@ describe('SurgeryRequestBillingService', () => {
         invoiceProtocol: 'F-1',
         invoiceSentAt: '2026-01-10',
         invoiceValue: 100,
-      } as never,
+      },
       'user-1',
     );
 
@@ -102,7 +102,7 @@ describe('SurgeryRequestBillingService', () => {
 
     const result = await service.confirmReceipt(
       'sc-1',
-      { receivedValue: 90, receivedAt: '2026-02-01' } as never,
+      { receivedValue: 90, receivedAt: '2026-02-01' },
       'user-1',
     );
 
@@ -124,7 +124,7 @@ describe('SurgeryRequestBillingService', () => {
     await expect(
       service.contestPayment(
         'sc-1',
-        { to: 'x@y.com', subject: 's', message: 'm' } as never,
+        { to: 'x@y.com', subject: 's', message: 'm' },
         'user-1',
       ),
     ).rejects.toThrow(BadRequestException);

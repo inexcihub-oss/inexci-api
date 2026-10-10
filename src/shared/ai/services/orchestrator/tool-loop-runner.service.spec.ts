@@ -23,29 +23,27 @@ const buildToolCall = (
 const buildAssistantMessage = (
   toolCalls?: OpenAI.ChatCompletionMessageToolCall[],
   content: string | null = null,
-): OpenAI.ChatCompletionMessage =>
-  ({
-    role: 'assistant',
-    content,
-    refusal: null,
-    ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
-  }) as OpenAI.ChatCompletionMessage;
+): OpenAI.ChatCompletionMessage => ({
+  role: 'assistant',
+  content,
+  refusal: null,
+  ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
+});
 
 const buildCompletion = (
   message: OpenAI.ChatCompletionMessage,
-): OpenAI.ChatCompletion =>
-  ({
-    id: 'cmpl-1',
-    object: 'chat.completion',
-    created: 0,
-    model: 'gpt-4o',
-    choices: [{ index: 0, message, finish_reason: 'stop', logprobs: null }],
-    usage: {
-      prompt_tokens: 100,
-      completion_tokens: 50,
-      total_tokens: 150,
-    },
-  }) as OpenAI.ChatCompletion;
+): OpenAI.ChatCompletion => ({
+  id: 'cmpl-1',
+  object: 'chat.completion',
+  created: 0,
+  model: 'gpt-4o',
+  choices: [{ index: 0, message, finish_reason: 'stop', logprobs: null }],
+  usage: {
+    prompt_tokens: 100,
+    completion_tokens: 50,
+    total_tokens: 150,
+  },
+});
 
 const buildHooks = (overrides: Partial<ToolLoopHooks> = {}): ToolLoopHooks => ({
   memorizeEntitiesFromToolCall: jest.fn().mockResolvedValue(undefined),

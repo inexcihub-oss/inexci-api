@@ -14,11 +14,11 @@ describe('send_notification', () => {
   const surgeryRequestRepo = { findOneSimple: jest.fn() };
   const notificationService = { notify: jest.fn() };
   const activityRepo = { create: jest.fn() };
-  const [tool] = buildNotificationTools(
-    surgeryRequestRepo as any,
-    notificationService as any,
-    activityRepo as any,
-  );
+  const [tool] = buildNotificationTools({
+    surgeryRequestRepo: surgeryRequestRepo as any,
+    notificationService: notificationService as any,
+    activityRepo: activityRepo as any,
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();

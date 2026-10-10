@@ -2,8 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { AccessControlService } from 'src/shared/services/access-control.service';
 import { Patient } from 'src/database/entities/patient.entity';
-import { Hospital } from 'src/database/entities/hospital.entity';
-import { HealthPlan } from 'src/database/entities/health-plan.entity';
+import {
+  HOSPITAL_NOME_UNICO,
+  Hospital,
+} from 'src/database/entities/hospital.entity';
+import {
+  HEALTH_PLAN_NOME_UNICO,
+  HealthPlan,
+} from 'src/database/entities/health-plan.entity';
+import { violouIndice } from 'src/database/repositories/unique-violation.util';
 import { Procedure } from 'src/database/entities/procedure.entity';
 import { DocumentClassificationExtracted } from 'src/shared/ai/ocr/document-classifier.types';
 
@@ -231,6 +238,7 @@ export class DocumentEntityResolverService {
       ownerId,
       { active: true },
       manager,
+      HOSPITAL_NOME_UNICO,
     );
   }
 
@@ -245,6 +253,7 @@ export class DocumentEntityResolverService {
       ownerId,
       { active: true },
       manager,
+      HEALTH_PLAN_NOME_UNICO,
     );
   }
 
@@ -270,6 +279,7 @@ export class DocumentEntityResolverService {
     ownerId: string,
     defaults: Partial<T>,
     manager: EntityManager = this.dataSource.manager,
+    uniqueIndex?: string,
   ): Promise<string | undefined> {
     if (!name) return undefined;
 
@@ -282,10 +292,35 @@ export class DocumentEntityResolverService {
       .getOne();
     if (existing?.id) return existing.id;
 
-    const saved = await repo.save(
-      repo.create({ ...defaults, name, ownerId } as T),
-    );
-    return saved.id;
+    if (!uniqueIndex) {
+      const saved = await repo.save(
+        repo.create({ ...defaults, name, ownerId } as T),
+      );
+      return saved.id;
+    }
+
+    try {
+      const saved = await manager.transaction((tx) => {
+        const txRepo = tx.getRepository(entity);
+        return txRepo.save(txRepo.create({ ...defaults, name, ownerId } as T));
+      });
+      return saved.id;
+    } catch (erro) {
+      if (!violouIndice(erro, uniqueIndex)) throw erro;
+
+      const vencedor = await repo
+        .createQueryBuilder('e')
+        .where('e.owner_id = :ownerId', { ownerId })
+        .andWhere('lower(e.name) = lower(:name)', { name })
+        .select(['e.id'])
+        .getOne();
+      if (!vencedor?.id) throw erro;
+
+      this.logger.warn(
+        `[resolveOrCreateByName] ${entity.name} criado em paralelo com o mesmo nome; reaproveitando id=${vencedor.id}`,
+      );
+      return vencedor.id;
+    }
   }
 
   private normalizeProcedureName(raw: string | undefined): string | undefined {

@@ -50,7 +50,7 @@ describe('PdfService — documentos do atendimento', () => {
     };
 
     it('imprime cada medicamento com quantidade e posologia', async () => {
-      await service.generatePrescriptionPdf(baseData as any);
+      await service.generatePrescriptionPdf(baseData);
       const html = renderedHtml();
 
       expect(html).toContain('Dipirona 500mg');
@@ -60,7 +60,7 @@ describe('PdfService — documentos do atendimento', () => {
     });
 
     it('identifica o paciente e o médico responsável', async () => {
-      await service.generatePrescriptionPdf(baseData as any);
+      await service.generatePrescriptionPdf(baseData);
       const html = renderedHtml();
 
       expect(html).toContain('Alessandro Filho');
@@ -73,7 +73,7 @@ describe('PdfService — documentos do atendimento', () => {
       await service.generatePrescriptionPdf({
         ...baseData,
         notes: '<script>alert(1)</script>',
-      } as any);
+      });
 
       expect(renderedHtml()).not.toContain('<script>alert(1)</script>');
     });
@@ -90,7 +90,7 @@ describe('PdfService — documentos do atendimento', () => {
     };
 
     it('declara o período de afastamento', async () => {
-      await service.generateMedicalCertificatePdf(baseData as any);
+      await service.generateMedicalCertificatePdf(baseData);
       const html = renderedHtml();
 
       expect(html).toContain('Alessandro Filho');
@@ -99,14 +99,14 @@ describe('PdfService — documentos do atendimento', () => {
     });
 
     it('inclui o CID somente quando informado', async () => {
-      await service.generateMedicalCertificatePdf(baseData as any);
+      await service.generateMedicalCertificatePdf(baseData);
       expect(renderedHtml()).not.toContain('CID');
 
       htmlToPdf.mockClear();
       await service.generateMedicalCertificatePdf({
         ...baseData,
         cid: { code: 'M54.5', description: 'Dor lombar baixa' },
-      } as any);
+      });
 
       const html = renderedHtml();
       expect(html).toContain('M54.5');
@@ -117,7 +117,7 @@ describe('PdfService — documentos do atendimento', () => {
       await service.generateMedicalCertificatePdf({
         ...baseData,
         cid: { code: 'A00.0', description: 'Cólera' },
-      } as any);
+      });
 
       expect(renderedHtml()).toContain(
         "<p class='body-text'>CID-10: A00.0 — Cólera</p>",
@@ -129,7 +129,7 @@ describe('PdfService — documentos do atendimento', () => {
         ...baseData,
         text: 'Atesto que Alessandro Filho foi atendido nesta data.',
         observations: 'Retornar em 7 dias',
-      } as any);
+      });
       const html = renderedHtml();
 
       expect(html).toContain(
@@ -145,7 +145,7 @@ describe('PdfService — documentos do atendimento', () => {
         ...baseData,
         text: 'Atesto que Alessandro Filho foi atendido nesta data.',
         restPeriodNote: 'Afastamento de 3 dias, a partir de 30/07/2026.',
-      } as any);
+      });
 
       expect(renderedHtml()).toContain(
         "<p class='body-text'>Afastamento de 3 dias, a partir de 30/07/2026.</p>",
@@ -153,7 +153,7 @@ describe('PdfService — documentos do atendimento', () => {
     });
 
     it('título padrão é ATESTADO MÉDICO; CRO imprime ATESTADO ODONTOLÓGICO', async () => {
-      await service.generateMedicalCertificatePdf(baseData as any);
+      await service.generateMedicalCertificatePdf(baseData);
       expect(renderedHtml()).toContain('ATESTADO MÉDICO');
 
       htmlToPdf.mockClear();
@@ -161,7 +161,7 @@ describe('PdfService — documentos do atendimento', () => {
         ...baseData,
         doctorCrm: 'CRO 4321/RJ',
         certificateTitle: 'ATESTADO ODONTOLÓGICO',
-      } as any);
+      });
       const html = renderedHtml();
       expect(html).toContain('ATESTADO ODONTOLÓGICO');
       expect(html).not.toContain('ATESTADO MÉDICO');
@@ -169,7 +169,7 @@ describe('PdfService — documentos do atendimento', () => {
     });
 
     it('sem texto do modelo, mantém a declaração padrão', async () => {
-      await service.generateMedicalCertificatePdf(baseData as any);
+      await service.generateMedicalCertificatePdf(baseData);
 
       expect(renderedHtml()).toContain(
         'esteve sob meus cuidados profissionais',
@@ -199,7 +199,7 @@ describe('PdfService — documentos do atendimento', () => {
     };
 
     it('lista os exames solicitados com código TUSS e observação', async () => {
-      await service.generateExamReferralPdf(baseData as any);
+      await service.generateExamReferralPdf(baseData);
       const html = renderedHtml();
 
       expect(html).toContain('Ressonância magnética de joelho direito');
@@ -209,7 +209,7 @@ describe('PdfService — documentos do atendimento', () => {
     });
 
     it('imprime a indicação clínica, o CID e o convênio', async () => {
-      await service.generateExamReferralPdf(baseData as any);
+      await service.generateExamReferralPdf(baseData);
       const html = renderedHtml();
 
       expect(html).toContain('Dor e edema em joelho direito há 3 meses.');

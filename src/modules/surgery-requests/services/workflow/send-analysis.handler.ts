@@ -112,7 +112,9 @@ export class SendAnalysisHandler {
           });
         assertTransitionApplied(applied);
 
-        await this.quotaService.consumeSurgeryRequest(request.ownerId);
+        await this.quotaService.consumeSurgeryRequest(request.ownerId, {
+          manager,
+        });
       },
       { logger: this.logger, operationName: 'sendRequest' },
     );

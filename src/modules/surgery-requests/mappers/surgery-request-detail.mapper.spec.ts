@@ -233,7 +233,7 @@ describe('mapSurgeryRequestDetail', () => {
 
   it('tolera relações ausentes ou arrays vazios', () => {
     const result = mapSurgeryRequestDetail(
-      { id: 'sc-2', status: 1 } as any,
+      { id: 'sc-2', status: 1 },
       null,
       null,
     );
@@ -252,7 +252,7 @@ describe('mapSurgeryRequestDetail', () => {
 
   it('inclui CID unificado quando resolvido no catálogo', () => {
     const result = mapSurgeryRequestDetail(
-      { id: 'sc-3', status: 1, cidCode: 'A000' } as any,
+      { id: 'sc-3', status: 1, cidCode: 'A000' },
       null,
       null,
       {
@@ -287,7 +287,7 @@ describe('mapSurgeryRequestDetail', () => {
           zipCode: '01310100',
           medicalNotes: 'notas sensíveis',
         },
-      } as any,
+      },
       null,
       null,
     );
@@ -315,7 +315,7 @@ describe('mapReceipt', () => {
   };
 
   it('expõe isContested em camelCase (sem is_contested)', () => {
-    const receipt = mapReceipt(base as never);
+    const receipt = mapReceipt(base);
     expect(receipt).toMatchObject({ receivedValue: 500, isContested: false });
     expect(receipt).not.toHaveProperty('is_contested');
   });
@@ -325,7 +325,7 @@ describe('mapReceipt', () => {
       ...base,
       contestedReceivedValue: 0,
       contestedReceivedAt: new Date('2026-02-02'),
-    } as never);
+    });
     expect(receipt).toMatchObject({
       isContested: true,
       contestedReceivedValue: 0,
@@ -333,7 +333,7 @@ describe('mapReceipt', () => {
   });
 
   it('sem recebimento devolve null', () => {
-    expect(mapReceipt({ ...base, receivedValue: null } as never)).toBeNull();
+    expect(mapReceipt({ ...base, receivedValue: null })).toBeNull();
     expect(mapReceipt(null)).toBeNull();
   });
 });

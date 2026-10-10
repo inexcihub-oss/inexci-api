@@ -120,7 +120,7 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
     });
 
     const httpCalls = logSpy.mock.calls.filter(
-      (call) => (call[0] as any)?.event === 'http_request',
+      (call) => call[0]?.event === 'http_request',
     );
     expect(httpCalls.length).toBe(1);
     const payload = httpCalls[0][0] as Record<string, unknown>;
@@ -156,7 +156,7 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
     });
 
     const slowCalls = warnSpy.mock.calls.filter(
-      (call) => (call[0] as any)?.event === 'slow_request',
+      (call) => call[0]?.event === 'slow_request',
     );
     expect(slowCalls.length).toBe(1);
     const payload = slowCalls[0][0] as Record<string, unknown>;
@@ -178,7 +178,7 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
     });
 
     const slowCalls = warnSpy.mock.calls.filter(
-      (call) => (call[0] as any)?.event === 'slow_request',
+      (call) => call[0]?.event === 'slow_request',
     );
     expect(slowCalls.length).toBe(0);
   });
@@ -205,7 +205,7 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
     });
 
     const httpErrorCalls = errorSpy.mock.calls.filter(
-      (call) => (call[0] as any)?.event === 'http_request',
+      (call) => call[0]?.event === 'http_request',
     );
     expect(httpErrorCalls.length).toBe(1);
     const payload = httpErrorCalls[0][0] as Record<string, unknown>;
@@ -235,7 +235,7 @@ describe('LoggingInterceptor — propagação de userId/userEmail', () => {
     });
 
     const httpErrorCalls = errorSpy.mock.calls.filter(
-      (call) => (call[0] as any)?.event === 'http_request',
+      (call) => call[0]?.event === 'http_request',
     );
     expect(httpErrorCalls.length).toBe(1);
     const payload = httpErrorCalls[0][0] as Record<string, unknown>;

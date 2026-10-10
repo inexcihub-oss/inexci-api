@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
@@ -11,6 +10,7 @@ import {
 } from '../_helpers';
 import { STORAGE_FOLDERS } from '../../../../../config/storage.config';
 import { recordAiActivity } from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
 
 export function buildSendScDraftCommitTool(
   deps: FlowDraftTransitionDeps,
@@ -38,12 +38,12 @@ export function buildSendScDraftCommitTool(
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -80,7 +80,7 @@ export function buildSendScDraftCommitTool(
             subject: f.subject,
             message: f.message,
             notifyPatient: f.notifyPatient,
-          } as any,
+          },
           context.userId,
         );
         await recordAiActivity(
@@ -126,11 +126,11 @@ export function buildSendScDraftCommitTool(
               message: `Solicitação ${label} marcada como enviada. Link de download gerado.`,
               displayText: `Solicitação ${label} pronta para download. Link válido por 1 hora: ${url}`,
             });
-          } catch (uploadErr: any) {
+          } catch (uploadErr) {
             return buildToolResult({
               status: 'ok',
               affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
-              message: `Solicitação ${label} enviada. Falha ao subir o PDF para link temporário: ${uploadErr?.message || 'erro desconhecido'}.`,
+              message: `Solicitação ${label} enviada. Falha ao subir o PDF para link temporário: ${errorMessage(uploadErr) || 'erro desconhecido'}.`,
               displayText: `Solicitação ${label} foi enviada para análise, mas não consegui gerar o link de download agora. Você pode baixar o PDF direto pela plataforma na página da solicitação.`,
             });
           }
@@ -141,7 +141,7 @@ export function buildSendScDraftCommitTool(
           affected: [{ kind: 'surgery_request', id: surgeryRequestId }],
           message: `Solicitação ${label} enviada para análise com sucesso.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
           message: extractTransitionErrorMessage(err, 'Erro ao enviar'),

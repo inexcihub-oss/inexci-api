@@ -1,10 +1,12 @@
-import OpenAI from 'openai';
 import { AiTool } from '../../tool.interface';
 import { Permission } from 'src/shared/permissions';
 import { buildToolResult } from '../../tool-result';
 import { translateServiceError } from '../../helpers/service-error-translator';
 import { FlowDraftDeps } from '../_types';
 import { recordAiActivity } from '../../helpers/surgery-request-access';
+import { errorMessage } from '../../../../utils/error-message.util';
+import { UpdatePatientDto } from '../../../../../modules/patients/dto/update-patient.dto';
+import { UpdateSurgeryRequestDto } from '../../../../../modules/surgery-requests/dto/update-surgery-request.dto';
 
 const CLINICAL_SECTION_TITLES: Record<string, string> = {
   diagnosis: 'Diagnóstico e Indicação',
@@ -37,12 +39,12 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
           required: ['confirm'],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
     async execute(args, context) {
       if (!context.userId) {
         return buildToolResult({ status: 'error', message: 'Acesso negado.' });
       }
-      if (!(args as any).confirm) {
+      if (!args.confirm) {
         return buildToolResult({
           status: 'pending_confirmation',
           message:
@@ -74,7 +76,7 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
         if (f.scope === 'patient') {
           const request = await surgeryRequestRepo.findOneSimple({
             id: f.surgeryRequestId,
-          } as any);
+          });
           if (!request?.patientId) {
             return buildToolResult({
               status: 'error',
@@ -83,14 +85,14 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
           }
           await patientsService.update(
             request.patientId,
-            f.changes as any,
+            f.changes as UpdatePatientDto,
             context.userId,
           );
         } else {
-          const changes = (f.changes ?? {}) as Record<string, any>;
+          const changes: Record<string, unknown> = f.changes ?? {};
 
-          const dto: Record<string, any> = { id: f.surgeryRequestId! };
-          const extraChanges: Record<string, any> = {};
+          const dto: Record<string, unknown> = { id: f.surgeryRequestId! };
+          const extraChanges: Record<string, unknown> = {};
           const clinicalSectionUpdates: Array<{
             title: string;
             value: string;
@@ -129,8 +131,11 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
           if (Object.keys(dto).length > 1 || Object.keys(extraChanges).length) {
             try {
               await surgeryRequestsService.update(
-                { ...dto, ...extraChanges } as any,
-                context.userId!,
+                {
+                  ...dto,
+                  ...extraChanges,
+                } as unknown as UpdateSurgeryRequestDto,
+                context.userId,
               );
             } catch (err) {
               return buildToolResult({
@@ -163,10 +168,10 @@ export function buildUpdateScDraftCommitTool(deps: FlowDraftDeps): AiTool {
           affected: [{ kind: 'surgery_request', id: f.surgeryRequestId! }],
           message: `Atualização aplicada com sucesso na solicitação ${f.surgeryRequestLabel ?? f.surgeryRequestId}.`,
         });
-      } catch (err: any) {
+      } catch (err) {
         return buildToolResult({
           status: 'error',
-          message: `Erro ao atualizar: ${err?.message || 'erro desconhecido'}`,
+          message: `Erro ao atualizar: ${errorMessage(err) || 'erro desconhecido'}`,
         });
       }
     },

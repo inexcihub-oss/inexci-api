@@ -243,6 +243,17 @@ describe('DocumentEntityResolverService', () => {
       };
     };
 
+    const buildManager = (repo: unknown) => {
+      const manager: any = { getRepository: jest.fn(() => repo) };
+      manager.transaction = jest.fn(
+        async (fn: (tx: unknown) => Promise<unknown>) => fn(manager),
+      );
+      return manager;
+    };
+
+    const violacao = (constraint: string) =>
+      Object.assign(new Error('duplicate key'), { code: '23505', constraint });
+
     it('reaproveita o cadastro de mesmo nome (sem acento/caixa) da clínica', async () => {
       const repo = buildRepo({ id: 'h-1' });
       const manager = { getRepository: jest.fn(() => repo) };
@@ -267,7 +278,7 @@ describe('DocumentEntityResolverService', () => {
 
     it('cria ativo e na clínica quando não existe', async () => {
       const repo = buildRepo(null);
-      dataSource.manager = { getRepository: jest.fn(() => repo) };
+      dataSource.manager = buildManager(repo);
 
       await expect(
         service.resolveOrCreateHealthPlanId('SULAMERICA', 'owner-1'),
@@ -277,6 +288,70 @@ describe('DocumentEntityResolverService', () => {
         name: 'SULAMERICA',
         ownerId: 'owner-1',
       });
+      expect(dataSource.manager.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('corrida no hospital: devolve o registro criado pela outra requisição', async () => {
+      const repo = buildRepo(null);
+      repo.qb.getOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'h-vencedor' });
+      repo.save.mockRejectedValueOnce(
+        violacao('uq_hospitals_owner_name_active'),
+      );
+      const manager = buildManager(repo);
+      jest
+        .spyOn((service as any).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.resolveOrCreateHospitalId('Santa Casa', 'owner-1', manager),
+      ).resolves.toBe('h-vencedor');
+      expect(manager.transaction).toHaveBeenCalledTimes(1);
+      expect(repo.qb.andWhere).toHaveBeenLastCalledWith(
+        'lower(e.name) = lower(:name)',
+        { name: 'Santa Casa' },
+      );
+    });
+
+    it('corrida no convênio: devolve o registro criado pela outra requisição', async () => {
+      const repo = buildRepo(null);
+      repo.qb.getOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'hp-vencedor' });
+      repo.save.mockRejectedValueOnce(
+        violacao('uq_health_plans_owner_name_active'),
+      );
+      dataSource.manager = buildManager(repo);
+      jest
+        .spyOn((service as any).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.resolveOrCreateHealthPlanId('Unimed', 'owner-1'),
+      ).resolves.toBe('hp-vencedor');
+    });
+
+    it('violação de outro índice continua subindo', async () => {
+      const repo = buildRepo(null);
+      const erro = violacao('outro_indice');
+      repo.save.mockRejectedValueOnce(erro);
+      dataSource.manager = buildManager(repo);
+
+      await expect(
+        service.resolveOrCreateHospitalId('Santa Casa', 'owner-1'),
+      ).rejects.toBe(erro);
+    });
+
+    it('relança a violação se o vencedor não for encontrado', async () => {
+      const repo = buildRepo(null);
+      const erro = violacao('uq_hospitals_owner_name_active');
+      repo.save.mockRejectedValueOnce(erro);
+      dataSource.manager = buildManager(repo);
+
+      await expect(
+        service.resolveOrCreateHospitalId('Santa Casa', 'owner-1'),
+      ).rejects.toBe(erro);
     });
 
     it('nome vazio não cria nada', async () => {

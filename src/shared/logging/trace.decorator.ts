@@ -10,12 +10,14 @@ export interface LogTraceOptions {
   exclude?: string[];
 }
 
-export function LogTrace(options: LogTraceOptions = {}): any {
-  return function (
-    target: any,
+export function LogTrace(
+  options: LogTraceOptions = {},
+): ClassDecorator & MethodDecorator {
+  const decorator = (
+    target: object,
     propertyKey?: string | symbol,
     descriptor?: PropertyDescriptor,
-  ): any {
+  ): void => {
     if (descriptor && propertyKey !== undefined) {
       const className =
         options.label ?? target?.constructor?.name ?? 'Anonymous';
@@ -24,7 +26,7 @@ export function LogTrace(options: LogTraceOptions = {}): any {
         `${className}.${String(propertyKey)}`,
         options,
       );
-      return descriptor;
+      return;
     }
 
     const ctor = target as new (...args: unknown[]) => unknown;
@@ -41,15 +43,16 @@ export function LogTrace(options: LogTraceOptions = {}): any {
       wrapDescriptor(desc, `${className}.${key}`, options);
       Object.defineProperty(proto, key, desc);
     }
-    return target;
   };
+  return decorator;
 }
 
 export function traceInstanceMethods(
   instance: object,
   options: LogTraceOptions = {},
 ): void {
-  if ((instance as any)[TRACED]) return;
+  const alvo = instance as Record<PropertyKey, unknown>;
+  if (alvo[TRACED]) return;
   Object.defineProperty(instance, TRACED, {
     value: true,
     enumerable: false,
@@ -63,7 +66,7 @@ export function traceInstanceMethods(
   for (const name of methods) {
     if (exclude.has(name)) continue;
     if (name.startsWith('_')) continue;
-    const original = (instance as any)[name];
+    const original = alvo[name];
     if (typeof original !== 'function') continue;
 
     const wrapped = createTracer(
@@ -103,7 +106,7 @@ function wrapDescriptor(
 ): void {
   const original = descriptor.value;
   if (typeof original !== 'function') return;
-  if ((original as any)[TRACED]) return;
+  if (original[TRACED]) return;
 
   const wrapped = function (this: unknown, ...args: unknown[]) {
     return runTraced(original.bind(this), label, args, options);

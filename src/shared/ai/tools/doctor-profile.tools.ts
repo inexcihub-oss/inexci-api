@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -14,6 +13,7 @@ import { translateServiceError } from './helpers/service-error-translator';
 import { downloadTwilioInboundMedia } from './helpers/twilio-media-download';
 import { buildToolResult } from './tool-result';
 import { Permission } from 'src/shared/permissions';
+import { errorMessage } from '../../utils/error-message.util';
 
 const logger = new Logger('DoctorProfileTools');
 
@@ -89,7 +89,7 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
           required: [],
         },
       },
-    } as OpenAI.ChatCompletionTool,
+    },
 
     async execute(args, context: ToolContext): Promise<string> {
       if (!context.userId) {
@@ -255,7 +255,7 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
               buffer: downloaded.buffer,
             },
             STORAGE_FOLDERS.SIGNATURES,
-            context.userId as string,
+            context.userId,
           );
         } else {
           newPath = await storageService.move(
@@ -312,8 +312,8 @@ export function buildDoctorProfileTools(deps: DoctorProfileToolDeps): AiTool[] {
           displayText: successText,
           data: { signatureUrl: newPath },
         });
-      } catch (err: any) {
-        const reason = err?.message || 'erro desconhecido';
+      } catch (err) {
+        const reason = errorMessage(err) || 'erro desconhecido';
         return buildToolResult({
           status: 'error',
           message: 'Erro ao registrar a assinatura.',
